@@ -1,0 +1,11 @@
+# 디스코드 API 통신 및 UI 뷰어(View) 구성
+discord.py~=2.7.1
+
+# 디스코드 음성 채널(VoiceClient) 오디오 송출을 위한 필수 종속성
+PyNaCl~=1.5.0
+
+# 환경 변수(.env) 로드
+python-dotenv~=1.2.2
+
+# Gemini API 통신 (신규 공식 SDK)
+google-genai>=0.1.0
