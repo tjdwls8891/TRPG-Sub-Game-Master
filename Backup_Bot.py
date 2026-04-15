@@ -26,30 +26,26 @@ from google.genai.errors import APIError
 [캐릭터 및 NPC 설정]
 !참가 [이름] : 플레이어가 캐릭터 이름으로 세션에 참가합니다.
 !설정 [이름] [항목] [내용] : 캐릭터의 스탯이나 프로필을 설정합니다.
-!외형 [이름] [내용] : 캐릭터의 외형 묘사를 설정합니다.
-!외형확인 [이름] : 설정된 캐릭터의 외형을 확인합니다.
+!외형 [이름] (내용) : 캐릭터의 외형 묘사를 설정하거나, 생략 시 현재 외형을 확인합니다.
 !프로필 [이름] : 캐릭터의 전체 프로필을 확인합니다.
-!npc설정 [이름] [내용] : NPC 정보를 추가하거나 수정합니다.
-!npc확인 [이름] : NPC 정보를 확인합니다.
-!npc삭제 [이름] : NPC 정보를 삭제합니다.
-!npc목록 : 등록된 모든 NPC 목록을 확인합니다.
+!엔피씨 [설정/확인/삭제/목록] (이름) (내용) : NPC 정보를 통합 관리합니다.
 !설정생성 [pc/npc] [이름] [지시사항] : AI를 통해 캐릭터 설정 초안을 자동 생성합니다.
 
 [게임 진행 및 판정]
-!진행 [지시사항] : GM의 지시사항을 바탕으로 AI가 다음 턴을 묘사합니다. (상/중/하 이미지 태그 사용 가능)
-!주사위 [이름] [눈] [가중치] : 일반 주사위를 굴립니다.
-!주사위 [이름] [스탯명] [눈] [가중치] : 특정 스탯 기반 주사위를 굴립니다.
+!진행 [지시사항] : GM의 지시사항을 바탕으로 AI가 다음 턴을 묘사합니다. (인라인 태그 지원)
+!주사위 [이름] [눈] (가중치) (목표값) : 일반 주사위 또는 임의 목표값 판정을 진행합니다.
+!주사위 [이름] [스탯명] [눈] (가중치) : 특정 스탯 기반 주사위 판정을 진행합니다.
 !기억압축 : 현재까지의 미압축 로그를 수동으로 요약 압축합니다.
 
 [미디어 및 채널 제어]
-!이미지 [키워드] : 시나리오에 설정된 키워드의 이미지를 출력합니다.
-!브금 [파일명] : 음성 채널에서 해당 BGM을 무한 반복 재생합니다.
-!브금정지 : 현재 재생 중인 BGM을 부드럽게 페이드아웃하며 정지합니다.
+!이미지 [키워드/목록] : 시나리오에 설정된 이미지를 출력하거나 목록을 확인합니다.
+!브금 [파일명/목록/정지] : BGM을 재생, 정지하거나 재생 가능한 목록을 확인합니다.
+!플리 [행동] (시나리오명) : 플레이리스트 제어 (행동: 시작/종료/다음/이전/일시정지/재생)
 !채팅 [잠금/해제] : 일반 플레이어의 게임 채널 채팅 입력을 통제합니다.
 
 [시스템 관리]
-!캐시재발급 : 현재 세션의 장기 기억 캐시를 강제로 삭제하고 새로 발급합니다.
-!캐시삭제 : 장기 기억 캐시를 명시적으로 삭제하여 스토리지 과금을 즉시 중단합니다.
+!채널정리 : 서버 내 더미 TRPG 채널 및 카테고리를 UI를 통해 일괄 삭제합니다.
+!캐시 [재발급/삭제] : 장기 기억 캐시 재발급 및 명시적 삭제를 관리합니다.
 """
 
 # ========== 환경 변수 및 전역 상수(Constants) ==========
@@ -364,95 +360,129 @@ async def build_scenario_cache_text(client, model_id, scenario_data: dict) -> tu
         return rulebook_text + ("." * 150000), 38000
 
 
-def format_turn_prompt(session: TRPGSession, gm_instruction: str) -> str:
+class PromptBuilder:
     """
-    모델에게 전달할 메인 턴 진행 프롬프트를 세션 상태를 종합하여 구성합니다.
-
-    Args:
-        session (TRPGSession): 현재 진행 중인 세션 객체
-        gm_instruction (str): 진행자(GM)가 작성한 다음 턴 묘사 지시사항
-
-    Returns:
-        str: AI 모델에 전송할 최종 프롬프트 문자열
+    TRPG 세션의 턴 진행을 위한 LLM 프롬프트를 단계별로 조립하는 빌더 클래스입니다.
+    기존 format_turn_prompt 함수의 문자열 출력을 1글자의 오차도 없이 완벽히 동일하게 재현합니다.
     """
-    prompt = "[현재 게임 상태]\n"
-    if session.compressed_memory:
-        prompt += f"▶ 이전 상황 요약 (절대 참조용 누적 기억):\n{session.compressed_memory}\n"
+    def __init__(self, session: TRPGSession, gm_instruction: str):
+        self.session = session
+        self.gm_instruction = gm_instruction
+        self.blocks = ["[현재 게임 상태]\n"]
 
-    if session.players:
-        prompt += "\n▶ 참가 플레이어 정보:\n"
-        for uid, p_data in session.players.items():
-            c_name = p_data['name']
-            prompt += f"  - {c_name}: [스탯] {p_data['profile']}\n"
-            if p_data.get("appearance"):
-                prompt += f"    * [외형]: {p_data['appearance']}\n"
+        # 공통으로 사용되는 최근 로그 트리거 스캔용 문자열 사전 연산
+        recent_texts = [c.parts[0].text for c in session.raw_logs[-10:]] + session.current_turn_logs
+        self.recent_logs_combined = " ".join(recent_texts) + f" {gm_instruction}"
 
-            c_res = session.resources.get(c_name, {})
-            c_stat = session.statuses.get(c_name, [])
-            if c_res:
-                res_str = ", ".join([f"{k}: {v}" for k, v in c_res.items()])
-                prompt += f"    * [확정 소지 자원]: {res_str}\n"
-            if c_stat:
-                stat_str = ", ".join(c_stat)
-                prompt += f"    * [현재 상태이상]: {stat_str}\n"
+    def add_memory_block(self):
+        if self.session.compressed_memory:
+            self.blocks.append(f"▶ 이전 상황 요약 (절대 참조용 누적 기억):\n{self.session.compressed_memory}\n")
+        return self
 
-    recent_texts = [c.parts[0].text for c in session.raw_logs[-10:]] + session.current_turn_logs
-    recent_logs_combined = " ".join(recent_texts) + f" {gm_instruction}"
+    def add_player_block(self):
+        if self.session.players:
+            block = "\n▶ 참가 플레이어 정보:\n"
+            for uid, p_data in self.session.players.items():
+                c_name = p_data['name']
+                block += f"  - {c_name}: [스탯] {p_data['profile']}\n"
+                if p_data.get("appearance"):
+                    block += f"    * [외형]: {p_data['appearance']}\n"
 
-    if session.npcs:
-        triggered_npcs = {}
-        default_npcs = session.scenario_data.get("default_npcs", {})
+                c_res = self.session.resources.get(c_name, {})
+                c_stat = self.session.statuses.get(c_name, [])
+                if c_res:
+                    res_str = ", ".join([f"{k}: {v}" for k, v in c_res.items()])
+                    block += f"    * [확정 소지 자원]: {res_str}\n"
+                if c_stat:
+                    stat_str = ", ".join(c_stat)
+                    block += f"    * [현재 상태이상]: {stat_str}\n"
+            self.blocks.append(block)
+        return self
 
-        for npc_name, npc_data in session.npcs.items():
-            if npc_name in recent_logs_combined:
-                base_npc_details = default_npcs.get(npc_name, {}).get("details", "")
+    def add_triggered_npc_block(self):
+        if self.session.npcs:
+            triggered_npcs = {}
+            default_npcs = self.session.scenario_data.get("default_npcs", {})
 
-                if npc_data["details"] != base_npc_details:
-                    triggered_npcs[npc_name] = npc_data
+            for npc_name, npc_data in self.session.npcs.items():
+                if npc_name in self.recent_logs_combined:
+                    base_npc_details = default_npcs.get(npc_name, {}).get("details", "")
 
-        if triggered_npcs:
-            prompt += "\n▶ 현재 개입 중인 [수정/추가된] NPC 설정 (캐시 룰북보다 우선 적용):\n"
-            for npc_name, npc_data in triggered_npcs.items():
-                prompt += f"  - {npc_name}: {npc_data['details']}\n"
+                    if npc_data["details"] != base_npc_details:
+                        triggered_npcs[npc_name] = npc_data
 
-                # NPC에 대한 자원/상태도 존재할 경우 주입
-                n_res = session.resources.get(npc_name, {})
-                n_stat = session.statuses.get(npc_name, [])
-                if n_res:
-                    n_res_str = ", ".join([f"{k}: {v}" for k, v in n_res.items()])
-                    prompt += f"    * [확정 소지 자원]: {n_res_str}\n"
-                if n_stat:
-                    n_stat_str = ", ".join(n_stat)
-                    prompt += f"    * [현재 상태이상]: {n_stat_str}\n"
+            if triggered_npcs:
+                block = "\n▶ 현재 개입 중인 [수정/추가된] NPC 설정 (캐시 룰북보다 우선 적용):\n"
+                for npc_name, npc_data in triggered_npcs.items():
+                    block += f"  - {npc_name}: {npc_data['details']}\n"
 
-    keyword_memories = session.scenario_data.get("keyword_memory", [])
-    if keyword_memories:
-        triggered_memories = set()
-        for memory in keyword_memories:
-            for kw in memory.get("keywords", []):
-                if kw in recent_logs_combined:
-                    triggered_memories.add(memory.get("description", ""))
-                    break
+                    # NPC에 대한 자원/상태도 존재할 경우 주입
+                    n_res = self.session.resources.get(npc_name, {})
+                    n_stat = self.session.statuses.get(npc_name, [])
+                    if n_res:
+                        n_res_str = ", ".join([f"{k}: {v}" for k, v in n_res.items()])
+                        block += f"    * [확정 소지 자원]: {n_res_str}\n"
+                    if n_stat:
+                        n_stat_str = ", ".join(n_stat)
+                        block += f"    * [현재 상태이상]: {n_stat_str}\n"
+                self.blocks.append(block)
+        return self
 
-        if triggered_memories:
-            prompt += "\n[키워드 연관 기억/설정 (최근 대화 기반)]\n"
-            for desc in triggered_memories:
-                prompt += f"▶ {desc}\n"
+    def add_keyword_memory_block(self):
+        keyword_memories = self.session.scenario_data.get("keyword_memory", [])
+        if keyword_memories:
+            triggered_memories = set()
+            for memory in keyword_memories:
+                for kw in memory.get("keywords", []):
+                    if kw in self.recent_logs_combined:
+                        triggered_memories.add(memory.get("description", ""))
+                        break
 
-    prompt += "\n[최근 플레이어 행동 및 대화 (판정 완료됨)]\n"
-    if session.current_turn_logs:
-        prompt += "\n".join(session.current_turn_logs) + "\n"
-    else:
-        prompt += "(특별한 대화 없음)\n"
+            if triggered_memories:
+                block = "\n[키워드 연관 기억/설정 (최근 대화 기반)]\n"
+                for desc in triggered_memories:
+                    block += f"▶ {desc}\n"
+                self.blocks.append(block)
+        return self
 
-    prompt += f"\n[진행자(GM)의 판정 결과 및 지시사항]\n▶ {gm_instruction}\n\n"
+    def add_recent_action_block(self):
+        block = "\n[최근 플레이어 행동 및 대화 (판정 완료됨)]\n"
+        if self.session.current_turn_logs:
+            block += "\n".join(self.session.current_turn_logs) + "\n"
+        else:
+            block += "(특별한 대화 없음)\n"
+        self.blocks.append(block)
+        return self
 
-    prompt += f"[최종 지시] 캐시된 [시나리오 핵심 룰북]의 묘사 가이드와 위 GM의 지시사항을 최우선으로 반영하여 상황을 묘사하세요.\n"
+    def add_gm_instruction_block(self):
+        block = f"\n[진행자(GM)의 판정 결과 및 지시사항]\n▶ {self.gm_instruction}\n\n"
+        self.blocks.append(block)
+        return self
 
-    if session.scenario_data.get("status_code_block", ""):
-        prompt += f"▶ 명령: 턴의 마지막에 반드시 룰북에 정의된 양식을 바탕으로 중괄호 내부 값을 기입하여 상태창 코드블럭을 출력하십시오. (현재 턴 수: {session.turn_count + 1}턴 기입)\n"
+    def add_rule_enforcement_block(self):
+        block = f"[최종 지시] 캐시된 [시나리오 핵심 룰북]의 묘사 가이드와 위 GM의 지시사항을 최우선으로 반영하여 상황을 묘사하세요.\n"
+        if self.session.scenario_data.get("status_code_block", ""):
+            block += f"▶ 명령: 턴의 마지막에 반드시 룰북에 정의된 양식을 바탕으로 중괄호 내부 값을 기입하여 상태창 코드블럭을 출력하십시오. (현재 턴 수: {self.session.turn_count + 1}턴 기입)\n"
+        self.blocks.append(block)
+        return self
 
-    return prompt
+    def build(self) -> str:
+        return "".join(self.blocks)
+
+    @classmethod
+    def build_prompt(cls, session, gm_instruction: str) -> str:
+        """
+        내부 블록 조립을 순차적으로 실행하여 완성된 문자열을 즉시 반환하는 파사드(Facade) 메서드
+        """
+        return (cls(session, gm_instruction)
+                .add_memory_block()
+                .add_player_block()
+                .add_triggered_npc_block()
+                .add_keyword_memory_block()
+                .add_recent_action_block()
+                .add_gm_instruction_block()
+                .add_rule_enforcement_block()
+                .build())
 
 
 def build_compression_prompt(session: TRPGSession, log_text: str) -> str:
@@ -475,7 +505,8 @@ def build_compression_prompt(session: TRPGSession, log_text: str) -> str:
         "2. 불필요 데이터 배제: 압축할 정보 중, 단순 추임새나 추후 잊더라도 개연성에 영향을 주지 않는 행동(예: 코를 긁는다 등)은 데이터에서 제외하십시오.\n"
         "2. 장식적 요소 배제: 비유, 감정 표현, 분위기 묘사 등 문학적 수사는 철저히 걷어내십시오.\n"
         "3. 인과성 및 상태 추적: A의 행동이 B에게 어떤 상태 변화를 일으켰는지 명확한 단문으로 기록하십시오.\n"
-        "4. 아이템 및 수치 명시: 획득/소비한 아이템, 주사위 판정 수치는 정확한 이름과 숫자로 기록하십시오.\n\n"
+        "4. 아이템 및 수치 명시: 획득/소비한 아이템, 주사위 판정 수치는 정확한 이름과 숫자로 기록하십시오.\n"
+        "5. 시간 및 턴 기록: 제공된 로그(코드블럭 등)를 바탕으로 해당 사건이 벌어진 '턴 수'와 '명시된 시점(날짜, 시간 등)'을 파악하십시오. 매 압축 요소마다 전부 기입할 필요는 없으며, 턴이 바뀌는 지점마다 해당 턴 기록의 첫 번째 항목에 이를 명시하여 사건의 발생 시점을 기록하십시오.\n\n"
         f"[이전 압축 기억 (맥락 파악용으로만 참고할 것)]\n{session.compressed_memory if session.compressed_memory else '없음'}\n\n"
         f"[최근 플레이 기록 (압축 대상)]\n{log_text}\n\n"
         "위 원칙을 엄격히 준수하여 [최근 플레이 기록]만을 건조하고 기계적인 개조식(Bullet points)으로 압축하여 출력하십시오."
@@ -766,50 +797,165 @@ class PlaylistManager:
                     self.vc.stop()
 
 
+# ========== 채널 관리 UI 및 유틸리티 ==========
+
+def _cleanup_session_memory(channel_id: int):
+    """
+    삭제되는 채널이 현재 활성화된 세션에 포함되어 있을 경우
+    메모리 참조 에러를 방지하기 위해 딕셔너리에서 데이터를 안전하게 해제합니다.
+    """
+    if channel_id in active_sessions:
+        session = active_sessions.pop(channel_id)
+        other_id = session.game_ch_id if channel_id == session.master_ch_id else session.master_ch_id
+        if other_id in active_sessions and active_sessions[other_id] == session:
+            active_sessions.pop(other_id)
+
+
+class ChannelSelect(discord.ui.Select):
+    def __init__(self, options):
+        super().__init__(
+            placeholder="삭제할 카테고리/채널을 선택하세요 (다중 선택 가능)",
+            min_values=1,
+            max_values=len(options),
+            options=options
+        )
+
+    async def callback(self, interaction: discord.Interaction):
+        self.view.selected_values = self.values
+        await interaction.response.defer()
+
+
+class ChannelDeleteView(discord.ui.View):
+    def __init__(self, ctx, target_items):
+        super().__init__(timeout=120.0)
+        self.ctx = ctx
+        self.selected_values = []
+        self.target_items = target_items
+
+        options = []
+        for item_id, item in list(target_items.items())[:25]:  # API 한계상 최대 25개까지만 노출
+            label = f"📁 {item.name}" if isinstance(item, discord.CategoryChannel) else f"💬 {item.name}"
+            options.append(discord.SelectOption(label=label, value=str(item_id)))
+
+        self.select = ChannelSelect(options)
+        self.add_item(self.select)
+
+    @discord.ui.button(label="선택 항목 영구 삭제", style=discord.ButtonStyle.danger, row=1)
+    async def delete_button(self, interaction: discord.Interaction, _button: discord.ui.Button):
+        if interaction.user != self.ctx.author:
+            return await interaction.response.send_message("명령어 실행자만 조작할 수 있습니다.", ephemeral=True)
+
+        if not self.selected_values:
+            return await interaction.response.send_message("삭제할 항목을 먼저 선택해 주십시오.", ephemeral=True)
+
+        await interaction.response.send_message("⏳ 채널 연쇄 삭제 및 메모리 정리를 시작합니다...", ephemeral=True)
+
+        deleted_count = 0
+        for item_id_str in self.selected_values:
+            item_id = int(item_id_str)
+            item = self.target_items.get(item_id)
+
+            if not item:
+                continue
+
+            try:
+                if isinstance(item, discord.CategoryChannel):
+                    for channel in item.channels:
+                        _cleanup_session_memory(channel.id)
+                        await channel.delete()
+                        deleted_count += 1
+                    await item.delete()
+                    deleted_count += 1
+                elif isinstance(item, discord.TextChannel):
+                    _cleanup_session_memory(item.id)
+                    await item.delete()
+                    deleted_count += 1
+            except discord.NotFound:
+                pass
+            except Exception as e:
+                print(f"⚠️ 채널 삭제 오류: {e}")
+
+        for child in self.children:
+            child.disabled = True
+
+        await interaction.message.edit(content=f"✅ 연쇄 삭제 완료: 총 {deleted_count}개의 카테고리 및 채널이 정리되었습니다.", view=self)
+        self.stop()
+
+
 # ========== 디스코드 UI 클래스(Views) ==========
 class GeneralDiceView(discord.ui.View):
     """
-    능력치에 구애받지 않는 일반 주사위(N면체)를 굴리기 위한 UI 뷰어입니다.
+    능력치에 구애받지 않는 일반 주사위(N면체) 및 임의 목표값 판정을 위한 UI 뷰어입니다.
 
     Args:
         target_uid (str): 주사위를 굴릴 자격을 가진 플레이어의 디스코드 ID
         max_val (int): 주사위의 최대 눈금 수
-        weight (int): 판정 결과에 합산될 추가 가중치
+        weight (int): 판정 결과 또는 기준치에 합산될 추가 가중치
+        target_val (int, optional): 성공/실패를 판정할 기준 목표값
     """
-    def __init__(self, target_uid: str, max_val: int, weight: int = 0):
+
+    def __init__(self, target_uid: str, max_val: int, weight: int = 0, target_val: int = None):
         super().__init__(timeout=None)
         self.target_uid = target_uid
         self.max_val = max_val
         self.weight = weight
+        self.target_val = target_val
 
     @discord.ui.button(label="🎲 일반 주사위 굴리기", style=discord.ButtonStyle.secondary)
     async def roll_button(self, interaction: discord.Interaction, _button: discord.ui.Button):
         if str(interaction.user.id) != self.target_uid:
-            return await interaction.response.send_message("이 주사위는 당신을 위한 것이 아닙니다!", ephemeral=True)
+            return await interaction.response.send_message("> 이 주사위는 당신을 위한 것이 아닙니다!", ephemeral=True)
 
-        base_result = random.randint(1, self.max_val)
-        final_result = base_result + self.weight
-
-        weight_str = f" (가중치 {self.weight:+d})" if self.weight != 0 else ""
-        calc_str = f" ({base_result}{self.weight:+d})" if self.weight != 0 else ""
-
-        await interaction.response.edit_message(
-            content=f"> 🎲 <@{self.target_uid}>님의 눈 {self.max_val} 일반 다이스 결과{weight_str}: **{final_result}**{calc_str}",
-            view=None
-        )
+        result = random.randint(1, self.max_val)
 
         session = active_sessions.get(interaction.channel.id)
         char_name = interaction.user.display_name
         if session:
             char_name = session.players.get(self.target_uid, {}).get("name", char_name)
-            session.current_turn_logs.append(
-                f"[{char_name}]: {self.max_val}눈 일반 주사위 굴림{weight_str} -> 최종 결과 {final_result}"
-            )
-            await save_session_data(session)
 
-        await interaction.channel.send(
-            f"📣 **일반 주사위 결과:** {char_name}의 {self.max_val}면체 주사위 최종 눈은 **{final_result}**입니다.{weight_str}"
-        )
+        if self.target_val is None:
+            # 기존 일반 주사위 로직
+            final_result = result + self.weight
+            weight_str = f" (가중치 {self.weight:+d})" if self.weight != 0 else ""
+            calc_str = f" ({result}{self.weight:+d})" if self.weight != 0 else ""
+
+            await interaction.response.edit_message(
+                content=f"> 🎲 <@{self.target_uid}>님의 눈 {self.max_val} 일반 다이스 결과{weight_str}: **{final_result}**{calc_str}",
+                view=None
+            )
+
+            if session:
+                session.current_turn_logs.append(
+                    f"[{char_name}]: {self.max_val}눈 주사위 굴림{weight_str} -> 최종 결과 {final_result}"
+                )
+                await save_session_data(session)
+
+            await interaction.channel.send(
+                f"> 📣 **일반 주사위 결과:** {char_name}의 {self.max_val}면체 주사위 최종 눈은 **{final_result}**입니다.{weight_str}"
+            )
+        else:
+            # 임의 목표값이 부여된 성공/실패 판정 로직
+            target_value = self.target_val + self.weight
+            is_success = result <= target_value
+            result_text = "성공 🟢" if is_success else "실패 🔴"
+
+            weight_str = f" (가중치 {self.weight:+d} 적용)" if self.weight != 0 else ""
+            target_str = f"{self.target_val}{self.weight:+d}={target_value}" if self.weight != 0 else f"{self.target_val}"
+
+            await interaction.response.edit_message(
+                content=f"> 🎲 <@{self.target_uid}>님의 눈 {self.max_val} 다이스 결과: **{result}** [목표값: {self.target_val}] 굴림  (기준치: {target_str})",
+                view=None
+            )
+
+            if session:
+                session.current_turn_logs.append(
+                    f"[{char_name}]: 목표값 {self.target_val}{weight_str} 판정 (1~{self.max_val}) -> 주사위 {result} ({result_text})"
+                )
+                await save_session_data(session)
+
+            await interaction.channel.send(
+                f"> 📣 **판정 결과:** {char_name}의 목표값 {self.target_val} 판정{weight_str} - **{result_text}**"
+            )
         return None
 
 
@@ -863,47 +1009,6 @@ class DiceView(discord.ui.View):
             f"> 📣 **판정 결과:** {char_name}의 [{self.stat_name}] 판정{weight_str} - **{result_text}**"
         )
         return None
-
-
-class IntroView(discord.ui.View):
-    """
-    세션 인트로 텍스트를 문단별로 끊어서 수동으로 스트리밍하기 위한 UI 뷰어입니다.
-
-    Args:
-        session (TRPGSession): 연출이 진행될 대상 세션 객체
-        game_channel (discord.TextChannel): 텍스트가 출력될 디스코드 채널
-        paragraphs (list): 출력할 인트로 텍스트의 문단 리스트
-    """
-    def __init__(self, session, game_channel, paragraphs):
-        super().__init__(timeout=None)
-        self.session = session
-        self.game_channel = game_channel
-        self.paragraphs = paragraphs
-        self.current_idx = 0
-
-    @discord.ui.button(label="다음 내용 출력", style=discord.ButtonStyle.primary)
-    async def next_button(self, interaction: discord.Interaction, button: discord.ui.Button):
-        button.disabled = True
-        button.label = "출력 중..."
-        await interaction.response.edit_message(view=self)
-
-        text_to_send = self.paragraphs[self.current_idx]
-        await stream_text_to_channel(self.game_channel, text_to_send, words_per_tick=5, tick_interval=1.5)
-
-        self.current_idx += 1
-
-        if self.current_idx >= len(self.paragraphs):
-            button.label = "소개 완료 (채팅 권한 해제됨)"
-            button.style = discord.ButtonStyle.success
-            button.disabled = True
-            await interaction.message.edit(view=self)
-
-            await self.game_channel.set_permissions(interaction.guild.default_role, send_messages=True)
-            await self.game_channel.send("🔓 **[시스템] 플레이어 채팅 입력이 허용되었습니다.**")
-        else:
-            button.label = "다음 내용 출력"
-            button.disabled = False
-            await interaction.message.edit(view=self)
 
 
 # ========== 봇 이벤트 핸들러(Events) ==========
@@ -1099,7 +1204,7 @@ async def start_game_error(ctx, error):
 @bot.command(name="소개")
 async def send_intro(ctx):
     """
-    시나리오 인트로와 캐릭터 생성 안내 메시지를 UI 뷰어 형태로 전송하여 순차 출력을 돕습니다.
+    시나리오 인트로와 캐릭터 생성 안내 메시지를 게임 채널에 자동으로 스트리밍합니다.
 
     Args:
         ctx (commands.Context): 디스코드 컨텍스트 객체
@@ -1116,15 +1221,18 @@ async def send_intro(ctx):
     pc_template = session.scenario_data.get("pc_template", {})
 
     template_keys_str = "\n".join([f"- {k}" for k in pc_template.keys()])
-    guide_text = f"이제 플레이어 여러분의 캐릭터를 만들 차례입니다. `!참가 [이름]` 명령어를 통해 참가하세요.\n\n[플레이어 스탯 구성]\n{template_keys_str}"
+    guide_text = f"이제 플레이어 여러분의 캐릭터를 만들 차례입니다. 마스터 채널에 `!참가 [이름]` 명령어를 입력하여 게임 채널에 캐릭터로 참가하십시오.\n\n[플레이어 스탯 구성]\n{template_keys_str}"
 
     full_text = f"{TRPG_INTRO_TEXT}\n\n{scenario_intro}\n\n{guide_text}"
 
     paragraphs = [p.strip() for p in full_text.split("\n\n") if p.strip()]
 
-    view = IntroView(session, game_channel, paragraphs)
-    await ctx.send("📢 **[소개 모드 활성화]** 아래 버튼을 눌러 게임 채널에 소개 문단을 순차적으로 스트리밍하십시오.", view=view)
-    return None
+    await ctx.send("📢 게임 채널에 소개 문단 자동 스트리밍을 시작합니다...")
+
+    for paragraph in paragraphs:
+        await stream_text_to_channel(game_channel, paragraph, words_per_tick=5, tick_interval=1.5)
+
+    await ctx.send("✅ 소개 스트리밍이 완료되었습니다.")
 
 
 # ========== 캐릭터 및 NPC 설정 그룹 ==========
@@ -1200,40 +1308,14 @@ async def set_profile(ctx, char_name: str, key: str, *, value: str):
 
 
 @bot.command(name="외형")
-async def set_appearance(ctx, char_name: str, *, appearance: str):
+async def manage_appearance(ctx, char_name: str, *, appearance: str = None):
     """
-    특정 캐릭터의 외형 묘사를 설정합니다.
+    특정 캐릭터의 외형 묘사를 설정하거나, 내용을 비워둘 경우 현재 설정된 외형을 확인합니다.
 
     Args:
         ctx (commands.Context): 디스코드 컨텍스트 객체
         char_name (str): 대상 캐릭터 이름
-        appearance (str): 적용할 외형 묘사 텍스트
-    """
-    session = active_sessions.get(ctx.channel.id)
-    if not session or ctx.channel.id != session.master_ch_id:
-        await ctx.send("이 명령어는 마스터 채널에서만 사용할 수 있습니다.")
-        return None
-
-    user_id_str = get_uid_by_char_name(session, char_name)
-    if not user_id_str:
-        await ctx.send(f"⚠️ '{char_name}'(으)로 참가한 플레이어를 찾을 수 없습니다.")
-        return None
-
-    session.players[user_id_str]["appearance"] = appearance
-    await save_session_data(session)
-
-    await ctx.send(f"✅ 캐릭터 [{char_name}] 외형 설정 완료 (덮어쓰기):\n{appearance}")
-    return None
-
-
-@bot.command(name="외형확인")
-async def check_appearance(ctx, char_name: str):
-    """
-    특정 캐릭터에 설정된 외형 묘사 데이터를 마스터 채널에 출력합니다.
-
-    Args:
-        ctx (commands.Context): 디스코드 컨텍스트 객체
-        char_name (str): 대상 캐릭터 이름
+        appearance (str, optional): 적용할 외형 묘사 텍스트. 생략 시 현재 외형 확인.
     """
     session = active_sessions.get(ctx.channel.id)
     if not session or ctx.channel.id != session.master_ch_id:
@@ -1243,8 +1325,16 @@ async def check_appearance(ctx, char_name: str):
     if not user_id_str:
         return await ctx.send(f"⚠️ '{char_name}'(으)로 참가한 플레이어를 찾을 수 없습니다.")
 
-    appearance = session.players[user_id_str].get("appearance", "설정된 외형이 없습니다.")
-    await ctx.send(f"🎭 **{char_name}의 현재 외형**:\n{appearance}")
+    if appearance is None:
+        # 외형 확인 로직
+        current_appearance = session.players[user_id_str].get("appearance", "설정된 외형이 없습니다.")
+        await ctx.send(f"🎭 **{char_name}의 현재 외형**:\n{current_appearance}")
+    else:
+        # 외형 설정 로직
+        session.players[user_id_str]["appearance"] = appearance
+        await save_session_data(session)
+        await ctx.send(f"✅ 캐릭터 [{char_name}] 외형 설정 완료 (덮어쓰기):\n{appearance}")
+
     return None
 
 
@@ -1288,93 +1378,62 @@ async def show_profile(ctx, char_name: str):
     return None
 
 
-@bot.command(name="npc설정")
-async def set_npc(ctx, name: str, *, details: str):
+@bot.command(name="엔피씨")
+async def manage_npc(ctx, action: str, name: str = None, *, details: str = None):
     """
-    세션에 참여할 NPC의 상세 설정을 추가하거나 갱신합니다.
+    NPC 관련 기능(설정, 확인, 삭제, 목록)을 통합 관리합니다.
 
     Args:
         ctx (commands.Context): 디스코드 컨텍스트 객체
-        name (str): NPC 이름
-        details (str): NPC 세부 설정 텍스트
+        action (str): 수행할 작업 (설정, 확인, 삭제, 목록)
+        name (str, optional): 대상 NPC 이름
+        details (str, optional): 설정할 NPC 세부 내용
     """
     session = active_sessions.get(ctx.channel.id)
     if not session or ctx.channel.id != session.master_ch_id:
         return await ctx.send("이 명령어는 마스터 채널에서만 사용할 수 있습니다.")
 
-    session.npcs[name] = {"name": name, "details": details}
-    await save_session_data(session)
-
-    await ctx.send(f"✅ NPC [{name}] 설정 완료 (덮어쓰기):\n{details}")
-    return None
-
-
-@bot.command(name="npc확인")
-async def check_npc(ctx, name: str):
-    """
-    저장된 특정 NPC의 세부 설정을 출력합니다.
-
-    Args:
-        ctx (commands.Context): 디스코드 컨텍스트 객체
-        name (str): 조회할 NPC 이름
-    """
-    session = active_sessions.get(ctx.channel.id)
-    if not session or ctx.channel.id != session.master_ch_id:
-        return await ctx.send("이 명령어는 마스터 채널에서만 사용할 수 있습니다.")
-
-    if name in session.npcs:
-        details = session.npcs[name]["details"]
-        await ctx.send(f"📜 **NPC [{name}] 정보**:\n{details}")
-        return None
-    else:
-        await ctx.send(f"⚠️ NPC [{name}]을(를) 찾을 수 없습니다.")
-        return None
-
-
-@bot.command(name="npc삭제")
-async def remove_npc(ctx, name: str):
-    """
-    저장된 특정 NPC 데이터를 세션에서 삭제합니다.
-
-    Args:
-        ctx (commands.Context): 디스코드 컨텍스트 객체
-        name (str): 삭제할 NPC 이름
-    """
-    session = active_sessions.get(ctx.channel.id)
-    if not session or ctx.channel.id != session.master_ch_id:
-        return await ctx.send("이 명령어는 마스터 채널에서만 사용할 수 있습니다.")
-
-    if name in session.npcs:
-        del session.npcs[name]
+    if action == "설정":
+        if not name or not details:
+            return await ctx.send("⚠️ 사용법: `!npc 설정 [이름] [내용]`")
+        session.npcs[name] = {"name": name, "details": details}
         await save_session_data(session)
-        await ctx.send(f"✅ NPC [{name}] 삭제 완료.")
+        await ctx.send(f"✅ NPC [{name}] 설정 완료 (덮어쓰기):\n{details}")
         return None
+
+    elif action == "확인":
+        if not name:
+            return await ctx.send("⚠️ 사용법: `!npc 확인 [이름]`")
+        if name in session.npcs:
+            npc_details = session.npcs[name]["details"]
+            await ctx.send(f"📜 **NPC [{name}] 정보**:\n{npc_details}")
+        else:
+            await ctx.send(f"⚠️ NPC [{name}]을(를) 찾을 수 없습니다.")
+        return None
+
+    elif action == "삭제":
+        if not name:
+            return await ctx.send("⚠️ 사용법: `!npc 삭제 [이름]`")
+        if name in session.npcs:
+            del session.npcs[name]
+            await save_session_data(session)
+            await ctx.send(f"✅ NPC [{name}] 삭제 완료.")
+        else:
+            await ctx.send(f"⚠️ NPC [{name}]을(를) 찾을 수 없습니다.")
+        return None
+
+    elif action == "목록":
+        if not session.npcs:
+            return await ctx.send("등록된 NPC가 없습니다.")
+        embed = discord.Embed(title="📜 등록된 NPC 목록", color=0x2ecc71)
+        for npc_name, npc_data in session.npcs.items():
+            embed.add_field(name=npc_name, value=npc_data["details"], inline=False)
+        await ctx.send(embed=embed)
+        return None
+
     else:
-        await ctx.send(f"⚠️ NPC [{name}]을(를) 찾을 수 없습니다.")
+        await ctx.send("⚠️ 잘못된 행동 인자입니다. (사용 가능: 설정, 확인, 삭제, 목록)")
         return None
-
-
-@bot.command(name="npc목록")
-async def list_npc(ctx):
-    """
-    현재 세션에 등록된 모든 NPC의 정보 목록을 출력합니다.
-
-    Args:
-        ctx (commands.Context): 디스코드 컨텍스트 객체
-    """
-    session = active_sessions.get(ctx.channel.id)
-    if not session or ctx.channel.id != session.master_ch_id:
-        return await ctx.send("이 명령어는 마스터 채널에서만 사용할 수 있습니다.")
-
-    if not session.npcs:
-        return await ctx.send("등록된 NPC가 없습니다.")
-
-    embed = discord.Embed(title="📜 등록된 NPC 목록", color=0x2ecc71)
-    for npc_name, npc_data in session.npcs.items():
-        embed.add_field(name=npc_name, value=npc_data["details"], inline=False)
-
-    await ctx.send(embed=embed)
-    return None
 
 
 @bot.command(name="설정생성")
@@ -1443,7 +1502,7 @@ async def request_dice(ctx, char_name: str, param1: str, param2: str = None, par
         char_name (str): 굴림을 수행할 캐릭터 이름
         param1 (str): 주사위의 면 수(일반) 또는 기준이 되는 스탯 이름(능력치)
         param2 (str, optional): 가중치(일반) 또는 스탯 주사위의 면 수(능력치)
-        param3 (str, optional): 스탯 판정에서의 보정 가중치
+        param3 (str, optional): 임의 목표값(일반) 또는 스탯 판정에서의 보정 가중치(능력치)
     """
     session = active_sessions.get(ctx.channel.id)
     if not session or ctx.channel.id != session.master_ch_id:
@@ -1461,17 +1520,28 @@ async def request_dice(ctx, char_name: str, param1: str, param2: str = None, par
     if param1.isdigit():
         max_val = int(param1)
         weight = 0
+        target_val = None
 
         if param2 and param2.lstrip('-').isdigit():
             weight = int(param2)
 
+        if param3 and param3.lstrip('-').isdigit():
+            target_val = int(param3)
+
         req_weight_str = f" (가중치 {weight:+d})" if weight != 0 else ""
 
-        view = GeneralDiceView(target_uid=user_id_str, max_val=max_val, weight=weight)
-        await game_channel.send(
-            f"> 🎲 <@{user_id_str}>, 일반 {max_val}면체 다이스 판정을 시작합니다. 아래 버튼을 눌러주세요.{req_weight_str}",
-            view=view
-        )
+        view = GeneralDiceView(target_uid=user_id_str, max_val=max_val, weight=weight, target_val=target_val)
+
+        if target_val is None:
+            await game_channel.send(
+                f"> 🎲 <@{user_id_str}>, 일반 {max_val}면체 다이스 판정을 시작합니다. 아래 버튼을 눌러주세요.{req_weight_str}",
+                view=view
+            )
+        else:
+            await game_channel.send(
+                f"> 🎲 <@{user_id_str}>, {max_val}눈 다이스로 [목표값:{target_val}] 판정을 시작합니다. 아래 버튼을 눌러주세요.{req_weight_str}",
+                view=view
+            )
         return None
 
     stat_name = param1
@@ -1570,7 +1640,7 @@ async def proceed_turn(ctx, *, instruction: str = ""):
 
     await ctx.send("⏳ AI가 묘사를 생성 중입니다. 완료 후 게임 채널에 타이핑 연출을 시작합니다...")
 
-    prompt = format_turn_prompt(session, clean_instruction)
+    prompt = PromptBuilder.build_prompt(session, clean_instruction)
     write_log(session.session_id, "api", f"[메인 턴 묘사 요청]\n{prompt}")
 
     current_contents = session.raw_logs + [
@@ -1807,23 +1877,34 @@ async def compress_memory(ctx):
 @bot.command(name="이미지")
 async def send_media(ctx, keyword: str):
     """
-    시나리오 파일에 설정된 키워드를 기반으로 게임 채널에 로컬 미디어 이미지를 전송합니다.
+    시나리오 파일에 설정된 키워드를 기반으로 게임 채널에 로컬 미디어 이미지를 전송하거나,
+    '목록' 인자를 입력하여 사용 가능한 키워드를 확인합니다.
 
     Args:
         ctx (commands.Context): 디스코드 컨텍스트 객체
-        keyword (str): 출력할 이미지의 지정된 식별 키워드
+        keyword (str): 출력할 이미지의 키워드 또는 '목록'
     """
     session = active_sessions.get(ctx.channel.id)
     if not session or ctx.channel.id != session.master_ch_id:
         return await ctx.send("이 명령어는 마스터 채널에서만 사용할 수 있습니다.")
 
-    game_channel = bot.get_channel(session.game_ch_id)
-    if not game_channel:
-        return await ctx.send("⚠️ 게임 채널을 찾을 수 없습니다.")
-
     scenario_data = session.scenario_data
     media_keywords = scenario_data.get("media_keywords", {})
     media_dir = f"media/{session.scenario_id}"
+
+    # '목록' 인자 처리
+    if keyword == "목록":
+        if not media_keywords:
+            return await ctx.send("⚠️ 현재 시나리오에 등록된 이미지 키워드가 없습니다.")
+
+        embed = discord.Embed(title="🖼️ 등록된 이미지 키워드 목록", color=0x3498db)
+        keys_str = "\n".join([f"- **{k}** ({v})" for k, v in media_keywords.items()])
+        embed.description = keys_str
+        return await ctx.send(embed=embed)
+
+    game_channel = bot.get_channel(session.game_ch_id)
+    if not game_channel:
+        return await ctx.send("⚠️ 게임 채널을 찾을 수 없습니다.")
 
     if keyword not in media_keywords:
         available_keys = ", ".join(media_keywords.keys()) if media_keywords else "등록된 키워드 없음"
@@ -1845,20 +1926,71 @@ async def send_media(ctx, keyword: str):
 @bot.command(name="브금")
 async def play_bgm(ctx, filename: str):
     """
-    음성 채널에 봇을 입장시키고 지정된 오디오 파일의 반복 재생 루프를 시작합니다.
+    음성 채널에 봇을 입장시키고 지정된 오디오 파일의 반복 재생 루프를 시작하거나,
+    '목록' 또는 '정지' 인자를 통해 BGM을 제어합니다.
 
     Args:
         ctx (commands.Context): 디스코드 컨텍스트 객체
-        filename (str): 재생할 미디어 파일의 이름 (확장자 제외)
+        filename (str): 재생할 파일 이름 (확장자 제외), '목록', 또는 '정지'
     """
     session = active_sessions.get(ctx.channel.id)
     if not session or ctx.channel.id != session.master_ch_id:
         return await ctx.send("이 명령어는 마스터 채널에서만 사용할 수 있습니다.")
 
+    media_dir = f"media/{session.scenario_id}"
+
+    # '목록' 인자 처리
+    if filename == "목록":
+        if not os.path.exists(media_dir):
+            return await ctx.send(f"⚠️ 미디어 폴더가 존재하지 않습니다: `{media_dir}`")
+
+        bgm_files = [f.replace(".mp3", "") for f in os.listdir(media_dir) if f.endswith(".mp3")]
+        if not bgm_files:
+            return await ctx.send(f"⚠️ `{media_dir}` 폴더 내에 재생 가능한 mp3 파일이 없습니다.")
+
+        embed = discord.Embed(title="🎵 등록된 BGM 목록", color=0x9b59b6)
+        bgm_str = "\n".join([f"- **{f}**" for f in bgm_files])
+        embed.description = bgm_str
+        return await ctx.send(embed=embed)
+
+    # '정지' 인자 처리
+    if filename == "정지":
+        vc = session.voice_client
+        if vc and vc.is_connected() and vc.is_playing():
+            fade_task = getattr(session, "fade_task", None)
+            if fade_task and not fade_task.done():
+                fade_task.cancel()
+
+            session.is_bgm_looping = False
+            session.current_bgm = None
+            session.is_fading = True
+
+            await ctx.send("🔉 볼륨을 서서히 줄이며 BGM을 정지합니다...")
+
+            async def fade_out_and_stop():
+                try:
+                    if isinstance(vc.source, discord.PCMVolumeTransformer):
+                        for _ in range(20):
+                            if not vc.is_playing():
+                                break
+                            vc.source.volume = vc.source.volume * 0.8
+                            await asyncio.sleep(0.1)
+                        vc.source.volume = 0.0
+                    vc.stop()
+                except asyncio.CancelledError:
+                    pass
+                finally:
+                    session.is_fading = False
+
+            session.fade_task = bot.loop.create_task(fade_out_and_stop())
+        else:
+            await ctx.send("⚠️ 현재 재생 중인 BGM이 없거나 음성 채널에 연결되어 있지 않습니다.")
+        return
+
+    # 일반 재생 로직 (목록/정지가 아닌 경우)
     if not ctx.author.voice:
         return await ctx.send("⚠️ 마스터님, 먼저 디스코드 음성 채널에 접속해 주십시오.")
 
-    media_dir = f"media/{session.scenario_id}"
     filepath = os.path.join(media_dir, f"{filename}.mp3")
 
     if not os.path.exists(filepath):
@@ -1924,52 +2056,6 @@ async def play_bgm(ctx, filename: str):
         volume_source = discord.PCMVolumeTransformer(source, volume=1.0)
         vc.play(volume_source, after=after_playing)
         await ctx.send(f"▶️ BGM **'{filename}'**의 무한 반복 재생을 시작합니다.")
-
-
-@bot.command(name="브금정지")
-async def stop_bgm(ctx):
-    """
-    현재 재생 중인 음성 채널의 미디어를 부드럽게 감쇠시키며 정지합니다.
-
-    Args:
-        ctx (commands.Context): 디스코드 컨텍스트 객체
-    """
-    session = active_sessions.get(ctx.channel.id)
-    if not session or ctx.channel.id != session.master_ch_id:
-        return await ctx.send("이 명령어는 마스터 채널에서만 사용할 수 있습니다.")
-
-    vc = session.voice_client
-    if vc and vc.is_connected() and vc.is_playing():
-
-        fade_task = getattr(session, "fade_task", None)
-        if fade_task and not fade_task.done():
-            fade_task.cancel()
-
-        session.is_bgm_looping = False
-        session.current_bgm = None
-        session.is_fading = True
-
-        await ctx.send("🔉 볼륨을 서서히 줄이며 BGM을 정지합니다...")
-
-        async def fade_out_and_stop():
-            try:
-                if isinstance(vc.source, discord.PCMVolumeTransformer):
-                    for _ in range(20):
-                        if not vc.is_playing():
-                            break
-                        vc.source.volume = vc.source.volume * 0.8
-                        await asyncio.sleep(0.1)
-                    vc.source.volume = 0.0
-                vc.stop()
-            except asyncio.CancelledError:
-                pass
-            finally:
-                session.is_fading = False
-
-        session.fade_task = bot.loop.create_task(fade_out_and_stop())
-
-    else:
-        await ctx.send("⚠️ 현재 재생 중인 BGM이 없거나 음성 채널에 연결되어 있지 않습니다.")
 
 
 @bot.command(name="플리")
@@ -2113,133 +2199,153 @@ async def show_commands(ctx):
     embed.add_field(name="[캐릭터 및 NPC 설정]", value=(
         "`!참가 [이름]` : 플레이어 캐릭터로 세션 참가 (게임 채널)\n"
         "`!설정 [이름] [항목] [내용]` : 캐릭터 스탯/프로필 설정\n"
-        "`!외형 [이름] [내용]` : 캐릭터 외형 설정\n"
-        "`!외형확인 [이름]` : 캐릭터 외형 확인\n"
+        "`!외형 [이름] (내용)` : 캐릭터 외형 설정 및 확인\n"
         "`!프로필 [이름]` : 캐릭터 전체 프로필 확인\n"
-        "`!npc설정 [이름] [내용]` : NPC 정보 추가/수정\n"
-        "`!npc확인 [이름]` : NPC 정보 확인\n"
-        "`!npc삭제 [이름]` : NPC 데이터 삭제\n"
-        "`!npc목록` : 등록된 모든 NPC 목록 출력\n"
+        "`!엔피씨 [설정/확인/삭제/목록] (이름) (내용)` : NPC 정보 통합 관리\n"
         "`!설정생성 [pc/npc] [이름] [지시사항]` : AI 설정 초안 생성"
     ), inline=False)
 
     embed.add_field(name="[게임 진행 및 판정]", value=(
         "`!진행 [지시사항]` : AI 턴 묘사 진행\n"
-        "  *(특수 태그: `상/중/하:이미지키워드`, `자:이름;아이템;수치`, `태:이름;[-]상태`)*\n"
-        "`!주사위 [이름] [눈] [가중치]` : 일반 주사위 굴림\n"
-        "`!주사위 [이름] [스탯명] [눈] [가중치]` : 능력치 주사위 굴림\n"
+        "  *(특수 태그: `상/중/하:키워드`, `자:이름;아이템;수치`, `태:이름;[-]상태`)*\n"
+        "`!주사위 [이름] [눈] (가중치) (목표값)` : 일반 주사위 / 목표값 판정\n"
+        "`!주사위 [이름] [스탯명] [눈] (가중치)` : 능력치 주사위 굴림\n"
         "`!기억압축` : 미압축 로그 수동 요약 및 압축"
     ), inline=False)
 
     embed.add_field(name="[미디어 및 채널 제어]", value=(
-        "`!이미지 [키워드]` : 지정된 로컬 이미지 출력\n"
-        "`!브금 [파일명]` : 해당 BGM 무한 반복 재생\n"
-        "`!브금정지` : BGM 페이드아웃 및 정지\n"
-        "`!플리 [행동] [시나리오명]` : 플레이리스트 제어 (행동: 시작/종료/다음/이전/일시정지/재생)\n"
+        "`!이미지 [키워드/목록]` : 로컬 이미지 출력 및 확인\n"
+        "`!브금 [파일명/목록/정지]` : BGM 재생, 정지 및 확인\n"
+        "`!플리 [행동] (시나리오명)` : 플리 제어 (시작/종료/다음/이전/일시정지/재생)\n"
         "`!채팅 [잠금/해제]` : 일반 플레이어 채팅 통제"
     ), inline=False)
 
     embed.add_field(name="[시스템 관리]", value=(
-        "`!캐시재발급` : 장기 기억 캐시 강제 파기 및 재발급\n"
-        "`!캐시삭제` : 장기 기억 캐시 명시적 삭제 (과금 중단)"
+        "`!채널정리` : 불필요한 더미 세션 카테고리/채널 일괄 삭제\n"
+        "`!캐시 [재발급/삭제]` : 장기 기억 캐시 재발급 및 파기"
     ), inline=False)
 
     await ctx.send(embed=embed)
 
 
-@bot.command(name="캐시재발급")
-async def reissue_cache(ctx):
+@bot.command(name="채널정리")
+@commands.has_permissions(manage_channels=True)
+async def cleanup_channels(ctx):
     """
-    의도치 않은 캐시 만료나 데이터 오염을 해결하기 위해 강제로 이전 캐시를 삭제하고 즉시 재발급합니다.
+    서버 내에 생성된 더미 TRPG 채널 및 카테고리를 UI를 통해 일괄 삭제합니다.
 
     Args:
         ctx (commands.Context): 디스코드 컨텍스트 객체
     """
+    target_items = {}
+
+    for category in ctx.guild.categories:
+        if "TRPG" in category.name or "세션" in category.name:
+            target_items[category.id] = category
+
+    # 고아 채널 필터링: 카테고리 없이 생성된 봇 관련 텍스트 채널을 수집합니다.
+    for channel in ctx.guild.text_channels:
+        if channel.category is None and ("game-" in channel.name or "master-" in channel.name):
+            target_items[channel.id] = channel
+
+    if not target_items:
+        return await ctx.send("⚠️ 삭제 후보로 필터링된 TRPG 관련 채널이나 카테고리가 없습니다.")
+
+    view = ChannelDeleteView(ctx, target_items)
+    await ctx.send(
+        "🗑️ **[채널 정리 모드]** 아래 드롭다운에서 삭제할 카테고리나 채널을 모두 선택한 뒤 [영구 삭제] 버튼을 누르십시오.\n*(주의: 카테고리 선택 시 하위 채널도 함께 삭제됩니다.)*",
+        view=view)
+
+
+@cleanup_channels.error
+async def cleanup_channels_error(ctx, error):
+    if isinstance(error, commands.MissingPermissions):
+        await ctx.send("⚠️ 이 명령어를 사용하려면 '채널 관리' 권한이 필요합니다.")
+
+
+@bot.command(name="캐시")
+async def manage_cache(ctx, action: str = None):
+    """
+    장기 기억 캐시를 강제로 재발급하거나 명시적으로 삭제하여 과금을 관리합니다.
+
+    Args:
+        ctx (commands.Context): 디스코드 컨텍스트 객체
+        action (str): 수행할 작업 ('재발급' 또는 '삭제')
+    """
     session = active_sessions.get(ctx.channel.id)
     if not session or ctx.channel.id != session.master_ch_id:
-        await ctx.send("이 명령어는 마스터 채널에서만 사용할 수 있습니다.")
-        return
+        return await ctx.send("이 명령어는 마스터 채널에서만 사용할 수 있습니다.")
 
-    await ctx.send("⏳ 수동 캐시 재발급을 시작합니다. 기존 캐시를 삭제하고 새로 생성 중...")
+    if action == "재발급":
+        await ctx.send("⏳ 수동 캐시 재발급을 시작합니다. 기존 캐시를 삭제하고 새로 생성 중...")
 
-    if session.cache_name:
+        if session.cache_name:
+            try:
+                await asyncio.to_thread(client.caches.delete, name=session.cache_name)
+                print(f"🗑️ [캐시 관리] {session.session_id}: 기존 캐시({session.cache_name}) 명시적 삭제 완료.")
+            except Exception as e:
+                print(f"⚠️ [캐시 관리] {session.session_id}: 기존 캐시 삭제 실패 (이미 만료되었거나 존재하지 않음) - {e}")
+
+        try:
+            caching_text, cache_tokens = await build_scenario_cache_text(client, DEFAULT_MODEL, session.scenario_data)
+
+            creation_cost = calculate_cost(DEFAULT_MODEL, input_tokens=cache_tokens)
+            storage_cost = calculate_cost(DEFAULT_MODEL, cache_storage_tokens=cache_tokens, storage_hours=1)
+            session.total_cost += (creation_cost + storage_cost)
+
+            print(
+                f"💰 [비용 보고] 세션({session.session_id}) 수동 캐시 발급: ${creation_cost + storage_cost:.6f} (누적: ${session.total_cost:.6f})")
+
+            cache = await asyncio.to_thread(
+                client.caches.create,
+                model=DEFAULT_MODEL,
+                config=types.CreateCachedContentConfig(
+                    system_instruction=SYSTEM_INSTRUCTION,
+                    contents=[types.Content(role="user", parts=[types.Part.from_text(text=caching_text)])],
+                    ttl="3600s"
+                )
+            )
+
+            session.cache_obj = cache
+            session.cache_name = cache.name
+            session.cache_model = DEFAULT_MODEL
+            await save_session_data(session)
+
+            await ctx.send(f"✅ 수동 캐시 재발급 완료! (새 캐시 ID: {cache.name})\n누적 비용에 캐시 생성 및 1시간 유지 비용이 합산되었습니다.")
+
+        except Exception as e:
+            await ctx.send(f"⚠️ 캐시 재발급 중 오류가 발생했습니다: {e}")
+
+    elif action == "삭제":
+        if not session.cache_name:
+            return await ctx.send("⚠️ 현재 유지 중인 캐시가 없습니다.")
+
+        await ctx.send("⏳ 구글 서버에서 기존 캐시를 명시적으로 삭제하는 중입니다...")
+
         try:
             await asyncio.to_thread(client.caches.delete, name=session.cache_name)
-            print(f"🗑️ [캐시 관리] {session.session_id}: 기존 캐시({session.cache_name}) 명시적 삭제 완료.")
+            print(f"🗑️ [캐시 관리] {session.session_id}: 수동 캐시({session.cache_name}) 삭제 완료.")
+
+            session.cache_name = None
+            session.cache_obj = None
+            session.cache_model = None
+            await save_session_data(session)
+
+            await ctx.send(
+                "✅ 캐시가 정상적으로 삭제되어 스토리지 과금이 중단되었습니다.\n(참고: 이후 캐시 없이 `!진행` 시 매번 전체 로그를 읽게 되어 요금이 치솟을 수 있습니다. 게임 재개 시 반드시 `!캐시 재발급`을 먼저 실행해 주십시오.)")
+
         except Exception as e:
-            print(f"⚠️ [캐시 관리] {session.session_id}: 기존 캐시 삭제 실패 (이미 만료되었거나 존재하지 않음) - {e}")
+            print(f"⚠️ [캐시 관리] {session.session_id}: 캐시 삭제 실패 - {e}")
 
-    try:
-        caching_text, cache_tokens = await build_scenario_cache_text(client, DEFAULT_MODEL, session.scenario_data)
+            session.cache_name = None
+            session.cache_obj = None
+            session.cache_model = None
+            await save_session_data(session)
 
-        creation_cost = calculate_cost(DEFAULT_MODEL, input_tokens=cache_tokens)
-        storage_cost = calculate_cost(DEFAULT_MODEL, cache_storage_tokens=cache_tokens, storage_hours=1)
-        session.total_cost += (creation_cost + storage_cost)
+            await ctx.send(f"⚠️ 캐시 삭제 중 오류가 발생했습니다 (이미 만료되어 사라졌을 확률이 높습니다): {e}\n✅ 시스템 상의 캐시 연결은 안전하게 해제되었습니다.")
 
-        print(
-            f"💰 [비용 보고] 세션({session.session_id}) 수동 캐시 발급: ${creation_cost + storage_cost:.6f} (누적: ${session.total_cost:.6f})")
-
-        cache = await asyncio.to_thread(
-            client.caches.create,
-            model=DEFAULT_MODEL,
-            config=types.CreateCachedContentConfig(
-                system_instruction=SYSTEM_INSTRUCTION,
-                contents=[types.Content(role="user", parts=[types.Part.from_text(text=caching_text)])],
-                ttl="3600s"
-            )
-        )
-
-        session.cache_obj = cache
-        session.cache_name = cache.name
-        session.cache_model = DEFAULT_MODEL
-        await save_session_data(session)
-
-        await ctx.send(f"✅ 수동 캐시 재발급 완료! (새 캐시 ID: {cache.name})\n누적 비용에 캐시 생성 및 1시간 유지 비용이 합산되었습니다.")
-
-    except Exception as e:
-        await ctx.send(f"⚠️ 캐시 재발급 중 오류가 발생했습니다: {e}")
-
-
-@bot.command(name="캐시삭제")
-async def delete_cache(ctx):
-    """
-    현재 유지 중인 세션 캐시를 완전히 파기하여 스토리지 과금을 중단시킵니다.
-
-    Args:
-        ctx (commands.Context): 디스코드 컨텍스트 객체
-    """
-    session = active_sessions.get(ctx.channel.id)
-    if not session or ctx.channel.id != session.master_ch_id:
-        await ctx.send("이 명령어는 마스터 채널에서만 사용할 수 있습니다.")
-        return
-
-    if not session.cache_name:
-        await ctx.send("⚠️ 현재 유지 중인 캐시가 없습니다.")
-        return
-
-    await ctx.send("⏳ 구글 서버에서 기존 캐시를 명시적으로 삭제하는 중입니다...")
-
-    try:
-        await asyncio.to_thread(client.caches.delete, name=session.cache_name)
-        print(f"🗑️ [캐시 관리] {session.session_id}: 수동 캐시({session.cache_name}) 삭제 완료.")
-
-        session.cache_name = None
-        session.cache_obj = None
-        session.cache_model = None
-        await save_session_data(session)
-
-        await ctx.send(
-            "✅ 캐시가 정상적으로 삭제되어 스토리지 과금이 중단되었습니다.\n(참고: 이후 캐시 없이 `!진행` 시 매번 전체 로그를 읽게 되어 요금이 치솟을 수 있습니다. 게임 재개 시 반드시 `!캐시재발급`을 먼저 실행해 주십시오.)")
-
-    except Exception as e:
-        print(f"⚠️ [캐시 관리] {session.session_id}: 캐시 삭제 실패 - {e}")
-
-        session.cache_name = None
-        session.cache_obj = None
-        session.cache_model = None
-        await save_session_data(session)
-
-        await ctx.send(f"⚠️ 캐시 삭제 중 오류가 발생했습니다 (이미 만료되어 사라졌을 확률이 높습니다): {e}\n✅ 시스템 상의 캐시 연결은 안전하게 해제되었습니다.")
+    else:
+        await ctx.send("⚠️ 잘못된 인자입니다. 사용법: `!캐시 [재발급/삭제]`")
 
 
 # ========== 실행부(Execution) ==========
