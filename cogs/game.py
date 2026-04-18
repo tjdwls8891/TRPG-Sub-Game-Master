@@ -139,7 +139,6 @@ class GameCog(commands.Cog):
         )
         return None
 
-
     @commands.command(name="진행")
     async def proceed_turn(self, ctx, *, instruction: str = ""):
         """
@@ -161,108 +160,115 @@ class GameCog(commands.Cog):
         if not getattr(session, "is_started", False):
             return await ctx.send("⚠️ 세션이 아직 시작되지 않았습니다. API 역할 동기화를 위해 반드시 `!시작` 명령어를 먼저 실행하십시오.")
 
-        # 1. 태그 정규식 파싱
-        img_pattern = r'(상|중|하):([^\s]+)'
-        img_tags = re.findall(img_pattern, instruction)
-
-        top_imgs, mid_imgs, bottom_imgs = [], [], []
-        for pos, kw in img_tags:
-            if pos == '상':
-                top_imgs.append(kw)
-            elif pos == '중':
-                mid_imgs.append(kw)
-            elif pos == '하':
-                bottom_imgs.append(kw)
-
-        res_pattern = r'자:([^\s;]+);([^\s;]+);([-+]?\d+)'
-        res_tags = re.findall(res_pattern, instruction)
-
-        for char_name, item_name, amount_str in res_tags:
-            amount = int(amount_str)
-            if char_name not in session.resources:
-                session.resources[char_name] = {}
-            session.resources[char_name][item_name] = session.resources[char_name].get(item_name, 0) + amount
-
-        status_pattern = r'태:([^\s;]+);([^\s]+)'
-        status_tags = re.findall(status_pattern, instruction)
-
-        for char_name, status_text in status_tags:
-            if char_name not in session.statuses:
-                session.statuses[char_name] = []
-
-            # 값 앞에 '-'가 붙어 있으면 해당 상태이상을 리스트에서 제거
-            if status_text.startswith("-"):
-                target_status = status_text[1:]
-                if target_status in session.statuses[char_name]:
-                    session.statuses[char_name].remove(target_status)
-            else:
-                if status_text not in session.statuses[char_name]:
-                    session.statuses[char_name].append(status_text)
-
-        # 2. 파싱된 태그 텍스트들을 AI 프롬프트용 지시문에서 제거
-        clean_instruction = re.sub(img_pattern, '', instruction)
-        clean_instruction = re.sub(res_pattern, '', clean_instruction)
-        clean_instruction = re.sub(status_pattern, '', clean_instruction)
-        clean_instruction = re.sub(r'\s+', ' ', clean_instruction).strip()
-
-        if not clean_instruction:
-            clean_instruction = "현재까지의 상황, 세계관, 누적된 기억, 그리고 플레이어의 직전 행동을 바탕으로 물리적 인과율에 맞춰 개연성 있게 다음 상황을 진행하고 묘사하십시오."
-
-        await ctx.send("⏳ AI가 묘사를 생성 중입니다. 완료 후 게임 채널에 타이핑 연출을 시작합니다...")
-
-        prompt = core.PromptBuilder.build_prompt(session, clean_instruction)
-        core.write_log(session.session_id, "api", f"[메인 턴 묘사 요청]\n{prompt}")
-
-        current_contents = session.raw_logs + [
-            types.Content(role="user", parts=[types.Part.from_text(text=prompt)])
-        ]
-
-        async def generate_with_retry(retry_count=0):
-            try:
-                if session.cache_obj and session.cache_name:
-                    config = types.GenerateContentConfig(cached_content=session.cache_name, temperature=0.7)
-                else:
-                    config = types.GenerateContentConfig(system_instruction=self.bot.system_instruction, temperature=0.7)
-
-                async with game_channel.typing():
-                    return await asyncio.to_thread(
-                        self.bot.genai_client.models.generate_content,
-                        model=core.DEFAULT_MODEL,
-                        contents=current_contents,
-                        config=config
-                    )
-            except APIError as e:
-                if retry_count == 0 and ("cache" in str(e).lower() or e.code in [400, 404]):
-                    await ctx.send("🔄 **[시스템 알림]** 장기 기억 캐시가 만료되어 자동으로 재발급을 진행합니다. 턴 묘사는 이어서 출력됩니다...")
-
-                    caching_text, cache_tokens = await core.build_scenario_cache_text(self.bot, core.DEFAULT_MODEL,
-                                                                                 session.scenario_data)
-                    creation_cost = core.calculate_cost(core.DEFAULT_MODEL, input_tokens=cache_tokens)
-                    storage_cost = core.calculate_cost(core.DEFAULT_MODEL, cache_storage_tokens=cache_tokens, storage_hours=1)
-                    session.total_cost += (creation_cost + storage_cost)
-
-                    print(
-                        f"💰 [비용 보고] 세션({session.session_id}) 진행 중 자동 캐시 발급: ${creation_cost + storage_cost:.6f} (누적: ${session.total_cost:.6f})")
-
-                    new_cache = await asyncio.to_thread(
-                        self.bot.genai_client.caches.create,
-                        model=core.DEFAULT_MODEL,
-                        config=types.CreateCachedContentConfig(
-                            system_instruction=self.bot.system_instruction,
-                            contents=[types.Content(role="user", parts=[types.Part.from_text(text=caching_text)])],
-                            ttl="3600s"
-                        )
-                    )
-                    session.cache_obj = new_cache
-                    session.cache_name = new_cache.name
-                    session.cache_model = core.DEFAULT_MODEL
-                    await core.save_session_data(self.bot, session)
-
-                    return await generate_with_retry(retry_count=1)
-                else:
-                    raise e
+        try:
+            await game_channel.set_permissions(ctx.guild.default_role, send_messages=False)
+        except Exception as e:
+            print(f"⚠️ 자동 채팅 잠금 실패: {e}")
 
         try:
+            # 1. 태그 정규식 파싱
+            img_pattern = r'(상|중|하):([^\s]+)'
+            img_tags = re.findall(img_pattern, instruction)
+
+            top_imgs, mid_imgs, bottom_imgs = [], [], []
+            for pos, kw in img_tags:
+                if pos == '상':
+                    top_imgs.append(kw)
+                elif pos == '중':
+                    mid_imgs.append(kw)
+                elif pos == '하':
+                    bottom_imgs.append(kw)
+
+            res_pattern = r'자:([^\s;]+);([^\s;]+);([-+]?\d+)'
+            res_tags = re.findall(res_pattern, instruction)
+
+            for char_name, item_name, amount_str in res_tags:
+                amount = int(amount_str)
+                if char_name not in session.resources:
+                    session.resources[char_name] = {}
+                session.resources[char_name][item_name] = session.resources[char_name].get(item_name, 0) + amount
+
+            status_pattern = r'태:([^\s;]+);([^\s]+)'
+            status_tags = re.findall(status_pattern, instruction)
+
+            for char_name, status_text in status_tags:
+                if char_name not in session.statuses:
+                    session.statuses[char_name] = []
+
+                # 값 앞에 '-'가 붙어 있으면 해당 상태이상을 리스트에서 제거
+                if status_text.startswith("-"):
+                    target_status = status_text[1:]
+                    if target_status in session.statuses[char_name]:
+                        session.statuses[char_name].remove(target_status)
+                else:
+                    if status_text not in session.statuses[char_name]:
+                        session.statuses[char_name].append(status_text)
+
+            # 2. 파싱된 태그 텍스트들을 AI 프롬프트용 지시문에서 제거
+            clean_instruction = re.sub(img_pattern, '', instruction)
+            clean_instruction = re.sub(res_pattern, '', clean_instruction)
+            clean_instruction = re.sub(status_pattern, '', clean_instruction)
+            clean_instruction = re.sub(r'\s+', ' ', clean_instruction).strip()
+
+            if not clean_instruction:
+                clean_instruction = "현재까지의 상황, 세계관, 누적된 기억, 그리고 플레이어의 직전 행동을 바탕으로 물리적 인과율에 맞춰 개연성 있게 다음 상황을 진행하고 묘사하십시오."
+
+            await ctx.send("⏳ AI가 묘사를 생성 중입니다. 완료 후 게임 채널에 타이핑 연출을 시작합니다...")
+
+            prompt = core.PromptBuilder.build_prompt(session, clean_instruction)
+            core.write_log(session.session_id, "api", f"[메인 턴 묘사 요청]\n{prompt}")
+
+            current_contents = session.raw_logs + [
+                types.Content(role="user", parts=[types.Part.from_text(text=prompt)])
+            ]
+
+            async def generate_with_retry(retry_count=0):
+                try:
+                    if session.cache_obj and session.cache_name:
+                        config = types.GenerateContentConfig(cached_content=session.cache_name, temperature=0.7)
+                    else:
+                        config = types.GenerateContentConfig(system_instruction=self.bot.system_instruction,
+                                                             temperature=0.7)
+
+                    async with game_channel.typing():
+                        return await asyncio.to_thread(
+                            self.bot.genai_client.models.generate_content,
+                            model=core.DEFAULT_MODEL,
+                            contents=current_contents,
+                            config=config
+                        )
+                except APIError as e:
+                    if retry_count == 0 and ("cache" in str(e).lower() or e.code in [400, 404]):
+                        await ctx.send("🔄 **[시스템 알림]** 장기 기억 캐시가 만료되어 자동으로 재발급을 진행합니다. 턴 묘사는 이어서 출력됩니다...")
+
+                        caching_text, cache_tokens = await core.build_scenario_cache_text(self.bot, core.DEFAULT_MODEL,
+                                                                                          session.scenario_data)
+                        creation_cost = core.calculate_cost(core.DEFAULT_MODEL, input_tokens=cache_tokens)
+                        storage_cost = core.calculate_cost(core.DEFAULT_MODEL, cache_storage_tokens=cache_tokens,
+                                                           storage_hours=1)
+                        session.total_cost += (creation_cost + storage_cost)
+
+                        print(
+                            f"💰 [비용 보고] 세션({session.session_id}) 진행 중 자동 캐시 발급: ${creation_cost + storage_cost:.6f} (누적: ${session.total_cost:.6f})")
+
+                        new_cache = await asyncio.to_thread(
+                            self.bot.genai_client.caches.create,
+                            model=core.DEFAULT_MODEL,
+                            config=types.CreateCachedContentConfig(
+                                system_instruction=self.bot.system_instruction,
+                                contents=[types.Content(role="user", parts=[types.Part.from_text(text=caching_text)])],
+                                ttl="3600s"
+                            )
+                        )
+                        session.cache_obj = new_cache
+                        session.cache_name = new_cache.name
+                        session.cache_model = core.DEFAULT_MODEL
+                        await core.save_session_data(self.bot, session)
+
+                        return await generate_with_retry(retry_count=1)
+                    else:
+                        raise e
+
             response = await generate_with_retry()
 
             meta = response.usage_metadata
@@ -271,7 +277,7 @@ class GameCog(commands.Cog):
             cached_tokens = getattr(meta, "cached_content_token_count", 0)
 
             turn_cost = core.calculate_cost(core.DEFAULT_MODEL, input_tokens=in_tokens, output_tokens=out_tokens,
-                                       cached_read_tokens=cached_tokens)
+                                            cached_read_tokens=cached_tokens)
             session.total_cost += turn_cost
             print(
                 f"💰 [비용 보고] 턴 진행 - In:{in_tokens}, Cached:{cached_tokens}, Out:{out_tokens} | 턴 발생: ${turn_cost:.6f} (누적: ${session.total_cost:.6f})")
@@ -306,7 +312,8 @@ class GameCog(commands.Cog):
                     await core.send_image_by_keyword(game_channel, ctx, session, kw)
             else:
                 for i, paragraph in enumerate(paragraphs):
-                    await core.stream_text_to_channel(self.bot, game_channel, paragraph, words_per_tick=5, tick_interval=1.5)
+                    await core.stream_text_to_channel(self.bot, game_channel, paragraph, words_per_tick=5,
+                                                      tick_interval=1.5)
 
                     if i == 0:
                         for kw in top_imgs:
@@ -351,8 +358,9 @@ class GameCog(commands.Cog):
                         out_tokens = meta.candidates_token_count
                         cached_tokens = getattr(meta, "cached_content_token_count", 0)
 
-                        turn_cost = core.calculate_cost(core.LOGIC_MODEL, input_tokens=in_tokens, output_tokens=out_tokens,
-                                                   cached_read_tokens=cached_tokens)
+                        turn_cost = core.calculate_cost(core.LOGIC_MODEL, input_tokens=in_tokens,
+                                                        output_tokens=out_tokens,
+                                                        cached_read_tokens=cached_tokens)
                         session.total_cost += turn_cost
                         print(
                             f"💰 [비용 보고] 기억 압축 진행 - In:{in_tokens}, Cached:{cached_tokens}, Out:{out_tokens} | 턴 발생: ${turn_cost:.6f} (누적: ${session.total_cost:.6f})")
@@ -379,6 +387,13 @@ class GameCog(commands.Cog):
 
         except Exception as e:
             await ctx.send(f"⚠️ 시스템 오류가 발생했습니다: {str(e)}")
+
+        finally:
+            # [채팅 자동 해제] 에러가 발생하여 중간에 멈추든, 정상적으로 종료되든 무조건 채팅을 다시 풀어줍니다.
+            try:
+                await game_channel.set_permissions(ctx.guild.default_role, send_messages=True)
+            except Exception as e:
+                print(f"⚠️ 자동 채팅 해제 실패: {e}")
 
 
     @commands.command(name="기억압축")

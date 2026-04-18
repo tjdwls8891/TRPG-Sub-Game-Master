@@ -83,6 +83,55 @@ class CharacterCog(commands.Cog):
         if game_channel:
             await game_channel.send(f"✅ <@{user_id_str}>의 [{key}] 항목이 '{value}'(으)로 갱신되었습니다.")
 
+    @commands.command(name="증감")
+    async def adjust_stat(self, ctx, char_name: str, key: str, amount_str: str):
+        """
+        특정 캐릭터의 프로필/스탯 속성값이 숫자일 경우, 지정한 수치만큼 더하거나 뺍니다.
+
+        Args:
+            ctx (commands.Context): 디스코드 컨텍스트 객체
+            char_name (str): 대상 캐릭터 이름
+            key (str): 갱신할 속성 키
+            amount_str (str): 변동할 수치 (예: 5, +5, -3)
+        """
+        session = self.bot.active_sessions.get(ctx.channel.id)
+        if not session or ctx.channel.id != session.master_ch_id:
+            return await ctx.send("이 명령어는 마스터 채널에서만 사용할 수 있습니다.")
+
+        user_id_str = core.get_uid_by_char_name(session, char_name)
+        if not user_id_str:
+            return await ctx.send(f"⚠️ '{char_name}'(으)로 참가한 플레이어를 찾을 수 없습니다.")
+
+        player_data = session.players[user_id_str]
+
+        if key not in player_data["profile"]:
+            allowed_keys = ", ".join(player_data["profile"].keys())
+            return await ctx.send(f"⚠️ 해당 시나리오에 없는 항목입니다. (가능한 항목: {allowed_keys})")
+
+        try:
+            old_val = int(player_data["profile"][key])
+        except ValueError:
+            return await ctx.send(
+                f"⚠️ [{key}] 항목의 현재 값이 순수한 숫자가 아니어서 연산할 수 없습니다. (현재 값: {player_data['profile'][key]})")
+
+        try:
+            amount = int(amount_str)
+        except ValueError:
+            return await ctx.send("⚠️ 변동할 수치는 반드시 숫자 형태여야 합니다. (예: 5, -3)")
+
+        new_val = old_val + amount
+        weight_str = f"{amount:+d}"
+
+        player_data["profile"][key] = str(new_val)
+        await core.save_session_data(self.bot, session)
+
+        await ctx.send(f"✅ {char_name}의 [{key}] 수치 연산 완료: {old_val} -> {new_val} ({weight_str})")
+
+        game_channel = self.bot.get_channel(session.game_ch_id)
+        if game_channel:
+            await game_channel.send(
+                f"> 📢 **[스탯 변동]** {char_name}의 [{key}]이(가) {new_val}(으)로 변경되었습니다. ({old_val}{weight_str})")
+
 
     @commands.command(name="외형")
     async def manage_appearance(self, ctx, char_name: str, *, appearance: str = None):

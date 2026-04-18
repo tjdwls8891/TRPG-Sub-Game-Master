@@ -10,5 +10,6 @@ __pycache__/
 sessions/
 
 # (선택 사항) 용량이 큰 미디어나 시나리오 파일들을 제외하려면 아래 주석을 해제하세요.
+Backup_Bot.py
 # media/
 # scenarios/
