@@ -2,17 +2,18 @@ import os
 import uuid
 import asyncio
 import discord
+import time
 from discord.ext import commands
 from google.genai import types
 
-# 분리된 코어 유틸리티 모듈 임포트
+# 코어 유틸리티 모듈 임포트
 import core
 
-
+# ========== [세션 관리 모듈(Session Cog)] ==========
 class SessionCog(commands.Cog):
     """
     새로운 게임 세션의 생성, 디스코드 채널 세팅, AI 컨텍스트 초기화,
-    그리고 게임의 시작 및 소개를 전담하는 모듈입니다.
+    그리고 게임의 시작 및 소개를 전담하는 모듈.
     """
     def __init__(self, bot):
         self.bot = bot
@@ -20,7 +21,10 @@ class SessionCog(commands.Cog):
     @commands.command(name="새세션")
     async def create_session(self, ctx, scenario_id: str = None):
         """
-        서버에 새로운 카테고리와 채널을 생성하고 시나리오 데이터를 캐싱하여 세션을 준비합니다.
+        서버에 새로운 카테고리와 채널을 생성하고 시나리오 데이터를 캐싱하여 세션 준비.
+
+        NOTE: UUID를 이용해 샌드박스화된 채널 환경을 프로비저닝하고, AI 서버에
+        장기 기억 캐시(Context Cache)를 선결제하여 게임 중 발생할 응답 지연(Delay)을 최소화.
 
         Args:
             ctx (commands.Context): 디스코드 컨텍스트 객체
@@ -59,13 +63,21 @@ class SessionCog(commands.Cog):
 
         try:
             await ctx.send("⏳ 시나리오 설정 및 장기 기억 캐싱 중...")
-            caching_text, cache_tokens = await core.build_scenario_cache_text(self.bot, core.DEFAULT_MODEL, scenario_data)
+            caching_text, cache_tokens = await core.build_scenario_cache_text(self.bot, core.DEFAULT_MODEL,
+                                                                              scenario_data)
 
-            creation_cost = core.calculate_cost(core.DEFAULT_MODEL, input_tokens=cache_tokens)
-            storage_cost = core.calculate_cost(core.DEFAULT_MODEL, cache_storage_tokens=cache_tokens, storage_hours=1)
-            session.total_cost += (creation_cost + storage_cost)
-            print(
-                f"💰 [비용 보고] 세션({session_id}) 캐시 생성 및 1시간 저장비 선결제: ${creation_cost + storage_cost:.6f} (누적: ${session.total_cost:.6f})")
+            # NOTE: 유지 비용 선결제를 폐지하고, 캐시 생성 시점에는 순수 업로드(입력) 비용만 정산.
+            upload_cost = core.calculate_upload_cost(core.DEFAULT_MODEL, input_tokens=cache_tokens)
+            session.total_cost += upload_cost
+            session.cache_created_at = time.time()
+            session.cache_tokens = cache_tokens
+
+            report_msg = f"💰 **[캐시 업로드 완료]**\n- 초기 업로드 비용: {core.format_cost(upload_cost)}\n- 누적 비용: {core.format_cost(session.total_cost)}"
+            print(report_msg)
+
+            master_ch = self.bot.get_channel(session.master_ch_id)
+            if master_ch:
+                await master_ch.send(report_msg)
 
             cache = await asyncio.to_thread(
                 self.bot.genai_client.caches.create,
@@ -73,13 +85,14 @@ class SessionCog(commands.Cog):
                 config=types.CreateCachedContentConfig(
                     system_instruction=self.bot.system_instruction,
                     contents=[types.Content(role="user", parts=[types.Part.from_text(text=caching_text)])],
-                    ttl="3600s"
+                    ttl="21600s"
                 )
             )
             session.cache_obj = cache
             session.cache_name = cache.name
             await ctx.send(f"✅ 캐싱 완료! (캐시 ID: {cache.name})")
         except Exception as e:
+            # WARNING: 캐싱에 실패하더라도 세션 객체 자체는 정상 구동되도록 예외 처리.
             await ctx.send(f"⚠️ 캐싱 실패 (일반 모드로 진행됩니다. 원인: {e})")
 
         self.bot.active_sessions[game_ch.id] = session
@@ -93,7 +106,10 @@ class SessionCog(commands.Cog):
     @commands.has_permissions(administrator=True)
     async def start_game(self, ctx):
         """
-        세션의 시작 메시지를 게임 채널에 출력하고 AI 모델에 컨텍스트를 주입합니다. (1회 한정)
+        세션의 시작 메시지를 게임 채널에 출력하고 AI 모델에 컨텍스트 주입. (1회 한정)
+
+        NOTE: 시작 메시지를 시스템이 아닌 AI(role="model")의 발화로 조작하여
+        raw_logs에 주입함으로써, AI 스스로 게임 마스터 스탠스를 유지하도록 유도.
 
         Args:
             ctx (commands.Context): 디스코드 컨텍스트 객체
@@ -106,6 +122,7 @@ class SessionCog(commands.Cog):
         if not game_channel:
             return await ctx.send("⚠️ 게임 채널을 찾을 수 없습니다.")
 
+        # NOTE: 이중 실행 시 AI 프롬프트 오염을 막기 위한 상태 검증 장치.
         if getattr(session, "is_started", False):
             return await ctx.send("⚠️ 이미 시작된 세션입니다. 한 세션에서 `!시작` 명령어는 한 번만 사용할 수 있습니다.")
 
@@ -127,7 +144,7 @@ class SessionCog(commands.Cog):
     @start_game.error
     async def start_game_error(self, ctx, error):
         """
-        start_game 명령어 실행 중 권한 등의 에러가 발생했을 때 처리합니다.
+        start_game 명령어 실행 중 발생하는 권한 에러 처리.
 
         Args:
             ctx (commands.Context): 디스코드 컨텍스트 객체
@@ -140,7 +157,10 @@ class SessionCog(commands.Cog):
     @commands.command(name="소개")
     async def send_intro(self, ctx):
         """
-        시나리오 인트로와 캐릭터 생성 안내 메시지를 게임 채널에 자동으로 스트리밍합니다.
+        시나리오 인트로와 캐릭터 생성 안내 메시지를 게임 채널에 자동으로 스트리밍.
+
+        NOTE: 시나리오별로 상이한 플레이어 스탯(pc_template)을 동적으로 추출하여
+        안내문을 자동 완성함으로써 온보딩(Onboarding) 프로세스 일관성 유지.
 
         Args:
             ctx (commands.Context): 디스코드 컨텍스트 객체
@@ -173,6 +193,6 @@ class SessionCog(commands.Cog):
 
 async def setup(bot):
     """
-    디스코드 봇이 이 파일을 로드할 때 호출되는 필수 설정 함수입니다.
+    디스코드 봇이 이 파일을 로드할 때 호출되는 필수 설정 함수.
     """
     await bot.add_cog(SessionCog(bot))

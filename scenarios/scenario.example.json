@@ -1,0 +1,35 @@
+{
+    "worldview": "세계관 정보. 수만 자 분량.",
+    "desc_guide": "개별 시나리오의 묘사 분위기, 가이드.",
+    "story_guide": "시나리오 스토리 진행의 대략적인 가이드라인.",
+    "scenario_intro": "!소개 명령어에서 출력될 인트로 중 시나리오 항목.",
+    "start_message": "!시작 명령어에서 출력될 시나리오 시작 묘사.",
+    "keyword_memory": [
+        {
+            "keywords": ["임시1", "임시2"],
+            "description": "임시1, 임시2 키워드 내용"
+        },
+        {
+            "keywords": ["임시3"],
+            "description": "임시3 키워드 내용"
+        }
+    ],
+    "status_code_block": "```css\n\uD83D\uDCC5 [#{현재 턴 수} {날짜(년/월/일)} {시간대(새벽/아침/오전/낮/오후/저녁/밤}] \n\uD83D\uDCCD 현재 위치: {현재 장소 명칭}\n\uD83D\uDCDD 상황 요약: {현재 직면한 상황 20자 이내 요약}\n\uD83D\uDCCB {인물 관계 데이터}\n{npc이름1} | {나이} | {관계} | ❤\uFE0F ○/100 | {현재 감정/상태}\n{npc이름2} | {나이} | {관계} | ❤\uFE0F ○/100 | {현재 감정/상태}\n{npc이름3} | {나이} | {관계} | ❤\uFE0F ○/100 | {현재 감정/상태}\n```",
+    "default_npcs": {
+        "npc이름": {
+            "name": "npc이름",
+            "details": "npc정보"
+        }
+    },
+    "pc_template": {
+        "스탯1": "",
+        "스탯2": "",
+        "스탯3": "",
+        "스탯4": ""
+    },
+    "stat_system": "스탯 척도 및 판정 기준 가이드",
+    "media_dir": "./media",
+    "media_keywords": {
+        "키워드": "파일명.확장자"
+    }
+}

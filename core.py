@@ -1,18 +1,40 @@
 import os
-import re
 import json
 import asyncio
 import random
+import time
 from datetime import datetime
 
 import discord
 from google.genai import types
 from google.genai.errors import APIError
 
-# ========== 전역 상수(Constants) ==========
+# ========== [전역 상수(Constants)] ==========
 DEFAULT_MODEL = "gemini-3-flash-preview"
-LOGIC_MODEL = "gemini-3.1-pro-preview"
+LOGIC_MODEL = "gemini-3-flash-preview"
+# LOGIC_MODEL = "gemini-3-pro-preview"
+EXCHANGE_RATE = 1500.0
 
+TRPG_SAFETY_SETTINGS = [
+    types.SafetySetting(
+        category=types.HarmCategory.HARM_CATEGORY_HATE_SPEECH,
+        threshold=types.HarmBlockThreshold.BLOCK_NONE,
+    ),
+    types.SafetySetting(
+        category=types.HarmCategory.HARM_CATEGORY_HARASSMENT,
+        threshold=types.HarmBlockThreshold.BLOCK_NONE,
+    ),
+    types.SafetySetting(
+        category=types.HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT,
+        threshold=types.HarmBlockThreshold.BLOCK_NONE,
+    ),
+    types.SafetySetting(
+        category=types.HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT,
+        threshold=types.HarmBlockThreshold.BLOCK_NONE,
+    ),
+]
+
+# NOTE: API 사용 모델별 100만 토큰 당 단가표. 세션별 누적 과금액을 정밀하게 추적하기 위해 하드코딩된 기준 데이터.
 PRICING_1M = {
     "gemini-3-flash-preview": {
         "INPUT": 0.50,
@@ -25,13 +47,26 @@ PRICING_1M = {
         "OUTPUT": 12.00,
         "CACHE_READ": 0.20,
         "CACHE_STORAGE_PER_HOUR": 4.50
+    },
+    "gemini-2.5-pro": {
+        "INPUT": 1.25,
+        "OUTPUT": 10.00,
+        "CACHE_READ": 0.20,
+        "CACHE_STORAGE_PER_HOUR": 4.50
     }
 }
 
-# ========== 데이터 모델(Data Models) ==========
+IMAGE_MODEL = "gemini-3.1-flash-image-preview"
+IMAGE_GEN_COST = 0.04*1500  # 1024x1024 해상도 1장 출력 고정 비용
+
+
+# ========== [데이터 모델(Data Models)] ==========
 class TRPGSession:
     """
-    단일 TRPG 세션의 모든 상태와 데이터를 관리하는 데이터 모델 클래스입니다.
+    단일 TRPG 세션의 모든 상태와 데이터를 관리하는 데이터 모델 클래스.
+
+    비동기 환경에서 데이터 파편화를 막기 위해 채널 메타데이터, 플레이어/NPC 상태, 자원, 로그 배열 등을
+    하나의 캡슐화된 객체로 중앙 통제.
 
     Args:
         session_id (str): 세션의 고유 식별자 (UUID 기반)
@@ -60,14 +95,24 @@ class TRPGSession:
         self.raw_logs = []
         self.current_turn_logs = []
         self.uncompressed_logs = []
+        self.note = ""
+
+        self.cache_note = ""
+        self.cache_created_at = 0.0
+        self.cache_tokens = 0
 
         self.turn_count = 0
         self.is_started = False
         self.total_cost = 0.0
 
+        self.volume = 0.3
+
         self.voice_client = None
         self.current_bgm = None
         self.is_bgm_looping = False
+
+        self.is_processing = False
+        self.last_turn_anchor_id = None
 
         self.npcs = {}
         default_npcs = scenario_data.get("default_npcs", {})
@@ -84,12 +129,16 @@ class TRPGSession:
                     "details": str(npc_data)
                 }
 
-# ========== 프롬프트 빌더(Prompt Builder) ==========
+
+# ========== [프롬프트 빌더(Prompt Builder)] ==========
 class PromptBuilder:
     """
-    TRPG 세션의 턴 진행을 위한 LLM 프롬프트를 단계별로 조립하는 빌더 클래스입니다.
-    기존 format_turn_prompt 함수의 문자열 출력을 1글자의 오차도 없이 완벽히 동일하게 재현합니다.
+    TRPG 세션의 턴 진행을 위한 LLM 프롬프트를 단계별로 조립하는 빌더 클래스.
+
+    할루시네이션을 통제하기 위해 '요약 -> 캐릭터 -> NPC -> 기억 -> 행동 -> 룰' 순서의
+    엄격한 정보 주입 포맷을 시스템 레벨에서 강제.
     """
+
     def __init__(self, session: TRPGSession, gm_instruction: str):
         self.session = session
         self.gm_instruction = gm_instruction
@@ -125,6 +174,8 @@ class PromptBuilder:
         return self
 
     def add_triggered_npc_block(self):
+        # NOTE: 토큰 낭비 및 불필요한 설정 개입을 막기 위해, 최근 10개 로그에 이름이 언급된
+        # NPC의 디테일 설정만 선택적으로 프롬프트에 주입하는 트리거 최적화.
         if self.session.npcs:
             triggered_npcs = {}
             default_npcs = self.session.scenario_data.get("default_npcs", {})
@@ -154,6 +205,7 @@ class PromptBuilder:
         return self
 
     def add_keyword_memory_block(self):
+        # NOTE: 특정 키워드가 최근 로그에 등장할 때만 연관 기억을 활성화하여 동적 컨텍스트 최적화 수행.
         keyword_memories = self.session.scenario_data.get("keyword_memory", [])
         if keyword_memories:
             triggered_memories = set()
@@ -179,6 +231,12 @@ class PromptBuilder:
         self.blocks.append(block)
         return self
 
+    def add_note_block(self):
+        if getattr(self.session, "note", ""):
+            block = f"\n▶ 실시간 노트 (GM 직접 관리):\n{self.session.note}\n"
+            self.blocks.append(block)
+        return self
+
     def add_gm_instruction_block(self):
         block = f"\n[진행자(GM)의 판정 결과 및 지시사항]\n▶ {self.gm_instruction}\n\n"
         self.blocks.append(block)
@@ -197,10 +255,11 @@ class PromptBuilder:
     @classmethod
     def build_prompt(cls, session, gm_instruction: str) -> str:
         """
-        내부 블록 조립을 순차적으로 실행하여 완성된 문자열을 즉시 반환하는 파사드(Facade) 메서드
+        내부 블록 조립을 순차적으로 실행하여 완성된 문자열을 즉시 반환하는 파사드(Facade) 메서드.
         """
         return (cls(session, gm_instruction)
                 .add_memory_block()
+                .add_note_block()
                 .add_player_block()
                 .add_triggered_npc_block()
                 .add_keyword_memory_block()
@@ -210,10 +269,88 @@ class PromptBuilder:
                 .build())
 
 
-# ========== 코어 유틸리티 함수(Utilities) ==========
-def calculate_cost(model_id: str, input_tokens=0, output_tokens=0, cached_read_tokens=0, cache_storage_tokens=0, storage_hours=0) -> float:
+# ========== [비용 산출 및 포맷팅 유틸리티] ==========
+
+def format_cost(cost_krw: float) -> str:
     """
-    API 사용량을 기반으로 과금액(USD)을 산출합니다.
+    원화(KRW)로 환산된 비용을 소수점 셋째 자리에서 반올림하여 UI 출력용 포맷으로 변환.
+    """
+    return f"₩{cost_krw:.2f}"
+
+
+def calculate_upload_cost(model_id: str, input_tokens=0, output_tokens=0, cached_read_tokens=0) -> float:
+    """
+    API 사용량을 기반으로 업로드 및 생성 과금액을 원화(KRW)로 산출.
+
+    NOTE: 내부 데이터의 무결성을 위해 소수점 이하의 부동소수점 값을 반올림 없이 원형 그대로 반환.
+    """
+    input_tokens = input_tokens or 0
+    output_tokens = output_tokens or 0
+    cached_read_tokens = cached_read_tokens or 0
+
+    rates = PRICING_1M.get(model_id, PRICING_1M[DEFAULT_MODEL])
+    actual_input_tokens = max(0, input_tokens - cached_read_tokens)
+
+    cost_usd = 0.0
+    cost_usd += (actual_input_tokens / 1_000_000) * rates["INPUT"]
+    cost_usd += (output_tokens / 1_000_000) * rates["OUTPUT"]
+    cost_usd += (cached_read_tokens / 1_000_000) * rates["CACHE_READ"]
+
+    return cost_usd * EXCHANGE_RATE
+
+
+def calculate_storage_cost(model_id: str, cache_storage_tokens: int, duration_seconds: float) -> float:
+    """
+    캐시 보관 시간을 초 단위에서 분 단위로 반올림하여 스토리지 과금액을 원화(KRW)로 산출.
+    """
+    rates = PRICING_1M.get(model_id, PRICING_1M[DEFAULT_MODEL])
+
+    # NOTE: 초 단위에서 분 단위로 반올림 (예: 15분 45초 -> 16분) 수행.
+    storage_minutes = round(duration_seconds / 60.0)
+
+    cost_usd = (cache_storage_tokens / 1_000_000) * (rates["CACHE_STORAGE_PER_HOUR"] / 60.0) * storage_minutes
+    return cost_usd * EXCHANGE_RATE
+
+
+async def process_cache_deletion(bot, session) -> float:
+    """
+    캐시 파기 시 보관 시간을 계산하여 정산하고 캐시 관련 메타데이터를 초기화.
+
+    Returns:
+        float: 정산된 보관 비용 (KRW)
+    """
+    storage_cost_krw = 0.0
+    if session.cache_name and getattr(session, "cache_created_at", 0.0) > 0:
+        duration_seconds = time.time() - session.cache_created_at
+        # NOTE: 설정된 최대 캐시 유지 시간(6시간 = 21600초)을 초과한 과금 방지용 상한선(Cap) 적용.
+        duration_seconds = min(duration_seconds, 21600.0)
+
+        cache_tokens = getattr(session, "cache_tokens", 32768)
+
+        # NOTE: AttributeError 방지를 위해 getattr를 사용하여 안전하게 접근하고 기본값(DEFAULT_MODEL) 할당.
+        model_id = getattr(session, "cache_model", DEFAULT_MODEL)
+        storage_cost_krw = calculate_storage_cost(model_id, cache_tokens, duration_seconds)
+        session.total_cost += storage_cost_krw
+
+    session.cache_name = None
+    session.cache_obj = None
+
+    # NOTE: 존재하지 않는 속성에 접근하여 발생하는 에러를 막기 위해 setattr 활용.
+    setattr(session, "cache_model", None)
+    session.cache_created_at = 0.0
+    session.cache_tokens = 0
+
+    await save_session_data(bot, session)
+    return storage_cost_krw
+
+
+# ========== [코어 유틸리티 함수(Utilities)] ==========
+def calculate_cost(model_id: str, input_tokens=0, output_tokens=0, cached_read_tokens=0, cache_storage_tokens=0,
+                   storage_hours=0) -> float:
+    """
+    API 사용량을 기반으로 과금액(USD) 산출.
+
+    입력, 출력 토큰 외에도 캐시 유지 비용 및 할인율을 종합적으로 합산하여 재무적 모니터링 지원.
 
     Args:
         model_id (str): 사용된 Gemini 모델 식별자
@@ -245,13 +382,13 @@ def calculate_cost(model_id: str, input_tokens=0, output_tokens=0, cached_read_t
 
 def load_scenario_from_file(scenario_id: str) -> dict | None:
     """
-    지정된 시나리오 ID에 해당하는 JSON 파일을 읽어옵니다.
+    지정된 시나리오 ID에 해당하는 JSON 파일을 파싱하여 딕셔너리로 반환.
 
     Args:
         scenario_id (str): 불러올 시나리오 파일의 이름 (확장자 제외)
 
     Returns:
-        dict | None: 파싱된 시나리오 데이터 딕셔너리. 파일이 없으면 None 반환.
+        dict | None: 파싱된 시나리오 데이터 딕셔너리. 파일 부재 시 None 반환.
     """
     filepath = f"scenarios/{scenario_id}.json"
     if os.path.exists(filepath):
@@ -262,7 +399,7 @@ def load_scenario_from_file(scenario_id: str) -> dict | None:
 
 def write_log(session_id: str, log_type: str, content: str):
     """
-    세션별 행동 및 시스템 로그를 타임스탬프와 함께 로컬 텍스트 파일로 저장합니다.
+    세션별 행동 및 시스템 로그를 타임스탬프와 함께 로컬 텍스트 파일로 영구 저장.
 
     Args:
         session_id (str): 로그를 저장할 세션 식별자
@@ -283,7 +420,7 @@ def write_log(session_id: str, log_type: str, content: str):
 
 def get_available_scenarios() -> list:
     """
-    scenarios 폴더 내에 존재하는 사용 가능한 시나리오 파일 목록을 반환합니다.
+    scenarios 폴더 내에 존재하는 사용 가능한 시나리오 파일 목록을 스캔하여 반환.
 
     Returns:
         list: '.json' 확장자가 제거된 파일명 문자열 리스트
@@ -293,11 +430,7 @@ def get_available_scenarios() -> list:
 
 async def save_session_data(bot, session: TRPGSession):
     """
-    진행 중인 세션 객체의 상태를 JSON 파일로 디스크에 저장합니다.
-
-    Args:
-        bot: 메인 봇 인스턴스
-        session (TRPGSession): 저장할 세션 객체
+    진행 중인 세션 객체의 상태를 JSON 파일로 디스크에 직렬화하여 저장.
     """
     if session.session_id not in bot.session_io_locks:
         bot.session_io_locks[session.session_id] = asyncio.Lock()
@@ -324,9 +457,15 @@ async def save_session_data(bot, session: TRPGSession):
             "raw_logs": serialized_raw_logs,
             "current_turn_logs": session.current_turn_logs,
             "uncompressed_logs": session.uncompressed_logs,
+            "note": getattr(session, "note", ""),
             "turn_count": session.turn_count,
             "is_started": getattr(session, "is_started", False),
-            "total_cost": getattr(session, "total_cost", 0.0)
+            "total_cost": getattr(session, "total_cost", 0.0),
+            "volume": getattr(session, "volume", 0.3),
+            "cache_note": getattr(session, "cache_note", ""),
+            "cache_created_at": getattr(session, "cache_created_at", 0.0),
+            "cache_tokens": getattr(session, "cache_tokens", 0),
+            "last_turn_anchor_id": getattr(session, "last_turn_anchor_id", None)
         }
 
         def write_file():
@@ -337,15 +476,16 @@ async def save_session_data(bot, session: TRPGSession):
 
 
 # noinspection PyShadowingNames
-async def build_scenario_cache_text(bot, model_id, scenario_data: dict) -> tuple[str, int]:
+async def build_scenario_cache_text(bot, model_id, scenario_data: dict, cache_note: str = "") -> tuple[str, int]:
     """
-    시나리오 데이터를 바탕으로 Context Caching을 위한 '시나리오 핵심 룰북' 텍스트를 조립합니다.
-    최소 요구 토큰 수 미달 시 패딩을 추가합니다.
+    시나리오 데이터를 바탕으로 Context Caching을 위한 '시나리오 핵심 룰북' 텍스트 조립.
+    최소 요구 토큰 수 미달 시 임의의 패딩 추가.
 
     Args:
         bot: 메인 봇 인스턴스
         model_id (str): 토큰 계산에 사용할 모델 식별자
         scenario_data (dict): 시나리오 데이터 딕셔너리
+        cache_note (str): 캐시에 삽입할 GM 관리 기억사항
 
     Returns:
         tuple[str, int]: 최종 완성된 룰북 텍스트와 해당 텍스트의 총 토큰 수
@@ -355,6 +495,7 @@ async def build_scenario_cache_text(bot, model_id, scenario_data: dict) -> tuple
     stat_system = scenario_data.get('stat_system', '특별한 스탯 시스템 없음')
     desc_guide = scenario_data.get('desc_guide', '상황에 맞게 묘사하세요.')
     status_code_block = scenario_data.get('status_code_block', '상태창 코드블럭 양식 없음')
+    note_injection = f"\n[추가 세계관 및 상태 (캐시 노트)]\n{cache_note}\n" if cache_note else ""
 
     npc_text = ""
     default_npcs = scenario_data.get("default_npcs", {})
@@ -388,7 +529,7 @@ async def build_scenario_cache_text(bot, model_id, scenario_data: dict) -> tuple
 [6. 필수 출력: 상태창 코드블럭 양식]
 (모든 묘사 후 턴의 마지막에 반드시 아래 양식을 바탕으로 상태창을 출력할 것)
 {status_code_block}
-============================
+{note_injection}============================
 """
 
     try:
@@ -403,6 +544,8 @@ async def build_scenario_cache_text(bot, model_id, scenario_data: dict) -> tuple
         if base_tokens >= min_cache_tokens:
             return rulebook_text, base_tokens
 
+        # HACK: 제미나이 캐싱의 최소 요구 조건(32,768 토큰)을 강제 충족시키기 위해,
+        # 시스템이 읽지 않도록 지시한 의미 없는 마침표(.) 배열을 덧붙이는 우회 기법 적용.
         missing_tokens = min_cache_tokens - base_tokens + 500
         padding_chars = "." * (missing_tokens * 4)
 
@@ -425,7 +568,10 @@ async def build_scenario_cache_text(bot, model_id, scenario_data: dict) -> tuple
 
 def build_compression_prompt(session: TRPGSession, log_text: str) -> str:
     """
-    대화 기록을 무손실 압축하기 위한 요약 전용 프롬프트를 생성합니다.
+    대화 기록을 무손실 압축하기 위한 요약 전용 프롬프트 생성.
+
+    NOTE: 장기 세션 진행 시 모델의 망각 및 개연성 붕괴를 막기 위해, 문학적 수사를 배제하고
+    철저히 인과율과 수치(아이템, 턴 수) 중심의 개조식 데이터로 변환할 것을 AI에게 지시.
 
     Args:
         session (TRPGSession): 현재 진행 중인 세션 객체
@@ -453,8 +599,7 @@ def build_compression_prompt(session: TRPGSession, log_text: str) -> str:
 
 async def restore_sessions_from_disk(bot):
     """
-    봇 재시작 시 로컬 디스크에 저장된 모든 세션의 JSON 데이터를 읽어와 복구합니다.
-    만료된 캐시가 존재할 경우 재발급 과정을 포함합니다.
+    봇 재시작 시 로컬 디스크에 저장된 모든 세션의 JSON 데이터를 읽어와 복구.
     """
     if not os.path.exists("sessions"):
         return
@@ -480,12 +625,17 @@ async def restore_sessions_from_disk(bot):
                 session.resources = data.get("resources", {})
                 session.statuses = data.get("statuses", {})
                 session.compressed_memory = data.get("compressed_memory", "")
+                session.note = data.get("note", "")
                 session.cache_name = data.get("cache_name")
                 session.current_turn_logs = data.get("current_turn_logs", [])
                 session.turn_count = data.get("turn_count", 0)
                 session.uncompressed_logs = data.get("uncompressed_logs", [])
                 session.is_started = data.get("is_started", False)
                 session.total_cost = data.get("total_cost", 0.0)
+                session.volume = data.get("volume", 0.3)
+
+                session.is_processing = False
+                session.last_turn_anchor_id = data.get("last_turn_anchor_id", None)
 
                 restored_raw_logs = []
                 for item in data.get("raw_logs", []):
@@ -496,7 +646,8 @@ async def restore_sessions_from_disk(bot):
 
                 if session.cache_name:
                     try:
-                        session.cache_obj = await asyncio.to_thread(bot.genai_client.caches.get, name=session.cache_name)
+                        session.cache_obj = await asyncio.to_thread(bot.genai_client.caches.get,
+                                                                    name=session.cache_name)
                         print(f"✅ {session_id}: 기존 캐시 연동 성공.")
                     except APIError:
                         print(f"🔄 {session_id}: 기존 캐시 만료됨. 새로 발급합니다...")
@@ -515,7 +666,7 @@ async def restore_sessions_from_disk(bot):
                             config=types.CreateCachedContentConfig(
                                 system_instruction=bot.system_instruction,
                                 contents=[types.Content(role="user", parts=[types.Part.from_text(text=caching_text)])],
-                                ttl="3600s"
+                                ttl="3600s",
                             )
                         )
 
@@ -533,7 +684,7 @@ async def restore_sessions_from_disk(bot):
 
 def get_uid_by_char_name(session: TRPGSession, char_name: str) -> str | None:
     """
-    캐릭터 이름 문자열을 통해 매핑된 디스코드 사용자 ID를 찾아 반환합니다.
+    캐릭터 이름 문자열을 통해 매핑된 디스코드 사용자 ID 탐색 및 반환.
 
     Args:
         session (TRPGSession): 검사할 대상 세션 객체
@@ -550,7 +701,10 @@ def get_uid_by_char_name(session: TRPGSession, char_name: str) -> str | None:
 
 async def send_image_by_keyword(game_channel, master_ctx, session, keyword):
     """
-    시나리오 데이터에 지정된 키워드와 파일 매핑을 참조하여 이미지를 게임 채널에 전송합니다.
+    시나리오 데이터에 지정된 키워드와 파일 매핑을 참조하여 이미지를 게임 채널에 전송.
+
+    NOTE: 경로 해킹(Path Traversal) 방지를 위해 절대경로 하드코딩 대신
+    JSON 매핑 인덱스를 이용한 유효성 검증 수행.
 
     Args:
         game_channel (discord.TextChannel): 이미지를 전송할 디스코드 게임 채널 객체
@@ -574,7 +728,10 @@ async def send_image_by_keyword(game_channel, master_ctx, session, keyword):
 # noinspection PyShadowingNames
 async def generate_character_details(bot, scenario_data, char_type, char_name, instruction, session_id):
     """
-    AI 모델을 사용하여 PC 또는 NPC의 세부 설정 초안을 텍스트로 생성합니다.
+    AI 모델을 사용하여 PC 또는 NPC의 세부 설정 초안 텍스트 생성.
+
+    NOTE: 출력 데이터의 일관성 및 프롬프트 재주입 시 토큰 효율 극대화를 위해,
+    일반 묘사용(DEFAULT_MODEL) 대신 추론 특화 로직 모델(LOGIC_MODEL) 호출.
 
     Args:
         bot: 메인 봇 인스턴스
@@ -633,7 +790,10 @@ async def generate_character_details(bot, scenario_data, char_type, char_name, i
     response = await asyncio.to_thread(
         bot.genai_client.models.generate_content,
         model=LOGIC_MODEL,
-        contents=prompt
+        contents=prompt,
+        config = types.GenerateContentConfig(
+            safety_settings=TRPG_SAFETY_SETTINGS
+        )
     )
 
     return response
@@ -641,7 +801,10 @@ async def generate_character_details(bot, scenario_data, char_type, char_name, i
 
 async def stream_text_to_channel(bot, channel, text: str, words_per_tick: int = 10, tick_interval: float = 1.5):
     """
-    디스코드 채널에 텍스트를 문단과 단어 단위로 쪼개어 타이핑 치듯 스트리밍 연출합니다.
+    디스코드 채널에 텍스트를 문단과 단어 단위로 쪼개어 타이핑 치듯 스트리밍 연출.
+
+    NOTE: 한 번에 방대한 텍스트가 출력되는 것을 막아 TRPG 특유의 시각적 긴장감을 조성하고,
+    디스코드 API의 메시지 전송 제한(Rate Limit)을 우회하기 위한 비동기 sleep 로직 적용.
 
     Args:
         bot: 메인 봇 인스턴스
@@ -685,7 +848,10 @@ async def stream_text_to_channel(bot, channel, text: str, words_per_tick: int = 
 
 class PlaylistManager:
     """
-    음성 채널에서의 플레이리스트 셔플 재생 상태 및 백그라운드 루프를 관리하는 클래스입니다.
+    음성 채널에서의 플레이리스트 셔플 재생 상태 및 백그라운드 루프를 관리하는 클래스.
+
+    NOTE: 메인 TRPG 봇 로직과 스레드를 철저히 분리하여, 플레이리스트 연산이
+    주사위 판정이나 AI 텍스트 생성 속도에 영향을 미치지 않도록 설계.
 
     Args:
         bot: 메인 봇 인스턴스
@@ -693,12 +859,14 @@ class PlaylistManager:
         queue (list): 재생할 로컬 mp3 파일 경로들의 리스트
         text_channel (discord.TextChannel): 알림을 보낼 디스코드 텍스트 채널
     """
+
     def __init__(self, bot, vc, queue, text_channel):
         self.bot = bot
         self.vc = vc
         self.queue = queue
         self.text_channel = text_channel
         self.current_index = 0
+        self.volume = 0.3
         self.play_next_event = asyncio.Event()
         self.skip_direction = 1
         self.task = self.bot.loop.create_task(self.player_loop())
@@ -721,8 +889,9 @@ class PlaylistManager:
                         print(f"⚠️ 플레이리스트 재생 오류: {err}")
                     self.bot.loop.call_soon_threadsafe(self.play_next_event.set)
 
-                source = discord.FFmpegPCMAudio(filepath)
-                volume_source = discord.PCMVolumeTransformer(source, volume=1.0)
+                ffmpeg_options = {'options': '-vn -sn -ar 48000 -ac 2'}
+                source = discord.FFmpegPCMAudio(filepath, **ffmpeg_options)
+                volume_source = discord.PCMVolumeTransformer(source, volume=self.volume)
                 self.vc.play(volume_source, after=after_play)
 
                 await self.play_next_event.wait()
@@ -738,12 +907,15 @@ class PlaylistManager:
                     self.vc.stop()
 
 
-# ========== 채널 관리 UI 및 유틸리티 ==========
+# ========== [채널 관리 UI 및 유틸리티] ==========
 
 def _cleanup_session_memory(bot, channel_id: int):
     """
     삭제되는 채널이 현재 활성화된 세션에 포함되어 있을 경우
-    메모리 참조 에러를 방지하기 위해 딕셔너리에서 데이터를 안전하게 해제합니다.
+    메모리 참조 에러를 방지하기 위해 딕셔너리에서 데이터를 안전하게 해제.
+
+    WARNING: 채널 삭제 시 파이썬 가비지 컬렉터가 객체를 온전히 수거할 수 있도록
+    반드시 메모리 참조를 끊어주는 메모리 누수(Memory Leak) 방지 로직.
     """
     if channel_id in bot.active_sessions:
         session = bot.active_sessions.pop(channel_id)
@@ -753,6 +925,10 @@ def _cleanup_session_memory(bot, channel_id: int):
 
 
 class ChannelSelect(discord.ui.Select):
+    """
+    채널 삭제 대상 선택을 위한 드롭다운 UI 컴포넌트 클래스.
+    """
+
     def __init__(self, options):
         super().__init__(
             placeholder="삭제할 카테고리/채널을 선택하세요 (다중 선택 가능)",
@@ -767,6 +943,13 @@ class ChannelSelect(discord.ui.Select):
 
 
 class ChannelDeleteView(discord.ui.View):
+    """
+    필터링된 더미 세션 채널 및 카테고리의 일괄 삭제를 돕는 UI 뷰어 클래스.
+
+    NOTE: 디스코드 API의 SelectOption 최대 개수 제한으로 인해 노출되는 항목을
+    최대 25개로 슬라이싱하여 안정성 확보.
+    """
+
     def __init__(self, bot, ctx, target_items):
         super().__init__(timeout=120.0)
         self.bot = bot
@@ -824,10 +1007,13 @@ class ChannelDeleteView(discord.ui.View):
         self.stop()
 
 
-# ========== 디스코드 UI 클래스(Views) ==========
+# ========== [디스코드 UI 클래스(Views)] ==========
 class GeneralDiceView(discord.ui.View):
     """
-    능력치에 구애받지 않는 일반 주사위(N면체) 및 임의 목표값 판정을 위한 UI 뷰어입니다.
+    능력치에 구애받지 않는 일반 주사위(N면체) 및 임의 목표값 판정을 위한 UI 뷰어.
+
+    NOTE: 버튼 클릭 시 판정 결과가 단순히 채팅으로 출력되는 것에 그치지 않고,
+    session.current_turn_logs에 직렬화되어 AI의 다음 턴 프롬프트에 자동으로 연동됨.
 
     Args:
         target_uid (str): 주사위를 굴릴 자격을 가진 플레이어의 디스코드 ID
@@ -904,7 +1090,7 @@ class GeneralDiceView(discord.ui.View):
 
 class DiceView(discord.ui.View):
     """
-    특정 스탯의 기준치를 기반으로 성공/실패를 판정하는 능력치 주사위 UI 뷰어입니다.
+    특정 스탯의 기준치를 기반으로 성공/실패를 판정하는 능력치 주사위 UI 뷰어.
 
     Args:
         target_uid (str): 주사위를 굴릴 자격을 가진 플레이어의 디스코드 ID
@@ -913,6 +1099,7 @@ class DiceView(discord.ui.View):
         stat_value (int): 스탯의 현재 수치
         weight (int): 기준 목표값에 합산될 보정 가중치
     """
+
     def __init__(self, bot, target_uid: str, max_val: int, stat_name: str, stat_value: int, weight: int):
         super().__init__(timeout=None)
         self.bot = bot

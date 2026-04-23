@@ -10,3 +10,4 @@ python-dotenv~=1.2.2
 # Gemini API 통신 (신규 공식 SDK)
 google-genai>=0.1.0
 protobuf
+pillow

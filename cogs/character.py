@@ -248,15 +248,19 @@ class CharacterCog(commands.Cog):
                 await ctx.send(f"⚠️ NPC [{name}]을(를) 찾을 수 없습니다.")
             return None
 
+
         elif action == "목록":
             if not session.npcs:
                 return await ctx.send("등록된 NPC가 없습니다.")
             embed = discord.Embed(title="📜 등록된 NPC 목록", color=0x2ecc71)
             for npc_name, npc_data in session.npcs.items():
-                embed.add_field(name=npc_name, value=npc_data["details"], inline=False)
+                # NOTE: npc_data에서 설정 텍스트(details)를 추출하는 코드 추가
+                details = npc_data.get("details", "설정 없음")
+                display_details = details if len(details) <= 1000 else details[
+                                                                           :950] + "...\n(※ 텍스트가 너무 길어 생략되었습니다. 전문은 확인 명령어로 확인하세요.)"
+                embed.add_field(name=npc_name, value=display_details, inline=False)
             await ctx.send(embed=embed)
             return None
-
         else:
             await ctx.send("⚠️ 잘못된 행동 인자입니다. (사용 가능: 설정, 확인, 삭제, 목록)")
             return None

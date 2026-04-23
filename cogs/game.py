@@ -1,27 +1,32 @@
 import re
 import asyncio
+import time
+import discord
 from discord.ext import commands
 from google.genai import types
 from google.genai.errors import APIError
 
-# 분리된 코어 유틸리티 모듈 임포트
+# 코어 유틸리티 모듈 임포트
 import core
 
 
+# ========== [메인 게임 엔진 모듈(Game Cog)] ==========
 class GameCog(commands.Cog):
     """
     LLM 턴 묘사 엔진, 기억 압축, 주사위 판정 및 채팅 로깅 등
-    게임 플레이와 관련된 핵심 로직을 전담하는 모듈입니다.
+    게임 플레이와 관련된 핵심 로직을 전담하는 모듈.
     """
+
     def __init__(self, bot):
         self.bot = bot
 
     @commands.Cog.listener()
     async def on_message(self, message):
         """
-        채널에 메시지가 전송될 때마다 호출되어 행동/대화 로그를 처리하는 이벤트입니다.
+        채널에 메시지가 전송될 때마다 호출되어 행동/대화 로그를 처리하는 자동 로깅 이벤트.
+
         명령어 처리는 main.py의 bot.process_commands에서 별도로 수행되므로
-        이곳에서는 순수 게임 로깅만 담당합니다.
+        이곳에서는 순수 게임 로깅만 담당.
 
         Args:
             message (discord.Message): 수신된 메시지 객체
@@ -33,7 +38,7 @@ class GameCog(commands.Cog):
         if not session:
             return
 
-        # 명령어로 시작하는 채팅은 로깅 로직을 건너뜁니다.
+        # NOTE: 명령어로 시작하는 채팅은 게임 내 발화나 행동이 아니므로 로깅 로직에서 제외.
         if message.content.startswith('!'):
             if message.channel.id == session.master_ch_id:
                 core.write_log(session.session_id, "master_chat", f"[GM 명령어]: {message.content}")
@@ -42,7 +47,8 @@ class GameCog(commands.Cog):
         if message.channel.id == session.master_ch_id:
             game_channel = self.bot.get_channel(session.game_ch_id)
             if game_channel:
-                await core.stream_text_to_channel(self.bot, game_channel, f"> {message.content}", words_per_tick=5, tick_interval=1.5)
+                await core.stream_text_to_channel(self.bot, game_channel, f"> {message.content}", words_per_tick=5,
+                                                  tick_interval=1.5)
                 session.current_turn_logs.append(f"[진행자]: {message.content}")
                 await core.save_session_data(self.bot, session)
 
@@ -61,11 +67,12 @@ class GameCog(commands.Cog):
 
             core.write_log(session.session_id, "game_chat", f"[{char_name}]: {message.content}")
 
-
     @commands.command(name="주사위")
     async def request_dice(self, ctx, char_name: str, param1: str, param2: str = None, param3: str = None):
         """
-        일반적인 N면체 또는 캐릭터의 특정 스탯 기준에 대한 주사위 굴림 요청 UI를 전송합니다.
+        일반적인 N면체 또는 캐릭터의 특정 스탯 기준에 대한 주사위 굴림 요청 UI 전송.
+
+        파라미터 타입 판별을 통해 일반 판정과 능력치 판정 뷰(View)를 동적으로 분기하여 출력.
 
         Args:
             ctx (commands.Context): 디스코드 컨텍스트 객체
@@ -100,7 +107,8 @@ class GameCog(commands.Cog):
 
             req_weight_str = f" (가중치 {weight:+d})" if weight != 0 else ""
 
-            view = core.GeneralDiceView(self.bot, target_uid=user_id_str, max_val=max_val, weight=weight, target_val=target_val)
+            view = core.GeneralDiceView(self.bot, target_uid=user_id_str, max_val=max_val, weight=weight,
+                                        target_val=target_val)
 
             if target_val is None:
                 await game_channel.send(
@@ -131,7 +139,8 @@ class GameCog(commands.Cog):
             return await ctx.send(f"⚠️ [{stat_name}]의 값이 숫자가 아닙니다. 판정을 진행할 수 없습니다.")
 
         req_weight_str = f" (가중치 {weight:+d})" if weight != 0 else ""
-        view = core.DiceView(self.bot, target_uid=user_id_str, max_val=max_val, stat_name=stat_name, stat_value=stat_value, weight=weight)
+        view = core.DiceView(self.bot, target_uid=user_id_str, max_val=max_val, stat_name=stat_name,
+                             stat_value=stat_value, weight=weight)
 
         await game_channel.send(
             f"> 🎲 <@{user_id_str}>, {max_val}눈 다이스로 [{stat_name}:{stat_value}] 판정을 시작합니다. 아래 버튼을 눌러주세요. {req_weight_str}",
@@ -142,12 +151,7 @@ class GameCog(commands.Cog):
     @commands.command(name="진행")
     async def proceed_turn(self, ctx, *, instruction: str = ""):
         """
-        입력된 지시사항과 현재 누적된 로그를 기반으로 다음 게임 턴의 상황을 생성 및 연출합니다.
-        인라인 특수 태그(상/중/하 이미지, 자원, 상태이상)를 파싱하여 백그라운드 상태를 즉각 갱신합니다.
-
-        Args:
-            ctx (commands.Context): 디스코드 컨텍스트 객체
-            instruction (str, optional): 진행할 방향성에 대한 GM의 프롬프트
+        입력된 지시사항과 현재 누적된 로그를 기반으로 다음 게임 턴의 상황을 생성 및 연출.
         """
         session = self.bot.active_sessions.get(ctx.channel.id)
         if not session or ctx.channel.id != session.master_ch_id:
@@ -160,13 +164,22 @@ class GameCog(commands.Cog):
         if not getattr(session, "is_started", False):
             return await ctx.send("⚠️ 세션이 아직 시작되지 않았습니다. API 역할 동기화를 위해 반드시 `!시작` 명령어를 먼저 실행하십시오.")
 
-        try:
-            await game_channel.set_permissions(ctx.guild.default_role, send_messages=False)
-        except Exception as e:
-            print(f"⚠️ 자동 채팅 잠금 실패: {e}")
+        if getattr(session, "is_processing", False):
+            return await ctx.send("⏳ 시스템이 이전 턴 명령을 처리 중입니다. 잠시만 기다려주십시오.")
+
+        session.is_processing = True
 
         try:
-            # 1. 태그 정규식 파싱
+            anchor = None
+            async for msg in game_channel.history(limit=1):
+                anchor = msg
+            session.last_turn_anchor_id = anchor.id if anchor else None
+
+            await game_channel.set_permissions(ctx.guild.default_role, send_messages=False)
+        except Exception as e:
+            print(f"⚠️ 자동 채팅 잠금 실패 또는 앵커 획득 실패: {e}")
+
+        try:
             img_pattern = r'(상|중|하):([^\s]+)'
             img_tags = re.findall(img_pattern, instruction)
 
@@ -195,7 +208,6 @@ class GameCog(commands.Cog):
                 if char_name not in session.statuses:
                     session.statuses[char_name] = []
 
-                # 값 앞에 '-'가 붙어 있으면 해당 상태이상을 리스트에서 제거
                 if status_text.startswith("-"):
                     target_status = status_text[1:]
                     if target_status in session.statuses[char_name]:
@@ -204,7 +216,6 @@ class GameCog(commands.Cog):
                     if status_text not in session.statuses[char_name]:
                         session.statuses[char_name].append(status_text)
 
-            # 2. 파싱된 태그 텍스트들을 AI 프롬프트용 지시문에서 제거
             clean_instruction = re.sub(img_pattern, '', instruction)
             clean_instruction = re.sub(res_pattern, '', clean_instruction)
             clean_instruction = re.sub(status_pattern, '', clean_instruction)
@@ -225,10 +236,11 @@ class GameCog(commands.Cog):
             async def generate_with_retry(retry_count=0):
                 try:
                     if session.cache_obj and session.cache_name:
-                        config = types.GenerateContentConfig(cached_content=session.cache_name, temperature=0.7)
+                        config = types.GenerateContentConfig(cached_content=session.cache_name, temperature=0.7,
+                                                             safety_settings=core.TRPG_SAFETY_SETTINGS)
                     else:
                         config = types.GenerateContentConfig(system_instruction=self.bot.system_instruction,
-                                                             temperature=0.7)
+                                                             temperature=0.7, safety_settings=core.TRPG_SAFETY_SETTINGS)
 
                     async with game_channel.typing():
                         return await asyncio.to_thread(
@@ -241,23 +253,33 @@ class GameCog(commands.Cog):
                     if retry_count == 0 and ("cache" in str(e).lower() or e.code in [400, 404]):
                         await ctx.send("🔄 **[시스템 알림]** 장기 기억 캐시가 만료되어 자동으로 재발급을 진행합니다. 턴 묘사는 이어서 출력됩니다...")
 
-                        caching_text, cache_tokens = await core.build_scenario_cache_text(self.bot, core.DEFAULT_MODEL,
-                                                                                          session.scenario_data)
-                        creation_cost = core.calculate_cost(core.DEFAULT_MODEL, input_tokens=cache_tokens)
-                        storage_cost = core.calculate_cost(core.DEFAULT_MODEL, cache_storage_tokens=cache_tokens,
-                                                           storage_hours=1)
-                        session.total_cost += (creation_cost + storage_cost)
+                        storage_cost = await core.process_cache_deletion(self.bot, session)
+                        caching_text, cache_tokens = await core.build_scenario_cache_text(self.bot,
+                                                                                          core.DEFAULT_MODEL,
+                                                                                          session.scenario_data,
+                                                                                          getattr(session,
+                                                                                                  "cache_note", ""))
 
-                        print(
-                            f"💰 [비용 보고] 세션({session.session_id}) 진행 중 자동 캐시 발급: ${creation_cost + storage_cost:.6f} (누적: ${session.total_cost:.6f})")
+                        upload_cost = core.calculate_upload_cost(core.DEFAULT_MODEL, input_tokens=cache_tokens)
+                        session.total_cost += upload_cost
+                        session.cache_created_at = time.time()
+                        session.cache_tokens = cache_tokens
+
+                        report_msg = f"💰 **[캐시 자동 재발급 정산]**\n- 이전 캐시 보관 비용: {core.format_cost(storage_cost)}\n- 새 캐시 업로드 비용: {core.format_cost(upload_cost)}\n- 현재까지 총 누적 비용: {core.format_cost(session.total_cost)}"
+                        print(report_msg)
+
+                        master_ch = self.bot.get_channel(session.master_ch_id)
+                        if master_ch:
+                            await master_ch.send(report_msg)
 
                         new_cache = await asyncio.to_thread(
                             self.bot.genai_client.caches.create,
                             model=core.DEFAULT_MODEL,
                             config=types.CreateCachedContentConfig(
                                 system_instruction=self.bot.system_instruction,
-                                contents=[types.Content(role="user", parts=[types.Part.from_text(text=caching_text)])],
-                                ttl="3600s"
+                                contents=[
+                                    types.Content(role="user", parts=[types.Part.from_text(text=caching_text)])],
+                                ttl="21600s",
                             )
                         )
                         session.cache_obj = new_cache
@@ -276,11 +298,16 @@ class GameCog(commands.Cog):
             out_tokens = meta.candidates_token_count
             cached_tokens = getattr(meta, "cached_content_token_count", 0)
 
-            turn_cost = core.calculate_cost(core.DEFAULT_MODEL, input_tokens=in_tokens, output_tokens=out_tokens,
-                                            cached_read_tokens=cached_tokens)
+            turn_cost = core.calculate_upload_cost(core.DEFAULT_MODEL, input_tokens=in_tokens, output_tokens=out_tokens,
+                                                   cached_read_tokens=cached_tokens)
             session.total_cost += turn_cost
-            print(
-                f"💰 [비용 보고] 턴 진행 - In:{in_tokens}, Cached:{cached_tokens}, Out:{out_tokens} | 턴 발생: ${turn_cost:.6f} (누적: ${session.total_cost:.6f})")
+
+            report_msg = f"💰 **[비용 보고] 턴 진행**\n- 토큰: In({in_tokens}), Cached({cached_tokens}), Out({out_tokens})\n- 턴 발생 비용: {core.format_cost(turn_cost)}\n- 누적 비용: {core.format_cost(session.total_cost)}"
+            print(report_msg)
+
+            master_ch = self.bot.get_channel(session.master_ch_id)
+            if master_ch:
+                await master_ch.send(report_msg)
 
             full_ai_response = response.text
 
@@ -350,7 +377,10 @@ class GameCog(commands.Cog):
                         summary_response = await asyncio.to_thread(
                             self.bot.genai_client.models.generate_content,
                             model=core.LOGIC_MODEL,
-                            contents=summary_prompt
+                            contents=summary_prompt,
+                            config=types.GenerateContentConfig(
+                                safety_settings=core.TRPG_SAFETY_SETTINGS
+                            )
                         )
 
                         meta = summary_response.usage_metadata
@@ -389,17 +419,85 @@ class GameCog(commands.Cog):
             await ctx.send(f"⚠️ 시스템 오류가 발생했습니다: {str(e)}")
 
         finally:
-            # [채팅 자동 해제] 에러가 발생하여 중간에 멈추든, 정상적으로 종료되든 무조건 채팅을 다시 풀어줍니다.
+            session.is_processing = False
             try:
                 await game_channel.set_permissions(ctx.guild.default_role, send_messages=True)
             except Exception as e:
                 print(f"⚠️ 자동 채팅 해제 실패: {e}")
 
+    @commands.command(name="재생성")
+    async def regenerate_turn(self, ctx, *, instruction: str = ""):
+        """
+        직전 턴의 시스템 출력을 무효화(Rollback)하고, 새로운 지시사항을 바탕으로 턴 묘사를 재생성.
+        """
+        session = self.bot.active_sessions.get(ctx.channel.id)
+        if not session or ctx.channel.id != session.master_ch_id:
+            return await ctx.send("이 명령어는 마스터 채널에서만 사용할 수 있습니다.")
+
+        game_channel = self.bot.get_channel(session.game_ch_id)
+        if not game_channel:
+            return await ctx.send("⚠️ 게임 채널을 찾을 수 없습니다.")
+
+        if getattr(session, "is_processing", False):
+            return await ctx.send("⏳ 시스템이 다른 명령을 처리 중입니다. 잠시만 기다려주십시오.")
+
+        if session.turn_count <= 0 or len(session.raw_logs) < 2:
+            return await ctx.send("⚠️ 취소할 직전 턴의 묘사가 존재하지 않습니다.")
+
+        # 기억 압축 직후 롤백 방지 로직 (5턴 주기)
+        if session.turn_count % 5 == 0:
+            return await ctx.send("⚠️ 직전 턴 직후에 이미 기억 압축이 완료되어 시스템 롤백이 불가능합니다. 롤백 대신 수동으로 다음 턴을 진행해 상황을 교정하십시오.")
+
+        await ctx.send("⏳ 직전 턴의 로그와 출력물을 삭제하고 있습니다...")
+        session.is_processing = True
+
+        try:
+            # 1. 디스코드 UI 롤백: 앵커 이후에 생성된 봇의 모든 출력물 일괄 삭제
+            if getattr(session, "last_turn_anchor_id", None):
+                try:
+                    anchor_msg = await game_channel.fetch_message(session.last_turn_anchor_id)
+                    await game_channel.purge(after=anchor_msg, check=lambda m: m.author == self.bot.user)
+                except discord.NotFound:
+                    pass
+
+            # 2. 메모리 로그 롤백: 유저 프롬프트와 AI 묘사를 1세트(2개) Pop 처리
+            if len(session.raw_logs) >= 2:
+                # 롤백할 이전 턴의 유저 턴 데이터 문자열 추출
+                prev_user_content = session.raw_logs[-2].parts[0].text
+
+                # "[GM 지시]:"를 기준으로 문자열을 분할하여 앞부분(대화 기록)만 추출
+                if "\n[GM 지시]:" in prev_user_content:
+                    chat_logs = prev_user_content.split("\n[GM 지시]:")[0].strip()
+                    if chat_logs:
+                        # 추출된 대화 문자열을 다시 리스트 형태로 복구하여 대기열에 삽입
+                        session.current_turn_logs = chat_logs.split("\n")
+
+                # 배열에서 직전 턴 데이터 2세트(프롬프트, 응답) 삭제
+                session.raw_logs = session.raw_logs[:-2]
+
+            if len(session.uncompressed_logs) >= 2:
+                session.uncompressed_logs = session.uncompressed_logs[:-2]
+
+            # 3. 턴 카운터 차감 및 앵커 초기화
+            session.turn_count -= 1
+            session.last_turn_anchor_id = None
+
+            await core.save_session_data(self.bot, session)
+            await ctx.send("✅ 이전 출력이 삭제되었습니다. 새 지시사항으로 턴을 진행합니다...")
+
+        except Exception as e:
+            await ctx.send(f"⚠️ 롤백 중 오류가 발생했습니다: {e}")
+            return
+        finally:
+            session.is_processing = False
+
+        # 새로운 묘사 출력을 위해 메인 진행 함수 재호출
+        await self.proceed_turn(ctx, instruction=instruction)
 
     @commands.command(name="기억압축")
     async def compress_memory(self, ctx):
         """
-        현재까지 대기열에 쌓인 턴 로그들을 초정밀 요약하여 장기 기억 공간에 병합합니다.
+        현재까지 대기열에 쌓인 턴 로그들을 초정밀 요약하여 장기 기억 공간에 병합.
 
         Args:
             ctx (commands.Context): 디스코드 컨텍스트 객체
@@ -425,7 +523,10 @@ class GameCog(commands.Cog):
             summary_response = await asyncio.to_thread(
                 self.bot.genai_client.models.generate_content,
                 model=core.LOGIC_MODEL,
-                contents=summary_prompt
+                contents=summary_prompt,
+                config=types.GenerateContentConfig(
+                    safety_settings=core.TRPG_SAFETY_SETTINGS
+                )
             )
 
             meta = summary_response.usage_metadata
@@ -433,9 +534,11 @@ class GameCog(commands.Cog):
             out_tokens = meta.candidates_token_count
             cached_tokens = getattr(meta, "cached_content_token_count", 0)
 
-            turn_cost = core.calculate_cost(core.LOGIC_MODEL, input_tokens=in_tokens, output_tokens=out_tokens, cached_read_tokens=cached_tokens)
+            turn_cost = core.calculate_cost(core.LOGIC_MODEL, input_tokens=in_tokens, output_tokens=out_tokens,
+                                            cached_read_tokens=cached_tokens)
             session.total_cost += turn_cost
-            print(f"💰 [비용 보고] 수동 기억 압축 진행 - In:{in_tokens}, Cached:{cached_tokens}, Out:{out_tokens} | 턴 발생: ${turn_cost:.6f} (누적: ${session.total_cost:.6f})")
+            print(
+                f"💰 [비용 보고] 수동 기억 압축 진행 - In:{in_tokens}, Cached:{cached_tokens}, Out:{out_tokens} | 턴 발생: ${turn_cost:.6f} (누적: ${session.total_cost:.6f})")
 
             new_compressed_segment = summary_response.text.strip()
             if session.compressed_memory:
@@ -457,9 +560,92 @@ class GameCog(commands.Cog):
         except Exception as e:
             await ctx.send(f"⚠️ 요약 중 오류 발생: {e}")
 
+    @commands.command(name="노트")
+    async def manage_note(self, ctx, action: str, *, content: str = None):
+        """
+        GM이 실시간으로 관리하는 기억(노트) 항목을 누적, 갱신, 출력.
+        """
+        session = self.bot.active_sessions.get(ctx.channel.id)
+        if not session or ctx.channel.id != session.master_ch_id:
+            return await ctx.send("이 명령어는 마스터 채널에서만 사용할 수 있습니다.")
+
+        if not hasattr(session, "note"):
+            session.note = ""
+
+        if action == "누적":
+            if not content:
+                return await ctx.send("⚠️ 누적할 내용을 입력해주세요. (예: `!노트 누적 아서가 열쇠를 획득함`)")
+            if session.note:
+                session.note += f"\n- {content}"
+            else:
+                session.note = f"- {content}"
+            await core.save_session_data(self.bot, session)
+            await ctx.send(f"✅ 노트가 누적되었습니다.\n**[현재 노트]**\n{session.note}")
+
+        elif action == "갱신":
+            if not content:
+                return await ctx.send("⚠️ 갱신할 내용을 입력해주세요. 기존 내용은 모두 지워집니다.")
+            session.note = content
+            await core.save_session_data(self.bot, session)
+            await ctx.send(f"✅ 노트가 갱신되었습니다.\n**[새 노트]**\n{session.note}")
+
+        elif action == "출력":
+            if not session.note:
+                return await ctx.send("📝 현재 노트가 비어있습니다.")
+            await ctx.send(f"📝 **[현재 노트]**\n{session.note}")
+
+        else:
+            await ctx.send("⚠️ 잘못된 인자입니다. 사용법: `!노트 [누적/갱신/출력] (내용)`")
+
+    @commands.command(name="캐시노트")
+    async def manage_cache_note(self, ctx, action: str, *, content: str = None):
+        """
+        차기 캐시 생성 시 룰북에 지연 병합될 세계관/상태 정보를 누적, 갱신, 출력.
+        """
+        session = self.bot.active_sessions.get(ctx.channel.id)
+        if not session or ctx.channel.id != session.master_ch_id:
+            return await ctx.send("이 명령어는 마스터 채널에서만 사용할 수 있습니다.")
+
+        if not hasattr(session, "cache_note"):
+            session.cache_note = ""
+
+        # 분할 전송을 위한 헬퍼 함수 내장
+        async def send_long_message(text):
+            if len(text) > 2000:
+                for i in range(0, len(text), 2000):
+                    await ctx.send(text[i:i + 2000])
+                    await asyncio.sleep(1)
+            else:
+                await ctx.send(text)
+
+        if action == "누적":
+            if not content:
+                return await ctx.send("⚠️ 누적할 내용을 입력해주세요.")
+            if session.cache_note:
+                session.cache_note += f"\n- {content}"
+            else:
+                session.cache_note = f"- {content}"
+            await core.save_session_data(self.bot, session)
+            await send_long_message(f"✅ 캐시 노트가 누적되었습니다.\n**[현재 캐시 노트]**\n{session.cache_note}")
+
+        elif action == "갱신":
+            if not content:
+                return await ctx.send("⚠️ 갱신할 내용을 입력해주세요.")
+            session.cache_note = content
+            await core.save_session_data(self.bot, session)
+            await send_long_message(f"✅ 캐시 노트가 갱신되었습니다.\n**[새 캐시 노트]**\n{session.cache_note}")
+
+        elif action == "출력":
+            if not getattr(session, "cache_note", ""):
+                return await ctx.send("📝 현재 캐시 노트가 비어있습니다.")
+            await send_long_message(f"📝 **[현재 캐시 노트]**\n{session.cache_note}")
+
+        else:
+            await ctx.send("⚠️ 잘못된 인자입니다. 사용법: `!캐시노트 [누적/갱신/출력] (내용)`")
+
 
 async def setup(bot):
     """
-    디스코드 봇이 이 파일을 로드할 때 호출되는 필수 설정 함수입니다.
+    디스코드 봇이 이 파일을 로드할 때 호출되는 필수 설정 함수.
     """
     await bot.add_cog(GameCog(bot))

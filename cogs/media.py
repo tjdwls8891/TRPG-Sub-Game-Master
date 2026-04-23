@@ -1,41 +1,47 @@
 import os
+import re
+import json
 import random
 import asyncio
 import discord
+from google.genai import types
 from discord.ext import commands
 
-# 분리된 코어 유틸리티 모듈 임포트
+# 코어 유틸리티 모듈 임포트
 import core
 
-
+# ========== [미디어 및 환경 제어 모듈(Media Cog)] ==========
 class MediaCog(commands.Cog):
     """
     이미지 출력, BGM 및 플레이리스트 오디오 재생, 채널 채팅 잠금 등
-    시각/청각적 미디어와 게임 환경 제어를 전담하는 모듈입니다.
+    시각/청각적 미디어와 게임 환경 제어를 전담하는 모듈.
     """
     def __init__(self, bot):
         self.bot = bot
 
     @commands.command(name="이미지")
-    async def send_media(self, ctx, keyword: str):
+    async def send_media(self, ctx, action_or_keyword: str, format_key: str = None, filename_key: str = None, *,
+                         prompt: str = None):
         """
-        시나리오 파일에 설정된 키워드를 기반으로 게임 채널에 로컬 미디어 이미지를 전송하거나,
-        '목록' 인자를 입력하여 사용 가능한 키워드를 확인합니다.
+        [출력 모드]: !이미지 [키워드]
+        - 시나리오 파일에 설정된 키워드를 기반으로 게임 채널에 이미지를 전송합니다.
 
-        Args:
-            ctx (commands.Context): 디스코드 컨텍스트 객체
-            keyword (str): 출력할 이미지의 키워드 또는 '목록'
+        [생성 모드]: !이미지 생성 [형식키] [파일명(키워드)] [프롬프트] (레:레퍼런스키)
+        - AI를 통해 이미지를 생성하고 로컬 폴더 저장 및 룰북 매핑을 자동화합니다.
         """
         session = self.bot.active_sessions.get(ctx.channel.id)
         if not session or ctx.channel.id != session.master_ch_id:
             return await ctx.send("이 명령어는 마스터 채널에서만 사용할 수 있습니다.")
 
         scenario_data = session.scenario_data
-        media_keywords = scenario_data.get("media_keywords", {})
+
+        if "media_keywords" not in scenario_data:
+            scenario_data["media_keywords"] = {}
+        media_keywords = scenario_data["media_keywords"]
         media_dir = f"media/{session.scenario_id}"
 
-        # '목록' 인자 처리
-        if keyword == "목록":
+        # 1. 목록 출력 모드
+        if action_or_keyword == "목록":
             if not media_keywords:
                 return await ctx.send("⚠️ 현재 시나리오에 등록된 이미지 키워드가 없습니다.")
 
@@ -44,6 +50,110 @@ class MediaCog(commands.Cog):
             embed.description = keys_str
             return await ctx.send(embed=embed)
 
+        # 2. 이미지 생성 및 매핑 모드
+        if action_or_keyword == "생성":
+            if not format_key or not filename_key or not prompt:
+                return await ctx.send("⚠️ 사용법: `!이미지 생성 [형식키] [키워드(파일명)] [프롬프트] (레:레퍼런스키)`")
+
+            image_prompts = scenario_data.get("image_prompts", {})
+            if format_key not in image_prompts:
+                return await ctx.send(f"⚠️ '{format_key}' 형식 프롬프트를 시나리오 파일에서 찾을 수 없습니다.")
+
+            base_prompt = image_prompts[format_key].get("prompt", "")
+            target_ratio = image_prompts[format_key].get("aspect_ratio", "1:1")
+
+            # 레퍼런스 이미지 파싱
+            ref_match = re.search(r'레:(\S+)', prompt)
+            ref_image = None
+            if ref_match:
+                ref_keyword = ref_match.group(1)
+                if ref_keyword in media_keywords:
+                    ref_path = os.path.join(media_dir, media_keywords[ref_keyword])
+                    if os.path.exists(ref_path):
+                        # 구글 API 규격에 맞춰 참조 이미지 로드 (PIL 등 사용)
+                        try:
+                            import PIL.Image
+                            ref_image = PIL.Image.open(ref_path)
+                        except Exception as e:
+                            print(f"⚠️ 레퍼런스 로드 실패: {e}")
+                    else:
+                        return await ctx.send(f"⚠️ 레퍼런스 이미지 파일을 찾을 수 없습니다: {ref_keyword}")
+                prompt = re.sub(r'레:\S+', '', prompt).strip()
+
+            # 비율 지시를 프롬프트 최상단에 명시적으로 추가
+            ratio_instruction = f"[System: The target aspect ratio for this image is {target_ratio}.] "
+            final_prompt = f"{ratio_instruction}{base_prompt}\n\n[세부 지시사항]: {prompt}"
+
+            # API 전송용 컨텐츠 리스트 구성
+            contents_payload = [final_prompt]
+            if ref_image:
+                contents_payload.append(ref_image)
+
+            await ctx.send(
+                f"⏳ '{filename_key}' 이미지 생성을 시작합니다...\n- 적용된 형식: {format_key} (비율: {target_ratio})\n- 레퍼런스: {'사용됨' if ref_image else '없음'}")
+
+            try:
+                print(f"[DEBUG] API 호출 시작: {filename_key}")
+
+                # 시간 제한 삭제 (응답 시까지 대기)
+                response = await asyncio.to_thread(
+                    self.bot.genai_client.models.generate_content,
+                    model=core.IMAGE_MODEL,
+                    contents=contents_payload
+                )
+                print(f"[DEBUG] API 응답 완료: {filename_key}")
+
+                # 파일 저장 로직 (PNG 강제)
+                os.makedirs(media_dir, exist_ok=True)
+                filename = f"{filename_key}.png"
+                filepath = os.path.join(media_dir, filename)
+
+                image_saved = False
+
+                print(f"[DEBUG] 이미지 파싱 및 저장 시작: {filename_key}")
+                # 공식 예시에 따른 응답 파트 순회 및 이미지 추출
+                for part in response.parts:
+                    if part.inline_data is not None:
+                        generated_image = part.as_image()
+                        generated_image.save(filepath)
+                        image_saved = True
+                        break
+
+                if not image_saved:
+                    print(f"[DEBUG] 이미지 데이터 누락. 응답 텍스트: {response.text if hasattr(response, 'text') else '없음'}")
+                    return await ctx.send("⚠️ API 호출은 성공했으나, 응답에서 이미지 데이터를 찾을 수 없습니다. (정책 위반으로 인한 필터링 가능성)")
+
+                print(f"[DEBUG] 로컬 저장 완료: {filepath}")
+
+                # 메모리 매핑 및 JSON 파일 덮어쓰기 (영구 저장)
+                media_keywords[filename_key] = filename
+
+                def save_scenario():
+                    scenario_path = f"scenarios/{session.scenario_id}.json"
+                    with open(scenario_path, "w", encoding="utf-8") as file:
+                        json.dump(scenario_data, file, ensure_ascii=False, indent=4)
+
+                await asyncio.to_thread(save_scenario)
+
+                # 비용 계산 (입력 프롬프트의 극미량 토큰 비용은 생략하고 출력 장당 단가로 처리)
+                turn_cost = core.IMAGE_GEN_COST
+                session.total_cost += turn_cost
+                await core.save_session_data(self.bot, session)
+
+                report_msg = f"💰 **[비용 보고] 이미지 생성**\n- 모델: {core.IMAGE_MODEL}\n- 턴 발생 비용: {core.format_cost(turn_cost)}\n- 누적 비용: {core.format_cost(session.total_cost)}"
+
+                # 마스터 채널에 결과물과 비용 전송
+                await ctx.send(content=f"✅ 이미지 생성 및 로컬 에셋 매핑 완료: `{filename_key}`\n{report_msg}",
+                               file=discord.File(filepath))
+
+            except Exception as e:
+                # 에러의 정확한 타입(Class명)까지 출력
+                await ctx.send(f"⚠️ 이미지 생성 중 API 또는 I/O 오류가 발생했습니다: {type(e).__name__} - {e}")
+
+            return
+
+        # 3. 기존 이미지 출력 모드 (!이미지 [키워드])
+        keyword = action_or_keyword
         game_channel = self.bot.get_channel(session.game_ch_id)
         if not game_channel:
             return await ctx.send("⚠️ 게임 채널을 찾을 수 없습니다.")
@@ -69,7 +179,7 @@ class MediaCog(commands.Cog):
     async def play_bgm(self, ctx, filename: str):
         """
         음성 채널에 봇을 입장시키고 지정된 오디오 파일의 반복 재생 루프를 시작하거나,
-        '목록' 또는 '정지' 인자를 통해 BGM을 제어합니다.
+        '목록' 또는 '정지' 인자를 통해 BGM 제어.
 
         Args:
             ctx (commands.Context): 디스코드 컨텍스트 객체
@@ -109,6 +219,8 @@ class MediaCog(commands.Cog):
 
                 await ctx.send("🔉 볼륨을 서서히 줄이며 BGM을 정지합니다...")
 
+                # [오디오 페이드아웃(Fade-out) 처리 로직]
+                # 몰입을 깨는 급격한 오디오 단절을 막기 위해 비동기 sleep을 활용하여 볼륨을 0으로 서서히 줄인 후 재생 종료.
                 async def fade_out_and_stop():
                     try:
                         if isinstance(vc.source, discord.PCMVolumeTransformer):
@@ -153,12 +265,15 @@ class MediaCog(commands.Cog):
             if error:
                 print(f"⚠️ BGM 재생 오류: {error}")
 
+            # NOTE: 무한 루프 구현 시 while문을 쓰면 메인 스레드가 블로킹되므로,
+            # 재생이 끝난 직후 트리거되는 after 콜백 내에서 동일한 파일을 재귀적으로 호출.
             if getattr(session, "is_bgm_looping", False) and session.voice_client and session.voice_client.is_connected():
                 try:
                     next_filepath = os.path.join(media_dir, f"{session.current_bgm}.mp3")
                     if os.path.exists(next_filepath):
-                        source = discord.FFmpegPCMAudio(next_filepath)
-                        volume_source = discord.PCMVolumeTransformer(source, volume=1.0)
+                        ffmpeg_options = {'options': '-vn -sn -ar 48000 -ac 2'}
+                        source = discord.FFmpegPCMAudio(next_filepath, **ffmpeg_options)
+                        volume_source = discord.PCMVolumeTransformer(source, volume=getattr(session, "volume", 0.3))
                         session.voice_client.play(volume_source, after=after_playing)
                 except Exception as e:
                     print(f"⚠️ BGM 루프 생성 중 오류: {e}")
@@ -194,8 +309,9 @@ class MediaCog(commands.Cog):
             session.current_bgm = filename
             session.is_bgm_looping = True
 
-            source = discord.FFmpegPCMAudio(filepath)
-            volume_source = discord.PCMVolumeTransformer(source, volume=1.0)
+            ffmpeg_options = {'options': '-vn -sn -ar 48000 -ac 2'}
+            source = discord.FFmpegPCMAudio(filepath, **ffmpeg_options)
+            volume_source = discord.PCMVolumeTransformer(source, volume=getattr(session, "volume", 0.3))
             vc.play(volume_source, after=after_playing)
             await ctx.send(f"▶️ BGM **'{filename}'**의 무한 반복 재생을 시작합니다.")
 
@@ -203,8 +319,11 @@ class MediaCog(commands.Cog):
     @commands.command(name="플리")
     async def playlist_control(self, ctx, action: str, scenario_id: str = None):
         """
-        지정된 시나리오 미디어 폴더의 mp3 파일들을 셔플하여 무한 루프 플레이리스트 형태로 제어합니다.
-        세션 진행과 무관하게 독립적으로 사용할 수 있습니다.
+        지정된 시나리오 미디어 폴더의 mp3 파일들을 셔플하여 무한 루프 플레이리스트 형태로 제어.
+        세션 진행과 무관하게 독립적으로 사용 가능.
+
+        NOTE: 단일 트랙 무한 반복인 BGM 기능과 달리 여러 트랙의 백그라운드 재생을 지원.
+        게임 메인 루프와의 간섭을 막기 위해 core.PlaylistManager라는 독립된 백그라운드 태스크(Task) 할당.
 
         Args:
             ctx (commands.Context): 디스코드 컨텍스트 객체
@@ -285,10 +404,50 @@ class MediaCog(commands.Cog):
             await ctx.send("⚠️ 잘못된 명령어입니다. (사용 가능 인자: 시작/다음/이전/일시정지/재생/종료)")
 
 
+    @commands.command(name="볼륨")
+    async def set_volume(self, ctx, volume: float):
+        """
+        현재 재생 중인 BGM 또는 플레이리스트의 볼륨을 실시간으로 조절.
+
+        Args:
+            ctx (commands.Context): 디스코드 컨텍스트 객체
+            volume (float): 설정할 볼륨 값 (0.0 ~ 2.0 사이, 0.3이 30%)
+        """
+        session = self.bot.active_sessions.get(ctx.channel.id)
+        if not session or ctx.channel.id != session.master_ch_id:
+            return await ctx.send("이 명령어는 마스터 채널에서만 사용할 수 있습니다.")
+
+        if not (0.0 <= volume <= 2.0):
+            return await ctx.send("⚠️ 볼륨은 0.0(음소거)에서 2.0(200%) 사이의 숫자로 입력해 주십시오.")
+
+        # 1. 세션 BGM 볼륨 갱신 및 파일 저장
+        session.volume = volume
+        await core.save_session_data(self.bot, session)
+
+        # 2. 현재 재생 중인 세션 BGM에 즉시 반영 (페이드아웃 중첩 방지)
+        if session.voice_client and session.voice_client.is_playing() and isinstance(session.voice_client.source,
+                                                                                     discord.PCMVolumeTransformer):
+            # WARNING: 페이드아웃(is_fading) 진행 중에 볼륨을 강제 수정하면 소리가 다시 커지며 연출이 깨질 수 있으므로 상태 플래그 검사 필수.
+            if not getattr(session, "is_fading", False):
+                session.voice_client.source.volume = volume
+
+        # 3. 독립 구동 중인 플레이리스트가 있다면 동시 적용
+        manager = self.bot.playlist_sessions.get(ctx.guild.id)
+        if manager:
+            manager.volume = volume
+            if manager.vc and manager.vc.is_playing() and isinstance(manager.vc.source, discord.PCMVolumeTransformer):
+                manager.vc.source.volume = volume
+
+        await ctx.send(f"🔊 사운드 볼륨이 **{volume * 100:.0f}%** 로 조정되었습니다.")
+
+
     @commands.command(name="채팅")
     async def control_chat(self, ctx, state: str):
         """
-        게임 채널에서 @everyone 권한 유저의 채팅 발언 가능 여부를 토글합니다.
+        게임 채널에서 @everyone 권한 유저의 채팅 발언 가능 여부를 토글.
+
+        NOTE: AI의 장문 텍스트 스트리밍 중 플레이어가 채팅을 입력하여 출력 화면이
+        섞이는 것을 막기 위한 하드웨어적 채널 권한(Permissions) 통제 장치.
 
         Args:
             ctx (commands.Context): 디스코드 컨텍스트 객체
@@ -319,6 +478,6 @@ class MediaCog(commands.Cog):
 
 async def setup(bot):
     """
-    디스코드 봇이 이 파일을 로드할 때 호출되는 필수 설정 함수입니다.
+    디스코드 봇이 이 파일을 로드할 때 호출되는 필수 설정 함수.
     """
     await bot.add_cog(MediaCog(bot))
