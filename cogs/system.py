@@ -150,6 +150,9 @@ class SystemCog(commands.Cog):
                 await ctx.send(f"⚠️ API 서버 측 캐시 삭제 실패 (이미 만료되었을 수 있습니다): {e}")
                 storage_cost = await core.process_cache_deletion(self.bot, session)
 
+            if storage_cost > 0:
+                core.write_cost_log(session.session_id, "세션 종료 (캐시 유지비 정산)", 0, 0, 0, storage_cost, session.total_cost)
+
         await core.save_session_data(self.bot, session)
 
         # 3. 마스터 채널에 결산 보고
@@ -190,6 +193,9 @@ class SystemCog(commands.Cog):
                 except Exception as e:
                     pass
                 storage_cost = await core.process_cache_deletion(self.bot, session)
+                if storage_cost > 0:
+                    core.write_cost_log(session.session_id, "수동 캐시 파기 (유지비 정산)", 0, 0, 0, storage_cost,
+                                        session.total_cost)
 
             try:
                 caching_text, cache_tokens = await core.build_scenario_cache_text(self.bot, core.DEFAULT_MODEL,
@@ -198,6 +204,8 @@ class SystemCog(commands.Cog):
 
                 upload_cost = core.calculate_upload_cost(core.DEFAULT_MODEL, input_tokens=cache_tokens)
                 session.total_cost += upload_cost
+                core.write_cost_log(session.session_id, "수동 캐시 재발급 (업로드)", cache_tokens, 0, 0, upload_cost,
+                                    session.total_cost)
                 session.cache_created_at = time.time()
                 session.cache_tokens = cache_tokens
 
@@ -233,6 +241,9 @@ class SystemCog(commands.Cog):
             try:
                 await asyncio.to_thread(self.bot.genai_client.caches.delete, name=session.cache_name)
                 storage_cost = await core.process_cache_deletion(self.bot, session)
+                if storage_cost > 0:
+                    core.write_cost_log(session.session_id, "명시적 캐시 삭제 (유지비 정산)", 0, 0, 0, storage_cost,
+                                        session.total_cost)
 
                 report_msg = f"💰 **[캐시 수동 파기 정산]**\n- 캐시 보관 비용: {core.format_cost(storage_cost)}\n- 총 누적 비용: {core.format_cost(session.total_cost)}"
                 print(report_msg)

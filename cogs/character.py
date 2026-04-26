@@ -1,3 +1,4 @@
+import re
 import discord
 from discord.ext import commands
 
@@ -283,31 +284,51 @@ class CharacterCog(commands.Cog):
 
         char_type = char_type.lower()
         if char_type not in ["pc", "npc"]:
-            return await ctx.send("⚠️ 캐릭터 유형은 `pc` 또는 `npc` 중 하나로 입력해주세요.\n(예시: `!설정생성 npc 레온타르트 용병단장`)")
+            return await ctx.send("⚠️ 캐릭터 유형은 `pc` 또는 `npc` 중 하나로 입력해주세요.")
+
+        # 1. 정규식을 통한 목표 NPC 추출
+        npc_match = re.search(r'엔:([^\s]+)', instruction)
+        npc_context_str = "등록된 NPC 정보 없음"
+
+        if npc_match:
+            target_npcs = npc_match.group(1).split(',')
+            npc_list = [f"- {n}: {session.npcs[n]['details']}" for n in target_npcs if n in session.npcs]
+            npc_context_str = "\n".join(npc_list) if npc_list else "일치하는 NPC 정보 없음"
+            instruction = re.sub(r'엔:[^\s]+', '', instruction).strip()
+        else:
+            if session.npcs:
+                npc_context_str = "\n".join([f"- {k}: {v['details']}" for k, v in session.npcs.items()])
+
+        # 2. 최근 3턴 로그 추출 (유저-모델 핑퐁 3세트 = 6개)
+        recent_logs_list = [f"[{part.role.upper()}]: {part.parts[0].text}" for part in session.raw_logs[-6:]]
+        recent_logs_str = "\n\n".join(recent_logs_list) if recent_logs_list else "최근 로그 없음"
 
         type_kr = "플레이어 캐릭터(PC)" if char_type == "pc" else "NPC"
-        await ctx.send(f"⏳ AI가 세계관을 바탕으로 {type_kr} '{char_name}'의 설정 초안을 생성 중입니다. 잠시만 기다려주세요...")
+        await ctx.send(f"⏳ AI가 주변 인물 및 최근 상황을 교차 참조하여 {type_kr} '{char_name}'의 설정 초안을 생성 중입니다...")
 
         try:
-            response = await core.generate_character_details(self.bot, session.scenario_data, char_type, char_name,
-                                                              instruction, session.session_id)
+            # 수정된 파라미터 매핑
+            response = await core.generate_character_details(
+                self.bot, session.scenario_data, char_type, char_name,
+                instruction, session.session_id, recent_logs_str, npc_context_str
+            )
             generated_text = response.text
 
             meta = response.usage_metadata
             in_tokens = meta.prompt_token_count
             out_tokens = meta.candidates_token_count
-            turn_cost = core.calculate_cost(core.LOGIC_MODEL, input_tokens=in_tokens, output_tokens=out_tokens)
+            turn_cost = core.calculate_upload_cost(core.LOGIC_MODEL, input_tokens=in_tokens, output_tokens=out_tokens)
             session.total_cost += turn_cost
+
+            # [추가] 비용 로그 파일 작성
+            core.write_cost_log(session.session_id, "설정 초안 생성", in_tokens, 0, out_tokens, turn_cost, session.total_cost)
+
             print(
                 f"💰 [비용 보고] 설정 생성({char_name}) - In:{in_tokens}, Out:{out_tokens} | 발생: ${turn_cost:.6f} (누적: ${session.total_cost:.6f})")
             await core.save_session_data(self.bot, session)
 
-            if char_type == "pc":
-                guide_cmd = f"`!외형 {char_name} [내용]`"
-            else:
-                guide_cmd = f"`!엔피씨 설정 {char_name} [내용]`"
-
-            header = f"💡 **[{char_name}] {type_kr} 설정 초안 생성 완료**\n*아래 내용을 복사하여 자유롭게 수정한 뒤, {guide_cmd} 명령어로 게임에 적용하세요.*\n\n"
+            guide_cmd = f"`!외형 {char_name} [내용]`" if char_type == "pc" else f"`!엔피씨 설정 {char_name} [내용]`"
+            header = f"💡 **[{char_name}] {type_kr} 설정 초안 생성 완료**\n*아래 내용을 복사하여 자유롭게 수정한 뒤, {guide_cmd} 명령어로 적용하세요.*\n\n"
             full_message = header + generated_text
 
             if len(full_message) > 2000:

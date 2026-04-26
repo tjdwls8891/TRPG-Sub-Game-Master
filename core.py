@@ -114,6 +114,8 @@ class TRPGSession:
         self.is_processing = False
         self.last_turn_anchor_id = None
 
+        self.gm_typing_task = None
+
         self.npcs = {}
         default_npcs = scenario_data.get("default_npcs", {})
 
@@ -418,6 +420,18 @@ def write_log(session_id: str, log_type: str, content: str):
             f.write("-" * 60 + "\n")
 
 
+def write_cost_log(session_id: str, usage_context: str, in_tokens: int, cached_tokens: int, out_tokens: int, cost: float, total_cost: float):
+    """
+    비용 발생 시점, 사용처, 토큰 수, 청구액을 기록하는 전용 비용 로거.
+    """
+    if not session_id:
+        return
+    log_filename = f"sessions/{session_id}/cost_log.txt"
+    now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    with open(log_filename, "a", encoding="utf-8") as f:
+        f.write(f"[{now_str}] [사용처: {usage_context}] 토큰: In({in_tokens}), Cached({cached_tokens}), Out({out_tokens}) | 발생 비용: ₩{cost:.2f} | 누적 비용: ₩{total_cost:.2f}\n")
+
+
 def get_available_scenarios() -> list:
     """
     scenarios 폴더 내에 존재하는 사용 가능한 시나리오 파일 목록을 스캔하여 반환.
@@ -476,7 +490,7 @@ async def save_session_data(bot, session: TRPGSession):
 
 
 # noinspection PyShadowingNames
-async def build_scenario_cache_text(bot, model_id, scenario_data: dict, cache_note: str = "") -> tuple[str, int]:
+async def build_scenario_cache_text(bot, model_id, scenario_data: dict, cache_note: str = "", session_id: str = None) -> tuple[str, int]:
     """
     시나리오 데이터를 바탕으로 Context Caching을 위한 '시나리오 핵심 룰북' 텍스트 조립.
     최소 요구 토큰 수 미달 시 임의의 패딩 추가.
@@ -486,6 +500,7 @@ async def build_scenario_cache_text(bot, model_id, scenario_data: dict, cache_no
         model_id (str): 토큰 계산에 사용할 모델 식별자
         scenario_data (dict): 시나리오 데이터 딕셔너리
         cache_note (str): 캐시에 삽입할 GM 관리 기억사항
+        session_id (str): 세션 아이디
 
     Returns:
         tuple[str, int]: 최종 완성된 룰북 텍스트와 해당 텍스트의 총 토큰 수
@@ -531,6 +546,9 @@ async def build_scenario_cache_text(bot, model_id, scenario_data: dict, cache_no
 {status_code_block}
 {note_injection}============================
 """
+
+    if session_id:
+        write_log(session_id, "api", f"[캐시 발급용 원본 룰북 (패딩 제외)]\n{rulebook_text}")
 
     try:
         response = await asyncio.to_thread(
@@ -666,7 +684,7 @@ async def restore_sessions_from_disk(bot):
                             config=types.CreateCachedContentConfig(
                                 system_instruction=bot.system_instruction,
                                 contents=[types.Content(role="user", parts=[types.Part.from_text(text=caching_text)])],
-                                ttl="3600s",
+                                ttl="21600s",
                             )
                         )
 
@@ -726,7 +744,7 @@ async def send_image_by_keyword(game_channel, master_ctx, session, keyword):
 
 
 # noinspection PyShadowingNames
-async def generate_character_details(bot, scenario_data, char_type, char_name, instruction, session_id):
+async def generate_character_details(bot, scenario_data, char_type, char_name, instruction, session_id, recent_logs: str = "", npc_context: str = ""):
     """
     AI 모델을 사용하여 PC 또는 NPC의 세부 설정 초안 텍스트 생성.
 
@@ -740,6 +758,8 @@ async def generate_character_details(bot, scenario_data, char_type, char_name, i
         char_name (str): 생성할 캐릭터의 이름
         instruction (str): GM이 추가로 부여한 세부 지시사항
         session_id (str): API 로그를 기록할 세션 식별자
+        recent_logs (str): 최근 3턴 로그
+        npc_context (str): npc 정보
 
     Returns:
         types.GenerateContentResponse: API에서 반환한 응답 객체
@@ -748,41 +768,32 @@ async def generate_character_details(bot, scenario_data, char_type, char_name, i
 
     style_guide = (
         "[작성 지침]\n"
-        "1. 분량: 공백 포함 1000자 내외로 제한합니다.\n"
+        "1. 분량: 공백 포함 300~500자 내외로 제한합니다.\n"
         "2. 문체: 불필요한 서술어를 철저히 생략하고, 핵심 정보만 전달하는 간결한 단문(개조식) 및 명사형/음슴체 종결을 사용하십시오.\n"
-        "   (예시: '~가 특징이다.' -> '~가 특징.', '~를 좋아한다.' -> '~를 좋아함.')\n"
-        "3. 창작 원칙: 제공된 지시사항은 왜곡 없이 반영하고, 누락된 [필수 항목]은 세계관에 맞춰 논리적으로 창작하십시오.\n\n"
+        "3. 포맷: 반드시 가독성 높은 마크다운 양식을 사용하여 출력하십시오.\n"
+        "4. 창작 원칙: 제공된 지시사항은 왜곡 없이 반영하고, 주변 인물(NPC) 및 상황과 자연스럽게 어우러지도록 개연성을 부여하십시오.\n\n"
+    )
+
+    context_blocks = (
+        f"[최근 상황 요약 (최근 3턴)]\n{recent_logs}\n\n"
+        f"[참고용 기존 NPC 설정]\n{npc_context}\n\n"
     )
 
     if char_type == "pc":
         prompt = (
-            f"당신은 TRPG에서 플레이어가 조종할 '플레이어 캐릭터(PC)'의 설정을 정리하는 보조 작가입니다.\n"
-            f"{style_guide}"
-            f"[세계관 정보]\n{worldview}\n\n"
-            f"- 대상 이름: {char_name}\n"
-            f"- GM 지시사항: {instruction}\n\n"
-            f"[필수 항목 (PC)]\n"
-            f"- 나이:\n"
-            f"- 키와 체형:\n"
-            f"- 외모:\n"
-            f"(※ 그 외 GM 지시사항에 포함된 추가 설정이나 배경이 있다면 필수 항목 아래에 자연스럽게 이어서 정리할 것. 디테일 강화는 허용하나 새로운 내용 창작 금지.)"
+            f"당신은 TRPG에서 플레이어가 조종할 '플레이어 캐릭터(PC)'의 설정을 정리하는 보조 작가입니다.\n{style_guide}"
+            f"[세계관 정보]\n{worldview}\n\n{context_blocks}"
+            f"- 대상 이름: {char_name}\n- GM 지시사항: {instruction}\n\n"
+            f"[필수 항목 (PC)]\n- 나이:\n- 키와 체형:\n- 외모:\n"
+            f"(※ 그 외 GM 지시사항에 포함된 추가 설정이나 배경이 있다면 필수 항목 아래에 자연스럽게 이어서 정리할 것.)"
         )
     else:
         prompt = (
-            f"당신은 TRPG 세계관 속에서 GM이 조종할 '논플레이어 캐릭터(NPC)'의 설정을 정리하는 보조 작가입니다.\n"
-            f"{style_guide}"
-            f"[세계관 정보]\n{worldview}\n\n"
-            f"- 대상 이름: {char_name}\n"
-            f"- GM 지시사항: {instruction}\n\n"
-            f"[필수 항목 (NPC)]\n"
-            f"- 나이:\n"
-            f"- 키와 체형:\n"
-            f"- 외모:\n"
-            f"- 성격:\n"
-            f"- 소속:\n"
-            f"- 특기:\n"
-            f"- 좋아하는 것과 싫어하는 것:\n"
-            f"(※ 그 외 GM 지시사항에 포함된 추가 설정이나 배경이 있다면 필수 항목 아래에 자연스럽게 이어서 정리할 것)"
+            f"당신은 TRPG 세계관 속에서 GM이 조종할 '논플레이어 캐릭터(NPC)'의 설정을 정리하는 보조 작가입니다.\n{style_guide}"
+            f"[세계관 정보]\n{worldview}\n\n{context_blocks}"
+            f"- 대상 이름: {char_name}\n- GM 지시사항: {instruction}\n\n"
+            f"[필수 항목 (NPC)]\n- 나이:\n- 키와 체형:\n- 외모:\n- 성격:\n- 소속:\n- 특기:\n- 좋아하는 것과 싫어하는 것:\n"
+            f"(※ 그 외 GM 지시사항에 포함된 추가 설정이나 배경이 있다면 필수 항목 아래에 자연스럽게 이어서 정리할 것.)"
         )
 
     write_log(session_id, "api", f"[{char_type.upper()} 설정 생성 요청 - {char_name}]\n{prompt}")
@@ -791,11 +802,8 @@ async def generate_character_details(bot, scenario_data, char_type, char_name, i
         bot.genai_client.models.generate_content,
         model=LOGIC_MODEL,
         contents=prompt,
-        config = types.GenerateContentConfig(
-            safety_settings=TRPG_SAFETY_SETTINGS
-        )
+        config=types.GenerateContentConfig(safety_settings=TRPG_SAFETY_SETTINGS)
     )
-
     return response
 
 
@@ -843,7 +851,7 @@ async def stream_text_to_channel(bot, channel, text: str, words_per_tick: int = 
         await current_message.edit(content=final_text)
 
         if session:
-            write_log(session.session_id, "game_chat", f"[연출 완료]: {final_text}")
+            write_log(session.session_id, "game_chat", f"[GM]: {final_text}")
 
 
 class PlaylistManager:

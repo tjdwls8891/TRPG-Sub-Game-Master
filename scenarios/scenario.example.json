@@ -28,6 +28,17 @@
         "스탯4": ""
     },
     "stat_system": "스탯 척도 및 판정 기준 가이드",
+    "image_prompts": {
+        "캐릭터전신삼면도": {
+            "prompt": "Masterpiece, best illustration, traditional media oil painting style, painting (medium). A highly skilled full-body three-view character diagram with perfect anatomy and perfect_body. Sequential front view, back view, and side view of the described person on a pure white background. Standing straight with arms naturally relaxed downwards. Executed with soft brushstrokes and natural gradation, designed for atmospheric depth. No other elements or background props. Reference: Elden Ring and Lies of P art direction. Resolution maximal 1024x768 pixels (4:3 aspect ratio), maximal 1K size."
+        },
+        "상반신프로필": {
+            "prompt": "Masterpiece, best illustration, traditional media oil painting style, painting (medium). An exquisite upper-body frontal portrait of the person from chest to top of head, showcasing perfect anatomy with a soft style and smooth gradation. A natural neutral expression. Background is softly blurred with deep shadows and cinematic lighting, invoking a dense atmosphere similar to Elden Ring. Composition with the person placed on the left one-third of the frame using shallow depth of field and best shadow techniques. Reference: Lies of P aesthetic. Resolution maximal 1000x400 pixels (5:2 aspect ratio), under 1K size."
+        },
+        "단순이미지": {
+            "prompt": "Masterpiece, best illustration, traditional media oil painting style, painting (medium). A professional painting depicting the described object and situation with a soft style and natural gradation. Perfect anatomy applied where human figures are involved. Utilizing dramatic cinematic lighting and best shadow to create a dense, imaginative atmosphere inspired by Elden Ring and Lies of P. Focus on mood through depth of field. Resolution maximal 1024x1024 pixels, not exceeding 1K size."
+        }
+    },
     "media_dir": "./media",
     "media_keywords": {
         "키워드": "파일명.확장자"

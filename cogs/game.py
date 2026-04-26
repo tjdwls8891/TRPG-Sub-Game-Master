@@ -21,6 +21,49 @@ class GameCog(commands.Cog):
         self.bot = bot
 
     @commands.Cog.listener()
+    async def on_typing(self, channel, user, when):
+        """
+        마스터 채널에서 GM이 입력 중일 때, 게임 채널에 봇이 입력 중인 것처럼 동기화.
+        최대 20초간 유지되며, 새로운 입력 감지 시 타이머가 갱신됨.
+        """
+        if user == self.bot.user:
+            return
+
+        session = self.bot.active_sessions.get(channel.id)
+        if not session:
+            return
+
+        # 마스터 채널에서의 입력인지 확인
+        if channel.id != session.master_ch_id:
+            return
+
+        # 시스템이 묘사를 처리 중(AI 타이핑 연출 중)이라면 무시하여 충돌 방지
+        if getattr(session, "is_processing", False):
+            return
+
+        game_channel = self.bot.get_channel(session.game_ch_id)
+        if not game_channel:
+            return
+
+        # 기존에 작동 중인 타이머 태스크가 있다면 취소 (타이머 리셋 효과)
+        if getattr(session, "gm_typing_task", None) and not session.gm_typing_task.done():
+            session.gm_typing_task.cancel()
+
+        # 20초 유지 타이머 비동기 함수 정의
+        async def typing_sync_task():
+            try:
+                # discord.py 2.0+ 규격: async with 블록 내부에 머무르는 동안 10초마다 자동 갱신됨
+                async with game_channel.typing():
+                    # 20초 동안 타이핑 상태 유지
+                    await asyncio.sleep(20)
+            except asyncio.CancelledError:
+                # 마스터가 입력을 멈추고 메시지를 전송하거나, 새 입력으로 갱신될 때 정상 종료
+                pass
+
+        # 새 태스크 등록 및 백그라운드 실행
+        session.gm_typing_task = self.bot.loop.create_task(typing_sync_task())
+
+    @commands.Cog.listener()
     async def on_message(self, message):
         """
         채널에 메시지가 전송될 때마다 호출되어 행동/대화 로그를 처리하는 자동 로깅 이벤트.
@@ -32,11 +75,18 @@ class GameCog(commands.Cog):
             message (discord.Message): 수신된 메시지 객체
         """
         if message.author == self.bot.user:
+            session = self.bot.active_sessions.get(message.channel.id)
+            if session and message.channel.id == session.master_ch_id:
+                core.write_log(session.session_id, "master_chat", f"[SYSTEM/BOT]: {message.content}")
             return
 
         session = self.bot.active_sessions.get(message.channel.id)
         if not session:
             return
+
+        if message.channel.id == session.master_ch_id:
+            if getattr(session, "gm_typing_task", None) and not session.gm_typing_task.done():
+                session.gm_typing_task.cancel()
 
         # NOTE: 명령어로 시작하는 채팅은 게임 내 발화나 행동이 아니므로 로깅 로직에서 제외.
         if message.content.startswith('!'):
@@ -227,11 +277,15 @@ class GameCog(commands.Cog):
             await ctx.send("⏳ AI가 묘사를 생성 중입니다. 완료 후 게임 채널에 타이핑 연출을 시작합니다...")
 
             prompt = core.PromptBuilder.build_prompt(session, clean_instruction)
-            core.write_log(session.session_id, "api", f"[메인 턴 묘사 요청]\n{prompt}")
 
             current_contents = session.raw_logs + [
                 types.Content(role="user", parts=[types.Part.from_text(text=prompt)])
             ]
+
+            payload_dump = ""
+            for content in current_contents:
+                payload_dump += f"[{content.role.upper()}]\n{content.parts[0].text}\n\n"
+            core.write_log(session.session_id, "api", f"[메인 턴 묘사 요청 - 최종 Payload]\n{payload_dump}")
 
             async def generate_with_retry(retry_count=0):
                 try:
@@ -258,12 +312,15 @@ class GameCog(commands.Cog):
                                                                                           core.DEFAULT_MODEL,
                                                                                           session.scenario_data,
                                                                                           getattr(session,
-                                                                                                  "cache_note", ""))
+                                                                                                  "cache_note", ""), session.session_id)
 
                         upload_cost = core.calculate_upload_cost(core.DEFAULT_MODEL, input_tokens=cache_tokens)
                         session.total_cost += upload_cost
                         session.cache_created_at = time.time()
                         session.cache_tokens = cache_tokens
+
+                        core.write_cost_log(session.session_id, "캐시 자동 재발급(진행 중)", cache_tokens, 0, 0, upload_cost,
+                                            session.total_cost)
 
                         report_msg = f"💰 **[캐시 자동 재발급 정산]**\n- 이전 캐시 보관 비용: {core.format_cost(storage_cost)}\n- 새 캐시 업로드 비용: {core.format_cost(upload_cost)}\n- 현재까지 총 누적 비용: {core.format_cost(session.total_cost)}"
                         print(report_msg)
@@ -302,6 +359,9 @@ class GameCog(commands.Cog):
                                                    cached_read_tokens=cached_tokens)
             session.total_cost += turn_cost
 
+            core.write_cost_log(session.session_id, "턴 진행 생성", in_tokens, cached_tokens, out_tokens, turn_cost,
+                                session.total_cost)
+
             report_msg = f"💰 **[비용 보고] 턴 진행**\n- 토큰: In({in_tokens}), Cached({cached_tokens}), Out({out_tokens})\n- 턴 발생 비용: {core.format_cost(turn_cost)}\n- 누적 비용: {core.format_cost(session.total_cost)}"
             print(report_msg)
 
@@ -310,6 +370,11 @@ class GameCog(commands.Cog):
                 await master_ch.send(report_msg)
 
             full_ai_response = response.text
+
+            if not full_ai_response:
+                finish_reason = response.candidates[0].finish_reason if response.candidates else "Unknown"
+                raise ValueError(
+                    f"AI가 텍스트를 반환하지 않았습니다. (구글 API 강제 차단 혹은 모델 에러. 사유: {finish_reason})\n지시사항의 수위를 조절하거나 `!재생성`을 이용해 턴을 취소해 주십시오.")
 
             turn_history_text = "\n".join(session.current_turn_logs) + f"\n[GM 지시]: {clean_instruction}"
             session.raw_logs.append(types.Content(role="user", parts=[types.Part.from_text(text=turn_history_text)]))
@@ -388,10 +453,14 @@ class GameCog(commands.Cog):
                         out_tokens = meta.candidates_token_count
                         cached_tokens = getattr(meta, "cached_content_token_count", 0)
 
-                        turn_cost = core.calculate_cost(core.LOGIC_MODEL, input_tokens=in_tokens,
+                        turn_cost = core.calculate_upload_cost(core.LOGIC_MODEL, input_tokens=in_tokens,
                                                         output_tokens=out_tokens,
                                                         cached_read_tokens=cached_tokens)
                         session.total_cost += turn_cost
+
+                        core.write_cost_log(session.session_id, "자동 기억 압축", in_tokens, cached_tokens, out_tokens,
+                                            turn_cost, session.total_cost)
+
                         print(
                             f"💰 [비용 보고] 기억 압축 진행 - In:{in_tokens}, Cached:{cached_tokens}, Out:{out_tokens} | 턴 발생: ${turn_cost:.6f} (누적: ${session.total_cost:.6f})")
 
@@ -534,9 +603,13 @@ class GameCog(commands.Cog):
             out_tokens = meta.candidates_token_count
             cached_tokens = getattr(meta, "cached_content_token_count", 0)
 
-            turn_cost = core.calculate_cost(core.LOGIC_MODEL, input_tokens=in_tokens, output_tokens=out_tokens,
+            turn_cost = core.calculate_upload_cost(core.LOGIC_MODEL, input_tokens=in_tokens, output_tokens=out_tokens,
                                             cached_read_tokens=cached_tokens)
             session.total_cost += turn_cost
+
+            core.write_cost_log(session.session_id, "수동 기억 압축", in_tokens, cached_tokens, out_tokens, turn_cost,
+                                session.total_cost)
+
             print(
                 f"💰 [비용 보고] 수동 기억 압축 진행 - In:{in_tokens}, Cached:{cached_tokens}, Out:{out_tokens} | 턴 발생: ${turn_cost:.6f} (누적: ${session.total_cost:.6f})")
 

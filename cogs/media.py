@@ -70,10 +70,12 @@ class MediaCog(commands.Cog):
                 if ref_keyword in media_keywords:
                     ref_path = os.path.join(media_dir, media_keywords[ref_keyword])
                     if os.path.exists(ref_path):
-                        # 구글 API 규격에 맞춰 참조 이미지 로드 (PIL 등 사용)
                         try:
                             import PIL.Image
-                            ref_image = PIL.Image.open(ref_path)
+                            img = PIL.Image.open(ref_path)
+                            # 추가: 레퍼런스용 이미지는 연산 부하 방지를 위해 사이즈를 절반(또는 512x512)으로 축소
+                            img.thumbnail((512, 512))
+                            ref_image = img
                         except Exception as e:
                             print(f"⚠️ 레퍼런스 로드 실패: {e}")
                     else:
@@ -95,12 +97,13 @@ class MediaCog(commands.Cog):
             try:
                 print(f"[DEBUG] API 호출 시작: {filename_key}")
 
-                # 시간 제한 삭제 (응답 시까지 대기)
-                response = await asyncio.to_thread(
-                    self.bot.genai_client.models.generate_content,
-                    model=core.IMAGE_MODEL,
-                    contents=contents_payload
-                )
+                async with ctx.typing():
+                    response = await asyncio.to_thread(
+                        self.bot.genai_client.models.generate_content,
+                        model=core.IMAGE_MODEL,
+                        contents=contents_payload
+                    )
+
                 print(f"[DEBUG] API 응답 완료: {filename_key}")
 
                 # 파일 저장 로직 (PNG 강제)
@@ -138,6 +141,9 @@ class MediaCog(commands.Cog):
                 # 비용 계산 (입력 프롬프트의 극미량 토큰 비용은 생략하고 출력 장당 단가로 처리)
                 turn_cost = core.IMAGE_GEN_COST
                 session.total_cost += turn_cost
+                core.write_cost_log(session.session_id, f"이미지 생성 ({filename_key})", 0, 0, 0, turn_cost,
+                                    session.total_cost)
+
                 await core.save_session_data(self.bot, session)
 
                 report_msg = f"💰 **[비용 보고] 이미지 생성**\n- 모델: {core.IMAGE_MODEL}\n- 턴 발생 비용: {core.format_cost(turn_cost)}\n- 누적 비용: {core.format_cost(session.total_cost)}"

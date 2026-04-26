@@ -71,6 +71,7 @@ class SessionCog(commands.Cog):
             session.total_cost += upload_cost
             session.cache_created_at = time.time()
             session.cache_tokens = cache_tokens
+            core.write_cost_log(session.session_id, "초기 캐시 생성", cache_tokens, 0, 0, upload_cost, session.total_cost)
 
             report_msg = f"💰 **[캐시 업로드 완료]**\n- 초기 업로드 비용: {core.format_cost(upload_cost)}\n- 누적 비용: {core.format_cost(session.total_cost)}"
             print(report_msg)
