@@ -308,11 +308,10 @@ class GameCog(commands.Cog):
                         await ctx.send("🔄 **[시스템 알림]** 장기 기억 캐시가 만료되어 자동으로 재발급을 진행합니다. 턴 묘사는 이어서 출력됩니다...")
 
                         storage_cost = await core.process_cache_deletion(self.bot, session)
-                        caching_text, cache_tokens = await core.build_scenario_cache_text(self.bot,
-                                                                                          core.DEFAULT_MODEL,
-                                                                                          session.scenario_data,
-                                                                                          getattr(session,
-                                                                                                  "cache_note", ""), session.session_id)
+                        caching_text, cache_tokens, base_text = await core.build_scenario_cache_text(
+                            self.bot, core.DEFAULT_MODEL, session.scenario_data,
+                            getattr(session, "cache_note", ""), session.session_id
+                        )
 
                         upload_cost = core.calculate_upload_cost(core.DEFAULT_MODEL, input_tokens=cache_tokens)
                         session.total_cost += upload_cost
@@ -342,6 +341,7 @@ class GameCog(commands.Cog):
                         session.cache_obj = new_cache
                         session.cache_name = new_cache.name
                         session.cache_model = core.DEFAULT_MODEL
+                        session.cache_text = base_text
                         await core.save_session_data(self.bot, session)
 
                         return await generate_with_retry(retry_count=1)
@@ -562,6 +562,146 @@ class GameCog(commands.Cog):
 
         # 새로운 묘사 출력을 위해 메인 진행 함수 재호출
         await self.proceed_turn(ctx, instruction=instruction)
+
+    @commands.command(name="출력물")
+    async def show_last_output(self, ctx):
+        """
+        가장 최근 턴의 AI 출력 텍스트를 마스터 채널에 전송.
+        디스코드 2000자 제한을 고려하여 1950자 단위로 분할 전송.
+        """
+        session = self.bot.active_sessions.get(ctx.channel.id)
+        if not session or ctx.channel.id != session.master_ch_id:
+            return await ctx.send("이 명령어는 마스터 채널에서만 사용할 수 있습니다.")
+
+        # raw_logs에서 가장 최근 model 응답 탐색
+        last_model_text = None
+        for content in reversed(session.raw_logs):
+            if content.role == "model":
+                last_model_text = content.parts[0].text
+                break
+
+        if not last_model_text:
+            return await ctx.send("⚠️ 출력할 직전 턴의 묘사가 존재하지 않습니다.")
+
+        await ctx.send(f"📄 **[직전 턴 출력물 — {session.turn_count}턴]** (아래 텍스트를 수정 후 `!수정`으로 반영)")
+
+        chunk_size = 1950
+        for i in range(0, len(last_model_text), chunk_size):
+            await ctx.send(last_model_text[i:i + chunk_size])
+
+    @commands.command(name="수정")
+    async def edit_last_output(self, ctx, *, new_text: str):
+        """
+        직전 턴의 게임 채널 출력물을 입력된 텍스트로 수정.
+
+        디스코드 메시지 수정 API(edit)를 사용해 기존 메시지를 덮어쓰고,
+        raw_logs·uncompressed_logs·game_chat 로그 파일도 함께 동기화.
+        모든 알림은 마스터 채널에만 전송.
+        """
+        session = self.bot.active_sessions.get(ctx.channel.id)
+        if not session or ctx.channel.id != session.master_ch_id:
+            return await ctx.send("이 명령어는 마스터 채널에서만 사용할 수 있습니다.")
+
+        game_channel = self.bot.get_channel(session.game_ch_id)
+        if not game_channel:
+            return await ctx.send("⚠️ 게임 채널을 찾을 수 없습니다.")
+
+        if getattr(session, "is_processing", False):
+            return await ctx.send("⏳ 시스템이 다른 명령을 처리 중입니다. 잠시만 기다려주십시오.")
+
+        # 수정 대상 model 로그 위치 탐색
+        last_model_idx = None
+        for i in range(len(session.raw_logs) - 1, -1, -1):
+            if session.raw_logs[i].role == "model":
+                last_model_idx = i
+                break
+
+        if last_model_idx is None:
+            return await ctx.send("⚠️ 수정할 직전 턴의 묘사가 존재하지 않습니다.")
+
+        if not getattr(session, "last_turn_anchor_id", None):
+            return await ctx.send("⚠️ 앵커 정보가 없어 게임 채널 메시지를 특정할 수 없습니다.\n(세션 복구 직후이거나 `!진행` 이전 상태입니다.)")
+
+        session.is_processing = True
+        try:
+            # ── 1. 앵커 이후 봇 텍스트 메시지 수집 (이미지·파일 제외) ──
+            try:
+                anchor_msg = await game_channel.fetch_message(session.last_turn_anchor_id)
+            except discord.NotFound:
+                await ctx.send("⚠️ 앵커 메시지를 찾을 수 없습니다. 메시지가 삭제되었을 수 있습니다.")
+                return
+
+            bot_text_msgs = []
+            async for msg in game_channel.history(after=anchor_msg, limit=100):
+                if msg.author == self.bot.user and not msg.attachments:
+                    bot_text_msgs.append(msg)
+            bot_text_msgs.sort(key=lambda m: m.created_at)
+
+            # ── 2. 새 텍스트에서 서술부와 코드블럭 분리 (proceed_turn 동일 로직) ──
+            code_block_match = re.search(r'(.*)(```.*?```)\s*$', new_text, re.DOTALL)
+            if code_block_match:
+                new_narrative = code_block_match.group(1).strip()
+                new_code_block = code_block_match.group(2).strip()
+            else:
+                new_narrative = new_text.strip()
+                new_code_block = ""
+
+            # 문단 단위로 분리 → 인용(>) 포맷 적용 → 1950자 초과 시 추가 분할
+            new_paragraphs = [p.strip() for p in new_narrative.split('\n\n') if p.strip()]
+            new_chunks = []
+            for p in new_paragraphs:
+                formatted = p if p.startswith(">") else f"> {p}"
+                for j in range(0, len(formatted), 1950):
+                    new_chunks.append(formatted[j:j + 1950])
+            if new_code_block:
+                new_chunks.append(new_code_block)
+
+            if not new_chunks:
+                await ctx.send("⚠️ 수정할 내용이 없습니다.")
+                return
+
+            # ── 3. 기존 메시지 수정 / 초과분 삭제 / 부족분 추가 ──
+            for i, msg in enumerate(bot_text_msgs):
+                if i < len(new_chunks):
+                    try:
+                        await msg.edit(content=new_chunks[i])
+                    except Exception as e:
+                        print(f"⚠️ 메시지 수정 실패 (id={msg.id}): {e}")
+                else:
+                    try:
+                        await msg.delete()
+                    except Exception as e:
+                        print(f"⚠️ 초과 메시지 삭제 실패 (id={msg.id}): {e}")
+
+            # 기존 메시지보다 새 청크가 많을 경우 추가 전송
+            if len(new_chunks) > len(bot_text_msgs):
+                for chunk in new_chunks[len(bot_text_msgs):]:
+                    await game_channel.send(chunk)
+
+            # ── 4. raw_logs 갱신 ──
+            session.raw_logs[last_model_idx] = types.Content(
+                role="model",
+                parts=[types.Part.from_text(text=new_text.strip())]
+            )
+
+            # ── 5. uncompressed_logs에서 마지막 [GM 묘사] 항목 교체 ──
+            for i in range(len(session.uncompressed_logs) - 1, -1, -1):
+                if session.uncompressed_logs[i].startswith("[GM 묘사]:"):
+                    session.uncompressed_logs[i] = f"[GM 묘사]: {new_text.strip()}"
+                    break
+
+            # ── 6. 채팅 로그 기록 및 세션 저장 ──
+            core.write_log(
+                session.session_id, "game_chat",
+                f"[GM 수정 ({session.turn_count}턴)]: {new_text.strip()}"
+            )
+            await core.save_session_data(self.bot, session)
+            await ctx.send(f"✅ {session.turn_count}턴 출력물이 수정되었습니다.")
+
+        except Exception as e:
+            await ctx.send(f"⚠️ 수정 중 오류가 발생했습니다: {e}")
+        finally:
+            session.is_processing = False
 
     @commands.command(name="기억압축")
     async def compress_memory(self, ctx):

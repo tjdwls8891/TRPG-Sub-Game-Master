@@ -30,46 +30,59 @@ class SystemCog(commands.Cog):
 
         embed = discord.Embed(title="📜 TRPG 봇 명령어 및 인자 가이드", color=0x9b59b6)
 
-        # NOTE: 세션 완전 종료 및 정산을 위한 !세션종료 명령어 안내 추가.
         embed.add_field(name="[세션 관리]", value=(
-            "`!새세션 [시나리오명]` : 새로운 게임 세션 준비\n"
-            "`!시작` : 세션 시작 (1회 제한)\n"
-            "`!소개` : 인트로 및 캐릭터 생성 안내 출력\n"
-            "`!세션종료` : 게임 채널 잠금 및 캐시 파기, 과금 정산"
+            "`!새세션 [시나리오명]` : 새로운 게임 세션 준비 및 캐시 업로드\n"
+            "`!시작` : 세션 시작 메시지 출력 (관리자·1회 한정)\n"
+            "`!소개` : 인트로 및 캐릭터 생성 안내 게임 채널 스트리밍\n"
+            "`!세션종료` : 게임 채널 잠금·캐시 파기·과금 정산"
         ), inline=False)
 
         embed.add_field(name="[캐릭터 및 NPC 설정]", value=(
-            "`!참가 [이름]` : 플레이어 캐릭터로 세션 참가 (게임 채널)\n"
-            "`!설정 [이름] [항목] [내용]` : 캐릭터 스탯/프로필 설정\n"
-            "`!외형 [이름] (내용)` : 캐릭터 외형 설정 및 확인\n"
-            "`!프로필 [이름]` : 캐릭터 전체 프로필 확인\n"
-            "`!엔피씨 [설정/확인/삭제/목록] (이름) (내용)` : NPC 정보 통합 관리\n"
-            "`!설정생성 [pc/npc] [이름] [지시사항]` : AI 설정 초안 생성"
+            "`!참가 [이름]` : 게임 채널에서 PC로 세션 참가\n"
+            "`!설정 [이름] [항목] [내용]` : 캐릭터 스탯/프로필 항목 갱신\n"
+            "`!증감 [이름] [스탯명] [수치]` : 스탯 수치를 지정한 값만큼 증감 (예: -3, +5)\n"
+            "`!증감 [이름] 자원 [아이템명] [수치]` : 소지 자원 증감\n"
+            "`!증감 [이름] 상태 [상태명]` : 상태이상 부여 / `-[상태명]`으로 제거\n"
+            "`!외형 [이름] (내용)` : 캐릭터 외형 설정 또는 확인\n"
+            "`!프로필 [이름] (게임)` : 프로필 카드 출력 (기본: 마스터 채널 / `게임`: 게임 채널)\n"
+            "`!엔피씨 [설정/확인/삭제/목록] (이름) (내용)` : NPC 런타임 설정 통합 관리\n"
+            "`!능력치 [이름] [주사위눈] [총합]` : 능력치 주사위 굴림 → 비율 자동 배분 (게임 채널 버튼)\n"
+            "`!설정생성 [pc/npc] [이름] [지시사항]` : AI 캐릭터 설정 초안 생성\n"
+            "  *(설정생성 특수 태그: `엔:이름[,이름]` — 참조 NPC 지정)*"
         ), inline=False)
 
-        # NOTE: 비용 절감용 룰북 지연 병합을 위한 !캐시노트 명령어 안내 추가.
         embed.add_field(name="[게임 진행 및 판정]", value=(
-            "`!진행 [지시사항]` : AI 턴 묘사 진행\n"
+            "`!진행 [지시사항]` : AI 턴 묘사 생성 및 스트리밍 연출\n"
             "  *(특수 태그: `상/중/하:키워드`, `자:이름;아이템;수치`, `태:이름;[-]상태`)*\n"
+            "`!재생성 (지시사항)` : 직전 턴 롤백 후 새 지시사항으로 재생성\n"
+            "`!출력물` : 직전 턴 AI 출력 텍스트를 마스터 채널에 전송\n"
+            "`!수정 [텍스트 전체]` : 직전 턴 게임 채널 출력물 수정 (edit API 사용)\n"
             "`!주사위 [이름] [눈] (가중치) (목표값)` : 일반 주사위 / 목표값 판정\n"
-            "`!주사위 [이름] [스탯명] [눈] (가중치)` : 능력치 주사위 굴림\n"
-            "`!기억압축` : 미압축 로그 수동 요약 및 압축\n"
-            "`!노트 [누적/갱신/출력] (내용)` : 실시간 GM 노트 관리\n"
-            "`!캐시노트 [누적/갱신/출력] (내용)` : 차기 캐싱용 지연 병합 설정 관리"
+            "`!주사위 [이름] [스탯명] [눈] (가중치)` : 캐릭터 능력치 기반 주사위 판정\n"
+            "`!기억압축` : 미압축 로그 수동 요약·압축\n"
+            "`!노트 [누적/갱신/출력] (내용)` : 매 턴 주입되는 실시간 GM 노트 관리\n"
+            "`!캐시노트 [누적/갱신/출력] (내용)` : 차기 캐시 재발급 시 룰북에 병합될 내용 관리"
         ), inline=False)
 
         embed.add_field(name="[미디어 및 채널 제어]", value=(
-            "`!이미지 [키워드/목록]` : 로컬 이미지 출력 및 확인\n"
-            "`!브금 [파일명/목록/정지]` : BGM 재생, 정지 및 확인\n"
-            "`!플리 [행동] (시나리오명)` : 플리 제어 (시작/종료/다음/이전/일시정지/재생)\n"
-            "`!볼륨 [숫자]` : BGM 및 플리 볼륨 조절 (0.0~2.0, 기본 0.3)\n"
-            "`!채팅 [잠금/해제]` : 일반 플레이어 채팅 통제"
+            "`!이미지 [키워드]` : 시나리오에 등록된 키워드로 게임 채널에 이미지 출력\n"
+            "`!이미지 목록` : 시나리오에 등록된 이미지 키워드 목록 확인\n"
+            "`!이미지 생성 [형식키] [키워드] [프롬프트] (레:레퍼런스키)` : AI 이미지 생성 및 등록\n"
+            "`!브금 [파일명]` : BGM 무한 반복 재생 (페이드아웃 후 교체 지원)\n"
+            "`!브금 [목록/정지]` : BGM 파일 목록 확인 또는 페이드아웃 후 정지\n"
+            "`!플리 시작 [시나리오명]` : 미디어 폴더 mp3 셔플 플레이리스트 시작\n"
+            "`!플리 [재생/일시정지/다음/이전/종료]` : 플레이리스트 제어\n"
+            "`!볼륨 [0.0~2.0]` : BGM·플리 볼륨 실시간 조절 (기본 0.3 = 30%)\n"
+            "`!채팅 [잠금/해제]` : 게임 채널 일반 플레이어 채팅 권한 통제"
         ), inline=False)
 
         embed.add_field(name="[시스템 관리]", value=(
-            "`!채널정리` : 불필요한 더미 세션 카테고리/채널 일괄 삭제\n"
-            "`!캐시 [재발급/삭제]` : 장기 기억 캐시 재발급 및 파기\n"
-            "`!리로드 [모듈명]` : 시스템 무중단 모듈 업데이트 (관리자용)"
+            "`!채널정리` : 더미 TRPG 채널·카테고리 일괄 삭제 UI (채널 관리 권한 필요)\n"
+            "`!캐시 재발급` : 장기 기억 캐시 강제 재발급\n"
+            "`!캐시 삭제` : 캐시 명시적 파기 및 보관 비용 정산\n"
+            "`!캐시 출력` : 업로드된 캐시 룰북 원본 텍스트 디버그 출력\n"
+            "`!리로드 [모듈명]` : cogs 모듈 무중단 핫스왑 (관리자 전용)\n"
+            "  *(리로드 가능 모듈: game, character, media, session, system)*"
         ), inline=False)
 
         await ctx.send(embed=embed)
@@ -198,9 +211,10 @@ class SystemCog(commands.Cog):
                                         session.total_cost)
 
             try:
-                caching_text, cache_tokens = await core.build_scenario_cache_text(self.bot, core.DEFAULT_MODEL,
-                                                                                  session.scenario_data,
-                                                                                  getattr(session, "cache_note", ""))
+                caching_text, cache_tokens, base_text = await core.build_scenario_cache_text(
+                    self.bot, core.DEFAULT_MODEL, session.scenario_data,
+                    getattr(session, "cache_note", "")
+                )
 
                 upload_cost = core.calculate_upload_cost(core.DEFAULT_MODEL, input_tokens=cache_tokens)
                 session.total_cost += upload_cost
@@ -226,6 +240,7 @@ class SystemCog(commands.Cog):
                 session.cache_obj = cache
                 session.cache_name = cache.name
                 session.cache_model = core.DEFAULT_MODEL
+                session.cache_text = base_text
                 await core.save_session_data(self.bot, session)
 
                 await ctx.send(f"✅ 수동 캐시 재발급 완료! (새 캐시 ID: {cache.name})\n누적 비용에 캐시 생성 및 1시간 유지 비용이 합산되었습니다.")
@@ -255,8 +270,30 @@ class SystemCog(commands.Cog):
                 await ctx.send(
                     f"⚠️ 캐시 삭제 중 오류 발생 (이미 만료됨): {e}\n내부 메타데이터가 초기화되었습니다. 보관 비용 정산: {core.format_cost(storage_cost)}")
 
+        elif action == "출력":
+            cache_text = getattr(session, "cache_text", "")
+            if not cache_text:
+                return await ctx.send(
+                    "⚠️ 저장된 캐시 텍스트가 없습니다.\n"
+                    "(세션 복구 후 캐시가 재발급되지 않았거나, 이전 버전에서 생성된 세션일 수 있습니다. "
+                    "`!캐시 재발급`으로 갱신하면 이후 출력 가능합니다.)"
+                )
+
+            cache_name = session.cache_name or "(캐시 없음)"
+            total_chars = len(cache_text)
+            cache_tokens = getattr(session, "cache_tokens", 0)
+            await ctx.send(
+                f"📦 **[캐시 룰북 출력]** (캐시 ID: `{cache_name}`)\n"
+                f"패딩 제외 원본 텍스트 — 총 {total_chars:,}자 / 약 {cache_tokens:,} 토큰\n"
+                f"(1950자 단위로 분할 전송합니다)"
+            )
+
+            chunk_size = 1950
+            for i in range(0, len(cache_text), chunk_size):
+                await ctx.send(cache_text[i:i + chunk_size])
+
         else:
-            await ctx.send("⚠️ 잘못된 인자입니다. 사용법: `!캐시 [재발급/삭제]`")
+            await ctx.send("⚠️ 잘못된 인자입니다. 사용법: `!캐시 [재발급/삭제/출력]`")
 
     @commands.command(name="리로드")
     @commands.has_permissions(administrator=True)

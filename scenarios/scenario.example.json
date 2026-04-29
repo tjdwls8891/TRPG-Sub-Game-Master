@@ -27,6 +27,8 @@
         "스탯3": "",
         "스탯4": ""
     },
+    "profile_secondary_stats": ["스킬"],
+    "ability_stats": ["근력", "민첩", "기술"],
     "stat_system": "스탯 척도 및 판정 기준 가이드",
     "image_prompts": {
         "캐릭터전신삼면도": {

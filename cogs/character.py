@@ -1,9 +1,97 @@
 import re
+import random
+import asyncio
 import discord
 from discord.ext import commands
 
 # 분리된 코어 유틸리티 모듈을 임포트합니다.
 import core
+
+
+# ========== [능력치 굴림 UI] ==========
+class StatRollView(discord.ui.View):
+    """
+    시나리오 JSON의 ability_stats에 정의된 스탯을 순차적으로 굴려
+    결과를 비율에 따라 목표 총합에 맞게 배분하는 UI 뷰어.
+
+    Hamilton 방식(최대 나머지법)으로 정수 배분 오차를 최소화한다.
+    """
+
+    def __init__(self, bot, target_uid: str, char_name: str,
+                 ability_stats: list, dice_sides: int, target_total: int):
+        super().__init__(timeout=300)
+        self.bot = bot
+        self.target_uid = target_uid
+        self.char_name = char_name
+        self.ability_stats = ability_stats
+        self.dice_sides = dice_sides
+        self.target_total = target_total
+
+    @discord.ui.button(label="🎲 능력치 굴리기", style=discord.ButtonStyle.primary)
+    async def roll_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if str(interaction.user.id) != self.target_uid:
+            return await interaction.response.send_message(
+                "> 이 주사위는 당신을 위한 것이 아닙니다!", ephemeral=True
+            )
+
+        button.disabled = True
+        await interaction.response.edit_message(
+            content=(
+                f"> 🎲 **{self.char_name}**의 능력치 굴림을 시작합니다...\n"
+                f"> 주사위: d{self.dice_sides} × {len(self.ability_stats)}회"
+            ),
+            view=self
+        )
+
+        # ── 순차 굴림 ──
+        rolls = []
+        for stat_name in self.ability_stats:
+            result = random.randint(1, self.dice_sides)
+            rolls.append(result)
+            await interaction.channel.send(f"> 🎲 **{stat_name}** 주사위 결과: **{result}**")
+            await asyncio.sleep(0.8)
+
+        # ── Hamilton 방식 정수 비례 배분 ──
+        total_rolls = sum(rolls)
+        n = len(self.ability_stats)
+
+        if total_rolls == 0:
+            base = self.target_total // n
+            extra = self.target_total % n
+            final_values = [base + (1 if i < extra else 0) for i in range(n)]
+        else:
+            raw = [r * self.target_total / total_rolls for r in rolls]
+            floor_vals = [int(v) for v in raw]
+            remainder = self.target_total - sum(floor_vals)
+            # 소수점 내림차순 정렬로 나머지 1씩 분배
+            order = sorted(range(n), key=lambda i: raw[i] - floor_vals[i], reverse=True)
+            for i in range(remainder):
+                floor_vals[order[i]] += 1
+            final_values = floor_vals
+
+        # ── 결과 출력 ──
+        lines = [
+            f"> **{stat}**: {roll} → **{val}**"
+            for stat, roll, val in zip(self.ability_stats, rolls, final_values)
+        ]
+        await interaction.channel.send(
+            f"> 📊 **[{self.char_name}] 능력치 배분 완료** "
+            f"(합계: **{sum(final_values)}** / 목표: **{self.target_total}**)\n"
+            + "\n".join(lines)
+        )
+
+        # ── 세션 스탯 적용 ──
+        session = self.bot.active_sessions.get(interaction.channel.id)
+        if session and self.target_uid in session.players:
+            profile = session.players[self.target_uid]["profile"]
+            for stat, val in zip(self.ability_stats, final_values):
+                if stat in profile:
+                    profile[stat] = str(val)
+            await core.save_session_data(self.bot, session)
+
+    async def on_timeout(self):
+        for child in self.children:
+            child.disabled = True
 
 
 class CharacterCog(commands.Cog):
@@ -85,19 +173,101 @@ class CharacterCog(commands.Cog):
             await game_channel.send(f"✅ <@{user_id_str}>의 [{key}] 항목이 '{value}'(으)로 갱신되었습니다.")
 
     @commands.command(name="증감")
-    async def adjust_stat(self, ctx, char_name: str, key: str, amount_str: str):
+    async def adjust_stat(self, ctx, char_name: str, key: str, *args):
         """
-        특정 캐릭터의 프로필/스탯 속성값이 숫자일 경우, 지정한 수치만큼 더하거나 뺍니다.
+        캐릭터 스탯 수치 증감, 소지 자원 증감, 상태이상 부여·제거를 통합 처리합니다.
+
+        사용법:
+            !증감 [이름] [스탯명] [수치]          — 스탯 숫자 증감 (예: +5, -3)
+            !증감 [이름] 자원 [아이템명] [수치]   — 소지 자원 증감
+            !증감 [이름] 상태 [상태명]             — 상태이상 부여
+            !증감 [이름] 상태 -[상태명]            — 상태이상 제거
 
         Args:
             ctx (commands.Context): 디스코드 컨텍스트 객체
-            char_name (str): 대상 캐릭터 이름
-            key (str): 갱신할 속성 키
-            amount_str (str): 변동할 수치 (예: 5, +5, -3)
+            char_name (str): 대상 캐릭터 또는 NPC 이름
+            key (str): '자원', '상태', 또는 갱신할 스탯 항목명
+            *args: key에 따라 달라지는 가변 인자
         """
         session = self.bot.active_sessions.get(ctx.channel.id)
         if not session or ctx.channel.id != session.master_ch_id:
             return await ctx.send("이 명령어는 마스터 채널에서만 사용할 수 있습니다.")
+
+        game_channel = self.bot.get_channel(session.game_ch_id)
+
+        # ── 자원 증감 모드 ──
+        if key == "자원":
+            if len(args) < 2:
+                return await ctx.send(
+                    "⚠️ 사용법: `!증감 [이름] 자원 [아이템명] [수치]`\n예) `!증감 아서 자원 식량 -2`"
+                )
+            item_name, amount_str = args[0], args[1]
+            try:
+                amount = int(amount_str)
+            except ValueError:
+                return await ctx.send("⚠️ 수치는 정수여야 합니다. (예: 5, -3)")
+
+            if char_name not in session.resources:
+                session.resources[char_name] = {}
+
+            old_val = session.resources[char_name].get(item_name, 0)
+            new_val = old_val + amount
+            session.resources[char_name][item_name] = new_val
+
+            await core.save_session_data(self.bot, session)
+            await ctx.send(
+                f"✅ {char_name}의 자원 [{item_name}]: {old_val} → {new_val} ({amount:+d})"
+            )
+            if game_channel:
+                await game_channel.send(
+                    f"> 📦 **[자원 변동]** {char_name}의 [{item_name}]: {old_val} → {new_val} ({amount:+d})"
+                )
+            return
+
+        # ── 상태이상 부여·제거 모드 ──
+        if key == "상태":
+            if len(args) < 1:
+                return await ctx.send(
+                    "⚠️ 사용법: `!증감 [이름] 상태 [상태명]` / 제거: `!증감 [이름] 상태 -[상태명]`"
+                )
+            status_text = args[0]
+
+            if char_name not in session.statuses:
+                session.statuses[char_name] = []
+
+            if status_text.startswith("-"):
+                target = status_text[1:]
+                if target in session.statuses[char_name]:
+                    session.statuses[char_name].remove(target)
+                    await core.save_session_data(self.bot, session)
+                    await ctx.send(f"✅ {char_name}의 상태이상 [{target}] 제거 완료.")
+                    if game_channel:
+                        await game_channel.send(
+                            f"> 🔵 **[상태 해제]** {char_name}의 [{target}] 상태이상이 해제되었습니다."
+                        )
+                else:
+                    await ctx.send(f"⚠️ {char_name}에게 [{target}] 상태이상이 없습니다.")
+            else:
+                if status_text not in session.statuses[char_name]:
+                    session.statuses[char_name].append(status_text)
+                    await core.save_session_data(self.bot, session)
+                    await ctx.send(f"✅ {char_name}에게 상태이상 [{status_text}] 부여 완료.")
+                    if game_channel:
+                        await game_channel.send(
+                            f"> 🔴 **[상태 부여]** {char_name}에게 [{status_text}] 상태이상이 부여되었습니다."
+                        )
+                else:
+                    await ctx.send(f"⚠️ {char_name}에게 이미 [{status_text}] 상태이상이 있습니다.")
+            return
+
+        # ── 스탯 수치 증감 모드 (기존 로직) ──
+        if len(args) < 1:
+            return await ctx.send(
+                "⚠️ 사용법: `!증감 [이름] [스탯명] [수치]`\n"
+                "  자원 수정: `!증감 [이름] 자원 [아이템명] [수치]`\n"
+                "  상태 수정: `!증감 [이름] 상태 [-]상태명`"
+            )
+        amount_str = args[0]
 
         user_id_str = core.get_uid_by_char_name(session, char_name)
         if not user_id_str:
@@ -113,7 +283,8 @@ class CharacterCog(commands.Cog):
             old_val = int(player_data["profile"][key])
         except ValueError:
             return await ctx.send(
-                f"⚠️ [{key}] 항목의 현재 값이 순수한 숫자가 아니어서 연산할 수 없습니다. (현재 값: {player_data['profile'][key]})")
+                f"⚠️ [{key}] 항목의 현재 값이 순수한 숫자가 아니어서 연산할 수 없습니다. (현재 값: {player_data['profile'][key]})"
+            )
 
         try:
             amount = int(amount_str)
@@ -121,17 +292,14 @@ class CharacterCog(commands.Cog):
             return await ctx.send("⚠️ 변동할 수치는 반드시 숫자 형태여야 합니다. (예: 5, -3)")
 
         new_val = old_val + amount
-        weight_str = f"{amount:+d}"
-
         player_data["profile"][key] = str(new_val)
         await core.save_session_data(self.bot, session)
 
-        await ctx.send(f"✅ {char_name}의 [{key}] 수치 연산 완료: {old_val} -> {new_val} ({weight_str})")
-
-        game_channel = self.bot.get_channel(session.game_ch_id)
+        await ctx.send(f"✅ {char_name}의 [{key}] 수치 연산 완료: {old_val} → {new_val} ({amount:+d})")
         if game_channel:
             await game_channel.send(
-                f"> 📢 **[스탯 변동]** {char_name}의 [{key}]이(가) {new_val}(으)로 변경되었습니다. ({old_val}{weight_str})")
+                f"> 📢 **[스탯 변동]** {char_name}의 [{key}]이(가) {new_val}(으)로 변경되었습니다. ({old_val}{amount:+d})"
+            )
 
 
     @commands.command(name="외형")
@@ -166,13 +334,16 @@ class CharacterCog(commands.Cog):
 
 
     @commands.command(name="프로필")
-    async def show_profile(self, ctx, char_name: str):
+    async def show_profile(self, ctx, char_name: str, target: str = None):
         """
-        특정 캐릭터의 모든 스탯과 외형이 포함된 프로필 카드를 게임 채널에 출력합니다.
+        특정 캐릭터의 스탯·외형·자원·상태이상을 포함한 프로필 카드를 출력합니다.
+
+        기본(인자 없음)은 마스터 채널에, '게임' 인자를 추가하면 게임 채널에 출력합니다.
 
         Args:
             ctx (commands.Context): 디스코드 컨텍스트 객체
             char_name (str): 대상 캐릭터 이름
+            target (str, optional): '게임' 입력 시 게임 채널에 출력
         """
         session = self.bot.active_sessions.get(ctx.channel.id)
         if not session or ctx.channel.id != session.master_ch_id:
@@ -185,23 +356,80 @@ class CharacterCog(commands.Cog):
         player_data = session.players[user_id_str]
         member = ctx.guild.get_member(int(user_id_str))
 
-        embed = discord.Embed(title=f"🎭 {char_name}의 프로필", color=0x3498db)
+        embed = discord.Embed(title=f"🎭  {char_name}  —  캐릭터 시트", color=0x2f6dd0)
         if member:
-            embed.set_author(name=member.display_name,
-                             icon_url=member.display_avatar.url if member.display_avatar else None)
+            embed.set_author(
+                name=member.display_name,
+                icon_url=member.display_avatar.url if member.display_avatar else None
+            )
         else:
             embed.set_author(name=char_name)
 
-        for key, val in player_data["profile"].items():
-            embed.add_field(name=key, value=val, inline=True)
+        # 시나리오 JSON의 profile_secondary_stats 목록에 등록된 항목은 구분선 아래에 전체 폭으로 표시.
+        # 나머지 항목은 구분선 위 인라인 3열 격자에 배치.
+        secondary_keys = set(session.scenario_data.get("profile_secondary_stats", []))
+        profile = player_data.get("profile", {})
+        primary_profile   = {k: v for k, v in profile.items() if k not in secondary_keys}
+        secondary_profile = {k: v for k, v in profile.items() if k in secondary_keys}
 
-        appearance = player_data.get("appearance")
+        # ── 1차 스탯 블록 (인라인, 3열 격자) ──
+        if primary_profile:
+            for key, val in primary_profile.items():
+                embed.add_field(name=f"▸ {key}", value=f"```{val}```", inline=True)
+            # 3열 정렬을 위한 빈 칸 패딩
+            remainder = len(primary_profile) % 3
+            if remainder == 1:
+                embed.add_field(name="​", value="​", inline=True)
+                embed.add_field(name="​", value="​", inline=True)
+            elif remainder == 2:
+                embed.add_field(name="​", value="​", inline=True)
+
+        # ── 구분선 ──
+        embed.add_field(name="", value="─" * 36, inline=False)
+
+        # ── 2차 스탯 블록 (profile_secondary_stats 등록 항목, 전체 폭) ──
+        for key, val in secondary_profile.items():
+            display_val = val if len(val) <= 1000 else val[:950] + "\n*(생략됨)*"
+            embed.add_field(name=f"📋  {key}", value=display_val, inline=False)
+
+        # ── 외형 블록 ──
+        appearance = player_data.get("appearance", "")
         if appearance:
-            embed.add_field(name="외형", value=appearance, inline=False)
+            display_appearance = appearance if len(appearance) <= 1000 else appearance[:950] + "\n*(생략됨)*"
+            embed.add_field(name="🪞  외형", value=display_appearance, inline=False)
 
-        game_channel = self.bot.get_channel(session.game_ch_id)
-        if game_channel:
+        # ── 소지 자원 블록 ──
+        resources = session.resources.get(char_name, {})
+        if resources:
+            res_lines = [f"`{k}` **×{v}**" for k, v in resources.items()]
+            res_text = "  /  ".join(res_lines)
+            if len(res_text) > 1000:
+                res_text = res_text[:950] + "\n*(생략됨)*"
+            embed.add_field(name="🎒  소지 자원", value=res_text, inline=False)
+        else:
+            embed.add_field(name="🎒  소지 자원", value="*(없음)*", inline=False)
+
+        # ── 상태이상 블록 ──
+        statuses = session.statuses.get(char_name, [])
+        if statuses:
+            stat_text = "  ".join([f"🔴 `{s}`" for s in statuses])
+            if len(stat_text) > 1000:
+                stat_text = stat_text[:950] + "\n*(생략됨)*"
+            embed.add_field(name="⚠️  상태이상", value=stat_text, inline=False)
+        else:
+            embed.add_field(name="⚠️  상태이상", value="*(없음)*", inline=False)
+
+        embed.set_footer(text=f"세션 {session.session_id}  |  {session.turn_count}턴 경과")
+
+        # ── 출력 채널 결정 ──
+        if target == "게임":
+            game_channel = self.bot.get_channel(session.game_ch_id)
+            if not game_channel:
+                return await ctx.send("⚠️ 게임 채널을 찾을 수 없습니다.")
             await game_channel.send(embed=embed)
+            await ctx.send(f"✅ {char_name}의 프로필을 게임 채널에 출력했습니다.")
+        else:
+            await ctx.send(embed=embed)
         return None
 
 
@@ -266,6 +494,71 @@ class CharacterCog(commands.Cog):
             await ctx.send("⚠️ 잘못된 행동 인자입니다. (사용 가능: 설정, 확인, 삭제, 목록)")
             return None
 
+
+    @commands.command(name="능력치")
+    async def roll_ability_stats(self, ctx, char_name: str, dice_sides: int, target_total: int):
+        """
+        시나리오 JSON의 ability_stats에 정의된 스탯을 주사위로 굴려
+        비율에 맞게 목표 총합으로 자동 배분합니다.
+
+        게임 채널에 버튼 UI를 전송하고, 해당 플레이어가 버튼을 누르면
+        스탯별 주사위를 순차 출력 후 결과를 캐릭터에 자동 적용합니다.
+
+        Args:
+            ctx (commands.Context): 디스코드 컨텍스트 객체
+            char_name (str): 대상 캐릭터 이름
+            dice_sides (int): 각 스탯에 사용할 주사위 면 수
+            target_total (int): 모든 스탯 합산 목표값
+        """
+        session = self.bot.active_sessions.get(ctx.channel.id)
+        if not session or ctx.channel.id != session.master_ch_id:
+            return await ctx.send("이 명령어는 마스터 채널에서만 사용할 수 있습니다.")
+
+        ability_stats = session.scenario_data.get("ability_stats", [])
+        if not ability_stats:
+            return await ctx.send(
+                "⚠️ 시나리오 JSON에 `ability_stats` 항목이 없습니다.\n"
+                "예: `\"ability_stats\": [\"체력\", \"정신\", \"민첩\"]`"
+            )
+
+        if dice_sides < 2:
+            return await ctx.send("⚠️ 주사위 눈 수는 2 이상이어야 합니다.")
+
+        if target_total < len(ability_stats):
+            return await ctx.send(
+                f"⚠️ 목표 총합({target_total})이 스탯 수({len(ability_stats)})보다 작습니다."
+            )
+
+        user_id_str = core.get_uid_by_char_name(session, char_name)
+        if not user_id_str:
+            return await ctx.send(f"⚠️ '{char_name}'(으)로 참가한 플레이어를 찾을 수 없습니다.")
+
+        profile = session.players[user_id_str]["profile"]
+        missing = [s for s in ability_stats if s not in profile]
+        if missing:
+            return await ctx.send(
+                f"⚠️ 다음 스탯이 캐릭터 프로필에 없습니다: {', '.join(missing)}\n"
+                f"(pc_template에 해당 스탯이 포함되어 있어야 합니다)"
+            )
+
+        game_channel = self.bot.get_channel(session.game_ch_id)
+        if not game_channel:
+            return await ctx.send("⚠️ 게임 채널을 찾을 수 없습니다.")
+
+        view = StatRollView(self.bot, user_id_str, char_name, ability_stats, dice_sides, target_total)
+        stats_str = " / ".join(ability_stats)
+
+        await game_channel.send(
+            f"> 🎲 <@{user_id_str}>님, **{char_name}**의 능력치를 굴릴 시간입니다!\n"
+            f"> 대상 스탯: **{stats_str}**\n"
+            f"> d{dice_sides} × {len(ability_stats)}회 굴림 → 비율에 맞춰 합계 **{target_total}** 자동 배분\n"
+            f"> 아래 버튼을 눌러 굴림을 시작하세요.",
+            view=view
+        )
+        await ctx.send(
+            f"✅ {char_name}의 능력치 굴림 버튼을 게임 채널에 전송했습니다.\n"
+            f"(대상 스탯: {stats_str} / d{dice_sides} / 목표 합계: {target_total})"
+        )
 
     @commands.command(name="설정생성")
     async def generate_character_cmd(self, ctx, char_type: str, char_name: str, *, instruction: str):

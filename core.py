@@ -57,7 +57,7 @@ PRICING_1M = {
 }
 
 IMAGE_MODEL = "gemini-3.1-flash-image-preview"
-IMAGE_GEN_COST = 0.04*1500  # 1024x1024 해상도 1장 출력 고정 비용
+IMAGE_GEN_COST = 200  # 1024x1024 해상도 1장 출력 고정 비용
 
 
 # ========== [데이터 모델(Data Models)] ==========
@@ -116,6 +116,9 @@ class TRPGSession:
 
         self.gm_typing_task = None
 
+        # 가장 최근 캐시 업로드 시점의 룰북 원본 텍스트 (패딩 제외). !캐시 출력 디버그용.
+        self.cache_text = ""
+
         self.npcs = {}
         default_npcs = scenario_data.get("default_npcs", {})
 
@@ -137,8 +140,14 @@ class PromptBuilder:
     """
     TRPG 세션의 턴 진행을 위한 LLM 프롬프트를 단계별로 조립하는 빌더 클래스.
 
-    할루시네이션을 통제하기 위해 '요약 -> 캐릭터 -> NPC -> 기억 -> 행동 -> 룰' 순서의
+    할루시네이션을 통제하기 위해 '요약 -> 캐릭터 -> NPC 델타 -> 기억 -> 행동 -> 룰' 순서의
     엄격한 정보 주입 포맷을 시스템 레벨에서 강제.
+
+    [NPC 주입 전략]
+    모든 default_npcs는 캐시 룰북 [3. NPC 사전]에 전체 수록되므로 프롬프트에 중복 주입하지 않는다.
+    프롬프트(add_npc_override_block)에는 아래 두 경우만 델타(차분)로 주입한다:
+      1. !엔피씨 설정으로 details가 변경된 NPC  → 캐시 내용을 덮어씀
+      2. 세션 중 resources / statuses가 부여된 NPC → 캐시에 없는 런타임 상태 동기화
     """
 
     def __init__(self, session: TRPGSession, gm_instruction: str):
@@ -146,7 +155,7 @@ class PromptBuilder:
         self.gm_instruction = gm_instruction
         self.blocks = ["[현재 게임 상태]\n"]
 
-        # 공통으로 사용되는 최근 로그 트리거 스캔용 문자열 사전 연산
+        # keyword_memory 트리거 스캔에 사용되는 최근 로그 결합 문자열 (사전 연산)
         recent_texts = [c.parts[0].text for c in session.raw_logs[-10:]] + session.current_turn_logs
         self.recent_logs_combined = " ".join(recent_texts) + f" {gm_instruction}"
 
@@ -175,35 +184,44 @@ class PromptBuilder:
             self.blocks.append(block)
         return self
 
-    def add_triggered_npc_block(self):
-        # NOTE: 토큰 낭비 및 불필요한 설정 개입을 막기 위해, 최근 10개 로그에 이름이 언급된
-        # NPC의 디테일 설정만 선택적으로 프롬프트에 주입하는 트리거 최적화.
-        if self.session.npcs:
-            triggered_npcs = {}
-            default_npcs = self.session.scenario_data.get("default_npcs", {})
+    def add_npc_override_block(self):
+        # NOTE: default_npcs 전체가 캐시에 수록되므로, 프롬프트에는 캐시와 차이가 있는
+        # NPC만 델타(delta)로 주입한다. 이름 트리거 검사는 폐기.
+        #
+        # 주입 대상:
+        #   A. details가 default_npcs와 다른 NPC (설정 변경 → 캐시 내용 덮어씀)
+        #   B. details 변경 없이 resources / statuses만 존재하는 NPC (런타임 상태 동기화)
+        #   → 두 조건 모두 해당 없는 NPC는 캐시로 충분하므로 스킵
+        if not self.session.npcs:
+            return self
 
-            for npc_name, npc_data in self.session.npcs.items():
-                if npc_name in self.recent_logs_combined:
-                    base_npc_details = default_npcs.get(npc_name, {}).get("details", "")
+        default_npcs = self.session.scenario_data.get("default_npcs", {})
+        lines = []
 
-                    if npc_data["details"] != base_npc_details:
-                        triggered_npcs[npc_name] = npc_data
+        for npc_name, npc_data in self.session.npcs.items():
+            base_details = default_npcs.get(npc_name, {}).get("details", "")
+            details_changed = npc_data["details"] != base_details
+            n_res = self.session.resources.get(npc_name, {})
+            n_stat = self.session.statuses.get(npc_name, [])
 
-            if triggered_npcs:
-                block = "\n▶ 현재 개입 중인 [수정/추가된] NPC 설정 (캐시 룰북보다 우선 적용):\n"
-                for npc_name, npc_data in triggered_npcs.items():
-                    block += f"  - {npc_name}: {npc_data['details']}\n"
+            # 캐시 내용과 동일하고 런타임 상태도 없으면 주입 불필요
+            if not details_changed and not n_res and not n_stat:
+                continue
 
-                    # NPC에 대한 자원/상태도 존재할 경우 주입
-                    n_res = self.session.resources.get(npc_name, {})
-                    n_stat = self.session.statuses.get(npc_name, [])
-                    if n_res:
-                        n_res_str = ", ".join([f"{k}: {v}" for k, v in n_res.items()])
-                        block += f"    * [확정 소지 자원]: {n_res_str}\n"
-                    if n_stat:
-                        n_stat_str = ", ".join(n_stat)
-                        block += f"    * [현재 상태이상]: {n_stat_str}\n"
-                self.blocks.append(block)
+            entry = f"  - {npc_name}"
+            if details_changed:
+                entry += f" [설정 변경]: {npc_data['details']}"
+            if n_res:
+                entry += f"\n    * [확정 소지 자원]: {', '.join(f'{k}: {v}' for k, v in n_res.items())}"
+            if n_stat:
+                entry += f"\n    * [현재 상태이상]: {', '.join(n_stat)}"
+            lines.append(entry)
+
+        if lines:
+            block = "\n▶ [NPC 변경사항 / 런타임 상태] (캐시 룰북 [3. NPC 사전]보다 우선 적용):\n"
+            block += "\n".join(lines) + "\n"
+            self.blocks.append(block)
+
         return self
 
     def add_keyword_memory_block(self):
@@ -263,7 +281,7 @@ class PromptBuilder:
                 .add_memory_block()
                 .add_note_block()
                 .add_player_block()
-                .add_triggered_npc_block()
+                .add_npc_override_block()
                 .add_keyword_memory_block()
                 .add_recent_action_block()
                 .add_gm_instruction_block()
@@ -479,7 +497,8 @@ async def save_session_data(bot, session: TRPGSession):
             "cache_note": getattr(session, "cache_note", ""),
             "cache_created_at": getattr(session, "cache_created_at", 0.0),
             "cache_tokens": getattr(session, "cache_tokens", 0),
-            "last_turn_anchor_id": getattr(session, "last_turn_anchor_id", None)
+            "last_turn_anchor_id": getattr(session, "last_turn_anchor_id", None),
+            "cache_text": getattr(session, "cache_text", "")
         }
 
         def write_file():
@@ -520,10 +539,10 @@ async def build_scenario_cache_text(bot, model_id, scenario_data: dict, cache_no
             npc_text += f"\n- {npc_name}:\n{details}\n"
 
     if not npc_text:
-        npc_text = "등록된 고정 NPC 없음."
+        npc_text = "등록된 NPC 없음."
 
     rulebook_text = f"""=== [시나리오 핵심 룰북] ===
-이 내용은 세션의 근간이 되는 절대적인 세계관 및 시스템 설정입니다. 
+이 내용은 세션의 근간이 되는 절대적인 세계관 및 시스템 설정입니다.
 진행자(GM)의 특별한 지시가 없는 한 아래의 설정을 완벽하게 유지하십시오.
 
 [1. 세계관 정보]
@@ -532,7 +551,10 @@ async def build_scenario_cache_text(bot, model_id, scenario_data: dict, cache_no
 [2. 스토리 진행 가이드]
 {story_guide}
 
-[3. 주요 등장인물 (NPC) 사전]
+[3. NPC 사전 — 전체 등장인물 설정 (기준 데이터)]
+이 목록이 모든 NPC의 기본 설정 원본이다.
+게임 진행 중 프롬프트에 [NPC 변경사항 / 런타임 상태] 블록이 제공된 경우,
+해당 NPC에 한해 아래 내용 대신 프롬프트 내 정보를 우선 적용할 것.
 {npc_text}
 
 [4. 게임 스탯 및 판정 시스템]
@@ -560,7 +582,8 @@ async def build_scenario_cache_text(bot, model_id, scenario_data: dict, cache_no
         min_cache_tokens = 32768
 
         if base_tokens >= min_cache_tokens:
-            return rulebook_text, base_tokens
+            # 패딩 불필요 — 원본과 업로드 텍스트가 동일
+            return rulebook_text, base_tokens, rulebook_text
 
         # HACK: 제미나이 캐싱의 최소 요구 조건(32,768 토큰)을 강제 충족시키기 위해,
         # 시스템이 읽지 않도록 지시한 의미 없는 마침표(.) 배열을 덧붙이는 우회 기법 적용.
@@ -577,11 +600,12 @@ async def build_scenario_cache_text(bot, model_id, scenario_data: dict, cache_no
         total_tokens = final_response.total_tokens
 
         print(f"💡 [시스템] 룰북 조립 완료: 베이스({base_tokens}) + 패딩 -> 총 {total_tokens} 토큰 생성")
-        return padded_text, total_tokens
+        # rulebook_text: 패딩 제외 원본 (디버그용 저장 대상)
+        return padded_text, total_tokens, rulebook_text
 
     except Exception as e:
         print(f"⚠️ 토큰 계산 오류: {e}. 안전을 위해 임의의 대형 패딩을 적용합니다.")
-        return rulebook_text + ("." * 150000), 38000
+        return rulebook_text + ("." * 150000), 38000, rulebook_text
 
 
 def build_compression_prompt(session: TRPGSession, log_text: str) -> str:
@@ -654,6 +678,7 @@ async def restore_sessions_from_disk(bot):
 
                 session.is_processing = False
                 session.last_turn_anchor_id = data.get("last_turn_anchor_id", None)
+                session.cache_text = data.get("cache_text", "")
 
                 restored_raw_logs = []
                 for item in data.get("raw_logs", []):
@@ -669,8 +694,8 @@ async def restore_sessions_from_disk(bot):
                         print(f"✅ {session_id}: 기존 캐시 연동 성공.")
                     except APIError:
                         print(f"🔄 {session_id}: 기존 캐시 만료됨. 새로 발급합니다...")
-                        caching_text, cache_tokens = await build_scenario_cache_text(bot, DEFAULT_MODEL,
-                                                                                     scenario_data)
+                        caching_text, cache_tokens, base_text = await build_scenario_cache_text(bot, DEFAULT_MODEL,
+                                                                                                scenario_data)
 
                         creation_cost = calculate_cost(DEFAULT_MODEL, input_tokens=cache_tokens)
                         storage_cost = calculate_cost(DEFAULT_MODEL, cache_storage_tokens=cache_tokens, storage_hours=1)
@@ -690,6 +715,7 @@ async def restore_sessions_from_disk(bot):
 
                         session.cache_obj = cache
                         session.cache_name = cache.name
+                        session.cache_text = base_text
                         await save_session_data(bot, session)
 
                 bot.active_sessions[session.game_ch_id] = session
@@ -748,8 +774,11 @@ async def generate_character_details(bot, scenario_data, char_type, char_name, i
     """
     AI 모델을 사용하여 PC 또는 NPC의 세부 설정 초안 텍스트 생성.
 
-    NOTE: 출력 데이터의 일관성 및 프롬프트 재주입 시 토큰 효율 극대화를 위해,
-    일반 묘사용(DEFAULT_MODEL) 대신 추론 특화 로직 모델(LOGIC_MODEL) 호출.
+    PC는 '외모 묘사' 전용 양식을 사용하며, 성격·배경·능력 등 내면 정보는 생성하지 않는다.
+    NPC는 외모부터 내면 심리·관계망·비밀까지 포괄하는 종합 인물 프로파일을 생성한다.
+
+    NOTE: 출력 일관성 및 재주입 토큰 효율 극대화를 위해 LOGIC_MODEL 호출.
+    양식(template) 항목과 순서를 프롬프트 내에 직접 삽입하여 AI의 포맷 이탈을 원천 차단.
 
     Args:
         bot: 메인 봇 인스턴스
@@ -758,42 +787,82 @@ async def generate_character_details(bot, scenario_data, char_type, char_name, i
         char_name (str): 생성할 캐릭터의 이름
         instruction (str): GM이 추가로 부여한 세부 지시사항
         session_id (str): API 로그를 기록할 세션 식별자
-        recent_logs (str): 최근 3턴 로그
-        npc_context (str): npc 정보
+        recent_logs (str): 최근 3턴 로그 (문맥 참고용)
+        npc_context (str): 관련 NPC 설정 (관계 항목 연계용)
 
     Returns:
         types.GenerateContentResponse: API에서 반환한 응답 객체
     """
     worldview = scenario_data.get("worldview", "특별한 세계관 정보 없음")
 
-    style_guide = (
-        "[작성 지침]\n"
-        "1. 분량: 공백 포함 300~500자 내외로 제한합니다.\n"
-        "2. 문체: 불필요한 서술어를 철저히 생략하고, 핵심 정보만 전달하는 간결한 단문(개조식) 및 명사형/음슴체 종결을 사용하십시오.\n"
-        "3. 포맷: 반드시 가독성 높은 마크다운 양식을 사용하여 출력하십시오.\n"
-        "4. 창작 원칙: 제공된 지시사항은 왜곡 없이 반영하고, 주변 인물(NPC) 및 상황과 자연스럽게 어우러지도록 개연성을 부여하십시오.\n\n"
-    )
-
-    context_blocks = (
-        f"[최근 상황 요약 (최근 3턴)]\n{recent_logs}\n\n"
-        f"[참고용 기존 NPC 설정]\n{npc_context}\n\n"
-    )
+    context_blocks = ""
+    if recent_logs:
+        context_blocks += f"[최근 상황 요약 (최근 3턴)]\n{recent_logs}\n\n"
+    if npc_context:
+        context_blocks += f"[참고용 기존 NPC 설정]\n{npc_context}\n\n"
 
     if char_type == "pc":
+        # PC 설정 생성은 '외모 묘사'만을 목적으로 한다.
+        # 출력 결과는 session.players[uid]['appearance']에 저장되어
+        # 프롬프트의 [외형]: {appearance} 필드에 직접 주입된다.
         prompt = (
-            f"당신은 TRPG에서 플레이어가 조종할 '플레이어 캐릭터(PC)'의 설정을 정리하는 보조 작가입니다.\n{style_guide}"
-            f"[세계관 정보]\n{worldview}\n\n{context_blocks}"
-            f"- 대상 이름: {char_name}\n- GM 지시사항: {instruction}\n\n"
-            f"[필수 항목 (PC)]\n- 나이:\n- 키와 체형:\n- 외모:\n"
-            f"(※ 그 외 GM 지시사항에 포함된 추가 설정이나 배경이 있다면 필수 항목 아래에 자연스럽게 이어서 정리할 것.)"
+            "당신은 TRPG 플레이어 캐릭터(PC)의 외양(外樣)을 구체화하는 설정 작가입니다.\n"
+            "임무: 오직 캐릭터의 외모만 묘사할 것. 성격·배경·능력·내면 정보는 절대 포함하지 않는다.\n\n"
+            "[작성 원칙]\n"
+            "1. 문체: 서술어를 최소화한 명사형·개조식 단문. 각 항목은 한 줄을 초과하지 않는다.\n"
+            "2. 분량: 양식 레이블 제외 실제 내용 기준 공백 포함 130~230자 내외.\n"
+            "3. 세계관 밀착: 복장과 외모 상태는 세계관의 복식과 상황을 반영할 것\n"
+            "   (예: 피로와 오염이 배인 피부, 실용적이고 낡은 생존 복장 등).\n"
+            "4. 양식 엄수: 아래 [출력 양식]의 항목명·순서를 반드시 그대로 출력할 것.\n"
+            "   항목 추가·삭제·순서 변경·항목명 수정 불가. GM 지시사항은 각 항목 값에 녹여낼 것.\n\n"
+            f"[세계관 정보]\n{worldview}\n\n"
+            f"{context_blocks}"
+            f"[대상 캐릭터]\n"
+            f"이름: {char_name}\n"
+            f"GM 지시사항: {instruction}\n\n"
+            "[출력 양식 — 아래 항목명과 순서를 그대로 사용하여 값만 채워 출력할 것]\n"
+            "**나이/성별**: \n"
+            "**체형**: \n"
+            "**얼굴**: \n"
+            "**피부·헤어**: \n"
+            "**복장**: \n"
+            "**첫인상**: "
         )
     else:
+        # NPC 설정 생성은 AI GM이 인물을 직접 연기하는 데 필요한 모든 요소를 포함한다.
+        # 출력 결과는 scenario_data['default_npcs'][name]['details'] 또는
+        # session.npcs[name]['details']에 저장되어 캐시 룰북 또는 프롬프트에 주입된다.
         prompt = (
-            f"당신은 TRPG 세계관 속에서 GM이 조종할 '논플레이어 캐릭터(NPC)'의 설정을 정리하는 보조 작가입니다.\n{style_guide}"
-            f"[세계관 정보]\n{worldview}\n\n{context_blocks}"
-            f"- 대상 이름: {char_name}\n- GM 지시사항: {instruction}\n\n"
-            f"[필수 항목 (NPC)]\n- 나이:\n- 키와 체형:\n- 외모:\n- 성격:\n- 소속:\n- 특기:\n- 좋아하는 것과 싫어하는 것:\n"
-            f"(※ 그 외 GM 지시사항에 포함된 추가 설정이나 배경이 있다면 필수 항목 아래에 자연스럽게 이어서 정리할 것.)"
+            "당신은 TRPG 논플레이어 캐릭터(NPC)의 종합 인물 프로파일을 작성하는 설정 작가입니다.\n"
+            "임무: 외모부터 내면 심리·관계망·비밀까지 포괄하는 완결된 NPC 프로파일을 생성할 것.\n\n"
+            "[작성 원칙]\n"
+            "1. 문체: 서술어를 최소화한 명사형·개조식 단문.\n"
+            "2. 분량: 양식 레이블 제외 실제 내용 기준 공백 포함 350~500자 내외.\n"
+            "3. 세계관 밀착: 모든 항목은 세계관에 명시된 생활상과 환경에 근거할 것.\n"
+            "4. 내면 입체성: '동기', '두려움·약점', '비밀' 항목은 단순 묘사가 아닌\n"
+            "   플레이 중 활용 가능한 갈등 씨앗(conflict seed)으로 작성할 것.\n"
+            "5. 말투 명시: AI GM이 NPC를 직접 연기할 때 즉각 참고할 수 있는\n"
+            "   구체적 어조·화법 특징을 기술할 것.\n"
+            "6. 양식 엄수: 아래 [출력 양식]의 항목명·순서를 반드시 그대로, 총 500자 이내로 출력할 것.\n"
+            "   항목 추가·삭제·순서 변경·항목명 수정 불가. GM 지시사항은 각 항목 값에 녹여낼 것.\n\n"
+            f"[세계관 정보]\n{worldview}\n\n"
+            f"{context_blocks}"
+            f"[대상 캐릭터]\n"
+            f"이름: {char_name}\n"
+            f"GM 지시사항: {instruction}\n\n"
+            "[출력 양식 — 아래 항목명과 순서를 그대로 사용하여 값만 채워 출력할 것]\n"
+            "**나이·성별**: \n"
+            "**소속·직책**: \n"
+            "**외모**: \n"
+            "**핵심 기질**: \n"
+            "**행동 방식**: \n"
+            "**말투·어조**: \n"
+            "**동기·욕구**: \n"
+            "**두려움·약점**: \n"
+            "**비밀**: \n"
+            "**신뢰·의존**: \n"
+            "**경계·반목**: \n"
+            "**특기·능력**: "
         )
 
     write_log(session_id, "api", f"[{char_type.upper()} 설정 생성 요청 - {char_name}]\n{prompt}")

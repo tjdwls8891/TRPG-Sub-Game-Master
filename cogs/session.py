@@ -63,14 +63,16 @@ class SessionCog(commands.Cog):
 
         try:
             await ctx.send("⏳ 시나리오 설정 및 장기 기억 캐싱 중...")
-            caching_text, cache_tokens = await core.build_scenario_cache_text(self.bot, core.DEFAULT_MODEL,
-                                                                              scenario_data)
+            caching_text, cache_tokens, base_text = await core.build_scenario_cache_text(
+                self.bot, core.DEFAULT_MODEL, scenario_data
+            )
 
             # NOTE: 유지 비용 선결제를 폐지하고, 캐시 생성 시점에는 순수 업로드(입력) 비용만 정산.
             upload_cost = core.calculate_upload_cost(core.DEFAULT_MODEL, input_tokens=cache_tokens)
             session.total_cost += upload_cost
             session.cache_created_at = time.time()
             session.cache_tokens = cache_tokens
+            session.cache_text = base_text
             core.write_cost_log(session.session_id, "초기 캐시 생성", cache_tokens, 0, 0, upload_cost, session.total_cost)
 
             report_msg = f"💰 **[캐시 업로드 완료]**\n- 초기 업로드 비용: {core.format_cost(upload_cost)}\n- 누적 비용: {core.format_cost(session.total_cost)}"
