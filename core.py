@@ -509,7 +509,7 @@ async def save_session_data(bot, session: TRPGSession):
 
 
 # noinspection PyShadowingNames
-async def build_scenario_cache_text(bot, model_id, scenario_data: dict, cache_note: str = "", session_id: str = None) -> tuple[str, int]:
+async def build_scenario_cache_text(bot, model_id, scenario_data: dict, cache_note: str = "", session_id: str = None) -> tuple[str, int, str]:
     """
     시나리오 데이터를 바탕으로 Context Caching을 위한 '시나리오 핵심 룰북' 텍스트 조립.
     최소 요구 토큰 수 미달 시 임의의 패딩 추가.
