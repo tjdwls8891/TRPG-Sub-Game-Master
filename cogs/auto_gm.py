@@ -17,6 +17,9 @@ MAX_ITERATIONS_PER_MESSAGE = 5
 # NOTE: 같은 플레이어 발언에 대한 ASK 누적 상한. 초과 시 강제 PROCEED.
 MAX_CLARIFY_PER_MESSAGE = 2
 
+# NOTE: 같은 플레이어 발언에 대한 NARRATE 누적 상한. 초과 시 강제 PROCEED.
+MAX_NARRATE_PER_MESSAGE = 7
+
 # NOTE: 자동 GM 비용 로그 라벨에 부착하는 접두사.
 COST_LOG_PREFIX = "[AUTO] "
 
@@ -27,12 +30,16 @@ GM_LOGIC_RESPONSE_SCHEMA = {
     "properties": {
         "action": {
             "type": "string",
-            "enum": ["ASK", "ROLL", "PROCEED"],
+            "enum": ["ASK", "NARRATE", "ROLL", "PROCEED"],
             "description": "다음에 수행할 단일 행동."
         },
         "bridge_message": {
             "type": "string",
             "description": "ASK일 때 게임 채널에 GM으로서 출력할 서사·질문 (150자 이내). 다른 action에서는 빈 문자열."
+        },
+        "narrate_instruction": {
+            "type": "string",
+            "description": "NARRATE일 때 경량 응답 LLM에 전달할 지시문 (100자 이내). 어떤 내용을 전달해야 하는지 기술. 예: '창고 내부 간략 묘사', '류가은 NPC 간단 소개', '열쇠를 집어든 결과'. 다른 action에서는 빈 문자열."
         },
         "rolls": {
             "type": "array",
@@ -57,7 +64,7 @@ GM_LOGIC_RESPONSE_SCHEMA = {
             "description": "결정 근거 1~2문장 (디버그용)."
         }
     },
-    "required": ["action", "bridge_message", "rolls", "proceed_instruction", "reasoning"]
+    "required": ["action", "bridge_message", "narrate_instruction", "rolls", "proceed_instruction", "reasoning"]
 }
 
 # ========== [GM-Logic 시스템 지시문] ==========
@@ -66,9 +73,10 @@ GM_LOGIC_SYSTEM_INSTRUCTION = """당신은 한국어 TRPG '자동 GM 모드'의 
 
 [당신의 역할]
 당신은 '묘사를 직접 작성하지 않습니다'. 묘사는 별도의 메인 GM 모델이 PROCEED 단계에서 수행합니다.
+NARRATE의 경량 응답은 별도의 경량 LLM이 생성합니다. 당신은 지시문(narrate_instruction)만 제공합니다.
 당신의 출력은 JSON 결정문(action 디스패치)으로 한정됩니다.
 
-[가능한 action 3가지 — 정확히 하나만 선택]
+[가능한 action 4가지 — 정확히 하나만 선택]
 
 1. ASK
    - 플레이어 의도가 모호하거나 정보가 부족할 때.
@@ -80,60 +88,83 @@ GM_LOGIC_SYSTEM_INSTRUCTION = """당신은 한국어 TRPG '자동 GM 모드'의 
    - bridge_message는 핵심 장면 묘사와 감정 표현이 중심이 되는 긴 내러티브가 되어서는 안 됩니다.
      그런 묘사는 오직 PROCEED에서만 출력됩니다.
 
-2. ROLL
+2. NARRATE
+   - 플레이어의 질문에 답하거나, PROCEED 없이 해결 가능한 가벼운 상황 설명·NPC의 짧은 반응·경량 환경 묘사가 필요할 때.
+   - 예) "방 안에 뭐가 있어요?" / "저 NPC가 어떤 사람이에요?" / "열쇠를 집어들어요" (단순 행동·취득) / "문이 잠겼는지 확인해요"
+   - narrate_instruction: 경량 응답 LLM에 전달할 지시문 (100자 이내). 어떤 내용을 전달할지 구체적으로 기술.
+     예) "창고 내부 간략 묘사 — 책상·열쇠·깨진 창문", "류가은 NPC 간단 소개", "열쇠를 집어든 결과 묘사"
+   - NARRATE 이후 플레이어의 추가 발언을 기다린다.
+   - 주의: NARRATE를 단순 반복에 남용하지 말 것. 서사를 진전시킬 준비가 됐다면 즉시 PROCEED하라.
+   - [직전 NARRATE 횟수 / 한도] 필드를 참고하여 한도 초과 전에 스스로 PROCEED로 전환하라.
+
+3. ROLL
    - 행동 수행에 능력치 판정이 필요할 때.
    - rolls: 굴려야 할 판정 목록. 가중치는 -5~+5 범위에서 합리적으로 선택.
    - 굴림 결과는 플레이어가 버튼을 눌러 산출하며, 결과가 다음 호출 컨텍스트에 주입됩니다.
      당신은 결과 선언을 하지 않습니다.
 
-3. PROCEED
+4. PROCEED
    - 충분한 맥락이 모이고, 묘사를 진행할 준비가 끝났을 때.
    - proceed_instruction: 인간 GM의 !진행 인자처럼 동작하는 지시문.
-   - 작성 규칙: 한국어 자연어 서술문으로만 작성하십시오.
-     마크다운 서식(##, **, -, >, 코드블럭 등)을 절대 사용하지 마십시오.
-     아래 태그 외에는 일반 서술문만 사용할 것:
 
-     [자원 변동 태그]
-     자:이름;아이템;수치
-     ※ 세미콜론(;)으로 구분된 이름·아이템·수치 세 부분이 반드시 모두 있어야 합니다. 수치는 정수.
-     예) 자:정원모;물;-1     자:임성진;탄약;-2     자:아서;체력포션;+1
+   ■ 기본 작성 규칙
+   - 한국어 자연어 서술문으로만 작성. 마크다운 서식(##, **, -, >, 코드블럭 등) 절대 금지.
+   - 최소 2문장 이상 작성할 것. "A가 B를 한다." 한 줄 요약은 허용되지 않는다.
+   - 반드시 [플레이어 행동 결과] + [세계·환경·NPC의 능동 반응] 두 요소를 포함한다.
+   - 태그는 지시문 내 임의 위치에 삽입 가능. 서술문과 자연스럽게 섞어 쓸 것.
+     예) "자:정원모;물;-1 정원모가 총에 맞아 쓰러진다. 태:정원모;출혈"
 
-     [상태 태그]
-     태:이름;상태            (상태 부여)  예) 태:정원모;출혈
-     태:이름;-상태           (상태 제거)  예) 태:정원모;-출혈
-     ※ 상태 이름 뒤에 마침표(.)·쉼표·물음표 등 구두점을 절대 붙이지 마십시오.
-     ※ 잘못된 예: 태:임성진;-지침.   올바른 예: 태:임성진;-지침
+   ■ 자원·상태 태그 의무 검토 (매 PROCEED마다 아래를 확인하라)
+   ① 플레이어나 NPC가 물자를 소비·획득했는가? → 자:이름;아이템;수치 태그 추가
+   ② 부상·중독·탈진·이상 상태가 생겼거나 해소됐는가? → 태:이름;상태 / 태:이름;-상태 태그 추가
+   ③ 위 두 경우가 아닌 단순 이동·대화는 태그 없이 서술만 해도 된다.
 
-     [이미지 삽입 태그]
-     상:키워드 / 중:키워드 / 하:키워드  (등록된 이미지 키워드를 묘사 위/중/아래에 삽입)
-     ※ 이 태그는 이미지 삽입 전용입니다. 자원이나 상태 변동에는 반드시 자:/태: 태그를 사용하십시오.
+   [자원 변동 태그]
+   자:이름;아이템;수치
+   ※ 세미콜론으로 구분된 이름·아이템·수치 세 부분 필수. 수치는 정수.
+   예) 자:정원모;물;-1   자:임성진;탄약;-2   자:아서;체력포션;+1
 
-   - 태그는 지시문 내 임의 위치에 삽입 가능합니다. 예) "태:정원모;출혈 정원모가 총에 맞아 쓰러진다."
+   [상태 태그]
+   태:이름;상태   (부여)  예) 태:정원모;출혈
+   태:이름;-상태  (제거)  예) 태:정원모;-출혈
+   ※ 상태 이름 끝에 마침표·쉼표·물음표 등 구두점 절대 금지.
+   ※ 틀린 예: 태:임성진;-지침.   맞는 예: 태:임성진;-지침
 
-   [#25 — 능동적 서사 진행 원칙]
-   proceed_instruction 작성 시 아래 원칙을 반드시 따르십시오:
+   [이미지 삽입 태그]
+   상:키워드 / 중:키워드 / 하:키워드  (등록된 이미지 키워드를 묘사 위/중/아래에 삽입)
+   ※ 이미지 삽입 전용. 자원·상태 변동에는 반드시 자:/태: 태그를 사용하십시오.
+
+   ■ 능동 서사 원칙 (의무)
    A) 플레이어 행동의 자연스러운 결과를 반영한다.
-   B) 세계가 멈춰 있지 않음을 드러내는 **신규 사건**을 능동적으로 발생시킨다.
-      - 감염자 출현·이동·소리, NPC의 예상치 못한 개입·이탈·태도 변화,
-        환경 변화(소음·화재·문 잠김·날씨·전력 차단 등),
-        다른 세력의 움직임, 새로운 위협 또는 기회의 등장 등을 적극 제안한다.
-   C) 플레이어가 수동적으로 대기하거나 단순 이동·대화를 하는 상황에서도
-      반드시 어떤 사건이 발생하거나 세계에 변화가 생기도록 지시문을 구성한다.
-   D) 시나리오 룰북에 없는 소규모 사건은 기존 설정과 모순되지 않는 범위에서
-      맥락에서 자연스럽게 파생시킬 수 있다. 시나리오 룰북에 정의된 주요 세력·이벤트를
-      임의로 종결·왜곡하는 것은 금지한다.
+   B) 세계·환경·NPC가 주도하는 신규 사건을 반드시 발생시킨다 (아래 중 하나 이상):
+      - 감염자 출현·이동·소리·군집 변화
+      - NPC의 예상치 못한 개입·이탈·태도 전환
+      - 환경 변화 (소음·화재·문 잠김·전력 차단·구조물 붕괴·날씨 변화)
+      - 타 세력의 움직임 또는 정보 노출
+      - 새로운 위협 또는 예상치 못한 기회
+   C) 플레이어가 단순 이동·대기·대화를 할 때도 반드시 어떤 변화가 생겨야 한다.
+   D) 소규모 파생 사건은 설정과 모순 없는 범위에서 자유롭게 생성 가능.
+      단, 주요 세력·이벤트를 임의로 종결·왜곡하는 것은 금지한다.
+
+   ■ 나쁜 예 vs 좋은 예
+   ✗ 나쁜 예: "정원모가 골목을 이동해 창고에 도착한다."
+   ✓ 좋은 예: "자:정원모;물;-1 정원모가 창고 셔터를 억지로 들어 올리는 순간, 안쪽에서 선반이 쓰러지는 둔탁한 충격음이 터진다. 잠시 뒤, 선반 너머 어둠 속에서 무언가 바닥을 긁는 소리가 가까워지기 시작한다."
+
+   ✗ 나쁜 예: "임성진이 경비원과 대화를 나눈다."
+   ✓ 좋은 예: "임성진이 말을 꺼내기도 전에 고참 경비가 손을 들어 막는다. 조선소 쪽에서 빠른 발소리가 이쪽으로 달려오고 있고, 경비들의 눈빛이 순식간에 날카로워진다."
 
 [엄격한 규칙]
 - 응답은 정확히 하나의 action만 가집니다.
-- 같은 플레이어 발언에 대해 ASK를 반복하지 마세요. 한 번 명확화한 뒤에는 PROCEED 또는 ROLL로 진행합니다.
+- 같은 플레이어 발언에 대해 ASK를 반복하지 마세요. 한 번 명확화한 뒤에는 PROCEED, ROLL, 또는 NARRATE로 진행합니다.
 - 시나리오 종결(엔딩) 판단은 절대 하지 마세요. 그것은 인간 GM의 권한입니다.
 - 출력은 반드시 지정된 JSON 스키마를 따릅니다. 추가 텍스트, 마크다운, 코드블럭 모두 금지.
 
 [결정 우선순위]
-1. 플레이어 발언이 명확한 행동 선언 + 판정이 필요 → ROLL
-2. 명확한 행동이지만 판정 불필요 (대화·이동·관찰 등) → PROCEED
-3. 의도 모호 → ASK (단, 직전에 ASK가 있었으면 PROCEED로 진행)
-4. 굴림 결과가 컨텍스트에 들어와 있음 → PROCEED (결과를 반영한 지시문 작성)
+1. 굴림 결과가 컨텍스트에 들어와 있음 → PROCEED (결과를 반영한 지시문 작성)
+2. 플레이어 발언이 명확한 행동 선언 + 판정이 필요 → ROLL
+3. 명확한 행동이지만 판정 불필요 (이동·접근·물건 획득·단순 대화 등) → PROCEED
+4. 플레이어가 질문하거나 가벼운 상황 확인·탐색 → NARRATE
+5. 의도 모호 → ASK (단, 직전에 ASK가 있었으면 PROCEED 또는 NARRATE로 진행)
 """
 
 
@@ -170,6 +201,7 @@ def _build_logic_user_prompt(session, player_message: str, roll_results: list) -
     target_char = session.auto_gm_target_char or "(미지정)"
     side_note = session.auto_gm_side_note or ""
     clarify_count = session.auto_gm_clarify_count
+    narrate_count = getattr(session, "auto_gm_narrate_count", 0)
 
     # 최근 6턴 요약 (raw_logs 마지막 6개)
     recent_logs_lines = []
@@ -232,6 +264,7 @@ def _build_logic_user_prompt(session, player_message: str, roll_results: list) -
 [PC 자원]: {res_str}
 [PC 상태]: {sta_str}
 [직전 ASK 횟수 / 한도]: {clarify_count} / {MAX_CLARIFY_PER_MESSAGE}
+[직전 NARRATE 횟수 / 한도]: {narrate_count} / {MAX_NARRATE_PER_MESSAGE}
 {multi_info}{note_block}
 [최근 6턴 컨텍스트]
 {recent_logs_str}
@@ -241,7 +274,7 @@ def _build_logic_user_prompt(session, player_message: str, roll_results: list) -
 [플레이어 신규 발언]
 {player_message}
 
-위 컨텍스트를 분석하여 다음 단일 action(ASK / ROLL / PROCEED)을 결정하고 JSON 스키마에 맞춰 응답하십시오."""
+위 컨텍스트를 분석하여 다음 단일 action(ASK / NARRATE / ROLL / PROCEED)을 결정하고 JSON 스키마에 맞춰 응답하십시오."""
 
 
 # ========== [자동 GM 주사위 버튼 View] ==========
@@ -511,6 +544,7 @@ class AutoGMCog(commands.Cog):
         session.auto_gm_pending_players = list(target_chars)
         session.auto_gm_collected_actions = {}
         session.auto_gm_waiting_for = None
+        session.auto_gm_narrate_count = 0
         await core.save_session_data(self.bot, session)
         await self._ask_next_player(session)
 
@@ -701,14 +735,23 @@ class AutoGMCog(commands.Cog):
 
         action_labels = {
             "ASK":     "🟡 ASK (명확화 요청)",
+            "NARRATE": "💬 NARRATE (경량 GM 응답)",
             "ROLL":    "🎲 ROLL (주사위 판정)",
             "PROCEED": "🟢 PROCEED (턴 진행)",
         }
 
         roll_results: list[str] = []
 
+        game_ch = self.bot.get_channel(session.game_ch_id)
+
         for iteration in range(MAX_ITERATIONS_PER_MESSAGE):
-            decision = await self._call_gm_logic(session, player_message, roll_results, master_ch)
+            # GM-Logic 호출 동안 게임 채널에 입력 중 표시 (PROCEED와 일관성)
+            if game_ch:
+                async with game_ch.typing():
+                    decision = await self._call_gm_logic(session, player_message, roll_results, master_ch)
+            else:
+                decision = await self._call_gm_logic(session, player_message, roll_results, master_ch)
+
             if not decision:
                 await m_send("⚠️ 자동 GM 결정 호출 실패. 이번 발언을 스킵합니다.")
                 return
@@ -741,6 +784,7 @@ class AutoGMCog(commands.Cog):
                         )
                     await self._dispatch_proceed(session, forced_instr)
                     session.auto_gm_clarify_count = 0
+                    session.auto_gm_narrate_count = 0
                     session.auto_gm_turns_done += 1
                     session.auto_gm_side_note = ""
                     await core.save_session_data(self.bot, session)
@@ -749,7 +793,6 @@ class AutoGMCog(commands.Cog):
                     return
 
                 bridge = decision.get("bridge_message") or "어떻게 하시겠습니까?"
-                game_ch = self.bot.get_channel(session.game_ch_id)
                 if game_ch:
                     await core.stream_text_to_channel(
                         self.bot, game_ch, bridge,
@@ -760,6 +803,41 @@ class AutoGMCog(commands.Cog):
                 print(f"[AutoGM/{session.session_id}] ASK -> '{bridge[:80]}'")
                 await core.save_session_data(self.bot, session)
                 break
+
+            # ── NARRATE ──
+            elif action == "NARRATE":
+                session.auto_gm_narrate_count = getattr(session, "auto_gm_narrate_count", 0) + 1
+                if session.auto_gm_narrate_count > MAX_NARRATE_PER_MESSAGE:
+                    await m_send(
+                        f"⚙️ **[자동 GM]** NARRATE 한도({MAX_NARRATE_PER_MESSAGE}회) 초과 → 강제 PROCEED로 전환합니다."
+                    )
+                    forced_instr = _clean_proceed_instruction(
+                        decision.get("proceed_instruction") or
+                        "현재 상황에서 자연스럽게 다음 묘사를 이어가십시오."
+                    )
+                    if (session.auto_gm_turns_done + 1) >= session.auto_gm_turn_cap:
+                        session.auto_gm_active = False
+                        await m_send(
+                            f"🛑 **[자동 GM 마지막 턴]** 자동 턴 한도({session.auto_gm_turn_cap}턴) 도달."
+                        )
+                    await self._dispatch_proceed(session, forced_instr)
+                    session.auto_gm_narrate_count = 0
+                    session.auto_gm_turns_done += 1
+                    session.auto_gm_side_note = ""
+                    await core.save_session_data(self.bot, session)
+                    if session.auto_gm_active:
+                        await self._start_round(session)
+                    return
+
+                narrate_instr = decision.get("narrate_instruction") or "현재 상황을 간략히 설명하십시오."
+                # NOTE: typing 컨텍스트는 _dispatch_narrate 내부 API 호출 블록에서만 활성화됨.
+                # 외부에서 typing()으로 감싸면 stream_text_to_channel 실행 시 typing이 살아있어
+                # Discord 상충으로 스트리밍이 멈추는 버그 발생 — 외부 typing 제거.
+                narrate_text = await self._dispatch_narrate(session, narrate_instr)
+                if narrate_text:
+                    print(f"[AutoGM/{session.session_id}] NARRATE #{session.auto_gm_narrate_count} -> '{narrate_text[:60]}'")
+                await core.save_session_data(self.bot, session)
+                break  # 플레이어 응답 대기
 
             # ── ROLL ──
             elif action == "ROLL":
@@ -778,6 +856,7 @@ class AutoGMCog(commands.Cog):
                             f"🛑 **[자동 GM 마지막 턴]** 자동 턴 한도({session.auto_gm_turn_cap}턴) 도달."
                         )
                     await self._dispatch_proceed(session, fallback_instr)
+                    session.auto_gm_narrate_count = 0
                     session.auto_gm_turns_done += 1
                     session.auto_gm_side_note = ""
                     await core.save_session_data(self.bot, session)
@@ -806,6 +885,7 @@ class AutoGMCog(commands.Cog):
                     )
 
                 await self._dispatch_proceed(session, instruction)
+                session.auto_gm_narrate_count = 0
                 session.auto_gm_turns_done += 1
                 session.auto_gm_side_note = ""
                 await core.save_session_data(self.bot, session)
@@ -827,6 +907,7 @@ class AutoGMCog(commands.Cog):
                     f"🛑 **[자동 GM 마지막 턴]** 자동 턴 한도({session.auto_gm_turn_cap}턴) 도달."
                 )
             await self._dispatch_proceed(session, "현재 상황에서 자연스럽게 다음 묘사를 이어가십시오.")
+            session.auto_gm_narrate_count = 0
             session.auto_gm_turns_done += 1
             session.auto_gm_side_note = ""
             await core.save_session_data(self.bot, session)
@@ -1101,6 +1182,168 @@ class AutoGMCog(commands.Cog):
             # PROCEED 완료 → 다음 라운드 시작
             if session.auto_gm_active:
                 await self._start_round(session)
+
+    # ─────────────────────────────────────────────────────────────
+    # NARRATE 디스패치 (경량 캐시 기반 GM 응답)
+    # ─────────────────────────────────────────────────────────────
+
+    async def _dispatch_narrate(self, session, narrate_instruction: str) -> str | None:
+        """
+        캐시 기반 경량 LLM 호출로 짧은 GM 응답(NARRATE)을 생성하고 게임 채널에 스트리밍.
+
+        NOTE: PROCEED의 풀 프롬프트 대신 최근 로그 + narrate_instruction만 전달하여
+        약 300자 이내의 빠른 응답을 생성. 캐시 히트 시 비용은 PROCEED의 절반 이하.
+        대사 마커(@대사:이름|본문)를 감지하여 인물 이미지·말풍선 포맷으로 자동 변환.
+
+        Args:
+            session: TRPGSession
+            narrate_instruction (str): GM-Logic이 생성한 경량 응답 지시문 (100자 이내)
+
+        Returns:
+            str | None: 생성된 NARRATE 응답 텍스트 (스트리밍 완료 후). 실패 시 None.
+        """
+        master_ch = self.bot.get_channel(session.master_ch_id)
+        game_ch = self.bot.get_channel(session.game_ch_id)
+
+        # 최근 raw_logs 4개 (각 400자 제한)
+        recent_parts = []
+        for content in session.raw_logs[-4:]:
+            try:
+                text = content.parts[0].text
+                role = content.role.upper()
+                preview = text[:400] + ("..." if len(text) > 400 else "")
+                recent_parts.append(f"[{role}]\n{preview}")
+            except Exception:
+                continue
+        recent_str = "\n\n".join(recent_parts) if recent_parts else "(최근 로그 없음)"
+
+        # 이번 턴 현재까지 누적된 대화
+        current_turn_str = "\n".join(session.current_turn_logs) if session.current_turn_logs else "(없음)"
+
+        narrate_prompt = (
+            f"[최근 게임 로그]\n{recent_str}\n\n"
+            f"[이번 턴 누적 대화]\n{current_turn_str}\n\n"
+            f"[지시사항]\n{narrate_instruction}\n\n"
+            "[출력 규칙 — 반드시 준수]\n"
+            "- 1~2문장만 출력한다. 그 이상은 절대 금지.\n"
+            "- 순수 서술문만 허용. 인물 대사(@대사: 마커) 출력 금지.\n"
+            "- 코드블럭(```) 출력 금지.\n"
+            "- 마크다운 헤더(##), 굵은 글씨(**) 사용 금지.\n"
+            "- 장문 묘사, 상황 전개, 새로운 사건 창작 금지. 현재 상태를 짧게 확인·설명하는 것으로 한정.\n"
+            "위 규칙을 어기면 출력 전체가 무효 처리됩니다."
+        )
+
+        core.write_log(session.session_id, "api", f"[자동 GM NARRATE 요청]\n{narrate_prompt}")
+
+        # NOTE: max_output_tokens를 설정하지 않음 — PROCEED(_execute_proceed)와 동일한 방침.
+        # DEFAULT_MODEL(gemini-3-flash-preview)은 thinking 모델이므로, max_output_tokens를
+        # 지정하면 내부 thinking 토큰까지 한도에 포함되어 실제 텍스트 출력이 거의 없는
+        # MAX_TOKENS 조기 종료가 발생한다. 출력 길이는 프롬프트의 "300자 이내" 지시로 제어한다.
+        try:
+            if session.cache_name:
+                config = types.GenerateContentConfig(
+                    cached_content=session.cache_name,
+                    temperature=0.65,
+                    safety_settings=core.TRPG_SAFETY_SETTINGS,
+                )
+            else:
+                config = types.GenerateContentConfig(
+                    system_instruction=self.bot.system_instruction,
+                    temperature=0.65,
+                    safety_settings=core.TRPG_SAFETY_SETTINGS,
+                )
+
+            # PROCEED와 동일한 구조: typing()은 API 호출만 감싸고,
+            # 출력(stream_text_to_channel)은 typing 컨텍스트 밖에서 실행한다.
+            if game_ch:
+                async with game_ch.typing():
+                    response = await asyncio.to_thread(
+                        self.bot.genai_client.models.generate_content,
+                        model=core.DEFAULT_MODEL,
+                        contents=[types.Content(role="user", parts=[types.Part.from_text(text=narrate_prompt)])],
+                        config=config,
+                    )
+            else:
+                response = await asyncio.to_thread(
+                    self.bot.genai_client.models.generate_content,
+                    model=core.DEFAULT_MODEL,
+                    contents=[types.Content(role="user", parts=[types.Part.from_text(text=narrate_prompt)])],
+                    config=config,
+                )
+        except Exception as e:
+            print(f"[AutoGM] NARRATE 호출 실패: {type(e).__name__} - {e}")
+            if master_ch:
+                await master_ch.send(f"⚠️ 자동 GM NARRATE 호출 실패: {type(e).__name__}")
+            return None
+
+        # 비용 정산
+        try:
+            meta = response.usage_metadata
+            in_tokens = getattr(meta, "prompt_token_count", 0) or 0
+            out_tokens = getattr(meta, "candidates_token_count", 0) or 0
+            cached_tokens = getattr(meta, "cached_content_token_count", 0) or 0
+
+            breakdown = core.calculate_text_gen_cost_breakdown(
+                core.DEFAULT_MODEL,
+                input_tokens=in_tokens,
+                output_tokens=out_tokens,
+                cached_read_tokens=cached_tokens,
+            )
+            cost = breakdown["total_krw"]
+            session.total_cost += cost
+            core.write_cost_log(
+                session.session_id,
+                f"{COST_LOG_PREFIX}NARRATE 경량 응답",
+                in_tokens, cached_tokens, out_tokens, cost, session.total_cost
+            )
+
+            print(
+                f"[AutoGM/{session.session_id}] NARRATE 비용: "
+                f"In={in_tokens:,} Cached={cached_tokens:,} Out={out_tokens:,} "
+                f"→ {core.format_cost(cost)} (누적 {core.format_cost(session.total_cost)})"
+            )
+
+            if master_ch:
+                await master_ch.send(
+                    f"💰 **[자동 GM 비용]** NARRATE 경량 응답 (자동 GM)\n"
+                    f"- 입력 {in_tokens:,} / 출력 {out_tokens:,} 토큰 (캐시 {cached_tokens:,})\n"
+                    f"- 발생: {core.format_cost(cost)} | 누적: {core.format_cost(session.total_cost)}"
+                )
+        except Exception as e:
+            print(f"[AutoGM] NARRATE 비용 정산 실패: {e}")
+
+        narrate_text = (response.text or "").strip()
+        if not narrate_text:
+            return None
+
+        core.write_log(session.session_id, "api", f"[자동 GM NARRATE 응답]\n{narrate_text}")
+
+        # 게임 채널에 스트리밍 출력 (대사 마커 처리 포함)
+        # NOTE: PROCEED(_execute_proceed)와 동일한 구조 — typing 컨텍스트 밖에서 stream_text_to_channel 호출.
+        # typing은 위 API 호출 블록에서만 활성화되며, 이 시점에서는 이미 종료된 상태.
+        if game_ch:
+            paragraphs = [p.strip() for p in narrate_text.split("\n\n") if p.strip()]
+            paragraphs = core.merge_consecutive_dialogues(paragraphs)
+
+            for paragraph in paragraphs:
+                dialogue = core.parse_dialogue_paragraph(paragraph)
+                if dialogue:
+                    speaker, content = dialogue
+                    await core.maybe_send_speaker_image(game_ch, session, speaker)
+                    formatted = core.format_dialogue_block(speaker, content)
+                    await core.stream_text_to_channel(
+                        self.bot, game_ch, formatted,
+                        words_per_tick=5, tick_interval=1.5, quote_prefix=False
+                    )
+                else:
+                    await core.stream_text_to_channel(
+                        self.bot, game_ch, paragraph,
+                        words_per_tick=5, tick_interval=1.5
+                    )
+
+        # current_turn_logs에 추가 — PROCEED 시 AI가 맥락을 볼 수 있도록
+        session.current_turn_logs.append(f"[진행자 (자동 GM)]: {narrate_text}")
+        return narrate_text
 
     # ─────────────────────────────────────────────────────────────
     # PROCEED 디스패치

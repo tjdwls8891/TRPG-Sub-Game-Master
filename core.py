@@ -145,6 +145,7 @@ class TRPGSession:
         self.auto_gm_turn_cap = 10             # 자동 모드에서 자동 진행할 최대 턴 수 (안전장치)
         self.auto_gm_turns_done = 0            # 활성화 이후 자동으로 처리한 턴 수
         self.auto_gm_clarify_count = 0         # 같은 플레이어 발언에 대한 명확화 누적 횟수
+        self.auto_gm_narrate_count = 0         # 같은 플레이어 발언에 대한 NARRATE 누적 횟수
         self.auto_gm_cost_cap_krw = 500.0      # 자동 모드 누적 비용 상한 (도달 시 정지)
         self.auto_gm_cost_baseline = 0.0       # 활성화 시점의 session.total_cost (사용량 추적용)
         self.auto_gm_side_note = ""            # !자동개입으로 주입된 GM 사이드 노트 (다음 호출에 1회 합류 후 비움)
@@ -159,13 +160,28 @@ class TRPGSession:
 
         self.npcs = {}
         default_npcs = scenario_data.get("default_npcs", {})
+        npc_template = scenario_data.get("npc_template", {})
+        _npc_info_fields = npc_template.get("info_fields", []) if isinstance(npc_template, dict) else []
 
         for npc_name, npc_data in default_npcs.items():
             if isinstance(npc_data, dict):
-                self.npcs[npc_name] = {
-                    "name": npc_data.get("name", npc_name),
-                    "details": npc_data.get("details", "")
-                }
+                # 전체 NPC 항목을 복사 (구조화 필드 + 하위 호환 details 모두 보존)
+                npc_entry = {k: v for k, v in npc_data.items() if k != "resources" and k != "statuses"}
+                npc_entry["name"] = npc_data.get("name", npc_name)
+                self.npcs[npc_name] = npc_entry
+
+                # NPC 기본값 resources/statuses → 런타임 딕셔너리에 사전 적용
+                # (태그·!증감이 이 값을 기준으로 증감하도록)
+                default_res = npc_data.get("resources", {})
+                if default_res:
+                    self.resources.setdefault(npc_name, {})
+                    self.resources[npc_name].update(default_res)
+                default_stat = npc_data.get("statuses", [])
+                if default_stat:
+                    self.statuses.setdefault(npc_name, [])
+                    for s in default_stat:
+                        if s not in self.statuses[npc_name]:
+                            self.statuses[npc_name].append(s)
             else:
                 self.npcs[npc_name] = {
                     "name": npc_name,
@@ -216,42 +232,70 @@ class PromptBuilder:
                 if c_res:
                     res_str = ", ".join([f"{k}: {v}" for k, v in c_res.items()])
                     block += f"    * [확정 소지 자원]: {res_str}\n"
-                if c_stat:
-                    stat_str = ", ".join(c_stat)
-                    block += f"    * [현재 상태이상]: {stat_str}\n"
+                # NOTE: 상태이상이 없을 때도 명시적으로 "없음"을 출력하여,
+                # 해제 후에도 AI가 이전 상태를 언급하는 오류를 방지한다.
+                stat_str = ", ".join(c_stat) if c_stat else "없음"
+                block += f"    * [현재 상태이상]: {stat_str}\n"
             self.blocks.append(block)
         return self
 
     def add_npc_override_block(self):
         # NOTE: default_npcs 전체가 캐시에 수록되므로, 프롬프트에는 캐시와 차이가 있는
-        # NPC만 델타(delta)로 주입한다. 이름 트리거 검사는 폐기.
+        # NPC만 델타(delta)로 주입한다.
         #
         # 주입 대상:
-        #   A. details가 default_npcs와 다른 NPC (설정 변경 → 캐시 내용 덮어씀)
-        #   B. details 변경 없이 resources / statuses만 존재하는 NPC (런타임 상태 동기화)
+        #   A. 설정 필드(details 또는 구조화 info_fields)가 default_npcs와 다른 NPC
+        #      → 캐시 내용을 현재 값으로 덮어씀
+        #   B. 설정 변경 없이 resources / statuses(runtime)만 존재하는 NPC
+        #      → 캐시에 없는 런타임 상태 동기화
         #   → 두 조건 모두 해당 없는 NPC는 캐시로 충분하므로 스킵
         if not self.session.npcs:
             return self
 
         default_npcs = self.session.scenario_data.get("default_npcs", {})
+        npc_template = self.session.scenario_data.get("npc_template", {})
+        info_fields = npc_template.get("info_fields", []) if isinstance(npc_template, dict) else []
         lines = []
 
         for npc_name, npc_data in self.session.npcs.items():
-            base_details = default_npcs.get(npc_name, {}).get("details", "")
-            details_changed = npc_data["details"] != base_details
+            base_data = default_npcs.get(npc_name, {})
+
+            # ── 설정 변경 감지 ──
+            if info_fields:
+                # 구조화 NPC: 각 info_field 비교
+                info_changed = any(
+                    npc_data.get(f) != base_data.get(f)
+                    for f in info_fields
+                )
+            else:
+                # 레거시 NPC: details 문자열 비교
+                info_changed = npc_data.get("details", "") != base_data.get("details", "")
+
+            # ── 런타임 resources/statuses 감지 ──
             n_res = self.session.resources.get(npc_name, {})
             n_stat = self.session.statuses.get(npc_name, [])
+            # 기본값과 동일한 경우는 오버라이드 불필요
+            base_res = base_data.get("resources", {})
+            base_statuses = base_data.get("statuses", [])
+            res_changed = n_res != base_res
+            stat_changed = sorted(n_stat) != sorted(base_statuses)
 
-            # 캐시 내용과 동일하고 런타임 상태도 없으면 주입 불필요
-            if not details_changed and not n_res and not n_stat:
+            if not info_changed and not res_changed and not stat_changed:
                 continue
 
+            # ── 오버라이드 블록 구성 ──
             entry = f"  - {npc_name}"
-            if details_changed:
-                entry += f" [설정 변경]: {npc_data['details']}"
-            if n_res:
+            if info_changed:
+                if info_fields:
+                    field_lines = "\n".join(
+                        f"    {f}: {npc_data.get(f, '')}" for f in info_fields if npc_data.get(f)
+                    )
+                    entry += f" [설정 변경]:\n{field_lines}"
+                else:
+                    entry += f" [설정 변경]: {npc_data.get('details', '')}"
+            if res_changed and n_res:
                 entry += f"\n    * [확정 소지 자원]: {', '.join(f'{k}: {v}' for k, v in n_res.items())}"
-            if n_stat:
+            if stat_changed and n_stat:
                 entry += f"\n    * [현재 상태이상]: {', '.join(n_stat)}"
             lines.append(entry)
 
@@ -641,6 +685,7 @@ async def save_session_data(bot, session: TRPGSession):
             "auto_gm_turn_cap": getattr(session, "auto_gm_turn_cap", 10),
             "auto_gm_turns_done": getattr(session, "auto_gm_turns_done", 0),
             "auto_gm_clarify_count": getattr(session, "auto_gm_clarify_count", 0),
+            "auto_gm_narrate_count": getattr(session, "auto_gm_narrate_count", 0),
             "auto_gm_cost_cap_krw": getattr(session, "auto_gm_cost_cap_krw", 500.0),
             "auto_gm_cost_baseline": getattr(session, "auto_gm_cost_baseline", 0.0),
             "auto_gm_side_note": getattr(session, "auto_gm_side_note", ""),
@@ -681,15 +726,53 @@ async def build_scenario_cache_text(bot, model_id, scenario_data: dict, cache_no
     status_code_block = scenario_data.get('status_code_block', '상태창 코드블럭 양식 없음')
     note_injection = f"\n[추가 세계관 및 상태 (캐시 노트)]\n{cache_note}\n" if cache_note else ""
 
+    # ── NPC 사전 텍스트 조립 (구조화 필드 지원) ──
     npc_text = ""
     default_npcs = scenario_data.get("default_npcs", {})
+    npc_template = scenario_data.get("npc_template", {})
+    npc_info_fields = npc_template.get("info_fields", []) if isinstance(npc_template, dict) else []
+
     for npc_name, npc_data in default_npcs.items():
-        if isinstance(npc_data, dict):
+        if not isinstance(npc_data, dict):
+            npc_text += f"\n- {npc_name}: {npc_data}\n"
+            continue
+        if npc_info_fields:
+            # 구조화 양식: info_fields 순서대로 필드 렌더링
+            field_lines = []
+            for f in npc_info_fields:
+                val = npc_data.get(f, "")
+                if val:
+                    field_lines.append(f"  {f}: {val}")
+            # stats가 있으면 추가
+            if isinstance(npc_template, dict) and npc_template.get("has_stats"):
+                stats = npc_data.get("stats", {})
+                if stats:
+                    field_lines.append(f"  스탯: {', '.join(f'{k}={v}' for k, v in stats.items())}")
+            npc_text += f"\n- {npc_name}:\n" + "\n".join(field_lines) + "\n"
+        else:
+            # 레거시 양식: details 문자열
             details = npc_data.get("details", "")
             npc_text += f"\n- {npc_name}:\n{details}\n"
 
     if not npc_text:
         npc_text = "등록된 NPC 없음."
+
+    # ── 금지사항 섹션 ──
+    prohibitions_raw = scenario_data.get("prohibitions", [])
+    if isinstance(prohibitions_raw, list) and prohibitions_raw:
+        prohibitions_text = "\n".join(f"- {item}" for item in prohibitions_raw)
+    elif isinstance(prohibitions_raw, str) and prohibitions_raw.strip():
+        prohibitions_text = prohibitions_raw.strip()
+    else:
+        prohibitions_text = None
+
+    prohibitions_section = ""
+    if prohibitions_text:
+        prohibitions_section = f"""
+[6. GM 절대 금지 사항]
+(아래 요소들은 플레이어나 GM의 요청이 있더라도 예외 없이 준수한다. 이를 위반하는 묘사는 즉시 수정한다.)
+{prohibitions_text}
+"""
 
     rulebook_text = f"""=== [시나리오 핵심 룰북] ===
 이 내용은 세션의 근간이 되는 절대적인 세계관 및 시스템 설정입니다.
@@ -712,8 +795,8 @@ async def build_scenario_cache_text(bot, model_id, scenario_data: dict, cache_no
 
 [5. 시나리오 고유 묘사 가이드라인]
 {desc_guide}
-
-[6. 필수 출력: 상태창 코드블럭 양식]
+{prohibitions_section}
+[7. 필수 출력: 상태창 코드블럭 양식]
 (모든 묘사 후 턴의 마지막에 반드시 아래 양식을 바탕으로 상태창을 출력할 것)
 {status_code_block}
 {note_injection}============================
@@ -762,8 +845,10 @@ def build_compression_prompt(session: TRPGSession, log_text: str) -> str:
     """
     대화 기록을 무손실 압축하기 위한 요약 전용 프롬프트 생성.
 
-    NOTE: 장기 세션 진행 시 모델의 망각 및 개연성 붕괴를 막기 위해, 문학적 수사를 배제하고
-    철저히 인과율과 수치(아이템, 턴 수) 중심의 개조식 데이터로 변환할 것을 AI에게 지시.
+    NOTE: 압축의 목표는 동일한 정보를 더 적은 토큰으로 표현하는 것이지,
+    '무엇을 기억할 것인가'를 선별하는 것이 아니다.
+    세션에서 발생한 모든 의미 있는 정보는 형태를 바꾸더라도 전부 보존한다.
+    턴 단위 단락 구조를 강제하여 AI의 장기 참조 품질을 높인다.
 
     Args:
         session (TRPGSession): 현재 진행 중인 세션 객체
@@ -773,19 +858,89 @@ def build_compression_prompt(session: TRPGSession, log_text: str) -> str:
         str: AI 모델에 전송할 압축 지시 프롬프트 문자열
     """
     return (
-        "당신은 TRPG 세션의 전담 '기록 서기'입니다. \n"
-        "당신의 유일한 목표는 제공된 [최근 플레이 기록]을 초정밀 무손실 압축(Lossless Compression)하여 새로운 기록을 생성하는 것입니다.\n"
-        "[이전 압축 기억]은 현재 상황의 맥락(인물, 장소, 진행 상황)을 파악하는 용도로만 참고하고, 절대 요약 결과에 다시 포함하여 출력하지 마십시오.\n\n"
-        "[초정밀 압축 원칙]\n"
-        "1. 마이크로 디테일 보존: 행동의 '결과'만 적지 말고, '구체적인 물리적 과정'과 '타격 부위' 등을 반드시 명시하십시오.\n"
-        "2. 불필요 데이터 배제: 압축할 정보 중, 단순 추임새나 추후 잊더라도 개연성에 영향을 주지 않는 행동(예: 코를 긁는다 등)은 데이터에서 제외하십시오.\n"
-        "2. 장식적 요소 배제: 비유, 감정 표현, 분위기 묘사 등 문학적 수사는 철저히 걷어내십시오.\n"
-        "3. 인과성 및 상태 추적: A의 행동이 B에게 어떤 상태 변화를 일으켰는지 명확한 단문으로 기록하십시오.\n"
-        "4. 아이템 및 수치 명시: 획득/소비한 아이템, 주사위 판정 수치는 정확한 이름과 숫자로 기록하십시오.\n"
-        "5. 시간 및 턴 기록: 제공된 로그(코드블럭 등)를 바탕으로 해당 사건이 벌어진 '턴 수'와 '명시된 시점(날짜, 시간 등)'을 파악하십시오. 매 압축 요소마다 전부 기입할 필요는 없으며, 턴이 바뀌는 지점마다 해당 턴 기록의 첫 번째 항목에 이를 명시하여 사건의 발생 시점을 기록하십시오.\n\n"
-        f"[이전 압축 기억 (맥락 파악용으로만 참고할 것)]\n{session.compressed_memory if session.compressed_memory else '없음'}\n\n"
+        "당신은 TRPG 세션의 전담 '기록 서기'입니다.\n"
+        "임무: 제공된 [최근 플레이 기록]을 정보 손실 없이 텍스트 분량만 압축합니다.\n"
+        "[이전 압축 기억]은 현재 상황의 맥락(인물·장소·진행 상황) 파악 용도로만 참고하고, "
+        "절대 요약 결과에 다시 포함하여 출력하지 마십시오.\n\n"
+
+        "══════════════════════════════════════════\n"
+        "[압축의 목표]\n"
+        "══════════════════════════════════════════\n"
+        "이 압축은 '무엇을 기억할 것인가'를 고르는 작업이 아닙니다.\n"
+        "세션에서 발생한 모든 의미 있는 정보는 형태를 바꾸더라도 전부 보존해야 합니다.\n"
+        "비용 효율은 '문학적 잉여 표현 제거'와 '구조화를 통한 밀도 향상'으로만 달성합니다.\n\n"
+
+        "══════════════════════════════════════════\n"
+        "[반드시 보존해야 할 정보 — 누락 절대 불가]\n"
+        "══════════════════════════════════════════\n"
+        "아래 항목에 해당하는 정보는 어떠한 경우에도 생략하지 마십시오:\n\n"
+
+        "▶ 행동 및 결과\n"
+        "  - PC·NPC의 모든 행동과 그 직접적 결과·파급 영향\n"
+        "  - 단순해 보이는 행동(물건 집기, 문 잠그기, 방향 전환 등)도 이후 전개에 영향을 줄 수 있으므로 포함\n"
+        "  - 행동의 물리적 과정(어떻게 했는가)과 결과(무슨 일이 벌어졌는가)를 함께 기록\n\n"
+
+        "▶ 판정 및 수치\n"
+        "  - 주사위 굴림: 적용 스탯명, 굴림 수치, 기준치, 성공·실패 결과 및 대성공·대실패 여부\n"
+        "  - 아이템 획득·소비·파괴·위치 변화: 아이템명과 수량 명시\n"
+        "  - 스탯·자원 수치 변동: 항목명과 변동값 명시\n\n"
+
+        "▶ 대화 전반\n"
+        "  - 모든 대화의 주제, 핵심 내용, 결론\n"
+        "  - 화자와 청자의 관계, 호칭, 존대·반말 여부\n"
+        "  - 대화 중 드러난 감정·태도·의도 (적대, 경계, 호의, 회피 등)\n"
+        "  - NPC가 제공하거나 암시한 정보, 숨긴 것이 드러난 경우 그 사실\n\n"
+
+        "▶ 획득 정보\n"
+        "  - 새로 알게 된 사실, 단서, 세계관 확인 사항\n"
+        "  - 탐색·관찰로 발견한 물체·구조·상황\n\n"
+
+        "▶ 감각 정보\n"
+        "  - 이후 판단·행동·묘사에 영향을 줄 수 있는 시각·청각·후각·촉각 정보\n"
+        "  - (예: 저 멀리 연기가 보임, 이상한 냄새가 남, 발소리가 들림 등)\n\n"
+
+        "▶ 상태 변동\n"
+        "  - PC·NPC의 상태이상 부여·해제 (항목명 정확히 기재)\n"
+        "  - 부상·출혈 등 신체 상태 변화\n\n"
+
+        "▶ 장소 및 공간\n"
+        "  - 이동 경로와 현재 위치\n"
+        "  - 진입한 공간의 구조·주요 물체·특이사항\n\n"
+
+        "▶ NPC 변화\n"
+        "  - 태도·감정·관계의 변화 (호감도 상승/하락, 의심 증가 등)\n"
+        "  - 행동 의도가 드러난 발언이나 행동\n\n"
+
+        "══════════════════════════════════════════\n"
+        "[생략 허용 — 정보 가치 없는 것만]\n"
+        "══════════════════════════════════════════\n"
+        "이후 전개에 어떠한 영향도 미치지 않는다고 확신할 수 있는 경우만 제거합니다:\n"
+        "  - 순수 분위기·미관 묘사 (예: 해가 지는 풍경, 바람 소리 — 이후 전개와 무관한 것만)\n"
+        "  - 동일 내용의 반복 서술\n"
+        "  - 정보를 담지 않는 잉여 구조 표현 ('그가 말했다', '그녀는 생각했다' 등)\n\n"
+
+        "══════════════════════════════════════════\n"
+        "[출력 양식 — 턴 단위 단락 구조]\n"
+        "══════════════════════════════════════════\n"
+        "각 턴을 하나의 독립된 단락으로 기록합니다.\n"
+        "해당 사항이 없는 항목은 행을 생략하여 밀도를 유지합니다.\n\n"
+        "─────────────────────────\n"
+        "[#N턴 | 날짜·시간대 | 장소]\n"
+        "· 행동·결과:      [누가] [무엇을] → [결과 / 파급 영향]\n"
+        "· 대화:           [화자→청자] [호칭·존대] — [주제 / 핵심 내용 / 태도·감정 / 결론]\n"
+        "· 획득 정보:      [새로 알게 된 사실·단서·발견물]\n"
+        "· 감각 정보:      [이후 전개에 영향 가능한 시각·청각·후각·촉각 정보]\n"
+        "· 수치·아이템:    [아이템명] +N획득 / -N소비 / 파괴 | [스탯명] 변동값\n"
+        "· 상태 변동:      [이름] +상태이상명 / -상태이상명\n"
+        "· 장소 이동:      [이전 장소] → [이후 장소] (경로 요약)\n"
+        "─────────────────────────\n\n"
+        "복수 턴이 포함된 경우 각 턴 단락 사이에 빈 줄을 삽입하여 구분합니다.\n"
+        "코드블럭(상태창) 등 시스템 출력에서 턴 번호·날짜·장소 정보를 반드시 추출하여 단락 헤더에 기입하십시오.\n\n"
+
+        f"[이전 압축 기억 (맥락 파악용으로만 참고할 것)]\n"
+        f"{session.compressed_memory if session.compressed_memory else '없음'}\n\n"
         f"[최근 플레이 기록 (압축 대상)]\n{log_text}\n\n"
-        "위 원칙을 엄격히 준수하여 [최근 플레이 기록]만을 건조하고 기계적인 개조식(Bullet points)으로 압축하여 출력하십시오."
+        "위 원칙과 양식에 따라 [최근 플레이 기록]만을 압축하여 출력하십시오."
     )
 
 
@@ -840,6 +995,7 @@ async def restore_sessions_from_disk(bot):
                 session.auto_gm_turn_cap = data.get("auto_gm_turn_cap", 10)
                 session.auto_gm_turns_done = data.get("auto_gm_turns_done", 0)
                 session.auto_gm_clarify_count = data.get("auto_gm_clarify_count", 0)
+                session.auto_gm_narrate_count = data.get("auto_gm_narrate_count", 0)
                 session.auto_gm_cost_cap_krw = data.get("auto_gm_cost_cap_krw", 500.0)
                 session.auto_gm_cost_baseline = data.get("auto_gm_cost_baseline", 0.0)
                 session.auto_gm_side_note = data.get("auto_gm_side_note", "")
@@ -1004,8 +1160,19 @@ async def generate_character_details(bot, scenario_data, char_type, char_name, i
         )
     else:
         # NPC 설정 생성은 AI GM이 인물을 직접 연기하는 데 필요한 모든 요소를 포함한다.
-        # 출력 결과는 scenario_data['default_npcs'][name]['details'] 또는
-        # session.npcs[name]['details']에 저장되어 캐시 룰북 또는 프롬프트에 주입된다.
+        # npc_template.info_fields가 있으면 시나리오 정의 항목을 그대로 양식으로 사용.
+        # 출력 결과는 !엔피씨 설정으로 session.npcs[name]에 적용된다.
+        npc_tmpl = scenario_data.get("npc_template", {})
+        npc_fields = npc_tmpl.get("info_fields", []) if isinstance(npc_tmpl, dict) else []
+        if not npc_fields:
+            # 기본 12항목 양식
+            npc_fields = [
+                "나이·성별", "소속·직책", "외모", "핵심 기질",
+                "행동 방식", "말투·어조", "동기·욕구", "두려움·약점",
+                "비밀", "신뢰·의존", "경계·반목", "특기·능력"
+            ]
+        field_format = "\n".join(f"**{f}**: " for f in npc_fields)
+
         prompt = (
             "당신은 TRPG 논플레이어 캐릭터(NPC)의 종합 인물 프로파일을 작성하는 설정 작가입니다.\n"
             "임무: 외모부터 내면 심리·관계망·비밀까지 포괄하는 완결된 NPC 프로파일을 생성할 것.\n\n"
@@ -1017,7 +1184,7 @@ async def generate_character_details(bot, scenario_data, char_type, char_name, i
             "   플레이 중 활용 가능한 갈등 씨앗(conflict seed)으로 작성할 것.\n"
             "5. 말투 명시: AI GM이 NPC를 직접 연기할 때 즉각 참고할 수 있는\n"
             "   구체적 어조·화법 특징을 기술할 것.\n"
-            "6. 양식 엄수: 아래 [출력 양식]의 항목명·순서를 반드시 그대로, 총 500자 이내로 출력할 것.\n"
+            "6. 양식 엄수: 아래 [출력 양식]의 항목명·순서를 반드시 그대로 출력할 것.\n"
             "   항목 추가·삭제·순서 변경·항목명 수정 불가. GM 지시사항은 각 항목 값에 녹여낼 것.\n\n"
             f"[세계관 정보]\n{worldview}\n\n"
             f"{context_blocks}"
@@ -1025,18 +1192,7 @@ async def generate_character_details(bot, scenario_data, char_type, char_name, i
             f"이름: {char_name}\n"
             f"GM 지시사항: {instruction}\n\n"
             "[출력 양식 — 아래 항목명과 순서를 그대로 사용하여 값만 채워 출력할 것]\n"
-            "**나이·성별**: \n"
-            "**소속·직책**: \n"
-            "**외모**: \n"
-            "**핵심 기질**: \n"
-            "**행동 방식**: \n"
-            "**말투·어조**: \n"
-            "**동기·욕구**: \n"
-            "**두려움·약점**: \n"
-            "**비밀**: \n"
-            "**신뢰·의존**: \n"
-            "**경계·반목**: \n"
-            "**특기·능력**: "
+            f"{field_format}"
         )
 
     write_log(session_id, "api", f"[{char_type.upper()} 설정 생성 요청 - {char_name}]\n{prompt}")

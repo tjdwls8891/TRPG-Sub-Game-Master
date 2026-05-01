@@ -63,6 +63,7 @@ class GameCog(commands.Cog):
         # 새 태스크 등록 및 백그라운드 실행
         session.gm_typing_task = self.bot.loop.create_task(typing_sync_task())
 
+
     @commands.Cog.listener()
     async def on_message(self, message):
         """
@@ -116,6 +117,7 @@ class GameCog(commands.Cog):
             await core.save_session_data(self.bot, session)
 
             core.write_log(session.session_id, "game_chat", f"[{char_name}]: {message.content}")
+
 
     @commands.command(name="주사위")
     async def request_dice(self, ctx, char_name: str, param1: str, param2: str = None, param3: str = None):
@@ -197,6 +199,7 @@ class GameCog(commands.Cog):
             view=view
         )
         return None
+
 
     @commands.command(name="진행")
     async def proceed_turn(self, ctx, *, instruction: str = ""):
@@ -314,6 +317,21 @@ class GameCog(commands.Cog):
             clean_instruction = re.sub(res_pattern, '', clean_instruction)
             clean_instruction = re.sub(status_pattern, '', clean_instruction)
             clean_instruction = re.sub(r'\s+', ' ', clean_instruction).strip()
+
+            if not clean_instruction:
+                # NOTE: Auto-GM 모드(cost_log_prefix가 있는 경우)는 항상 proceed_instruction이
+                # 채워진 채로 호출되므로 여기에 도달하지 않음. 수동 GM 모드 전용 분기.
+                if not cost_log_prefix:
+                    auto_gm_cog = self.bot.get_cog("AutoGMCog")
+                    if auto_gm_cog:
+                        await m_send("⏳ 지시사항 없음 — GM-Logic이 현재 상황을 분석하여 진행 지시사항을 자동 생성합니다...")
+                        decision = await auto_gm_cog._call_gm_logic(session, "", [], master_ch)
+                        if decision:
+                            from cogs.auto_gm import _clean_proceed_instruction
+                            auto_instr = _clean_proceed_instruction(decision.get("proceed_instruction", ""))
+                            if auto_instr:
+                                clean_instruction = auto_instr
+                                await m_send(f"📋 **[자동 생성 지시사항]**\n> {clean_instruction[:300]}")
 
             if not clean_instruction:
                 clean_instruction = "현재까지의 상황, 세계관, 누적된 기억, 그리고 플레이어의 직전 행동을 바탕으로 물리적 인과율에 맞춰 개연성 있게 다음 상황을 진행하고 묘사하십시오."
@@ -640,6 +658,7 @@ class GameCog(commands.Cog):
         # 새로운 묘사 출력을 위해 메인 진행 함수 재호출
         await self.proceed_turn(ctx, instruction=instruction)
 
+
     @commands.command(name="출력물")
     async def show_last_output(self, ctx):
         """
@@ -665,6 +684,7 @@ class GameCog(commands.Cog):
         chunk_size = 1950
         for i in range(0, len(last_model_text), chunk_size):
             await ctx.send(last_model_text[i:i + chunk_size])
+
 
     @commands.command(name="수정")
     async def edit_last_output(self, ctx, *, new_text: str):
@@ -794,6 +814,7 @@ class GameCog(commands.Cog):
         finally:
             session.is_processing = False
 
+
     @commands.command(name="기억압축")
     async def compress_memory(self, ctx):
         """
@@ -864,6 +885,7 @@ class GameCog(commands.Cog):
         except Exception as e:
             await ctx.send(f"⚠️ 요약 중 오류 발생: {e}")
 
+
     @commands.command(name="노트")
     async def manage_note(self, ctx, action: str, *, content: str = None):
         """
@@ -900,6 +922,7 @@ class GameCog(commands.Cog):
 
         else:
             await ctx.send("⚠️ 잘못된 인자입니다. 사용법: `!노트 [누적/갱신/출력] (내용)`")
+
 
     @commands.command(name="캐시노트")
     async def manage_cache_note(self, ctx, action: str, *, content: str = None):
