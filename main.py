@@ -7,6 +7,8 @@ from google import genai
 
 # 코어 유틸리티 모듈 임포트
 import core
+# GM 시스템 지시문 (코드 영역으로 분리되어 코드 변경과 함께 수정 가능)
+import prompts
 
 # ========== [환경 변수 로드 및 초기화] ==========
 load_dotenv()
@@ -45,7 +47,9 @@ class TRPGBot(commands.Bot):
 
         # 2. API 클라이언트 및 환경 텍스트 세팅
         self.genai_client = genai.Client(api_key=GEMINI_API_KEY)
-        self.system_instruction = os.getenv("SYSTEM_INSTRUCTION", "시스템 지시사항을 불러오지 못했습니다.")
+        # SYSTEM_INSTRUCTION은 prompts.py로 이전됨 (코드와 함께 수정·리뷰가 용이하도록).
+        # WARNING: 변경 시 활성 세션은 `!캐시 재발급` 필요 — 시스템 지시문은 Gemini 캐시에 함께 업로드됨.
+        self.system_instruction = prompts.SYSTEM_INSTRUCTION
         self.intro_text = os.getenv("TRPG_INTRO_TEXT", "인트로 텍스트를 불러오지 못했습니다.")
 
     async def setup_hook(self):

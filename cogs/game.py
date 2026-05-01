@@ -202,22 +202,58 @@ class GameCog(commands.Cog):
     async def proceed_turn(self, ctx, *, instruction: str = ""):
         """
         입력된 지시사항과 현재 누적된 로그를 기반으로 다음 게임 턴의 상황을 생성 및 연출.
+
+        NOTE: 본체 로직은 _execute_proceed 헬퍼로 추출되어 있어, 자동 GM 모드(AutoGMCog)도
+        동일한 코어를 공유한다. 이 명령 진입점은 컨텍스트 검증 후 헬퍼를 호출하는 얇은 래퍼.
         """
         session = self.bot.active_sessions.get(ctx.channel.id)
         if not session or ctx.channel.id != session.master_ch_id:
             return await ctx.send("이 명령어는 마스터 채널에서만 사용할 수 있습니다.")
 
+        await self._execute_proceed(session, instruction, master_guild=ctx.guild)
+
+    async def _execute_proceed(self, session, instruction: str = "", *, master_guild=None,
+                                cost_log_prefix: str = "") -> dict:
+        """
+        !진행 본체 — 명령 진입점과 자동 GM 모드(AutoGMCog)가 공유하는 코어 로직.
+
+        명령 컨텍스트(ctx)에 의존하지 않으며, 세션과 봇 객체만으로 동작.
+        상태 메시지는 마스터 채널, 묘사는 게임 채널로 송출.
+
+        Args:
+            session: TRPGSession
+            instruction (str): GM 지시사항 (이미지/자원/상태 태그 포함 가능)
+            master_guild: 게임 채널 채팅 권한 토글용 guild (None이면 마스터 채널에서 추출)
+            cost_log_prefix (str): cost_log.txt 라벨에 부착할 접두사 (예: "[AUTO] ")
+
+        Returns:
+            dict: {"ok": bool, "ai_text": str, "error": str|None}
+        """
+        master_ch = self.bot.get_channel(session.master_ch_id)
         game_channel = self.bot.get_channel(session.game_ch_id)
+
+        async def m_send(content, **kw):
+            if master_ch:
+                return await master_ch.send(content, **kw)
+            return None
+
         if not game_channel:
-            return await ctx.send("⚠️ 게임 채널을 찾을 수 없습니다.")
+            await m_send("⚠️ 게임 채널을 찾을 수 없습니다.")
+            return {"ok": False, "ai_text": "", "error": "no_game_channel"}
 
         if not getattr(session, "is_started", False):
-            return await ctx.send("⚠️ 세션이 아직 시작되지 않았습니다. API 역할 동기화를 위해 반드시 `!시작` 명령어를 먼저 실행하십시오.")
+            await m_send("⚠️ 세션이 아직 시작되지 않았습니다. API 역할 동기화를 위해 반드시 `!시작` 명령어를 먼저 실행하십시오.")
+            return {"ok": False, "ai_text": "", "error": "not_started"}
 
         if getattr(session, "is_processing", False):
-            return await ctx.send("⏳ 시스템이 이전 턴 명령을 처리 중입니다. 잠시만 기다려주십시오.")
+            await m_send("⏳ 시스템이 이전 턴 명령을 처리 중입니다. 잠시만 기다려주십시오.")
+            return {"ok": False, "ai_text": "", "error": "busy"}
+
+        if master_guild is None and master_ch:
+            master_guild = master_ch.guild
 
         session.is_processing = True
+        full_ai_response = ""
 
         try:
             anchor = None
@@ -225,12 +261,22 @@ class GameCog(commands.Cog):
                 anchor = msg
             session.last_turn_anchor_id = anchor.id if anchor else None
 
-            await game_channel.set_permissions(ctx.guild.default_role, send_messages=False)
+            try:
+                if master_guild:
+                    await game_channel.set_permissions(master_guild.default_role, send_messages=False)
+            except Exception as e:
+                print(f"⚠️ 자동 채팅 잠금 실패: {e}")
         except Exception as e:
-            print(f"⚠️ 자동 채팅 잠금 실패 또는 앵커 획득 실패: {e}")
+            print(f"⚠️ 앵커 획득 실패: {e}")
 
         try:
-            img_pattern = r'(상|중|하):([^\s]+)'
+            # NOTE: 패턴에서 .,!?;: 를 캡처 대상에서 제외 — AI가 태그 뒤에 마침표 등을 붙여도 정확히 분리됨.
+            # 예) 태:임성진;-지침.  →  char_name="임성진", status_text="-지침" (마침표 제외)
+            _TAG_END = r'[^\s.,!?;:]'  # 태그 값에 허용되는 마지막 문자 기준
+            img_pattern  = r'(상|중|하):(' + _TAG_END + r'+)'
+            res_pattern  = r'자:(' + _TAG_END + r'+);(' + _TAG_END + r'+);([-+]?\d+)'
+            status_pattern = r'태:(' + _TAG_END + r'+);(-?' + _TAG_END + r'+)'
+
             img_tags = re.findall(img_pattern, instruction)
 
             top_imgs, mid_imgs, bottom_imgs = [], [], []
@@ -242,7 +288,6 @@ class GameCog(commands.Cog):
                 elif pos == '하':
                     bottom_imgs.append(kw)
 
-            res_pattern = r'자:([^\s;]+);([^\s;]+);([-+]?\d+)'
             res_tags = re.findall(res_pattern, instruction)
 
             for char_name, item_name, amount_str in res_tags:
@@ -251,7 +296,6 @@ class GameCog(commands.Cog):
                     session.resources[char_name] = {}
                 session.resources[char_name][item_name] = session.resources[char_name].get(item_name, 0) + amount
 
-            status_pattern = r'태:([^\s;]+);([^\s]+)'
             status_tags = re.findall(status_pattern, instruction)
 
             for char_name, status_text in status_tags:
@@ -274,7 +318,7 @@ class GameCog(commands.Cog):
             if not clean_instruction:
                 clean_instruction = "현재까지의 상황, 세계관, 누적된 기억, 그리고 플레이어의 직전 행동을 바탕으로 물리적 인과율에 맞춰 개연성 있게 다음 상황을 진행하고 묘사하십시오."
 
-            await ctx.send("⏳ AI가 묘사를 생성 중입니다. 완료 후 게임 채널에 타이핑 연출을 시작합니다...")
+            await m_send("⏳ AI가 묘사를 생성 중입니다. 완료 후 게임 채널에 타이핑 연출을 시작합니다...")
 
             prompt = core.PromptBuilder.build_prompt(session, clean_instruction)
 
@@ -305,7 +349,7 @@ class GameCog(commands.Cog):
                         )
                 except APIError as e:
                     if retry_count == 0 and ("cache" in str(e).lower() or e.code in [400, 404]):
-                        await ctx.send("🔄 **[시스템 알림]** 장기 기억 캐시가 만료되어 자동으로 재발급을 진행합니다. 턴 묘사는 이어서 출력됩니다...")
+                        await m_send("🔄 **[시스템 알림]** 장기 기억 캐시가 만료되어 자동으로 재발급을 진행합니다. 턴 묘사는 이어서 출력됩니다...")
 
                         storage_cost = await core.process_cache_deletion(self.bot, session)
                         caching_text, cache_tokens, base_text = await core.build_scenario_cache_text(
@@ -318,15 +362,12 @@ class GameCog(commands.Cog):
                         session.cache_created_at = time.time()
                         session.cache_tokens = cache_tokens
 
-                        core.write_cost_log(session.session_id, "캐시 자동 재발급(진행 중)", cache_tokens, 0, 0, upload_cost,
+                        core.write_cost_log(session.session_id, f"{cost_log_prefix}캐시 자동 재발급(진행 중)", cache_tokens, 0, 0, upload_cost,
                                             session.total_cost)
 
                         report_msg = f"💰 **[캐시 자동 재발급 정산]**\n- 이전 캐시 보관 비용: {core.format_cost(storage_cost)}\n- 새 캐시 업로드 비용: {core.format_cost(upload_cost)}\n- 현재까지 총 누적 비용: {core.format_cost(session.total_cost)}"
                         print(report_msg)
-
-                        master_ch = self.bot.get_channel(session.master_ch_id)
-                        if master_ch:
-                            await master_ch.send(report_msg)
+                        await m_send(report_msg)
 
                         new_cache = await asyncio.to_thread(
                             self.bot.genai_client.caches.create,
@@ -355,19 +396,34 @@ class GameCog(commands.Cog):
             out_tokens = meta.candidates_token_count
             cached_tokens = getattr(meta, "cached_content_token_count", 0)
 
-            turn_cost = core.calculate_upload_cost(core.DEFAULT_MODEL, input_tokens=in_tokens, output_tokens=out_tokens,
-                                                   cached_read_tokens=cached_tokens)
+            breakdown = core.calculate_text_gen_cost_breakdown(
+                core.DEFAULT_MODEL,
+                input_tokens=in_tokens,
+                output_tokens=out_tokens,
+                cached_read_tokens=cached_tokens,
+            )
+            turn_cost = breakdown["total_krw"]
             session.total_cost += turn_cost
 
-            core.write_cost_log(session.session_id, "턴 진행 생성", in_tokens, cached_tokens, out_tokens, turn_cost,
+            core.write_cost_log(session.session_id, f"{cost_log_prefix}턴 진행 생성", in_tokens, cached_tokens, out_tokens, turn_cost,
                                 session.total_cost)
 
-            report_msg = f"💰 **[비용 보고] 턴 진행**\n- 토큰: In({in_tokens}), Cached({cached_tokens}), Out({out_tokens})\n- 턴 발생 비용: {core.format_cost(turn_cost)}\n- 누적 비용: {core.format_cost(session.total_cost)}"
-            print(report_msg)
-
-            master_ch = self.bot.get_channel(session.master_ch_id)
-            if master_ch:
-                await master_ch.send(report_msg)
+            cache_hit_rate = (cached_tokens / in_tokens * 100) if in_tokens else 0.0
+            label_prefix = "(자동 GM) " if cost_log_prefix else ""
+            lines = [
+                f"💰 **[비용 보고] {label_prefix}턴 진행 #{session.turn_count + 1}**",
+                f"- 모델: {core.DEFAULT_MODEL}",
+                f"- 입력 합계: {in_tokens:,} 토큰  (캐시 적중률 {cache_hit_rate:.1f}%)",
+                f"   · 신규 입력 {breakdown['input_billable_tokens']:,} × ${breakdown['input_rate']:.2f}/1M → {core.format_cost(breakdown['input_krw'])}",
+                f"   · 캐시 적중 {breakdown['cache_read_tokens']:,} × ${breakdown['cache_rate']:.2f}/1M → {core.format_cost(breakdown['cache_read_krw'])}",
+                f"- 출력 {breakdown['output_tokens']:,} × ${breakdown['output_rate']:.2f}/1M → {core.format_cost(breakdown['output_krw'])}",
+                f"- 턴 발생 비용: {core.format_cost(turn_cost)}  ( ≈ ${breakdown['total_usd']:.4f} )",
+                f"- 누적 비용: {core.format_cost(session.total_cost)}",
+            ]
+            report_msg = "\n".join(lines)
+            print(f"\n[{label_prefix}턴 진행 비용 보고] session={session.session_id}")
+            print(report_msg.replace("**", ""))
+            await m_send(report_msg)
 
             full_ai_response = response.text
 
@@ -398,39 +454,51 @@ class GameCog(commands.Cog):
                 code_block_text = ""
 
             paragraphs = [p.strip() for p in narrative_text.split('\n\n') if p.strip()]
+            # #3: 같은 화자의 연속 대사를 하나로 통합 (이미지 중복 출력 방지)
+            paragraphs = core.merge_consecutive_dialogues(paragraphs)
 
             if not paragraphs:
                 for kw in top_imgs + mid_imgs + bottom_imgs:
-                    await core.send_image_by_keyword(game_channel, ctx, session, kw)
+                    await core.send_image_by_keyword(game_channel, master_ch, session, kw)
             else:
                 for i, paragraph in enumerate(paragraphs):
-                    await core.stream_text_to_channel(self.bot, game_channel, paragraph, words_per_tick=5,
-                                                      tick_interval=1.5)
+                    # 인물 대사 마커 분기: 이미지 자동 출력 + 헤더/말풍선 형식, '> ' 미부착
+                    dialogue = core.parse_dialogue_paragraph(paragraph)
+                    if dialogue:
+                        speaker, content = dialogue
+                        await core.maybe_send_speaker_image(game_channel, session, speaker)
+                        formatted = core.format_dialogue_block(speaker, content)
+                        await core.stream_text_to_channel(self.bot, game_channel, formatted,
+                                                          words_per_tick=5, tick_interval=1.5,
+                                                          quote_prefix=False)
+                    else:
+                        await core.stream_text_to_channel(self.bot, game_channel, paragraph,
+                                                          words_per_tick=5, tick_interval=1.5)
 
                     if i == 0:
                         for kw in top_imgs:
-                            await core.send_image_by_keyword(game_channel, ctx, session, kw)
+                            await core.send_image_by_keyword(game_channel, master_ch, session, kw)
 
                     for kw in list(mid_imgs):
                         if kw in paragraph:
-                            await core.send_image_by_keyword(game_channel, ctx, session, kw)
+                            await core.send_image_by_keyword(game_channel, master_ch, session, kw)
                             mid_imgs.remove(kw)
 
                 for kw in mid_imgs:
-                    await core.send_image_by_keyword(game_channel, ctx, session, kw)
+                    await core.send_image_by_keyword(game_channel, master_ch, session, kw)
                 for kw in bottom_imgs:
-                    await core.send_image_by_keyword(game_channel, ctx, session, kw)
+                    await core.send_image_by_keyword(game_channel, master_ch, session, kw)
 
             if code_block_text:
                 await game_channel.send(code_block_text)
 
-            await ctx.send(f"✅ 묘사 연출 완료 (현재 {session.turn_count}턴 경과). 다음 턴 대기 중...")
+            await m_send(f"✅ 묘사 연출 완료 (현재 {session.turn_count}턴 경과). 다음 턴 대기 중...")
 
             if session.turn_count > 0 and session.turn_count % 5 == 0:
                 if not session.uncompressed_logs:
                     pass
                 else:
-                    await ctx.send(f"⏳ (시스템: 백그라운드에서 자동 초정밀 기억 압축을 진행합니다...)")
+                    await m_send(f"⏳ (시스템: 백그라운드에서 자동 초정밀 기억 압축을 진행합니다...)")
 
                     logs_to_compress = list(session.uncompressed_logs)
                     log_text = "\n\n".join(logs_to_compress)
@@ -458,7 +526,7 @@ class GameCog(commands.Cog):
                                                         cached_read_tokens=cached_tokens)
                         session.total_cost += turn_cost
 
-                        core.write_cost_log(session.session_id, "자동 기억 압축", in_tokens, cached_tokens, out_tokens,
+                        core.write_cost_log(session.session_id, f"{cost_log_prefix}자동 기억 압축", in_tokens, cached_tokens, out_tokens,
                                             turn_cost, session.total_cost)
 
                         print(
@@ -475,24 +543,33 @@ class GameCog(commands.Cog):
                         success_msg = f"✅ 자동 누적 압축 완료.\n**[최근 추가된 기억]**\n{new_compressed_segment}"
                         if len(success_msg) > 2000:
                             for i in range(0, len(success_msg), 2000):
-                                await ctx.send(success_msg[i:i + 2000])
+                                await m_send(success_msg[i:i + 2000])
                                 await asyncio.sleep(1)
                         else:
-                            await ctx.send(success_msg)
+                            await m_send(success_msg)
                     except Exception as e:
-                        await ctx.send(f"⚠️ 자동 기억 압축 중 오류 발생: {e}")
+                        await m_send(f"⚠️ 자동 기억 압축 중 오류 발생: {e}")
 
             await core.save_session_data(self.bot, session)
 
         except Exception as e:
-            await ctx.send(f"⚠️ 시스템 오류가 발생했습니다: {str(e)}")
-
-        finally:
+            await m_send(f"⚠️ 시스템 오류가 발생했습니다: {str(e)}")
             session.is_processing = False
             try:
-                await game_channel.set_permissions(ctx.guild.default_role, send_messages=True)
-            except Exception as e:
-                print(f"⚠️ 자동 채팅 해제 실패: {e}")
+                if master_guild:
+                    await game_channel.set_permissions(master_guild.default_role, send_messages=True)
+            except Exception:
+                pass
+            return {"ok": False, "ai_text": "", "error": str(e)}
+
+        session.is_processing = False
+        try:
+            if master_guild:
+                await game_channel.set_permissions(master_guild.default_role, send_messages=True)
+        except Exception as e:
+            print(f"⚠️ 자동 채팅 해제 실패: {e}")
+
+        return {"ok": True, "ai_text": full_ai_response, "error": None}
 
     @commands.command(name="재생성")
     async def regenerate_turn(self, ctx, *, instruction: str = ""):
@@ -622,6 +699,13 @@ class GameCog(commands.Cog):
         if not getattr(session, "last_turn_anchor_id", None):
             return await ctx.send("⚠️ 앵커 정보가 없어 게임 채널 메시지를 특정할 수 없습니다.\n(세션 복구 직후이거나 `!진행` 이전 상태입니다.)")
 
+        # ── 0. 수정 전 원본을 텍스트 로그에 먼저 보존 ──
+        original_text = session.raw_logs[last_model_idx].parts[0].text
+        core.write_log(
+            session.session_id, "game_chat",
+            f"[GM 수정 전 원본 ({session.turn_count}턴)]: {original_text}"
+        )
+
         session.is_processing = True
         try:
             # ── 1. 앵커 이후 봇 텍스트 메시지 수집 (이미지·파일 제외) ──
@@ -646,11 +730,18 @@ class GameCog(commands.Cog):
                 new_narrative = new_text.strip()
                 new_code_block = ""
 
-            # 문단 단위로 분리 → 인용(>) 포맷 적용 → 1950자 초과 시 추가 분할
-            new_paragraphs = [p.strip() for p in new_narrative.split('\n\n') if p.strip()]
+            # 문단 단위로 분리 → 연속 동일 화자 통합 → 대사 마커 여부에 따라 포맷 분기 → 1950자 초과 시 추가 분할
+            new_paragraphs = core.merge_consecutive_dialogues(
+                [p.strip() for p in new_narrative.split('\n\n') if p.strip()]
+            )
             new_chunks = []
             for p in new_paragraphs:
-                formatted = p if p.startswith(">") else f"> {p}"
+                dialogue = core.parse_dialogue_paragraph(p)
+                if dialogue:
+                    speaker, content = dialogue
+                    formatted = core.format_dialogue_block(speaker, content)
+                else:
+                    formatted = p if p.startswith(">") else f"> {p}"
                 for j in range(0, len(formatted), 1950):
                     new_chunks.append(formatted[j:j + 1950])
             if new_code_block:
@@ -690,10 +781,10 @@ class GameCog(commands.Cog):
                     session.uncompressed_logs[i] = f"[GM 묘사]: {new_text.strip()}"
                     break
 
-            # ── 6. 채팅 로그 기록 및 세션 저장 ──
+            # ── 6. 채팅 로그 기록 및 세션 저장 (수정 후 내용) ──
             core.write_log(
                 session.session_id, "game_chat",
-                f"[GM 수정 ({session.turn_count}턴)]: {new_text.strip()}"
+                f"[GM 수정 후 ({session.turn_count}턴)]: {new_text.strip()}"
             )
             await core.save_session_data(self.bot, session)
             await ctx.send(f"✅ {session.turn_count}턴 출력물이 수정되었습니다.")

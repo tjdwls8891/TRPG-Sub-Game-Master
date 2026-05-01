@@ -138,15 +138,80 @@ class MediaCog(commands.Cog):
 
                 await asyncio.to_thread(save_scenario)
 
-                # 비용 계산 (입력 프롬프트의 극미량 토큰 비용은 생략하고 출력 장당 단가로 처리)
-                turn_cost = core.IMAGE_GEN_COST
+                # 비용 계산: 응답의 usage_metadata에서 실제 토큰 수를 추출하여 항목별 정산.
+                # NOTE: 이미지 출력 토큰 단가($60/1M)는 텍스트 출력($3/1M)과 별개이므로 modality 분리 시도.
+                prompt_tokens = 0
+                image_tokens = 0
+                text_tokens = 0
+                usage_source = "usage_metadata"
+                try:
+                    usage = getattr(response, "usage_metadata", None)
+                    if usage:
+                        prompt_tokens = getattr(usage, "prompt_token_count", 0) or 0
+                        candidates_total = getattr(usage, "candidates_token_count", 0) or 0
+
+                        # NOTE: SDK 버전에 따라 candidates_tokens_details 또는 output_tokens_details에 modality별 분해 제공.
+                        details = (getattr(usage, "candidates_tokens_details", None)
+                                   or getattr(usage, "output_tokens_details", None))
+                        if details:
+                            for d in details:
+                                modality = str(getattr(d, "modality", "")).upper()
+                                count = getattr(d, "token_count", 0) or 0
+                                if "IMAGE" in modality:
+                                    image_tokens += count
+                                else:
+                                    text_tokens += count
+                            # 분해 합산이 0이면 폴백
+                            if image_tokens + text_tokens == 0:
+                                image_tokens = candidates_total
+                        else:
+                            # NOTE: 분리 정보가 없으면 전체 출력을 이미지 토큰으로 간주(이미지 모델 응답의 일반 케이스).
+                            image_tokens = candidates_total
+                    else:
+                        usage_source = "fallback(1K)"
+                        image_tokens = core.IMAGE_OUTPUT_TOKENS_BY_RES.get("1K", 1120)
+                except Exception as parse_err:
+                    usage_source = f"fallback(parse_err: {type(parse_err).__name__})"
+                    print(f"[WARN] usage_metadata 파싱 실패: {parse_err}")
+                    image_tokens = core.IMAGE_OUTPUT_TOKENS_BY_RES.get("1K", 1120)
+
+                cost_breakdown = core.calculate_image_gen_cost(
+                    core.IMAGE_MODEL,
+                    prompt_tokens=prompt_tokens,
+                    image_output_tokens=image_tokens,
+                    text_output_tokens=text_tokens,
+                )
+                turn_cost = cost_breakdown["total_krw"]
                 session.total_cost += turn_cost
-                core.write_cost_log(session.session_id, f"이미지 생성 ({filename_key})", 0, 0, 0, turn_cost,
-                                    session.total_cost)
+                core.write_cost_log(
+                    session.session_id, f"이미지 생성 ({filename_key})",
+                    prompt_tokens, 0, image_tokens + text_tokens, turn_cost, session.total_cost
+                )
 
                 await core.save_session_data(self.bot, session)
 
-                report_msg = f"💰 **[비용 보고] 이미지 생성**\n- 모델: {core.IMAGE_MODEL}\n- 턴 발생 비용: {core.format_cost(turn_cost)}\n- 누적 비용: {core.format_cost(session.total_cost)}"
+                # 비용 보고 메시지 조립 (디스코드 + 콘솔 공용)
+                lines = [
+                    "💰 **[비용 보고] 이미지 생성**",
+                    f"- 모델: {core.IMAGE_MODEL}",
+                    f"- 형식: {format_key} (비율 {target_ratio})  /  레퍼런스: {'사용' if ref_image else '미사용'}",
+                    f"- 입력 토큰: {prompt_tokens:,} → {core.format_cost(cost_breakdown['input_krw'])}",
+                    f"- 이미지 출력 토큰: {image_tokens:,} → {core.format_cost(cost_breakdown['image_krw'])}",
+                ]
+                if text_tokens:
+                    lines.append(
+                        f"- 텍스트 출력 토큰: {text_tokens:,} → {core.format_cost(cost_breakdown['text_krw'])}"
+                    )
+                lines.extend([
+                    f"- 출처: {usage_source}",
+                    f"- 턴 발생 비용: {core.format_cost(turn_cost)} ( ≈ ${cost_breakdown['total_usd']:.4f} )",
+                    f"- 누적 비용: {core.format_cost(session.total_cost)}",
+                ])
+                report_msg = "\n".join(lines)
+
+                # 콘솔(실행 창) 출력
+                print(f"\n[이미지 생성 비용 보고] {filename_key}")
+                print(report_msg.replace("**", ""))
 
                 # 마스터 채널에 결과물과 비용 전송
                 await ctx.send(content=f"✅ 이미지 생성 및 로컬 에셋 매핑 완료: `{filename_key}`\n{report_msg}",

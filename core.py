@@ -1,4 +1,5 @@
 import os
+import re
 import json
 import asyncio
 import random
@@ -53,11 +54,28 @@ PRICING_1M = {
         "OUTPUT": 10.00,
         "CACHE_READ": 0.20,
         "CACHE_STORAGE_PER_HOUR": 4.50
+    },
+    # NOTE: Nano Banana 2 (gemini-3.1-flash-image-preview) — 이미지 출력 토큰 단가가 텍스트 출력 단가와 별개로 책정됨.
+    # 입력(텍스트/이미지) $0.50 / 1M, 출력 텍스트(thinking) $3.00 / 1M, 출력 이미지 $60.00 / 1M.
+    "gemini-3.1-flash-image-preview": {
+        "INPUT": 0.50,
+        "OUTPUT": 3.00,
+        "OUTPUT_IMAGE": 60.00,
+        "CACHE_READ": 0.05,
+        "CACHE_STORAGE_PER_HOUR": 1.00
     }
 }
 
 IMAGE_MODEL = "gemini-3.1-flash-image-preview"
-IMAGE_GEN_COST = 200  # 1024x1024 해상도 1장 출력 고정 비용
+
+# NOTE: Gemini 이미지 출력 모델의 해상도별 출력 토큰 표 (공식 가격 페이지 기준).
+#       응답에서 usage_metadata가 비었을 때의 폴백 추산값으로 사용한다.
+IMAGE_OUTPUT_TOKENS_BY_RES = {
+    "0.5K": 747,    # 512px ≈ $0.045
+    "1K":   1120,   # 1024x1024 ≈ $0.067
+    "2K":   1680,   # 2048x2048 ≈ $0.101
+    "4K":   2520,   # 4096x4096 ≈ $0.151
+}
 
 
 # ========== [데이터 모델(Data Models)] ==========
@@ -118,6 +136,19 @@ class TRPGSession:
 
         # 가장 최근 캐시 업로드 시점의 룰북 원본 텍스트 (패딩 제외). !캐시 출력 디버그용.
         self.cache_text = ""
+
+        # ========== [자동 GM 모드 상태] ==========
+        # NOTE: 자동 GM 모드는 게임 채널의 플레이어 발언을 받아 AI가 GM 역할을 수행하는 옵트인 모드.
+        #       기본은 비활성(False) — 활성화되어야만 on_message 리스너가 동작한다.
+        self.auto_gm_active = False
+        self.auto_gm_target_char = None        # 자동 GM이 대화할 PC 이름
+        self.auto_gm_turn_cap = 10             # 자동 모드에서 자동 진행할 최대 턴 수 (안전장치)
+        self.auto_gm_turns_done = 0            # 활성화 이후 자동으로 처리한 턴 수
+        self.auto_gm_clarify_count = 0         # 같은 플레이어 발언에 대한 명확화 누적 횟수
+        self.auto_gm_cost_cap_krw = 500.0      # 자동 모드 누적 비용 상한 (도달 시 정지)
+        self.auto_gm_cost_baseline = 0.0       # 활성화 시점의 session.total_cost (사용량 추적용)
+        self.auto_gm_side_note = ""            # !자동개입으로 주입된 GM 사이드 노트 (다음 호출에 1회 합류 후 비움)
+        self.auto_gm_lock = False              # 동시 처리 방지용 락 (직렬화 시 무시)
 
         self.npcs = {}
         default_npcs = scenario_data.get("default_npcs", {})
@@ -264,6 +295,19 @@ class PromptBuilder:
 
     def add_rule_enforcement_block(self):
         block = f"[최종 지시] 캐시된 [시나리오 핵심 룰북]의 묘사 가이드와 위 GM의 지시사항을 최우선으로 반영하여 상황을 묘사하세요.\n"
+
+        # 인물 대사 출력 형식 지시 (디스코드 후처리에서 자동으로 인물 헤더+이미지+말풍선으로 변환됨)
+        block += (
+            "▶ 명령 (인물 대사 마크업): 등장 인물이 직접 발화하는 대사는 반드시 별도의 문단으로 분리하고, "
+            "다음 형식의 단일 라인으로만 출력하십시오:\n"
+            "@대사:인물이름|대사 본문\n"
+            "예) @대사:레비|…어때? 감각이 느껴져? 체온은 정상인데, 불편한 곳은?\n"
+            "    @대사:김철수|결론만 말해. 수치로.\n"
+            "이 마커가 포함된 문단은 시스템이 자동으로 인물 헤더와 말풍선 박스, 그리고 미디어 목록에 등록된 인물 이미지(존재 시)로 변환합니다. "
+            "마커 외 추가 묘사(행동, 시선 등)는 같은 문단에 섞지 말고, 직전 또는 직후의 일반 문단으로 분리하여 작성하십시오. "
+            "여러 인물이 연이어 발화하는 경우 각 발화마다 마커 한 줄씩 별도 문단으로 작성합니다.\n"
+        )
+
         if self.session.scenario_data.get("status_code_block", ""):
             block += f"▶ 명령: 턴의 마지막에 반드시 룰북에 정의된 양식을 바탕으로 중괄호 내부 값을 기입하여 상태창 코드블럭을 출력하십시오. (현재 턴 수: {self.session.turn_count + 1}턴 기입)\n"
         self.blocks.append(block)
@@ -296,6 +340,89 @@ def format_cost(cost_krw: float) -> str:
     원화(KRW)로 환산된 비용을 소수점 셋째 자리에서 반올림하여 UI 출력용 포맷으로 변환.
     """
     return f"₩{cost_krw:.2f}"
+
+
+def calculate_text_gen_cost_breakdown(model_id: str, input_tokens: int = 0, output_tokens: int = 0,
+                                       cached_read_tokens: int = 0) -> dict:
+    """
+    텍스트 생성 모델 호출 비용을 항목별로 분해하여 KRW로 반환.
+
+    캐시 적중분과 신규 입력분의 단가가 다르고(예: $0.50 vs $0.05/1M), 출력 단가($3/1M)와도
+    분리 보고해야 GM이 어디서 비용이 새는지 즉시 진단할 수 있다.
+
+    Args:
+        model_id (str): 사용된 모델 식별자
+        input_tokens (int): 응답 메타의 prompt_token_count (캐시 적중분 포함)
+        output_tokens (int): candidates_token_count
+        cached_read_tokens (int): cached_content_token_count (캐시에서 읽혀 할인된 분)
+
+    Returns:
+        dict: {
+            input_billable_tokens, input_krw,         # 신규 입력분 (단가 $INPUT)
+            cache_read_tokens, cache_read_krw,        # 캐시 적중분 (단가 $CACHE_READ)
+            output_tokens, output_krw,                # 출력분 (단가 $OUTPUT)
+            total_krw, total_usd,
+            input_rate, cache_rate, output_rate       # 단가 (USD/1M, 보고용)
+        }
+    """
+    rates = PRICING_1M.get(model_id, PRICING_1M[DEFAULT_MODEL])
+    input_tokens = input_tokens or 0
+    output_tokens = output_tokens or 0
+    cached_read_tokens = cached_read_tokens or 0
+
+    billable_input = max(0, input_tokens - cached_read_tokens)
+
+    input_usd = (billable_input / 1_000_000) * rates["INPUT"]
+    cache_usd = (cached_read_tokens / 1_000_000) * rates["CACHE_READ"]
+    output_usd = (output_tokens / 1_000_000) * rates["OUTPUT"]
+    total_usd = input_usd + cache_usd + output_usd
+
+    return {
+        "input_billable_tokens": billable_input,
+        "input_krw": input_usd * EXCHANGE_RATE,
+        "cache_read_tokens": cached_read_tokens,
+        "cache_read_krw": cache_usd * EXCHANGE_RATE,
+        "output_tokens": output_tokens,
+        "output_krw": output_usd * EXCHANGE_RATE,
+        "total_krw": total_usd * EXCHANGE_RATE,
+        "total_usd": total_usd,
+        "input_rate": rates["INPUT"],
+        "cache_rate": rates["CACHE_READ"],
+        "output_rate": rates["OUTPUT"],
+    }
+
+
+def calculate_image_gen_cost(model_id: str, prompt_tokens: int = 0, image_output_tokens: int = 0,
+                              text_output_tokens: int = 0) -> dict:
+    """
+    이미지 생성 모델(예: gemini-3.1-flash-image-preview)의 호출 비용을 항목별로 산출하여 KRW로 반환.
+
+    이미지 출력 토큰과 텍스트 출력 토큰의 단가가 다르므로(이미지 $60/1M, 텍스트 $3/1M),
+    별도 항목으로 분리 정산하여 모니터링 정확도를 확보한다.
+
+    Args:
+        model_id (str): 사용된 이미지 모델 식별자
+        prompt_tokens (int): 입력 프롬프트(텍스트+레퍼런스 이미지) 토큰 수
+        image_output_tokens (int): 출력된 이미지의 토큰 수 (해상도에 따라 결정됨)
+        text_output_tokens (int): 응답에 포함된 텍스트(thinking 포함) 토큰 수
+
+    Returns:
+        dict: {input_krw, image_krw, text_krw, total_krw, total_usd} 형태의 분해 비용
+    """
+    rates = PRICING_1M.get(model_id, PRICING_1M.get(IMAGE_MODEL))
+
+    input_usd = (max(0, prompt_tokens) / 1_000_000) * rates["INPUT"]
+    image_usd = (max(0, image_output_tokens) / 1_000_000) * rates.get("OUTPUT_IMAGE", rates["OUTPUT"])
+    text_usd = (max(0, text_output_tokens) / 1_000_000) * rates["OUTPUT"]
+    total_usd = input_usd + image_usd + text_usd
+
+    return {
+        "input_krw": input_usd * EXCHANGE_RATE,
+        "image_krw": image_usd * EXCHANGE_RATE,
+        "text_krw": text_usd * EXCHANGE_RATE,
+        "total_krw": total_usd * EXCHANGE_RATE,
+        "total_usd": total_usd,
+    }
 
 
 def calculate_upload_cost(model_id: str, input_tokens=0, output_tokens=0, cached_read_tokens=0) -> float:
@@ -497,8 +624,19 @@ async def save_session_data(bot, session: TRPGSession):
             "cache_note": getattr(session, "cache_note", ""),
             "cache_created_at": getattr(session, "cache_created_at", 0.0),
             "cache_tokens": getattr(session, "cache_tokens", 0),
+            "cache_model": getattr(session, "cache_model", DEFAULT_MODEL),
             "last_turn_anchor_id": getattr(session, "last_turn_anchor_id", None),
-            "cache_text": getattr(session, "cache_text", "")
+            "cache_text": getattr(session, "cache_text", ""),
+
+            # 자동 GM 모드 상태 (auto_gm_lock은 런타임 전용이라 직렬화하지 않음)
+            "auto_gm_active": getattr(session, "auto_gm_active", False),
+            "auto_gm_target_char": getattr(session, "auto_gm_target_char", None),
+            "auto_gm_turn_cap": getattr(session, "auto_gm_turn_cap", 10),
+            "auto_gm_turns_done": getattr(session, "auto_gm_turns_done", 0),
+            "auto_gm_clarify_count": getattr(session, "auto_gm_clarify_count", 0),
+            "auto_gm_cost_cap_krw": getattr(session, "auto_gm_cost_cap_krw", 500.0),
+            "auto_gm_cost_baseline": getattr(session, "auto_gm_cost_baseline", 0.0),
+            "auto_gm_side_note": getattr(session, "auto_gm_side_note", "")
         }
 
         def write_file():
@@ -679,6 +817,21 @@ async def restore_sessions_from_disk(bot):
                 session.is_processing = False
                 session.last_turn_anchor_id = data.get("last_turn_anchor_id", None)
                 session.cache_text = data.get("cache_text", "")
+                # NOTE: 캐시 보관 비용 산출에 필수 — 미복구 시 storage_cost가 항상 0으로 출력되는 버그
+                session.cache_created_at = data.get("cache_created_at", 0.0)
+                session.cache_tokens = data.get("cache_tokens", 0)
+                session.cache_model = data.get("cache_model", DEFAULT_MODEL)
+
+                # 자동 GM 모드 상태 복구 (auto_gm_lock은 런타임 락이므로 매 부팅마다 False로 초기화)
+                session.auto_gm_active = data.get("auto_gm_active", False)
+                session.auto_gm_target_char = data.get("auto_gm_target_char", None)
+                session.auto_gm_turn_cap = data.get("auto_gm_turn_cap", 10)
+                session.auto_gm_turns_done = data.get("auto_gm_turns_done", 0)
+                session.auto_gm_clarify_count = data.get("auto_gm_clarify_count", 0)
+                session.auto_gm_cost_cap_krw = data.get("auto_gm_cost_cap_krw", 500.0)
+                session.auto_gm_cost_baseline = data.get("auto_gm_cost_baseline", 0.0)
+                session.auto_gm_side_note = data.get("auto_gm_side_note", "")
+                session.auto_gm_lock = False
 
                 restored_raw_logs = []
                 for item in data.get("raw_logs", []):
@@ -716,6 +869,9 @@ async def restore_sessions_from_disk(bot):
                         session.cache_obj = cache
                         session.cache_name = cache.name
                         session.cache_text = base_text
+                        session.cache_created_at = time.time()
+                        session.cache_tokens = cache_tokens
+                        session.cache_model = DEFAULT_MODEL
                         await save_session_data(bot, session)
 
                 bot.active_sessions[session.game_ch_id] = session
@@ -876,7 +1032,125 @@ async def generate_character_details(bot, scenario_data, char_type, char_name, i
     return response
 
 
-async def stream_text_to_channel(bot, channel, text: str, words_per_tick: int = 10, tick_interval: float = 1.5):
+# ========== [인물 대사 마커 처리] ==========
+# NOTE: AI가 출력한 `@대사:이름|본문` 마커를 감지하여 인물 헤더+말풍선 형식으로 변환.
+#       마커 외 다른 텍스트가 섞이면 일반 묘사로 처리되도록 엄격 매칭.
+DIALOGUE_MARKER_PATTERN = re.compile(r'^@대사:([^|\n]+)\|(.+)$', re.DOTALL)
+
+
+def parse_dialogue_paragraph(paragraph: str):
+    """
+    문단이 인물 대사 마커(@대사:이름|본문)이면 (이름, 본문) 튜플을 반환, 아니면 None.
+    """
+    text = paragraph.strip()
+    m = DIALOGUE_MARKER_PATTERN.match(text)
+    if m:
+        speaker = m.group(1).strip()
+        content = m.group(2).strip()
+        if speaker and content:
+            return speaker, content
+    return None
+
+
+def format_dialogue_block(speaker: str, content: str) -> str:
+    """인물 대사 문단을 디스코드 출력용 헤더 + 말풍선 마크다운으로 포매팅."""
+    return f"## ▍{speaker}\n## 「 {content} 」"
+
+
+def merge_consecutive_dialogues(paragraphs: list[str]) -> list[str]:
+    """
+    같은 화자의 연속된 대사 문단을 하나의 문단으로 통합.
+
+    예)
+      @대사:레비|어때? 감각이 느껴져?
+      @대사:레비|체온은 정상인데, 불편한 곳은?
+    →
+      @대사:레비|어때? 감각이 느껴져? 체온은 정상인데, 불편한 곳은?
+
+    연속 여부 기준: 두 대사 문단 사이에 다른 문단(일반 묘사 또는 다른 화자 대사)이 없어야 함.
+    이 처리를 통해 동일 인물 이미지가 연속으로 중복 출력되는 것을 방지한다.
+
+    Args:
+        paragraphs (list[str]): split('\n\n')으로 분리된 문단 리스트
+
+    Returns:
+        list[str]: 연속 동일 화자 대사가 통합된 문단 리스트
+    """
+    merged: list[str] = []
+    i = 0
+    while i < len(paragraphs):
+        p = paragraphs[i]
+        dialogue = parse_dialogue_paragraph(p)
+        if not dialogue:
+            merged.append(p)
+            i += 1
+            continue
+
+        speaker, content = dialogue
+        parts = [content]
+
+        # 바로 다음 문단부터 같은 화자의 대사가 이어지는지 확인
+        j = i + 1
+        while j < len(paragraphs):
+            next_d = parse_dialogue_paragraph(paragraphs[j])
+            if next_d and next_d[0] == speaker:
+                parts.append(next_d[1])
+                j += 1
+            else:
+                break
+
+        if len(parts) > 1:
+            merged_content = " ".join(parts)
+            merged.append(f"@대사:{speaker}|{merged_content}")
+        else:
+            merged.append(p)
+
+        i = j
+
+    return merged
+
+
+async def maybe_send_speaker_image(channel, session, speaker: str) -> bool:
+    """
+    미디어 키워드 목록에 인물 이름과 일치하는 항목이 있으면 이미지를 전송.
+
+    매칭 우선순위:
+        1) media_keywords[speaker]        (정확한 키워드 매칭)
+        2) media/{scenario_id}/{speaker}.png 파일 직접 존재 검사
+
+    실패 시 조용히 False 반환 (대사 출력은 이어서 진행).
+    """
+    if not speaker:
+        return False
+    media_keywords = session.scenario_data.get("media_keywords", {})
+    media_dir = f"media/{session.scenario_id}"
+
+    candidate_filename = None
+    if speaker in media_keywords:
+        candidate_filename = media_keywords[speaker]
+    else:
+        # 폴백: 파일 직접 검사
+        direct_path = os.path.join(media_dir, f"{speaker}.png")
+        if os.path.exists(direct_path):
+            candidate_filename = f"{speaker}.png"
+
+    if not candidate_filename:
+        return False
+
+    filepath = os.path.join(media_dir, candidate_filename)
+    if not os.path.exists(filepath):
+        return False
+
+    try:
+        await channel.send(file=discord.File(filepath))
+        return True
+    except Exception as e:
+        print(f"[Dialogue Image] {speaker} 이미지 전송 실패: {e}")
+        return False
+
+
+async def stream_text_to_channel(bot, channel, text: str, words_per_tick: int = 10, tick_interval: float = 1.5,
+                                  quote_prefix: bool = True):
     """
     디스코드 채널에 텍스트를 문단과 단어 단위로 쪼개어 타이핑 치듯 스트리밍 연출.
 
@@ -889,6 +1163,7 @@ async def stream_text_to_channel(bot, channel, text: str, words_per_tick: int = 
         text (str): 출력할 원본 전체 텍스트
         words_per_tick (int): 한 번의 갱신에 출력할 단어 수
         tick_interval (float): 갱신 간격 (초 단위)
+        quote_prefix (bool): True면 문단 앞에 '> '를 자동 부착 (기본). 인물 대사 등 헤더 마크다운이 들어간 문단은 False.
     """
     session = bot.active_sessions.get(channel.id)
     paragraphs = text.split('\n\n')
@@ -897,7 +1172,10 @@ async def stream_text_to_channel(bot, channel, text: str, words_per_tick: int = 
         if not paragraph.strip():
             continue
 
-        current_text = "> " if not paragraph.startswith(">") else ""
+        if quote_prefix:
+            current_text = "> " if not paragraph.startswith(">") else ""
+        else:
+            current_text = ""
         current_message = await channel.send(current_text + "✍️")
 
         words = paragraph.split(' ')

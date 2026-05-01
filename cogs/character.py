@@ -610,14 +610,44 @@ class CharacterCog(commands.Cog):
             meta = response.usage_metadata
             in_tokens = meta.prompt_token_count
             out_tokens = meta.candidates_token_count
-            turn_cost = core.calculate_upload_cost(core.LOGIC_MODEL, input_tokens=in_tokens, output_tokens=out_tokens)
+            cached_tokens = getattr(meta, "cached_content_token_count", 0) or 0
+
+            breakdown = core.calculate_text_gen_cost_breakdown(
+                core.LOGIC_MODEL,
+                input_tokens=in_tokens,
+                output_tokens=out_tokens,
+                cached_read_tokens=cached_tokens,
+            )
+            turn_cost = breakdown["total_krw"]
             session.total_cost += turn_cost
 
-            # [추가] 비용 로그 파일 작성
-            core.write_cost_log(session.session_id, "설정 초안 생성", in_tokens, 0, out_tokens, turn_cost, session.total_cost)
+            core.write_cost_log(session.session_id, f"설정 초안 생성 ({char_type}/{char_name})",
+                                in_tokens, cached_tokens, out_tokens, turn_cost, session.total_cost)
 
-            print(
-                f"💰 [비용 보고] 설정 생성({char_name}) - In:{in_tokens}, Out:{out_tokens} | 발생: ${turn_cost:.6f} (누적: ${session.total_cost:.6f})")
+            type_label = "PC" if char_type == "pc" else "NPC"
+            ref_label = f"{len(target_npcs)}명 명시 참조" if npc_match else (f"전체 NPC 자동 참조({len(session.npcs)})" if session.npcs else "NPC 참조 없음")
+            lines = [
+                f"💰 **[비용 보고] 설정 초안 생성**",
+                f"- 대상: {type_label} '{char_name}'  /  레퍼런스: {ref_label}",
+                f"- 모델: {core.LOGIC_MODEL}",
+                f"- 입력 합계: {in_tokens:,} 토큰  (캐시 적중 {cached_tokens:,})",
+                f"   · 신규 입력 {breakdown['input_billable_tokens']:,} × ${breakdown['input_rate']:.2f}/1M → {core.format_cost(breakdown['input_krw'])}",
+                f"   · 캐시 적중 {breakdown['cache_read_tokens']:,} × ${breakdown['cache_rate']:.2f}/1M → {core.format_cost(breakdown['cache_read_krw'])}",
+                f"- 출력 {breakdown['output_tokens']:,} × ${breakdown['output_rate']:.2f}/1M → {core.format_cost(breakdown['output_krw'])}",
+                f"- 턴 발생 비용: {core.format_cost(turn_cost)}  ( ≈ ${breakdown['total_usd']:.4f} )",
+                f"- 누적 비용: {core.format_cost(session.total_cost)}",
+            ]
+            report_msg = "\n".join(lines)
+
+            # 콘솔(실행 창) 출력
+            print(f"\n[설정 초안 생성 비용 보고] {char_name}")
+            print(report_msg.replace("**", ""))
+
+            # 마스터 채널에도 동일 보고 전송
+            master_ch = self.bot.get_channel(session.master_ch_id)
+            if master_ch:
+                await master_ch.send(report_msg)
+
             await core.save_session_data(self.bot, session)
 
             guide_cmd = f"`!외형 {char_name} [내용]`" if char_type == "pc" else f"`!엔피씨 설정 {char_name} [내용]`"

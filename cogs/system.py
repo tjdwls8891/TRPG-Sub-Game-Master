@@ -76,13 +76,21 @@ class SystemCog(commands.Cog):
             "`!채팅 [잠금/해제]` : 게임 채널 일반 플레이어 채팅 권한 통제"
         ), inline=False)
 
+        embed.add_field(name="[자동 GM 모드]", value=(
+            "`!자동시작 (대상PC)` : 게임 채널 발언을 AI GM이 자동 처리 (단일 PC면 자동 선택)\n"
+            "`!자동중단` : 자동 GM 모드 정지 후 인간 GM 명령 모드 복귀\n"
+            "`!자동상태` : 활성 여부, 자동 처리 턴 수, 누적 비용 확인\n"
+            "`!자동개입 [텍스트]` : 다음 GM-Logic 호출 1회에 한해 마스터 노트 합류\n"
+            "`!자동턴제한 [N]` : 자동으로 진행할 최대 턴 수 변경 (기본 10, 1~100)"
+        ), inline=False)
+
         embed.add_field(name="[시스템 관리]", value=(
             "`!채널정리` : 더미 TRPG 채널·카테고리 일괄 삭제 UI (채널 관리 권한 필요)\n"
             "`!캐시 재발급` : 장기 기억 캐시 강제 재발급\n"
             "`!캐시 삭제` : 캐시 명시적 파기 및 보관 비용 정산\n"
             "`!캐시 출력` : 업로드된 캐시 룰북 원본 텍스트 디버그 출력\n"
             "`!리로드 [모듈명]` : cogs 모듈 무중단 핫스왑 (관리자 전용)\n"
-            "  *(리로드 가능 모듈: game, character, media, session, system)*"
+            "  *(리로드 가능 모듈: game, character, media, session, system, auto_gm)*"
         ), inline=False)
 
         await ctx.send(embed=embed)

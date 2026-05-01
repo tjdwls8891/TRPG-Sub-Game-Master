@@ -93,6 +93,7 @@ class SessionCog(commands.Cog):
             )
             session.cache_obj = cache
             session.cache_name = cache.name
+            session.cache_model = core.DEFAULT_MODEL
             await ctx.send(f"✅ 캐싱 완료! (캐시 ID: {cache.name})")
         except Exception as e:
             # WARNING: 캐싱에 실패하더라도 세션 객체 자체는 정상 구동되도록 예외 처리.
