@@ -141,7 +141,7 @@ class TRPGSession:
         # NOTE: 자동 GM 모드는 게임 채널의 플레이어 발언을 받아 AI가 GM 역할을 수행하는 옵트인 모드.
         #       기본은 비활성(False) — 활성화되어야만 on_message 리스너가 동작한다.
         self.auto_gm_active = False
-        self.auto_gm_target_char = None        # 자동 GM이 대화할 PC 이름
+        self.auto_gm_target_char = None        # 자동 GM이 대화할 PC 이름 (단일, 하위 호환)
         self.auto_gm_turn_cap = 10             # 자동 모드에서 자동 진행할 최대 턴 수 (안전장치)
         self.auto_gm_turns_done = 0            # 활성화 이후 자동으로 처리한 턴 수
         self.auto_gm_clarify_count = 0         # 같은 플레이어 발언에 대한 명확화 누적 횟수
@@ -149,6 +149,13 @@ class TRPGSession:
         self.auto_gm_cost_baseline = 0.0       # 활성화 시점의 session.total_cost (사용량 추적용)
         self.auto_gm_side_note = ""            # !자동개입으로 주입된 GM 사이드 노트 (다음 호출에 1회 합류 후 비움)
         self.auto_gm_lock = False              # 동시 처리 방지용 락 (직렬화 시 무시)
+
+        # ========== [멀티플레이어 자동진행 상태 (#22)] ==========
+        # NOTE: PROCEED 완료 후 GM이 선제적으로 각 PC에게 행동을 순서대로 물어보는 라운드 수집 시스템.
+        self.auto_gm_target_chars = []         # 자동진행 대상 PC 이름 전체 목록 (멀티 지원)
+        self.auto_gm_pending_players = []      # 현재 라운드에서 아직 행동 선언 안 한 PC 목록
+        self.auto_gm_collected_actions = {}    # 이번 라운드에 수집된 행동 {char_name: text}
+        self.auto_gm_waiting_for = None        # 현재 발언을 기다리는 PC 이름 (None이면 대기 없음)
 
         self.npcs = {}
         default_npcs = scenario_data.get("default_npcs", {})
@@ -636,7 +643,12 @@ async def save_session_data(bot, session: TRPGSession):
             "auto_gm_clarify_count": getattr(session, "auto_gm_clarify_count", 0),
             "auto_gm_cost_cap_krw": getattr(session, "auto_gm_cost_cap_krw", 500.0),
             "auto_gm_cost_baseline": getattr(session, "auto_gm_cost_baseline", 0.0),
-            "auto_gm_side_note": getattr(session, "auto_gm_side_note", "")
+            "auto_gm_side_note": getattr(session, "auto_gm_side_note", ""),
+            # 멀티플레이어 수집 상태 (#22) — 재시작 시 라운드는 초기화
+            "auto_gm_target_chars": getattr(session, "auto_gm_target_chars", []),
+            "auto_gm_pending_players": getattr(session, "auto_gm_pending_players", []),
+            "auto_gm_collected_actions": getattr(session, "auto_gm_collected_actions", {}),
+            "auto_gm_waiting_for": getattr(session, "auto_gm_waiting_for", None)
         }
 
         def write_file():
@@ -832,6 +844,12 @@ async def restore_sessions_from_disk(bot):
                 session.auto_gm_cost_baseline = data.get("auto_gm_cost_baseline", 0.0)
                 session.auto_gm_side_note = data.get("auto_gm_side_note", "")
                 session.auto_gm_lock = False
+                # 멀티플레이어 수집 상태 복구 (#22)
+                session.auto_gm_target_chars = data.get("auto_gm_target_chars", [])
+                # 재시작 시 수집 진행 중이던 라운드는 초기화 (플레이어가 다시 응답해야 함)
+                session.auto_gm_pending_players = []
+                session.auto_gm_collected_actions = {}
+                session.auto_gm_waiting_for = None
 
                 restored_raw_logs = []
                 for item in data.get("raw_logs", []):

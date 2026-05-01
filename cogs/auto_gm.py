@@ -12,19 +12,16 @@ import core
 
 # ========== [자동 GM 모드 상수] ==========
 # NOTE: GM-Logic 호출 시 한 플레이어 발언당 내부 루프 반복 상한.
-#       (예: ASK→ROLL→PROCEED 같은 다단계 흐름 + 폭주 방지)
 MAX_ITERATIONS_PER_MESSAGE = 5
 
 # NOTE: 같은 플레이어 발언에 대한 ASK 누적 상한. 초과 시 강제 PROCEED.
 MAX_CLARIFY_PER_MESSAGE = 2
 
-# NOTE: 자동 GM 비용 로그 라벨에 부착하는 접두사 (결정사항 #3 — `[AUTO]` 표기).
+# NOTE: 자동 GM 비용 로그 라벨에 부착하는 접두사.
 COST_LOG_PREFIX = "[AUTO] "
 
 
 # ========== [GM-Logic 응답 스키마 (JSON Schema)] ==========
-# NOTE: Gemini의 response_mime_type="application/json" + response_schema로 강제하여
-#       자유 형식 텍스트가 섞이지 않도록 한다.
 GM_LOGIC_RESPONSE_SCHEMA = {
     "type": "object",
     "properties": {
@@ -112,13 +109,24 @@ GM_LOGIC_SYSTEM_INSTRUCTION = """당신은 한국어 TRPG '자동 GM 모드'의 
      ※ 이 태그는 이미지 삽입 전용입니다. 자원이나 상태 변동에는 반드시 자:/태: 태그를 사용하십시오.
 
    - 태그는 지시문 내 임의 위치에 삽입 가능합니다. 예) "태:정원모;출혈 정원모가 총에 맞아 쓰러진다."
-   - 가능하면 핵심 사건만 명시하고, 묘사 본문은 메인 GM 모델에 일임하세요.
+
+   [#25 — 능동적 서사 진행 원칙]
+   proceed_instruction 작성 시 아래 원칙을 반드시 따르십시오:
+   A) 플레이어 행동의 자연스러운 결과를 반영한다.
+   B) 세계가 멈춰 있지 않음을 드러내는 **신규 사건**을 능동적으로 발생시킨다.
+      - 감염자 출현·이동·소리, NPC의 예상치 못한 개입·이탈·태도 변화,
+        환경 변화(소음·화재·문 잠김·날씨·전력 차단 등),
+        다른 세력의 움직임, 새로운 위협 또는 기회의 등장 등을 적극 제안한다.
+   C) 플레이어가 수동적으로 대기하거나 단순 이동·대화를 하는 상황에서도
+      반드시 어떤 사건이 발생하거나 세계에 변화가 생기도록 지시문을 구성한다.
+   D) 시나리오 룰북에 없는 소규모 사건은 기존 설정과 모순되지 않는 범위에서
+      맥락에서 자연스럽게 파생시킬 수 있다. 시나리오 룰북에 정의된 주요 세력·이벤트를
+      임의로 종결·왜곡하는 것은 금지한다.
 
 [엄격한 규칙]
 - 응답은 정확히 하나의 action만 가집니다.
 - 같은 플레이어 발언에 대해 ASK를 반복하지 마세요. 한 번 명확화한 뒤에는 PROCEED 또는 ROLL로 진행합니다.
 - 시나리오 종결(엔딩) 판단은 절대 하지 마세요. 그것은 인간 GM의 권한입니다.
-- 시나리오 룰북에 정의되지 않은 새 세력·이벤트·구조물을 임의 생성하지 마세요.
 - 출력은 반드시 지정된 JSON 스키마를 따릅니다. 추가 텍스트, 마크다운, 코드블럭 모두 금지.
 
 [결정 우선순위]
@@ -133,18 +141,16 @@ GM_LOGIC_SYSTEM_INSTRUCTION = """당신은 한국어 TRPG '자동 GM 모드'의 
 def _clean_proceed_instruction(instruction: str) -> str:
     """
     GM-Logic이 생성한 proceed_instruction에서 마크다운 서식을 제거하고 단일 자연어 서술문으로 정제.
-
-    AI가 가끔 ##·**·- 등 마크다운을 섞어 출력할 때를 대비한 후처리 필터.
     """
     if not instruction:
         return ""
     lines = instruction.strip().splitlines()
     cleaned = []
     for line in lines:
-        line = re.sub(r'^[#\s]+', '', line)          # 줄 앞 # 헤더 제거
-        line = re.sub(r'^[-*+>\s]+(?=[^\s])', '', line)  # 불릿/인용(앞에 내용 있을 때만) 제거
-        line = re.sub(r'\*\*([^*]+)\*\*', r'\1', line)   # **굵은글씨** 제거
-        line = re.sub(r'\*([^*]+)\*', r'\1', line)       # *기울임* 제거
+        line = re.sub(r'^[#\s]+', '', line)
+        line = re.sub(r'^[-*+>\s]+(?=[^\s])', '', line)
+        line = re.sub(r'\*\*([^*]+)\*\*', r'\1', line)
+        line = re.sub(r'\*([^*]+)\*', r'\1', line)
         line = line.strip()
         if line:
             cleaned.append(line)
@@ -158,7 +164,7 @@ def _build_logic_user_prompt(session, player_message: str, roll_results: list) -
 
     Args:
         session: TRPGSession
-        player_message (str): 플레이어 신규 발언
+        player_message (str): 플레이어 신규 발언 (멀티플레이어 시 종합 텍스트)
         roll_results (list[str]): 직전 ROLL 결과 문자열 목록 (재호출 시 누적)
     """
     target_char = session.auto_gm_target_char or "(미지정)"
@@ -207,13 +213,26 @@ def _build_logic_user_prompt(session, player_message: str, roll_results: list) -
             + "\n"
         )
 
+    # 멀티플레이어 정보 (여러 PC가 있을 때 모두 표시)
+    target_chars = getattr(session, "auto_gm_target_chars", [])
+    multi_info = ""
+    if len(target_chars) > 1:
+        pc_lines = []
+        for cn in target_chars:
+            r = session.resources.get(cn, {})
+            s = session.statuses.get(cn, [])
+            r_str = ", ".join([f"{k}:{v}" for k, v in r.items()]) or "없음"
+            s_str = ", ".join(s) or "없음"
+            pc_lines.append(f"  - {cn}: 자원={r_str} / 상태={s_str}")
+        multi_info = "\n[참가 PC 전체 상태]\n" + "\n".join(pc_lines) + "\n"
+
     return f"""[현재 턴 #]: {session.turn_count + 1}
 [대상 PC]: {target_char}
 [PC 프로필]: {pc_profile_summary or "(미설정)"}
 [PC 자원]: {res_str}
 [PC 상태]: {sta_str}
 [직전 ASK 횟수 / 한도]: {clarify_count} / {MAX_CLARIFY_PER_MESSAGE}
-{note_block}
+{multi_info}{note_block}
 [최근 6턴 컨텍스트]
 {recent_logs_str}
 {current_turn_block}
@@ -229,33 +248,21 @@ def _build_logic_user_prompt(session, player_message: str, roll_results: list) -
 class AutoGMRollView(discord.ui.View):
     """
     자동 GM 모드에서 ROLL 판정 시 플레이어에게 주사위 버튼을 제공하는 View.
-
-    버튼 클릭 시 주사위를 굴리고, 결과를 컨텍스트에 주입하여 GM-Logic을 재호출합니다.
-    5분 내 미클릭 시 자동으로 주사위를 굴립니다(타임아웃 폴백).
-
-    Args:
-        cog (AutoGMCog): 부모 Cog 참조 (계속 처리를 위해 필요)
-        session: TRPGSession
-        roll_specs (list): 굴려야 할 판정 목록 (GM-Logic이 결정한 rolls 배열)
-        player_message (str): 이 판정을 유발한 플레이어의 원본 발언
-        prior_roll_results (list[str]): 이번 턴에 이미 수집된 굴림 결과 목록
-        target_uid (str | None): 버튼을 누를 수 있는 플레이어의 디스코드 UID
     """
 
     def __init__(self, cog, session, roll_specs: list, player_message: str,
                  prior_roll_results: list, target_uid: str | None):
-        super().__init__(timeout=300)  # 5분 대기
+        super().__init__(timeout=300)
         self.cog = cog
         self.session = session
         self.roll_specs = roll_specs
         self.player_message = player_message
         self.prior_roll_results = list(prior_roll_results)
         self.target_uid = target_uid
-        self._resolved = False  # 중복 처리 방지 플래그
+        self._resolved = False
 
     @discord.ui.button(label="🎲 주사위 굴리기", style=discord.ButtonStyle.primary)
     async def roll_button(self, interaction: discord.Interaction, _button: discord.ui.Button):
-        # 대상 플레이어 검증
         if self.target_uid and str(interaction.user.id) != self.target_uid:
             return await interaction.response.send_message(
                 "> 이 주사위는 당신을 위한 것이 아닙니다!", ephemeral=True
@@ -267,7 +274,6 @@ class AutoGMRollView(discord.ui.View):
             )
         self._resolved = True
 
-        # 버튼 비활성화 후 응답
         for child in self.children:
             child.disabled = True
         await interaction.response.edit_message(
@@ -275,11 +281,9 @@ class AutoGMRollView(discord.ui.View):
         )
         self.stop()
 
-        # 실제 굴림 + GM-Logic 재호출 (비동기 태스크)
         asyncio.create_task(self._process_roll(interaction.channel))
 
     async def _process_roll(self, game_ch):
-        """주사위 굴림 실행 후 _continue_with_roll_results 호출."""
         new_results = await self.cog._execute_rolls(self.session, self.roll_specs, game_ch)
         combined = self.prior_roll_results + new_results
         asyncio.create_task(
@@ -287,7 +291,6 @@ class AutoGMRollView(discord.ui.View):
         )
 
     async def on_timeout(self):
-        """5분 내 미클릭 시 자동 굴림 (폴백)."""
         if self._resolved:
             return
         self._resolved = True
@@ -310,12 +313,12 @@ class AutoGMCog(commands.Cog):
     """
     게임 채널의 플레이어 발언을 받아 AI가 GM 역할을 자동 수행하는 옵트인 모드.
 
-    NOTE: !자동시작이 호출된 세션에서만 동작. 비활성 세션에는 영향 없음(기존 흐름 보존).
+    PROCEED 완료 후 GM이 선제적으로 각 PC에게 행동을 물어보는 라운드 수집 시스템을 포함.
+    멀티플레이어 지원: 등록된 모든 PC에게 순서대로 행동을 물어본 뒤 종합하여 GM-Logic 호출.
     """
 
     def __init__(self, bot):
         self.bot = bot
-        # 세션별 직렬화 락 (한 세션의 GM-Logic 호출이 동시에 두 번 돌지 않도록)
         self._session_locks = {}
 
     def _lock_for(self, session):
@@ -323,15 +326,15 @@ class AutoGMCog(commands.Cog):
             self._session_locks[session.session_id] = asyncio.Lock()
         return self._session_locks[session.session_id]
 
-    # ---------- 명령어 ----------
+    # ─────────────────────────────────────────────────────────────
+    # 명령어
+    # ─────────────────────────────────────────────────────────────
 
     @commands.command(name="자동시작")
-    async def auto_start(self, ctx, target_char: str = None):
+    async def auto_start(self, ctx, *target_char_args: str):
         """
-        자동 GM 모드 활성화. 게임 채널의 플레이어 발언이 모두 자동 GM에게 라우팅됨.
-
-        Args:
-            target_char (str): GM이 대화할 대상 PC 이름. 미지정 시 등록된 단일 PC 자동 선택.
+        자동 GM 모드 활성화. 인자 없으면 등록된 모든 PC를 대상으로 함.
+        멀티플레이어 시 !자동시작, 특정 PC만 지정 시 !자동시작 이름1 이름2 형태로 사용.
         """
         session = self.bot.active_sessions.get(ctx.channel.id)
         if not session or ctx.channel.id != session.master_ch_id:
@@ -340,36 +343,44 @@ class AutoGMCog(commands.Cog):
         if not getattr(session, "is_started", False):
             return await ctx.send("⚠️ 세션이 시작되지 않았습니다. `!시작`을 먼저 실행하세요.")
 
-        if not target_char:
-            if len(session.players) == 1:
-                target_char = next(iter(session.players.values())).get("name")
-            else:
-                names = [p.get("name") for p in session.players.values()]
-                return await ctx.send(
-                    f"⚠️ 대상 PC를 지정해주세요. 예: `!자동시작 {names[0] if names else '캐릭터명'}`\n"
-                    f"(현재 등록된 PC: {', '.join(names) if names else '없음'})"
-                )
+        # 대상 PC 결정
+        if target_char_args:
+            target_chars = list(target_char_args)
+        elif session.players:
+            target_chars = [p.get("name") for p in session.players.values() if p.get("name")]
+        else:
+            return await ctx.send(
+                "⚠️ 등록된 PC가 없습니다. `!참가`로 PC를 먼저 등록하세요."
+            )
 
-        # PC 존재 검증
-        if not core.get_uid_by_char_name(session, target_char):
-            return await ctx.send(f"⚠️ '{target_char}' PC를 찾을 수 없습니다.")
+        # 유효성 검증
+        invalid = [n for n in target_chars if not core.get_uid_by_char_name(session, n)]
+        if invalid:
+            return await ctx.send(f"⚠️ 다음 PC를 찾을 수 없습니다: {', '.join(invalid)}")
 
         session.auto_gm_active = True
-        session.auto_gm_target_char = target_char
+        session.auto_gm_target_chars = target_chars
+        session.auto_gm_target_char = target_chars[0]   # 하위 호환성 (GM-Logic 단일 PC 참조용)
         session.auto_gm_turns_done = 0
         session.auto_gm_clarify_count = 0
         session.auto_gm_cost_baseline = session.total_cost
         session.auto_gm_side_note = ""
+        session.auto_gm_pending_players = []
+        session.auto_gm_collected_actions = {}
+        session.auto_gm_waiting_for = None
         await core.save_session_data(self.bot, session)
 
         await ctx.send(
             f"🤖 **[자동 GM 모드 활성화]**\n"
-            f"- 대상 PC: **{target_char}**\n"
+            f"- 대상 PC: **{', '.join(target_chars)}**\n"
             f"- 자동 턴 한도: {session.auto_gm_turn_cap}턴\n"
             f"- 자동 누적 비용 한도: {core.format_cost(session.auto_gm_cost_cap_krw)}\n"
-            f"- 게임 채널의 플레이어 발언을 모두 GM 모델이 처리합니다.\n"
+            f"- PROCEED 완료 후 GM이 선제적으로 행동을 물어봅니다.\n"
             f"- 중단: `!자동중단`  /  GM에게 메모: `!자동개입 [텍스트]`"
         )
+
+        # 활성화 직후 첫 라운드 즉시 시작 (선제 행동 질문)
+        await self._start_round(session)
 
     @commands.command(name="자동중단")
     async def auto_stop(self, ctx):
@@ -381,6 +392,8 @@ class AutoGMCog(commands.Cog):
             return await ctx.send("⚠️ 자동 GM 모드가 활성 상태가 아닙니다.")
 
         session.auto_gm_active = False
+        session.auto_gm_waiting_for = None
+        session.auto_gm_pending_players = []
         await core.save_session_data(self.bot, session)
 
         used = session.total_cost - session.auto_gm_cost_baseline
@@ -399,22 +412,28 @@ class AutoGMCog(commands.Cog):
 
         active = getattr(session, "auto_gm_active", False)
         used = session.total_cost - getattr(session, "auto_gm_cost_baseline", 0.0)
+        target_chars = getattr(session, "auto_gm_target_chars", [])
+        waiting = getattr(session, "auto_gm_waiting_for", None)
+        pending = getattr(session, "auto_gm_pending_players", [])
+        collected = getattr(session, "auto_gm_collected_actions", {})
+
+        collected_str = "\n".join([f"    · {k}: {v[:40]}" for k, v in collected.items()]) or "    (없음)"
         await ctx.send(
             f"🤖 **[자동 GM 상태]**\n"
             f"- 활성: {'✅ 켜짐' if active else '⛔ 꺼짐'}\n"
-            f"- 대상 PC: {session.auto_gm_target_char or '(없음)'}\n"
+            f"- 대상 PC: {', '.join(target_chars) if target_chars else '(없음)'}\n"
             f"- 자동 처리 턴: {session.auto_gm_turns_done} / {session.auto_gm_turn_cap}\n"
             f"- 자동 모드 누적 비용: {core.format_cost(used)} / {core.format_cost(session.auto_gm_cost_cap_krw)}\n"
+            f"- 현재 발언 대기 PC: {waiting or '(없음)'}\n"
+            f"- 응답 대기 중인 PC: {', '.join(pending) if pending else '(없음)'}\n"
+            f"- 수집된 행동:\n{collected_str}\n"
             f"- 직전 ASK 횟수: {session.auto_gm_clarify_count}\n"
             f"- 대기 중 사이드 노트: {session.auto_gm_side_note or '(없음)'}"
         )
 
     @commands.command(name="자동개입")
     async def auto_inject(self, ctx, *, text: str = ""):
-        """
-        다음 PROCEED 완료 시까지 GM 사이드 노트를 유지. (#14: 턴 단위 적용)
-        PROCEED가 실행될 때 자동으로 해제됨.
-        """
+        """다음 PROCEED 완료 시까지 GM 사이드 노트를 유지."""
         session = self.bot.active_sessions.get(ctx.channel.id)
         if not session or ctx.channel.id != session.master_ch_id:
             return await ctx.send("이 명령어는 마스터 채널에서만 사용할 수 있습니다.")
@@ -435,38 +454,170 @@ class AutoGMCog(commands.Cog):
             return await ctx.send("이 명령어는 마스터 채널에서만 사용할 수 있습니다.")
 
         if n is None or n < 1 or n > 100:
-            return await ctx.send("⚠️ 사용법: `!자동턴제한 [1~100]` (자동 모드에서 자동 진행할 최대 턴 수)")
+            return await ctx.send("⚠️ 사용법: `!자동턴제한 [1~100]`")
 
         session.auto_gm_turn_cap = n
         await core.save_session_data(self.bot, session)
         await ctx.send(f"✅ 자동 턴 한도를 {n}턴으로 변경했습니다.")
 
-    # ---------- 메시지 리스너 ----------
+    # ─────────────────────────────────────────────────────────────
+    # 메시지 리스너
+    # ─────────────────────────────────────────────────────────────
 
     @commands.Cog.listener()
     async def on_message(self, message: discord.Message):
-        # 봇 자신 / 다른 봇 메시지 무시
         if message.author.bot:
             return
-        # 명령어 프리픽스는 무시 (인간 GM의 명령은 따로 처리됨)
         if message.content.startswith("!"):
             return
 
         session = self.bot.active_sessions.get(message.channel.id)
         if not session:
             return
-        # 게임 채널만 수집. 마스터 채널 발언은 명령어 외엔 무시.
         if message.channel.id != session.game_ch_id:
             return
         if not getattr(session, "auto_gm_active", False):
             return
 
-        # 비동기 백그라운드 처리 (on_message 핸들러 블록 방지)
-        asyncio.create_task(self._handle_player_message(session, message))
+        user_id_str = str(message.author.id)
+        char_name = session.players.get(user_id_str, {}).get("name")
+        waiting_for = getattr(session, "auto_gm_waiting_for", None)
 
-    # ---------- 처리 루프 ----------
+        if waiting_for:
+            # GM이 특정 PC의 발언을 기다리는 중
+            if char_name != waiting_for:
+                # 다른 플레이어 발언 무시
+                return
+            asyncio.create_task(self._handle_waiting_response(session, message, char_name))
+        else:
+            # 대기 상태 없음 → 기존 자발 발언 즉각 처리 (하위 호환)
+            asyncio.create_task(self._handle_player_message(session, message))
+
+    # ─────────────────────────────────────────────────────────────
+    # 라운드 수집 시스템 (선제 행동 질문 — #22)
+    # ─────────────────────────────────────────────────────────────
+
+    async def _start_round(self, session):
+        """
+        PROCEED 완료 후(또는 자동시작 직후) 호출. 모든 대상 PC에게 순서대로 행동을 묻는 라운드 시작.
+        auto_gm_target_chars가 비어 있으면 아무 동작도 하지 않음.
+        """
+        if not getattr(session, "auto_gm_active", False):
+            return
+        target_chars = getattr(session, "auto_gm_target_chars", [])
+        if not target_chars:
+            return
+
+        session.auto_gm_pending_players = list(target_chars)
+        session.auto_gm_collected_actions = {}
+        session.auto_gm_waiting_for = None
+        await core.save_session_data(self.bot, session)
+        await self._ask_next_player(session)
+
+    async def _ask_next_player(self, session):
+        """
+        auto_gm_pending_players에서 다음 PC를 꺼내 행동 요청 메시지를 게임 채널에 전송.
+        목록이 비어 있으면 수집 완료로 처리.
+        """
+        game_ch = self.bot.get_channel(session.game_ch_id)
+
+        if not session.auto_gm_pending_players:
+            # 모든 PC의 행동이 수집됨 → GM-Logic 호출
+            await self._finalize_round_and_process(session)
+            return
+
+        next_char = session.auto_gm_pending_players.pop(0)
+        session.auto_gm_waiting_for = next_char
+
+        uid = core.get_uid_by_char_name(session, next_char)
+        mention = f"<@{uid}>" if uid else f"**{next_char}**"
+
+        collected = session.auto_gm_collected_actions
+        if collected:
+            # 이미 다른 PC의 행동이 수집된 상태 → 간단히 참고 표시
+            others = "、".join([
+                f"{k}: '{v[:20]}...'" if len(v) > 20 else f"{k}: '{v}'"
+                for k, v in collected.items()
+            ])
+            prompt = f"{mention}, 현재까지 행동 선언: {others}\n{mention}은(는) 어떻게 하시겠습니까?"
+        else:
+            prompt = f"{mention}, 이번에는 어떤 행동을 하거나 말을 하시겠습니까?"
+
+        if game_ch:
+            await core.stream_text_to_channel(
+                self.bot, game_ch, f"> {prompt}",
+                words_per_tick=8, tick_interval=0.8
+            )
+        # 선제 질문도 current_turn_logs에 기록
+        session.current_turn_logs.append(f"[진행자 (자동 GM)]: {prompt}")
+        await core.save_session_data(self.bot, session)
+
+    async def _handle_waiting_response(self, session, message: discord.Message, char_name: str):
+        """
+        GM의 선제 행동 질문에 대한 플레이어 응답 수집. 모든 PC 수집 완료 시 GM-Logic 호출.
+        """
+        async with self._lock_for(session):
+            # 이미 다른 처리가 완료된 경우 스킵
+            if session.auto_gm_waiting_for != char_name:
+                return
+            if not session.auto_gm_active:
+                return
+
+            session.auto_gm_waiting_for = None
+            content = message.content.strip()
+
+            # 행동 수집
+            session.auto_gm_collected_actions[char_name] = content
+            session.current_turn_logs.append(f"[{char_name}]: {content}")
+
+            if session.auto_gm_pending_players:
+                # 아직 응답 안 한 PC가 있음 → 다음 PC에게 질문
+                await core.save_session_data(self.bot, session)
+                await self._ask_next_player(session)
+            else:
+                # 모든 PC 수집 완료
+                await self._finalize_round_and_process(session)
+
+    async def _finalize_round_and_process(self, session):
+        """
+        모든 PC의 행동이 수집된 후 종합하여 GM-Logic을 호출.
+        단일 PC면 그대로, 멀티 PC면 종합 메시지 생성 + 게임 채널에 요약 표시.
+        """
+        master_ch = self.bot.get_channel(session.master_ch_id)
+        game_ch = self.bot.get_channel(session.game_ch_id)
+
+        actions = session.auto_gm_collected_actions.copy()
+        session.auto_gm_collected_actions = {}
+        session.auto_gm_clarify_count = 0
+
+        if not actions:
+            return
+
+        if len(actions) == 1:
+            player_message = list(actions.values())[0]
+        else:
+            # 멀티플레이어 — 게임 채널에 행동 종합 표시
+            summary_lines = "\n".join([f"> **{k}**: {v}" for k, v in actions.items()])
+            if game_ch:
+                await game_ch.send(f"> 📋 **행동 선언 종합:**\n{summary_lines}")
+                core.write_log(session.session_id, "game_chat",
+                               f"[행동 종합]: {'; '.join([f'{k}: {v}' for k, v in actions.items()])}")
+            player_message = "\n".join([f"[{k}]: {v}" for k, v in actions.items()])
+            # 대표 PC를 첫 번째 PC로 업데이트
+            first_char = list(actions.keys())[0]
+            session.auto_gm_target_char = first_char
+
+        await self._process_actions(session, player_message, master_ch)
+
+    # ─────────────────────────────────────────────────────────────
+    # 안전장치 + GM-Logic 루프 진입점
+    # ─────────────────────────────────────────────────────────────
 
     async def _handle_player_message(self, session, message: discord.Message):
+        """
+        기존 자발적 플레이어 발언 처리 경로 (auto_gm_waiting_for 없을 때).
+        락 획득 후 _process_actions 호출.
+        """
         master_ch = self.bot.get_channel(session.master_ch_id)
 
         async def m_send(content, **kw):
@@ -475,17 +626,13 @@ class AutoGMCog(commands.Cog):
             return None
 
         async with self._lock_for(session):
-            # 활성 상태 재확인 (대기 중 비활성화될 수 있음)
             if not session.auto_gm_active:
                 return
 
-            # ----- 안전장치 -----
-            # #15: turns_done >= cap이면 처리 거부 (마지막 턴은 PROCEED 분기에서 처리)
             if session.auto_gm_turns_done >= session.auto_gm_turn_cap:
                 session.auto_gm_active = False
                 await m_send(
-                    f"🛑 **[자동 GM 자동 정지]** 자동 턴 한도({session.auto_gm_turn_cap}턴) 도달. "
-                    f"`!자동시작`으로 재개하거나 `!자동턴제한`으로 한도를 늘리세요."
+                    f"🛑 **[자동 GM 자동 정지]** 자동 턴 한도({session.auto_gm_turn_cap}턴) 도달."
                 )
                 await core.save_session_data(self.bot, session)
                 return
@@ -494,159 +641,206 @@ class AutoGMCog(commands.Cog):
             if used_cost >= session.auto_gm_cost_cap_krw:
                 session.auto_gm_active = False
                 await m_send(
-                    f"🛑 **[자동 GM 자동 정지]** 자동 모드 누적 비용 한도({core.format_cost(session.auto_gm_cost_cap_krw)}) 도달. "
-                    f"필요 시 한도 조정 후 `!자동시작`으로 재개하세요."
+                    f"🛑 **[자동 GM 자동 정지]** 자동 모드 누적 비용 한도 도달."
                 )
                 await core.save_session_data(self.bot, session)
                 return
 
-            # 새 플레이어 발언 → ASK 카운터 리셋
             session.auto_gm_clarify_count = 0
-
-            # 플레이어 발언을 current_turn_logs에 기록 (인간 GM이 보던 흐름과 동일)
             char_name = session.auto_gm_target_char or message.author.display_name
             session.current_turn_logs.append(f"[{char_name}]: {message.content.strip()}")
 
-            roll_results: list[str] = []
+            await self._process_actions(session, message.content.strip(), master_ch)
 
-            # 액션 레이블 (마스터 채널 출력용)
-            action_labels = {
-                "ASK":     "🟡 ASK (명확화 요청)",
-                "ROLL":    "🎲 ROLL (주사위 판정)",
-                "PROCEED": "🟢 PROCEED (턴 진행)",
-            }
+    async def _process_actions(self, session, player_message: str, master_ch):
+        """
+        안전장치 확인 후 GM-Logic 루프(_run_gm_logic_loop) 호출.
+        _handle_player_message와 _finalize_round_and_process의 공통 진입 경로.
+        이미 락 안에서 호출된다고 가정하므로 이 함수 내부에는 락 없음.
+        """
+        if not session.auto_gm_active:
+            return
 
-            for iteration in range(MAX_ITERATIONS_PER_MESSAGE):
-                decision = await self._call_gm_logic(session, message.content.strip(), roll_results, master_ch)
-                if not decision:
-                    await m_send("⚠️ 자동 GM 결정 호출 실패. 이번 발언을 스킵합니다.")
-                    return
-
-                action = decision.get("action", "ASK").upper()
-                reasoning = decision.get("reasoning", "")
-
-                # #7: 판단 결과를 콘솔 + 마스터 채널 동시 출력
-                label = action_labels.get(action, action)
-                print(f"[AutoGM/{session.session_id}] iter={iteration} action={action} :: {reasoning[:120]}")
-                await m_send(
-                    f"🤖 **[자동 GM 판단 #{iteration + 1}]** {label}\n"
-                    f"> {reasoning[:200]}"
+        if session.auto_gm_turns_done >= session.auto_gm_turn_cap:
+            session.auto_gm_active = False
+            if master_ch:
+                await master_ch.send(
+                    f"🛑 **[자동 GM 자동 정지]** 자동 턴 한도({session.auto_gm_turn_cap}턴) 도달."
                 )
+            await core.save_session_data(self.bot, session)
+            return
 
-                if action == "ASK":
-                    session.auto_gm_clarify_count += 1
-                    if session.auto_gm_clarify_count > MAX_CLARIFY_PER_MESSAGE:
-                        await m_send(
-                            f"⚙️ **[자동 GM]** ASK 한도({MAX_CLARIFY_PER_MESSAGE}회) 초과 → 강제 PROCEED로 전환합니다."
-                        )
-                        forced_instr = _clean_proceed_instruction(
-                            decision.get("proceed_instruction") or
-                            "현재 상황에서 자연스럽게 다음 묘사를 이어가십시오."
-                        )
-                        # #15: 마지막 턴 체크
-                        if (session.auto_gm_turns_done + 1) >= session.auto_gm_turn_cap:
-                            session.auto_gm_active = False
-                            await m_send(
-                                f"🛑 **[자동 GM 마지막 턴]** 자동 턴 한도({session.auto_gm_turn_cap}턴) 도달. "
-                                f"이번 턴을 마지막으로 자동 진행을 정지합니다."
-                            )
-                        await self._dispatch_proceed(session, forced_instr)
-                        session.auto_gm_clarify_count = 0
-                        session.auto_gm_turns_done += 1
-                        session.auto_gm_side_note = ""   # #14: PROCEED 후 사이드 노트 해제
-                        break
+        used_cost = session.total_cost - session.auto_gm_cost_baseline
+        if used_cost >= session.auto_gm_cost_cap_krw:
+            session.auto_gm_active = False
+            if master_ch:
+                await master_ch.send(
+                    f"🛑 **[자동 GM 자동 정지]** 자동 모드 누적 비용 한도 도달."
+                )
+            await core.save_session_data(self.bot, session)
+            return
 
-                    bridge = decision.get("bridge_message") or "어떻게 하시겠습니까?"
-                    game_ch = self.bot.get_channel(session.game_ch_id)
-                    if game_ch:
-                        await core.stream_text_to_channel(
-                            self.bot, game_ch, bridge,
-                            words_per_tick=5, tick_interval=1.5
-                        )
-                    # NOTE: ASK 브리지를 current_turn_logs에 기록 → 세션 JSON에 저장되고,
-                    # 다음 GM-Logic 호출 시 [이번 턴 누적 대화] 블록에 포함되어
-                    # "이미 이 질문을 했다"는 맥락을 인지할 수 있게 됨.
-                    session.current_turn_logs.append(f"[진행자 (자동 GM)]: {bridge}")
-                    print(f"[AutoGM/{session.session_id}] ASK -> '{bridge[:80]}'")
-                    break
+        await self._run_gm_logic_loop(session, player_message, master_ch)
 
-                elif action == "ROLL":
-                    rolls = decision.get("rolls") or []
-                    if not rolls:
-                        await m_send(
-                            "⚠️ 자동 GM이 ROLL을 선언했으나 굴림 항목이 비어 있어 PROCEED로 폴백합니다."
-                        )
-                        fallback_instr = _clean_proceed_instruction(
-                            decision.get("proceed_instruction") or
-                            "현재 상황에서 자연스럽게 다음 묘사를 이어가십시오."
-                        )
-                        # #15: 마지막 턴 체크
-                        if (session.auto_gm_turns_done + 1) >= session.auto_gm_turn_cap:
-                            session.auto_gm_active = False
-                            await m_send(
-                                f"🛑 **[자동 GM 마지막 턴]** 자동 턴 한도({session.auto_gm_turn_cap}턴) 도달. "
-                                f"이번 턴을 마지막으로 자동 진행을 정지합니다."
-                            )
-                        await self._dispatch_proceed(session, fallback_instr)
-                        session.auto_gm_turns_done += 1
-                        session.auto_gm_side_note = ""   # #14
-                        break
+    # ─────────────────────────────────────────────────────────────
+    # GM-Logic 루프 본체
+    # ─────────────────────────────────────────────────────────────
 
-                    # #10: 버튼 UI 전송 후 핸들러 종료 (계속 처리는 버튼 콜백 담당)
-                    await self._dispatch_rolls(session, rolls, message.content.strip(), list(roll_results))
-                    await core.save_session_data(self.bot, session)
-                    return  # 핸들러 종료; 버튼 콜백이 _continue_with_roll_results를 호출
+    async def _run_gm_logic_loop(self, session, player_message: str, master_ch):
+        """
+        GM-Logic ASK / ROLL / PROCEED 루프.
+        PROCEED 완료 후 자동으로 _start_round()를 호출하여 다음 라운드(선제 행동 질문)를 시작.
 
-                elif action == "PROCEED":
-                    instruction = _clean_proceed_instruction(
-                        decision.get("proceed_instruction") or ""
+        NOTE: 이 함수는 락 없이 실행됨. 호출 측에서 이미 락을 잡고 있거나,
+              비동기 태스크로 독립 실행되는 경우(버튼 콜백 등)에 사용.
+        """
+        async def m_send(content, **kw):
+            if master_ch:
+                return await master_ch.send(content, **kw)
+            return None
+
+        action_labels = {
+            "ASK":     "🟡 ASK (명확화 요청)",
+            "ROLL":    "🎲 ROLL (주사위 판정)",
+            "PROCEED": "🟢 PROCEED (턴 진행)",
+        }
+
+        roll_results: list[str] = []
+
+        for iteration in range(MAX_ITERATIONS_PER_MESSAGE):
+            decision = await self._call_gm_logic(session, player_message, roll_results, master_ch)
+            if not decision:
+                await m_send("⚠️ 자동 GM 결정 호출 실패. 이번 발언을 스킵합니다.")
+                return
+
+            action = decision.get("action", "ASK").upper()
+            reasoning = decision.get("reasoning", "")
+
+            label = action_labels.get(action, action)
+            print(f"[AutoGM/{session.session_id}] iter={iteration} action={action} :: {reasoning[:120]}")
+            await m_send(
+                f"🤖 **[자동 GM 판단 #{iteration + 1}]** {label}\n"
+                f"> {reasoning[:200]}"
+            )
+
+            # ── ASK ──
+            if action == "ASK":
+                session.auto_gm_clarify_count += 1
+                if session.auto_gm_clarify_count > MAX_CLARIFY_PER_MESSAGE:
+                    await m_send(
+                        f"⚙️ **[자동 GM]** ASK 한도({MAX_CLARIFY_PER_MESSAGE}회) 초과 → 강제 PROCEED로 전환합니다."
                     )
-                    if not instruction:
-                        instruction = "현재 상황에서 자연스럽게 다음 묘사를 이어가십시오."
-
-                    # #15: 마지막 턴이면 묘사 시작 직전에 종료 알림
+                    forced_instr = _clean_proceed_instruction(
+                        decision.get("proceed_instruction") or
+                        "현재 상황에서 자연스럽게 다음 묘사를 이어가십시오."
+                    )
                     if (session.auto_gm_turns_done + 1) >= session.auto_gm_turn_cap:
                         session.auto_gm_active = False
                         await m_send(
-                            f"🛑 **[자동 GM 마지막 턴]** 자동 턴 한도({session.auto_gm_turn_cap}턴) 도달. "
-                            f"이번 턴을 마지막으로 자동 진행을 정지합니다."
+                            f"🛑 **[자동 GM 마지막 턴]** 자동 턴 한도({session.auto_gm_turn_cap}턴) 도달."
                         )
-
-                    await self._dispatch_proceed(session, instruction)
+                    await self._dispatch_proceed(session, forced_instr)
+                    session.auto_gm_clarify_count = 0
                     session.auto_gm_turns_done += 1
-                    session.auto_gm_side_note = ""   # #14: PROCEED 완료 후 사이드 노트 해제
-                    break
+                    session.auto_gm_side_note = ""
+                    await core.save_session_data(self.bot, session)
+                    if session.auto_gm_active:
+                        await self._start_round(session)
+                    return
 
-                else:
-                    await m_send(f"⚠️ 자동 GM이 알 수 없는 action을 반환했습니다: {action}")
-                    break
+                bridge = decision.get("bridge_message") or "어떻게 하시겠습니까?"
+                game_ch = self.bot.get_channel(session.game_ch_id)
+                if game_ch:
+                    await core.stream_text_to_channel(
+                        self.bot, game_ch, bridge,
+                        words_per_tick=5, tick_interval=1.5
+                    )
+                # ASK 브리지를 current_turn_logs에 기록 → 다음 GM-Logic 호출 시 맥락 유지
+                session.current_turn_logs.append(f"[진행자 (자동 GM)]: {bridge}")
+                print(f"[AutoGM/{session.session_id}] ASK -> '{bridge[:80]}'")
+                await core.save_session_data(self.bot, session)
+                break
 
-            else:
-                # iteration 한도 도달 → 강제 PROCEED
-                await m_send(f"⚙️ 자동 GM 내부 루프 한도({MAX_ITERATIONS_PER_MESSAGE}) 도달 → 강제 PROCEED.")
-                # #15: 마지막 턴 체크
+            # ── ROLL ──
+            elif action == "ROLL":
+                rolls = decision.get("rolls") or []
+                if not rolls:
+                    await m_send(
+                        "⚠️ 자동 GM이 ROLL을 선언했으나 굴림 항목이 비어 있어 PROCEED로 폴백합니다."
+                    )
+                    fallback_instr = _clean_proceed_instruction(
+                        decision.get("proceed_instruction") or
+                        "현재 상황에서 자연스럽게 다음 묘사를 이어가십시오."
+                    )
+                    if (session.auto_gm_turns_done + 1) >= session.auto_gm_turn_cap:
+                        session.auto_gm_active = False
+                        await m_send(
+                            f"🛑 **[자동 GM 마지막 턴]** 자동 턴 한도({session.auto_gm_turn_cap}턴) 도달."
+                        )
+                    await self._dispatch_proceed(session, fallback_instr)
+                    session.auto_gm_turns_done += 1
+                    session.auto_gm_side_note = ""
+                    await core.save_session_data(self.bot, session)
+                    if session.auto_gm_active:
+                        await self._start_round(session)
+                    return
+
+                # 버튼 UI 전송 후 루프 종료 (계속 처리는 버튼 콜백 담당)
+                await self._dispatch_rolls(session, rolls, player_message, list(roll_results))
+                await core.save_session_data(self.bot, session)
+                return
+
+            # ── PROCEED ──
+            elif action == "PROCEED":
+                instruction = _clean_proceed_instruction(
+                    decision.get("proceed_instruction") or ""
+                )
+                if not instruction:
+                    instruction = "현재 상황에서 자연스럽게 다음 묘사를 이어가십시오."
+
                 if (session.auto_gm_turns_done + 1) >= session.auto_gm_turn_cap:
                     session.auto_gm_active = False
                     await m_send(
                         f"🛑 **[자동 GM 마지막 턴]** 자동 턴 한도({session.auto_gm_turn_cap}턴) 도달. "
                         f"이번 턴을 마지막으로 자동 진행을 정지합니다."
                     )
-                await self._dispatch_proceed(session, "현재 상황에서 자연스럽게 다음 묘사를 이어가십시오.")
+
+                await self._dispatch_proceed(session, instruction)
                 session.auto_gm_turns_done += 1
-                session.auto_gm_side_note = ""   # #14
+                session.auto_gm_side_note = ""
+                await core.save_session_data(self.bot, session)
+                # PROCEED 완료 → 다음 라운드 시작 (선제 행동 질문)
+                if session.auto_gm_active:
+                    await self._start_round(session)
+                return
 
-            # #14: 사이드 노트는 각 PROCEED 경로에서 개별 해제 (이곳에서는 하지 않음)
+            else:
+                await m_send(f"⚠️ 자동 GM이 알 수 없는 action을 반환했습니다: {action}")
+                break
+
+        else:
+            # 루프 한도 도달 → 강제 PROCEED
+            await m_send(f"⚙️ 자동 GM 내부 루프 한도({MAX_ITERATIONS_PER_MESSAGE}) 도달 → 강제 PROCEED.")
+            if (session.auto_gm_turns_done + 1) >= session.auto_gm_turn_cap:
+                session.auto_gm_active = False
+                await m_send(
+                    f"🛑 **[자동 GM 마지막 턴]** 자동 턴 한도({session.auto_gm_turn_cap}턴) 도달."
+                )
+            await self._dispatch_proceed(session, "현재 상황에서 자연스럽게 다음 묘사를 이어가십시오.")
+            session.auto_gm_turns_done += 1
+            session.auto_gm_side_note = ""
             await core.save_session_data(self.bot, session)
+            if session.auto_gm_active:
+                await self._start_round(session)
 
-    # ---------- GM-Logic 호출 ----------
+        await core.save_session_data(self.bot, session)
+
+    # ─────────────────────────────────────────────────────────────
+    # GM-Logic 호출
+    # ─────────────────────────────────────────────────────────────
 
     async def _call_gm_logic(self, session, player_message: str, roll_results: list, master_ch) -> dict | None:
-        """
-        GM-Logic 모델 호출. DEFAULT_MODEL 사용.
-
-        Returns:
-            dict: 파싱된 결정 JSON. 실패 시 None.
-        """
+        """GM-Logic 모델 호출. DEFAULT_MODEL 사용."""
         user_prompt = _build_logic_user_prompt(session, player_message, roll_results)
 
         core.write_log(session.session_id, "api", f"[자동 GM Logic 요청 - Payload]\n{user_prompt}")
@@ -672,7 +866,7 @@ class AutoGMCog(commands.Cog):
                 await master_ch.send(f"⚠️ 자동 GM Logic 호출 실패: {type(e).__name__}")
             return None
 
-        # 비용 정산 + #13: 마스터 채널 비용 보고
+        # 비용 정산
         try:
             meta = response.usage_metadata
             in_tokens = getattr(meta, "prompt_token_count", 0) or 0
@@ -699,7 +893,6 @@ class AutoGMCog(commands.Cog):
                 f"→ {core.format_cost(cost)} (누적 {core.format_cost(session.total_cost)})"
             )
 
-            # #13: 마스터 채널에도 비용 보고
             if master_ch:
                 await master_ch.send(
                     f"💰 **[자동 GM 비용]** GM-Logic 호출\n"
@@ -713,7 +906,6 @@ class AutoGMCog(commands.Cog):
         try:
             decision = json.loads(raw_text)
         except json.JSONDecodeError:
-            # 모델이 코드 펜스로 감싼 경우 등 폴백 파싱
             cleaned = re.sub(r"^```(?:json)?\s*|\s*```$", "", raw_text.strip(), flags=re.MULTILINE)
             try:
                 decision = json.loads(cleaned)
@@ -729,15 +921,12 @@ class AutoGMCog(commands.Cog):
         )
         return decision
 
-    # ---------- ROLL 실행 및 버튼 디스패치 ----------
+    # ─────────────────────────────────────────────────────────────
+    # ROLL 실행 및 버튼 디스패치
+    # ─────────────────────────────────────────────────────────────
 
     async def _execute_rolls(self, session, rolls: list, game_ch) -> list[str]:
-        """
-        rolls 목록을 random.randint로 즉시 굴리고, 결과를 게임/마스터 채널 양쪽에 선언.
-
-        Returns:
-            list[str]: 다음 GM-Logic 호출 시 컨텍스트로 주입할 결과 문자열 목록.
-        """
+        """rolls 목록을 굴리고 결과를 게임·마스터 채널에 선언."""
         master_ch = self.bot.get_channel(session.master_ch_id)
         results: list[str] = []
 
@@ -747,7 +936,6 @@ class AutoGMCog(commands.Cog):
             sides = int(r.get("sides") or 20)
             weight = int(r.get("weight") or 0)
 
-            # 스탯 값 조회
             stat_value = None
             uid = core.get_uid_by_char_name(session, char_name)
             if uid:
@@ -788,7 +976,6 @@ class AutoGMCog(commands.Cog):
 
             if game_ch:
                 await game_ch.send(line)
-                # NOTE: 직접 send()는 stream_text_to_channel을 거치지 않으므로 명시적으로 로그 기록.
                 core.write_log(session.session_id, "game_chat", f"[판정]: {line}")
             if master_ch:
                 await master_ch.send(f"🤖 [자동 GM 굴림]\n{line}")
@@ -798,16 +985,11 @@ class AutoGMCog(commands.Cog):
         return results
 
     async def _dispatch_rolls(self, session, rolls: list, player_message: str, prior_roll_results: list):
-        """
-        #10: ROLL 결정 시 자동 굴림 대신 플레이어에게 버튼 UI를 전송.
-
-        버튼 클릭(또는 타임아웃) 후 AutoGMRollView가 _continue_with_roll_results를 호출한다.
-        """
+        """ROLL 결정 시 플레이어에게 버튼 UI 전송."""
         master_ch = self.bot.get_channel(session.master_ch_id)
         game_ch = self.bot.get_channel(session.game_ch_id)
         target_uid = core.get_uid_by_char_name(session, session.auto_gm_target_char)
 
-        # 판정 내용 요약 (버튼 메시지용)
         roll_descs = []
         for r in rolls:
             char_name = r.get("char_name") or session.auto_gm_target_char or "?"
@@ -855,14 +1037,12 @@ class AutoGMCog(commands.Cog):
                 f"🤖 **[자동 GM ROLL]** 플레이어 버튼 대기 중...\n> {desc_text}"
             )
 
-    # ---------- ROLL 결과 반영 계속 처리 ----------
+    # ─────────────────────────────────────────────────────────────
+    # ROLL 결과 반영 계속 처리
+    # ─────────────────────────────────────────────────────────────
 
     async def _continue_with_roll_results(self, session, player_message: str, roll_results: list):
-        """
-        AutoGMRollView 버튼 클릭 후 굴림 결과를 반영하여 GM-Logic을 재호출하고 PROCEED.
-
-        ROLL 결과가 나온 뒤 항상 PROCEED를 기대하지만, 안전을 위해 다른 action도 처리.
-        """
+        """AutoGMRollView 버튼 클릭 후 굴림 결과를 반영하여 GM-Logic 재호출."""
         master_ch = self.bot.get_channel(session.master_ch_id)
 
         async def m_send(content, **kw):
@@ -874,18 +1054,15 @@ class AutoGMCog(commands.Cog):
             if not session.auto_gm_active:
                 return
 
-            # 비용 한도 재확인
             used_cost = session.total_cost - session.auto_gm_cost_baseline
             if used_cost >= session.auto_gm_cost_cap_krw:
                 session.auto_gm_active = False
                 await m_send(
-                    f"🛑 **[자동 GM 자동 정지]** 자동 모드 누적 비용 한도 도달. "
-                    f"필요 시 한도 조정 후 `!자동시작`으로 재개하세요."
+                    f"🛑 **[자동 GM 자동 정지]** 자동 모드 누적 비용 한도 도달."
                 )
                 await core.save_session_data(self.bot, session)
                 return
 
-            # GM-Logic 재호출 (굴림 결과 반영)
             decision = await self._call_gm_logic(session, player_message, roll_results, master_ch)
             if not decision:
                 await m_send("⚠️ 자동 GM 결정 호출 실패. 이번 발언 스킵.")
@@ -911,20 +1088,23 @@ class AutoGMCog(commands.Cog):
             if not instruction:
                 instruction = "현재 상황에서 자연스럽게 다음 묘사를 이어가십시오."
 
-            # #15: 마지막 턴 체크
             if (session.auto_gm_turns_done + 1) >= session.auto_gm_turn_cap:
                 session.auto_gm_active = False
                 await m_send(
-                    f"🛑 **[자동 GM 마지막 턴]** 자동 턴 한도({session.auto_gm_turn_cap}턴) 도달. "
-                    f"이번 턴을 마지막으로 자동 진행을 정지합니다."
+                    f"🛑 **[자동 GM 마지막 턴]** 자동 턴 한도({session.auto_gm_turn_cap}턴) 도달."
                 )
 
             await self._dispatch_proceed(session, instruction)
             session.auto_gm_turns_done += 1
-            session.auto_gm_side_note = ""   # #14: PROCEED 완료 후 사이드 노트 해제
+            session.auto_gm_side_note = ""
             await core.save_session_data(self.bot, session)
+            # PROCEED 완료 → 다음 라운드 시작
+            if session.auto_gm_active:
+                await self._start_round(session)
 
-    # ---------- PROCEED 디스패치 ----------
+    # ─────────────────────────────────────────────────────────────
+    # PROCEED 디스패치
+    # ─────────────────────────────────────────────────────────────
 
     async def _dispatch_proceed(self, session, instruction: str):
         """기존 GameCog._execute_proceed를 호출하여 묘사 생성·연출."""
