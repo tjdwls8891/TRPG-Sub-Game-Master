@@ -190,32 +190,27 @@ class MediaCog(commands.Cog):
 
                 await core.save_session_data(self.bot, session)
 
-                # 비용 보고 메시지 조립 (디스코드 + 콘솔 공용)
-                lines = [
-                    "💰 **[비용 보고] 이미지 생성**",
-                    f"- 모델: {core.IMAGE_MODEL}",
-                    f"- 형식: {format_key} (비율 {target_ratio})  /  레퍼런스: {'사용' if ref_image else '미사용'}",
-                    f"- 입력 토큰: {prompt_tokens:,} → {core.format_cost(cost_breakdown['input_krw'])}",
-                    f"- 이미지 출력 토큰: {image_tokens:,} → {core.format_cost(cost_breakdown['image_krw'])}",
-                ]
-                if text_tokens:
-                    lines.append(
-                        f"- 텍스트 출력 토큰: {text_tokens:,} → {core.format_cost(cost_breakdown['text_krw'])}"
-                    )
-                lines.extend([
-                    f"- 출처: {usage_source}",
-                    f"- 턴 발생 비용: {core.format_cost(turn_cost)} ( ≈ ${cost_breakdown['total_usd']:.4f} )",
-                    f"- 누적 비용: {core.format_cost(session.total_cost)}",
-                ])
-                report_msg = "\n".join(lines)
+                print(f"\n[이미지 생성 비용] {filename_key} {core.format_cost(turn_cost)}")
+                _ref_label = "사용" if ref_image else "미사용"
+                _gen_embed = core.build_image_gen_cost_embed(
+                    label=f"이미지 생성 — {format_key}",
+                    model_id=core.IMAGE_MODEL,
+                    cost_breakdown=cost_breakdown,
+                    turn_cost=turn_cost,
+                    total_cost=session.total_cost,
+                    extra_fields=[
+                        ("형식", f"{format_key}  (비율 {target_ratio})", True),
+                        ("레퍼런스 이미지", _ref_label, True),
+                        ("출처", usage_source, False),
+                    ],
+                )
 
-                # 콘솔(실행 창) 출력
-                print(f"\n[이미지 생성 비용 보고] {filename_key}")
-                print(report_msg.replace("**", ""))
-
-                # 마스터 채널에 결과물과 비용 전송
-                await ctx.send(content=f"✅ 이미지 생성 및 로컬 에셋 매핑 완료: `{filename_key}`\n{report_msg}",
-                               file=discord.File(filepath))
+                # 마스터 채널에 결과물과 비용 임베드 전송
+                await ctx.send(
+                    content=f"✅ 이미지 생성 및 로컬 에셋 매핑 완료: `{filename_key}`",
+                    file=discord.File(filepath),
+                )
+                await ctx.send(embed=_gen_embed)
 
             except Exception as e:
                 # 에러의 정확한 타입(Class명)까지 출력

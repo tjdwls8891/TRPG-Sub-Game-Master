@@ -9,6 +9,24 @@ from google.genai import types
 # 코어 유틸리티 모듈 임포트
 import core
 
+# 프롬프트 중앙 등록소에서 AI 프롬프트 상수 및 빌더 임포트
+from prompts import (
+    GM_LOGIC_RESPONSE_SCHEMA,
+    GM_LOGIC_SYSTEM_INSTRUCTION,
+    NARRATIVE_PLAN_SCHEMA,
+    NARRATIVE_PLANNER_SYSTEM_INSTRUCTION,
+    build_narrate_prompt,
+    # 방안 B — 세계 물리 타임라인
+    WORLD_TIMELINE_EXTRACTION_SCHEMA,
+    WORLD_TIMELINE_EXTRACTOR_SYSTEM_INSTRUCTION,
+    # 방안 E — PROCEED 자기 검증
+    PROCEED_VERIFY_SCHEMA,
+    PROCEED_VERIFIER_SYSTEM_INSTRUCTION,
+    # 방안 6 — 2단계 사고 서사 방향성 시뮬레이터
+    NARRATIVE_DIRECTION_SCHEMA,
+    NARRATIVE_SIMULATOR_SYSTEM_INSTRUCTION,
+)
+
 
 # ========== [자동 GM 모드 상수] ==========
 # NOTE: GM-Logic 호출 시 한 플레이어 발언당 내부 루프 반복 상한.
@@ -24,148 +42,9 @@ MAX_NARRATE_PER_MESSAGE = 7
 COST_LOG_PREFIX = "[AUTO] "
 
 
-# ========== [GM-Logic 응답 스키마 (JSON Schema)] ==========
-GM_LOGIC_RESPONSE_SCHEMA = {
-    "type": "object",
-    "properties": {
-        "action": {
-            "type": "string",
-            "enum": ["ASK", "NARRATE", "ROLL", "PROCEED"],
-            "description": "다음에 수행할 단일 행동."
-        },
-        "bridge_message": {
-            "type": "string",
-            "description": "ASK일 때 게임 채널에 GM으로서 출력할 서사·질문 (150자 이내). 다른 action에서는 빈 문자열."
-        },
-        "narrate_instruction": {
-            "type": "string",
-            "description": "NARRATE일 때 경량 응답 LLM에 전달할 지시문 (100자 이내). 어떤 내용을 전달해야 하는지 기술. 예: '창고 내부 간략 묘사', '류가은 NPC 간단 소개', '열쇠를 집어든 결과'. 다른 action에서는 빈 문자열."
-        },
-        "rolls": {
-            "type": "array",
-            "description": "ROLL일 때 굴려야 할 판정 목록. 다른 action에서는 빈 배열.",
-            "items": {
-                "type": "object",
-                "properties": {
-                    "char_name": {"type": "string", "description": "굴림 대상 캐릭터 이름"},
-                    "stat": {"type": "string", "description": "기준 능력치 이름 (PC profile의 키)"},
-                    "sides": {"type": "integer", "description": "주사위 면 수 (보통 20)"},
-                    "weight": {"type": "integer", "description": "가중치(-5~+5 권장)"}
-                },
-                "required": ["char_name", "stat", "sides", "weight"]
-            }
-        },
-        "proceed_instruction": {
-            "type": "string",
-            "description": "PROCEED일 때 !진행 인자 형태 지시문. 자/태/상중하 태그 포함 가능. 다른 action에서는 빈 문자열."
-        },
-        "reasoning": {
-            "type": "string",
-            "description": "결정 근거 1~2문장 (디버그용)."
-        }
-    },
-    "required": ["action", "bridge_message", "narrate_instruction", "rolls", "proceed_instruction", "reasoning"]
-}
-
-# ========== [GM-Logic 시스템 지시문] ==========
-GM_LOGIC_SYSTEM_INSTRUCTION = """당신은 한국어 TRPG '자동 GM 모드'의 의사결정 엔진입니다.
-인간 GM이 자리를 비운 동안, 플레이어의 신규 발언을 받아 다음 단계를 결정합니다.
-
-[당신의 역할]
-당신은 '묘사를 직접 작성하지 않습니다'. 묘사는 별도의 메인 GM 모델이 PROCEED 단계에서 수행합니다.
-NARRATE의 경량 응답은 별도의 경량 LLM이 생성합니다. 당신은 지시문(narrate_instruction)만 제공합니다.
-당신의 출력은 JSON 결정문(action 디스패치)으로 한정됩니다.
-
-[가능한 action 4가지 — 정확히 하나만 선택]
-
-1. ASK
-   - 플레이어 의도가 모호하거나 정보가 부족할 때.
-   - bridge_message: 게임 채널에 GM으로서 출력하는 서사·질문 (150자 이내).
-     짧은 상황 묘사나 주변 묘사를 한 문장 덧붙인 뒤, 자연스러운 GM 어투로 의도를 물어볼 것.
-     예 1) "창고 한쪽에 기름때 묻은 쇠파이프가 눈에 들어옵니다. 그걸로 공격하시겠습니까, 아니면 다른 방법을 쓰시겠습니까?"
-     예 2) "문은 굳게 잠겨 있습니다. 정면 돌파를 시도하시겠습니까, 아니면 다른 경로를 찾아보시겠습니까?"
-     예 3) "표적이 등을 보이고 있습니다. 지금 바로 공격하시겠습니까?"
-   - bridge_message는 핵심 장면 묘사와 감정 표현이 중심이 되는 긴 내러티브가 되어서는 안 됩니다.
-     그런 묘사는 오직 PROCEED에서만 출력됩니다.
-
-2. NARRATE
-   - 플레이어의 질문에 답하거나, PROCEED 없이 해결 가능한 가벼운 상황 설명·NPC의 짧은 반응·경량 환경 묘사가 필요할 때.
-   - 예) "방 안에 뭐가 있어요?" / "저 NPC가 어떤 사람이에요?" / "열쇠를 집어들어요" (단순 행동·취득) / "문이 잠겼는지 확인해요"
-   - narrate_instruction: 경량 응답 LLM에 전달할 지시문 (100자 이내). 어떤 내용을 전달할지 구체적으로 기술.
-     예) "창고 내부 간략 묘사 — 책상·열쇠·깨진 창문", "류가은 NPC 간단 소개", "열쇠를 집어든 결과 묘사"
-   - NARRATE 이후 플레이어의 추가 발언을 기다린다.
-   - 주의: NARRATE를 단순 반복에 남용하지 말 것. 서사를 진전시킬 준비가 됐다면 즉시 PROCEED하라.
-   - [직전 NARRATE 횟수 / 한도] 필드를 참고하여 한도 초과 전에 스스로 PROCEED로 전환하라.
-
-3. ROLL
-   - 행동 수행에 능력치 판정이 필요할 때.
-   - rolls: 굴려야 할 판정 목록. 가중치는 -5~+5 범위에서 합리적으로 선택.
-   - 굴림 결과는 플레이어가 버튼을 눌러 산출하며, 결과가 다음 호출 컨텍스트에 주입됩니다.
-     당신은 결과 선언을 하지 않습니다.
-
-4. PROCEED
-   - 충분한 맥락이 모이고, 묘사를 진행할 준비가 끝났을 때.
-   - proceed_instruction: 인간 GM의 !진행 인자처럼 동작하는 지시문.
-
-   ■ 기본 작성 규칙
-   - 한국어 자연어 서술문으로만 작성. 마크다운 서식(##, **, -, >, 코드블럭 등) 절대 금지.
-   - 최소 2문장 이상 작성할 것. "A가 B를 한다." 한 줄 요약은 허용되지 않는다.
-   - 반드시 [플레이어 행동 결과] + [세계·환경·NPC의 능동 반응] 두 요소를 포함한다.
-   - 태그는 지시문 내 임의 위치에 삽입 가능. 서술문과 자연스럽게 섞어 쓸 것.
-     예) "자:정원모;물;-1 정원모가 총에 맞아 쓰러진다. 태:정원모;출혈"
-
-   ■ 자원·상태 태그 의무 검토 (매 PROCEED마다 아래를 확인하라)
-   ① 플레이어나 NPC가 물자를 소비·획득했는가? → 자:이름;아이템;수치 태그 추가
-   ② 부상·중독·탈진·이상 상태가 생겼거나 해소됐는가? → 태:이름;상태 / 태:이름;-상태 태그 추가
-   ③ 위 두 경우가 아닌 단순 이동·대화는 태그 없이 서술만 해도 된다.
-
-   [자원 변동 태그]
-   자:이름;아이템;수치
-   ※ 세미콜론으로 구분된 이름·아이템·수치 세 부분 필수. 수치는 정수.
-   예) 자:정원모;물;-1   자:임성진;탄약;-2   자:아서;체력포션;+1
-
-   [상태 태그]
-   태:이름;상태   (부여)  예) 태:정원모;출혈
-   태:이름;-상태  (제거)  예) 태:정원모;-출혈
-   ※ 상태 이름 끝에 마침표·쉼표·물음표 등 구두점 절대 금지.
-   ※ 틀린 예: 태:임성진;-지침.   맞는 예: 태:임성진;-지침
-
-   [이미지 삽입 태그]
-   상:키워드 / 중:키워드 / 하:키워드  (등록된 이미지 키워드를 묘사 위/중/아래에 삽입)
-   ※ 이미지 삽입 전용. 자원·상태 변동에는 반드시 자:/태: 태그를 사용하십시오.
-
-   ■ 능동 서사 원칙 (의무)
-   A) 플레이어 행동의 자연스러운 결과를 반영한다.
-   B) 세계·환경·NPC가 주도하는 신규 사건을 반드시 발생시킨다 (아래 중 하나 이상):
-      - 감염자 출현·이동·소리·군집 변화
-      - NPC의 예상치 못한 개입·이탈·태도 전환
-      - 환경 변화 (소음·화재·문 잠김·전력 차단·구조물 붕괴·날씨 변화)
-      - 타 세력의 움직임 또는 정보 노출
-      - 새로운 위협 또는 예상치 못한 기회
-   C) 플레이어가 단순 이동·대기·대화를 할 때도 반드시 어떤 변화가 생겨야 한다.
-   D) 소규모 파생 사건은 설정과 모순 없는 범위에서 자유롭게 생성 가능.
-      단, 주요 세력·이벤트를 임의로 종결·왜곡하는 것은 금지한다.
-
-   ■ 나쁜 예 vs 좋은 예
-   ✗ 나쁜 예: "정원모가 골목을 이동해 창고에 도착한다."
-   ✓ 좋은 예: "자:정원모;물;-1 정원모가 창고 셔터를 억지로 들어 올리는 순간, 안쪽에서 선반이 쓰러지는 둔탁한 충격음이 터진다. 잠시 뒤, 선반 너머 어둠 속에서 무언가 바닥을 긁는 소리가 가까워지기 시작한다."
-
-   ✗ 나쁜 예: "임성진이 경비원과 대화를 나눈다."
-   ✓ 좋은 예: "임성진이 말을 꺼내기도 전에 고참 경비가 손을 들어 막는다. 조선소 쪽에서 빠른 발소리가 이쪽으로 달려오고 있고, 경비들의 눈빛이 순식간에 날카로워진다."
-
-[엄격한 규칙]
-- 응답은 정확히 하나의 action만 가집니다.
-- 같은 플레이어 발언에 대해 ASK를 반복하지 마세요. 한 번 명확화한 뒤에는 PROCEED, ROLL, 또는 NARRATE로 진행합니다.
-- 시나리오 종결(엔딩) 판단은 절대 하지 마세요. 그것은 인간 GM의 권한입니다.
-- 출력은 반드시 지정된 JSON 스키마를 따릅니다. 추가 텍스트, 마크다운, 코드블럭 모두 금지.
-
-[결정 우선순위]
-1. 굴림 결과가 컨텍스트에 들어와 있음 → PROCEED (결과를 반영한 지시문 작성)
-2. 플레이어 발언이 명확한 행동 선언 + 판정이 필요 → ROLL
-3. 명확한 행동이지만 판정 불필요 (이동·접근·물건 획득·단순 대화 등) → PROCEED
-4. 플레이어가 질문하거나 가벼운 상황 확인·탐색 → NARRATE
-5. 의도 모호 → ASK (단, 직전에 ASK가 있었으면 PROCEED 또는 NARRATE로 진행)
-"""
+# NOTE: GM_LOGIC_RESPONSE_SCHEMA, GM_LOGIC_SYSTEM_INSTRUCTION,
+#       NARRATIVE_PLAN_SCHEMA, NARRATIVE_PLANNER_SYSTEM_INSTRUCTION 은
+#       prompts.py로 이동. 위 import 블록에서 불러옵니다.
 
 
 # ========== [유틸리티 함수] ==========
@@ -189,7 +68,8 @@ def _clean_proceed_instruction(instruction: str) -> str:
     return re.sub(r'\s+', ' ', result).strip()
 
 
-def _build_logic_user_prompt(session, player_message: str, roll_results: list) -> str:
+def _build_logic_user_prompt(session, player_message: str, roll_results: list,
+                              sim_result: dict | None = None) -> str:
     """
     GM-Logic 호출용 사용자 프롬프트 조립.
 
@@ -197,6 +77,7 @@ def _build_logic_user_prompt(session, player_message: str, roll_results: list) -
         session: TRPGSession
         player_message (str): 플레이어 신규 발언 (멀티플레이어 시 종합 텍스트)
         roll_results (list[str]): 직전 ROLL 결과 문자열 목록 (재호출 시 누적)
+        sim_result (dict | None): 방안 6 서사 시뮬레이터 결과. None이면 블록 생략.
     """
     target_char = session.auto_gm_target_char or "(미지정)"
     side_note = session.auto_gm_side_note or ""
@@ -223,17 +104,84 @@ def _build_logic_user_prompt(session, player_message: str, roll_results: list) -
             pc_profile_summary = stats
             break
 
+    # 스탯 적용 분야 설명 (시나리오에 stat_descriptions 가 있으면 주입 — ROLL 판정 스탯 선택 보조)
+    stat_descs: dict = session.scenario_data.get("stat_descriptions") or {}
+    stat_desc_line = ""
+    if stat_descs:
+        stat_desc_line = "  (" + " / ".join([f"{k}: {v}" for k, v in stat_descs.items()]) + ")"
+
     # 자원·상태
     res = session.resources.get(target_char, {}) if target_char else {}
     sta = session.statuses.get(target_char, []) if target_char else []
     res_str = ", ".join([f"{k}:{v}" for k, v in res.items()]) or "(없음)"
     sta_str = ", ".join(sta) or "(없음)"
 
+    # 서사 계획 블록 (2단계: mid_plan + 순간 계획)
+    narrative_plan = getattr(session, "narrative_plan", {})
+    if narrative_plan:
+        current = narrative_plan.get("current_event", {})
+        next_ev = narrative_plan.get("next_event", {})
+        mid     = narrative_plan.get("mid_plan", {})
+
+        if mid:
+            milestones = mid.get("milestones", [])
+            ms_str = " → ".join(milestones) if milestones else "(없음)"
+            mid_block = (
+                f"■ 중규모 진행 방향: {mid.get('title', '?')}\n"
+                f"  · 전체 흐름: {mid.get('overview', '')}\n"
+                f"  · 이정표 순서: {ms_str}\n"
+                f"  · 완료 조건: {mid.get('end_condition', '')}\n"
+            )
+        else:
+            mid_block = ""
+
+        narrative_block = (
+            "\n[현재 서사 계획 — proceed_instruction 및 event_assessment 결정 시 반드시 참고]\n"
+            + mid_block +
+            f"■ 현재 순간 사건: {current.get('title', '?')}\n"
+            f"  · 상황: {current.get('summary', '')}\n"
+            f"  · 마무리 방향: {current.get('resolution_direction', '')}\n"
+            f"■ 다음 순간 사건 (참고용): {next_ev.get('title', '?')}\n"
+            f"  · 개요: {next_ev.get('summary', '')}\n"
+            f"  · 시작 조건: {next_ev.get('trigger', '')}\n"
+        )
+    else:
+        narrative_block = ""
+
     roll_block = ""
     if roll_results:
         roll_block = "\n[직전 굴림 결과 (반드시 반영하여 PROCEED를 작성)]\n" + "\n".join(roll_results)
 
     note_block = f"\n[GM 사이드 노트 (이번 턴 적용)]\n{side_note}\n" if side_note else ""
+
+    # 최근 5회 PROCEED 이력 블록 조립
+    # NOTE: 각 PROCEED의 지시사항 + 중간 컨텍스트(NARRATE/ASK/ROLL) + AI 묘사 출력 요약 포함.
+    # GM-Logic이 직전 묘사 흐름을 인지하여 동일 상황 반복·정체를 방지하기 위함.
+    proceed_history = getattr(session, "auto_gm_proceed_history", [])
+    if proceed_history:
+        ph_lines = []
+        for i, entry in enumerate(proceed_history):
+            turn_num = entry.get("turn_num", "?")
+            instr = entry.get("instruction", "(없음)")
+            ctx = entry.get("context", [])
+            ai_out = entry.get("ai_summary", "")
+            tag = "← 직전 PROCEED" if i == len(proceed_history) - 1 else ""
+            ph_lines.append(f"  ─ PROCEED #{i + 1} (턴 {turn_num}) {tag}")
+            ph_lines.append(f"    [지시사항] {instr[:200]}")
+            if ctx:
+                ph_lines.append("    [중간 컨텍스트 (NARRATE/ASK/ROLL)]")
+                for c in ctx[:8]:  # 최대 8줄
+                    ph_lines.append(f"      {c[:130]}")
+            if ai_out:
+                ph_lines.append("    [AI 묘사 출력 요약]")
+                ph_lines.append(f"      {ai_out[:400]}")
+        proceed_history_block = (
+            "\n[최근 PROCEED 이력 — 반복·정체 방지 참고]\n"
+            + "\n".join(ph_lines)
+            + "\n"
+        )
+    else:
+        proceed_history_block = ""
 
     # NOTE: 이번 턴에 누적된 플레이어 발언·ASK 브리지·주사위 결과를 컨텍스트에 포함.
     # ASK→플레이어 응답→ASK→... 연쇄 대화를 GM-Logic이 인지해야 중복 질문을 방지할 수 있음.
@@ -244,6 +192,85 @@ def _build_logic_user_prompt(session, player_message: str, roll_results: list) -
             + "\n".join(session.current_turn_logs)
             + "\n"
         )
+
+    # 장소 이미지 목록 (상: 태그 사용 시 이 목록에서만 선택 가능)
+    location_images: dict = session.scenario_data.get("location_images", {})
+    if location_images:
+        loc_lines = [f"  - {kw}: {desc}" for kw, desc in location_images.items()]
+        location_images_block = (
+            "\n[사용 가능한 장소 이미지 목록 — 상:키워드 태그 선택 시 이 목록에서만 고를 것]\n"
+            "(새로운 장면·장소로 전환될 때 PROCEED의 proceed_instruction 맨 앞에 '상:키워드'를 삽입하라.)\n"
+            + "\n".join(loc_lines) + "\n"
+        )
+    else:
+        location_images_block = ""
+
+    # 유효 상태이상 목록 (태: 태그 사용 시 이 목록에서만 선택 가능)
+    merged_statuses = core.get_merged_status_effects(session.scenario_data)
+    if merged_statuses:
+        status_list_lines = []
+        for sname, seff in merged_statuses.items():
+            w = seff.get("weight", 0)
+            w_str = f"가중치 {w:+d}" if w != 0 else "가중치 없음"
+            status_list_lines.append(f"  - {sname}: 적용조건=[{seff.get('apply_condition', '')}] / {w_str} / 제거조건=[{seff.get('remove_condition', '')}]")
+        valid_status_block = (
+            "\n[유효 상태이상 목록 — 태: 태그는 이 목록에 있는 이름만 사용 가능]\n"
+            + "\n".join(status_list_lines) + "\n"
+        )
+    else:
+        valid_status_block = ""
+
+    # 압축 기억 (이전 턴 맥락 — 초기 장면·지난 사건 요약 포함)
+    _mem = (
+        session.compressed_memory
+        or getattr(session, "cached_compressed_memory", "")
+        or ""
+    )
+    memory_block = f"\n[압축 기억 — 이전 턴 요약]\n{_mem[:800]}\n" if _mem else ""
+
+    # 세계 물리 타임라인 블록 (방안 B)
+    world_tl = getattr(session, "world_timeline", {})
+    if world_tl:
+        world_tl_block = (
+            "\n[현재 세계 상태 — 세력 배치·지역 규칙 기반 개연성 판단의 기준]\n"
+            f"위치: {world_tl.get('current_location', '(미확인)')}\n"
+            f"시간대: {world_tl.get('time_of_day', '(미확인)')} "
+            f"| 날씨: {world_tl.get('weather', '(미확인)')}\n"
+            f"세력/지역 컨텍스트: {world_tl.get('faction_context', '(미확인)')}\n"
+            f"알려진 위협: {world_tl.get('known_threats', '없음')}\n"
+            f"환경: {world_tl.get('environmental_note', '없음')}\n"
+            f"(마지막 갱신: 턴 {world_tl.get('last_updated_turn', '?')})\n"
+        )
+    else:
+        world_tl_block = ""
+
+    # 서사 방향성 시뮬레이션 블록 (방안 6)
+    if sim_result:
+        world_analysis = sim_result.get("world_state_analysis", "")
+        dirs = sim_result.get("directions", [])
+        if dirs:
+            dir_lines = []
+            for d in dirs:
+                p = d.get("plausibility", "?")
+                plaus_label = {"high": "🟢높음", "medium": "🟡중간",
+                               "low": "🔴낮음", "impossible": "⛔불가"}.get(p, p)
+                dir_lines.append(
+                    f"  [{plaus_label}] {d.get('title', '?')}: {d.get('description', '')}\n"
+                    f"    근거: {d.get('world_basis', '')}\n"
+                    + (f"    제약: {d.get('narrative_constraint', '')}\n"
+                       if d.get("narrative_constraint") else "")
+                )
+            sim_block = (
+                "\n[서사 방향성 시뮬레이션 — 세계관 논리 기반 개연성 판단 참고]\n"
+                + (f"세계 상태: {world_analysis}\n" if world_analysis else "")
+                + "\n".join(dir_lines)
+                + "\n※ impossible 방향은 세계관상 발생 불가. "
+                  "GM-Logic은 이 분석을 proceed_instruction 및 event_assessment에 반드시 반영할 것.\n"
+            )
+        else:
+            sim_block = ""
+    else:
+        sim_block = ""
 
     # 멀티플레이어 정보 (여러 PC가 있을 때 모두 표시)
     target_chars = getattr(session, "auto_gm_target_chars", [])
@@ -260,15 +287,15 @@ def _build_logic_user_prompt(session, player_message: str, roll_results: list) -
 
     return f"""[현재 턴 #]: {session.turn_count + 1}
 [대상 PC]: {target_char}
-[PC 프로필]: {pc_profile_summary or "(미설정)"}
+[PC 프로필]: {pc_profile_summary or "(미설정)"}{stat_desc_line}
 [PC 자원]: {res_str}
 [PC 상태]: {sta_str}
 [직전 ASK 횟수 / 한도]: {clarify_count} / {MAX_CLARIFY_PER_MESSAGE}
 [직전 NARRATE 횟수 / 한도]: {narrate_count} / {MAX_NARRATE_PER_MESSAGE}
-{multi_info}{note_block}
+{multi_info}{note_block}{world_tl_block}{memory_block}
 [최근 6턴 컨텍스트]
 {recent_logs_str}
-{current_turn_block}
+{current_turn_block}{proceed_history_block}{narrative_block}{sim_block}{location_images_block}{valid_status_block}
 {roll_block}
 
 [플레이어 신규 발언]
@@ -401,19 +428,30 @@ class AutoGMCog(commands.Cog):
         session.auto_gm_pending_players = []
         session.auto_gm_collected_actions = {}
         session.auto_gm_waiting_for = None
+        # NOTE: 최근 5회 PROCEED 이력 (지시사항 + 중간 컨텍스트 + AI 출력 요약).
+        # GM-Logic 프롬프트에 주입되어 서사 반복·정체를 방지한다. 봇 재시작 시 초기화 허용.
+        session.auto_gm_proceed_history = []
         await core.save_session_data(self.bot, session)
 
+        has_existing_plan = bool(session.narrative_plan)
+        plan_note = (
+            f"- 서사 계획: 기존 계획 유지 (v{session.narrative_plan.get('plan_version', '?')})"
+            if has_existing_plan else
+            "- 서사 계획: 수립 중... (백그라운드에서 진행)"
+        )
         await ctx.send(
             f"🤖 **[자동 GM 모드 활성화]**\n"
             f"- 대상 PC: **{', '.join(target_chars)}**\n"
             f"- 자동 턴 한도: {session.auto_gm_turn_cap}턴\n"
             f"- 자동 누적 비용 한도: {core.format_cost(session.auto_gm_cost_cap_krw)}\n"
+            f"{plan_note}\n"
             f"- PROCEED 완료 후 GM이 선제적으로 행동을 물어봅니다.\n"
-            f"- 중단: `!자동중단`  /  GM에게 메모: `!자동개입 [텍스트]`"
+            f"- 중단: `!자동중단`  /  GM에게 메모: `!자동개입 [텍스트]`\n"
+            f"- 서사 확인: `!서사계획`  /  강제 재계획: `!서사재계획`"
         )
 
-        # 활성화 직후 첫 라운드 즉시 시작 (선제 행동 질문)
-        await self._start_round(session)
+        # 활성화 직후: 서사 계획 수립 후 첫 라운드 시작 (백그라운드 태스크)
+        asyncio.create_task(self._init_narrative_and_start(session))
 
     @commands.command(name="자동중단")
     async def auto_stop(self, ctx):
@@ -575,7 +613,7 @@ class AutoGMCog(commands.Cog):
             ])
             prompt = f"{mention}, 현재까지 행동 선언: {others}\n{mention}은(는) 어떻게 하시겠습니까?"
         else:
-            prompt = f"{mention}, 이번에는 어떤 행동을 하거나 말을 하시겠습니까?"
+            prompt = f"{mention}님 턴입니다. 어떤 행동을 하시겠습니까?"
 
         if game_ch:
             await core.stream_text_to_channel(
@@ -744,13 +782,30 @@ class AutoGMCog(commands.Cog):
 
         game_ch = self.bot.get_channel(session.game_ch_id)
 
+        # ── 방안 6: 서사 방향성 시뮬레이션 (첫 번째 GM-Logic 호출 전) ──
+        # 캐시가 유효할 때만 실행 (세계관 문맥이 없으면 고차원 판단 불가)
+        sim_result: dict | None = None
+        cache_name  = getattr(session, "cache_name",  None)
+        cache_model = getattr(session, "cache_model", None)
+        if cache_name and cache_model == core.DEFAULT_MODEL:
+            try:
+                sim_result = await self._simulate_narrative_directions(session, player_message, master_ch)
+            except Exception as e:
+                print(f"[AutoGM] 서사 시뮬레이션 실패(무시): {e}")
+                sim_result = None
+
         for iteration in range(MAX_ITERATIONS_PER_MESSAGE):
+            # 첫 번째 호출에만 sim_result 주입, 이후는 None (중복 비용 방지)
+            current_sim = sim_result if iteration == 0 else None
+
             # GM-Logic 호출 동안 게임 채널에 입력 중 표시 (PROCEED와 일관성)
             if game_ch:
                 async with game_ch.typing():
-                    decision = await self._call_gm_logic(session, player_message, roll_results, master_ch)
+                    decision = await self._call_gm_logic(session, player_message, roll_results,
+                                                          master_ch, sim_result=current_sim)
             else:
-                decision = await self._call_gm_logic(session, player_message, roll_results, master_ch)
+                decision = await self._call_gm_logic(session, player_message, roll_results,
+                                                      master_ch, sim_result=current_sim)
 
             if not decision:
                 await m_send("⚠️ 자동 GM 결정 호출 실패. 이번 발언을 스킵합니다.")
@@ -877,6 +932,11 @@ class AutoGMCog(commands.Cog):
                 if not instruction:
                     instruction = "현재 상황에서 자연스럽게 다음 묘사를 이어가십시오."
 
+                # ── 방안 E: PROCEED 지시사항 자기 검증 ──
+                instruction = await self._verify_proceed_instruction(
+                    session, instruction, player_message, master_ch
+                )
+
                 if (session.auto_gm_turns_done + 1) >= session.auto_gm_turn_cap:
                     session.auto_gm_active = False
                     await m_send(
@@ -885,6 +945,11 @@ class AutoGMCog(commands.Cog):
                     )
 
                 await self._dispatch_proceed(session, instruction)
+
+                # 서사 사건 평가 → 진행도 갱신 + 필요 시 재계획
+                event_assessment = decision.get("event_assessment", "ongoing")
+                await self._update_narrative_progress(session, event_assessment, master_ch)
+
                 session.auto_gm_narrate_count = 0
                 session.auto_gm_turns_done += 1
                 session.auto_gm_side_note = ""
@@ -920,25 +985,74 @@ class AutoGMCog(commands.Cog):
     # GM-Logic 호출
     # ─────────────────────────────────────────────────────────────
 
-    async def _call_gm_logic(self, session, player_message: str, roll_results: list, master_ch) -> dict | None:
-        """GM-Logic 모델 호출. DEFAULT_MODEL 사용."""
-        user_prompt = _build_logic_user_prompt(session, player_message, roll_results)
+    async def _call_gm_logic(self, session, player_message: str, roll_results: list,
+                              master_ch, sim_result: dict | None = None) -> dict | None:
+        """
+        GM-Logic 모델 호출. DEFAULT_MODEL 사용.
+
+        [캐시 활용 전략]
+        세션 캐시(scenario_data + NPC 사전 + 세계관)가 유효한 경우, cached_content로 호출하여
+        GM-Logic이 시나리오 전체 컨텍스트를 읽도록 한다.
+
+        cached_content 사용 시 GenerateContentConfig에 system_instruction을 지정할 수 없으므로,
+        GM_LOGIC_SYSTEM_INSTRUCTION을 contents 배열의 첫 user 메시지로 주입한다:
+          contents[0] user  : GM_LOGIC_SYSTEM_INSTRUCTION  (의사결정 엔진 역할 지시)
+          contents[1] model : 수락 응답 (대화 구조 유지용 단문)
+          contents[2] user  : _build_logic_user_prompt()   (현재 상황 + 플레이어 발언)
+
+        캐시가 없거나 모델 불일치 시 system_instruction 방식으로 폴백.
+
+        Args:
+            sim_result: 방안 6 서사 시뮬레이터 결과 (첫 번째 호출에만 주입, 이후 None)
+        """
+        user_prompt = _build_logic_user_prompt(session, player_message, roll_results,
+                                                sim_result=sim_result)
 
         core.write_log(session.session_id, "api", f"[자동 GM Logic 요청 - Payload]\n{user_prompt}")
 
+        # 캐시 활용 가능 여부 판단
+        cache_name  = getattr(session, "cache_name",  None)
+        cache_model = getattr(session, "cache_model", None)
+        use_cache   = bool(cache_name and cache_model == core.DEFAULT_MODEL)
+
         try:
-            config = types.GenerateContentConfig(
-                system_instruction=GM_LOGIC_SYSTEM_INSTRUCTION,
-                temperature=0.4,
-                response_mime_type="application/json",
-                response_schema=GM_LOGIC_RESPONSE_SCHEMA,
-                safety_settings=core.TRPG_SAFETY_SETTINGS,
-            )
+            if use_cache:
+                # ── 캐시 활용 경로 ──
+                # cached_content 사용 시 system_instruction 설정 불가.
+                # GM_LOGIC_SYSTEM_INSTRUCTION을 user 턴으로 삽입하여 동일 효과를 얻는다.
+                logic_contents = [
+                    types.Content(role="user",
+                                  parts=[types.Part.from_text(text=GM_LOGIC_SYSTEM_INSTRUCTION)]),
+                    types.Content(role="model",
+                                  parts=[types.Part.from_text(
+                                      text="이해했습니다. 지시사항에 따라 JSON 형식으로만 응답하겠습니다.")]),
+                    types.Content(role="user",
+                                  parts=[types.Part.from_text(text=user_prompt)]),
+                ]
+                config = types.GenerateContentConfig(
+                    cached_content=cache_name,
+                    temperature=0.4,
+                    response_mime_type="application/json",
+                    response_schema=GM_LOGIC_RESPONSE_SCHEMA,
+                    safety_settings=core.TRPG_SAFETY_SETTINGS,
+                )
+            else:
+                # ── 폴백: 캐시 없음 / 모델 불일치 ──
+                logic_contents = [
+                    types.Content(role="user", parts=[types.Part.from_text(text=user_prompt)])
+                ]
+                config = types.GenerateContentConfig(
+                    system_instruction=GM_LOGIC_SYSTEM_INSTRUCTION,
+                    temperature=0.4,
+                    response_mime_type="application/json",
+                    response_schema=GM_LOGIC_RESPONSE_SCHEMA,
+                    safety_settings=core.TRPG_SAFETY_SETTINGS,
+                )
 
             response = await asyncio.to_thread(
                 self.bot.genai_client.models.generate_content,
                 model=core.DEFAULT_MODEL,
-                contents=[types.Content(role="user", parts=[types.Part.from_text(text=user_prompt)])],
+                contents=logic_contents,
                 config=config,
             )
         except Exception as e:
@@ -968,18 +1082,16 @@ class AutoGMCog(commands.Cog):
                 in_tokens, cached_tokens, out_tokens, cost, session.total_cost
             )
 
+            cache_tag = "캐시O" if use_cache else "캐시X"
             print(
-                f"[AutoGM/{session.session_id}] Logic 비용: "
+                f"[AutoGM/{session.session_id}] Logic 비용({cache_tag}): "
                 f"In={in_tokens:,} Cached={cached_tokens:,} Out={out_tokens:,} "
                 f"→ {core.format_cost(cost)} (누적 {core.format_cost(session.total_cost)})"
             )
-
-            if master_ch:
-                await master_ch.send(
-                    f"💰 **[자동 GM 비용]** GM-Logic 호출\n"
-                    f"- 입력 {in_tokens:,} / 출력 {out_tokens:,} 토큰 (캐시 {cached_tokens:,})\n"
-                    f"- 발생: {core.format_cost(cost)} | 누적: {core.format_cost(session.total_cost)}"
-                )
+            # 턴 진행 배치 로그에 누적 (PROCEED 직전 플러시)
+            if not hasattr(session, "turn_cost_log"):
+                session.turn_cost_log = []
+            session.turn_cost_log.append({"label": f"GM-Logic 판단({cache_tag})", "cost": cost})
         except Exception as e:
             print(f"[AutoGM] Logic 비용 정산 실패: {e}")
 
@@ -1057,6 +1169,17 @@ class AutoGMCog(commands.Cog):
 
             if game_ch:
                 await game_ch.send(line)
+                # 판정 결과 안내 메시지 (stat_value가 확인된 경우에만 출력)
+                if stat_value is not None:
+                    if "대성공" in crit:
+                        announce = f"> 🌟 **{stat_name}** 판정이 **대성공**했습니다!"
+                    elif "대실패" in crit:
+                        announce = f"> 💥 **{stat_name}** 판정이 **대실패**했습니다!"
+                    elif is_success:
+                        announce = f"> ✅ **{stat_name}** 판정이 성공했습니다."
+                    else:
+                        announce = f"> ❌ **{stat_name}** 판정이 실패했습니다."
+                    await game_ch.send(announce)
                 core.write_log(session.session_id, "game_chat", f"[판정]: {line}")
             if master_ch:
                 await master_ch.send(f"🤖 [자동 GM 굴림]\n{line}")
@@ -1176,6 +1299,11 @@ class AutoGMCog(commands.Cog):
                 )
 
             await self._dispatch_proceed(session, instruction)
+
+            # 서사 사건 평가 → 진행도 갱신 + 필요 시 재계획
+            event_assessment = decision.get("event_assessment", "ongoing")
+            await self._update_narrative_progress(session, event_assessment, master_ch)
+
             session.auto_gm_turns_done += 1
             session.auto_gm_side_note = ""
             await core.save_session_data(self.bot, session)
@@ -1220,18 +1348,7 @@ class AutoGMCog(commands.Cog):
         # 이번 턴 현재까지 누적된 대화
         current_turn_str = "\n".join(session.current_turn_logs) if session.current_turn_logs else "(없음)"
 
-        narrate_prompt = (
-            f"[최근 게임 로그]\n{recent_str}\n\n"
-            f"[이번 턴 누적 대화]\n{current_turn_str}\n\n"
-            f"[지시사항]\n{narrate_instruction}\n\n"
-            "[출력 규칙 — 반드시 준수]\n"
-            "- 1~2문장만 출력한다. 그 이상은 절대 금지.\n"
-            "- 순수 서술문만 허용. 인물 대사(@대사: 마커) 출력 금지.\n"
-            "- 코드블럭(```) 출력 금지.\n"
-            "- 마크다운 헤더(##), 굵은 글씨(**) 사용 금지.\n"
-            "- 장문 묘사, 상황 전개, 새로운 사건 창작 금지. 현재 상태를 짧게 확인·설명하는 것으로 한정.\n"
-            "위 규칙을 어기면 출력 전체가 무효 처리됩니다."
-        )
+        narrate_prompt = build_narrate_prompt(recent_str, current_turn_str, narrate_instruction)
 
         core.write_log(session.session_id, "api", f"[자동 GM NARRATE 요청]\n{narrate_prompt}")
 
@@ -1302,13 +1419,10 @@ class AutoGMCog(commands.Cog):
                 f"In={in_tokens:,} Cached={cached_tokens:,} Out={out_tokens:,} "
                 f"→ {core.format_cost(cost)} (누적 {core.format_cost(session.total_cost)})"
             )
-
-            if master_ch:
-                await master_ch.send(
-                    f"💰 **[자동 GM 비용]** NARRATE 경량 응답 (자동 GM)\n"
-                    f"- 입력 {in_tokens:,} / 출력 {out_tokens:,} 토큰 (캐시 {cached_tokens:,})\n"
-                    f"- 발생: {core.format_cost(cost)} | 누적: {core.format_cost(session.total_cost)}"
-                )
+            # 턴 진행 배치 로그에 누적 (PROCEED 직전 플러시)
+            if not hasattr(session, "turn_cost_log"):
+                session.turn_cost_log = []
+            session.turn_cost_log.append({"label": "NARRATE 경량 응답", "cost": cost})
         except Exception as e:
             print(f"[AutoGM] NARRATE 비용 정산 실패: {e}")
 
@@ -1362,9 +1476,744 @@ class AutoGMCog(commands.Cog):
         if master_ch:
             await master_ch.send(f"🤖 **[자동 GM PROCEED]**\n> {instruction[:300]}")
 
-        return await game_cog._execute_proceed(
+        # NOTE: PROCEED 직전에 이번 턴 컨텍스트(NARRATE/ASK/ROLL 중간 기록)와 지시사항을 스냅샷.
+        # _execute_proceed 내부에서 current_turn_logs가 초기화되므로 반드시 먼저 캡처해야 함.
+        context_snapshot = list(session.current_turn_logs)
+        prev_raw_count = len(session.raw_logs)
+
+        result = await game_cog._execute_proceed(
             session, instruction, master_guild=None, cost_log_prefix=COST_LOG_PREFIX
         )
+
+        # PROCEED 완료 후 AI 출력 요약 (최대 500자)
+        ai_summary = ""
+        new_entries = session.raw_logs[prev_raw_count:]
+        for content in reversed(new_entries):
+            if getattr(content, "role", None) == "model":
+                try:
+                    text = content.parts[0].text
+                    ai_summary = text[:500] + ("..." if len(text) > 500 else "")
+                except Exception:
+                    pass
+                break
+
+        # 이력 누적 (최근 5개 유지)
+        if not hasattr(session, "auto_gm_proceed_history"):
+            session.auto_gm_proceed_history = []
+        session.auto_gm_proceed_history.append({
+            "turn_num": session.turn_count,
+            "instruction": instruction,
+            "context": context_snapshot,
+            "ai_summary": ai_summary,
+        })
+        if len(session.auto_gm_proceed_history) > 5:
+            session.auto_gm_proceed_history = session.auto_gm_proceed_history[-5:]
+
+        # [방안 2] narrative_plan.current_event.progress 자동 갱신
+        # ai_summary 앞 150자를 현재 진행 상황 한줄 메모로 덮어씀.
+        if ai_summary and getattr(session, "narrative_plan", {}).get("current_event"):
+            session.narrative_plan["current_event"]["progress"] = ai_summary[:150]
+
+        # ── 방안 B: 세계 물리 타임라인 갱신 (백그라운드 태스크) ──
+        # ai_summary가 있을 때만 추출 실행. 실패해도 게임 진행에 영향 없음.
+        if ai_summary:
+            asyncio.create_task(self._update_world_timeline(session, ai_summary))
+
+        return result
+
+
+    # ─────────────────────────────────────────────────────────────
+    # 방안 B — 세계 물리 타임라인 갱신
+    # ─────────────────────────────────────────────────────────────
+
+    async def _update_world_timeline(self, session, ai_output_text: str):
+        """
+        PROCEED 완료 후 AI 묘사 텍스트를 분석하여 session.world_timeline을 갱신한다.
+        백그라운드 태스크로 실행됨. 실패해도 게임 진행에 영향 없음.
+
+        [추출 목표]
+        단순 감각 묘사가 아닌, 세계관 세력 배치·지역 규칙에 근거한 세계 상태를 기록한다.
+        GM-Logic의 고차원 개연성 판단(방안 6)의 기준 데이터로 활용된다.
+        """
+        existing_tl = getattr(session, "world_timeline", {})
+        existing_summary = (
+            f"기존: 위치={existing_tl.get('current_location', '미확인')}, "
+            f"시간대={existing_tl.get('time_of_day', '미확인')}, "
+            f"세력={existing_tl.get('faction_context', '미확인')}"
+        ) if existing_tl else "(없음)"
+
+        user_prompt = (
+            f"[기존 세계 상태]\n{existing_summary}\n\n"
+            f"[이번 묘사 텍스트]\n{ai_output_text[:600]}\n\n"
+            f"[시나리오 세계관 핵심 요소]\n"
+            f"{str(session.scenario_data.get('worldview', ''))[:400]}\n\n"
+            "위 묘사에서 세계 물리 상태를 추출하여 갱신하십시오.\n"
+            "세력·지역 규칙 등 세계관 논리가 확인 가능한 경우 반드시 faction_context에 명시하십시오."
+        )
+
+        try:
+            config = types.GenerateContentConfig(
+                system_instruction=WORLD_TIMELINE_EXTRACTOR_SYSTEM_INSTRUCTION,
+                temperature=0.2,
+                response_mime_type="application/json",
+                response_schema=WORLD_TIMELINE_EXTRACTION_SCHEMA,
+                safety_settings=core.TRPG_SAFETY_SETTINGS,
+            )
+            response = await asyncio.to_thread(
+                self.bot.genai_client.models.generate_content,
+                model=core.LOGIC_MODEL,
+                contents=[types.Content(role="user",
+                                        parts=[types.Part.from_text(text=user_prompt)])],
+                config=config,
+            )
+        except Exception as e:
+            print(f"[AutoGM] 세계 타임라인 추출 실패: {e}")
+            return
+
+        # 비용 정산
+        try:
+            meta = response.usage_metadata
+            in_tokens  = getattr(meta, "prompt_token_count", 0) or 0
+            out_tokens = getattr(meta, "candidates_token_count", 0) or 0
+            breakdown  = core.calculate_text_gen_cost_breakdown(
+                core.LOGIC_MODEL, input_tokens=in_tokens, output_tokens=out_tokens)
+            cost = breakdown["total_krw"]
+            session.total_cost += cost
+            core.write_cost_log(session.session_id, f"{COST_LOG_PREFIX}세계 타임라인 갱신",
+                                 in_tokens, 0, out_tokens, cost, session.total_cost)
+        except Exception:
+            pass
+
+        raw_text = response.text or ""
+        try:
+            extracted = json.loads(raw_text)
+        except json.JSONDecodeError:
+            cleaned = re.sub(r"^```(?:json)?\s*|\s*```$", "", raw_text.strip(), flags=re.MULTILINE)
+            try:
+                extracted = json.loads(cleaned)
+            except Exception as e:
+                print(f"[AutoGM] 세계 타임라인 JSON 파싱 실패: {e}")
+                return
+
+        # 기존 타임라인과 병합 (빈 문자열 필드는 기존 값 유지)
+        updated = dict(existing_tl)
+        for key, value in extracted.items():
+            if value != "" and value is not None:
+                updated[key] = value
+
+        # 누적 경과 시간 합산
+        elapsed = int(extracted.get("elapsed_minutes", 0) or 0)
+        updated["elapsed_minutes"] = int(existing_tl.get("elapsed_minutes", 0) or 0) + elapsed
+        updated["last_updated_turn"] = session.turn_count
+
+        session.world_timeline = updated
+        print(f"[AutoGM/{session.session_id}] 세계 타임라인 갱신: {updated.get('current_location', '?')} / "
+              f"{updated.get('faction_context', '?')[:60]}")
+        await core.save_session_data(self.bot, session)
+
+    # ─────────────────────────────────────────────────────────────
+    # 방안 E — PROCEED 지시사항 자기 검증
+    # ─────────────────────────────────────────────────────────────
+
+    async def _verify_proceed_instruction(self, session, instruction: str,
+                                           player_message: str, master_ch) -> str:
+        """
+        GM-Logic이 생성한 proceed_instruction에서 플레이어 자율성 침해 여부를 검증한다.
+        위반 감지 시 corrected_instruction으로 교체하고 마스터 채널에 알림.
+
+        Args:
+            instruction (str): GM-Logic이 생성한 proceed_instruction
+            player_message (str): 플레이어의 원본 발언 (선언된 행동 확인용)
+
+        Returns:
+            str: 검증 통과 또는 수정된 proceed_instruction
+        """
+        user_prompt = (
+            f"[플레이어 선언 행동]\n{player_message}\n\n"
+            f"[GM proceed_instruction]\n{instruction}\n\n"
+            "위 proceed_instruction이 플레이어가 선언하지 않은 PC 행동·발언·내면을 포함하는지 검증하십시오."
+        )
+
+        try:
+            config = types.GenerateContentConfig(
+                system_instruction=PROCEED_VERIFIER_SYSTEM_INSTRUCTION,
+                temperature=0.1,
+                response_mime_type="application/json",
+                response_schema=PROCEED_VERIFY_SCHEMA,
+                safety_settings=core.TRPG_SAFETY_SETTINGS,
+            )
+            response = await asyncio.to_thread(
+                self.bot.genai_client.models.generate_content,
+                model=core.LOGIC_MODEL,
+                contents=[types.Content(role="user",
+                                        parts=[types.Part.from_text(text=user_prompt)])],
+                config=config,
+            )
+        except Exception as e:
+            print(f"[AutoGM] PROCEED 검증 실패 (원본 사용): {e}")
+            return instruction
+
+        # 비용 정산
+        try:
+            meta = response.usage_metadata
+            in_tokens  = getattr(meta, "prompt_token_count", 0) or 0
+            out_tokens = getattr(meta, "candidates_token_count", 0) or 0
+            breakdown  = core.calculate_text_gen_cost_breakdown(
+                core.LOGIC_MODEL, input_tokens=in_tokens, output_tokens=out_tokens)
+            cost = breakdown["total_krw"]
+            session.total_cost += cost
+            core.write_cost_log(session.session_id, f"{COST_LOG_PREFIX}PROCEED 자기 검증",
+                                 in_tokens, 0, out_tokens, cost, session.total_cost)
+        except Exception:
+            pass
+
+        raw_text = response.text or ""
+        try:
+            result = json.loads(raw_text)
+        except json.JSONDecodeError:
+            cleaned = re.sub(r"^```(?:json)?\s*|\s*```$", "", raw_text.strip(), flags=re.MULTILINE)
+            try:
+                result = json.loads(cleaned)
+            except Exception:
+                return instruction
+
+        if result.get("has_violation"):
+            detail   = result.get("violation_detail", "")
+            corrected = result.get("corrected_instruction", instruction) or instruction
+            print(f"[AutoGM/{session.session_id}] PROCEED 위반 감지: {detail[:120]}")
+            if master_ch:
+                await master_ch.send(
+                    f"⚠️ **[자동 GM 검증]** proceed_instruction에 PC 자율성 침해 감지 — 자동 수정\n"
+                    f"> 위반: {detail[:200]}\n"
+                    f"> 수정 후: {corrected[:200]}"
+                )
+            return _clean_proceed_instruction(corrected)
+
+        return instruction
+
+    # ─────────────────────────────────────────────────────────────
+    # 방안 6 — 2단계 사고 서사 방향성 시뮬레이터
+    # ─────────────────────────────────────────────────────────────
+
+    async def _simulate_narrative_directions(self, session, player_message: str,
+                                              master_ch) -> dict | None:
+        """
+        GM-Logic 호출 전 세계관 캐시를 활용하여 고차원 서사 방향성을 사전 시뮬레이션.
+
+        [목적]
+        단순 사건 추론(소리가 났으니 몬스터가 온다)이 아닌, 시나리오 세계관의 세력 배치·
+        지역 규칙·물리 법칙에 근거한 구조적 개연성 판단 결과를 GM-Logic에 제공한다.
+
+        [활성화 조건]
+        - 세션 캐시 유효 (없으면 세계관 문맥 없어 고차원 판단 불가)
+        - 캐시 모델이 DEFAULT_MODEL과 일치
+
+        Returns:
+            dict | None: {"world_state_analysis": str, "directions": [...]} 또는 None
+        """
+        cache_name = getattr(session, "cache_name", None)
+
+        # 최근 로그 요약 (각 250자)
+        recent_lines = []
+        for content in session.raw_logs[-4:]:
+            try:
+                text = content.parts[0].text
+                role = content.role.upper()
+                recent_lines.append(f"[{role}]\n{text[:250]}")
+            except Exception:
+                continue
+        recent_str = "\n\n".join(recent_lines) if recent_lines else "(없음)"
+
+        # 세계 물리 타임라인 요약 (있으면)
+        tl = getattr(session, "world_timeline", {})
+        tl_note = ""
+        if tl:
+            tl_note = (
+                f"\n[현재 세계 상태]\n"
+                f"위치: {tl.get('current_location', '미확인')}\n"
+                f"세력: {tl.get('faction_context', '미확인')}\n"
+                f"위협: {tl.get('known_threats', '없음')}\n"
+            )
+
+        user_prompt = (
+            f"[현재 턴]: {session.turn_count + 1}\n"
+            f"{tl_note}"
+            f"\n[최근 게임 로그]\n{recent_str}\n\n"
+            f"[이번 턴 플레이어 행동]\n{player_message}\n\n"
+            "[지시사항]\n"
+            "위 상황에서 다음에 일어날 수 있는 서사 방향성 2~3개를 세계관 논리에 근거하여 평가하십시오.\n"
+            "반드시 시나리오 캐시의 세력 정보·지역 규칙·세계관 설정을 인용하여 판단하십시오."
+        )
+
+        try:
+            sim_contents = [
+                types.Content(role="user",
+                              parts=[types.Part.from_text(text=NARRATIVE_SIMULATOR_SYSTEM_INSTRUCTION)]),
+                types.Content(role="model",
+                              parts=[types.Part.from_text(
+                                  text="이해했습니다. 세계관 논리에 근거하여 서사 방향성을 분석하겠습니다.")]),
+                types.Content(role="user",
+                              parts=[types.Part.from_text(text=user_prompt)]),
+            ]
+            config = types.GenerateContentConfig(
+                cached_content=cache_name,
+                temperature=0.3,
+                response_mime_type="application/json",
+                response_schema=NARRATIVE_DIRECTION_SCHEMA,
+                safety_settings=core.TRPG_SAFETY_SETTINGS,
+            )
+            response = await asyncio.to_thread(
+                self.bot.genai_client.models.generate_content,
+                model=core.DEFAULT_MODEL,
+                contents=sim_contents,
+                config=config,
+            )
+        except Exception as e:
+            print(f"[AutoGM] 서사 시뮬레이션 호출 실패: {e}")
+            return None
+
+        # 비용 정산
+        try:
+            meta = response.usage_metadata
+            in_tokens     = getattr(meta, "prompt_token_count", 0) or 0
+            out_tokens    = getattr(meta, "candidates_token_count", 0) or 0
+            cached_tokens = getattr(meta, "cached_content_token_count", 0) or 0
+            breakdown     = core.calculate_text_gen_cost_breakdown(
+                core.DEFAULT_MODEL, input_tokens=in_tokens, output_tokens=out_tokens,
+                cached_read_tokens=cached_tokens)
+            cost = breakdown["total_krw"]
+            session.total_cost += cost
+            core.write_cost_log(session.session_id, f"{COST_LOG_PREFIX}서사 방향성 시뮬레이션",
+                                 in_tokens, cached_tokens, out_tokens, cost, session.total_cost)
+            if not hasattr(session, "turn_cost_log"):
+                session.turn_cost_log = []
+            session.turn_cost_log.append({"label": "서사 방향성 시뮬레이션", "cost": cost})
+            print(
+                f"[AutoGM/{session.session_id}] 시뮬레이션 비용: "
+                f"In={in_tokens:,} Cached={cached_tokens:,} Out={out_tokens:,} "
+                f"→ {core.format_cost(cost)}"
+            )
+        except Exception as e:
+            print(f"[AutoGM] 시뮬레이션 비용 정산 실패: {e}")
+
+        raw_text = response.text or ""
+        try:
+            sim_data = json.loads(raw_text)
+        except json.JSONDecodeError:
+            cleaned = re.sub(r"^```(?:json)?\s*|\s*```$", "", raw_text.strip(), flags=re.MULTILINE)
+            try:
+                sim_data = json.loads(cleaned)
+            except Exception as e:
+                print(f"[AutoGM] 서사 시뮬레이션 JSON 파싱 실패: {e}")
+                return None
+
+        core.write_log(session.session_id, "api",
+                       f"[서사 방향성 시뮬레이션]\n{json.dumps(sim_data, ensure_ascii=False, indent=2)}")
+        return sim_data
+
+    # ─────────────────────────────────────────────────────────────
+    # 서사 계획 명령어
+    # ─────────────────────────────────────────────────────────────
+
+    @commands.command(name="서사계획")
+    async def show_narrative_plan(self, ctx):
+        """현재 서사 계획을 마스터 채널에 임베드로 출력."""
+        session = self.bot.active_sessions.get(ctx.channel.id)
+        if not session or ctx.channel.id != session.master_ch_id:
+            return await ctx.send("이 명령어는 마스터 채널에서만 사용할 수 있습니다.")
+
+        plan = getattr(session, "narrative_plan", {})
+        if not plan:
+            return await ctx.send(
+                "⚠️ 수립된 서사 계획이 없습니다.\n"
+                "`!자동시작`으로 자동 GM 모드를 활성화하면 초기 계획이 수립됩니다.\n"
+                "또는 `!서사재계획`으로 직접 수립할 수 있습니다."
+            )
+
+        current = plan.get("current_event", {})
+        next_ev = plan.get("next_event", {})
+        version = plan.get("plan_version", "?")
+        last_turn = plan.get("last_planned_turn", "?")
+
+        embed = discord.Embed(title="📖 현재 서사 계획", color=0x5865F2)
+        embed.set_footer(text=f"v{version}  |  수립 시점: 턴 {last_turn}")
+
+        # 중규모 진행 방향 (mid_plan)
+        mid = plan.get("mid_plan", {})
+        if mid:
+            milestones = mid.get("milestones", [])
+            ms_str = "\n".join([f"  {i+1}. {m}" for i, m in enumerate(milestones)]) if milestones else "(없음)"
+            m_val = (
+                f"**전체 흐름**: {mid.get('overview', '-')}\n"
+                f"**이정표**:\n{ms_str}\n"
+                f"**완료 조건**: {mid.get('end_condition', '-')}"
+            )
+            embed.add_field(
+                name=f"🗺️ 중규모 진행 방향: {mid.get('title', '?')}",
+                value=m_val[:1020],
+                inline=False
+            )
+
+        # 현재 순간 사건
+        c_val = (
+            f"**상황**: {current.get('summary', '-')}\n"
+            f"**마무리 방향**: {current.get('resolution_direction', '-')}\n"
+            f"**진행**: {current.get('progress') or '(초기 상태)'}"
+        )
+        embed.add_field(
+            name=f"📌 현재 순간 사건: {current.get('title', '?')}",
+            value=c_val[:1020],
+            inline=False
+        )
+
+        # 다음 순간 사건
+        n_val = (
+            f"**개요**: {next_ev.get('summary', '-')}\n"
+            f"**시작 조건**: {next_ev.get('trigger', '-')}"
+        )
+        embed.add_field(
+            name=f"⏭️ 다음 순간 사건: {next_ev.get('title', '?')}",
+            value=n_val[:1020],
+            inline=False
+        )
+
+        notes = plan.get("planner_notes", "")
+        if notes:
+            embed.add_field(name="📝 설계 메모", value=notes[:1020], inline=False)
+
+        await ctx.send(embed=embed)
+
+    @commands.command(name="서사재계획")
+    async def replan_narrative(self, ctx, *, memo: str = ""):
+        """
+        서사 계획을 강제로 재수립한다.
+        선택적으로 메모를 추가하면 계획 수립 시 반영된다.
+        예: !서사재계획 플레이어가 예상과 달리 적에게 합류했다
+        """
+        session = self.bot.active_sessions.get(ctx.channel.id)
+        if not session or ctx.channel.id != session.master_ch_id:
+            return await ctx.send("이 명령어는 마스터 채널에서만 사용할 수 있습니다.")
+
+        await ctx.send("⏳ 서사 계획 재수립을 시작합니다...")
+        success = await self._plan_narrative(session, "manual", context_note=memo.strip())
+        if not success:
+            await ctx.send("⚠️ 서사 계획 재수립에 실패했습니다.")
+
+    # ─────────────────────────────────────────────────────────────
+    # 서사 계획 내부 함수
+    # ─────────────────────────────────────────────────────────────
+
+    async def _init_narrative_and_start(self, session):
+        """
+        !자동시작 직후 호출. 서사 계획이 없으면 새로 수립한 뒤 첫 라운드를 시작한다.
+        이미 계획이 있으면 수립 없이 바로 라운드를 시작한다.
+        백그라운드 태스크로 실행됨.
+        """
+        if not session.narrative_plan:
+            await self._plan_narrative(session, "init")
+        await self._start_round(session)
+
+    async def _update_narrative_progress(self, session, event_assessment: str, master_ch):
+        """
+        PROCEED 완료 후 호출. completed/deviated 평가 시 백그라운드에서 서사 재계획을 트리거한다.
+        progress 자동 갱신은 _dispatch_proceed 내부에서 수행 (ai_summary 직후).
+
+        [3턴 주기 강제 재계획]
+        completed/deviated 외에도, 마지막 계획 수립 이후 3턴 이상 경과하면 mid_plan 포함 전체 재수립.
+        last_planned_turn을 즉시 갱신하여 백그라운드 완료 전 중복 트리거를 방지한다.
+        """
+        plan = getattr(session, "narrative_plan", {})
+        if not plan:
+            return
+
+        # completed/deviated → 즉시 재계획
+        if event_assessment == "completed":
+            # 순간 계획만 재수립 — mid_plan 유지
+            if master_ch:
+                await master_ch.send(
+                    f"📖 **[서사 계획]** 순간 사건 완료 감지\n"
+                    f"> 중규모 계획을 유지하며 다음 순간 계획을 수립합니다..."
+                )
+            asyncio.create_task(self._plan_narrative(session, "completed", full_replan=False))
+        elif event_assessment == "deviated":
+            # mid_plan 포함 전부 재수립
+            if master_ch:
+                await master_ch.send(
+                    f"📖 **[서사 계획]** 경로 이탈 감지\n"
+                    f"> 중규모 계획 포함 전체 재수립합니다..."
+                )
+            asyncio.create_task(self._plan_narrative(session, "deviated", full_replan=True))
+        elif event_assessment == "resolving" and master_ch:
+            await master_ch.send(
+                f"📖 **[서사 계획]** 현재 순간 사건이 마무리 단계에 진입했습니다 (resolving)."
+            )
+
+        # [3턴 주기 강제 재계획]
+        # completed/deviated가 이미 트리거된 경우는 건너뜀 (중복 방지)
+        if event_assessment not in ("completed", "deviated"):
+            last_planned = plan.get("last_planned_turn", 0)
+            turns_elapsed = session.turn_count - last_planned
+            if turns_elapsed >= 3:
+                # last_planned_turn을 즉시 현재 턴으로 갱신 → 다음 턴 중복 트리거 방지
+                plan["last_planned_turn"] = session.turn_count
+                session.narrative_plan = plan
+                if master_ch:
+                    await master_ch.send(
+                        f"📖 **[서사 계획]** 마지막 계획 수립 이후 {turns_elapsed}턴 경과 → 강제 재계획...\n"
+                        f"> 현재 상황을 반영하여 전체 계획을 갱신합니다."
+                    )
+                asyncio.create_task(
+                    self._plan_narrative(session, "manual", full_replan=True,
+                                         context_note=f"{turns_elapsed}턴 주기 자동 강제 재계획")
+                )
+
+    async def _plan_narrative(self, session, trigger_reason: str = "init",
+                               context_note: str = "", full_replan: bool = True) -> bool:
+        """
+        LOGIC_MODEL을 호출하여 서사 계획을 수립하거나 갱신한다.
+
+        Args:
+            session: TRPGSession
+            trigger_reason: "init" | "completed" | "deviated" | "manual"
+            context_note: GM이 추가한 메모 (재계획 시 계획 수립 프롬프트에 포함)
+            full_replan: True이면 mid_plan 포함 전부 재수립.
+                         False이면(completed) mid_plan을 유지하고 순간 계획만 갱신.
+
+        Returns:
+            bool: 성공 여부
+        """
+        master_ch = self.bot.get_channel(session.master_ch_id)
+
+        # ── 시나리오 정보 ──
+        story_guide = session.scenario_data.get("story_guide", "")
+        worldview   = session.scenario_data.get("worldview", "")
+
+        # ── 최근 게임 로그 (최대 6개, 각 350자) ──
+        recent_log_lines = []
+        for content in session.raw_logs[-6:]:
+            try:
+                text    = content.parts[0].text
+                role    = content.role.upper()
+                preview = text[:350] + ("..." if len(text) > 350 else "")
+                recent_log_lines.append(f"[{role}]\n{preview}")
+            except Exception:
+                continue
+        recent_logs_str = "\n\n".join(recent_log_lines) if recent_log_lines else "(로그 없음)"
+
+        # ── PC 상태 요약 ──
+        pc_lines = []
+        for uid, p in session.players.items():
+            name    = p.get("name", "?")
+            res     = session.resources.get(name, {})
+            sta     = session.statuses.get(name, [])
+            res_str = ", ".join([f"{k}:{v}" for k, v in res.items()]) or "없음"
+            sta_str = ", ".join(sta) or "없음"
+            pc_lines.append(f"  - {name}: 자원={res_str}, 상태={sta_str}")
+        pc_info = "\n".join(pc_lines) or "(PC 없음)"
+
+        # ── 압축 기억 ──
+        memory_str = (
+            session.compressed_memory
+            or getattr(session, "cached_compressed_memory", "")
+            or "(없음)"
+        )
+
+        # ── 기존 계획 처리 ──
+        existing_plan = session.narrative_plan or {}
+        existing_plan_block = ""
+
+        if not full_replan and existing_plan:
+            # completed 재계획: mid_plan 유지, 순간 계획만 갱신
+            mid = existing_plan.get("mid_plan", {})
+            nxt = existing_plan.get("next_event", {})
+            if mid:
+                ms_str = " → ".join(mid.get("milestones", []))
+                existing_plan_block = (
+                    "\n[유지할 중규모 진행 계획 — 이 내용을 mid_plan으로 그대로 출력하십시오]\n"
+                    f"title: {mid.get('title', '')}\n"
+                    f"overview: {mid.get('overview', '')}\n"
+                    f"milestones: {ms_str}\n"
+                    f"end_condition: {mid.get('end_condition', '')}\n"
+                    "\n위 중규모 계획에서 다음으로 도달해야 할 milestone을 목표로 삼아 "
+                    "새 current_event와 next_event를 수립하십시오.\n"
+                )
+            if nxt:
+                existing_plan_block += (
+                    f"\n[이전 next_event — current_event 승격 참고용]\n"
+                    f"제목: {nxt.get('title', '')} / 개요: {nxt.get('summary', '')}\n"
+                    f"(이 사건이 새 current_event의 출발점이 됩니다)\n"
+                )
+            trigger_context = "직전 순간 사건이 완료되었습니다. 중규모 계획을 유지하며 다음 순간 계획으로 전환하세요."
+        else:
+            # 전체 재계획 (init/deviated/manual)
+            if existing_plan and trigger_reason != "init":
+                cur = existing_plan.get("current_event", {})
+                existing_plan_block = (
+                    "\n[이전 계획 (참고용 — 폐기 후 재수립)]\n"
+                    f"이전 현재 사건: {cur.get('title', '?')} — {cur.get('summary', '')}\n"
+                    f"마무리 방향: {cur.get('resolution_direction', '')}\n"
+                )
+            trigger_context_map = {
+                "init":     "자동 GM 모드가 활성화되었습니다. 현재 상황을 분석하여 2단계 서사 계획(mid_plan + 순간 계획)을 수립하세요.",
+                "deviated": "플레이어의 선택으로 서사 방향이 예상 범위를 벗어났습니다. mid_plan 포함 계획 전체를 재수립하세요.",
+                "manual":   "GM이 수동으로 재계획을 요청했습니다. 현재 상황을 재평가하여 계획 전체를 갱신하세요.",
+            }
+            trigger_context = trigger_context_map.get(trigger_reason, f"재계획 요청 ({trigger_reason})")
+
+        context_note_block = f"\n[GM 추가 메모 (계획에 반영하세요)]\n{context_note}\n" if context_note else ""
+
+        user_prompt = (
+            f"[서사 계획 수립 요청]\n"
+            f"트리거: {trigger_context}\n\n"
+            f"[시나리오 기반 정보]\n"
+            f"세계관: {worldview[:600] if worldview else '(없음)'}\n"
+            f"스토리 가이드: {story_guide[:1200] if story_guide else '(없음)'}\n\n"
+            f"[현재 게임 상황]\n"
+            f"진행 턴: {session.turn_count}\n"
+            f"PC 상태:\n{pc_info}\n"
+            f"압축 기억:\n{memory_str[:1000]}\n\n"
+            f"[최근 게임 로그]\n{recent_logs_str}\n"
+            f"{existing_plan_block}"
+            f"{context_note_block}\n"
+            "[출력 지시]\n"
+            "위 정보를 바탕으로 자동 GM이 활용할 서사 계획을 JSON 스키마에 맞게 수립하십시오."
+        )
+
+        core.write_log(session.session_id, "api",
+                       f"[서사 계획 요청 - trigger={trigger_reason}]\n{user_prompt}")
+
+        try:
+            config = types.GenerateContentConfig(
+                system_instruction=NARRATIVE_PLANNER_SYSTEM_INSTRUCTION,
+                temperature=0.5,
+                response_mime_type="application/json",
+                response_schema=NARRATIVE_PLAN_SCHEMA,
+                safety_settings=core.TRPG_SAFETY_SETTINGS,
+            )
+            response = await asyncio.to_thread(
+                self.bot.genai_client.models.generate_content,
+                model=core.LOGIC_MODEL,
+                contents=[types.Content(role="user", parts=[types.Part.from_text(text=user_prompt)])],
+                config=config,
+            )
+        except Exception as e:
+            print(f"[AutoGM] 서사 계획 호출 실패: {type(e).__name__} - {e}")
+            if master_ch:
+                await master_ch.send(f"⚠️ 서사 계획 수립 실패: {type(e).__name__}")
+            return False
+
+        # ── 비용 정산 ──
+        try:
+            meta         = response.usage_metadata
+            in_tokens    = getattr(meta, "prompt_token_count", 0) or 0
+            out_tokens   = getattr(meta, "candidates_token_count", 0) or 0
+            cached_tokens = getattr(meta, "cached_content_token_count", 0) or 0
+            breakdown    = core.calculate_text_gen_cost_breakdown(
+                core.LOGIC_MODEL,
+                input_tokens=in_tokens,
+                output_tokens=out_tokens,
+                cached_read_tokens=cached_tokens,
+            )
+            cost = breakdown["total_krw"]
+            session.total_cost += cost
+            core.write_cost_log(
+                session.session_id,
+                f"{COST_LOG_PREFIX}서사 계획 수립",
+                in_tokens, cached_tokens, out_tokens, cost, session.total_cost
+            )
+            print(
+                f"[AutoGM/{session.session_id}] 서사 계획 비용: "
+                f"In={in_tokens:,} Out={out_tokens:,} → {core.format_cost(cost)}"
+            )
+            # 턴 진행 배치 로그에 누적 (PROCEED 직전 플러시)
+            if not hasattr(session, "turn_cost_log"):
+                session.turn_cost_log = []
+            session.turn_cost_log.append({"label": "서사 계획 수립", "cost": cost})
+        except Exception as e:
+            print(f"[AutoGM] 서사 계획 비용 정산 실패: {e}")
+
+        # ── JSON 파싱 ──
+        raw_text = response.text or ""
+        try:
+            plan = json.loads(raw_text)
+        except json.JSONDecodeError:
+            cleaned = re.sub(r"^```(?:json)?\s*|\s*```$", "", raw_text.strip(), flags=re.MULTILINE)
+            try:
+                plan = json.loads(cleaned)
+            except Exception as e:
+                print(f"[AutoGM] 서사 계획 JSON 파싱 실패: {e}\n원문: {raw_text[:400]}")
+                if master_ch:
+                    await master_ch.send("⚠️ 서사 계획 JSON 파싱 실패. 기존 계획을 유지합니다.")
+                return False
+
+        # ── 버전·타임스탬프 기록 ──
+        plan["plan_version"]      = session.narrative_plan.get("plan_version", 0) + 1
+        plan["last_planned_turn"] = session.turn_count
+        session.narrative_plan    = plan
+        await core.save_session_data(self.bot, session)
+
+        # ── 마스터 채널 보고 (embed) ──
+        current = plan.get("current_event", {})
+        next_ev = plan.get("next_event", {})
+        trigger_label_map = {
+            "init":      "초기 계획 수립",
+            "completed": "사건 완료 → 순간 계획 갱신",
+            "deviated":  "이탈 감지 → 전체 재수립",
+            "manual":    "수동 재계획",
+        }
+        trigger_label = trigger_label_map.get(trigger_reason, "계획 갱신")
+
+        if master_ch:
+            embed = discord.Embed(
+                title=f"📖 서사 계획 갱신 — {trigger_label}",
+                color=0x5865F2,
+            )
+            embed.set_footer(text=f"v{plan['plan_version']}  |  턴 {session.turn_count}")
+
+            mid = plan.get("mid_plan", {})
+            if mid:
+                milestones = mid.get("milestones", [])
+                ms_str = "\n".join([f"  {i+1}. {m}" for i, m in enumerate(milestones)]) if milestones else "(없음)"
+                m_val = (
+                    f"**전체 흐름**: {mid.get('overview', '-')}\n"
+                    f"**이정표**:\n{ms_str}\n"
+                    f"**완료 조건**: {mid.get('end_condition', '-')}"
+                )
+                embed.add_field(
+                    name=f"🗺️ 중규모 진행 방향: {mid.get('title', '?')}",
+                    value=m_val[:1020],
+                    inline=False,
+                )
+
+            c_val = (
+                f"**상황**: {current.get('summary', '-')}\n"
+                f"**마무리 방향**: {current.get('resolution_direction', '-')}"
+            )
+            embed.add_field(
+                name=f"📌 현재 순간 사건: {current.get('title', '?')}",
+                value=c_val[:1020],
+                inline=False,
+            )
+
+            n_val = (
+                f"**개요**: {next_ev.get('summary', '-')}\n"
+                f"**시작 조건**: {next_ev.get('trigger', '-')}"
+            )
+            embed.add_field(
+                name=f"⏭️ 다음 순간 사건: {next_ev.get('title', '?')}",
+                value=n_val[:1020],
+                inline=False,
+            )
+
+            planner_notes = plan.get("planner_notes", "")
+            if planner_notes:
+                embed.add_field(name="📝 설계 메모", value=planner_notes[:1020], inline=False)
+
+            await master_ch.send(embed=embed)
+
+        core.write_log(session.session_id, "api",
+                       f"[서사 계획 결과 ({trigger_label})]\n{json.dumps(plan, ensure_ascii=False, indent=2)}")
+        return True
 
 
 async def setup(bot):

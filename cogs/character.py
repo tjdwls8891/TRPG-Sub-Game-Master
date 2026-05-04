@@ -8,17 +8,101 @@ from discord.ext import commands
 import core
 
 
+# ========== [NPC 특수 필드 파싱 유틸리티] ==========
+def _parse_kv_dict(text: str) -> dict:
+    """
+    'k=v, k=v, ...' 형식 문자열을 딕셔너리로 변환.
+    숫자 값은 int로 자동 변환. 공백·빈 항목 무시.
+
+    Args:
+        text (str): '스탯명=숫자, ...' 또는 '아이템명=수량, ...' 형식 문자열
+
+    Returns:
+        dict: 파싱된 키-값 딕셔너리. 숫자는 int, 나머지는 str.
+    """
+    result = {}
+    for item in text.split(','):
+        item = item.strip()
+        if '=' in item:
+            k, v = item.split('=', 1)
+            k, v = k.strip(), v.strip()
+            if k:
+                try:
+                    result[k] = int(v)
+                except ValueError:
+                    result[k] = v
+    return result
+
+
 # ========== [능력치 굴림 UI] ==========
+def _apply_stat_cap(values: list[int], stats: list[str], stat_max) -> list[int]:
+    """
+    Hamilton 배분 결과에 개별 스탯 상한(stat_max)을 적용.
+    초과분을 상한 미만 스탯들의 잔여 여유(max - current) 비율로 재배분.
+    수렴할 때까지 반복하며, 모든 스탯이 상한일 때 남은 초과분은 소멸.
+
+    Args:
+        values: Hamilton 배분된 정수 리스트 (in-place 수정 없음)
+        stats: 스탯 이름 리스트 (per-stat dict 지원용)
+        stat_max: int(전체 균등) 또는 dict(스탯별 개별 지정)
+
+    Returns:
+        상한이 적용된 새 리스트
+    """
+    if stat_max is None:
+        return list(values)
+
+    def get_max(stat_name: str) -> int:
+        if isinstance(stat_max, dict):
+            return int(stat_max.get(stat_name, 10 ** 9))
+        return int(stat_max)
+
+    vals = list(values)
+    n = len(vals)
+
+    for _ in range(n + 1):  # 최대 n+1회 반복으로 수렴 보장
+        overflow = 0
+        for i, stat in enumerate(stats):
+            m = get_max(stat)
+            if vals[i] > m:
+                overflow += vals[i] - m
+                vals[i] = m
+
+        if overflow == 0:
+            break
+
+        # 상한 미만 스탯의 잔여 여유 계산
+        under = [(i, get_max(stats[i]) - vals[i]) for i in range(n) if vals[i] < get_max(stats[i])]
+        total_cap = sum(c for _, c in under)
+        if total_cap == 0:
+            break  # 모든 스탯이 상한 → 초과분 소멸
+
+        # Hamilton 방식 초과분 배분
+        raw = [overflow * cap / total_cap for _, cap in under]
+        floor_v = [int(r) for r in raw]
+        remainder = overflow - sum(floor_v)
+        order = sorted(range(len(under)), key=lambda j: raw[j] - floor_v[j], reverse=True)
+        for j in range(remainder):
+            floor_v[order[j]] += 1
+        for j, (i, _) in enumerate(under):
+            vals[i] += floor_v[j]
+
+    return vals
+
+
 class StatRollView(discord.ui.View):
     """
     시나리오 JSON의 ability_stats에 정의된 스탯을 순차적으로 굴려
     결과를 비율에 따라 목표 총합에 맞게 배분하는 UI 뷰어.
 
     Hamilton 방식(최대 나머지법)으로 정수 배분 오차를 최소화한다.
+    ability_stat_max 항목이 시나리오 JSON에 있으면 개별 상한을 초과하지 않도록
+    초과분을 나머지 스탯에 재배분한다.
     """
 
     def __init__(self, bot, target_uid: str, char_name: str,
-                 ability_stats: list, dice_sides: int, target_total: int):
+                 ability_stats: list, dice_sides: int, target_total: int,
+                 stat_max=None):
         super().__init__(timeout=300)
         self.bot = bot
         self.target_uid = target_uid
@@ -26,6 +110,7 @@ class StatRollView(discord.ui.View):
         self.ability_stats = ability_stats
         self.dice_sides = dice_sides
         self.target_total = target_total
+        self.stat_max = stat_max  # int, dict, or None
 
     @discord.ui.button(label="🎲 능력치 굴리기", style=discord.ButtonStyle.primary)
     async def roll_button(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -69,14 +154,24 @@ class StatRollView(discord.ui.View):
                 floor_vals[order[i]] += 1
             final_values = floor_vals
 
+        # ── 개별 상한 캡 적용 ──
+        pre_cap = list(final_values)
+        final_values = _apply_stat_cap(final_values, self.ability_stats, self.stat_max)
+        cap_applied = (pre_cap != final_values)
+
         # ── 결과 출력 ──
+        cap_note = ""
+        if cap_applied and self.stat_max is not None:
+            cap_val = self.stat_max if isinstance(self.stat_max, int) else "개별 상한"
+            cap_note = f" *(상한 {cap_val} 적용, 초과분 재배분됨)*"
+
         lines = [
             f"> **{stat}**: {roll} → **{val}**"
             for stat, roll, val in zip(self.ability_stats, rolls, final_values)
         ]
         await interaction.channel.send(
             f"> 📊 **[{self.char_name}] 능력치 배분 완료** "
-            f"(합계: **{sum(final_values)}** / 목표: **{self.target_total}**)\n"
+            f"(합계: **{sum(final_values)}** / 목표: **{self.target_total}**){cap_note}\n"
             + "\n".join(lines)
         )
 
@@ -172,6 +267,7 @@ class CharacterCog(commands.Cog):
         if game_channel:
             await game_channel.send(f"✅ <@{user_id_str}>의 [{key}] 항목이 '{value}'(으)로 갱신되었습니다.")
 
+
     @commands.command(name="증감")
     async def adjust_stat(self, ctx, char_name: str, key: str, *args):
         """
@@ -201,7 +297,10 @@ class CharacterCog(commands.Cog):
                 return await ctx.send(
                     "⚠️ 사용법: `!증감 [이름] 자원 [아이템명] [수치]`\n예) `!증감 아서 자원 식량 -2`"
                 )
-            item_name, amount_str = args[0], args[1]
+            # NOTE: 마지막 인자를 수치로, 그 앞의 모든 인자를 공백 포함 아이템명으로 처리.
+            # 예) !증감 류가은 자원 항생제 앰플 -1 → item_name="항생제 앰플", amount=-1
+            item_name = " ".join(args[:-1])
+            amount_str = args[-1]
             try:
                 amount = int(amount_str)
             except ValueError:
@@ -212,16 +311,30 @@ class CharacterCog(commands.Cog):
 
             old_val = session.resources[char_name].get(item_name, 0)
             new_val = old_val + amount
-            session.resources[char_name][item_name] = new_val
+
+            # 보유량이 0 이하가 되면 목록에서 삭제
+            if new_val <= 0:
+                session.resources[char_name].pop(item_name, None)
+            else:
+                session.resources[char_name][item_name] = new_val
 
             await core.save_session_data(self.bot, session)
-            await ctx.send(
-                f"✅ {char_name}의 자원 [{item_name}]: {old_val} → {new_val} ({amount:+d})"
-            )
-            if game_channel:
-                await game_channel.send(
-                    f"> 📦 **[자원 변동]** {char_name}의 [{item_name}]: {old_val} → {new_val} ({amount:+d})"
+            if new_val <= 0:
+                await ctx.send(
+                    f"✅ {char_name}의 자원 [{item_name}]: {old_val} → 0 ({amount:+d}) — 소진되어 목록에서 제거됨"
                 )
+                if game_channel:
+                    await game_channel.send(
+                        f"> 📦 **[자원 소진]** {char_name}의 [{item_name}] 소진됨 (이전: {old_val})"
+                    )
+            else:
+                await ctx.send(
+                    f"✅ {char_name}의 자원 [{item_name}]: {old_val} → {new_val} ({amount:+d})"
+                )
+                if game_channel:
+                    await game_channel.send(
+                        f"> 📦 **[자원 변동]** {char_name}의 [{item_name}]: {old_val} → {new_val} ({amount:+d})"
+                    )
             return
 
         # ── 상태이상 부여·제거 모드 ──
@@ -230,7 +343,10 @@ class CharacterCog(commands.Cog):
                 return await ctx.send(
                     "⚠️ 사용법: `!증감 [이름] 상태 [상태명]` / 제거: `!증감 [이름] 상태 -[상태명]`"
                 )
-            status_text = args[0]
+            # NOTE: 모든 인자를 공백으로 합쳐 상태명으로 처리.
+            # 예) !증감 이현석 상태 PTSD(친자 처형) → "PTSD(친자 처형)"
+            # 예) !증감 이현석 상태 -PTSD(친자 처형) → 제거
+            status_text = " ".join(args)
 
             if char_name not in session.statuses:
                 session.statuses[char_name] = []
@@ -448,27 +564,180 @@ class CharacterCog(commands.Cog):
         if not session or ctx.channel.id != session.master_ch_id:
             return await ctx.send("이 명령어는 마스터 채널에서만 사용할 수 있습니다.")
 
+        npc_tmpl = session.scenario_data.get("npc_template", {})
+        info_fields = npc_tmpl.get("info_fields", []) if isinstance(npc_tmpl, dict) else []
+
         if action == "설정":
             if not name or not details:
-                return await ctx.send("⚠️ 사용법: `!npc 설정 [이름] [내용]`")
-            session.npcs[name] = {"name": name, "details": details}
+                field_hint = f"  `!엔피씨 설정 [이름] [필드명] [내용]` — 단일 필드 수정 (필드: {', '.join(info_fields)})" if info_fields else ""
+                special_hint = ""
+                if isinstance(npc_tmpl, dict):
+                    sfields = []
+                    if npc_tmpl.get("has_stats"):    sfields.append("스탯")
+                    if npc_tmpl.get("has_resources"): sfields.append("기본 자원")
+                    if npc_tmpl.get("has_statuses"):  sfields.append("기본 상태")
+                    if sfields:
+                        special_hint = f"\n  ※ `!설정생성 npc` 출력물 복붙 시 **{' / '.join(sfields)}** 섹션도 자동 파싱됩니다."
+                return await ctx.send(
+                    f"⚠️ 사용법:\n"
+                    f"  `!엔피씨 설정 [이름] [내용]` — 전체 덮어쓰기\n"
+                    + field_hint + special_hint
+                )
+
+            # ── 구조화 양식 지원: 첫 번째 단어가 info_field 이름이면 단일 필드 수정 모드 ──
+            if info_fields:
+                parts = details.split(' ', 1)
+                if len(parts) == 2 and parts[0] in info_fields:
+                    field_name, field_value = parts[0], parts[1].strip()
+                    if name not in session.npcs:
+                        session.npcs[name] = {"name": name}
+                    session.npcs[name][field_name] = field_value
+                    await core.save_session_data(self.bot, session)
+                    await ctx.send(f"✅ NPC [{name}] **{field_name}** 필드 수정 완료:\n> {field_value}")
+                    return None
+
+                # ── **필드명**: 값 형식 자동 파싱 (설정생성 출력 복붙 지원) ──
+                # 1) 일반 info_fields 파싱
+                parsed = {}
+                for f in info_fields:
+                    m = re.search(rf'\*\*{re.escape(f)}\*\*:\s*(.+?)(?=\n\*\*|\Z)', details, re.DOTALL)
+                    if m:
+                        parsed[f] = m.group(1).strip()
+
+                # 2) 특수 필드 파싱: 스탯(dict) / 기본 자원(dict) / 기본 상태(list)
+                # NOTE: has_* 플래그가 설정된 경우만 파싱. !설정생성 npc 출력물의 해당 섹션을
+                # 붙여넣으면 session.npcs[name]에 저장되고 runtime state(resources/statuses)에도 동기화됨.
+                parsed_stats: dict = {}
+                parsed_resources: dict = {}
+                parsed_statuses: list = []
+                if isinstance(npc_tmpl, dict):
+                    if npc_tmpl.get("has_stats"):
+                        m = re.search(r'\*\*스탯\*\*:\s*(.+?)(?=\n\*\*|\Z)', details, re.DOTALL)
+                        if m:
+                            val = m.group(1).strip()
+                            if val and val.lower() != "없음":
+                                parsed_stats = _parse_kv_dict(val)
+                    if npc_tmpl.get("has_resources"):
+                        m = re.search(r'\*\*기본 자원\*\*:\s*(.+?)(?=\n\*\*|\Z)', details, re.DOTALL)
+                        if m:
+                            val = m.group(1).strip()
+                            if val and val.lower() != "없음":
+                                parsed_resources = _parse_kv_dict(val)
+                    if npc_tmpl.get("has_statuses"):
+                        m = re.search(r'\*\*기본 상태\*\*:\s*(.+?)(?=\n\*\*|\Z)', details, re.DOTALL)
+                        if m:
+                            val = m.group(1).strip()
+                            if val and val.lower() != "없음":
+                                parsed_statuses = [
+                                    s.strip() for s in val.split(',')
+                                    if s.strip() and s.strip().lower() != "없음"
+                                ]
+
+                has_any = bool(parsed or parsed_stats or parsed_resources or parsed_statuses)
+                if has_any:
+                    if name not in session.npcs:
+                        session.npcs[name] = {"name": name}
+
+                    # 일반 info_fields 적용 (구/신 혼재 방지: details 필드 제거)
+                    session.npcs[name].update(parsed)
+                    session.npcs[name].pop("details", None)
+
+                    # 스탯 적용 (session.npcs에만 저장 — NPC 스탯은 캐시 룰북용 정보)
+                    if parsed_stats:
+                        session.npcs[name]["stats"] = parsed_stats
+
+                    # 기본 자원 적용 (session.npcs + runtime session.resources 동기화)
+                    if parsed_resources:
+                        session.npcs[name]["resources"] = parsed_resources
+                        session.resources.setdefault(name, {})
+                        session.resources[name].update(parsed_resources)
+
+                    # 기본 상태 적용 (session.npcs + runtime session.statuses 동기화)
+                    if parsed_statuses:
+                        session.npcs[name]["statuses"] = parsed_statuses
+                        session.statuses[name] = list(parsed_statuses)
+
+                    await core.save_session_data(self.bot, session)
+
+                    preview_lines = [
+                        f"**{k}**: {v[:60]}{'...' if len(v) > 60 else ''}"
+                        for k, v in parsed.items()
+                    ]
+                    if parsed_stats:
+                        preview_lines.append(
+                            f"**스탯**: {', '.join(f'{k}={v}' for k, v in parsed_stats.items())[:80]}"
+                        )
+                    if parsed_resources:
+                        preview_lines.append(
+                            f"**기본 자원**: {', '.join(f'{k}={v}' for k, v in parsed_resources.items())[:80]}"
+                        )
+                    if parsed_statuses:
+                        preview_lines.append(f"**기본 상태**: {', '.join(parsed_statuses)}")
+
+                    section_count = (
+                        len(parsed)
+                        + (1 if parsed_stats else 0)
+                        + (1 if parsed_resources else 0)
+                        + (1 if parsed_statuses else 0)
+                    )
+                    await ctx.send(
+                        f"✅ NPC [{name}] 구조화 설정 적용 ({section_count}개 섹션):\n"
+                        + "\n".join(preview_lines)
+                    )
+                    return None
+
+            # ── 레거시 모드: 전체 텍스트를 details에 저장 ──
+            if name not in session.npcs:
+                session.npcs[name] = {"name": name}
+            session.npcs[name]["details"] = details
+            # 구/신 혼재 방지: 구조화 필드 초기화
+            for f in info_fields:
+                session.npcs[name].pop(f, None)
             await core.save_session_data(self.bot, session)
-            await ctx.send(f"✅ NPC [{name}] 설정 완료 (덮어쓰기):\n{details}")
+            await ctx.send(f"✅ NPC [{name}] 설정 완료 (덮어쓰기):\n{details[:500]}{'...' if len(details) > 500 else ''}")
             return None
 
         elif action == "확인":
             if not name:
-                return await ctx.send("⚠️ 사용법: `!npc 확인 [이름]`")
-            if name in session.npcs:
-                npc_details = session.npcs[name]["details"]
-                await ctx.send(f"📜 **NPC [{name}] 정보**:\n{npc_details}")
+                return await ctx.send("⚠️ 사용법: `!엔피씨 확인 [이름]`")
+            if name not in session.npcs:
+                return await ctx.send(f"⚠️ NPC [{name}]을(를) 찾을 수 없습니다.")
+
+            npc_data = session.npcs[name]
+            if info_fields:
+                lines = []
+                for f in info_fields:
+                    val = npc_data.get(f, "")
+                    if val:
+                        lines.append(f"**{f}**: {val}")
+                # has_stats: npc_data에 직접 저장된 스탯 표시
+                if npc_tmpl.get("has_stats"):
+                    n_stats = npc_data.get("stats") or {}
+                    if n_stats:
+                        lines.append(f"**[스탯]**: {', '.join(f'{k}: {v}' for k, v in n_stats.items())}")
+                # has_resources: session.resources 런타임 자원 표시
+                if npc_tmpl.get("has_resources"):
+                    n_res = session.resources.get(name, {})
+                    if n_res:
+                        lines.append(f"**[자원]**: {', '.join(f'{k}: {v}' for k, v in n_res.items())}")
+                # has_statuses: session.statuses 런타임 상태 표시
+                if npc_tmpl.get("has_statuses"):
+                    n_stat = session.statuses.get(name, [])
+                    if n_stat:
+                        lines.append(f"**[상태이상]**: {', '.join(n_stat)}")
+                text = "\n".join(lines) if lines else npc_data.get("details", "설정 없음")
             else:
-                await ctx.send(f"⚠️ NPC [{name}]을(를) 찾을 수 없습니다.")
+                text = npc_data.get("details", "설정 없음")
+
+            chunks = [text[i:i+1900] for i in range(0, len(text), 1900)]
+            await ctx.send(f"📜 **NPC [{name}] 정보**:")
+            for chunk in chunks:
+                await ctx.send(chunk)
             return None
 
         elif action == "삭제":
             if not name:
-                return await ctx.send("⚠️ 사용법: `!npc 삭제 [이름]`")
+                return await ctx.send("⚠️ 사용법: `!엔피씨 삭제 [이름]`")
             if name in session.npcs:
                 del session.npcs[name]
                 await core.save_session_data(self.bot, session)
@@ -477,18 +746,74 @@ class CharacterCog(commands.Cog):
                 await ctx.send(f"⚠️ NPC [{name}]을(를) 찾을 수 없습니다.")
             return None
 
-
         elif action == "목록":
             if not session.npcs:
                 return await ctx.send("등록된 NPC가 없습니다.")
-            embed = discord.Embed(title="📜 등록된 NPC 목록", color=0x2ecc71)
+
+            # 시나리오에서 목록 표시 항목 결정 (npc_list_fields 우선, 없으면 info_fields 앞 2개)
+            npc_list_fields: list = session.scenario_data.get("npc_list_fields") or (info_fields[:2] if info_fields else [])
+
+            # NPC별 표시 텍스트 조립
+            fields_data: list[tuple[str, str]] = []
             for npc_name, npc_data in session.npcs.items():
-                # NOTE: npc_data에서 설정 텍스트(details)를 추출하는 코드 추가
-                details = npc_data.get("details", "설정 없음")
-                display_details = details if len(details) <= 1000 else details[
-                                                                           :950] + "...\n(※ 텍스트가 너무 길어 생략되었습니다. 전문은 확인 명령어로 확인하세요.)"
-                embed.add_field(name=npc_name, value=display_details, inline=False)
-            await ctx.send(embed=embed)
+                if npc_data.get("details") and not any(npc_data.get(f) for f in info_fields):
+                    # details 전용 NPC: 앞 20자만
+                    display = npc_data["details"][:20] + ("…" if len(npc_data["details"]) > 20 else "")
+                else:
+                    # 구조화 NPC: npc_list_fields 항목
+                    lines = []
+                    for f in npc_list_fields:
+                        val = npc_data.get(f, "")
+                        if val:
+                            lines.append(f"**{f}**: {val[:60]}")
+                    # 스탯 한 줄 요약 (has_stats일 때만)
+                    if npc_tmpl.get("has_stats"):
+                        npc_stats = npc_data.get("stats") or {}
+                        if npc_stats and isinstance(npc_stats, dict):
+                            stat_str = " / ".join(f"{k}:{v}" for k, v in npc_stats.items())
+                            lines.append(f"스탯: {stat_str}")
+                    # 자원 한 줄 요약 (has_resources일 때만)
+                    if npc_tmpl.get("has_resources"):
+                        npc_res = session.resources.get(npc_name) or {}
+                        if npc_res:
+                            res_str = " / ".join(f"{k}:{v}" for k, v in npc_res.items())
+                            lines.append(f"자원: {res_str[:80]}")
+                    # 상태 한 줄 요약 (has_statuses일 때만)
+                    if npc_tmpl.get("has_statuses"):
+                        npc_stat_list = session.statuses.get(npc_name) or []
+                        if npc_stat_list:
+                            lines.append(f"상태: {', '.join(npc_stat_list)[:80]}")
+                    display = "\n".join(lines) if lines else "*(설정 없음)*"
+
+                # 필드값 최대 1020자 제한
+                if len(display) > 1020:
+                    display = display[:1000] + "…"
+                fields_data.append((npc_name, display or "*(설정 없음)*"))
+
+            # NOTE: Discord embed 총 글자 수 6000자 제한 대응 — 다중 임베드 페이지네이션.
+            # 각 페이지는 5500자 누적 또는 20개 NPC 중 먼저 도달한 기준으로 분할.
+            embeds: list[discord.Embed] = []
+            current_embed = discord.Embed(title=f"📜 NPC 목록 (총 {len(fields_data)}명)", color=0x2ecc71)
+            current_chars = len(current_embed.title)
+            current_count = 0
+            PAGE_CHAR_LIMIT = 5500
+            PAGE_NPC_LIMIT = 20
+
+            for npc_name, display in fields_data:
+                entry_len = len(npc_name) + len(display)
+                if current_count >= PAGE_NPC_LIMIT or (current_chars + entry_len > PAGE_CHAR_LIMIT and current_count > 0):
+                    embeds.append(current_embed)
+                    current_embed = discord.Embed(title=f"📜 NPC 목록 (계속)", color=0x2ecc71)
+                    current_chars = len(current_embed.title)
+                    current_count = 0
+                current_embed.add_field(name=npc_name, value=display, inline=False)
+                current_chars += entry_len
+                current_count += 1
+
+            embeds.append(current_embed)
+
+            for embed in embeds:
+                await ctx.send(embed=embed)
             return None
         else:
             await ctx.send("⚠️ 잘못된 행동 인자입니다. (사용 가능: 설정, 확인, 삭제, 목록)")
@@ -545,20 +870,23 @@ class CharacterCog(commands.Cog):
         if not game_channel:
             return await ctx.send("⚠️ 게임 채널을 찾을 수 없습니다.")
 
-        view = StatRollView(self.bot, user_id_str, char_name, ability_stats, dice_sides, target_total)
+        stat_max = session.scenario_data.get("ability_stat_max", None)
+        view = StatRollView(self.bot, user_id_str, char_name, ability_stats, dice_sides, target_total, stat_max)
         stats_str = " / ".join(ability_stats)
+        cap_info = f" (개별 상한: **{stat_max}**)" if stat_max is not None else ""
 
         await game_channel.send(
             f"> 🎲 <@{user_id_str}>님, **{char_name}**의 능력치를 굴릴 시간입니다!\n"
             f"> 대상 스탯: **{stats_str}**\n"
-            f"> d{dice_sides} × {len(ability_stats)}회 굴림 → 비율에 맞춰 합계 **{target_total}** 자동 배분\n"
+            f"> d{dice_sides} × {len(ability_stats)}회 굴림 → 비율에 맞춰 합계 **{target_total}** 자동 배분{cap_info}\n"
             f"> 아래 버튼을 눌러 굴림을 시작하세요.",
             view=view
         )
         await ctx.send(
             f"✅ {char_name}의 능력치 굴림 버튼을 게임 채널에 전송했습니다.\n"
-            f"(대상 스탯: {stats_str} / d{dice_sides} / 목표 합계: {target_total})"
+            f"(대상 스탯: {stats_str} / d{dice_sides} / 목표 합계: {target_total}{', 개별 상한: ' + str(stat_max) if stat_max is not None else ''})"
         )
+
 
     @commands.command(name="설정생성")
     async def generate_character_cmd(self, ctx, char_type: str, char_name: str, *, instruction: str):
@@ -582,15 +910,38 @@ class CharacterCog(commands.Cog):
         # 1. 정규식을 통한 목표 NPC 추출
         npc_match = re.search(r'엔:([^\s]+)', instruction)
         npc_context_str = "등록된 NPC 정보 없음"
+        target_npcs = []
+        all_npcs_ref = False
+
+        npc_tmpl_for_gen = session.scenario_data.get("npc_template", {})
+        info_fields_for_gen = npc_tmpl_for_gen.get("info_fields", []) if isinstance(npc_tmpl_for_gen, dict) else []
+
+        def _format_npc_for_context(npc_name: str, npc_data: dict) -> str:
+            """NPC 데이터를 설정생성 컨텍스트용 텍스트로 포맷."""
+            if info_fields_for_gen:
+                parts = [f"- {npc_name}:"]
+                for f in info_fields_for_gen:
+                    val = npc_data.get(f, "")
+                    if val:
+                        parts.append(f"  {f}: {val}")
+                return "\n".join(parts)
+            else:
+                return f"- {npc_name}: {npc_data.get('details', '')}"
 
         if npc_match:
-            target_npcs = npc_match.group(1).split(',')
-            npc_list = [f"- {n}: {session.npcs[n]['details']}" for n in target_npcs if n in session.npcs]
-            npc_context_str = "\n".join(npc_list) if npc_list else "일치하는 NPC 정보 없음"
+            names = npc_match.group(1).split(',')
+            if '모두' in names:
+                # 엔:모두 — 세션에 등록된 모든 NPC를 참조
+                all_npcs_ref = True
+                target_npcs = list(session.npcs.keys())
+                npc_list = [_format_npc_for_context(n, session.npcs[n]) for n in target_npcs]
+                npc_context_str = "\n".join(npc_list) if npc_list else "등록된 NPC 없음"
+            else:
+                target_npcs = names
+                npc_list = [_format_npc_for_context(n, session.npcs[n]) for n in target_npcs if n in session.npcs]
+                npc_context_str = "\n".join(npc_list) if npc_list else "일치하는 NPC 정보 없음"
             instruction = re.sub(r'엔:[^\s]+', '', instruction).strip()
-        else:
-            if session.npcs:
-                npc_context_str = "\n".join([f"- {k}: {v['details']}" for k, v in session.npcs.items()])
+        # else: 기본값 — NPC 참조 없음 (엔:모두 또는 엔:이름으로 명시해야 참조)
 
         # 2. 최근 3턴 로그 추출 (유저-모델 핑퐁 3세트 = 6개)
         recent_logs_list = [f"[{part.role.upper()}]: {part.parts[0].text}" for part in session.raw_logs[-6:]]
@@ -625,28 +976,25 @@ class CharacterCog(commands.Cog):
                                 in_tokens, cached_tokens, out_tokens, turn_cost, session.total_cost)
 
             type_label = "PC" if char_type == "pc" else "NPC"
-            ref_label = f"{len(target_npcs)}명 명시 참조" if npc_match else (f"전체 NPC 자동 참조({len(session.npcs)})" if session.npcs else "NPC 참조 없음")
-            lines = [
-                f"💰 **[비용 보고] 설정 초안 생성**",
-                f"- 대상: {type_label} '{char_name}'  /  레퍼런스: {ref_label}",
-                f"- 모델: {core.LOGIC_MODEL}",
-                f"- 입력 합계: {in_tokens:,} 토큰  (캐시 적중 {cached_tokens:,})",
-                f"   · 신규 입력 {breakdown['input_billable_tokens']:,} × ${breakdown['input_rate']:.2f}/1M → {core.format_cost(breakdown['input_krw'])}",
-                f"   · 캐시 적중 {breakdown['cache_read_tokens']:,} × ${breakdown['cache_rate']:.2f}/1M → {core.format_cost(breakdown['cache_read_krw'])}",
-                f"- 출력 {breakdown['output_tokens']:,} × ${breakdown['output_rate']:.2f}/1M → {core.format_cost(breakdown['output_krw'])}",
-                f"- 턴 발생 비용: {core.format_cost(turn_cost)}  ( ≈ ${breakdown['total_usd']:.4f} )",
-                f"- 누적 비용: {core.format_cost(session.total_cost)}",
-            ]
-            report_msg = "\n".join(lines)
+            if all_npcs_ref:
+                ref_label = f"전체 NPC 참조 ({len(target_npcs)}명)"
+            elif npc_match:
+                ref_label = f"{len(target_npcs)}명 명시 참조"
+            else:
+                ref_label = "NPC 참조 없음"
 
-            # 콘솔(실행 창) 출력
-            print(f"\n[설정 초안 생성 비용 보고] {char_name}")
-            print(report_msg.replace("**", ""))
-
-            # 마스터 채널에도 동일 보고 전송
+            print(f"\n[설정 초안 생성 비용] {char_name} {core.format_cost(turn_cost)}")
+            _gen_embed = core.build_text_gen_cost_embed(
+                label=f"설정 초안 생성 — {type_label} '{char_name}'",
+                model_id=core.LOGIC_MODEL,
+                breakdown=breakdown,
+                turn_cost=turn_cost,
+                total_cost=session.total_cost,
+                extra_fields=[("레퍼런스", ref_label, False)],
+            )
             master_ch = self.bot.get_channel(session.master_ch_id)
             if master_ch:
-                await master_ch.send(report_msg)
+                await master_ch.send(embed=_gen_embed)
 
             await core.save_session_data(self.bot, session)
 

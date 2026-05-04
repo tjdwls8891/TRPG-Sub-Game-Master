@@ -137,6 +137,19 @@ class TRPGSession:
         # 가장 최근 캐시 업로드 시점의 룰북 원본 텍스트 (패딩 제외). !캐시 출력 디버그용.
         self.cache_text = ""
 
+        # ========== [자동 GM 서사 계획] ==========
+        # NOTE: 자동 GM 전용. 사건(event) 단위의 서사 계획을 저장한다.
+        # 구조: {"current_event": {...}, "next_event": {...}, "plan_version": int, "last_planned_turn": int}
+        # !자동시작 시 수립, PROCEED 완료 후 completed/deviated 평가 시 재수립.
+        self.narrative_plan = {}
+
+        # 가장 최근 캐시 재발급 시점의 세션 생성 NPC 스냅샷.
+        # 이후 변경분만 delta로 주입하기 위한 기준 데이터. (재발급 전 없으면 빈 딕셔너리)
+        self.cached_session_npcs = {}
+        # 가장 최근 캐시 재발급 시점까지 누적된 압축 기억 (캐시 섹션 [9]에 포함됨).
+        # 프롬프트에서는 이미 캐시에 있으므로 중복 주입하지 않는다.
+        self.cached_compressed_memory = ""
+
         # ========== [자동 GM 모드 상태] ==========
         # NOTE: 자동 GM 모드는 게임 채널의 플레이어 발언을 받아 AI가 GM 역할을 수행하는 옵트인 모드.
         #       기본은 비활성(False) — 활성화되어야만 on_message 리스너가 동작한다.
@@ -214,8 +227,10 @@ class PromptBuilder:
         self.recent_logs_combined = " ".join(recent_texts) + f" {gm_instruction}"
 
     def add_memory_block(self):
+        # NOTE: cached_compressed_memory는 캐시 섹션 [9]에 포함되어 있으므로 프롬프트에 중복 주입하지 않는다.
+        # compressed_memory는 마지막 캐시 재발급 이후 새로 누적된 기억만 포함한다.
         if self.session.compressed_memory:
-            self.blocks.append(f"▶ 이전 상황 요약 (절대 참조용 누적 기억):\n{self.session.compressed_memory}\n")
+            self.blocks.append(f"▶ 이전 상황 요약 (최근 압축 기억 — 절대 참조용):\n{self.session.compressed_memory}\n")
         return self
 
     def add_player_block(self):
@@ -255,44 +270,101 @@ class PromptBuilder:
         default_npcs = self.session.scenario_data.get("default_npcs", {})
         npc_template = self.session.scenario_data.get("npc_template", {})
         info_fields = npc_template.get("info_fields", []) if isinstance(npc_template, dict) else []
+        # NOTE: NPC 스탯은 PC와 동일한 ability_stats 스키마를 사용한다.
+        # has_stats=true이고 ability_stats가 있을 때만 스탯 오버라이드를 처리한다.
+        ability_stats_list = self.session.scenario_data.get("ability_stats", [])
+        npc_has_stats = (
+            isinstance(npc_template, dict)
+            and npc_template.get("has_stats")
+            and bool(ability_stats_list)
+        )
+        # 가장 최근 캐시 재발급 시점의 세션 생성 NPC 스냅샷
+        cached_session_npcs = getattr(self.session, "cached_session_npcs", {})
         lines = []
 
         for npc_name, npc_data in self.session.npcs.items():
-            base_data = default_npcs.get(npc_name, {})
-
-            # ── 설정 변경 감지 ──
-            if info_fields:
-                # 구조화 NPC: 각 info_field 비교
-                info_changed = any(
-                    npc_data.get(f) != base_data.get(f)
-                    for f in info_fields
-                )
+            is_session_npc = npc_name not in default_npcs  # 세션에서 새로 생성된 NPC
+            if is_session_npc:
+                # 캐시에 등록된 세션 NPC라면 해당 스냅샷을 기준 데이터로 사용 → delta만 주입
+                # 캐시에 없는 경우(재발급 전 생성) base_data = {} → 전체 프로파일 주입
+                base_data = cached_session_npcs.get(npc_name, {})
+                is_npc_in_cache = npc_name in cached_session_npcs
             else:
-                # 레거시 NPC: details 문자열 비교
+                base_data = default_npcs.get(npc_name, {})
+                is_npc_in_cache = True  # default NPC는 항상 캐시에 있음
+
+            # ── info_fields 변경 필드 추출 ──
+            # 디폴트 NPC: 실제로 달라진 필드(delta)만 추출 → 토큰 절약
+            # 세션 생성 NPC: base_data = {} 이므로 값 있는 필드 전체가 delta
+            if info_fields:
+                changed_info_fields = [
+                    f for f in info_fields
+                    if npc_data.get(f) != base_data.get(f)
+                ]
+                info_changed = bool(changed_info_fields)
+            else:
+                # 레거시 NPC: details 문자열 비교 (전체 교체)
                 info_changed = npc_data.get("details", "") != base_data.get("details", "")
+                changed_info_fields = []
+
+            # ── 스탯 변경 감지 (ability_stats 스키마) ──
+            n_stats = npc_data.get("stats", {})
+            base_stats = base_data.get("stats", {})
+            # 변경된 스탯 항목만 추출 (delta)
+            if npc_has_stats:
+                changed_stats = {
+                    k: n_stats[k] for k in n_stats
+                    if n_stats.get(k) != base_stats.get(k)
+                }
+                # base에는 있었지만 현재 없는 스탯은 빈 값으로 표시
+                removed_stats = {k: "" for k in base_stats if k not in n_stats}
+                delta_stats = {**changed_stats, **removed_stats}
+            else:
+                delta_stats = {}
+            stats_changed = bool(delta_stats)
 
             # ── 런타임 resources/statuses 감지 ──
             n_res = self.session.resources.get(npc_name, {})
             n_stat = self.session.statuses.get(npc_name, [])
-            # 기본값과 동일한 경우는 오버라이드 불필요
             base_res = base_data.get("resources", {})
             base_statuses = base_data.get("statuses", [])
             res_changed = n_res != base_res
             stat_changed = sorted(n_stat) != sorted(base_statuses)
 
-            if not info_changed and not res_changed and not stat_changed:
+            if not info_changed and not stats_changed and not res_changed and not stat_changed:
                 continue
 
             # ── 오버라이드 블록 구성 ──
             entry = f"  - {npc_name}"
+
             if info_changed:
                 if info_fields:
-                    field_lines = "\n".join(
-                        f"    {f}: {npc_data.get(f, '')}" for f in info_fields if npc_data.get(f)
-                    )
-                    entry += f" [설정 변경]:\n{field_lines}"
+                    if is_session_npc and not is_npc_in_cache:
+                        # 아직 캐시에 없는 세션 생성 NPC: 전체 프로파일 출력
+                        field_lines = "\n".join(
+                            f"    {f}: {npc_data.get(f, '')}"
+                            for f in info_fields if npc_data.get(f)
+                        )
+                        entry += f" [전체 프로파일]:\n{field_lines}"
+                    else:
+                        # 캐시된 NPC(디폴트 또는 이전 재발급에서 캐시된 세션 NPC): delta만 출력
+                        field_lines = "\n".join(
+                            f"    {f}: {npc_data.get(f, '')}"
+                            for f in changed_info_fields
+                        )
+                        entry += f" [필드 수정 — 이하 항목만 캐시 내용 대신 적용]:\n{field_lines}"
                 else:
+                    # 레거시 details: 전체 교체
                     entry += f" [설정 변경]: {npc_data.get('details', '')}"
+
+            # 스탯 delta 출력: ability_stats 순서 보장
+            if stats_changed:
+                ordered = [(s, delta_stats[s]) for s in ability_stats_list if s in delta_stats]
+                extra = [(k, v) for k, v in delta_stats.items() if k not in ability_stats_list]
+                all_stats = ordered + extra
+                label = "[스탯 (전체)]" if (is_session_npc and not is_npc_in_cache) else "[스탯 수정]"
+                entry += f"\n    * {label}: {', '.join(f'{k}={v}' for k, v in all_stats)}"
+
             if res_changed and n_res:
                 entry += f"\n    * [확정 소지 자원]: {', '.join(f'{k}: {v}' for k, v in n_res.items())}"
             if stat_changed and n_stat:
@@ -678,6 +750,9 @@ async def save_session_data(bot, session: TRPGSession):
             "cache_model": getattr(session, "cache_model", DEFAULT_MODEL),
             "last_turn_anchor_id": getattr(session, "last_turn_anchor_id", None),
             "cache_text": getattr(session, "cache_text", ""),
+            "cached_session_npcs": getattr(session, "cached_session_npcs", {}),
+            "cached_compressed_memory": getattr(session, "cached_compressed_memory", ""),
+            "narrative_plan": getattr(session, "narrative_plan", {}),
 
             # 자동 GM 모드 상태 (auto_gm_lock은 런타임 전용이라 직렬화하지 않음)
             "auto_gm_active": getattr(session, "auto_gm_active", False),
@@ -703,8 +778,39 @@ async def save_session_data(bot, session: TRPGSession):
         await asyncio.to_thread(write_file)
 
 
+def update_session_cache_state(session: TRPGSession):
+    """
+    캐시 재발급(또는 신규 발급) 완료 직후 호출하여 세션 캐시 연동 상태를 동기화한다.
+
+    1. 세션 생성 NPC 스냅샷(`cached_session_npcs`)을 현재 시점으로 업데이트.
+       → 이후 변경분만 delta로 오버라이드 주입되도록 기준 데이터 고정.
+       → resources/statuses 런타임 값도 함께 저장해 delta 비교가 정확하게 이루어지도록 함.
+    2. 압축 기억(`compressed_memory`)을 캐시로 이동.
+       → `cached_compressed_memory`에 누적 후 `compressed_memory` 초기화.
+       → 이후 프롬프트 `add_memory_block`에는 캐시 재발급 이후 새로 생긴 기억만 주입된다.
+    """
+    default_npcs = session.scenario_data.get("default_npcs", {})
+    session.cached_session_npcs = {
+        name: {
+            **dict(data),
+            "resources": dict(session.resources.get(name, {})),
+            "statuses": list(session.statuses.get(name, []))
+        }
+        for name, data in session.npcs.items()
+        if name not in default_npcs
+    }
+
+    old_cached = getattr(session, "cached_compressed_memory", "")
+    new_chunk = session.compressed_memory
+    if old_cached and new_chunk:
+        session.cached_compressed_memory = old_cached + "\n" + new_chunk
+    else:
+        session.cached_compressed_memory = old_cached or new_chunk
+    session.compressed_memory = ""  # 캐시로 이동됨 — 프롬프트에서 중복 주입 방지
+
+
 # noinspection PyShadowingNames
-async def build_scenario_cache_text(bot, model_id, scenario_data: dict, cache_note: str = "", session_id: str = None) -> tuple[str, int, str]:
+async def build_scenario_cache_text(bot, model_id, scenario_data: dict, cache_note: str = "", session_id: str = None, session: "TRPGSession" = None) -> tuple[str, int, str]:
     """
     시나리오 데이터를 바탕으로 Context Caching을 위한 '시나리오 핵심 룰북' 텍스트 조립.
     최소 요구 토큰 수 미달 시 임의의 패딩 추가.
@@ -743,11 +849,22 @@ async def build_scenario_cache_text(bot, model_id, scenario_data: dict, cache_no
                 val = npc_data.get(f, "")
                 if val:
                     field_lines.append(f"  {f}: {val}")
-            # stats가 있으면 추가
+            # NOTE: has_stats / has_resources / has_statuses 플래그에 따라
+            # NPC 기본값(stats/resources/statuses)을 캐시 룰북에 포함한다.
+            # 이 값들은 세션 초기화 시 session.resources/statuses에 자동 반영되며,
+            # 런타임 변경분은 프롬프트의 [NPC 변경사항 / 런타임 상태] 오버라이드 블록이 담당한다.
             if isinstance(npc_template, dict) and npc_template.get("has_stats"):
                 stats = npc_data.get("stats", {})
                 if stats:
                     field_lines.append(f"  스탯: {', '.join(f'{k}={v}' for k, v in stats.items())}")
+            if isinstance(npc_template, dict) and npc_template.get("has_resources"):
+                resources = npc_data.get("resources", {})
+                if resources:
+                    field_lines.append(f"  기본 자원: {', '.join(f'{k}: {v}' for k, v in resources.items())}")
+            if isinstance(npc_template, dict) and npc_template.get("has_statuses"):
+                statuses = npc_data.get("statuses", [])
+                if statuses:
+                    field_lines.append(f"  기본 상태: {', '.join(statuses)}")
             npc_text += f"\n- {npc_name}:\n" + "\n".join(field_lines) + "\n"
         else:
             # 레거시 양식: details 문자열
@@ -772,6 +889,70 @@ async def build_scenario_cache_text(bot, model_id, scenario_data: dict, cache_no
 [6. GM 절대 금지 사항]
 (아래 요소들은 플레이어나 GM의 요청이 있더라도 예외 없이 준수한다. 이를 위반하는 묘사는 즉시 수정한다.)
 {prohibitions_text}
+"""
+
+    # ── 세션 생성 NPC 섹션 [8] (session 인자 있을 때만 조립) ──
+    session_npc_section = ""
+    if session is not None:
+        default_npcs_set = set(default_npcs.keys())
+        session_npc_lines = []
+        for npc_name, npc_data in session.npcs.items():
+            if npc_name in default_npcs_set:
+                continue
+            if not isinstance(npc_data, dict):
+                session_npc_lines.append(f"\n- {npc_name}: {npc_data}\n")
+                continue
+            if npc_info_fields:
+                field_lines = []
+                for f in npc_info_fields:
+                    val = npc_data.get(f, "")
+                    if val:
+                        field_lines.append(f"  {f}: {val}")
+                # has_stats / has_resources / has_statuses 처리 (default NPC와 동일한 방식)
+                if isinstance(npc_template, dict) and npc_template.get("has_stats"):
+                    stats = npc_data.get("stats", {})
+                    if stats:
+                        field_lines.append(f"  스탯: {', '.join(f'{k}={v}' for k, v in stats.items())}")
+                if isinstance(npc_template, dict) and npc_template.get("has_resources"):
+                    # 런타임 자원 값을 반영 (session.resources 우선)
+                    res_val = session.resources.get(npc_name, npc_data.get("resources", {}))
+                    if res_val:
+                        field_lines.append(f"  기본 자원: {', '.join(f'{k}: {v}' for k, v in res_val.items())}")
+                if isinstance(npc_template, dict) and npc_template.get("has_statuses"):
+                    stat_val = session.statuses.get(npc_name, npc_data.get("statuses", []))
+                    if stat_val:
+                        field_lines.append(f"  기본 상태: {', '.join(stat_val)}")
+                session_npc_lines.append(f"\n- {npc_name}:\n" + "\n".join(field_lines) + "\n")
+            else:
+                details = npc_data.get("details", "")
+                session_npc_lines.append(f"\n- {npc_name}:\n{details}\n")
+
+        if session_npc_lines:
+            session_npc_text = "".join(session_npc_lines)
+            session_npc_section = f"""
+[8. 세션 진행 중 추가된 NPC]
+이 목록은 시나리오 외 세션 중 새로 생성된 NPC의 설정 원본이다.
+[3. NPC 사전]과 동일하게, 프롬프트에 [NPC 변경사항 / 런타임 상태] 블록이 제공된 경우
+해당 NPC에 한해 아래 내용 대신 프롬프트 내 정보를 우선 적용할 것.
+{session_npc_text}
+"""
+
+    # ── 세션 기억 압축 섹션 [9] (session 인자 있을 때만 조립) ──
+    memory_section = ""
+    if session is not None:
+        # cached_compressed_memory: 이전 재발급 시점까지의 기억
+        # compressed_memory: 마지막 재발급 이후 새로 누적된 기억
+        old_cached_mem = getattr(session, "cached_compressed_memory", "")
+        new_mem = session.compressed_memory
+        if old_cached_mem and new_mem:
+            full_memory = old_cached_mem + "\n" + new_mem
+        else:
+            full_memory = old_cached_mem or new_mem
+        if full_memory:
+            memory_section = f"""
+[9. 세션 진행 기억 — 과거 턴 압축 요약]
+(아래는 현재 세션에서 발생한 사건의 압축 요약이다. 과거 맥락 파악 및 일관성 유지에 참조할 것.)
+{full_memory}
 """
 
     rulebook_text = f"""=== [시나리오 핵심 룰북] ===
@@ -799,7 +980,7 @@ async def build_scenario_cache_text(bot, model_id, scenario_data: dict, cache_no
 [7. 필수 출력: 상태창 코드블럭 양식]
 (모든 묘사 후 턴의 마지막에 반드시 아래 양식을 바탕으로 상태창을 출력할 것)
 {status_code_block}
-{note_injection}============================
+{session_npc_section}{memory_section}{note_injection}============================
 """
 
     if session_id:
@@ -988,6 +1169,9 @@ async def restore_sessions_from_disk(bot):
                 session.cache_created_at = data.get("cache_created_at", 0.0)
                 session.cache_tokens = data.get("cache_tokens", 0)
                 session.cache_model = data.get("cache_model", DEFAULT_MODEL)
+                session.cached_session_npcs = data.get("cached_session_npcs", {})
+                session.cached_compressed_memory = data.get("cached_compressed_memory", "")
+                session.narrative_plan = data.get("narrative_plan", {})
 
                 # 자동 GM 모드 상태 복구 (auto_gm_lock은 런타임 락이므로 매 부팅마다 False로 초기화)
                 session.auto_gm_active = data.get("auto_gm_active", False)
@@ -1022,7 +1206,8 @@ async def restore_sessions_from_disk(bot):
                     except APIError:
                         print(f"🔄 {session_id}: 기존 캐시 만료됨. 새로 발급합니다...")
                         caching_text, cache_tokens, base_text = await build_scenario_cache_text(bot, DEFAULT_MODEL,
-                                                                                                scenario_data)
+                                                                                                scenario_data,
+                                                                                                session=session)
 
                         creation_cost = calculate_cost(DEFAULT_MODEL, input_tokens=cache_tokens)
                         storage_cost = calculate_cost(DEFAULT_MODEL, cache_storage_tokens=cache_tokens, storage_hours=1)
@@ -1046,6 +1231,7 @@ async def restore_sessions_from_disk(bot):
                         session.cache_created_at = time.time()
                         session.cache_tokens = cache_tokens
                         session.cache_model = DEFAULT_MODEL
+                        update_session_cache_state(session)
                         await save_session_data(bot, session)
 
                 bot.active_sessions[session.game_ch_id] = session
@@ -1124,12 +1310,18 @@ async def generate_character_details(bot, scenario_data, char_type, char_name, i
         types.GenerateContentResponse: API에서 반환한 응답 객체
     """
     worldview = scenario_data.get("worldview", "특별한 세계관 정보 없음")
+    stat_system = scenario_data.get("stat_system", "")
 
     context_blocks = ""
     if recent_logs:
         context_blocks += f"[최근 상황 요약 (최근 3턴)]\n{recent_logs}\n\n"
     if npc_context:
         context_blocks += f"[참고용 기존 NPC 설정]\n{npc_context}\n\n"
+    # NOTE: NPC 스탯 수치 부여 시 stat_system을 참조해야 적절한 기준값을 생성할 수 있다.
+    # has_stats=true인 경우에만 주입하며, PC와 동일한 ability_stats 스키마를 사용한다.
+    npc_tmpl_check = scenario_data.get("npc_template", {})
+    if isinstance(npc_tmpl_check, dict) and npc_tmpl_check.get("has_stats") and stat_system:
+        context_blocks += f"[스탯 시스템 (NPC 수치 부여 기준)]\n{stat_system}\n\n"
 
     if char_type == "pc":
         # PC 설정 생성은 '외모 묘사'만을 목적으로 한다.
@@ -1173,6 +1365,39 @@ async def generate_character_details(bot, scenario_data, char_type, char_name, i
             ]
         field_format = "\n".join(f"**{f}**: " for f in npc_fields)
 
+        # NOTE: npc_template의 has_stats/has_resources/has_statuses 플래그에 따라
+        # 출력 양식에 스탯·기본 자원·기본 상태 섹션을 추가한다.
+        # 출력된 내용은 !엔피씨 설정에서 **레이블**: 형식으로 파싱되어 session.npcs에 저장되고,
+        # resources/statuses는 session.resources/statuses에도 즉시 동기화된다.
+        extra_format_lines = []
+        extra_instructions = []
+        if isinstance(npc_tmpl, dict):
+            if npc_tmpl.get("has_stats"):
+                # ability_stats가 있으면 그 이름을 힌트로 사용, 없으면 범용 힌트
+                ability_stats = scenario_data.get("ability_stats", [])
+                if ability_stats:
+                    stat_hint = ", ".join(f"{s}=숫자" for s in ability_stats)
+                else:
+                    stat_hint = "스탯명=숫자, ..."
+                extra_format_lines.append(f"**스탯**: {stat_hint}")
+                extra_instructions.append(
+                    "7. 스탯: '스탯명=숫자' 형식으로 콤마 구분 작성. NPC 역할에 맞는 수치를 부여할 것."
+                )
+            if npc_tmpl.get("has_resources"):
+                extra_format_lines.append("**기본 자원**: 아이템명=수량, ... (초기 보유 없으면 '없음')")
+                extra_instructions.append(
+                    "8. 기본 자원: '아이템명=수량' 형식으로 콤마 구분 작성. NPC가 기본 보유하는 물자·장비만 포함."
+                )
+            if npc_tmpl.get("has_statuses"):
+                extra_format_lines.append("**기본 상태**: 상태명, ... (초기 이상 없으면 '없음')")
+                extra_instructions.append(
+                    "9. 기본 상태: 쉼표로 구분된 상태명 목록. 처음부터 부여된 만성 상태·장애·특수 조건만 기재."
+                )
+
+        if extra_format_lines:
+            field_format += "\n" + "\n".join(extra_format_lines)
+        extra_rules = ("\n" + "\n".join(extra_instructions)) if extra_instructions else ""
+
         prompt = (
             "당신은 TRPG 논플레이어 캐릭터(NPC)의 종합 인물 프로파일을 작성하는 설정 작가입니다.\n"
             "임무: 외모부터 내면 심리·관계망·비밀까지 포괄하는 완결된 NPC 프로파일을 생성할 것.\n\n"
@@ -1185,7 +1410,8 @@ async def generate_character_details(bot, scenario_data, char_type, char_name, i
             "5. 말투 명시: AI GM이 NPC를 직접 연기할 때 즉각 참고할 수 있는\n"
             "   구체적 어조·화법 특징을 기술할 것.\n"
             "6. 양식 엄수: 아래 [출력 양식]의 항목명·순서를 반드시 그대로 출력할 것.\n"
-            "   항목 추가·삭제·순서 변경·항목명 수정 불가. GM 지시사항은 각 항목 값에 녹여낼 것.\n\n"
+            "   항목 추가·삭제·순서 변경·항목명 수정 불가. GM 지시사항은 각 항목 값에 녹여낼 것.\n"
+            f"{extra_rules}\n\n"
             f"[세계관 정보]\n{worldview}\n\n"
             f"{context_blocks}"
             f"[대상 캐릭터]\n"

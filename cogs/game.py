@@ -175,11 +175,28 @@ class GameCog(commands.Cog):
             return None
 
         stat_name = param1
-        if not param2 or not param2.lstrip('-').isdigit():
-            return await ctx.send("⚠️ 능력치 판정 시 최대 눈(max_val)을 입력해야 합니다. 예: `!주사위 아서 근력 100`")
 
-        max_val = int(param2)
-        weight = int(param3) if param3 and param3.lstrip('-').isdigit() else 0
+        # ability_stat_max 자동 조회 — 정의돼 있으면 눈 수 명시 불필요
+        auto_max = None
+        ability_stat_max = session.scenario_data.get("ability_stat_max")
+        if ability_stat_max is not None:
+            if isinstance(ability_stat_max, dict):
+                val = ability_stat_max.get(stat_name)
+                if val is not None:
+                    auto_max = int(val)
+            elif isinstance(ability_stat_max, (int, float)):
+                auto_max = int(ability_stat_max)
+
+        if auto_max is not None:
+            # ability_stat_max에서 눈 수를 자동 결정 → param2 = 가중치(선택)
+            max_val = auto_max
+            weight = int(param2) if param2 and param2.lstrip('-').isdigit() else 0
+        else:
+            # 수동 모드: param2 = 눈 수 (필수), param3 = 가중치(선택)
+            if not param2 or not param2.lstrip('-').isdigit():
+                return await ctx.send("⚠️ 능력치 판정 시 최대 눈(max_val)을 입력해야 합니다. 예: `!주사위 아서 근력 20 3`")
+            max_val = int(param2)
+            weight = int(param3) if param3 and param3.lstrip('-').isdigit() else 0
 
         if stat_name not in player_data["profile"]:
             allowed_keys = ", ".join(player_data["profile"].keys())
@@ -235,7 +252,7 @@ class GameCog(commands.Cog):
         master_ch = self.bot.get_channel(session.master_ch_id)
         game_channel = self.bot.get_channel(session.game_ch_id)
 
-        async def m_send(content, **kw):
+        async def m_send(content=None, **kw):
             if master_ch:
                 return await master_ch.send(content, **kw)
             return None
@@ -283,25 +300,55 @@ class GameCog(commands.Cog):
             img_tags = re.findall(img_pattern, instruction)
 
             top_imgs, mid_imgs, bottom_imgs = [], [], []
-            for pos, kw in img_tags:
-                if pos == '상':
-                    top_imgs.append(kw)
-                elif pos == '중':
-                    mid_imgs.append(kw)
-                elif pos == '하':
-                    bottom_imgs.append(kw)
+            if cost_log_prefix:
+                # 자동 GM 모드: 상: 태그만 허용 (GM-Logic이 location_images 목록에서 선택한 장소 이미지)
+                # 중:/하: 태그는 여전히 무시 (AI의 임의 남발 방지)
+                for pos, kw in img_tags:
+                    if pos == '상':
+                        top_imgs.append(kw)
+            else:
+                for pos, kw in img_tags:
+                    if pos == '상':
+                        top_imgs.append(kw)
+                    elif pos == '중':
+                        mid_imgs.append(kw)
+                    elif pos == '하':
+                        bottom_imgs.append(kw)
 
             res_tags = re.findall(res_pattern, instruction)
 
+            # 유효한 캐릭터 이름 집합 (자:/태: 태그 검증용)
+            valid_char_names = set(p["name"] for p in session.players.values() if p.get("name")) | set(session.npcs.keys())
+
             for char_name, item_name, amount_str in res_tags:
+                if char_name not in valid_char_names:
+                    print(f"[태그 무시] 자:{char_name};{item_name} — 등록되지 않은 캐릭터 이름")
+                    continue
                 amount = int(amount_str)
                 if char_name not in session.resources:
                     session.resources[char_name] = {}
-                session.resources[char_name][item_name] = session.resources[char_name].get(item_name, 0) + amount
+                new_val = session.resources[char_name].get(item_name, 0) + amount
+                # 보유량이 0 이하가 되면 목록에서 삭제
+                if new_val <= 0:
+                    session.resources[char_name].pop(item_name, None)
+                else:
+                    session.resources[char_name][item_name] = new_val
 
             status_tags = re.findall(status_pattern, instruction)
 
+            # 자동 GM 모드에서는 유효한 상태이상 이름만 허용
+            valid_status_names = None
+            if cost_log_prefix:
+                valid_status_names = set(core.get_merged_status_effects(session.scenario_data).keys())
+
             for char_name, status_text in status_tags:
+                if char_name not in valid_char_names:
+                    print(f"[태그 무시] 태:{char_name};{status_text} — 등록되지 않은 캐릭터 이름")
+                    continue
+                actual_status = status_text.lstrip("-")
+                if valid_status_names is not None and actual_status not in valid_status_names:
+                    print(f"[태그 무시] 태:{char_name};{status_text} — 유효하지 않은 상태이상 이름 (목록에 없음)")
+                    continue
                 if char_name not in session.statuses:
                     session.statuses[char_name] = []
 
@@ -340,7 +387,13 @@ class GameCog(commands.Cog):
 
             prompt = core.PromptBuilder.build_prompt(session, clean_instruction)
 
-            current_contents = session.raw_logs + [
+            # NOTE: Gemini API는 contents가 role="user"로 시작해야 한다.
+            # 구형 세션은 raw_logs[0]이 role="model"(start message)일 수 있으므로,
+            # model-first인 경우 앞에 dummy user 턴을 삽입해 올바른 대화 구조를 보장한다.
+            _raw = list(session.raw_logs)
+            if _raw and _raw[0].role == "model":
+                _raw.insert(0, types.Content(role="user", parts=[types.Part.from_text(text="[세션 시작]")]))
+            current_contents = _raw + [
                 types.Content(role="user", parts=[types.Part.from_text(text=prompt)])
             ]
 
@@ -372,7 +425,7 @@ class GameCog(commands.Cog):
                         storage_cost = await core.process_cache_deletion(self.bot, session)
                         caching_text, cache_tokens, base_text = await core.build_scenario_cache_text(
                             self.bot, core.DEFAULT_MODEL, session.scenario_data,
-                            getattr(session, "cache_note", ""), session.session_id
+                            getattr(session, "cache_note", ""), session.session_id, session=session
                         )
 
                         upload_cost = core.calculate_upload_cost(core.DEFAULT_MODEL, input_tokens=cache_tokens)
@@ -383,9 +436,12 @@ class GameCog(commands.Cog):
                         core.write_cost_log(session.session_id, f"{cost_log_prefix}캐시 자동 재발급(진행 중)", cache_tokens, 0, 0, upload_cost,
                                             session.total_cost)
 
-                        report_msg = f"💰 **[캐시 자동 재발급 정산]**\n- 이전 캐시 보관 비용: {core.format_cost(storage_cost)}\n- 새 캐시 업로드 비용: {core.format_cost(upload_cost)}\n- 현재까지 총 누적 비용: {core.format_cost(session.total_cost)}"
-                        print(report_msg)
-                        await m_send(report_msg)
+                        _cache_embed = core.build_cache_cost_embed(
+                            "캐시 자동 재발급 (진행 중)",
+                            storage_cost, upload_cost, session.total_cost
+                        )
+                        print(f"[캐시 자동 재발급] storage={core.format_cost(storage_cost)} upload={core.format_cost(upload_cost)} total={core.format_cost(session.total_cost)}")
+                        await m_send(embed=_cache_embed)
 
                         new_cache = await asyncio.to_thread(
                             self.bot.genai_client.caches.create,
@@ -401,6 +457,7 @@ class GameCog(commands.Cog):
                         session.cache_name = new_cache.name
                         session.cache_model = core.DEFAULT_MODEL
                         session.cache_text = base_text
+                        core.update_session_cache_state(session)
                         await core.save_session_data(self.bot, session)
 
                         return await generate_with_retry(retry_count=1)
@@ -410,9 +467,9 @@ class GameCog(commands.Cog):
             response = await generate_with_retry()
 
             meta = response.usage_metadata
-            in_tokens = meta.prompt_token_count
-            out_tokens = meta.candidates_token_count
-            cached_tokens = getattr(meta, "cached_content_token_count", 0)
+            in_tokens = getattr(meta, "prompt_token_count", 0) or 0
+            out_tokens = getattr(meta, "candidates_token_count", 0) or 0
+            cached_tokens = getattr(meta, "cached_content_token_count", 0) or 0
 
             breakdown = core.calculate_text_gen_cost_breakdown(
                 core.DEFAULT_MODEL,
@@ -423,25 +480,20 @@ class GameCog(commands.Cog):
             turn_cost = breakdown["total_krw"]
             session.total_cost += turn_cost
 
+            label_prefix = "(자동 GM) " if cost_log_prefix else ""
             core.write_cost_log(session.session_id, f"{cost_log_prefix}턴 진행 생성", in_tokens, cached_tokens, out_tokens, turn_cost,
                                 session.total_cost)
 
-            cache_hit_rate = (cached_tokens / in_tokens * 100) if in_tokens else 0.0
-            label_prefix = "(자동 GM) " if cost_log_prefix else ""
-            lines = [
-                f"💰 **[비용 보고] {label_prefix}턴 진행 #{session.turn_count + 1}**",
-                f"- 모델: {core.DEFAULT_MODEL}",
-                f"- 입력 합계: {in_tokens:,} 토큰  (캐시 적중률 {cache_hit_rate:.1f}%)",
-                f"   · 신규 입력 {breakdown['input_billable_tokens']:,} × ${breakdown['input_rate']:.2f}/1M → {core.format_cost(breakdown['input_krw'])}",
-                f"   · 캐시 적중 {breakdown['cache_read_tokens']:,} × ${breakdown['cache_rate']:.2f}/1M → {core.format_cost(breakdown['cache_read_krw'])}",
-                f"- 출력 {breakdown['output_tokens']:,} × ${breakdown['output_rate']:.2f}/1M → {core.format_cost(breakdown['output_krw'])}",
-                f"- 턴 발생 비용: {core.format_cost(turn_cost)}  ( ≈ ${breakdown['total_usd']:.4f} )",
-                f"- 누적 비용: {core.format_cost(session.total_cost)}",
-            ]
-            report_msg = "\n".join(lines)
-            print(f"\n[{label_prefix}턴 진행 비용 보고] session={session.session_id}")
-            print(report_msg.replace("**", ""))
-            await m_send(report_msg)
+            print(f"\n[{label_prefix}턴 진행 비용] session={session.session_id} In={in_tokens:,} Cached={cached_tokens:,} Out={out_tokens:,} cost={core.format_cost(turn_cost)}")  # in/out/cached already guarded above
+
+            # PROCEED 비용을 turn_cost_log에 추가한 뒤 배치 플러시 → 스트리밍 시작 직전 보고
+            proceed_label = f"{'(자동 GM) ' if cost_log_prefix else ''}PROCEED 턴 묘사"
+            if not hasattr(session, "turn_cost_log"):
+                session.turn_cost_log = []
+            session.turn_cost_log.append({"label": proceed_label, "cost": turn_cost})
+            _turn_embed = core.build_turn_cost_embed(session.turn_count + 1, session.turn_cost_log, session.total_cost)
+            session.turn_cost_log.clear()
+            await m_send(embed=_turn_embed)
 
             full_ai_response = response.text
 
@@ -535,9 +587,9 @@ class GameCog(commands.Cog):
                         )
 
                         meta = summary_response.usage_metadata
-                        in_tokens = meta.prompt_token_count
-                        out_tokens = meta.candidates_token_count
-                        cached_tokens = getattr(meta, "cached_content_token_count", 0)
+                        in_tokens = getattr(meta, "prompt_token_count", 0) or 0
+                        out_tokens = getattr(meta, "candidates_token_count", 0) or 0
+                        cached_tokens = getattr(meta, "cached_content_token_count", 0) or 0
 
                         turn_cost = core.calculate_upload_cost(core.LOGIC_MODEL, input_tokens=in_tokens,
                                                         output_tokens=out_tokens,
@@ -547,8 +599,11 @@ class GameCog(commands.Cog):
                         core.write_cost_log(session.session_id, f"{cost_log_prefix}자동 기억 압축", in_tokens, cached_tokens, out_tokens,
                                             turn_cost, session.total_cost)
 
-                        print(
-                            f"💰 [비용 보고] 기억 압축 진행 - In:{in_tokens}, Cached:{cached_tokens}, Out:{out_tokens} | 턴 발생: ${turn_cost:.6f} (누적: ${session.total_cost:.6f})")
+                        print(f"[자동 기억 압축 비용] In:{in_tokens} Cached:{cached_tokens} Out:{out_tokens} | {core.format_cost(turn_cost)}")
+                        _comp_embed = core.build_compression_cost_embed(
+                            "자동 기억 압축", in_tokens, cached_tokens, out_tokens, turn_cost, session.total_cost
+                        )
+                        await m_send(embed=_comp_embed)
 
                         new_compressed_segment = summary_response.text.strip()
                         if session.compressed_memory:
@@ -851,9 +906,9 @@ class GameCog(commands.Cog):
             )
 
             meta = summary_response.usage_metadata
-            in_tokens = meta.prompt_token_count
-            out_tokens = meta.candidates_token_count
-            cached_tokens = getattr(meta, "cached_content_token_count", 0)
+            in_tokens = getattr(meta, "prompt_token_count", 0) or 0
+            out_tokens = getattr(meta, "candidates_token_count", 0) or 0
+            cached_tokens = getattr(meta, "cached_content_token_count", 0) or 0
 
             turn_cost = core.calculate_upload_cost(core.LOGIC_MODEL, input_tokens=in_tokens, output_tokens=out_tokens,
                                             cached_read_tokens=cached_tokens)
@@ -862,8 +917,11 @@ class GameCog(commands.Cog):
             core.write_cost_log(session.session_id, "수동 기억 압축", in_tokens, cached_tokens, out_tokens, turn_cost,
                                 session.total_cost)
 
-            print(
-                f"💰 [비용 보고] 수동 기억 압축 진행 - In:{in_tokens}, Cached:{cached_tokens}, Out:{out_tokens} | 턴 발생: ${turn_cost:.6f} (누적: ${session.total_cost:.6f})")
+            print(f"[수동 기억 압축 비용] In:{in_tokens} Cached:{cached_tokens} Out:{out_tokens} | {core.format_cost(turn_cost)}")
+            _comp_embed = core.build_compression_cost_embed(
+                "수동 기억 압축", in_tokens, cached_tokens, out_tokens, turn_cost, session.total_cost
+            )
+            await ctx.send(embed=_comp_embed)
 
             new_compressed_segment = summary_response.text.strip()
             if session.compressed_memory:

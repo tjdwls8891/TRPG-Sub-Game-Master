@@ -1,48 +1,91 @@
 {
-    "worldview": "세계관 정보. 수만 자 분량.",
-    "desc_guide": "개별 시나리오의 묘사 분위기, 가이드.",
-    "story_guide": "시나리오 스토리 진행의 대략적인 가이드라인.",
-    "scenario_intro": "!소개 명령어에서 출력될 인트로 중 시나리오 항목.",
-    "start_message": "!시작 명령어에서 출력될 시나리오 시작 묘사.",
-    "keyword_memory": [
-        {
-            "keywords": ["임시1", "임시2"],
-            "description": "임시1, 임시2 키워드 내용"
-        },
-        {
-            "keywords": ["임시3"],
-            "description": "임시3 키워드 내용"
-        }
-    ],
-    "status_code_block": "```css\n\uD83D\uDCC5 [#{현재 턴 수} {날짜(년/월/일)} {시간대(새벽/아침/오전/낮/오후/저녁/밤}] \n\uD83D\uDCCD 현재 위치: {현재 장소 명칭}\n\uD83D\uDCDD 상황 요약: {현재 직면한 상황 20자 이내 요약}\n\uD83D\uDCCB {인물 관계 데이터}\n{npc이름1} | {나이} | {관계} | ❤\uFE0F ○/100 | {현재 감정/상태}\n{npc이름2} | {나이} | {관계} | ❤\uFE0F ○/100 | {현재 감정/상태}\n{npc이름3} | {나이} | {관계} | ❤\uFE0F ○/100 | {현재 감정/상태}\n```",
-    "default_npcs": {
-        "npc이름": {
-            "name": "npc이름",
-            "details": "npc정보"
-        }
-    },
-    "pc_template": {
-        "스탯1": "",
-        "스탯2": "",
-        "스탯3": "",
-        "스탯4": ""
-    },
-    "profile_secondary_stats": ["스킬"],
-    "ability_stats": ["근력", "민첩", "기술"],
-    "stat_system": "스탯 척도 및 판정 기준 가이드",
-    "image_prompts": {
-        "캐릭터전신삼면도": {
-            "prompt": "Masterpiece, best illustration, traditional media oil painting style, painting (medium). A highly skilled full-body three-view character diagram with perfect anatomy and perfect_body. Sequential front view, back view, and side view of the described person on a pure white background. Standing straight with arms naturally relaxed downwards. Executed with soft brushstrokes and natural gradation, designed for atmospheric depth. No other elements or background props. Reference: Elden Ring and Lies of P art direction. Resolution maximal 1024x768 pixels (4:3 aspect ratio), maximal 1K size."
-        },
-        "상반신프로필": {
-            "prompt": "Masterpiece, best illustration, traditional media oil painting style, painting (medium). An exquisite upper-body frontal portrait of the person from chest to top of head, showcasing perfect anatomy with a soft style and smooth gradation. A natural neutral expression. Background is softly blurred with deep shadows and cinematic lighting, invoking a dense atmosphere similar to Elden Ring. Composition with the person placed on the left one-third of the frame using shallow depth of field and best shadow techniques. Reference: Lies of P aesthetic. Resolution maximal 1000x400 pixels (5:2 aspect ratio), under 1K size."
-        },
-        "단순이미지": {
-            "prompt": "Masterpiece, best illustration, traditional media oil painting style, painting (medium). A professional painting depicting the described object and situation with a soft style and natural gradation. Perfect anatomy applied where human figures are involved. Utilizing dramatic cinematic lighting and best shadow to create a dense, imaginative atmosphere inspired by Elden Ring and Lies of P. Focus on mood through depth of field. Resolution maximal 1024x1024 pixels, not exceeding 1K size."
-        }
-    },
-    "media_dir": "./media",
-    "media_keywords": {
-        "키워드": "파일명.확장자"
+  "worldview": "",
+  "desc_guide": "",
+  "story_guide": "",
+  "scenario_intro": "",
+  "start_message": "",
+  "keyword_memory": [
+    {
+      "keywords": [
+        "dlatl"
+      ],
+      "description": ""
     }
+  ],
+  "status_code_block": "```css\n📅 [#{현재 턴 수}] [{시나리오상 날짜} {요일} {시간대(새벽/아침/오전/낮/오후/저녁/밤)}]\n📍 {현재 장소}\n상황 요약 : {현재 상황 20자 이내 요약}\n```",
+  "pc_template": {
+    "근력": "",
+    "민첩": "",
+    "기술": "",
+    "외모": "",
+    "스킬": ""
+  },
+  "ability_stat_max": 20,
+  "npc_template": {
+    "info_fields": [
+      "나이·성별",
+      "소속·직책",
+      "외모",
+      "핵심 기질",
+      "행동 방식",
+      "말투·어조",
+      "동기·욕구",
+      "두려움·약점",
+      "비밀",
+      "신뢰·의존",
+      "경계·반목",
+      "특기·능력"
+    ],
+    "has_stats": false,
+    "has_resources": true,
+    "has_statuses": true
+  },
+  "default_npcs": {
+    "김철수": {
+      "name": "김철수",
+      "나이·성별": "62세, 남성",
+      "소속·직책": "남항 중공업 연대, 중앙 위원회 의장",
+      "외모": "기름때 절은 청색 용접복. 백발이 성성한 상륙돌격형 두발. 오른손 검지 반 마디 소실. 목에 상시 걸어둔 낡은 방진 마스크. 쇳가루 기침으로 인한 충혈된 눈.",
+      "핵심 기질": "철저한 실용주의. 감정을 배제한 공리주의적 판단. 기계적 질서와 노동 가치 숭상.",
+      "행동 방식": "매일 06시 전 구역 순시 및 환풍기 소음 체크. 작업대별 전력 사용량 일일 점검. 비효율 발생 시 즉각적인 배급 삭감 및 징벌 업무 배치.",
+      "말투·어조": "부산 사투리가 섞인 낮고 쇳소리 나는 성음. 결론만 요구하는 단문 중심의 명령조. \"결론만\", \"수치로 말해\"를 습관적으로 사용하며 대화 중 잦은 기침.",
+      "동기·욕구": "벙커C유 고갈 전 조선소의 완전한 요새화 및 반영구적 자급 시스템 구축.",
+      "두려움·약점": "주력 발전기 가동 중단으로 인한 내부 산소 공급 마비. 본인의 만성 폐질환 악화로 인한 지도력 상실.",
+      "비밀": "최근 수거한 식량 통조림 상당수가 중금속에 오염되었음을 인지했으나, 노동력 유지를 위해 사실을 은폐하고 배급을 강행 중임.",
+      "신뢰·의존": "선박 엔진 수리 경력 30년 이상의 마스터급 노련한 기술자 집단.",
+      "경계·반목": "자원을 독점한 조도 사령부의 고압적 태도. 해련 마을의 비논리적이고 유약한 공동체주의.",
+      "특기·능력": "기계 진동만으로 고장 부위 정밀 진단. 극한 상황에서 인적 자원을 기계 부품처럼 배치하는 냉혹한 조직 관리력."
+    }
+  },
+  "profile_secondary_stats": [
+    "스킬"
+  ],
+  "ability_stats": [
+    "근력",
+    "민첩",
+    "기술"
+  ],
+  "stat_system": "[스탯 및 D20 판정 시스템 룰북]\n\n1. 스탯(능력치)의 척도와 의미\n- 기준점: 평범한 인간의 평균 능력치는 '10'입니다. \n- 플레이어(PC) 한계치: 최소 5(해당 분야에 매우 취약함)에서 최대 15(인간으로서 도달 가능한 특출난 수준) 사이로 설정됩니다.\n- 절대 척도: 가중치가 0일 때, 스탯 1은 5%의 성공률을, 스탯 20(최대치)은 어떤 행동이든 100% 성공하는 완벽한 상태를 의미합니다.\n예외 스탯 '외모': 외모 스탯의 최대치는 10. 인간 평균 외모가 5.\n\n2. 판정 방식 및 난이도 가중치\n- 롤 언더(Roll-Under) 시스템: 20면체 주사위(1D20)를 굴려, 나온 눈이 '기준치(해당 스탯 + GM 부여 가중치)' 이하일 경우 [성공], 초과할 경우 [실패]로 판정합니다.\n- 가중치(Weight): 행동의 난이도를 조정하는 보정값입니다. 쉬운 행동에는 양수(+)가 더해져 성공 확률이 올라가며, 어려운 행동에는 음수(-)가 더해져 확률이 깎입니다.\n\n3. 극적 판정 (대성공과 대실패)\n- 대성공 (눈 1, 2): 완벽한 성공입니다. AI는 행동의 성공뿐만 아니라, 예기치 않은 추가 이득, 완벽한 타격, 적의 치명적인 허점 노출 등을 과감하게 묘사하십시오.\n- 대실패 (눈 19, 20): 치명적인 실패입니다. 단순히 행동을 완수하지 못한 것을 넘어, 무기의 파손, 균형 상실, 적의 치명적인 역공, 부상 등 뼈아픈 물리적 불이익이 발생했음을 묘사하십시오.\n- 극한 예외 조항: 단, 능력치와 가중치의 합산(기준치)이 4 이하이거나 17 이상에 달하는 극단적인 상황에서는 대성공/대실패가 발생하지 않으며, 일반적인 성공/실패의 묘사 스케일을 따릅니다.\n\n4. 판정 결과 묘사 지침\n- 실패 묘사의 원칙: 캐릭터가 단순히 '바보같이 실수했다'고 묘사하지 마십시오. 미끄러운 바닥, 예상치 못한 적의 완력, 낡은 무기의 한계 등 '물리적인 마찰과 환경적 저항' 때문에 실패했음을 개연성 있게 묘사하여 캐릭터의 체면을 보호하십시오.",
+  "image_prompts": {
+    "캐릭터전신삼면도": {
+      "prompt": "Masterpiece, best illustration, traditional media oil painting style, painting (medium). A highly skilled full-body three-view character diagram with perfect anatomy and perfect_body. Sequential front view, back view, and side view of the described person on a pure white background. Standing straight with arms naturally relaxed downwards. Executed with soft brushstrokes and natural gradation, designed for atmospheric depth. No other elements or background props. Reference: Elden Ring and Lies of P art direction. Resolution maximal 1024x768 pixels (4:3 aspect ratio), maximal 1K size."
+    },
+    "상반신프로필": {
+      "prompt": "Masterpiece, best illustration, traditional media oil painting style, painting (medium). An exquisite upper-body frontal portrait of the person from chest to top of head, showcasing perfect anatomy with a soft style and smooth gradation. A natural neutral expression. Background is softly blurred with deep shadows and cinematic lighting, invoking a dense atmosphere similar to Elden Ring. Composition with the person placed on the left one-third of the frame using shallow depth of field and best shadow techniques. Reference: Lies of P aesthetic. Resolution maximal 1000x400 pixels (5:2 aspect ratio), under 1K size."
+    },
+    "단순이미지": {
+      "prompt": "Masterpiece, best illustration, traditional media oil painting style, painting (medium). A professional painting depicting the described object and situation with a soft style and natural gradation. Perfect anatomy applied where human figures are involved. Utilizing dramatic cinematic lighting and best shadow to create a dense, imaginative atmosphere inspired by Elden Ring and Lies of P. Focus on mood through depth of field. Resolution maximal 1024x1024 pixels, not exceeding 1K size."
+    },
+    "인물": {
+      "aspect_ratio": "3:4",
+      "prompt": "1 person, full body character design, looking directly at viewer, Danganronpa anime art style, thick brushstroke texture, solid white background, 2k resolution, high quality --ar 3:4"
+    }
+  },
+  "media_dir": "./media",
+  "media_keywords": {
+    "김수진프로필": "김수진프로필.png"
+  },
+  "prohibitions": [
+    ""
+  ]
 }

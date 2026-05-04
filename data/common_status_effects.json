@@ -1,0 +1,32 @@
+[
+  {
+    "name": "지침",
+    "apply_condition": "고강도 신체 활동 지속 또는 수면 부족",
+    "weight": -2,
+    "remove_condition": "30분 이상 충분한 휴식"
+  },
+  {
+    "name": "배부름",
+    "apply_condition": "충분한 양의 음식 섭취 직후",
+    "weight": 1,
+    "remove_condition": "2~3시간 경과 또는 격렬한 활동"
+  },
+  {
+    "name": "출혈",
+    "apply_condition": "예리한 무기나 파편에 의한 절상·자상",
+    "weight": -3,
+    "remove_condition": "직접 지혈·봉합 등 의료 처치 완료"
+  },
+  {
+    "name": "공황",
+    "apply_condition": "극한의 공포 상황에 장시간 노출",
+    "weight": -4,
+    "remove_condition": "안전한 환경에서 안정 취하거나 다른 인물의 진정 지원"
+  },
+  {
+    "name": "부상",
+    "apply_condition": "둔기 충격이나 낙하 등 물리적 충격",
+    "weight": -2,
+    "remove_condition": "응급처치 및 충분한 안정"
+  }
+]

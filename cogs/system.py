@@ -41,12 +41,14 @@ class SystemCog(commands.Cog):
             "`!참가 [이름]` : 게임 채널에서 PC로 세션 참가\n"
             "`!설정 [이름] [항목] [내용]` : 캐릭터 스탯/프로필 항목 갱신\n"
             "`!증감 [이름] [스탯명] [수치]` : 스탯 수치를 지정한 값만큼 증감 (예: -3, +5)\n"
-            "`!증감 [이름] 자원 [아이템명] [수치]` : 소지 자원 증감\n"
-            "`!증감 [이름] 상태 [상태명]` : 상태이상 부여 / `-[상태명]`으로 제거\n"
+            "`!증감 [이름] 자원 [아이템명] [수치]` : 소지 자원 증감 (NPC 이름도 가능)\n"
+            "`!증감 [이름] 상태 [상태명]` : 상태이상 부여 / `-[상태명]`으로 제거 (NPC 이름도 가능)\n"
             "`!외형 [이름] (내용)` : 캐릭터 외형 설정 또는 확인\n"
             "`!프로필 [이름] (게임)` : 프로필 카드 출력 (기본: 마스터 채널 / `게임`: 게임 채널)\n"
-            "`!엔피씨 [설정/확인/삭제/목록] (이름) (내용)` : NPC 런타임 설정 통합 관리\n"
-            "`!능력치 [이름] [주사위눈] [총합]` : 능력치 주사위 굴림 → 비율 자동 배분 (게임 채널 버튼)\n"
+            "`!엔피씨 설정 [이름] [내용]` : NPC 전체 설정 덮어쓰기\n"
+            "`!엔피씨 설정 [이름] [필드명] [내용]` : NPC 단일 필드 수정 (나이·성별, 외모 등)\n"
+            "`!엔피씨 [확인/삭제/목록] (이름)` : NPC 정보 조회·삭제·목록 확인\n"
+            "`!능력치 [이름] [주사위눈] [총합]` : 능력치 주사위 굴림 → 비율 자동 배분, 개별 상한 자동 적용\n"
             "`!설정생성 [pc/npc] [이름] [지시사항]` : AI 캐릭터 설정 초안 생성\n"
             "  *(설정생성 특수 태그: `엔:이름[,이름]` — 참조 NPC 지정)*"
         ), inline=False)
@@ -81,7 +83,8 @@ class SystemCog(commands.Cog):
             "`!자동중단` : 자동 GM 모드 정지 후 인간 GM 명령 모드 복귀\n"
             "`!자동상태` : 활성 여부, 자동 처리 턴 수, 누적 비용 확인\n"
             "`!자동개입 [텍스트]` : 다음 GM-Logic 호출 1회에 한해 마스터 노트 합류\n"
-            "`!자동턴제한 [N]` : 자동으로 진행할 최대 턴 수 변경 (기본 10, 1~100)"
+            "`!자동턴제한 [N]` : 자동으로 진행할 최대 턴 수 변경 (기본 10, 1~100)\n"
+            "  *(GM-Logic 판단: `ASK` 명확화 질문 / `NARRATE` 경량 즉답 / `ROLL` 주사위 / `PROCEED` 턴 진행)*"
         ), inline=False)
 
         embed.add_field(name="[시스템 관리]", value=(
@@ -221,7 +224,7 @@ class SystemCog(commands.Cog):
             try:
                 caching_text, cache_tokens, base_text = await core.build_scenario_cache_text(
                     self.bot, core.DEFAULT_MODEL, session.scenario_data,
-                    getattr(session, "cache_note", "")
+                    getattr(session, "cache_note", ""), session=session
                 )
 
                 upload_cost = core.calculate_upload_cost(core.DEFAULT_MODEL, input_tokens=cache_tokens)
@@ -231,9 +234,11 @@ class SystemCog(commands.Cog):
                 session.cache_created_at = time.time()
                 session.cache_tokens = cache_tokens
 
-                report_msg = f"💰 **[캐시 수동 재발급 정산]**\n- 기존 캐시 보관 비용: {core.format_cost(storage_cost)}\n- 새 캐시 업로드 비용: {core.format_cost(upload_cost)}\n- 총 누적 비용: {core.format_cost(session.total_cost)}"
-                print(report_msg)
-                await ctx.send(report_msg)
+                print(f"[수동 캐시 재발급] storage={core.format_cost(storage_cost)} upload={core.format_cost(upload_cost)} total={core.format_cost(session.total_cost)}")
+                _cache_embed = core.build_cache_cost_embed(
+                    "수동 캐시 재발급", storage_cost, upload_cost, session.total_cost
+                )
+                await ctx.send(embed=_cache_embed)
 
                 cache = await asyncio.to_thread(
                     self.bot.genai_client.caches.create,
@@ -249,6 +254,7 @@ class SystemCog(commands.Cog):
                 session.cache_name = cache.name
                 session.cache_model = core.DEFAULT_MODEL
                 session.cache_text = base_text
+                core.update_session_cache_state(session)
                 await core.save_session_data(self.bot, session)
 
                 await ctx.send(f"✅ 수동 캐시 재발급 완료! (새 캐시 ID: {cache.name})\n누적 비용에 캐시 생성 및 1시간 유지 비용이 합산되었습니다.")
@@ -268,9 +274,11 @@ class SystemCog(commands.Cog):
                     core.write_cost_log(session.session_id, "명시적 캐시 삭제 (유지비 정산)", 0, 0, 0, storage_cost,
                                         session.total_cost)
 
-                report_msg = f"💰 **[캐시 수동 파기 정산]**\n- 캐시 보관 비용: {core.format_cost(storage_cost)}\n- 총 누적 비용: {core.format_cost(session.total_cost)}"
-                print(report_msg)
-                await ctx.send(report_msg)
+                print(f"[수동 캐시 파기] storage={core.format_cost(storage_cost)} total={core.format_cost(session.total_cost)}")
+                _cache_embed = core.build_cache_cost_embed(
+                    "수동 캐시 파기", storage_cost, 0.0, session.total_cost
+                )
+                await ctx.send(embed=_cache_embed)
 
                 await ctx.send("✅ 캐시가 정상적으로 삭제되어 스토리지 과금이 중단되었습니다.")
             except Exception as e:
@@ -302,6 +310,7 @@ class SystemCog(commands.Cog):
 
         else:
             await ctx.send("⚠️ 잘못된 인자입니다. 사용법: `!캐시 [재발급/삭제/출력]`")
+
 
     @commands.command(name="리로드")
     @commands.has_permissions(administrator=True)

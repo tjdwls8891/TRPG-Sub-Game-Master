@@ -64,7 +64,7 @@ class SessionCog(commands.Cog):
         try:
             await ctx.send("⏳ 시나리오 설정 및 장기 기억 캐싱 중...")
             caching_text, cache_tokens, base_text = await core.build_scenario_cache_text(
-                self.bot, core.DEFAULT_MODEL, scenario_data
+                self.bot, core.DEFAULT_MODEL, scenario_data, session=session
             )
 
             # NOTE: 유지 비용 선결제를 폐지하고, 캐시 생성 시점에는 순수 업로드(입력) 비용만 정산.
@@ -75,12 +75,13 @@ class SessionCog(commands.Cog):
             session.cache_text = base_text
             core.write_cost_log(session.session_id, "초기 캐시 생성", cache_tokens, 0, 0, upload_cost, session.total_cost)
 
-            report_msg = f"💰 **[캐시 업로드 완료]**\n- 초기 업로드 비용: {core.format_cost(upload_cost)}\n- 누적 비용: {core.format_cost(session.total_cost)}"
-            print(report_msg)
-
+            print(f"[새 세션 캐시 업로드] upload={core.format_cost(upload_cost)} total={core.format_cost(session.total_cost)}")
+            _cache_embed = core.build_cache_cost_embed(
+                "새 세션 캐시 생성", 0.0, upload_cost, session.total_cost
+            )
             master_ch = self.bot.get_channel(session.master_ch_id)
             if master_ch:
-                await master_ch.send(report_msg)
+                await master_ch.send(embed=_cache_embed)
 
             cache = await asyncio.to_thread(
                 self.bot.genai_client.caches.create,
@@ -94,6 +95,7 @@ class SessionCog(commands.Cog):
             session.cache_obj = cache
             session.cache_name = cache.name
             session.cache_model = core.DEFAULT_MODEL
+            core.update_session_cache_state(session)
             await ctx.send(f"✅ 캐싱 완료! (캐시 ID: {cache.name})")
         except Exception as e:
             # WARNING: 캐싱에 실패하더라도 세션 객체 자체는 정상 구동되도록 예외 처리.
@@ -110,10 +112,11 @@ class SessionCog(commands.Cog):
     @commands.has_permissions(administrator=True)
     async def start_game(self, ctx):
         """
-        세션의 시작 메시지를 게임 채널에 출력하고 AI 모델에 컨텍스트 주입. (1회 한정)
+        게임 채널의 기존 메시지를 전부 삭제한 뒤 시작 메시지를 스트리밍하고 AI 컨텍스트에 주입. (1회 한정)
 
         NOTE: 시작 메시지를 시스템이 아닌 AI(role="model")의 발화로 조작하여
         raw_logs에 주입함으로써, AI 스스로 게임 마스터 스탠스를 유지하도록 유도.
+        게임 채널의 기존 메시지를 전부 지워 소개·캐릭터 생성 내용을 깔끔하게 정리한다.
 
         Args:
             ctx (commands.Context): 디스코드 컨텍스트 객체
@@ -133,12 +136,31 @@ class SessionCog(commands.Cog):
         session.is_started = True
         await core.save_session_data(self.bot, session)
 
+        # ── 게임 채널 초기화: 기존 메시지 전체 삭제 ──
+        # NOTE: !소개·캐릭터 생성 등 준비 단계 메시지를 정리해 실제 게임 공간을 깔끔하게 시작.
+        # Discord bulk-delete는 14일 이내 메시지만 지원. 오류 발생 시 경고만 출력하고 진행.
+        await ctx.send("⏳ 게임 채널을 초기화합니다...")
+        try:
+            deleted = await game_channel.purge(limit=None)
+            if deleted:
+                await ctx.send(f"🗑️ 게임 채널 메시지 {len(deleted)}개 삭제 완료.")
+        except discord.Forbidden:
+            await ctx.send("⚠️ 게임 채널 메시지 삭제 권한이 없습니다. 메시지를 유지한 채 시작합니다.")
+        except Exception as e:
+            await ctx.send(f"⚠️ 게임 채널 초기화 중 오류 발생: {e}")
+
         start_message = session.scenario_data.get("start_message", "> 세션이 시작됩니다.")
         start_text = f"**[세션 시작]**\n{start_message}"
 
         await core.stream_text_to_channel(self.bot, game_channel, start_text, words_per_tick=5, tick_interval=1.5)
 
+        # NOTE: Gemini API는 contents 배열이 반드시 role="user"로 시작해야 한다.
+        # start_text를 model 단독으로 삽입하면 API가 해당 메시지를 무시하므로,
+        # 반드시 user→model 쌍으로 삽입한다.
+        session.raw_logs.append(types.Content(role="user", parts=[types.Part.from_text(text="[세션 시작]")]))
         session.raw_logs.append(types.Content(role="model", parts=[types.Part.from_text(text=start_text)]))
+        # 기억 압축 대상에 포함하여 초기 장면 정보가 compressed_memory에 보존되도록 한다.
+        session.uncompressed_logs.append(f"[세션 시작 묘사]: {start_text}")
         await core.save_session_data(self.bot, session)
 
         if ctx.channel.id != session.game_ch_id:
@@ -181,7 +203,7 @@ class SessionCog(commands.Cog):
         pc_template = session.scenario_data.get("pc_template", {})
 
         template_keys_str = "\n".join([f"- {k}" for k in pc_template.keys()])
-        guide_text = f"이제 플레이어 여러분의 캐릭터를 만들 차례입니다. 마스터 채널에 `!참가 [이름]` 명령어를 입력하여 게임 채널에 캐릭터로 참가하십시오.\n\n[플레이어 스탯 구성]\n{template_keys_str}"
+        guide_text = f"이제 플레이어 여러분의 캐릭터를 만들 차례입니다. 게임 채널에 `!참가 [이름]` 명령어를 입력하여 세션에 캐릭터로 참가하십시오.\n\n[플레이어 스탯 구성]\n{template_keys_str}"
 
         full_text = f"{self.bot.intro_text}\n\n{scenario_intro}\n\n{guide_text}"
 
