@@ -36,11 +36,11 @@ class PresenceCog(commands.Cog):
         n = self._active_session_count()
         session_line = f"진행 중인 세션 {n}개 📜" if n else "새로운 세션을 기다리는 중 📜"
         return [
-            (discord.ActivityType.playing, "TRPG · 강호의 이야기 🎲"),
+            (discord.ActivityType.playing, "TRPG · 자유 시나리오 🎲"),
             (discord.ActivityType.watching, session_line),
-            (discord.ActivityType.listening, "!명령어 (도움말)"),
+            (discord.ActivityType.listening, "플레이어는 선언해주세요. 😎"),
             (discord.ActivityType.playing, "GM의 붓끝에서 펼쳐지는 서사 ⚔️"),
-            (discord.ActivityType.watching, "마스터 채널의 명령 🎭"),
+            (discord.ActivityType.watching, "플레이어가 발견 못 한 비밀 🎭"),
         ]
 
     @tasks.loop(seconds=STATUS_ROTATE_SECONDS)
