@@ -242,9 +242,12 @@ async def save_session_data(bot, session: TRPGSession):
                 data[field] = getattr(session, field, default)
 
             # ── 원자적 쓰기: tmp → os.replace ──
+            # NOTE: tmp 파일명을 호출별로 고유화한다. 동시 저장(예: 백그라운드 기억 압축과
+            # 프로씨드가 각각 save_session_data 호출)이 같은 tmp를 덮어써 data.json이 손상되는
+            # 경합을 방지한다. os.replace는 원자적이므로 최종 파일은 항상 완전한 스냅샷이다.
             session_dir = f"sessions/{session.session_id}"
             final_path = f"{session_dir}/data.json"
-            tmp_path = f"{session_dir}/data.json.tmp"
+            tmp_path = f"{session_dir}/data.json.{os.getpid()}.{time.time_ns()}.tmp"
 
             def write_file():
                 with open(tmp_path, "w", encoding="utf-8") as f:
@@ -255,12 +258,16 @@ async def save_session_data(bot, session: TRPGSession):
 
         except Exception as e:
             # NOTE: 저장 실패가 게임 진행을 중단시키면 안 되므로 예외를 흡수하고 경고만 출력.
-            # 임시 파일이 남아있는 경우를 대비해 정리 시도.
+            # 실패로 남은 고유 tmp 파일(data.json.*.tmp)들을 정리 시도.
             print(f"⚠️ [세션 저장 실패] {session.session_id}: {e}")
             try:
-                tmp_path = f"sessions/{session.session_id}/data.json.tmp"
-                if os.path.exists(tmp_path):
-                    os.remove(tmp_path)
+                session_dir = f"sessions/{session.session_id}"
+                for fn in os.listdir(session_dir):
+                    if fn.startswith("data.json.") and fn.endswith(".tmp"):
+                        try:
+                            os.remove(os.path.join(session_dir, fn))
+                        except OSError:
+                            pass
             except OSError:
                 pass
 

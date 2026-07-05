@@ -276,6 +276,18 @@ class GameCog(commands.Cog):
         full_ai_response = ""
         status_msg = None   # 게임 채널 대기 안내 메시지 핸들 (출력 시작 직전 삭제)
 
+        # [기억 압축 타이밍] 5의 배수 턴(5N) 종료 '직후'가 아니라, 다음 프로씨드(5N+1) '시작 시점'에
+        # 압축을 개시한다. 이렇게 하면 5N 턴 자체에는 압축이 걸리지 않아 !재생성이 가능해진다.
+        # 압축 대상 로그(직전 5N까지)는 지금 uncompressed_logs에 모두 존재하므로 스냅샷하고,
+        # 프로씨드는 압축 완료를 기다리지 않고 곧바로 진행한다(백그라운드 태스크).
+        # 삭제는 uncompressed_logs '앞'에서 count만큼, 이번 턴 로그 append는 '뒤'로 이뤄져 경합이 없다.
+        if (session.turn_count > 0 and session.turn_count % 5 == 0
+                and session.uncompressed_logs and not getattr(session, "is_compressing", False)):
+            _logs_snapshot = list(session.uncompressed_logs)
+            asyncio.create_task(
+                self._run_auto_compression(session, _logs_snapshot, cost_log_prefix)
+            )
+
         try:
             anchor = None
             async for msg in game_channel.history(limit=1):
@@ -687,64 +699,8 @@ class GameCog(commands.Cog):
 
             await m_send(f"✅ 묘사 연출 완료 (현재 {session.turn_count}턴 경과). 다음 턴 대기 중...")
 
-            if session.turn_count > 0 and session.turn_count % 5 == 0:
-                if not session.uncompressed_logs:
-                    pass
-                else:
-                    await m_send(f"⏳ (시스템: 백그라운드에서 자동 초정밀 기억 압축을 진행합니다...)")
-
-                    logs_to_compress = list(session.uncompressed_logs)
-                    log_text = "\n\n".join(logs_to_compress)
-                    summary_prompt = core.build_compression_prompt(session, log_text)
-
-                    core.write_log(session.session_id, "api", f"[기억 압축 요청]\n{summary_prompt}")
-
-                    try:
-                        summary_response = await asyncio.to_thread(
-                            self.bot.genai_client.models.generate_content,
-                            model=core.LOGIC_MODEL,
-                            contents=summary_prompt,
-                            config=types.GenerateContentConfig(
-                                safety_settings=core.TRPG_SAFETY_SETTINGS
-                            )
-                        )
-
-                        meta = summary_response.usage_metadata
-                        in_tokens = getattr(meta, "prompt_token_count", 0) or 0
-                        out_tokens = getattr(meta, "candidates_token_count", 0) or 0
-                        cached_tokens = getattr(meta, "cached_content_token_count", 0) or 0
-
-                        turn_cost = core.calculate_upload_cost(core.LOGIC_MODEL, input_tokens=in_tokens,
-                                                        output_tokens=out_tokens,
-                                                        cached_read_tokens=cached_tokens)
-                        session.total_cost += turn_cost
-
-                        core.write_cost_log(session.session_id, f"{cost_log_prefix}자동 기억 압축", in_tokens, cached_tokens, out_tokens,
-                                            turn_cost, session.total_cost)
-
-                        print(f"[자동 기억 압축 비용] In:{in_tokens} Cached:{cached_tokens} Out:{out_tokens} | {core.format_cost(turn_cost)}")
-                        _comp_embed = core.build_compression_cost_embed(
-                            "자동 기억 압축", in_tokens, cached_tokens, out_tokens, turn_cost, session.total_cost
-                        )
-                        await m_send(embed=_comp_embed)
-
-                        new_compressed_segment = summary_response.text.strip()
-                        if session.compressed_memory:
-                            session.compressed_memory += f"\n{new_compressed_segment}"
-                        else:
-                            session.compressed_memory = new_compressed_segment
-
-                        del session.uncompressed_logs[:len(logs_to_compress)]
-
-                        success_msg = f"✅ 자동 누적 압축 완료.\n**[최근 추가된 기억]**\n{new_compressed_segment}"
-                        if len(success_msg) > 2000:
-                            for i in range(0, len(success_msg), 2000):
-                                await m_send(success_msg[i:i + 2000])
-                                await asyncio.sleep(1)
-                        else:
-                            await m_send(success_msg)
-                    except Exception as e:
-                        await m_send(f"⚠️ 자동 기억 압축 중 오류 발생: {e}")
+            # NOTE: 자동 기억 압축은 이 지점(턴 종료 직후)이 아니라, 다음 5N+1 프로씨드 '시작 시점'에
+            # 백그라운드로 개시된다(_execute_proceed 도입부 + _run_auto_compression). 5N 턴 !재생성 허용을 위함.
 
             await core.save_session_data(self.bot, session)
 
@@ -767,6 +723,73 @@ class GameCog(commands.Cog):
             print(f"⚠️ 자동 채팅 해제 실패: {e}")
 
         return {"ok": True, "ai_text": full_ai_response, "error": None}
+
+    async def _run_auto_compression(self, session, logs_to_compress: list, cost_log_prefix: str = ""):
+        """
+        누적 기억을 백그라운드에서 무손실 압축한다(프로씨드와 동시 실행).
+
+        압축 대상은 호출 시점에 스냅샷된 logs_to_compress로 고정된다. 완료 후
+        uncompressed_logs '앞'에서 len(logs_to_compress)개를 제거하므로, 그 사이 진행 중인
+        프로씨드가 '뒤'에 append하는 이번 턴 로그와 경합하지 않는다. 실패해도 게임 진행 무영향.
+        """
+        master_ch = self.bot.get_channel(session.master_ch_id)
+
+        async def m_send(content=None, **kw):
+            if master_ch:
+                return await master_ch.send(content, **kw)
+            return None
+
+        session.is_compressing = True
+        try:
+            await m_send("⏳ (시스템: 백그라운드에서 자동 초정밀 기억 압축을 진행합니다...)")
+
+            log_text = "\n\n".join(logs_to_compress)
+            summary_prompt = core.build_compression_prompt(session, log_text)
+            core.write_log(session.session_id, "api", f"[기억 압축 요청]\n{summary_prompt}")
+
+            summary_response = await asyncio.to_thread(
+                self.bot.genai_client.models.generate_content,
+                model=core.LOGIC_MODEL,
+                contents=summary_prompt,
+                config=types.GenerateContentConfig(safety_settings=core.TRPG_SAFETY_SETTINGS),
+            )
+
+            meta = summary_response.usage_metadata
+            in_tokens = getattr(meta, "prompt_token_count", 0) or 0
+            out_tokens = getattr(meta, "candidates_token_count", 0) or 0
+            cached_tokens = getattr(meta, "cached_content_token_count", 0) or 0
+
+            turn_cost = core.calculate_upload_cost(core.LOGIC_MODEL, input_tokens=in_tokens,
+                                                   output_tokens=out_tokens, cached_read_tokens=cached_tokens)
+            session.total_cost += turn_cost
+            core.write_cost_log(session.session_id, f"{cost_log_prefix}자동 기억 압축", in_tokens, cached_tokens, out_tokens,
+                                turn_cost, session.total_cost)
+            print(f"[자동 기억 압축 비용] In:{in_tokens} Cached:{cached_tokens} Out:{out_tokens} | {core.format_cost(turn_cost)}")
+            await m_send(embed=core.build_compression_cost_embed(
+                "자동 기억 압축", in_tokens, cached_tokens, out_tokens, turn_cost, session.total_cost))
+
+            new_compressed_segment = summary_response.text.strip()
+            if session.compressed_memory:
+                session.compressed_memory += f"\n{new_compressed_segment}"
+            else:
+                session.compressed_memory = new_compressed_segment
+
+            # 앞에서 count만큼 제거 (스냅샷된 대상 로그). 이후 append된 이번 턴 로그는 보존.
+            del session.uncompressed_logs[:len(logs_to_compress)]
+
+            success_msg = f"✅ 자동 누적 압축 완료.\n**[최근 추가된 기억]**\n{new_compressed_segment}"
+            if len(success_msg) > 2000:
+                for i in range(0, len(success_msg), 2000):
+                    await m_send(success_msg[i:i + 2000])
+                    await asyncio.sleep(1)
+            else:
+                await m_send(success_msg)
+
+            await core.save_session_data(self.bot, session)
+        except Exception as e:
+            await m_send(f"⚠️ 자동 기억 압축 중 오류 발생: {e}")
+        finally:
+            session.is_compressing = False
 
     async def _synthesize_and_enqueue(self, session, texts, voice_name=None) -> dict:
         """
@@ -972,9 +995,11 @@ class GameCog(commands.Cog):
         if session.turn_count <= 0 or len(session.raw_logs) < 2:
             return await ctx.send("⚠️ 취소할 직전 턴의 묘사가 존재하지 않습니다.")
 
-        # 기억 압축 직후 롤백 방지 로직 (5턴 주기)
-        if session.turn_count % 5 == 0:
-            return await ctx.send("⚠️ 직전 턴 직후에 이미 기억 압축이 완료되어 시스템 롤백이 불가능합니다. 롤백 대신 수동으로 다음 턴을 진행해 상황을 교정하십시오.")
+        # [압축 타이밍 이동] 압축은 5N 턴 종료 직후가 아니라 5N+1 프로씨드 시작 시점에 백그라운드로
+        # 실행되므로, 5의 배수 턴 자체는 롤백이 가능하다. 다만 그 백그라운드 압축이 진행 중인 짧은
+        # 창에서는 롤백 대상 로그와 경합할 수 있어 잠시 대기를 안내한다.
+        if getattr(session, "is_compressing", False):
+            return await ctx.send("⏳ 기억 압축이 진행 중입니다. 수 초 후 다시 시도해 주세요.")
 
         await ctx.send("⏳ 직전 턴의 로그와 출력물을 삭제하고 있습니다...")
         session.is_processing = True

@@ -174,7 +174,11 @@ EXCHANGE_RATE = 1500.0
 
 ### 기억 압축 시스템
 
-턴이 완료될 때마다 `uncompressed_logs`에 해당 턴의 원본 로그를 누적한다. `turn_count % 5 == 0`이 되면 백그라운드에서 `LOGIC_MODEL`로 압축 요청을 보내고, 결과를 `compressed_memory`에 append한 뒤 `uncompressed_logs`에서 삭제한다. `raw_logs`는 최근 20개만 유지한다.
+턴이 완료될 때마다 `uncompressed_logs`에 해당 턴의 원본 로그를 누적한다. 압축 개시 시점은 **5N 턴 종료 직후가 아니라 다음 5N+1 프로씨드의 시작 시점**이다: `_execute_proceed` 도입부에서 `turn_count % 5 == 0`(=직전 완료 턴이 5의 배수)이고 `uncompressed_logs`가 있으면, 그 로그를 스냅샷해 `_run_auto_compression`을 **백그라운드 태스크(`asyncio.create_task`)로 개시**하고 프로씨드는 대기 없이 진행한다. 압축은 `LOGIC_MODEL`로 요청→`compressed_memory`에 append→`uncompressed_logs` **앞에서 `len(스냅샷)`개 삭제**한다(이번 턴 로그는 뒤로 append되어 경합 없음). `raw_logs`는 최근 20개만 유지한다.
+
+> **이 타이밍 이동의 목적**: 5의 배수 턴에서 압축이 즉시 걸려 `!재생성`이 막히던 문제를 해소한다. 이제 5N 턴에는 압축이 없어 롤백이 가능하고, 압축은 5N+1로 진행을 선택한 순간에야 개시된다. 압축 실행 중(`session.is_compressing=True`)에는 롤백 대상 로그와 경합할 수 있어 `!재생성`이 잠시 차단된다(런타임 전용 플래그, `is_processing`과 동일 계열).
+>
+> 동시 저장 안전장치: 백그라운드 압축과 프로씨드가 각각 `save_session_data`를 호출할 수 있으므로, tmp 파일명을 호출별 고유(`data.json.{pid}.{ns}.tmp`)로 만들어 data.json 손상을 방지한다(`core/io.py`).
 
 **캐시 재발급 시**: `compressed_memory`는 `cached_compressed_memory`로 이동되어 캐시 섹션 [9]에 수록된다. 이후 `compressed_memory`는 `""` 초기화되며, 프롬프트 `add_memory_block`은 재발급 이후 새로 누적된 기억만 주입한다.
 
@@ -394,7 +398,7 @@ AI 묘사를 음성 채널에서 **단일 나레이터 보이스**로 읽어주�
 - `bot.active_sessions`에는 game_ch_id와 master_ch_id 양쪽이 등록된다. 채널 삭제 시 `_cleanup_session_memory()`가 두 키를 모두 pop해야 메모리 누수가 없다.
 - `SESSION_FIELDS`에 새 `TRPGSession` 필드를 등록하면 저장·복구가 자동으로 처리된다. 핵심 필드(session_id, players 등)와 런타임 전용 필드(is_processing, auto_gm_lock 등)는 레지스트리에 넣지 않는다.
 - `SCHEMA_VERSION`은 저장 JSON 구조가 변경될 때 증가시킨다. 현재 `2`.
-- `!재생성`은 `turn_count % 5 == 0`(압축 직후)일 때 차단된다. 이 경우 롤백 대신 다음 턴으로 교정해야 한다.
+- `!재생성`은 자동 기억 압축이 **백그라운드 실행 중(`session.is_compressing`)** 일 때만 잠시 차단된다(수 초). 압축 타이밍이 5N+1 프로씨드로 이동되어 **5의 배수 턴 자체는 롤백 가능**하다(과거의 `turn_count % 5 == 0` 상시 차단은 제거됨).
 - `!수정`은 `last_turn_anchor_id`가 없으면 동작하지 않는다. 세션 복구 직후 `!진행` 전에 사용 불가.
 - `!시작`은 실행 전 게임 채널의 모든 메시지를 `channel.purge`로 삭제한 뒤 `start_message`를 스트리밍하고 `role="model"`로 `raw_logs`에 삽입한다. 중복 실행 시 AI 컨텍스트가 오염되므로 `is_started` 플래그로 차단된다.
 - `build_scenario_cache_text()`는 3-튜플 `(padded_text, tokens, base_text)`를 반환한다. 모든 호출부에서 3개를 언팩해야 한다. 캐시 생성 후 반드시 `update_session_cache_state(session)` 호출 필요 (session.py / system.py / game.py / core/cache.py 복구 경로 모두).

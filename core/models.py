@@ -53,6 +53,7 @@ class TRPGSession:
         self.is_bgm_looping = False
 
         self.is_processing = False
+        self.is_compressing = False    # 자동 기억 압축 백그라운드 실행 중 여부 (런타임 전용, !재생성 경합 방지)
         self.last_turn_anchor_id = None
 
         # ========== [TTS 음성 더빙 — 실험 기능] ==========
