@@ -20,6 +20,13 @@ from .constants import (
     TRPG_SAFETY_SETTINGS,
     PRICING_1M,
     IMAGE_OUTPUT_TOKENS_BY_RES,
+    TTS_MODEL,
+    TTS_NARRATOR_VOICE,
+    TTS_LANGUAGE_CODE,
+    TTS_NARRATION_VOLUME,
+    TTS_PCM_BYTES_PER_SEC,
+    TTS_STYLE_PROMPT,
+    TTS_VOICES,
 )
 from .models import TRPGSession
 from .cost import (
@@ -45,6 +52,9 @@ from .io import (
     get_available_scenarios,
     save_session_data,
     process_cache_deletion,
+    load_authorized_users,
+    save_authorized_users,
+    AUTHORIZED_USERS_PATH,
 )
 from .cache import (
     build_scenario_cache_text,
@@ -59,8 +69,22 @@ from .dialogue import (
     merge_consecutive_dialogues,
     maybe_send_speaker_image,
     stream_text_to_channel,
+    strip_unauthorized_pc_dialogue,
+    send_status_message,
+    clear_status_message,
 )
 from .media import send_image_by_keyword, PlaylistManager
+from .audio_mixer import (
+    MixerAudioSource,
+    PCMBytesAudioSource,
+    get_mixer,
+    ensure_mixer,
+    active_volume_source,
+    preload_sfx,
+    play_sfx_on_vc,
+    play_dice_sfx,
+)
+from .tts import synthesize_tts_pcm, clean_text_for_tts
 from .ui import (
     _cleanup_session_memory,
     ChannelSelect,
@@ -68,12 +92,22 @@ from .ui import (
     GeneralDiceView,
     DiceView,
 )
-from .utils import get_uid_by_char_name, generate_character_details, get_merged_status_effects
+from .utils import (
+    get_uid_by_char_name,
+    generate_character_details,
+    get_merged_status_effects,
+    resolve_char_name,
+    resolve_pc,
+    decompose_hangul,
+    suggest_commands,
+)
 
 __all__ = [
     # constants
     "DEFAULT_MODEL", "LOGIC_MODEL", "IMAGE_MODEL", "EXCHANGE_RATE",
     "TRPG_SAFETY_SETTINGS", "PRICING_1M", "IMAGE_OUTPUT_TOKENS_BY_RES",
+    "TTS_MODEL", "TTS_NARRATOR_VOICE", "TTS_LANGUAGE_CODE",
+    "TTS_NARRATION_VOLUME", "TTS_PCM_BYTES_PER_SEC", "TTS_STYLE_PROMPT", "TTS_VOICES",
     # models
     "TRPGSession",
     # cost
@@ -83,6 +117,7 @@ __all__ = [
     "SCHEMA_VERSION", "SESSION_FIELDS", "SESSION_RESET_FIELDS",
     "write_log", "write_cost_log", "load_scenario_from_file", "get_available_scenarios",
     "save_session_data", "process_cache_deletion",
+    "load_authorized_users", "save_authorized_users", "AUTHORIZED_USERS_PATH",
     # cache
     "build_scenario_cache_text", "update_session_cache_state", "restore_sessions_from_disk",
     # prompt
@@ -90,11 +125,18 @@ __all__ = [
     # dialogue
     "DIALOGUE_MARKER_PATTERN", "parse_dialogue_paragraph", "format_dialogue_block",
     "merge_consecutive_dialogues", "maybe_send_speaker_image", "stream_text_to_channel",
+    "strip_unauthorized_pc_dialogue", "send_status_message", "clear_status_message",
     # media
     "send_image_by_keyword", "PlaylistManager",
+    # audio_mixer
+    "MixerAudioSource", "PCMBytesAudioSource", "get_mixer", "ensure_mixer",
+    "active_volume_source", "preload_sfx", "play_sfx_on_vc", "play_dice_sfx",
+    # tts
+    "synthesize_tts_pcm", "clean_text_for_tts",
     # ui
     "_cleanup_session_memory", "ChannelSelect", "ChannelDeleteView",
     "GeneralDiceView", "DiceView",
     # utils
-    "get_uid_by_char_name", "generate_character_details",
+    "get_uid_by_char_name", "generate_character_details", "get_merged_status_effects",
+    "resolve_char_name", "resolve_pc", "decompose_hangul", "suggest_commands",
 ]

@@ -1,0 +1,33 @@
+[Unit]
+Description=TRPG Sub GM Discord Bot
+After=network-online.target
+Wants=network-online.target
+# 재시작 폭주 방지: 5분 내 5회 실패하면 멈춤 (수동 reset-failed 필요)
+StartLimitIntervalSec=300
+StartLimitBurst=5
+
+[Service]
+Type=simple
+# ┌─────────────────────────────────────────────────────────────┐
+# │ 환경에 맞게 아래 3줄만 수정하세요.                            │
+# │  - User            : 봇을 실행할 리눅스 계정 (Oracle 기본 ubuntu)│
+# │  - WorkingDirectory: 레포를 clone 한 절대 경로                 │
+# │  - ExecStart       : 위 경로의 .venv 파이썬 + main.py          │
+# └─────────────────────────────────────────────────────────────┘
+User=ubuntu
+WorkingDirectory=/home/ubuntu/trpg-bot
+ExecStart=/home/ubuntu/trpg-bot/.venv/bin/python main.py
+
+# .env 는 python-dotenv 가 WorkingDirectory 에서 자동 로드한다.
+# (멀티라인 TRPG_INTRO_TEXT 때문에 systemd EnvironmentFile 은 사용하지 않는다.)
+
+Restart=always
+RestartSec=5
+# 종료 시 디스코드 게이트웨이를 정리할 시간을 준다.
+TimeoutStopSec=20
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=trpg-bot
+
+[Install]
+WantedBy=multi-user.target

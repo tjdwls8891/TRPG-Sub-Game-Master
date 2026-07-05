@@ -1,4 +1,6 @@
 import re
+import os
+import json
 import random
 import asyncio
 import discord
@@ -119,6 +121,10 @@ class StatRollView(discord.ui.View):
                 "> 이 주사위는 당신을 위한 것이 아닙니다!", ephemeral=True
             )
 
+        # 효과음 1회 발사(논블로킹). 능력치는 기존 스탯별 0.8초 애니메이션을 유지하므로
+        # 1.5초 연출은 적용하지 않고 효과음만 얹는다.
+        asyncio.create_task(core.play_dice_sfx(self.bot, interaction.guild))
+
         button.disabled = True
         await interaction.response.edit_message(
             content=(
@@ -189,6 +195,114 @@ class StatRollView(discord.ui.View):
             child.disabled = True
 
 
+# ========== [캐릭터 생성 매니저 — 단계 안내 위저드 (F3)] ==========
+# !참가 시 마스터 채널에 게시된다. 명령 입력은 마스터가 직접 하고, 위저드는 단계 안내만 한다.
+# 버튼을 누르면 현재 메시지를 삭제하고 다음 단계 안내 메시지를 새로 생성한다. (마스터 채널 전용)
+def _build_creation_steps(session, char_name: str) -> list:
+    """시나리오 설정에 맞춘 캐릭터 생성 단계 안내 목록 [(제목, 본문), ...]."""
+    sd = session.scenario_data
+    steps = []
+    ab = sd.get("ability_stats")
+    if ab:
+        steps.append((
+            "1️⃣ 능력치 배분",
+            f"`!능력치 {char_name} [주사위면] [목표합]` 으로 {len(ab)}개 능력치를 굴려 배분합니다.\n"
+            f"• 능력치: {', '.join(ab)}\n"
+            f"• 예시: `!능력치 {char_name} 20 40`",
+        ))
+    steps.append((
+        "🎨 외형 설정",
+        f"`!설정생성 pc {char_name} [지시]`로 AI 외형 초안을 만든 뒤 그 출력물을 `!외형 {char_name} [출력물]`로 적용하거나,\n"
+        f"`!외형 {char_name} [외형 서술]`로 직접 입력합니다.",
+    ))
+    pc_keys = list((sd.get("pc_template") or {}).keys())
+    if pc_keys:
+        steps.append((
+            "📋 프로필 설정",
+            f"`!설정 {char_name} [필드] [값]`으로 프로필 항목을 채웁니다.\n"
+            f"• 설정 필드: {', '.join(pc_keys)}",
+        ))
+    steps.append((
+        "✅ 완료",
+        f"캐릭터 생성이 끝났습니다. `!프로필 {char_name}`로 최종 확인하세요.",
+    ))
+    return steps
+
+
+def _wizard_embed(char_name: str, steps: list, idx: int) -> discord.Embed:
+    title, body = steps[idx]
+    embed = discord.Embed(
+        title=f"🧙 캐릭터 생성 — {char_name}  ({idx + 1}/{len(steps)})",
+        description=f"**{title}**\n{body}",
+        color=0x5865F2,
+    )
+    embed.set_footer(text="명령은 마스터가 직접 입력하세요. 완료하면 [다음 단계 ▶]")
+    return embed
+
+
+class _WizardAuthMixin:
+    """위저드 버튼은 허가된 계정(오너·부여 계정)만 조작할 수 있게 한다."""
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        au = getattr(self.bot, "authorized_users", {}) or {}
+        uid = interaction.user.id
+        if uid == au.get("owner_id") or uid in au.get("granted", []):
+            return True
+        await interaction.response.send_message("허가된 계정(진행자)만 조작할 수 있습니다.", ephemeral=True)
+        return False
+
+
+class CharCreationWizardView(_WizardAuthMixin, discord.ui.View):
+    """단계별 안내 위저드. [다음 단계]는 현재 메시지를 삭제하고 다음 단계를 새로 게시한다."""
+    def __init__(self, bot, char_name: str, steps: list, idx: int):
+        super().__init__(timeout=1800)
+        self.bot = bot
+        self.char_name = char_name
+        self.steps = steps
+        self.idx = idx
+
+    @discord.ui.button(label="다음 단계 ▶", style=discord.ButtonStyle.primary)
+    async def next_step(self, interaction: discord.Interaction, _button: discord.ui.Button):
+        await interaction.response.defer()
+        try:
+            await interaction.message.delete()
+        except discord.HTTPException:
+            pass
+        nxt = self.idx + 1
+        if nxt >= len(self.steps):
+            await interaction.channel.send(f"🎉 **{self.char_name}** 캐릭터 생성 안내를 마칩니다.")
+            return
+        view = CharCreationWizardView(self.bot, self.char_name, self.steps, nxt)
+        await interaction.channel.send(embed=_wizard_embed(self.char_name, self.steps, nxt), view=view)
+
+    @discord.ui.button(label="종료", style=discord.ButtonStyle.secondary)
+    async def stop_wizard(self, interaction: discord.Interaction, _button: discord.ui.Button):
+        await interaction.response.defer()
+        try:
+            await interaction.message.delete()
+        except discord.HTTPException:
+            pass
+        await interaction.channel.send(f"⏹️ **{self.char_name}** 캐릭터 생성 안내를 종료했습니다.")
+
+
+class CharCreationStartView(_WizardAuthMixin, discord.ui.View):
+    """!참가 직후 마스터 채널에 게시되는 시작 버튼."""
+    def __init__(self, bot, char_name: str, steps: list):
+        super().__init__(timeout=3600)
+        self.bot = bot
+        self.char_name = char_name
+        self.steps = steps
+
+    @discord.ui.button(label="🧙 캐릭터 생성 시작", style=discord.ButtonStyle.success)
+    async def start(self, interaction: discord.Interaction, _button: discord.ui.Button):
+        await interaction.response.defer()
+        try:
+            await interaction.message.delete()
+        except discord.HTTPException:
+            pass
+        view = CharCreationWizardView(self.bot, self.char_name, self.steps, 0)
+        await interaction.channel.send(embed=_wizard_embed(self.char_name, self.steps, 0), view=view)
+
+
 class CharacterCog(commands.Cog):
     """
     플레이어 캐릭터(PC)의 참가 및 프로필 설정, NPC 데이터의 관리,
@@ -231,6 +345,109 @@ class CharacterCog(commands.Cog):
             f"(진행자(GM)가 설정을 통해 스탯을 배분해 줄 것입니다.)"
         )
 
+        # [캐릭터 생성 매니저] 마스터 채널에 생성 안내 위저드 시작 버튼 게시 (F3)
+        master_ch = self.bot.get_channel(session.master_ch_id)
+        if master_ch:
+            try:
+                steps = _build_creation_steps(session, char_name)
+                await master_ch.send(
+                    f"🧙 **{char_name}** 님이 참가했습니다. 아래 버튼으로 캐릭터 생성을 시작하세요.",
+                    view=CharCreationStartView(self.bot, char_name, steps),
+                )
+            except Exception:
+                pass
+
+
+    @commands.command(name="캐릭터가져오기")
+    async def import_character(self, ctx, source_session_id: str, source_char_name: str, target_char_name: str = None):
+        """
+        다른 세션의 세이브 파일에서 플레이어 캐릭터 정보(이름 제외)를 읽어와
+        현재 세션의 PC에 그대로 덧씌운다.
+
+        사용법: !캐릭터가져오기 [원본세션ID] [원본캐릭터이름] (대상캐릭터이름)
+          - 대상 생략 시: 명령 사용자 본인의 PC에 적용.
+          - 대상 지정 시: 현재 세션의 해당 이름 PC에 적용(GM용).
+        이식 대상: 프로필(스탯·소속·별호·익힌무공 등)·외형·소지 자원·상태이상. 이름은 유지된다.
+        """
+        session = self.bot.active_sessions.get(ctx.channel.id)
+        if not session or ctx.channel.id != session.master_ch_id:
+            await ctx.send("이 명령어는 마스터 채널에서만 사용할 수 있습니다.")
+            return
+
+        # 1) 세션 ID 살균 (경로 조작 방지: 영숫자·하이픈·언더스코어만 허용)
+        if not re.fullmatch(r"[A-Za-z0-9_-]+", source_session_id or ""):
+            await ctx.send("⚠️ 잘못된 세션 ID 형식입니다. (영문·숫자·하이픈만 허용)")
+            return
+        data_path = os.path.join("sessions", source_session_id, "data.json")
+        if not os.path.isfile(data_path):
+            await ctx.send(f"⚠️ 세션 `{source_session_id}`의 세이브 파일을 찾을 수 없습니다.")
+            return
+
+        # 2) 원본 세이브 로드 + 원본 PC 탐색
+        try:
+            with open(data_path, encoding="utf-8") as f:
+                src = json.load(f)
+        except Exception as e:
+            await ctx.send(f"⚠️ 세이브 파일을 읽을 수 없습니다: {e}")
+            return
+        src_player = next(
+            (p for p in (src.get("players") or {}).values() if p.get("name") == source_char_name),
+            None
+        )
+        if not src_player:
+            await ctx.send(f"⚠️ 원본 세션에 캐릭터 `{source_char_name}`이(가) 없습니다.")
+            return
+
+        # 3) 대상 PC 결정 (대상이름 지정 시 그 PC, 없으면 호출자 본인)
+        if target_char_name:
+            target_uid = core.get_uid_by_char_name(session, target_char_name)
+            if not target_uid:
+                await ctx.send(f"⚠️ 현재 세션에 캐릭터 `{target_char_name}`이(가) 없습니다. 먼저 !참가 하세요.")
+                return
+        else:
+            target_uid = str(ctx.author.id)
+            if target_uid not in session.players:
+                await ctx.send("⚠️ 먼저 !참가로 캐릭터를 만든 뒤 사용하거나, 대상 이름을 인자로 지정하세요.")
+                return
+        target = session.players[target_uid]
+        target_name = target["name"]
+
+        # 4) profile 병합 — 현재 시나리오 pc_template 키만 복사 (타 시나리오 이물질 방지)
+        template_keys = set((session.scenario_data.get("pc_template") or {}).keys())
+        src_profile = src_player.get("profile", {}) or {}
+        copied, skipped = [], []
+        for k, v in src_profile.items():
+            if (not template_keys) or (k in template_keys):
+                target["profile"][k] = v
+                copied.append(k)
+            else:
+                skipped.append(k)
+
+        # 5) 외형
+        target["appearance"] = src_player.get("appearance", "")
+
+        # 6) 자원·상태이상 재키잉 (원본 이름 → 대상 이름)
+        src_res = (src.get("resources") or {}).get(source_char_name, {}) or {}
+        src_sta = (src.get("statuses") or {}).get(source_char_name, []) or []
+        if src_res:
+            session.resources[target_name] = dict(src_res)
+        if src_sta:
+            session.statuses[target_name] = list(src_sta)
+
+        await core.save_session_data(self.bot, session)
+
+        # 7) 결과 보고
+        appr_len = len(target.get("appearance") or "")
+        msg = (
+            f"✅ 캐릭터 이식 완료: 세션 `{source_session_id}`의 **{source_char_name}** → **{target_name}**\n"
+            f"- 프로필 항목: {', '.join(copied) if copied else '없음'}\n"
+            f"- 외형: {f'복사됨({appr_len}자)' if appr_len else '없음'}\n"
+            f"- 소지 자원: {len(src_res)}종 / 상태이상: {len(src_sta)}개"
+        )
+        if skipped:
+            msg += f"\n⚠️ 현재 시나리오(pc_template)에 없어 건너뛴 항목: {', '.join(skipped)} (원본 시나리오: {src.get('scenario_id', '?')})"
+        await ctx.send(msg)
+
 
     @commands.command(name="설정")
     async def set_profile(self, ctx, char_name: str, key: str, *, value: str):
@@ -248,9 +465,9 @@ class CharacterCog(commands.Cog):
             await ctx.send("이 명령어는 마스터 채널에서만 사용할 수 있습니다.")
             return
 
-        user_id_str = core.get_uid_by_char_name(session, char_name)
-        if not user_id_str:
-            await ctx.send(f"⚠️ '{char_name}'(으)로 참가한 플레이어를 찾을 수 없습니다.")
+        user_id_str, char_name, err = core.resolve_pc(session, char_name)
+        if err:
+            await ctx.send(err)
             return
 
         player_data = session.players[user_id_str]
@@ -288,6 +505,20 @@ class CharacterCog(commands.Cog):
         session = self.bot.active_sessions.get(ctx.channel.id)
         if not session or ctx.channel.id != session.master_ch_id:
             return await ctx.send("이 명령어는 마스터 채널에서만 사용할 수 있습니다.")
+
+        # 언더바(_) 규약 일치: 태그 시스템과 동일하게, 입력의 _ 는 공백으로 정규화한다.
+        # (GM이 `수적_세작`/`내력_고갈`로 입력해도 `수적 세작`/`내력 고갈`로 저장·매칭)
+        char_name = char_name.replace('_', ' ')
+        args = tuple(a.replace('_', ' ') for a in args)
+
+        # 부분 이름 입력 지원: 고유 매칭 시 전체 이름으로 해석 (PC + NPC 대상).
+        # 미매칭(임의·신규 대상)일 땐 입력값을 그대로 사용해 기존 허용 동작을 유지한다.
+        _resolved, _cands = core.resolve_char_name(session, char_name, include_npc=True)
+        if _resolved is None and len(_cands) > 1:
+            return await ctx.send(
+                f"⚠️ '{char_name}'에 해당하는 대상이 여럿입니다: {', '.join(_cands)}. 더 구체적으로 입력해 주세요.")
+        if _resolved is not None:
+            char_name = _resolved
 
         game_channel = self.bot.get_channel(session.game_ch_id)
 
@@ -432,9 +663,9 @@ class CharacterCog(commands.Cog):
         if not session or ctx.channel.id != session.master_ch_id:
             return await ctx.send("이 명령어는 마스터 채널에서만 사용할 수 있습니다.")
 
-        user_id_str = core.get_uid_by_char_name(session, char_name)
-        if not user_id_str:
-            return await ctx.send(f"⚠️ '{char_name}'(으)로 참가한 플레이어를 찾을 수 없습니다.")
+        user_id_str, char_name, err = core.resolve_pc(session, char_name)
+        if err:
+            return await ctx.send(err)
 
         if appearance is None:
             # 외형 확인 로직
@@ -465,9 +696,9 @@ class CharacterCog(commands.Cog):
         if not session or ctx.channel.id != session.master_ch_id:
             return await ctx.send("이 명령어는 마스터 채널에서만 사용할 수 있습니다.")
 
-        user_id_str = core.get_uid_by_char_name(session, char_name)
-        if not user_id_str:
-            return await ctx.send(f"⚠️ '{char_name}'(으)로 참가한 플레이어를 찾을 수 없습니다.")
+        user_id_str, char_name, err = core.resolve_pc(session, char_name)
+        if err:
+            return await ctx.send(err)
 
         player_data = session.players[user_id_str]
         member = ctx.guild.get_member(int(user_id_str))

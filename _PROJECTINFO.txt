@@ -1,9 +1,12 @@
 ==============================================================
-TRPG Sub Game Master — Claude 세션 온보딩 레퍼런스 (v1.7)
+TRPG Sub Game Master — Claude 세션 온보딩 레퍼런스 (v1.9)
 ==============================================================
 Gemini API + discord.py 기반 한국어 TRPG 보조 GM 디스코드 봇.
 GM이 마스터 채널에서 명령어를 입력하면 AI가 묘사를 생성하고
-비용 추적·캐시 관리·기억 압축·BGM/이미지 연출을 자동화한다.
+비용 추적·캐시 관리·기억 압축·BGM/이미지 연출·자동 GM 진행·
+TTS 음성 더빙을 자동화한다.
+
+> 상세·최신 아키텍처 설명은 CLAUDE.md를 우선 참조. 본 문서는 빠른 온보딩 요약.
 
 ==============================================================
 1. 파일 맵
@@ -14,14 +17,35 @@ main.py         TRPGBot(commands.Bot 상속). active_sessions{ch_id: session},
                 setup_hook()에서 cogs/*.py 자동 로드.
                 on_ready()에서 restore_sessions_from_disk(bot) 호출.
 
-core.py         전역 상수, 데이터 모델, 유틸리티 함수, UI 클래스 전담.
+core/           10개 서브모듈 패키지. __init__.py가 전 심볼 re-export하므로
+                외부에서는 기존처럼 `import core` / `core.XYZ` 사용.
+                의존성 단방향: constants→models→cost→io→cache (순환 없음).
+  constants.py   모델 ID, 환율, 안전 설정, PRICING_1M, TTS 상수
+  models.py      TRPGSession 데이터 모델
+  cost.py        format_cost, calculate_*_cost 함수군
+  io.py          SCHEMA_VERSION, SESSION_FIELDS, save_session_data, write_*_log,
+                 load_scenario_from_file, process_cache_deletion
+  cache.py       build_scenario_cache_text, update_session_cache_state,
+                 restore_sessions_from_disk
+  prompt.py      PromptBuilder, build_compression_prompt
+  dialogue.py    대사 마커 파싱·포맷, maybe_send_speaker_image, stream_text_to_channel
+  media.py       send_image_by_keyword, PlaylistManager
+  audio_mixer.py MixerAudioSource(BGM/플리 base + 효과음 + 음성 큐 합산),
+                 ensure_mixer/get_mixer/active_volume_source, preload_sfx/play_dice_sfx
+  tts.py         synthesize_tts_pcm (Gemini native TTS → 48kHz stereo PCM)
+  ui.py          ChannelDeleteView, GeneralDiceView, DiceView, _cleanup_session_memory
+  utils.py       get_uid_by_char_name, generate_character_details, resolve_pc/resolve_char_name
+core_legacy.py  분리 이전 단일 core.py 백업 (롤백용, 운영 미사용).
 
 cogs/session.py  !새세션, !시작, !소개
-cogs/game.py     !진행, !주사위, !재생성, !기억압축, !노트, !캐시노트
+cogs/game.py     !진행, !주사위, !재생성, !출력물, !수정, !기억압축, !노트,
+                 !캐시노트, !더빙테스트
                  on_message(자동 로그), on_typing(GM 타이핑 동기화)
-cogs/character.py !참가, !설정, !증감, !외형, !프로필, !엔피씨, !설정생성
-cogs/media.py    !이미지, !브금, !플리, !볼륨, !채팅
+cogs/character.py !참가, !설정, !증감, !외형, !프로필, !엔피씨, !능력치, !설정생성
+cogs/media.py    !이미지, !브금, !플리, !볼륨, !채팅, !더빙
 cogs/system.py   !명령어, !채널정리, !세션종료, !캐시, !리로드
+cogs/auto_gm.py  !자동 그룹 (시작/중단/상태/개입/턴제한/비용제한/서사/재계획)
+                 2-티어 AI 루프, 서사 계획·시뮬레이션·세계 타임라인
 
 scenarios/       *.json — 읽기 전용 정적 시나리오 데이터
 media/           media/{scenario_id}/*.mp3, *.png — 오프라인 에셋
@@ -31,8 +55,11 @@ sessions/        sessions/{8자리UUID}/ — 동적 세션 데이터 (런타임�
 paused_session/  수동으로 이동해 둔 세션 백업본 (자동으로 복구되지 않음)
 
 ==============================================================
-2. TRPGSession 필드 레퍼런스 (core.py)
+2. TRPGSession 필드 레퍼런스 (core/models.py)
 ==============================================================
+※ 저장·복구 대상 선택적 필드는 core/io.py의 SESSION_FIELDS 레지스트리가
+  단일 진실 공급원. 새 필드는 거기 등록하면 저장·복구 자동 반영.
+  핵심 필드(session_id/game_ch_id/master_ch_id/players 등)는 직접 처리.
 # 채널/시나리오 식별
 session_id       str  — uuid4()[:8]
 game_ch_id       int  — 플레이어 채널 ID
@@ -73,12 +100,23 @@ voice_client      VoiceClient | None
 current_bgm       str | None
 is_bgm_looping    bool
 gm_typing_task    Task | None  — on_typing에서 20초 유지
+tts_enabled       bool  — !더빙 토글 (SESSION_FIELDS 등록)
+
+# 캐시 스냅샷 / 자동 GM / 서사 (주요 추가 필드, SESSION_FIELDS 참조)
+cached_session_npcs    dict — 캐시 시점 세션 NPC 스냅샷 (델타 비교 기준)
+cached_compressed_memory str — 캐시 [9]에 수록된 과거 기억
+auto_gm_active         bool — !자동 시작 여부
+auto_gm_turn_cap       int | None — 자동 턴 한도 (None=무제한)
+auto_gm_cost_cap_krw   float | None — 자동 비용 한도 (None=무제한)
+auto_gm_proceed_history list — 최근 3회 PROCEED 이력 (반복 방지)
+narrative_plan         dict — 사건 단위 서사 계획 (current_event/next_event)
+world_timeline         dict — 위치·시간대·세력 배치·위협 (시뮬레이터 기준)
 
 ==============================================================
 3. 핵심 알고리즘 / 패턴
 ==============================================================
 
-[A] PromptBuilder.build_prompt() 주입 순서 (core.py)
+[A] PromptBuilder.build_prompt() 주입 순서 (core/prompt.py)
   ① add_memory_block()      — compressed_memory (절대 참조용 누적 기억)
   ② add_note_block()        — session.note (GM 하드코딩 노트)
   ③ add_player_block()      — players 전체 스탯·외형·resources·statuses
@@ -124,7 +162,7 @@ gm_typing_task    Task | None  — on_typing에서 20초 유지
   → build_scenario_cache_text → caches.create → retry_count=1로 재귀 호출.
   retry_count=1 상태에서 재실패 시 예외 그대로 raise.
 
-[H] 스트리밍 연출 (core.py — stream_text_to_channel)
+[H] 스트리밍 연출 (core/dialogue.py — stream_text_to_channel)
   text.split('\n\n') → 문단별 새 메시지 전송 → words_per_tick(기본 5)단어씩
   asyncio.sleep(tick_interval=1.5) 후 message.edit() → 타이핑 연출.
   문단이 1950자 초과 시 break. game_chat_log에 최종 텍스트 기록.
@@ -135,17 +173,35 @@ gm_typing_task    Task | None  — on_typing에서 20초 유지
   restore_sessions_from_disk: data.json → TRPGSession 재조립 → cache_name ping 테스트
                                → 만료 시 자동 재발급 → active_sessions[game_ch_id/master_ch_id] = session.
 
+[J] PCM 오디오 믹서 (core/audio_mixer.py — MixerAudioSource)
+  VoiceClient.play()는 동시에 한 소스만 재생 → 봇이 PCM을 직접 합산.
+  매 20ms 프레임마다 base(BGM/플리) + effects(효과음 중첩) + voice(순차 큐)를
+  audioop.add로 합산. 효과음 재생 중 base 0.55, 음성 재생 중 0.30 덕킹.
+  세 레이어 모두 비면 무음 프레임 반환해 연결 유지(트랙 종료 ≠ 소스 종료).
+  주사위 효과음: preload_sfx("dice")(on_ready) → 버튼 콜백서 play_dice_sfx 논블로킹.
+
+[K] TTS 음성 더빙 (core/tts.py — synthesize_tts_pcm / game.py 동기 출력)
+  !더빙 ON + 보이스 연결 시 수동 !진행 묘사를 단일 나레이터 보이스로 낭독.
+  Gemini native TTS → 24kHz mono → audioop 48kHz stereo 리샘플 → bytes.
+  _stream_paragraphs_synced: 문단별 PCM 합성(다음 문단 prefetch) → voice 큐 적재
+  → 텍스트를 음성 길이에 맞춰 스트리밍(문단 단위 lock-step). OFF/미연결 시 폴백.
+  비용은 턴 비용 임베드에 "TTS 더빙(n/m문단)"으로 합산.
+
 ==============================================================
-4. 비용 모델 (core.py)
+4. 비용 모델 (core/cost.py · core/constants.py)
 ==============================================================
 EXCHANGE_RATE = 1500.0  (KRW/USD 고정)
 
 PRICING_1M 모델별 단가 (USD/100만 토큰):
-  gemini-3-flash-preview:  INPUT=0.50, OUTPUT=3.00, CACHE_READ=0.05, STORAGE/hr=1.00
-  gemini-3.1-pro-preview:  INPUT=2.00, OUTPUT=12.00, CACHE_READ=0.20, STORAGE/hr=4.50
-  gemini-2.5-pro:          INPUT=1.25, OUTPUT=10.00, CACHE_READ=0.20, STORAGE/hr=4.50
+  gemini-3-flash-preview:        INPUT=0.50, OUTPUT=3.00,  CACHE_READ=0.05, STORAGE/hr=1.00
+  gemini-3.1-pro-preview:        INPUT=2.00, OUTPUT=12.00, CACHE_READ=0.20, STORAGE/hr=4.50
+  gemini-2.5-pro:                INPUT=1.25, OUTPUT=10.00, CACHE_READ=0.20, STORAGE/hr=4.50
+  gemini-3.1-flash-image-preview: INPUT=0.50, OUTPUT=3.00, OUTPUT_IMAGE=60.00, CACHE_READ=0.05, STORAGE/hr=1.00
+  gemini-2.5-flash-preview-tts:  INPUT=0.50, OUTPUT(오디오)=10.00, CACHE_READ=0.05, STORAGE/hr=1.00
 
-IMAGE_GEN_COST = 0.04 * 1500 = ₩60 (1024x1024 1장 고정)
+이미지: 출력 이미지 토큰 과금 (IMAGE_OUTPUT_TOKENS_BY_RES 해상도별 폴백 표).
+  예: 1024x1024 ≈ 1120 토큰 ≈ $0.067.
+TTS: 출력 오디오 토큰 과금. 턴 비용 임베드에 "TTS 더빙(n/m문단)"으로 합산.
 
 calculate_upload_cost(model, in, out, cached_read):
   actual_input = in - cached_read
@@ -164,24 +220,31 @@ write_cost_log → sessions/{id}/cost_log.txt 에 타임스탬프+사용처+토�
 ==============================================================
 5. 시나리오 JSON 스키마
 ==============================================================
-필수 키:
+필수/주요 키:
   worldview          세계관 (캐시 [1])
   story_guide        스토리 가이드 (캐시 [2])
-  default_npcs       {이름: {name, details}} (캐시 [3])
+  default_npcs       {이름: {...}} (캐시 [3]). npc_template.info_fields 정의 시 구조화 필드
   stat_system        스탯/판정 룰 (캐시 [4])
   desc_guide         묘사 가이드라인 (캐시 [5])
-  status_code_block  상태창 코드블럭 양식 (캐시 [6], 매 턴 AI 출력)
+  prohibitions       GM 절대 금지 사항 list|str (캐시 [6], 정의 시에만)
+  status_code_block  상태창 코드블럭 양식 (캐시 [7], 매 턴 AI 출력)
   scenario_intro     !소개 출력 텍스트
   start_message      !시작 출력 텍스트 → raw_logs role="model" 주입
   pc_template        {스탯명: ""} — !참가 시 .copy()로 복제
-  stat_system        스탯 척도 및 D20 판정 가이드
+  ability_stats      !능력치 굴림 대상 항목 리스트 (Hamilton 배분)
+  ability_stat_max   int | {스탯명:상한} — 굴림 결과 개별 상한
+  stat_descriptions  {스탯명:설명} — 자동 GM GM-Logic ROLL 판정 스탯 선택용
   keyword_memory     [{keywords:[...], description:"..."}] — 트리거 동적 컨텍스트
   media_keywords     {한글키워드: "파일명.확장자"} — !이미지 출력
   image_prompts      {형식키: {prompt, aspect_ratio}} — !이미지 생성
 
-캐시 텍스트 조립 순서:
-  [1]worldview → [2]story_guide → [3]NPC사전 → [4]stat_system
-  → [5]desc_guide → [6]status_code_block → cache_note(있을 시) → 패딩
+캐시 텍스트 조립 순서 (build_scenario_cache_text):
+  [1]worldview → [2]story_guide → [3]NPC사전 → [4]stat_system → [5]desc_guide
+  → [6]prohibitions(있을 시) → [7]status_code_block
+  → [8]세션 추가 NPC(session 인자 시) → [9]세션 진행 기억(압축 요약, session 인자 시)
+  → cache_note(있을 시) → 최소 32,768토큰 미달 시 '.' 패딩
+  ※ session 인자가 None이면 [8][9] 생략. 캐시 생성 후 반드시
+    update_session_cache_state(session) 호출 (세션 NPC·기억 중복 주입 방지).
 
 ==============================================================
 6. 명령어 레퍼런스 (전체)
@@ -197,13 +260,17 @@ write_cost_log → sessions/{id}/cost_log.txt 에 타임스탬프+사용처+토�
 [캐릭터]
 !참가 [이름]               (게임) pc_template.copy() → players 등록, 닉네임 변경
 !설정 [이름] [항목] [내용] profile[항목] 덮어쓰기 (whitelist 검증)
-!증감 [이름] [항목] [±수치] profile[항목] int 덧셈 연산
+!증감 [이름] [스탯명] [±수치]      스탯 수치 int 덧셈 연산
+!증감 [이름] 자원 [아이템] [±수치] resources 증감 (NPC 이름도 가능)
+!증감 [이름] 상태 [상태명]         statuses 추가 / -[상태]로 제거 (NPC도 가능)
 !외형 [이름] (내용)        appearance 설정(Setter) / 확인(Getter)
-!프로필 [이름]             게임 채널에 Embed 카드 출력
+!프로필 [이름] (게임)      Embed 카드 출력 (기본 마스터 채널 / 게임=게임 채널)
 !엔피씨 [설정/확인/삭제/목록] (이름) (내용)   session.npcs 조작
+  설정: 전체 덮어쓰기 / 단일 필드 수정(info_fields) / **필드**:값 형식 자동 파싱
+!능력치 [이름] [주사위눈] [총합]   ability_stats 순차 D20 굴림 → Hamilton 비례 배분
+  (마스터 채널 전용, ability_stat_max 개별 상한 자동 적용)
 !설정생성 [pc/npc] [이름] [지시사항]
-  엔:[npc이름,npc이름] 태그로 참조 NPC 지정 가능
-  LOGIC_MODEL 호출, 최근 6개 raw_logs + npc_context 교차 참조
+  엔:[npc이름,npc이름] 태그로 참조 NPC 지정 가능. LOGIC_MODEL 호출
 
 [게임 진행]
 !진행 (지시사항)
@@ -211,9 +278,12 @@ write_cost_log → sessions/{id}/cost_log.txt 에 타임스탬프+사용처+토�
 !주사위 [이름] [눈수] (가중치) (목표값)   GeneralDiceView — 일반 N면체
 !주사위 [이름] [스탯명] [눈수] (가중치)  DiceView — 능력치 판정
 !재생성 (새 지시사항)                     직전 턴 롤백 + 재진행
+!출력물                                   직전 턴 AI 출력 텍스트를 마스터 채널 전송
+!수정 [텍스트 전체]                       직전 턴 게임 채널 출력물 edit() 덮어쓰기 + 로그 동기화
 !기억압축                                 uncompressed_logs 수동 압축
 !노트 [누적/갱신/출력] (내용)             session.note 조작 (매 턴 프롬프트 주입)
 !캐시노트 [누적/갱신/출력] (내용)         session.cache_note 조작 (캐시 재발급 시 병합)
+!더빙테스트 (보이스)                      직전 묘사 마지막 문단 TTS 즉시 재생
 
 [미디어]
 !이미지 [키워드]                           media_keywords 매핑 → 게임 채널 전송
@@ -224,13 +294,28 @@ write_cost_log → sessions/{id}/cost_log.txt 에 타임스탬프+사용처+토�
 !플리 [시작/종료/다음/이전/일시정지/재생] (시나리오명)  PlaylistManager 백그라운드 셔플
 !볼륨 [0.0~2.0]                           세션 BGM + 플리 볼륨 동시 적용
 !채팅 [잠금/해제]                          @everyone send_messages 토글
+!더빙 [켜기/끄기]                          AI 묘사 TTS 음성 더빙 토글 (실험·!진행 한정)
+
+[자동 GM] (!자동 그룹, invoke_without_command)
+!자동                      하위명령 목록 출력
+!자동 시작 (대상PC)        게임 채널 발언을 AI GM이 자동 처리 (단일 PC면 자동 선택)
+!자동 중단                 자동 모드 정지 → 인간 GM 명령 모드 복귀
+!자동 상태                 활성 여부 / 자동 처리 턴 수 / 누적 비용
+!자동 개입 [텍스트]        다음 PROCEED까지 마스터 사이드 노트 유지
+!자동 턴제한 [N|해제]      자동 진행 최대 턴 (기본 무제한)
+!자동 비용제한 [원|해제]   자동 누적 비용 상한 (기본 무제한)
+!자동 서사                 현재 서사 계획 Embed 출력
+!자동 재계획 [메모]        서사 계획 강제 재수립
+  (GM-Logic 판단: ASK 명확화 / NARRATE 경량 즉답 / ROLL 주사위 / PROCEED 턴 진행)
 
 [시스템]
 !명령어                    전체 가이드 Embed 출력
 !채널정리                  TRPG/game-/master- 채널 Select UI 일괄 삭제 + 메모리 해제
 !캐시 재발급               기존 정산 + build_scenario_cache_text + caches.create
 !캐시 삭제                 caches.delete + 보관비 정산
+!캐시 출력                 업로드된 캐시 룰북 원본 텍스트 디버그 출력 (1950자 분할)
 !리로드 [모듈명]           bot.reload_extension("cogs.{모듈명}") 핫스왑 (관리자)
+  (리로드 가능: game, character, media, session, system, auto_gm)
 
 ==============================================================
 7. 현행 시나리오: shadow_island (영도 — 고립된 낙원)

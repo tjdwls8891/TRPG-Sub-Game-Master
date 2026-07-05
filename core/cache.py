@@ -14,6 +14,8 @@ from .io import write_log, save_session_data, load_scenario_from_file, SESSION_F
 from .cost import calculate_upload_cost, calculate_cost
 from .utils import get_merged_status_effects
 
+import prompts  # GM-Logic 의사결정 지시문을 캐시에 함께 굽기 위함(방안 ①)
+
 
 def _deserialize_log_entry(item: dict):
     """
@@ -31,6 +33,44 @@ def _deserialize_log_entry(item: dict):
     except Exception as e:
         print(f"⚠️ [역직렬화] raw_logs 엔트리 복원 실패 (건너뜀): {e}")
         return None
+
+
+def get_home_section_ids(session) -> list:
+    """
+    플레이어의 소속(사문)·근거지에 매칭되는 keyword_memory 섹션 id 목록을 반환한다.
+    이 섹션들은 캐시에 직접 편입되고(항상 참조), 온디맨드 트리거에서는 중복 주입되지 않도록 억제된다.
+    매칭은 고재현율을 위해 다음 중 하나면 성립:
+      - id 완전일치 (t == eid)
+      - id가 값에 포함 (eid in t)  — "무당파" ⊂ "무당파 장문인"
+      - 값이 id에 포함 (t in eid)  — "무당" ⊂ "무당파"
+      - 값이 해당 항목 keywords에 존재 (t in kws)
+      - keyword(2자 이상)가 값에 포함 (kw in t)  — "무당" ∈ ["무당",...] ⊂ "무당 이대제자"
+    마지막 규칙이 "무당 이대제자"처럼 id 문자열을 직접 포함하지 않는 소속·근거지를 잡아낸다.
+    """
+    kms = session.scenario_data.get("keyword_memory", [])
+    if not kms:
+        return []
+    targets = set()
+    for p in session.players.values():
+        prof = p.get("profile", {}) or {}
+        for f in ("소속", "근거지"):
+            v = prof.get(f)
+            if v and str(v).strip():
+                targets.add(str(v).strip())
+    if not targets:
+        return []
+    ids = []
+    for e in kms:
+        eid = e.get("id")
+        if not eid:
+            continue
+        kws = set(e.get("keywords", []))
+        for t in targets:
+            if (t == eid or eid in t or t in eid or t in kws
+                    or any(len(kw) >= 2 and kw in t for kw in kws)):
+                ids.append(eid)
+                break
+    return ids
 
 
 def update_session_cache_state(session: TRPGSession):
@@ -62,6 +102,9 @@ def update_session_cache_state(session: TRPGSession):
     else:
         session.cached_compressed_memory = old_cached or new_chunk
     session.compressed_memory = ""  # 캐시로 이동됨 — 프롬프트에서 중복 주입 방지
+
+    # 이번 캐시에 편입된 연고지(사문·근거지) 섹션 id 기록 → 온디맨드 중복 주입 억제 기준
+    session.cached_worldview_sections = get_home_section_ids(session)
 
 
 # noinspection PyShadowingNames
@@ -228,13 +271,28 @@ async def build_scenario_cache_text(bot, model_id, scenario_data: dict, cache_no
 {full_memory}
 """
 
+    # ── 플레이어 연고지(사문·근거지) 상세 편입 (session 있을 때만) ──
+    # keyword_memory로 온디맨드화된 세력/지역 중, 플레이어의 사문·근거지에 해당하는 섹션은
+    # 매 턴 필요하므로 캐시에 직접 편입한다(온디맨드 입력 과금 회피 + 트리거 미스 원천 차단).
+    home_section = ""
+    if session is not None:
+        _home_ids = get_home_section_ids(session)
+        _km = scenario_data.get("keyword_memory", [])
+        _home_descs = [e.get("description", "") for e in _km if e.get("id") in _home_ids and e.get("description")]
+        if _home_descs:
+            home_section = (
+                "\n[1-B. 플레이어 연고지 상세 (사문·근거지)]\n"
+                "(플레이어의 사문·근거지에 해당하는 세력·지역의 상세 정보다. 매 턴 반드시 참조할 것.)\n"
+                + "\n\n".join(_home_descs) + "\n"
+            )
+
     rulebook_text = f"""=== [시나리오 핵심 룰북] ===
 이 내용은 세션의 근간이 되는 절대적인 세계관 및 시스템 설정입니다.
 진행자(GM)의 특별한 지시가 없는 한 아래의 설정을 완벽하게 유지하십시오.
 
 [1. 세계관 정보]
 {worldview}
-
+{home_section}
 [2. 스토리 진행 가이드]
 {story_guide}
 
@@ -255,6 +313,17 @@ async def build_scenario_cache_text(bot, model_id, scenario_data: dict, cache_no
 {status_code_block}
 {session_npc_section}{memory_section}{note_injection}============================
 """
+
+    # ── 방안 ①: 자동 GM 의사결정 지시문을 캐시 본문에 함께 포함 ──
+    # GM-Logic 호출 시 이 지시문을 신선 입력(contents)으로 매번 넣지 않고 캐시 읽기 단가로 활용한다.
+    # 이 캐시는 메인 묘사 호출도 공유하므로, 묘사 시에는 이 블록을 무시하도록 명확히 라벨링한다.
+    rulebook_text += (
+        "\n\n=== [자동 GM 의사결정 엔진 전용 지시문] ===\n"
+        "(주의: 아래는 자동 GM 모드의 '판단' 단계 전용 지시문이다. "
+        "일반 묘사(서술) 생성 시에는 이 블록을 완전히 무시하고, 위의 [시나리오 핵심 룰북]과 GM 지시사항만 따를 것.)\n"
+        + prompts.GM_LOGIC_SYSTEM_INSTRUCTION
+        + "\n=== [자동 GM 의사결정 엔진 전용 지시문 끝] ===\n"
+    )
 
     if session_id:
         write_log(session_id, "api", f"[캐시 발급용 원본 룰북 (패딩 제외)]\n{rulebook_text}")

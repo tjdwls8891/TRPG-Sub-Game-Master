@@ -1,13 +1,20 @@
+# 배포 재현성을 위해 버전을 고정(pin)한다. (검증 환경: Python 3.12, 2026-06)
+# 업그레이드 시 한 패키지씩 올리고 봇 구동을 확인할 것. Python 3.10+ 필요.
+
 # 디스코드 API 통신 및 UI 뷰어(View) 구성
-discord.py~=2.7.1
+discord.py==2.7.1
 
 # 디스코드 음성 채널(VoiceClient) 오디오 송출을 위한 필수 종속성
-PyNaCl~=1.5.0
+PyNaCl==1.5.0
 
 # 환경 변수(.env) 로드
-python-dotenv~=1.2.2
+python-dotenv==1.2.2
 
 # Gemini API 통신 (신규 공식 SDK)
-google-genai>=0.1.0
-protobuf
-pillow
+google-genai==1.66.0
+
+# google-genai 의존성이나, SDK 호환 버전을 고정해 빌드 흔들림을 막는다.
+protobuf==7.34.0
+
+# !이미지 생성 결과 PNG 저장 및 레퍼런스 이미지 로드
+pillow==12.2.0

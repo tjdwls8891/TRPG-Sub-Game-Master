@@ -11,6 +11,39 @@ from .cost import calculate_storage_cost
 from .models import TRPGSession
 
 
+# ========== [명령어 권한: 허가 계정 목록] ==========
+# 봇 전역 allowlist. 오너(앱 소유자)와 오너가 권한을 부여한 계정만 마스터 명령을 사용할 수 있다.
+AUTHORIZED_USERS_PATH = "authorized_users.json"
+
+
+def load_authorized_users() -> dict:
+    """허가 계정 목록 로드. 반환: {"owner_id": int|None, "granted": [int, ...]}"""
+    try:
+        with open(AUTHORIZED_USERS_PATH, encoding="utf-8") as f:
+            data = json.load(f)
+        return {
+            "owner_id": data.get("owner_id"),
+            "granted": [int(x) for x in data.get("granted", [])],
+        }
+    except (FileNotFoundError, json.JSONDecodeError, ValueError, TypeError):
+        return {"owner_id": None, "granted": []}
+
+
+def save_authorized_users(data: dict):
+    """허가 계정 목록을 원자적으로 저장(.tmp → os.replace)."""
+    payload = {
+        "owner_id": data.get("owner_id"),
+        "granted": sorted({int(x) for x in data.get("granted", [])}),
+    }
+    tmp = AUTHORIZED_USERS_PATH + ".tmp"
+    try:
+        with open(tmp, "w", encoding="utf-8") as f:
+            json.dump(payload, f, ensure_ascii=False, indent=2)
+        os.replace(tmp, AUTHORIZED_USERS_PATH)
+    except Exception as e:
+        print(f"⚠️ [권한] 허가 계정 저장 실패: {e}")
+
+
 # ========== [직렬화 스키마 버전] ==========
 # 세션 데이터 JSON 구조가 변경될 때 증가. restore 시 구버전 경고 출력에 사용.
 SCHEMA_VERSION = 2
@@ -37,19 +70,24 @@ SESSION_FIELDS: dict = {
     "cache_text": "",
     "cached_session_npcs": {},
     "cached_compressed_memory": "",
+    "cached_worldview_sections": [],  # 캐시에 편입된 연고지(사문·근거지) keyword_memory 섹션 id — 온디맨드 중복 주입 억제용
     "narrative_plan": {},
     "world_timeline": {},
+    "info_ledger": [],  # 정보 인지 원장 (비공개 정보별 인지 주체 — GM-Logic이 누적 갱신)
+    # TTS 음성 더빙 (실험)
+    "tts_enabled": False,
     # 자동 GM 설정
     "auto_gm_active": False,
     "auto_gm_target_char": None,
-    "auto_gm_turn_cap": 10,
+    "auto_gm_turn_cap": None,
     "auto_gm_turns_done": 0,
     "auto_gm_clarify_count": 0,
     "auto_gm_narrate_count": 0,
-    "auto_gm_cost_cap_krw": 500.0,
+    "auto_gm_cost_cap_krw": None,
     "auto_gm_cost_baseline": 0.0,
     "auto_gm_side_note": "",
     "auto_gm_target_chars": [],
+    "auto_gm_proceed_history": [],
     # 이하 세 필드는 저장은 하지만 복구 시 항상 초기화 (SESSION_RESET_FIELDS 참고)
     "auto_gm_pending_players": [],
     "auto_gm_collected_actions": {},

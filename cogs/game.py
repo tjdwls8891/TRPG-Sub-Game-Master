@@ -137,9 +137,9 @@ class GameCog(commands.Cog):
         if not session or ctx.channel.id != session.master_ch_id:
             return await ctx.send("이 명령어는 마스터 채널에서만 사용할 수 있습니다.")
 
-        user_id_str = core.get_uid_by_char_name(session, char_name)
-        if not user_id_str:
-            return await ctx.send(f"⚠️ '{char_name}'(으)로 참가한 플레이어를 찾을 수 없습니다.")
+        user_id_str, char_name, err = core.resolve_pc(session, char_name)
+        if err:
+            return await ctx.send(err)
 
         player_data = session.players[user_id_str]
         game_channel = self.bot.get_channel(session.game_ch_id)
@@ -274,6 +274,7 @@ class GameCog(commands.Cog):
 
         session.is_processing = True
         full_ai_response = ""
+        status_msg = None   # 게임 채널 대기 안내 메시지 핸들 (출력 시작 직전 삭제)
 
         try:
             anchor = None
@@ -297,7 +298,9 @@ class GameCog(commands.Cog):
             res_pattern  = r'자:(' + _TAG_END + r'+);(' + _TAG_END + r'+);([-+]?\d+)'
             status_pattern = r'태:(' + _TAG_END + r'+);(-?' + _TAG_END + r'+)'
 
-            img_tags = re.findall(img_pattern, instruction)
+            # 언더바(_) 규약: 태그 값의 이름·항목·상태에 띄어쓰기가 필요하면 _ 로 표기하고,
+            # 파싱 후 공백으로 복원한다. (태그 종결자는 공백이므로 다단어 항목이 잘리는 문제를 해소)
+            img_tags = [(pos, kw.replace('_', ' ')) for pos, kw in re.findall(img_pattern, instruction)]
 
             top_imgs, mid_imgs, bottom_imgs = [], [], []
             if cost_log_prefix:
@@ -315,7 +318,8 @@ class GameCog(commands.Cog):
                     elif pos == '하':
                         bottom_imgs.append(kw)
 
-            res_tags = re.findall(res_pattern, instruction)
+            res_tags = [(c.replace('_', ' '), i.replace('_', ' '), a)
+                        for c, i, a in re.findall(res_pattern, instruction)]
 
             # 유효한 캐릭터 이름 집합 (자:/태: 태그 검증용)
             valid_char_names = set(p["name"] for p in session.players.values() if p.get("name")) | set(session.npcs.keys())
@@ -334,7 +338,8 @@ class GameCog(commands.Cog):
                 else:
                     session.resources[char_name][item_name] = new_val
 
-            status_tags = re.findall(status_pattern, instruction)
+            status_tags = [(c.replace('_', ' '), s.replace('_', ' '))
+                           for c, s in re.findall(status_pattern, instruction)]
 
             # 자동 GM 모드에서는 유효한 상태이상 이름만 허용
             valid_status_names = None
@@ -385,6 +390,11 @@ class GameCog(commands.Cog):
 
             await m_send("⏳ AI가 묘사를 생성 중입니다. 완료 후 게임 채널에 타이핑 연출을 시작합니다...")
 
+            # 플레이어가 보는 게임 채널에 대기 안내 (출력 시작 직전 삭제). 자동/수동 공통.
+            status_msg = await core.send_status_message(
+                game_channel, "🎬 *GM이 다음 장면을 구성하는 중…*"
+            )
+
             prompt = core.PromptBuilder.build_prompt(session, clean_instruction)
 
             # NOTE: Gemini API는 contents가 role="user"로 시작해야 한다.
@@ -401,6 +411,49 @@ class GameCog(commands.Cog):
             for content in current_contents:
                 payload_dump += f"[{content.role.upper()}]\n{content.parts[0].text}\n\n"
             core.write_log(session.session_id, "api", f"[메인 턴 묘사 요청 - 최종 Payload]\n{payload_dump}")
+
+            async def _reissue_cache(reason_label: str):
+                """룰북 캐시를 (재)발급하고 세션 캐시 상태를 동기화한다.
+
+                캐시 만료 에러 복구와 캐시 부재 선제 발급(방안③)이 공유하는 단일 경로.
+                호출 측이 예외를 흡수해 캐시 없이도 턴이 진행될 수 있게 한다.
+                """
+                storage_cost = await core.process_cache_deletion(self.bot, session)
+                caching_text, cache_tokens, base_text = await core.build_scenario_cache_text(
+                    self.bot, core.DEFAULT_MODEL, session.scenario_data,
+                    getattr(session, "cache_note", ""), session.session_id, session=session
+                )
+
+                upload_cost = core.calculate_upload_cost(core.DEFAULT_MODEL, input_tokens=cache_tokens)
+                session.total_cost += upload_cost
+                session.cache_created_at = time.time()
+                session.cache_tokens = cache_tokens
+
+                core.write_cost_log(session.session_id, f"{cost_log_prefix}{reason_label}", cache_tokens, 0, 0, upload_cost,
+                                    session.total_cost)
+
+                _cache_embed = core.build_cache_cost_embed(
+                    reason_label, storage_cost, upload_cost, session.total_cost
+                )
+                print(f"[{reason_label}] storage={core.format_cost(storage_cost)} upload={core.format_cost(upload_cost)} total={core.format_cost(session.total_cost)}")
+                await m_send(embed=_cache_embed)
+
+                new_cache = await asyncio.to_thread(
+                    self.bot.genai_client.caches.create,
+                    model=core.DEFAULT_MODEL,
+                    config=types.CreateCachedContentConfig(
+                        system_instruction=self.bot.system_instruction,
+                        contents=[
+                            types.Content(role="user", parts=[types.Part.from_text(text=caching_text)])],
+                        ttl="21600s",
+                    )
+                )
+                session.cache_obj = new_cache
+                session.cache_name = new_cache.name
+                session.cache_model = core.DEFAULT_MODEL
+                session.cache_text = base_text
+                core.update_session_cache_state(session)
+                await core.save_session_data(self.bot, session)
 
             async def generate_with_retry(retry_count=0):
                 try:
@@ -421,48 +474,21 @@ class GameCog(commands.Cog):
                 except APIError as e:
                     if retry_count == 0 and ("cache" in str(e).lower() or e.code in [400, 404]):
                         await m_send("🔄 **[시스템 알림]** 장기 기억 캐시가 만료되어 자동으로 재발급을 진행합니다. 턴 묘사는 이어서 출력됩니다...")
-
-                        storage_cost = await core.process_cache_deletion(self.bot, session)
-                        caching_text, cache_tokens, base_text = await core.build_scenario_cache_text(
-                            self.bot, core.DEFAULT_MODEL, session.scenario_data,
-                            getattr(session, "cache_note", ""), session.session_id, session=session
-                        )
-
-                        upload_cost = core.calculate_upload_cost(core.DEFAULT_MODEL, input_tokens=cache_tokens)
-                        session.total_cost += upload_cost
-                        session.cache_created_at = time.time()
-                        session.cache_tokens = cache_tokens
-
-                        core.write_cost_log(session.session_id, f"{cost_log_prefix}캐시 자동 재발급(진행 중)", cache_tokens, 0, 0, upload_cost,
-                                            session.total_cost)
-
-                        _cache_embed = core.build_cache_cost_embed(
-                            "캐시 자동 재발급 (진행 중)",
-                            storage_cost, upload_cost, session.total_cost
-                        )
-                        print(f"[캐시 자동 재발급] storage={core.format_cost(storage_cost)} upload={core.format_cost(upload_cost)} total={core.format_cost(session.total_cost)}")
-                        await m_send(embed=_cache_embed)
-
-                        new_cache = await asyncio.to_thread(
-                            self.bot.genai_client.caches.create,
-                            model=core.DEFAULT_MODEL,
-                            config=types.CreateCachedContentConfig(
-                                system_instruction=self.bot.system_instruction,
-                                contents=[
-                                    types.Content(role="user", parts=[types.Part.from_text(text=caching_text)])],
-                                ttl="21600s",
-                            )
-                        )
-                        session.cache_obj = new_cache
-                        session.cache_name = new_cache.name
-                        session.cache_model = core.DEFAULT_MODEL
-                        session.cache_text = base_text
-                        core.update_session_cache_state(session)
-                        await core.save_session_data(self.bot, session)
-
+                        await _reissue_cache("캐시 자동 재발급 (진행 중)")
                         return await generate_with_retry(retry_count=1)
                     else:
                         raise e
+
+            # 방안③: 캐시가 없으면(명시적 !캐시 삭제 후 재개, 복구 직후 등) 에러를 기다리지
+            # 않고 선제 발급한다. 캐시 부재 시 cacheless 분기는 system_instruction(GM 페르소나)만
+            # 넘겨 시나리오 룰북 전체(세계관·NPC·스탯·금지)가 프롬프트에서 누락되므로, 비용뿐 아니라
+            # 서사 품질이 붕괴한다. 발급 실패 시에는 기존처럼 캐시 없이 그레이스풀 진행.
+            if not (session.cache_obj and session.cache_name):
+                try:
+                    await m_send("🔄 **[시스템 알림]** 활성 캐시가 없어 룰북 캐시를 선제 발급합니다. (명시적 삭제 후 재개 등)")
+                    await _reissue_cache("캐시 선제 재발급 (캐시 부재)")
+                except Exception as e:
+                    await m_send(f"⚠️ 캐시 선제 발급 실패 — 이번 턴은 캐시 없이 진행합니다: {e}")
 
             response = await generate_with_retry()
 
@@ -486,14 +512,16 @@ class GameCog(commands.Cog):
 
             print(f"\n[{label_prefix}턴 진행 비용] session={session.session_id} In={in_tokens:,} Cached={cached_tokens:,} Out={out_tokens:,} cost={core.format_cost(turn_cost)}")  # in/out/cached already guarded above
 
-            # PROCEED 비용을 turn_cost_log에 추가한 뒤 배치 플러시 → 스트리밍 시작 직전 보고
+            # PROCEED 비용을 turn_cost_log에 적립한다.
+            # NOTE: 턴 비용 보고 임베드는 더빙 합성 완료 후(아래)에 송출하여 TTS 비용까지 합산한다.
             proceed_label = f"{'(자동 GM) ' if cost_log_prefix else ''}PROCEED 턴 묘사"
             if not hasattr(session, "turn_cost_log"):
                 session.turn_cost_log = []
-            session.turn_cost_log.append({"label": proceed_label, "cost": turn_cost})
-            _turn_embed = core.build_turn_cost_embed(session.turn_count + 1, session.turn_cost_log, session.total_cost)
-            session.turn_cost_log.clear()
-            await m_send(embed=_turn_embed)
+            session.turn_cost_log.append({
+                "label": proceed_label, "cost": turn_cost,
+                "in": in_tokens, "cached": cached_tokens, "out": out_tokens,
+                "manifest": list(getattr(session, "last_proceed_manifest", [])),
+            })
 
             full_ai_response = response.text
 
@@ -501,6 +529,25 @@ class GameCog(commands.Cog):
                 finish_reason = response.candidates[0].finish_reason if response.candidates else "Unknown"
                 raise ValueError(
                     f"AI가 텍스트를 반환하지 않았습니다. (구글 API 강제 차단 혹은 모델 에러. 사유: {finish_reason})\n지시사항의 수위를 조절하거나 `!재생성`을 이용해 턴을 취소해 주십시오.")
+
+            # PC 자율성 보호: AI가 NPC가 아닌 '플레이어 이름'으로 대사를 출력한 경우,
+            # 로그 저장·파싱·스트리밍에 들어가기 전 문자열 단계에서 해당 발화 문단을 제거한다.
+            pc_names = {p.get("name") for p in session.players.values() if p.get("name")}
+            npc_names = set(session.npcs.keys())
+            full_ai_response, _removed_pc_lines = core.strip_unauthorized_pc_dialogue(
+                full_ai_response, pc_names, npc_names)
+            if _removed_pc_lines:
+                _uniq = ", ".join(dict.fromkeys(_removed_pc_lines))
+                await m_send(f"🛡️ PC 자율성 보호: AI가 생성한 플레이어 대사({_uniq})를 출력 전 제거했습니다.")
+
+            # 방어적 태그 스트립: 상태 변경은 지시문(instruction) 태그로 이미 적용되므로,
+            # AI가 묘사 응답에 남긴 자:/태: 태그(에코 등)는 여기서 제거한다.
+            # (제거하지 않으면 출력에 태그가 누출되고, 코드블럭 뒤에 붙으면 코드블럭 인식이 깨진다.)
+            # NOTE: 이미지 태그(상|중|하:)는 세미콜론이 없어 '내상:중상' 등 서술·코드블럭을 오매칭할 수
+            #       있으므로 응답 스트립 대상에서 제외한다(자:/태:는 세미콜론 필수라 오매칭 위험 없음).
+            full_ai_response = re.sub(res_pattern, '', full_ai_response)
+            full_ai_response = re.sub(status_pattern, '', full_ai_response)
+            full_ai_response = re.sub(r'[ \t]{2,}', ' ', full_ai_response).strip()
 
             turn_history_text = "\n".join(session.current_turn_logs) + f"\n[GM 지시]: {clean_instruction}"
             session.raw_logs.append(types.Content(role="user", parts=[types.Part.from_text(text=turn_history_text)]))
@@ -527,10 +574,59 @@ class GameCog(commands.Cog):
             # #3: 같은 화자의 연속 대사를 하나로 통합 (이미지 중복 출력 방지)
             paragraphs = core.merge_consecutive_dialogues(paragraphs)
 
+            # 플레이어 이름과 동일한 인물의 발화 문단 제거 (출력 단계 차단).
+            # 위 문자열 strip은 'NPC가 아닌' PC 대사만 걸러내지만, 여기서는 출력 직전 파싱 기준으로
+            # 화자 이름이 플레이어 이름과 일치하면 NPC 겸용 여부와 무관하게 해당 발화 문단을 제거한다.
+            # (paragraphs는 이후 TTS·스트리밍·이미지 송출의 공통 입력이므로 한곳에서 차단된다.)
+            _pc_speaker_dropped = []
+            _kept_paras = []
+            for _p in paragraphs:
+                _d = core.parse_dialogue_paragraph(_p)
+                if _d and _d[0] in pc_names:
+                    _pc_speaker_dropped.append(_d[0])
+                    continue
+                _kept_paras.append(_p)
+            paragraphs = _kept_paras
+            if _pc_speaker_dropped:
+                _uniq_pc = ", ".join(dict.fromkeys(_pc_speaker_dropped))
+                await m_send(f"🛡️ 플레이어 이름({_uniq_pc})으로 된 발화 문단을 출력에서 제거했습니다.")
+
+            # 출력(타이핑 연출) 시작 직전 대기 안내 메시지 제거
+            await core.clear_status_message(status_msg)
+            status_msg = None
+
+            # TTS 더빙(실험): 수동 !진행에서 토글 ON + 보이스 연결 시 '음성-텍스트 동기' 경로 사용.
+            # (문단별 음성 길이에 텍스트 스트리밍 속도를 맞춤.) 자동 GM(cost_log_prefix)·미연결 제외.
+            # dub: 더빙 합성 누적 결과 dict (비용·경고 처리는 출력 완료 후 일원화).
+            dub = None
+            dub_active = (
+                getattr(session, "tts_enabled", False)
+                and not cost_log_prefix
+                and core.get_mixer(getattr(session, "voice_client", None)) is not None
+            )
+
             if not paragraphs:
                 for kw in top_imgs + mid_imgs + bottom_imgs:
                     await core.send_image_by_keyword(game_channel, master_ch, session, kw)
+            elif dub_active:
+                # 음성-텍스트 동기 출력 (이미지 송출 포함). 합성·적재·스트리밍을 한 곳에서 처리.
+                dub = await self._stream_paragraphs_synced(
+                    session, paragraphs, game_channel, master_ch,
+                    top_imgs, mid_imgs, bottom_imgs
+                )
             else:
+                # 비동기(또는 TTS off) 경로. 토글 ON이지만 보이스 미연결이면 no_voice 경고용으로 합성 시도.
+                dub_task = None
+                if getattr(session, "tts_enabled", False) and not cost_log_prefix:
+                    tts_texts = []
+                    for p in paragraphs:
+                        d = core.parse_dialogue_paragraph(p)
+                        spoken = core.clean_text_for_tts(d[1] if d else p)
+                        if spoken:
+                            tts_texts.append(spoken)
+                    if tts_texts:
+                        dub_task = asyncio.create_task(self._synthesize_and_enqueue(session, tts_texts))
+
                 for i, paragraph in enumerate(paragraphs):
                     # 인물 대사 마커 분기: 이미지 자동 출력 + 헤더/말풍선 형식, '> ' 미부착
                     dialogue = core.parse_dialogue_paragraph(paragraph)
@@ -559,8 +655,35 @@ class GameCog(commands.Cog):
                 for kw in bottom_imgs:
                     await core.send_image_by_keyword(game_channel, master_ch, session, kw)
 
+                # 백그라운드 더빙 합성 완료 대기 (음성 재생은 믹서 큐에서 계속 진행됨)
+                if dub_task is not None:
+                    try:
+                        dub = await dub_task
+                    except Exception as e:
+                        print(f"[TTS] 더빙 태스크 오류(무시): {e}")
+                        dub = None
+
             if code_block_text:
                 await game_channel.send(code_block_text)
+
+            # TTS 더빙 비용·경고 일원 처리 (동기/비동기 공통)
+            if dub:
+                if dub.get("no_voice"):
+                    await m_send("🔇 TTS 더빙: 음성 채널에 연결돼 있지 않아 이번 턴은 건너뜁니다.")
+                elif dub["enqueued"] == 0:
+                    await m_send("⚠️ TTS 더빙: 합성된 음성이 없습니다. (`core.TTS_MODEL` 설정·API 응답 확인)")
+                if dub["cost"] > 0:
+                    session.total_cost += dub["cost"]
+                    core.write_cost_log(session.session_id, "TTS 더빙",
+                                        dub["in"], 0, dub["out"], dub["cost"], session.total_cost)
+                    session.turn_cost_log.append(
+                        {"label": f"TTS 더빙({dub['enqueued']}/{dub['total']}문단)", "cost": dub["cost"],
+                         "in": dub["in"], "cached": 0, "out": dub["out"]})
+
+            # 턴 비용 보고 임베드 송출 (PROCEED + GM-Logic 등 누적 + TTS 더빙 합산)
+            _turn_embed = core.build_turn_cost_embed(session.turn_count, session.turn_cost_log, session.total_cost)
+            session.turn_cost_log.clear()
+            await m_send(embed=_turn_embed)
 
             await m_send(f"✅ 묘사 연출 완료 (현재 {session.turn_count}턴 경과). 다음 턴 대기 중...")
 
@@ -626,6 +749,7 @@ class GameCog(commands.Cog):
             await core.save_session_data(self.bot, session)
 
         except Exception as e:
+            await core.clear_status_message(status_msg)
             await m_send(f"⚠️ 시스템 오류가 발생했습니다: {str(e)}")
             session.is_processing = False
             try:
@@ -643,6 +767,191 @@ class GameCog(commands.Cog):
             print(f"⚠️ 자동 채팅 해제 실패: {e}")
 
         return {"ok": True, "ai_text": full_ai_response, "error": None}
+
+    async def _synthesize_and_enqueue(self, session, texts, voice_name=None) -> dict:
+        """
+        문단 텍스트를 순서대로 TTS 합성해 믹서 voice 큐에 적재한다. (회계는 호출 측 담당)
+
+        합성은 순차(await)이므로 큐 적재 순서가 보장되며, 첫 문단이 합성되는 즉시 재생이 시작되고
+        뒤 문단은 재생되는 동안 이어서 합성된다(파이프라이닝). voice_name=None이면 기본 나레이터 보이스 사용.
+
+        Returns:
+            dict: {"enqueued": int, "total": int, "cost": float, "in": int, "out": int, "no_voice": bool}
+                  비용·로그 기록·임베드 반영은 호출자가 반환값으로 처리한다.
+        """
+        vc = getattr(session, "voice_client", None)
+        mixer = core.get_mixer(vc)
+        if mixer is None:
+            return {"enqueued": 0, "total": len(texts), "cost": 0.0, "in": 0, "out": 0, "no_voice": True}
+
+        total_cost = 0.0
+        total_in = total_out = 0
+        enqueued = 0
+        for t in texts:
+            pcm, cost, in_tok, out_tok = await core.synthesize_tts_pcm(self.bot, t, voice_name=voice_name)
+            if pcm:
+                mixer.enqueue_voice(core.PCMBytesAudioSource(pcm, volume=core.TTS_NARRATION_VOLUME))
+                enqueued += 1
+            total_cost += cost
+            total_in += in_tok
+            total_out += out_tok
+
+        return {"enqueued": enqueued, "total": len(texts), "cost": total_cost,
+                "in": total_in, "out": total_out, "no_voice": False}
+
+    async def _stream_paragraphs_synced(self, session, paragraphs, game_channel, master_ch,
+                                        top_imgs, mid_imgs, bottom_imgs, voice_name=None) -> dict:
+        """
+        TTS 더빙 ON + 보이스 연결 시 사용하는 '음성-텍스트 동기' 출력 경로.
+
+        각 문단을 TTS 합성해 믹서 voice 큐에 적재(재생 시작)하고, 그 문단 텍스트를 음성 길이
+        (len(pcm)/TTS_PCM_BYTES_PER_SEC 초)에 맞춘 속도로 스트리밍한다. 다음 문단은 현재 문단을
+        출력하는 동안 미리 합성(prefetch)해 파이프라이닝을 유지한다. 순차 voice 큐와 텍스트가
+        문단 단위로 lock-step을 이루며, 합성 지연이 생기면 음성·텍스트가 함께 대기해 재동기된다.
+
+        이미지 송출(상/중/하)은 기존 비동기 경로와 동일한 규칙으로 인터리브한다.
+
+        Returns:
+            dict: _synthesize_and_enqueue와 동일 형식 (비용·경고는 호출 측에서 처리).
+        """
+        mixer = core.get_mixer(getattr(session, "voice_client", None))
+
+        # (raw_paragraph, display_text, spoken_text, is_dialogue, speaker)
+        items = []
+        for p in paragraphs:
+            d = core.parse_dialogue_paragraph(p)
+            if d:
+                speaker, content = d
+                items.append((p, core.format_dialogue_block(speaker, content),
+                              core.clean_text_for_tts(content), True, speaker))
+            else:
+                items.append((p, p, core.clean_text_for_tts(p), False, None))
+
+        async def _synth(spoken):
+            if not spoken:
+                return (b"", 0.0, 0, 0)
+            return await core.synthesize_tts_pcm(self.bot, spoken, voice_name=voice_name)
+
+        total_cost = 0.0
+        total_in = total_out = 0
+        enqueued = 0
+
+        # 첫 문단 선합성 (합성 대기 동안 타이핑 인디케이터 노출)
+        if items:
+            async with game_channel.typing():
+                pcm, cost, in_tok, out_tok = await _synth(items[0][2])
+        else:
+            pcm, cost, in_tok, out_tok = (b"", 0.0, 0, 0)
+
+        for i, (raw, display, spoken, is_dialogue, speaker) in enumerate(items):
+            # 다음 문단 prefetch (현재 문단 출력 동안 백그라운드 합성)
+            next_task = None
+            if i + 1 < len(items):
+                next_task = asyncio.create_task(_synth(items[i + 1][2]))
+
+            total_cost += cost
+            total_in += in_tok
+            total_out += out_tok
+
+            # 음성 적재(재생 시작) + 재생 길이 산출
+            duration = None
+            if pcm:
+                mixer.enqueue_voice(core.PCMBytesAudioSource(pcm, volume=core.TTS_NARRATION_VOLUME))
+                enqueued += 1
+                duration = len(pcm) / float(core.TTS_PCM_BYTES_PER_SEC)
+
+            if is_dialogue:
+                await core.maybe_send_speaker_image(game_channel, session, speaker)
+
+            await core.stream_text_to_channel(
+                self.bot, game_channel, display,
+                quote_prefix=not is_dialogue, total_duration=duration,
+            )
+
+            if i == 0:
+                for kw in top_imgs:
+                    await core.send_image_by_keyword(game_channel, master_ch, session, kw)
+
+            for kw in list(mid_imgs):
+                if kw in raw:
+                    await core.send_image_by_keyword(game_channel, master_ch, session, kw)
+                    mid_imgs.remove(kw)
+
+            # 다음 문단 합성 결과 수령
+            if next_task is not None:
+                pcm, cost, in_tok, out_tok = await next_task
+            else:
+                pcm, cost, in_tok, out_tok = (b"", 0.0, 0, 0)
+
+        for kw in mid_imgs:
+            await core.send_image_by_keyword(game_channel, master_ch, session, kw)
+        for kw in bottom_imgs:
+            await core.send_image_by_keyword(game_channel, master_ch, session, kw)
+
+        return {"enqueued": enqueued, "total": len(items), "cost": total_cost,
+                "in": total_in, "out": total_out, "no_voice": False}
+
+    @commands.command(name="더빙테스트")
+    async def test_tts(self, ctx, voice: str = None):
+        """
+        직전 `!진행` 묘사의 마지막 문단을 TTS로 다시 읽어준다. 스타일 프롬프트는 그대로 유지.
+
+        !더빙테스트            — 기본 나레이터 보이스로 낭독
+        !더빙테스트 [보이스]   — 지정한 보이스로 낭독 (예: `!더빙테스트 Gacrux`)
+
+        토글(`!더빙`) 상태와 무관하게 즉시 실행되며(음성 채널 연결 필요),
+        비용은 일반 더빙과 동일하게 집계·`cost_log`에 기록된다.
+        """
+        session = self.bot.active_sessions.get(ctx.channel.id)
+        if not session or ctx.channel.id != session.master_ch_id:
+            return await ctx.send("이 명령어는 마스터 채널에서만 사용할 수 있습니다.")
+
+        # 보이스 인자 검증 (대소문자 무시 → 정식 표기로 정규화)
+        voice_name = None
+        if voice:
+            voice_name = next((v for v in core.TTS_VOICES if v.lower() == voice.lower()), None)
+            if voice_name is None:
+                return await ctx.send(
+                    f"⚠️ 알 수 없는 보이스 `{voice}`.\n사용 가능: {', '.join(core.TTS_VOICES)}")
+
+        # 직전 모델 출력(가장 최근 role="model" 텍스트) 탐색
+        last_text = None
+        for content in reversed(session.raw_logs):
+            if content.role == "model" and content.parts and getattr(content.parts[0], "text", None):
+                last_text = content.parts[0].text
+                break
+        if not last_text:
+            return await ctx.send("⚠️ 직전 진행 묘사를 찾을 수 없습니다. 먼저 `!진행`을 실행하세요.")
+
+        # 상태창 코드블럭을 제외한 마지막 문단 추출
+        m = re.search(r'(.*)(```.*?```)\s*$', last_text, re.DOTALL)
+        narrative = (m.group(1) if m else last_text).strip()
+        paras = [p.strip() for p in narrative.split('\n\n') if p.strip()]
+        if not paras:
+            return await ctx.send("⚠️ 읽을 문단이 없습니다.")
+
+        last_para = paras[-1]
+        d = core.parse_dialogue_paragraph(last_para)
+        spoken = core.clean_text_for_tts(d[1] if d else last_para)
+        if not spoken:
+            return await ctx.send("⚠️ 정제 후 읽을 텍스트가 없습니다.")
+
+        await ctx.send(
+            f"🔊 직전 묘사 마지막 문단을 낭독합니다 (보이스 `{voice_name or core.TTS_NARRATOR_VOICE}`):\n> {spoken[:300]}")
+
+        dub = await self._synthesize_and_enqueue(session, [spoken], voice_name=voice_name)
+        if dub.get("no_voice"):
+            return await ctx.send(
+                "🔇 음성 채널에 연결돼 있지 않습니다. `!브금`/`!플리`로 입장 후 다시 시도하세요.")
+        if dub["enqueued"] == 0:
+            return await ctx.send(
+                "⚠️ 합성된 음성이 없습니다. (`core.TTS_MODEL` 설정 또는 API 응답을 확인하세요)")
+        if dub["cost"] > 0:
+            session.total_cost += dub["cost"]
+            core.write_cost_log(session.session_id, "TTS 더빙(테스트)",
+                                dub["in"], 0, dub["out"], dub["cost"], session.total_cost)
+            await core.save_session_data(self.bot, session)
+        await ctx.send(f"🔊 TTS 더빙 테스트 재생 (+{core.format_cost(dub['cost'])})")
 
     @commands.command(name="재생성")
     async def regenerate_turn(self, ctx, *, instruction: str = ""):

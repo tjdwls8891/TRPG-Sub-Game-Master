@@ -1,91 +1,151 @@
 {
-  "worldview": "",
-  "desc_guide": "",
-  "story_guide": "",
-  "scenario_intro": "",
-  "start_message": "",
-  "keyword_memory": [
-    {
-      "keywords": [
-        "dlatl"
-      ],
-      "description": ""
-    }
-  ],
-  "status_code_block": "```css\n📅 [#{현재 턴 수}] [{시나리오상 날짜} {요일} {시간대(새벽/아침/오전/낮/오후/저녁/밤)}]\n📍 {현재 장소}\n상황 요약 : {현재 상황 20자 이내 요약}\n```",
-  "pc_template": {
-    "근력": "",
-    "민첩": "",
-    "기술": "",
-    "외모": "",
-    "스킬": ""
-  },
-  "ability_stat_max": 20,
-  "npc_template": {
-    "info_fields": [
-      "나이·성별",
-      "소속·직책",
-      "외모",
-      "핵심 기질",
-      "행동 방식",
-      "말투·어조",
-      "동기·욕구",
-      "두려움·약점",
-      "비밀",
-      "신뢰·의존",
-      "경계·반목",
-      "특기·능력"
+    "worldview": "【세계관 설명 플레이스홀더】\n이 필드에는 시나리오의 세계관 전반을 상세하게 서술합니다. 시대적 배경, 지리적 구조(지형·거점 위치·거점 간 이동 경로), 주요 세력과 그들의 관계, 세계의 규칙과 불문율, 현재 정세와 주요 현안 등을 포함해야 합니다. AI GM이 일관된 세계관 묘사를 생성하기 위한 기반 텍스트로, Gemini Context Cache의 [1. 세계관 정보] 섹션에 삽입됩니다. 분량이 충분해야 캐시 최소 토큰(32,768) 충족에 유리합니다.",
+
+    "desc_guide": "【묘사 지침 플레이스홀더】\n이 필드에는 AI GM이 묘사를 생성할 때 따라야 할 문체·톤·연출 원칙을 서술합니다. 장르 특유의 문체(예: 무협의 건조한 격조체, 좀비물의 긴장감), 전투 묘사 방식, 세력별 서술 포인트, 특수 위협 묘사 방식, 인물 묘사 원칙 등을 포함합니다. Gemini Context Cache의 [5. 시나리오 고유 묘사 가이드라인] 섹션에 삽입됩니다.",
+
+    "story_guide": "【서사 가이드 플레이스홀더】\n이 필드에는 AI GM이 서사를 어떻게 이끌어야 하는지에 대한 방향성과 마일스톤을 서술합니다. 샌드박스 구조의 초기/중기/후기 단계별 트리거 이벤트, 세계 사건(WE), 세력 긴장 폭발 트리거(T), 서사 주도권 원칙 등을 포함합니다. Gemini Context Cache의 [2. 스토리 진행 가이드] 섹션에 삽입됩니다.",
+
+    "scenario_intro": "【시나리오 소개 텍스트 플레이스홀더】\n이 필드에는 !소개 명령어 실행 시 플레이어들에게 공개되는 시나리오 소개 텍스트를 작성합니다. PC들이 처한 상황, 배경, 분위기를 문학적으로 제시하며 플레이어들의 몰입을 유도합니다. 너무 많은 정보를 공개하지 않고 흥미를 자극하는 것이 중요합니다.",
+
+    "start_message": "【시작 메시지 플레이스홀더】\n이 필드에는 !시작 명령어 실행 시 게임 채널에 최초로 출력되는 도입부 텍스트를 작성합니다. 게임의 첫 장면을 문학적으로 묘사하여 플레이어들을 세계 속으로 끌어들입니다. 이 텍스트는 raw_logs에 role='model'로 삽입되어 AI 컨텍스트의 시작점이 됩니다.",
+
+    "keyword_memory": [
+        {
+            "keywords": ["키워드1", "키워드2"],
+            "description": "【키워드 기억 플레이스홀더】 이 키워드들이 최근 로그에 등장할 때 AI에게 주입할 설명 텍스트. 예: 특정 장소나 사물에 대한 상세 정보, 등장할 때만 공개할 비밀 설정 등. 키워드는 짧고 구체적인 고유명사로 작성하고, 최근 로그 전체를 단순 문자열 in 검사로 매칭함."
+        },
+        {
+            "keywords": ["추가 키워드"],
+            "description": "두 번째 키워드 기억 항목 예시. keywords 리스트에 동의어나 관련어를 함께 넣으면 둘 중 하나라도 등장할 때 description이 주입됩니다."
+        }
     ],
-    "has_stats": false,
-    "has_resources": true,
-    "has_statuses": true
-  },
-  "default_npcs": {
-    "김철수": {
-      "name": "김철수",
-      "나이·성별": "62세, 남성",
-      "소속·직책": "남항 중공업 연대, 중앙 위원회 의장",
-      "외모": "기름때 절은 청색 용접복. 백발이 성성한 상륙돌격형 두발. 오른손 검지 반 마디 소실. 목에 상시 걸어둔 낡은 방진 마스크. 쇳가루 기침으로 인한 충혈된 눈.",
-      "핵심 기질": "철저한 실용주의. 감정을 배제한 공리주의적 판단. 기계적 질서와 노동 가치 숭상.",
-      "행동 방식": "매일 06시 전 구역 순시 및 환풍기 소음 체크. 작업대별 전력 사용량 일일 점검. 비효율 발생 시 즉각적인 배급 삭감 및 징벌 업무 배치.",
-      "말투·어조": "부산 사투리가 섞인 낮고 쇳소리 나는 성음. 결론만 요구하는 단문 중심의 명령조. \"결론만\", \"수치로 말해\"를 습관적으로 사용하며 대화 중 잦은 기침.",
-      "동기·욕구": "벙커C유 고갈 전 조선소의 완전한 요새화 및 반영구적 자급 시스템 구축.",
-      "두려움·약점": "주력 발전기 가동 중단으로 인한 내부 산소 공급 마비. 본인의 만성 폐질환 악화로 인한 지도력 상실.",
-      "비밀": "최근 수거한 식량 통조림 상당수가 중금속에 오염되었음을 인지했으나, 노동력 유지를 위해 사실을 은폐하고 배급을 강행 중임.",
-      "신뢰·의존": "선박 엔진 수리 경력 30년 이상의 마스터급 노련한 기술자 집단.",
-      "경계·반목": "자원을 독점한 조도 사령부의 고압적 태도. 해련 마을의 비논리적이고 유약한 공동체주의.",
-      "특기·능력": "기계 진동만으로 고장 부위 정밀 진단. 극한 상황에서 인적 자원을 기계 부품처럼 배치하는 냉혹한 조직 관리력."
+
+    "status_code_block": "【상태창 코드블럭 플레이스홀더】\n이 필드에는 매 턴 AI 응답 마지막에 출력될 코드블럭 양식을 문자열로 작성합니다. 아래는 예시:\n```css\n【PC 이름】\n체력: XX / 최대체력\n스탯1: XX | 스탯2: XX\n상태이상: 없음\n```\n이 필드가 정의되면 PromptBuilder가 매 턴 AI에게 이 형식으로 상태창을 출력하도록 지시합니다. 없으면 상태창 출력이 생략됩니다.",
+
+    "pc_template": {
+        "스탯명1": "",
+        "스탯명2": "",
+        "스탯명3": "",
+        "외모": "",
+        "추가항목": ""
+    },
+
+    "ability_stat_max": 20,
+
+    "npc_list_fields": ["나이·성별", "소속·직책"],
+
+    "npc_template": {
+        "info_fields": [
+            "필드명1",
+            "필드명2",
+            "필드명3",
+            "핵심 기질",
+            "행동 방식",
+            "말투·어조",
+            "동기·욕구",
+            "두려움·약점",
+            "비밀",
+            "신뢰·의존",
+            "경계·반목",
+            "특기·능력"
+        ],
+        "has_resources": true,
+        "has_statuses": true,
+        "has_stats": true
+    },
+
+    "default_npcs": {
+        "NPC이름1": {
+            "name": "NPC이름1",
+            "필드명1": "【NPC 정보 플레이스홀더】 npc_template의 info_fields에 정의된 필드명과 동일한 키를 사용합니다.",
+            "필드명2": "각 필드에 해당 NPC의 설정을 서술합니다.",
+            "핵심 기질": "이 NPC의 핵심 성격과 행동 방식을 한두 문장으로 요약합니다.",
+            "비밀": "AI GM만 아는 이 NPC의 숨겨진 사실. 적절한 시점에 드러납니다.",
+            "stats": {
+                "스탯명1": 10,
+                "스탯명2": 10,
+                "스탯명3": 10
+            },
+            "resources": {
+                "아이템예시": 1
+            },
+            "statuses": []
+        },
+        "NPC이름2": {
+            "name": "NPC이름2",
+            "필드명1": "두 번째 NPC 예시. default_npcs의 모든 NPC는 Gemini Context Cache [3. NPC 사전]에 구워집니다.",
+            "stats": {
+                "스탯명1": 8,
+                "스탯명2": 12,
+                "스탯명3": 6
+            },
+            "resources": {},
+            "statuses": []
+        }
+    },
+
+    "profile_secondary_stats": [
+        "무공",
+        "특기"
+    ],
+
+    "ability_stats": [
+        "스탯명1",
+        "스탯명2",
+        "스탯명3"
+    ],
+
+    "stat_system": "【판정 시스템 플레이스홀더】\n이 필드에는 게임의 판정 메커니즘 전체를 서술합니다. 주사위 종류(예: D20), 성공/실패 기준, 각 스탯의 정의와 용도, 상태이상이 스탯에 미치는 영향, 특수 스킬 목록과 효과, 내공/체력 등 자원 소비 방식, 회복 규칙 등을 포함합니다. Gemini Context Cache의 [4. 게임 스탯 및 판정 시스템] 섹션에 삽입됩니다.",
+
+    "image_prompts": {
+        "인물": {
+            "prompt": "【이미지 프롬프트 플레이스홀더】 !이미지 생성 명령어의 '인물' 포맷에 사용할 Gemini 이미지 생성 프롬프트. 캐릭터 일러스트 스타일, 배경, 구도 등을 영어로 서술. 예: portrait illustration, fantasy art style, detailed face, upper body",
+            "aspect_ratio": "3:4"
+        },
+        "배경": {
+            "prompt": "【배경 이미지 프롬프트 플레이스홀더】 '배경' 포맷에 사용할 프롬프트. 장소 묘사, 분위기, 화풍 등을 영어로. 예: landscape illustration, atmospheric lighting, cinematic composition",
+            "aspect_ratio": "16:9"
+        }
+    },
+
+    "media_dir": "./media",
+
+    "media_keywords": {
+        "NPC이름1": "npc1_portrait.png",
+        "NPC이름2": "npc2_portrait.png"
+    },
+
+    "prohibitions": [
+        "【금지사항 플레이스홀더】 AI GM이 절대로 하면 안 되는 행동을 명확하게 서술합니다. 예: 세계관에 존재하지 않는 기술·문물 등장 금지.",
+        "PC의 행동을 대신 결정하거나 PC의 내면 심리를 단정 짓는 묘사 금지.",
+        "주요 NPC를 GM의 지시 없이 사망 처리하거나 세계관에 돌이킬 수 없는 변화를 주는 것 금지.",
+        "장르 분위기를 해치는 유머·코미디 연출 금지.",
+        "이 목록에 항목을 추가할수록 AI GM의 행동 범위를 더 세밀하게 통제할 수 있습니다."
+    ],
+
+    "stat_descriptions": {
+        "스탯명1": "이 스탯의 용도 설명 — auto GM의 GM-Logic이 ROLL 결정 시 어떤 상황에서 이 스탯을 써야 하는지 명시. 예: '체력·지구력·물리적 저항에 관련된 판정에 사용'",
+        "스탯명2": "두 번째 스탯 설명. stat_descriptions가 없으면 auto GM 프롬프트에서 생략됨.",
+        "스탯명3": "세 번째 스탯 설명."
+    },
+
+    "status_effects": [
+        {
+            "name": "상태이상명1",
+            "apply_condition": "이 상태이상이 부여되는 조건. 예: 독에 맞은 경우, 특정 공격을 받은 경우 등",
+            "remove_condition": "이 상태이상이 해제되는 조건. 예: 해독제 복용, 휴식 1회, 특정 아이템 사용 등",
+            "weight": 1
+        },
+        {
+            "name": "상태이상명2",
+            "apply_condition": "두 번째 상태이상 부여 조건.",
+            "remove_condition": "두 번째 상태이상 해제 조건.",
+            "weight": 2
+        }
+    ],
+
+    "location_images": {
+        "장소키워드1": "장소에 대한 이미지 묘사 문자열 — !이미지 태그(상:키워드 / 중:키워드 / 하:키워드) 사용 시 이 설명이 이미지 생성 프롬프트에 활용됩니다.",
+        "장소키워드2": "두 번째 장소 이미지 묘사. 장소의 분위기·색감·주요 시각 요소를 구체적으로 서술할수록 생성 품질이 높아집니다."
     }
-  },
-  "profile_secondary_stats": [
-    "스킬"
-  ],
-  "ability_stats": [
-    "근력",
-    "민첩",
-    "기술"
-  ],
-  "stat_system": "[스탯 및 D20 판정 시스템 룰북]\n\n1. 스탯(능력치)의 척도와 의미\n- 기준점: 평범한 인간의 평균 능력치는 '10'입니다. \n- 플레이어(PC) 한계치: 최소 5(해당 분야에 매우 취약함)에서 최대 15(인간으로서 도달 가능한 특출난 수준) 사이로 설정됩니다.\n- 절대 척도: 가중치가 0일 때, 스탯 1은 5%의 성공률을, 스탯 20(최대치)은 어떤 행동이든 100% 성공하는 완벽한 상태를 의미합니다.\n예외 스탯 '외모': 외모 스탯의 최대치는 10. 인간 평균 외모가 5.\n\n2. 판정 방식 및 난이도 가중치\n- 롤 언더(Roll-Under) 시스템: 20면체 주사위(1D20)를 굴려, 나온 눈이 '기준치(해당 스탯 + GM 부여 가중치)' 이하일 경우 [성공], 초과할 경우 [실패]로 판정합니다.\n- 가중치(Weight): 행동의 난이도를 조정하는 보정값입니다. 쉬운 행동에는 양수(+)가 더해져 성공 확률이 올라가며, 어려운 행동에는 음수(-)가 더해져 확률이 깎입니다.\n\n3. 극적 판정 (대성공과 대실패)\n- 대성공 (눈 1, 2): 완벽한 성공입니다. AI는 행동의 성공뿐만 아니라, 예기치 않은 추가 이득, 완벽한 타격, 적의 치명적인 허점 노출 등을 과감하게 묘사하십시오.\n- 대실패 (눈 19, 20): 치명적인 실패입니다. 단순히 행동을 완수하지 못한 것을 넘어, 무기의 파손, 균형 상실, 적의 치명적인 역공, 부상 등 뼈아픈 물리적 불이익이 발생했음을 묘사하십시오.\n- 극한 예외 조항: 단, 능력치와 가중치의 합산(기준치)이 4 이하이거나 17 이상에 달하는 극단적인 상황에서는 대성공/대실패가 발생하지 않으며, 일반적인 성공/실패의 묘사 스케일을 따릅니다.\n\n4. 판정 결과 묘사 지침\n- 실패 묘사의 원칙: 캐릭터가 단순히 '바보같이 실수했다'고 묘사하지 마십시오. 미끄러운 바닥, 예상치 못한 적의 완력, 낡은 무기의 한계 등 '물리적인 마찰과 환경적 저항' 때문에 실패했음을 개연성 있게 묘사하여 캐릭터의 체면을 보호하십시오.",
-  "image_prompts": {
-    "캐릭터전신삼면도": {
-      "prompt": "Masterpiece, best illustration, traditional media oil painting style, painting (medium). A highly skilled full-body three-view character diagram with perfect anatomy and perfect_body. Sequential front view, back view, and side view of the described person on a pure white background. Standing straight with arms naturally relaxed downwards. Executed with soft brushstrokes and natural gradation, designed for atmospheric depth. No other elements or background props. Reference: Elden Ring and Lies of P art direction. Resolution maximal 1024x768 pixels (4:3 aspect ratio), maximal 1K size."
-    },
-    "상반신프로필": {
-      "prompt": "Masterpiece, best illustration, traditional media oil painting style, painting (medium). An exquisite upper-body frontal portrait of the person from chest to top of head, showcasing perfect anatomy with a soft style and smooth gradation. A natural neutral expression. Background is softly blurred with deep shadows and cinematic lighting, invoking a dense atmosphere similar to Elden Ring. Composition with the person placed on the left one-third of the frame using shallow depth of field and best shadow techniques. Reference: Lies of P aesthetic. Resolution maximal 1000x400 pixels (5:2 aspect ratio), under 1K size."
-    },
-    "단순이미지": {
-      "prompt": "Masterpiece, best illustration, traditional media oil painting style, painting (medium). A professional painting depicting the described object and situation with a soft style and natural gradation. Perfect anatomy applied where human figures are involved. Utilizing dramatic cinematic lighting and best shadow to create a dense, imaginative atmosphere inspired by Elden Ring and Lies of P. Focus on mood through depth of field. Resolution maximal 1024x1024 pixels, not exceeding 1K size."
-    },
-    "인물": {
-      "aspect_ratio": "3:4",
-      "prompt": "1 person, full body character design, looking directly at viewer, Danganronpa anime art style, thick brushstroke texture, solid white background, 2k resolution, high quality --ar 3:4"
-    }
-  },
-  "media_dir": "./media",
-  "media_keywords": {
-    "김수진프로필": "김수진프로필.png"
-  },
-  "prohibitions": [
-    ""
-  ]
 }

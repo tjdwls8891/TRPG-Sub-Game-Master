@@ -245,20 +245,63 @@ def build_turn_cost_embed(turn_number: int, cost_log: list, total_cost: float) -
     """
     한 턴(PROCEED 직전)의 누적 비용을 배치 보고하는 Discord Embed 조립.
 
+    각 호출(시뮬·GM-Logic·PROCEED·TTS 등)을 개별 필드로 펼쳐 토큰 내역(입력/캐시/신규/출력)과
+    비용을 보이고, 입력에 온디맨드로 주입된 정보 목록(키워드북·NPC 오버라이드·서사 계획·정보 원장 등)을
+    합산해 별도 필드로 제시한다.
+
     Args:
         turn_number (int): 현재 진행 턴 번호 (session.turn_count + 1)
-        cost_log (list): [{"label": str, "cost": float}, ...] 형태의 항목 목록
+        cost_log (list): [{"label", "cost", "in"?, "cached"?, "out"?, "manifest"?}, ...] 항목 목록
         total_cost (float): session.total_cost 누적값 (KRW)
 
     Returns:
         discord.Embed
     """
-    embed = discord.Embed(title=f"🎲 턴 진행 비용  ·  #{turn_number}", color=0xE67E22)
+    embed = discord.Embed(
+        title=f"🎲 턴 진행 비용 리포트  ·  #{turn_number}",
+        description=f"이번 턴에 발생한 **{len(cost_log)}건**의 AI 호출 내역입니다.",
+        color=0xE67E22,
+    )
     total_turn_cost = sum(entry.get("cost", 0.0) for entry in cost_log)
-    desc_lines = [f"• {entry.get('label', '?')}: **{format_cost(entry.get('cost', 0.0))}**" for entry in cost_log]
-    embed.description = "\n".join(desc_lines) if desc_lines else "(항목 없음)"
-    embed.add_field(name="턴 소계", value=format_cost(total_turn_cost), inline=True)
-    embed.add_field(name="누적 비용", value=format_cost(total_cost), inline=True)
+    total_in = total_out = total_cached = 0
+    merged_manifest: list = []
+
+    for entry in cost_log:
+        label = entry.get("label", "?")
+        cost = entry.get("cost", 0.0)
+        in_t = entry.get("in")
+        if in_t is not None:
+            in_t = int(in_t or 0)
+            cached_t = int(entry.get("cached", 0) or 0)
+            out_t = int(entry.get("out", 0) or 0)
+            fresh = max(in_t - cached_t, 0)
+            total_in += in_t
+            total_cached += cached_t
+            total_out += out_t
+            value = (
+                f"🔢 입력 `{in_t:,}`  (캐시 `{cached_t:,}` · 신규 `{fresh:,}`)  ·  출력 `{out_t:,}`\n"
+                f"💰 **{format_cost(cost)}**"
+            )
+        else:
+            value = f"💰 **{format_cost(cost)}**"
+        embed.add_field(name=f"▫️ {label}", value=value, inline=False)
+
+        for m in (entry.get("manifest") or []):
+            if m not in merged_manifest:
+                merged_manifest.append(m)
+
+    if merged_manifest:
+        manifest_text = "\n".join(f"• {m}" for m in merged_manifest)
+        embed.add_field(name="📥 입력에 주입된 정보 (온디맨드)", value=manifest_text[:1020], inline=False)
+
+    if total_in or total_out:
+        embed.add_field(
+            name="🧾 토큰 합계",
+            value=(f"입력 `{total_in:,}` (캐시 `{total_cached:,}`)  ·  출력 `{total_out:,}`"),
+            inline=False,
+        )
+    embed.add_field(name="🧮 턴 소계", value=f"**{format_cost(total_turn_cost)}**", inline=True)
+    embed.add_field(name="Σ 누적 비용", value=format_cost(total_cost), inline=True)
     return embed
 
 

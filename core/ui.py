@@ -1,9 +1,11 @@
 # 디스코드 UI 클래스 — 주사위 뷰, 채널 삭제 뷰, 세션 메모리 정리
 import random
+import asyncio
 
 import discord
 
 from .io import save_session_data
+from .audio_mixer import play_dice_sfx
 
 
 # ========== [채널 관리 UI 및 유틸리티] ==========
@@ -141,15 +143,19 @@ class GeneralDiceView(discord.ui.View):
         if session:
             char_name = session.players.get(self.target_uid, {}).get("name", char_name)
 
+        # ① 효과음 즉시 발사(논블로킹) → ② '굴리는 중' 표시 + 버튼 제거 → ③ 1.5초 대기 → ④ 결과
+        asyncio.create_task(play_dice_sfx(self.bot, interaction.guild))
+        await interaction.response.edit_message(content="> 🎲 주사위를 굴리는 중…", view=None)
+        await asyncio.sleep(1.5)
+
         if self.target_val is None:
             # 기존 일반 주사위 로직
             final_result = result + self.weight
             weight_str = f" (가중치 {self.weight:+d})" if self.weight != 0 else ""
             calc_str = f" ({result}{self.weight:+d})" if self.weight != 0 else ""
 
-            await interaction.response.edit_message(
-                content=f"> 🎲 <@{self.target_uid}>님의 눈 {self.max_val} 일반 다이스 결과{weight_str}: **{final_result}**{calc_str}",
-                view=None
+            await interaction.edit_original_response(
+                content=f"> 🎲 <@{self.target_uid}>님의 눈 {self.max_val} 일반 다이스 결과{weight_str}: **{final_result}**{calc_str}"
             )
 
             if session:
@@ -170,9 +176,8 @@ class GeneralDiceView(discord.ui.View):
             weight_str = f" (가중치 {self.weight:+d} 적용)" if self.weight != 0 else ""
             target_str = f"{self.target_val}{self.weight:+d}={target_value}" if self.weight != 0 else f"{self.target_val}"
 
-            await interaction.response.edit_message(
-                content=f"> 🎲 <@{self.target_uid}>님의 눈 {self.max_val} 다이스 결과: **{result}** [목표값: {self.target_val}] 굴림  (기준치: {target_str})",
-                view=None
+            await interaction.edit_original_response(
+                content=f"> 🎲 <@{self.target_uid}>님의 눈 {self.max_val} 다이스 결과: **{result}** [목표값: {self.target_val}] 굴림  (기준치: {target_str})"
             )
 
             if session:
@@ -222,9 +227,13 @@ class DiceView(discord.ui.View):
         weight_str = f" (가중치 {self.weight:+d} 적용)" if self.weight != 0 else ""
         target_str = f"{self.stat_value}{self.weight:+d}={target_value}" if self.weight != 0 else f"{self.stat_value}"
 
-        await interaction.response.edit_message(
-            content=f"> 🎲 <@{self.target_uid}>님의 눈 {self.max_val} 다이스 결과: **{result}** [{self.stat_name}] 굴림  (기준치: {target_str})",
-            view=None
+        # ① 효과음 즉시 발사(논블로킹) → ② '굴리는 중' 표시 + 버튼 제거 → ③ 1.5초 대기 → ④ 결과
+        asyncio.create_task(play_dice_sfx(self.bot, interaction.guild))
+        await interaction.response.edit_message(content="> 🎲 주사위를 굴리는 중…", view=None)
+        await asyncio.sleep(1.5)
+
+        await interaction.edit_original_response(
+            content=f"> 🎲 <@{self.target_uid}>님의 눈 {self.max_val} 다이스 결과: **{result}** [{self.stat_name}] 굴림  (기준치: {target_str})"
         )
 
         session = self.bot.active_sessions.get(interaction.channel.id)

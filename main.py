@@ -21,7 +21,6 @@ for directory in ["sessions", "scenarios", "media", "cogs"]:
     if not os.path.exists(directory):
         os.makedirs(directory)
 
-
 # ========== [메인 봇 클래스 정의] ==========
 class TRPGBot(commands.Bot):
     """
@@ -44,6 +43,9 @@ class TRPGBot(commands.Bot):
         self.active_sessions = {}
         self.session_io_locks = {}
         self.playlist_sessions = {}
+
+        # [명령어 권한] 허가 계정 allowlist (오너 + 부여받은 계정). 전역 체크(cogs/permissions.py)가 참조.
+        self.authorized_users = core.load_authorized_users()
 
         # 2. API 클라이언트 및 환경 텍스트 세팅
         self.genai_client = genai.Client(api_key=GEMINI_API_KEY)
@@ -78,9 +80,29 @@ class TRPGBot(commands.Bot):
         scenarios = core.get_available_scenarios()
         print(f'로드 가능한 시나리오 파일: {", ".join(scenarios) if scenarios else "없음"}')
 
+        # [명령어 권한] 앱 오너를 자동 식별해 허가 목록에 기록(ID 하드코딩 불요).
+        try:
+            app_info = await self.application_info()
+            owner = getattr(app_info, "owner", None)
+            owner_id = owner.id if owner else None
+            if owner_id:
+                self.owner_id = owner_id  # discord.py is_owner()가 참조
+                if self.authorized_users.get("owner_id") != owner_id:
+                    self.authorized_users["owner_id"] = owner_id
+                    core.save_authorized_users(self.authorized_users)
+                print(f'명령어 오너: {owner} ({owner_id}) | 허가 계정 {len(self.authorized_users.get("granted", []))}명')
+        except Exception as e:
+            print(f"⚠️ 오너 식별 실패(권한 체크는 허가 목록으로만 동작): {e}")
+
         # [디스크에 저장된 세션 복구 및 캐시 재연동 실행]
         # 봇 재시작으로 인한 데이터 증발을 막기 위해 sessions 폴더의 data.json을 메모리에 재적재.
         await core.restore_sessions_from_disk(self)
+
+        # [효과음 사전 디코드] 주사위 효과음을 미리 PCM으로 캐시해 첫 재생 지연 제거.
+        try:
+            await core.preload_sfx("dice")
+        except Exception as e:
+            print(f"⚠️ 효과음 사전 로드 실패(무시): {e}")
         print("=================================")
 
 

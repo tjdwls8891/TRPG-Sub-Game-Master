@@ -274,7 +274,8 @@ class MediaCog(commands.Cog):
         # '정지' 인자 처리
         if filename == "정지":
             vc = session.voice_client
-            if vc and vc.is_connected() and vc.is_playing():
+            mixer = core.get_mixer(vc)
+            if vc and vc.is_connected() and mixer is not None and mixer.has_base():
                 fade_task = getattr(session, "fade_task", None)
                 if fade_task and not fade_task.done():
                     fade_task.cancel()
@@ -286,17 +287,18 @@ class MediaCog(commands.Cog):
                 await ctx.send("🔉 볼륨을 서서히 줄이며 BGM을 정지합니다...")
 
                 # [오디오 페이드아웃(Fade-out) 처리 로직]
-                # 몰입을 깨는 급격한 오디오 단절을 막기 위해 비동기 sleep을 활용하여 볼륨을 0으로 서서히 줄인 후 재생 종료.
+                # 몰입을 깨는 급격한 오디오 단절을 막기 위해 base 볼륨을 서서히 줄인 뒤 base만 제거.
+                # (vc.stop()이 아니라 mixer.clear_base() — 믹서는 유지되어 효과음/재생 재개가 가능)
                 async def fade_out_and_stop():
                     try:
-                        if isinstance(vc.source, discord.PCMVolumeTransformer):
+                        vs = core.active_volume_source(vc)
+                        if vs is not None:
                             for _ in range(20):
-                                if not vc.is_playing():
+                                if not mixer.has_base():
                                     break
-                                vc.source.volume = vc.source.volume * 0.8
+                                vs.volume = vs.volume * 0.8
                                 await asyncio.sleep(0.1)
-                            vc.source.volume = 0.0
-                        vc.stop()
+                        mixer.clear_base()
                     except asyncio.CancelledError:
                         pass
                     finally:
@@ -325,60 +327,64 @@ class MediaCog(commands.Cog):
             await vc.move_to(voice_channel)
 
         session.voice_client = vc
+        mixer = core.ensure_mixer(self.bot, vc)
 
-        # noinspection PyShadowingNames
-        def after_playing(error):
-            if error:
-                print(f"⚠️ BGM 재생 오류: {error}")
+        def make_bgm_source():
+            ffmpeg_options = {'options': '-vn -sn -ar 48000 -ac 2'}
+            fp = os.path.join(media_dir, f"{session.current_bgm}.mp3")
+            src = discord.FFmpegPCMAudio(fp, **ffmpeg_options)
+            return discord.PCMVolumeTransformer(src, volume=getattr(session, "volume", 0.3))
 
-            # NOTE: 무한 루프 구현 시 while문을 쓰면 메인 스레드가 블로킹되므로,
-            # 재생이 끝난 직후 트리거되는 after 콜백 내에서 동일한 파일을 재귀적으로 호출.
-            if getattr(session, "is_bgm_looping", False) and session.voice_client and session.voice_client.is_connected():
-                try:
-                    next_filepath = os.path.join(media_dir, f"{session.current_bgm}.mp3")
-                    if os.path.exists(next_filepath):
-                        ffmpeg_options = {'options': '-vn -sn -ar 48000 -ac 2'}
-                        source = discord.FFmpegPCMAudio(next_filepath, **ffmpeg_options)
-                        volume_source = discord.PCMVolumeTransformer(source, volume=getattr(session, "volume", 0.3))
-                        session.voice_client.play(volume_source, after=after_playing)
-                except Exception as e:
-                    print(f"⚠️ BGM 루프 생성 중 오류: {e}")
+        def bgm_loop_cb():
+            # base 자연 소진 시 동일 파일을 다시 base로 올려 무한 반복 (콜백 재무장)
+            if not getattr(session, "is_bgm_looping", False):
+                return
+            vc2 = session.voice_client
+            if not (vc2 and vc2.is_connected()):
+                return
+            mx = core.get_mixer(vc2)
+            if mx is None:
+                return
+            if not os.path.exists(os.path.join(media_dir, f"{session.current_bgm}.mp3")):
+                return
+            try:
+                mx.set_base(make_bgm_source(), on_exhausted=bgm_loop_cb)
+            except Exception as e:
+                print(f"⚠️ BGM 루프 생성 중 오류: {e}")
 
         fade_task = getattr(session, "fade_task", None)
         if fade_task and not fade_task.done():
             fade_task.cancel()
             session.is_fading = False
 
-        if vc.is_playing():
+        if mixer.has_base():
             session.is_fading = True
             session.current_bgm = filename
+            session.is_bgm_looping = True
             await ctx.send(f"🔉 볼륨을 서서히 줄인 후 BGM을 **'{filename}'**(으)로 교체합니다...")
 
-            async def fade_out():
+            async def fade_out_and_swap():
                 try:
-                    if isinstance(vc.source, discord.PCMVolumeTransformer):
+                    vs = core.active_volume_source(vc)
+                    if vs is not None:
                         for _ in range(20):
-                            if not vc.is_playing():
+                            if not mixer.has_base():
                                 break
-                            vc.source.volume = vc.source.volume * 0.8
+                            vs.volume = vs.volume * 0.8
                             await asyncio.sleep(0.1)
-                        vc.source.volume = 0.0
-                    vc.stop()
+                    # 새 트랙으로 교체 (새 PCMVolumeTransformer라 볼륨은 session.volume으로 원복)
+                    mixer.set_base(make_bgm_source(), on_exhausted=bgm_loop_cb)
                 except asyncio.CancelledError:
                     pass
                 finally:
                     session.is_fading = False
 
-            session.fade_task = self.bot.loop.create_task(fade_out())
+            session.fade_task = self.bot.loop.create_task(fade_out_and_swap())
 
         else:
             session.current_bgm = filename
             session.is_bgm_looping = True
-
-            ffmpeg_options = {'options': '-vn -sn -ar 48000 -ac 2'}
-            source = discord.FFmpegPCMAudio(filepath, **ffmpeg_options)
-            volume_source = discord.PCMVolumeTransformer(source, volume=getattr(session, "volume", 0.3))
-            vc.play(volume_source, after=after_playing)
+            mixer.set_base(make_bgm_source(), on_exhausted=bgm_loop_cb)
             await ctx.send(f"▶️ BGM **'{filename}'**의 무한 반복 재생을 시작합니다.")
 
 
@@ -441,27 +447,21 @@ class MediaCog(commands.Cog):
             await ctx.send("⏹️ 플레이리스트 재생을 완전히 종료하고 음성 채널에서 퇴장합니다.")
 
         elif action == "다음":
-            manager.skip_direction = 1
-            if manager.vc.is_playing() or manager.vc.is_paused():
-                manager.vc.stop()
+            manager.skip(1)
             await ctx.send("⏭️ 현재 곡을 건너뛰고 다음 곡을 재생합니다.")
 
         elif action == "이전":
-            manager.skip_direction = -1
-            if manager.vc.is_playing() or manager.vc.is_paused():
-                manager.vc.stop()
+            manager.skip(-1)
             await ctx.send("⏮️ 현재 곡을 취소하고 이전 곡을 재생합니다.")
 
         elif action == "일시정지":
-            if manager.vc.is_playing():
-                manager.vc.pause()
+            if manager.pause():
                 await ctx.send("⏸️ 플레이리스트 재생을 일시정지했습니다.")
             else:
                 await ctx.send("⚠️ 이미 일시정지 상태이거나 현재 재생 중인 곡이 없습니다.")
 
         elif action == "재생":
-            if manager.vc.is_paused():
-                manager.vc.resume()
+            if manager.resume():
                 await ctx.send("▶️ 플레이리스트 재생을 재개합니다.")
             else:
                 await ctx.send("⚠️ 일시정지 상태가 아닙니다.")
@@ -490,19 +490,20 @@ class MediaCog(commands.Cog):
         session.volume = volume
         await core.save_session_data(self.bot, session)
 
-        # 2. 현재 재생 중인 세션 BGM에 즉시 반영 (페이드아웃 중첩 방지)
-        if session.voice_client and session.voice_client.is_playing() and isinstance(session.voice_client.source,
-                                                                                     discord.PCMVolumeTransformer):
+        # 2. 현재 재생 중인 세션 BGM(믹서 base)에 즉시 반영 (페이드아웃 중첩 방지)
+        if not getattr(session, "is_fading", False):
+            vs = core.active_volume_source(session.voice_client)
             # WARNING: 페이드아웃(is_fading) 진행 중에 볼륨을 강제 수정하면 소리가 다시 커지며 연출이 깨질 수 있으므로 상태 플래그 검사 필수.
-            if not getattr(session, "is_fading", False):
-                session.voice_client.source.volume = volume
+            if vs is not None:
+                vs.volume = volume
 
         # 3. 독립 구동 중인 플레이리스트가 있다면 동시 적용
         manager = self.bot.playlist_sessions.get(ctx.guild.id)
         if manager:
             manager.volume = volume
-            if manager.vc and manager.vc.is_playing() and isinstance(manager.vc.source, discord.PCMVolumeTransformer):
-                manager.vc.source.volume = volume
+            mvs = core.active_volume_source(manager.vc)
+            if mvs is not None:
+                mvs.volume = volume
 
         await ctx.send(f"🔊 사운드 볼륨이 **{volume * 100:.0f}%** 로 조정되었습니다.")
 
@@ -540,6 +541,50 @@ class MediaCog(commands.Cog):
         else:
             await ctx.send("⚠️ 올바른 상태 인자를 입력해주세요. (사용 예시: `!채팅 잠금` 또는 `!채팅 해제`)")
             return None
+
+
+    @commands.command(name="더빙")
+    async def toggle_tts(self, ctx, state: str = None):
+        """
+        AI 묘사를 음성 채널에서 단일 나레이터 보이스로 읽어주는 TTS 더빙을 켜고 끈다. (실험 기능)
+
+        사용법:
+            !더빙           — 현재 상태 토글
+            !더빙 켜기/on    — 켜기
+            !더빙 끄기/off   — 끄기
+
+        NOTE: 수동 `!진행`에만 적용되며, 자동 GM 묘사·NPC 개별 보이스는 현재 미적용.
+        """
+        session = self.bot.active_sessions.get(ctx.channel.id)
+        if not session or ctx.channel.id != session.master_ch_id:
+            return await ctx.send("이 명령어는 마스터 채널에서만 사용할 수 있습니다.")
+
+        on_words = {"on", "켜기", "켜", "활성", "1"}
+        off_words = {"off", "끄기", "꺼", "비활성", "0"}
+        if state is None:
+            new_state = not getattr(session, "tts_enabled", False)
+        elif state.lower() in on_words:
+            new_state = True
+        elif state.lower() in off_words:
+            new_state = False
+        else:
+            return await ctx.send("⚠️ 사용법: `!더빙 켜기` / `!더빙 끄기` (인자 생략 시 토글)")
+
+        session.tts_enabled = new_state
+        await core.save_session_data(self.bot, session)
+
+        if new_state:
+            note = ""
+            vc = getattr(session, "voice_client", None) or ctx.voice_client
+            if core.get_mixer(vc) is None:
+                note = ("\n⚠️ 현재 음성 채널 재생이 활성화되어 있지 않습니다. "
+                        "`!브금` 또는 `!플리`로 봇을 음성 채널에 입장시켜야 더빙이 들립니다.")
+            await ctx.send(
+                f"🔊 **TTS 더빙 켜짐** (모델 `{core.TTS_MODEL}`, 보이스 `{core.TTS_NARRATOR_VOICE}`). "
+                f"이후 `!진행` 묘사를 음성으로 읽어줍니다.{note}"
+            )
+        else:
+            await ctx.send("🔇 **TTS 더빙 꺼짐.**")
 
 
 async def setup(bot):

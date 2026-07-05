@@ -4,6 +4,8 @@ import asyncio
 
 import discord
 
+from .audio_mixer import ensure_mixer, get_mixer
+
 
 async def send_image_by_keyword(game_channel, master_ctx, session, keyword):
     """
@@ -65,7 +67,15 @@ class PlaylistManager:
         self.volume = 0.3
         self.play_next_event = asyncio.Event()
         self.skip_direction = 1
+        self.paused = False
+        # 효과음 오버레이를 위해 플리도 믹서 base를 통해 재생한다.
+        # (vc.play를 직접 호출하지 않고 mixer.set_base로 트랙을 공급)
+        self.mixer = ensure_mixer(bot, vc)
         self.task = self.bot.loop.create_task(self.player_loop())
+
+    def _advance_signal(self):
+        """트랙 종료(또는 스킵) 시 player_loop를 깨우는 thread-safe 시그널."""
+        self.bot.loop.call_soon_threadsafe(self.play_next_event.set)
 
     async def player_loop(self):
         try:
@@ -80,15 +90,11 @@ class PlaylistManager:
 
                 filepath = self.queue[self.current_index]
 
-                def after_play(err):
-                    if err:
-                        print(f"⚠️ 플레이리스트 재생 오류: {err}")
-                    self.bot.loop.call_soon_threadsafe(self.play_next_event.set)
-
                 ffmpeg_options = {'options': '-vn -sn -ar 48000 -ac 2'}
                 source = discord.FFmpegPCMAudio(filepath, **ffmpeg_options)
                 volume_source = discord.PCMVolumeTransformer(source, volume=self.volume)
-                self.vc.play(volume_source, after=after_play)
+                # 트랙을 base로 공급. 자연 소진 시 on_exhausted가 다음 곡으로 진행시킨다.
+                self.mixer.set_base(volume_source, on_exhausted=self._advance_signal)
 
                 await self.play_next_event.wait()
 
@@ -98,6 +104,32 @@ class PlaylistManager:
         except asyncio.CancelledError:
             pass
         finally:
-            if self.vc and self.vc.is_connected():
-                if self.vc.is_playing() or self.vc.is_paused():
-                    self.vc.stop()
+            mixer = get_mixer(self.vc)
+            if mixer is not None:
+                mixer.clear_base()
+
+    # ── 외부 제어 (cogs/media.py !플리 명령에서 호출) ──────────────
+    def skip(self, direction: int):
+        """다음(1)/이전(-1) 곡으로 즉시 전환."""
+        self.skip_direction = direction
+        mixer = get_mixer(self.vc)
+        if mixer is not None:
+            mixer.clear_base()  # 현재 base 제거(on_exhausted 미발화) 후 수동 진행
+        self.paused = False
+        self._advance_signal()
+
+    def pause(self) -> bool:
+        mixer = get_mixer(self.vc)
+        if mixer is None or self.paused or not mixer.has_base():
+            return False
+        mixer.pause_base()
+        self.paused = True
+        return True
+
+    def resume(self) -> bool:
+        mixer = get_mixer(self.vc)
+        if mixer is None or not self.paused:
+            return False
+        mixer.resume_base()
+        self.paused = False
+        return True

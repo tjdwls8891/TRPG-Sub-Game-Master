@@ -54,10 +54,50 @@ PRICING_1M = {
         "OUTPUT_IMAGE": 60.00,
         "CACHE_READ": 0.05,
         "CACHE_STORAGE_PER_HOUR": 1.00
+    },
+    # NOTE: TTS(음성 합성) 모델 — 출력은 '오디오 토큰' 과금. 공식가(2.5 Flash Preview TTS): 입력 텍스트 $0.50/1M, 출력 오디오 $10.00/1M.
+    "gemini-2.5-flash-preview-tts": {
+        "INPUT": 0.50,
+        "OUTPUT": 10.00,
+        "CACHE_READ": 0.05,
+        "CACHE_STORAGE_PER_HOUR": 1.00
     }
 }
 
 IMAGE_MODEL = "gemini-3.1-flash-image-preview"
+
+# ========== [TTS(음성 더빙) — 실험 기능] ==========
+# WARNING: TTS_MODEL은 사용 중인 API 키에서 실제로 제공되는 TTS 모델 ID와 일치해야 한다.
+#          (다른 모델 네이밍 체계를 쓰면 여기만 바꾸면 됨)
+TTS_MODEL = "gemini-2.5-flash-preview-tts"
+# 나레이터 기본 보이스 (Gemini prebuilt voice 이름). NPC 개별 보이스는 추후 단계에서 도입.
+TTS_NARRATOR_VOICE = "Algenib"
+TTS_LANGUAGE_CODE = "ko-KR"
+# Gemini TTS prebuilt 보이스 30종 (미리듣기: https://aistudio.google.com/generate-speech).
+# !더빙테스트의 보이스 인자 검증에 사용.
+TTS_VOICES = [
+    "Zephyr", "Puck", "Charon", "Kore", "Fenrir", "Leda", "Orus", "Aoede",
+    "Callirrhoe", "Autonoe", "Enceladus", "Iapetus", "Umbriel", "Algieba",
+    "Despina", "Erinome", "Algenib", "Rasalgethi", "Laomedeia", "Achernar",
+    "Alnilam", "Schedar", "Gacrux", "Pulcherrima", "Achird", "Zubenelgenubi",
+    "Vindemiatrix", "Sadachbia", "Sadaltager", "Sulafat",
+]
+# 내레이션 재생 볼륨 (믹서 voice 레이어에 적용, 0.0~1.0+)
+TTS_NARRATION_VOLUME = 0.5
+# 믹서 표준 PCM(48kHz·stereo·s16le) 1초당 바이트 수. 음성 길이(초) = len(pcm) / 이 값.
+TTS_PCM_BYTES_PER_SEC = 48000 * 2 * 2
+# 합성 스타일 프로필 — 공식 "강력 프롬프트" 구조(AUDIO PROFILE / SCENE / DIRECTOR'S NOTES)를 차용.
+# 코드가 이 프로필 뒤에 `#### TRANSCRIPT` 섹션으로 본문을 붙여 전송한다(본문만 낭독, 프로필은 톤 지시로만 사용).
+TTS_STYLE_PROMPT = """# AUDIO PROFILE: 게임 마스터 내레이터 (생존 호러)
+
+### DIRECTOR'S NOTES
+Style:
+* 어둡고 진지하다. 중저음의 낮게 깔린 목소리로 감정을 절제하며 서늘하게 전달한다.
+* 또렷한 육성으로 단정적으로 읽는다. 과장된 호러 연기, 비명, 떨리는 목소리, 속삭임은 금지. 정적과 여백으로 긴장을 만든다.
+
+Pace: 차분하되 약간 빠른 편으로, 또렷하고 자연스럽게 진행한다. 늘어지지 않는다.
+
+Delivery: 명료한 한국어 발음. 문장 끝을 무겁게 내려놓는다. 단정적이고 흔들림 없는 어조."""
 
 # NOTE: Gemini 이미지 출력 모델의 해상도별 출력 토큰 표 (공식 가격 페이지 기준).
 #       응답에서 usage_metadata가 비었을 때의 폴백 추산값으로 사용한다.

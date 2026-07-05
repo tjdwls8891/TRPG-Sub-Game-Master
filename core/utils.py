@@ -59,6 +59,72 @@ def get_uid_by_char_name(session: TRPGSession, char_name: str) -> str | None:
     return None
 
 
+def resolve_char_name(session: TRPGSession, partial: str, include_npc: bool = False):
+    """
+    부분 입력으로 캐릭터 이름을 해석한다.
+
+    매칭 우선순위:
+        1) 정확 일치
+        2) 고유 접두(prefix) 일치  (예: '제' → '제이크')
+        3) 고유 부분(substring) 일치
+
+    Args:
+        session (TRPGSession): 대상 세션
+        partial (str): 사용자가 입력한 (부분) 이름
+        include_npc (bool): True면 NPC 이름도 후보에 포함
+
+    Returns:
+        tuple[str | None, list[str]]:
+            (해석된 전체 이름, 후보 목록)
+            - 고유 해석 성공: (이름, [이름])
+            - 모호(2개 이상): (None, 후보들)
+            - 미발견: (None, [])
+    """
+    if not partial:
+        return None, []
+
+    names = [p_data["name"] for p_data in session.players.values() if p_data.get("name")]
+    if include_npc:
+        for n in session.npcs.keys():
+            if n not in names:
+                names.append(n)
+
+    # 1) 정확 일치 (중복 이름이 있어도 정확 입력이면 그대로 사용)
+    if partial in names:
+        return partial, [partial]
+
+    # 2) 접두 일치
+    prefix = [n for n in names if n.startswith(partial)]
+    if len(prefix) == 1:
+        return prefix[0], prefix
+    if len(prefix) > 1:
+        return None, prefix
+
+    # 3) 부분 일치
+    sub = [n for n in names if partial in n]
+    if len(sub) == 1:
+        return sub[0], sub
+    return None, sub
+
+
+def resolve_pc(session: TRPGSession, partial: str):
+    """
+    PC 부분 이름을 해석해 (uid, 전체이름, 오류메시지)를 반환한다.
+
+    성공 시 error_msg=None. 모호/미발견 시 uid·name=None + 안내 메시지.
+    명령어에서 한 줄로 처리할 수 있도록 메시지까지 함께 돌려준다.
+    """
+    name, candidates = resolve_char_name(session, partial, include_npc=False)
+    if name is None:
+        if candidates:
+            return None, None, (
+                f"⚠️ '{partial}'에 해당하는 플레이어가 여럿입니다: "
+                f"{', '.join(candidates)}. 더 구체적으로 입력해 주세요."
+            )
+        return None, None, f"⚠️ '{partial}'(으)로 참가한 플레이어를 찾을 수 없습니다."
+    return get_uid_by_char_name(session, name), name, None
+
+
 # noinspection PyShadowingNames
 async def generate_character_details(bot, scenario_data, char_type, char_name, instruction, session_id, recent_logs: str = "", npc_context: str = ""):
     """
@@ -173,3 +239,45 @@ async def generate_character_details(bot, scenario_data, char_type, char_name, i
         config=types.GenerateContentConfig(safety_settings=TRPG_SAFETY_SETTINGS)
     )
     return response
+
+
+# ──────────────────────────────────────────
+# 한글 자모 분해 기반 명령어 오타 근접 매칭 (오입력 처리용)
+# ──────────────────────────────────────────
+_JAMO_CHO = "ㄱㄲㄴㄷㄸㄹㅁㅂㅃㅅㅆㅇㅈㅉㅊㅋㅌㅍㅎ"
+_JAMO_JUNG = "ㅏㅐㅑㅒㅓㅔㅕㅖㅗㅘㅙㅚㅛㅜㅝㅞㅟㅠㅡㅢㅣ"
+_JAMO_JONG = ["", "ㄱ", "ㄲ", "ㄳ", "ㄴ", "ㄵ", "ㄶ", "ㄷ", "ㄹ", "ㄺ", "ㄻ", "ㄼ",
+              "ㄽ", "ㄾ", "ㄿ", "ㅀ", "ㅁ", "ㅂ", "ㅄ", "ㅅ", "ㅆ", "ㅇ", "ㅈ",
+              "ㅊ", "ㅋ", "ㅌ", "ㅍ", "ㅎ"]
+
+
+def decompose_hangul(s: str) -> str:
+    """한글 음절을 초성·중성·종성 자모열로 분해한다(비한글은 그대로). 자모 단위 오타 매칭용."""
+    out = []
+    for ch in s:
+        code = ord(ch)
+        if 0xAC00 <= code <= 0xD7A3:
+            idx = code - 0xAC00
+            out.append(_JAMO_CHO[idx // 588])
+            out.append(_JAMO_JUNG[(idx % 588) // 28])
+            jong = idx % 28
+            if jong:
+                out.append(_JAMO_JONG[jong])
+        else:
+            out.append(ch)
+    return "".join(out)
+
+
+def suggest_commands(typo: str, names, n: int = 3, cutoff: float = 0.6) -> list:
+    """오타 문자열과 명령어 목록을 자모 분해 후 difflib 유사도로 비교해 근접 명령을 반환."""
+    import difflib
+    dt = decompose_hangul(typo or "")
+    if not dt:
+        return []
+    scored = []
+    for nm in names:
+        ratio = difflib.SequenceMatcher(None, dt, decompose_hangul(nm)).ratio()
+        if ratio >= cutoff:
+            scored.append((ratio, nm))
+    scored.sort(key=lambda x: x[0], reverse=True)
+    return [nm for _, nm in scored[:n]]

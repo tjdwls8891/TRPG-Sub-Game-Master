@@ -22,6 +22,8 @@ class PromptBuilder:
         self.session = session
         self.gm_instruction = gm_instruction
         self.blocks = ["[현재 게임 상태]\n"]
+        # 입력에 실제 주입된 온디맨드 정보 목록 (비용 보고용). 각 add_* 블록이 실제 주입 시 append.
+        self.manifest = []
 
         # keyword_memory 트리거 스캔에 사용되는 최근 로그 결합 문자열 (사전 연산)
         recent_texts = [c.parts[0].text for c in session.raw_logs[-10:]] + session.current_turn_logs
@@ -32,6 +34,7 @@ class PromptBuilder:
         # compressed_memory는 마지막 캐시 재발급 이후 새로 누적된 기억만 포함한다.
         if self.session.compressed_memory:
             self.blocks.append(f"▶ 이전 상황 요약 (최근 압축 기억 — 절대 참조용):\n{self.session.compressed_memory}\n")
+            self.manifest.append("압축 기억")
         return self
 
     def add_player_block(self):
@@ -176,6 +179,7 @@ class PromptBuilder:
             block = "\n▶ [NPC 변경사항 / 런타임 상태] (캐시 룰북 [3. NPC 사전]보다 우선 적용):\n"
             block += "\n".join(lines) + "\n"
             self.blocks.append(block)
+            self.manifest.append(f"NPC 오버라이드 {len(lines)}명")
 
         return self
 
@@ -183,18 +187,29 @@ class PromptBuilder:
         # NOTE: 특정 키워드가 최근 로그에 등장할 때만 연관 기억을 활성화하여 동적 컨텍스트 최적화 수행.
         keyword_memories = self.session.scenario_data.get("keyword_memory", [])
         if keyword_memories:
-            triggered_memories = set()
+            # 연고지(사문·근거지)로 이미 캐시에 편입된 섹션은 온디맨드 주입에서 제외 (중복 방지)
+            cached_ids = set(getattr(self.session, "cached_worldview_sections", []) or [])
+            triggered_memories = []
+            triggered_names = []
+            _seen = set()
             for memory in keyword_memories:
+                if memory.get("id") in cached_ids:
+                    continue
                 for kw in memory.get("keywords", []):
                     if kw in self.recent_logs_combined:
-                        triggered_memories.add(memory.get("description", ""))
+                        desc = memory.get("description", "")
+                        if desc and desc not in _seen:
+                            _seen.add(desc)
+                            triggered_memories.append(desc)
+                            triggered_names.append(memory.get("id") or kw)
                         break
 
             if triggered_memories:
-                block = "\n[키워드 연관 기억/설정 (최근 대화 기반)]\n"
+                block = "\n[키워드 연관 상세 — 등장·언급된 세력/지역/설정 (최근 대화 기반)]\n"
                 for desc in triggered_memories:
                     block += f"▶ {desc}\n"
                 self.blocks.append(block)
+                self.manifest.append(f"키워드북: {', '.join(triggered_names)}")
         return self
 
     def add_recent_action_block(self):
@@ -210,6 +225,7 @@ class PromptBuilder:
         if getattr(self.session, "note", ""):
             block = f"\n▶ 실시간 노트 (GM 직접 관리):\n{self.session.note}\n"
             self.blocks.append(block)
+            self.manifest.append("실시간 노트")
         return self
 
     def add_gm_instruction_block(self):
@@ -219,6 +235,20 @@ class PromptBuilder:
 
     def add_rule_enforcement_block(self):
         block = f"[최종 지시] 캐시된 [시나리오 핵심 룰북]의 묘사 가이드와 위 GM의 지시사항을 최우선으로 반영하여 상황을 묘사하세요.\n"
+
+        # 개연성·예법·연속성 강제 룰 (매 묘사 턴 상시 노출) — AI 집중도 한계 보정용 살라이언스 강화.
+        block += (
+            "▶ 명령 (개연성·예법·연속성 준수 — 매 묘사에 반드시 적용):\n"
+            "① 턴 연속성: 직전 턴에서 이미 완료·서술된 이동·행동·장면 전환을 되풀이하거나 시간을 되감아 다시 서술하지 마십시오. "
+            "이번 묘사는 직전 턴이 종료된 시점의 시간·공간·상태에서 곧바로 이어져야 하며, 이미 지나간 장면에 인물의 행동·대사를 소급 삽입해서는 안 됩니다.\n"
+            "② 확립된 사실 잠금: 세션 중 확립된 PC·NPC의 정체(이름·문파·사문·경지·항렬·사부·동문 관계)와 이미 벌어진 사건은 이후 절대 번복·재해석하지 마십시오. "
+            "직전 로그에서 이미 확정된 아이템·위치·소지 상태를 임의로 초기화하지 마십시오.\n"
+            "③ 개연성·예법: 세계관·세력 사상·항렬·경어·상식적 예법에 어긋나는 상황을 창작하지 마십시오. "
+            "특히 정파 인물이 사매·후배의 품(가슴·품속 등)에 손을 뻗는 등 예법상 상상하기 어려운 무례한 접촉을 창작해선 안 됩니다. "
+            "NPC의 지시·수여·제안은 현실적 논리를 따라야 합니다(예: 제자에게 검 두 자루를 함께 지니게 하는 것 같은 비실용적 상황을 지어내지 마십시오).\n"
+            "④ 인물 반응 스케일: NPC와 군중의 반응은 PC의 실제 명성·지위·나이에 비례해야 합니다. 무명·평범한 인물에 대한 과도한 경외·집중을 창작하지 마십시오.\n"
+            "⑤ PC 대사·행동·감정 창작 금지: 플레이어가 명시적으로 선언하지 않은 PC의 어떠한 대사·행동·이동·판단·감정도 서술하지 마십시오. @대사:PC이름| 마커도 금지입니다.\n"
+        )
 
         # 인물 대사 출력 형식 지시 (디스코드 후처리에서 자동으로 인물 헤더+이미지+말풍선으로 변환됨)
         block += (
@@ -244,17 +274,21 @@ class PromptBuilder:
     def build_prompt(cls, session, gm_instruction: str) -> str:
         """
         내부 블록 조립을 순차적으로 실행하여 완성된 문자열을 즉시 반환하는 파사드(Facade) 메서드.
+
+        조립 과정에서 실제 주입된 온디맨드 정보 목록을 `session.last_proceed_manifest`에 기록한다
+        (비용 보고 임베드용, 비영속 임시값).
         """
-        return (cls(session, gm_instruction)
-                .add_memory_block()
-                .add_note_block()
-                .add_player_block()
-                .add_npc_override_block()
-                .add_keyword_memory_block()
-                .add_recent_action_block()
-                .add_gm_instruction_block()
-                .add_rule_enforcement_block()
-                .build())
+        builder = (cls(session, gm_instruction)
+                   .add_memory_block()
+                   .add_note_block()
+                   .add_player_block()
+                   .add_npc_override_block()
+                   .add_keyword_memory_block()
+                   .add_recent_action_block()
+                   .add_gm_instruction_block()
+                   .add_rule_enforcement_block())
+        session.last_proceed_manifest = list(builder.manifest)
+        return builder.build()
 
 
 def build_compression_prompt(session: TRPGSession, log_text: str) -> str:

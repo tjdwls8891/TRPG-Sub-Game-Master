@@ -150,7 +150,7 @@ class SessionCog(commands.Cog):
             await ctx.send(f"⚠️ 게임 채널 초기화 중 오류 발생: {e}")
 
         start_message = session.scenario_data.get("start_message", "> 세션이 시작됩니다.")
-        start_text = f"**[세션 시작]**\n{start_message}"
+        start_text = f"**[세션 시작]**\n\n{start_message}"
 
         await core.stream_text_to_channel(self.bot, game_channel, start_text, words_per_tick=5, tick_interval=1.5)
 
@@ -201,9 +201,33 @@ class SessionCog(commands.Cog):
 
         scenario_intro = session.scenario_data.get("scenario_intro", "")
         pc_template = session.scenario_data.get("pc_template", {})
+        ability_stats = session.scenario_data.get("ability_stats", [])
+        secondary_stats = session.scenario_data.get("profile_secondary_stats", [])
+        stat_desc = session.scenario_data.get("stat_descriptions", {})
 
-        template_keys_str = "\n".join([f"- {k}" for k in pc_template.keys()])
-        guide_text = f"이제 플레이어 여러분의 캐릭터를 만들 차례입니다. 게임 채널에 `!참가 [이름]` 명령어를 입력하여 세션에 캐릭터로 참가하십시오.\n\n[플레이어 스탯 구성]\n{template_keys_str}"
+        # [캐릭터 구성 항목] — 시나리오 데이터 기반으로 동적 구성.
+        # 주사위 판정 능력치(ability_stats)를 먼저, 그 외 서술/기타 항목을 뒤에 배치하고
+        # stat_descriptions가 있으면 한 줄 설명을 덧붙인다. (시나리오 무관 동작)
+        def _stat_line(name, tag=""):
+            desc = stat_desc.get(name)
+            base = f"- **{name}**{tag}"
+            return f"{base}: {desc}" if desc else base
+
+        stat_lines = [_stat_line(k) for k in ability_stats if k in pc_template]
+        for k in pc_template:
+            if k in ability_stats:
+                continue
+            stat_lines.append(_stat_line(k, " (서술 항목)" if k in secondary_stats else ""))
+        stat_block = "\n".join(stat_lines)
+        dice_stats_str = " · ".join(ability_stats) if ability_stats else "(없음)"
+
+        guide_text = (
+            "이제 여러분의 분신이 될 캐릭터를 만들 차례입니다. 아래 순서를 따라 진행하십시오.\n\n"
+            "**[1단계] 참가** — 게임 채널에 `!참가 [캐릭터이름]` 을 입력해 세션에 참가합니다.\n\n"
+            f"**[2단계] 능력치 굴림** — 마스터(GM)가 제공한 주사위로 여러분의 기본 능력치를 굴려 배분합니다. 주사위 판정에 쓰이는 능력치: {dice_stats_str}.\n\n"
+            "**[3단계] 외형 설정** — 마스터(GM)과의 대화로 페르소나 및 캐릭터의 모습을 정합니다.\n\n"
+            f"**[캐릭터 구성 항목]**\n{stat_block}"
+        )
 
         full_text = f"{self.bot.intro_text}\n\n{scenario_intro}\n\n{guide_text}"
 
@@ -211,8 +235,11 @@ class SessionCog(commands.Cog):
 
         await ctx.send("📢 게임 채널에 소개 문단 자동 스트리밍을 시작합니다...")
 
+        # NOTE: !소개는 극적 묘사가 아닌 설명문 위주라 묘사용(5단어/1.5초)보다 빠르게 스트리밍한다.
+        # 전체 분량(~2,000자, 다수 문단)을 고려해 체감 대기 시간을 줄인다.
+        # (!시작·AI 턴 묘사의 연출 속도는 그대로 유지)
         for paragraph in paragraphs:
-            await core.stream_text_to_channel(self.bot, game_channel, paragraph, words_per_tick=5, tick_interval=1.5)
+            await core.stream_text_to_channel(self.bot, game_channel, paragraph, words_per_tick=5, tick_interval=0.6)
 
         await ctx.send("✅ 소개 스트리밍이 완료되었습니다.")
 

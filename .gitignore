@@ -8,6 +8,19 @@ __pycache__/
 
 # 동적 생성되는 TRPG 세션 데이터 및 로그
 sessions/
+paused_session/
+
+# 봇이 자동 생성/관리하는 로컬 상태 (공개 저장소에 오너·허가 계정 ID가 노출되지 않도록 제외.
+# 서버에서는 앱 오너를 application_info().owner로 자동 해석하므로 재생성됨)
+authorized_users.json
+
+# macOS 부산물
+.DS_Store
+
+# 대용량 BGM(60~85MB)은 git 대신 서버로 직접 전송(scp) — 공개 저장소 히스토리 비대화 방지
+media/shadow_island/잔잔.mp3
+media/dark_fantasy/잔잔.mp3
+media/shadow_island/긴장감.mp3
 
 # (선택 사항) 용량이 큰 미디어나 시나리오 파일들을 제외하려면 아래 주석을 해제하세요.
 Backup_Bot.py
