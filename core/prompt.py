@@ -13,9 +13,12 @@ class PromptBuilder:
 
     [NPC 주입 전략]
     모든 default_npcs는 캐시 룰북 [3. NPC 사전]에 전체 수록되므로 프롬프트에 중복 주입하지 않는다.
-    프롬프트(add_npc_override_block)에는 아래 두 경우만 델타(차분)로 주입한다:
-      1. !엔피씨 설정으로 details가 변경된 NPC  → 캐시 내용을 덮어씀
-      2. 세션 중 resources / statuses가 부여된 NPC → 캐시에 없는 런타임 상태 동기화
+    프롬프트(add_npc_override_block)에는 설정 필드(details 또는 info_fields)나
+    스탯이 캐시와 달라진 NPC만 델타(차분)로 주입한다.
+
+    NOTE: NPC의 소지 자원(resources)·상태이상(statuses)은 주입 대상에서 제외됐다.
+          매 턴 델타로 실려 토큰을 소모하는 데 비해 서사 기여가 낮아 폐지했다.
+          resources / statuses는 플레이어(add_player_block)에만 적용된다.
     """
 
     def __init__(self, session: TRPGSession, gm_instruction: str):
@@ -25,7 +28,7 @@ class PromptBuilder:
         # 입력에 실제 주입된 온디맨드 정보 목록 (비용 보고용). 각 add_* 블록이 실제 주입 시 append.
         self.manifest = []
 
-        # keyword_memory 트리거 스캔에 사용되는 최근 로그 결합 문자열 (사전 연산)
+        # 최근 로그 결합 문자열 (사전 연산) — 하위 블록의 문맥 스캔용
         recent_texts = [c.parts[0].text for c in session.raw_logs[-10:]] + session.current_turn_logs
         self.recent_logs_combined = " ".join(recent_texts) + f" {gm_instruction}"
 
@@ -65,9 +68,9 @@ class PromptBuilder:
         # 주입 대상:
         #   A. 설정 필드(details 또는 구조화 info_fields)가 default_npcs와 다른 NPC
         #      → 캐시 내용을 현재 값으로 덮어씀
-        #   B. 설정 변경 없이 resources / statuses(runtime)만 존재하는 NPC
-        #      → 캐시에 없는 런타임 상태 동기화
+        #   B. 스탯(ability_stats)이 캐시와 달라진 NPC
         #   → 두 조건 모두 해당 없는 NPC는 캐시로 충분하므로 스킵
+        # NOTE: NPC의 resources / statuses는 주입하지 않는다(토큰 절감 목적으로 폐지).
         if not self.session.npcs:
             return self
 
@@ -127,15 +130,7 @@ class PromptBuilder:
                 delta_stats = {}
             stats_changed = bool(delta_stats)
 
-            # ── 런타임 resources/statuses 감지 ──
-            n_res = self.session.resources.get(npc_name, {})
-            n_stat = self.session.statuses.get(npc_name, [])
-            base_res = base_data.get("resources", {})
-            base_statuses = base_data.get("statuses", [])
-            res_changed = n_res != base_res
-            stat_changed = sorted(n_stat) != sorted(base_statuses)
-
-            if not info_changed and not stats_changed and not res_changed and not stat_changed:
+            if not info_changed and not stats_changed:
                 continue
 
             # ── 오버라이드 블록 구성 ──
@@ -169,10 +164,6 @@ class PromptBuilder:
                 label = "[스탯 (전체)]" if (is_session_npc and not is_npc_in_cache) else "[스탯 수정]"
                 entry += f"\n    * {label}: {', '.join(f'{k}={v}' for k, v in all_stats)}"
 
-            if res_changed and n_res:
-                entry += f"\n    * [확정 소지 자원]: {', '.join(f'{k}: {v}' for k, v in n_res.items())}"
-            if stat_changed and n_stat:
-                entry += f"\n    * [현재 상태이상]: {', '.join(n_stat)}"
             lines.append(entry)
 
         if lines:
@@ -181,35 +172,6 @@ class PromptBuilder:
             self.blocks.append(block)
             self.manifest.append(f"NPC 오버라이드 {len(lines)}명")
 
-        return self
-
-    def add_keyword_memory_block(self):
-        # NOTE: 특정 키워드가 최근 로그에 등장할 때만 연관 기억을 활성화하여 동적 컨텍스트 최적화 수행.
-        keyword_memories = self.session.scenario_data.get("keyword_memory", [])
-        if keyword_memories:
-            # 연고지(사문·근거지)로 이미 캐시에 편입된 섹션은 온디맨드 주입에서 제외 (중복 방지)
-            cached_ids = set(getattr(self.session, "cached_worldview_sections", []) or [])
-            triggered_memories = []
-            triggered_names = []
-            _seen = set()
-            for memory in keyword_memories:
-                if memory.get("id") in cached_ids:
-                    continue
-                for kw in memory.get("keywords", []):
-                    if kw in self.recent_logs_combined:
-                        desc = memory.get("description", "")
-                        if desc and desc not in _seen:
-                            _seen.add(desc)
-                            triggered_memories.append(desc)
-                            triggered_names.append(memory.get("id") or kw)
-                        break
-
-            if triggered_memories:
-                block = "\n[키워드 연관 상세 — 등장·언급된 세력/지역/설정 (최근 대화 기반)]\n"
-                for desc in triggered_memories:
-                    block += f"▶ {desc}\n"
-                self.blocks.append(block)
-                self.manifest.append(f"키워드북: {', '.join(triggered_names)}")
         return self
 
     def add_recent_action_block(self):
@@ -283,7 +245,6 @@ class PromptBuilder:
                    .add_note_block()
                    .add_player_block()
                    .add_npc_override_block()
-                   .add_keyword_memory_block()
                    .add_recent_action_block()
                    .add_gm_instruction_block()
                    .add_rule_enforcement_block())

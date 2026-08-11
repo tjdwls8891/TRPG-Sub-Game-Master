@@ -1,7 +1,9 @@
 # core 패키지 — 하위 모듈의 모든 심볼을 re-export하여 기존 `import core` 참조를 유지
 #
 # 분리된 서브모듈:
-#   constants  — 전역 상수 (모델 ID, 환율, 안전 설정, 과금 단가표)
+#   constants  — 전역 상수 (모델 ID, 환율, 안전 설정, 과금 단가표, 잉크 환산 상수)
+#   ink        — 게임머니 '잉크' 환산 (원화 비용 -> 차감 잉크, 충전 플랜 가격)
+#   accounts   — 유저 계정 저장 계층 (등록 여부, 약관 버전, 잉크 잔액 원장)
 #   models     — TRPGSession 데이터 모델
 #   cost       — 비용 산출 함수
 #   io         — 세션 직렬화/역직렬화, 로그 기록, 시나리오 로드
@@ -14,6 +16,10 @@
 
 from .constants import (
     __version__,
+    MIN_CACHE_TOKENS,
+    INK_UNIT_KRW,
+    INK_NET_KRW,
+    INK_PLANS,
     DEFAULT_MODEL,
     LOGIC_MODEL,
     IMAGE_MODEL,
@@ -29,6 +35,16 @@ from .constants import (
     TTS_STYLE_PROMPT,
     TTS_VOICES,
 )
+from .ink import (
+    cost_to_ink,
+    ink_to_krw,
+    ink_to_net_krw,
+    plan_catalog,
+    can_afford,
+    format_ink,
+    refund_ink,
+)
+from . import accounts
 from .models import TRPGSession
 from .cost import (
     extract_token_usage,
@@ -108,6 +124,10 @@ __all__ = [
     # constants
     "__version__",
     "DEFAULT_MODEL", "LOGIC_MODEL", "IMAGE_MODEL", "EXCHANGE_RATE",
+    "MIN_CACHE_TOKENS", "INK_UNIT_KRW", "INK_NET_KRW", "INK_PLANS",
+    # ink / accounts
+    "cost_to_ink", "ink_to_krw", "ink_to_net_krw", "plan_catalog",
+    "can_afford", "format_ink", "refund_ink", "accounts",
     "TRPG_SAFETY_SETTINGS", "PRICING_1M", "IMAGE_OUTPUT_TOKENS_BY_RES",
     "TTS_MODEL", "TTS_NARRATOR_VOICE", "TTS_LANGUAGE_CODE",
     "TTS_NARRATION_VOLUME", "TTS_PCM_BYTES_PER_SEC", "TTS_STYLE_PROMPT", "TTS_VOICES",

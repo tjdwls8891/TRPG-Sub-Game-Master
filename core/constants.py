@@ -1,4 +1,6 @@
 # 전역 상수 — 모델 ID, 환율, 안전 설정, 과금 단가표
+import os
+
 from google.genai import types
 
 # ========== [전역 상수(Constants)] ==========
@@ -8,12 +10,29 @@ from google.genai import types
 #         MAJOR — 저장 스키마/세션 구조 변경(SCHEMA_VERSION 증가), 명령어 체계 개편 등 비호환 변경
 #         MINOR — 하위호환 기능 추가, 프롬프트·룰북 변경 (재시작 또는 캐시 재발급 필요)
 #         PATCH — 버그 수정, 문구 조정, 리팩터링 (핫스왑 수준)
-__version__ = "4.0.1"
+__version__ = "4.1.0"
 
 DEFAULT_MODEL = "gemini-3-flash-preview"
 LOGIC_MODEL = "gemini-3-flash-preview"
 # LOGIC_MODEL = "gemini-3-pro-preview"
 EXCHANGE_RATE = 1500.0
+
+# ── 캐시 최소 토큰 ──
+# 제미나이 컨텍스트 캐싱의 모델별 최소 입력 토큰 요건.
+#   Gemini 3 Flash Preview / 2.5 Flash : 1,024
+#   Gemini 3 Pro Preview  / 2.5 Pro    : 4,096
+# 과거 코드는 32,768로 잡혀 있었으나 이는 현행 기준의 32배로, 미달분을 마침표
+# 패딩으로 채우는 만큼 캐시 생성비·시간당 저장비·매 턴 읽기비가 모두 부풀었다.
+# 값을 낮추면 세 비용이 동시에 비례 절감된다.
+# 운영 중 캐시 생성이 최소 요건 오류로 실패하면 .env에 MIN_CACHE_TOKENS를 지정해
+# 재배포 없이 되돌릴 수 있다.
+MIN_CACHE_TOKENS = int(os.getenv("MIN_CACHE_TOKENS", "1024"))
+
+# ── 게임머니 '잉크' ──
+INK_UNIT_KRW = 10   # 판매가: 1잉크 = 10원
+INK_NET_KRW = 7     # 디스코드 결제 수수료 30% 차감 후 실수령: 1잉크 = 7원
+                    # → API 원화 비용 X의 청구액 = ceil(X / 7) 잉크
+INK_PLANS = [100, 300, 500, 1000, 3000, 5000]  # 충전 플랜 (잉크)
 
 TRPG_SAFETY_SETTINGS = [
     types.SafetySetting(

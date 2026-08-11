@@ -9,6 +9,7 @@ from google.genai import types
 from google.genai.errors import APIError
 
 from .constants import DEFAULT_MODEL
+from .constants import MIN_CACHE_TOKENS
 from .models import TRPGSession
 from .io import write_log, save_session_data, load_scenario_from_file, SESSION_FIELDS, SESSION_RESET_FIELDS, SCHEMA_VERSION, _MISSING
 from .cost import calculate_upload_cost, calculate_cost
@@ -335,13 +336,13 @@ async def build_scenario_cache_text(bot, model_id, scenario_data: dict, cache_no
             contents=rulebook_text
         )
         base_tokens = response.total_tokens
-        min_cache_tokens = 32768
+        min_cache_tokens = MIN_CACHE_TOKENS
 
         if base_tokens >= min_cache_tokens:
             # 패딩 불필요 — 원본과 업로드 텍스트가 동일
             return rulebook_text, base_tokens, rulebook_text
 
-        # HACK: 제미나이 캐싱의 최소 요구 조건(32,768 토큰)을 강제 충족시키기 위해,
+        # HACK: 제미나이 캐싱의 최소 요구 토큰 수를 강제 충족시키기 위해,
         # 시스템이 읽지 않도록 지시한 의미 없는 마침표(.) 배열을 덧붙이는 우회 기법 적용.
         missing_tokens = min_cache_tokens - base_tokens + 500
         padding_chars = "." * (missing_tokens * 4)

@@ -346,35 +346,9 @@ def _build_logic_user_prompt(session, player_message: str, roll_results: list,
             pc_lines.append(f"  - {cn}: 자원={r_str} / 상태={s_str}")
         multi_info = "\n[참가 PC 전체 상태]\n" + "\n".join(pc_lines) + "\n"
 
-    # keyword_memory 온디맨드 (worldview §2 지역·§8 세력 등) — GM-Logic 결정에도 등장 세력/지역 상세 제공.
-    # 연고지(사문·근거지)로 이미 캐시에 편입된 섹션은 중복이므로 스킵.
+    # NOTE: 키워드북(keyword_memory) 온디맨드 주입 폐지 — 매 턴 토큰을 소모하는 데 비해
+    #       기여가 낮아 제거했다. 세계관 상세는 캐시 룰북 참조로 일원화한다.
     km_block = ""
-    keyword_memories = session.scenario_data.get("keyword_memory", [])
-    if keyword_memories:
-        cached_ids = set(getattr(session, "cached_worldview_sections", []) or [])
-        _texts = []
-        for c in session.raw_logs[-10:]:
-            try:
-                _texts.append(c.parts[0].text)
-            except Exception:
-                pass
-        _scan = " ".join([player_message or ""] + _texts + list(session.current_turn_logs) + list(roll_results))
-        _seen = set()
-        _hits = []
-        _hit_names = []
-        for mem in keyword_memories:
-            if mem.get("id") in cached_ids:
-                continue
-            for kw in mem.get("keywords", []):
-                if kw and kw in _scan:
-                    desc = mem.get("description", "")
-                    if desc and desc not in _seen:
-                        _seen.add(desc)
-                        _hits.append(desc)
-                        _hit_names.append(mem.get("id") or kw)
-                    break
-        if _hits:
-            km_block = "\n[등장·언급된 세력/지역 상세 (키워드 트리거 — 연고지는 캐시 참조)]\n" + "\n\n".join(_hits) + "\n"
 
     # 시나리오 금지사항 살라이언스 강화: 캐시 [6]에도 있으나, GM-Logic 결정 시점 상기를 위해
     # 사용자 프롬프트 말미(플레이어 발언 직전)에도 재주입한다. 판단의 중요도만 키우는 목적.
@@ -393,8 +367,6 @@ def _build_logic_user_prompt(session, player_message: str, roll_results: list,
 
     # 입력에 실제 주입된 온디맨드 정보 목록 (비용 보고용). 비어있는 블록은 제외.
     manifest = []
-    if _hit_names:
-        manifest.append(f"키워드북: {', '.join(_hit_names)}")
     if world_tl_block:
         manifest.append("세계 타임라인")
     if info_ledger_block:
