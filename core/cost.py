@@ -5,6 +5,34 @@ from .constants import DEFAULT_MODEL, EXCHANGE_RATE, PRICING_1M, IMAGE_MODEL
 
 # ========== [비용 산출 및 포맷팅 유틸리티] ==========
 
+
+def extract_token_usage(meta):
+    """usage_metadata에서 과금 대상 토큰을 추출한다.
+
+    ⚠️ 중요 — thinking 모델의 사고 토큰 집계:
+        gemini-3-flash-preview 등 thinking 계열 모델은 내부 사고 토큰을
+        candidates_token_count와 **별개인** thoughts_token_count로 반환한다.
+        사고 토큰은 눈에 보이지 않지만 출력 토큰과 **동일 요율**로 과금되므로,
+        candidates_token_count만 집계하면 실제 청구액보다 과소 계상된다.
+        따라서 출력 토큰은 반드시 (candidates + thoughts)로 합산해야 한다.
+
+    Args:
+        meta: response.usage_metadata (None 허용)
+
+    Returns:
+        (in_tokens, out_tokens, cached_tokens, thought_tokens)
+        out_tokens는 사고 토큰이 합산된 값이며, thought_tokens는 그중
+        사고분만 따로 담아 비용 분석·예측 모델 산정에 쓸 수 있게 한다.
+    """
+    if meta is None:
+        return 0, 0, 0, 0
+    in_tokens      = getattr(meta, "prompt_token_count", 0) or 0
+    visible_tokens = getattr(meta, "candidates_token_count", 0) or 0
+    thought_tokens = getattr(meta, "thoughts_token_count", 0) or 0
+    cached_tokens  = getattr(meta, "cached_content_token_count", 0) or 0
+    return in_tokens, visible_tokens + thought_tokens, cached_tokens, thought_tokens
+
+
 def format_cost(cost_krw: float) -> str:
     """
     원화(KRW)로 환산된 비용을 소수점 셋째 자리에서 반올림하여 UI 출력용 포맷으로 변환.
@@ -23,7 +51,7 @@ def calculate_text_gen_cost_breakdown(model_id: str, input_tokens: int = 0, outp
     Args:
         model_id (str): 사용된 모델 식별자
         input_tokens (int): 응답 메타의 prompt_token_count (캐시 적중분 포함)
-        output_tokens (int): candidates_token_count
+        output_tokens (int): 출력 토큰 (candidates + thoughts 합산 — extract_token_usage 참조)
         cached_read_tokens (int): cached_content_token_count (캐시에서 읽혀 할인된 분)
 
     Returns:

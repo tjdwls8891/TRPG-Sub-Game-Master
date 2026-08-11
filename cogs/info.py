@@ -86,9 +86,7 @@ class InfoCog(commands.Cog):
         # 비용 보고 ([정보] 접두) — 토큰 내역 + 입력에 주입된 정보 목록을 임베드로 제시
         try:
             meta = resp.usage_metadata
-            in_t = getattr(meta, "prompt_token_count", 0) or 0
-            out_t = getattr(meta, "candidates_token_count", 0) or 0
-            cached_t = getattr(meta, "cached_content_token_count", 0) or 0
+            in_t, out_t, cached_t, thought_t = core.extract_token_usage(meta)
             breakdown = core.calculate_text_gen_cost_breakdown(
                 core.DEFAULT_MODEL, input_tokens=in_t, output_tokens=out_t, cached_read_tokens=cached_t
             )

@@ -31,6 +31,7 @@ from .constants import (
 )
 from .models import TRPGSession
 from .cost import (
+    extract_token_usage,
     format_cost,
     calculate_text_gen_cost_breakdown,
     calculate_image_gen_cost,
@@ -113,7 +114,7 @@ __all__ = [
     # models
     "TRPGSession",
     # cost
-    "format_cost", "calculate_text_gen_cost_breakdown", "calculate_image_gen_cost",
+    "extract_token_usage", "format_cost", "calculate_text_gen_cost_breakdown", "calculate_image_gen_cost",
     "calculate_upload_cost", "calculate_storage_cost", "calculate_cost",
     # io
     "SCHEMA_VERSION", "SESSION_FIELDS", "SESSION_RESET_FIELDS",

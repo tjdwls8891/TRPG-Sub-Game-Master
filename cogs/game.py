@@ -505,9 +505,12 @@ class GameCog(commands.Cog):
             response = await generate_with_retry()
 
             meta = response.usage_metadata
-            in_tokens = getattr(meta, "prompt_token_count", 0) or 0
-            out_tokens = getattr(meta, "candidates_token_count", 0) or 0
-            cached_tokens = getattr(meta, "cached_content_token_count", 0) or 0
+            in_tokens, out_tokens, cached_tokens, thought_tokens = core.extract_token_usage(meta)
+            # NOTE: 비용 예측 모델 산정을 위한 실측 로그 — 사고 토큰이 출력의 몇 %를 차지하는지 수집.
+            _visible = out_tokens - thought_tokens
+            _ratio = (thought_tokens / out_tokens * 100) if out_tokens else 0.0
+            print(f"[TOKENS] NARRATE in={in_tokens} cached={cached_tokens} "
+                  f"out={out_tokens} (visible={_visible} thinking={thought_tokens}, {_ratio:.1f}%)")
 
             breakdown = core.calculate_text_gen_cost_breakdown(
                 core.DEFAULT_MODEL,
@@ -755,9 +758,7 @@ class GameCog(commands.Cog):
             )
 
             meta = summary_response.usage_metadata
-            in_tokens = getattr(meta, "prompt_token_count", 0) or 0
-            out_tokens = getattr(meta, "candidates_token_count", 0) or 0
-            cached_tokens = getattr(meta, "cached_content_token_count", 0) or 0
+            in_tokens, out_tokens, cached_tokens, thought_tokens = core.extract_token_usage(meta)
 
             turn_cost = core.calculate_upload_cost(core.LOGIC_MODEL, input_tokens=in_tokens,
                                                    output_tokens=out_tokens, cached_read_tokens=cached_tokens)
@@ -1240,9 +1241,7 @@ class GameCog(commands.Cog):
             )
 
             meta = summary_response.usage_metadata
-            in_tokens = getattr(meta, "prompt_token_count", 0) or 0
-            out_tokens = getattr(meta, "candidates_token_count", 0) or 0
-            cached_tokens = getattr(meta, "cached_content_token_count", 0) or 0
+            in_tokens, out_tokens, cached_tokens, thought_tokens = core.extract_token_usage(meta)
 
             turn_cost = core.calculate_upload_cost(core.LOGIC_MODEL, input_tokens=in_tokens, output_tokens=out_tokens,
                                             cached_read_tokens=cached_tokens)

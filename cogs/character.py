@@ -1190,9 +1190,7 @@ class CharacterCog(commands.Cog):
             generated_text = response.text
 
             meta = response.usage_metadata
-            in_tokens = meta.prompt_token_count
-            out_tokens = meta.candidates_token_count
-            cached_tokens = getattr(meta, "cached_content_token_count", 0) or 0
+            in_tokens, out_tokens, cached_tokens, thought_tokens = core.extract_token_usage(meta)
 
             breakdown = core.calculate_text_gen_cost_breakdown(
                 core.LOGIC_MODEL,

@@ -1253,9 +1253,7 @@ class AutoGMCog(commands.Cog):
         # 비용 정산
         try:
             meta = response.usage_metadata
-            in_tokens = getattr(meta, "prompt_token_count", 0) or 0
-            out_tokens = getattr(meta, "candidates_token_count", 0) or 0
-            cached_tokens = getattr(meta, "cached_content_token_count", 0) or 0
+            in_tokens, out_tokens, cached_tokens, thought_tokens = core.extract_token_usage(meta)
 
             breakdown = core.calculate_text_gen_cost_breakdown(
                 core.DEFAULT_MODEL,
@@ -1652,9 +1650,7 @@ class AutoGMCog(commands.Cog):
         # 비용 정산
         try:
             meta = response.usage_metadata
-            in_tokens = getattr(meta, "prompt_token_count", 0) or 0
-            out_tokens = getattr(meta, "candidates_token_count", 0) or 0
-            cached_tokens = getattr(meta, "cached_content_token_count", 0) or 0
+            in_tokens, out_tokens, cached_tokens, thought_tokens = core.extract_token_usage(meta)
 
             breakdown = core.calculate_text_gen_cost_breakdown(
                 core.DEFAULT_MODEL,
@@ -1841,8 +1837,7 @@ class AutoGMCog(commands.Cog):
         # 비용 정산
         try:
             meta = response.usage_metadata
-            in_tokens  = getattr(meta, "prompt_token_count", 0) or 0
-            out_tokens = getattr(meta, "candidates_token_count", 0) or 0
+            in_tokens, out_tokens, _cached_tokens, thought_tokens = core.extract_token_usage(meta)
             breakdown  = core.calculate_text_gen_cost_breakdown(
                 core.LOGIC_MODEL, input_tokens=in_tokens, output_tokens=out_tokens)
             cost = breakdown["total_krw"]
@@ -1924,8 +1919,7 @@ class AutoGMCog(commands.Cog):
         # 비용 정산
         try:
             meta = response.usage_metadata
-            in_tokens  = getattr(meta, "prompt_token_count", 0) or 0
-            out_tokens = getattr(meta, "candidates_token_count", 0) or 0
+            in_tokens, out_tokens, _cached_tokens, thought_tokens = core.extract_token_usage(meta)
             breakdown  = core.calculate_text_gen_cost_breakdown(
                 core.LOGIC_MODEL, input_tokens=in_tokens, output_tokens=out_tokens)
             cost = breakdown["total_krw"]
@@ -2043,9 +2037,7 @@ class AutoGMCog(commands.Cog):
         # 비용 정산
         try:
             meta = response.usage_metadata
-            in_tokens     = getattr(meta, "prompt_token_count", 0) or 0
-            out_tokens    = getattr(meta, "candidates_token_count", 0) or 0
-            cached_tokens = getattr(meta, "cached_content_token_count", 0) or 0
+            in_tokens, out_tokens, cached_tokens, thought_tokens = core.extract_token_usage(meta)
             breakdown     = core.calculate_text_gen_cost_breakdown(
                 core.DEFAULT_MODEL, input_tokens=in_tokens, output_tokens=out_tokens,
                 cached_read_tokens=cached_tokens)
@@ -2405,9 +2397,7 @@ class AutoGMCog(commands.Cog):
         # ── 비용 정산 ──
         try:
             meta         = response.usage_metadata
-            in_tokens    = getattr(meta, "prompt_token_count", 0) or 0
-            out_tokens   = getattr(meta, "candidates_token_count", 0) or 0
-            cached_tokens = getattr(meta, "cached_content_token_count", 0) or 0
+            in_tokens, out_tokens, cached_tokens, thought_tokens = core.extract_token_usage(meta)
             breakdown    = core.calculate_text_gen_cost_breakdown(
                 core.LOGIC_MODEL,
                 input_tokens=in_tokens,
