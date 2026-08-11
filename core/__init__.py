@@ -13,6 +13,7 @@
 #   utils      — 캐릭터 이름 검색, AI 설정 생성
 
 from .constants import (
+    __version__,
     DEFAULT_MODEL,
     LOGIC_MODEL,
     IMAGE_MODEL,
@@ -104,6 +105,7 @@ from .utils import (
 
 __all__ = [
     # constants
+    "__version__",
     "DEFAULT_MODEL", "LOGIC_MODEL", "IMAGE_MODEL", "EXCHANGE_RATE",
     "TRPG_SAFETY_SETTINGS", "PRICING_1M", "IMAGE_OUTPUT_TOKENS_BY_RES",
     "TTS_MODEL", "TTS_NARRATOR_VOICE", "TTS_LANGUAGE_CODE",

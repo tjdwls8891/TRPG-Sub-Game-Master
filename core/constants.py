@@ -2,6 +2,14 @@
 from google.genai import types
 
 # ========== [전역 상수(Constants)] ==========
+# NOTE: 프로젝트 버전 — 표기의 단일 출처(Single Source of Truth).
+#       문서(CLAUDE.md·DEVLOG.md)의 버전 표기는 이 값과 일치시킨다.
+#       체계: MAJOR.MINOR.PATCH
+#         MAJOR — 저장 스키마/세션 구조 변경(SCHEMA_VERSION 증가), 명령어 체계 개편 등 비호환 변경
+#         MINOR — 하위호환 기능 추가, 프롬프트·룰북 변경 (재시작 또는 캐시 재발급 필요)
+#         PATCH — 버그 수정, 문구 조정, 리팩터링 (핫스왑 수준)
+__version__ = "4.0.0"
+
 DEFAULT_MODEL = "gemini-3-flash-preview"
 LOGIC_MODEL = "gemini-3-flash-preview"
 # LOGIC_MODEL = "gemini-3-pro-preview"
