@@ -397,15 +397,20 @@ class SystemCog(commands.Cog):
             except Exception as e:
                 return False, f"실행 실패: {e}"
 
-        # ── 로컬 변경 확인 ── 커밋되지 않은 수정이 있으면 pull이 충돌하므로 사전 차단
+        # ── 로컬 변경 확인 ──
+        # 추적 중인 파일이 수정된 경우에만 차단한다. pull은 그런 변경을 덮어쓸 수
+        # 없어 충돌하기 때문. 미추적 파일(status 접두 "??" — venv/, __pycache__ 등)은
+        # 병합에 관여하지 않으므로 통과시킨다.
         ok, dirty = _run(["git", "status", "--porcelain"])
         if ok and dirty:
-            await msg.edit(content=(
-                "⚠️ 서버에 커밋되지 않은 로컬 변경이 있어 중단했습니다.\n"
-                f"```{dirty[:1500]}```"
-                "수동으로 정리한 뒤 다시 시도하십시오."
-            ))
-            return
+            blocking = [ln for ln in dirty.splitlines() if not ln.startswith("??")]
+            if blocking:
+                await msg.edit(content=(
+                    "⚠️ 서버에 커밋되지 않은 로컬 변경이 있어 중단했습니다.\n"
+                    f"```{chr(10).join(blocking)[:1500]}```"
+                    "수동으로 정리한 뒤 다시 시도하십시오."
+                ))
+                return
 
         before_ok, before = _run(["git", "rev-parse", "--short", "HEAD"])
 
