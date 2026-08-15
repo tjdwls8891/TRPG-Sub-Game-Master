@@ -1,4 +1,7 @@
 import asyncio
+import os
+import subprocess
+import sys
 import discord
 import time
 from discord.ext import commands
@@ -106,6 +109,7 @@ class SystemCog(commands.Cog):
             "`!캐시 출력` — 캐시 룰북 원본 텍스트 디버그 출력\n"
             "`!채널정리` — 더미 채널·카테고리 일괄 삭제 (채널 관리 권한)\n"
             "`!리로드 [모듈명]` — cogs 무중단 핫스왑\n"
+            "`!배포 [리로드/재시작]` — GitHub 최신 코드 반영 (오너 전용)\n"
             "　└ 대상: `game` `character` `media` `session` `system` `auto_gm`"
         ), inline=False)
 
@@ -351,6 +355,112 @@ class SystemCog(commands.Cog):
             await ctx.send(f"✅ `cogs.{cog_name}` 모듈을 성공적으로 리로드했습니다. 변경 사항이 즉시 적용됩니다.")
         except Exception as e:
             await ctx.send(f"⚠️ 모듈 리로드 중 오류 발생: {e}")
+
+
+    @commands.command(name="배포")
+    @commands.is_owner()
+    async def deploy(self, ctx, mode: str = None):
+        """
+        GitHub 원격 저장소의 최신 코드를 받아 봇에 반영 (오너 전용).
+
+        NOTE: SSH 접속 없이 디스코드만으로 배포를 완결하기 위한 명령.
+              서버 접속 수단을 잃어도 코드 갱신이 막히지 않도록 하는 안전장치다.
+
+        사용법:
+            !배포          — git pull만 수행 (변경 내역 확인용)
+            !배포 리로드    — pull 후 모든 cogs를 무중단 핫스왑
+            !배포 재시작    — pull 후 봇 프로세스 재시작
+                             (core/·main.py·prompts.py 변경 시 필수)
+
+        Args:
+            ctx (commands.Context): 디스코드 컨텍스트 객체
+            mode (str): 배포 후 반영 방식 (None / "리로드" / "재시작")
+        """
+        if mode is not None and mode not in ("리로드", "재시작"):
+            await ctx.send("⚠️ 사용법: `!배포` / `!배포 리로드` / `!배포 재시작`")
+            return
+
+        repo_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        msg = await ctx.send("⏳ 원격 저장소에서 코드를 받는 중…")
+
+        def _run(args, timeout=120):
+            """git 명령을 실행하고 (성공여부, 출력)을 반환. 대화형 프롬프트는 차단."""
+            env = dict(os.environ, GIT_TERMINAL_PROMPT="0")
+            try:
+                proc = subprocess.run(
+                    args, cwd=repo_dir, env=env, timeout=timeout,
+                    stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
+                )
+                return proc.returncode == 0, (proc.stdout or "").strip()
+            except subprocess.TimeoutExpired:
+                return False, f"시간 초과({timeout}초) — 명령이 응답하지 않았습니다."
+            except Exception as e:
+                return False, f"실행 실패: {e}"
+
+        # ── 로컬 변경 확인 ── 커밋되지 않은 수정이 있으면 pull이 충돌하므로 사전 차단
+        ok, dirty = _run(["git", "status", "--porcelain"])
+        if ok and dirty:
+            await msg.edit(content=(
+                "⚠️ 서버에 커밋되지 않은 로컬 변경이 있어 중단했습니다.\n"
+                f"```{dirty[:1500]}```"
+                "수동으로 정리한 뒤 다시 시도하십시오."
+            ))
+            return
+
+        before_ok, before = _run(["git", "rev-parse", "--short", "HEAD"])
+
+        ok, out = _run(["git", "pull", "--no-rebase"])
+        if not ok:
+            await msg.edit(content=f"❌ `git pull` 실패\n```{out[:1800]}```")
+            return
+
+        after_ok, after = _run(["git", "rev-parse", "--short", "HEAD"])
+
+        if before_ok and after_ok and before == after:
+            await msg.edit(content=f"✅ 이미 최신 상태입니다. (`{after}`)")
+            return
+
+        # 변경된 파일 목록 — 재시작이 필요한지 판단 근거로 제공
+        _, changed = _run(["git", "diff", "--name-only", f"{before}..{after}"])
+        needs_restart = any(
+            f.startswith(("core/", "prompts.py", "main.py"))
+            for f in changed.splitlines()
+        )
+
+        report = [f"✅ `{before}` → `{after}` 갱신 완료"]
+        if changed:
+            report.append(f"```{changed[:1200]}```")
+        if needs_restart and mode != "재시작":
+            report.append("⚠️ `core/`·`main.py`·`prompts.py` 변경이 포함되어 **재시작이 필요**합니다. `!배포 재시작`")
+
+        # ── 반영 ──
+        if mode == "리로드":
+            results = []
+            for filename in sorted(os.listdir(os.path.join(repo_dir, "cogs"))):
+                if not filename.endswith(".py") or filename.startswith("__"):
+                    continue
+                name = filename[:-3]
+                try:
+                    await self.bot.reload_extension(f"cogs.{name}")
+                    results.append(f"✅ {name}")
+                except Exception as e:
+                    results.append(f"❌ {name}: {e}")
+            report.append("**핫스왑 결과**\n" + "\n".join(results))
+
+        elif mode == "재시작":
+            report.append("♻️ 3초 후 프로세스를 재시작합니다…")
+
+        await msg.edit(content="\n".join(report)[:1900])
+
+        if mode == "재시작":
+            await asyncio.sleep(3)
+            # NOTE: systemd가 Restart=always로 관리하므로 프로세스 종료만으로 재기동된다.
+            #       execv는 systemd가 없는 환경을 위한 대비책.
+            try:
+                await self.bot.close()
+            finally:
+                os.execv(sys.executable, [sys.executable] + sys.argv)
+
 
 
 async def setup(bot):
