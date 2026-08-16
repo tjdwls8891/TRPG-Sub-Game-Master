@@ -12,7 +12,7 @@
 #   stats      — 누적 플레이 통계 (계정과 분리된 저장소)
 #   display    — 디스플레이 채널 (단일 메시지 편집, persistent UI)
 #   chat_guard — 채팅 차단 (채널별 권한 검증 단일 훅)
-#   tts_cache  — 고정 메시지 TTS 사전 저장 (재합성 비용 제거)
+#   tts_preset — 시스템 고정 문구 TTS 사전 생성 (런타임 합성 없이 파일 재생)
 #   irregular_npc — 비정규 NPC 이미지·목소리 결정 및 유지
 #   accounts   — 유저 계정 저장 계층 (등록 여부, 약관 버전, 잉크 잔액 원장)
 #   models     — TRPGSession 데이터 모델
@@ -127,7 +127,7 @@ from .resilience import (
 )
 from . import stats
 from .chat_guard import chat_guard, NOTICE_SECONDS
-from . import tts_cache
+from . import tts_preset
 from . import irregular_npc
 from .display import build_embed, DisplayView, refresh as refresh_display
 from .models import TRPGSession
@@ -211,7 +211,7 @@ __all__ = [
     "DEFAULT_MODEL", "LOGIC_MODEL", "IMAGE_MODEL", "EXCHANGE_RATE",
     "MIN_CACHE_TOKENS", "INK_UNIT_KRW", "INK_NET_KRW", "INK_PLANS",
     # ink / accounts
-    "chat_guard", "NOTICE_SECONDS", "tts_cache", "irregular_npc",
+    "chat_guard", "NOTICE_SECONDS", "tts_preset", "irregular_npc",
     "build_embed", "DisplayView", "refresh_display",
     "DEFAULT_MEDIA_FLAGS", "get_media_flags", "set_media_flag", "is_enabled",
     "tension_band", "select_bgm", "describe_bgm_pending", "format_flags", "sync_tts_flag",

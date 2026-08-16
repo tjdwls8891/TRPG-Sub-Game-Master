@@ -111,6 +111,7 @@ class SystemCog(commands.Cog):
             "`!리로드 [모듈명]` — cogs 무중단 핫스왑\n"
             "`!배포 [리로드/재시작]` — GitHub 최신 코드 반영 (오너 전용)\n"
             "`!되감기 [턴번호]` — 해당 턴 종료 시점으로 롤백 (환불 불가)\n"
+            "`!tts생성 [현황]` — 고정 문구 TTS 사전 생성 (오너 전용)\n"
             "　└ 대상: `game` `character` `media` `session` `system` `gm`"
         ), inline=False)
 
@@ -357,6 +358,54 @@ class SystemCog(commands.Cog):
         except Exception as e:
             await ctx.send(f"⚠️ 모듈 리로드 중 오류 발생: {e}")
 
+
+    @commands.command(name="tts생성")
+    @commands.is_owner()
+    async def build_tts_preset(self, ctx, target: str = None):
+        """
+        시스템 고정 문구의 TTS 음성을 사전 생성한다 (오너 전용).
+
+        NOTE: 운영 중이 아니라 배포 준비 단계에서 1회 수행한다.
+              생성 후에는 런타임에 TTS API를 호출하지 않고 파일만 재생하므로,
+              고정 문구에 대한 합성 비용이 0이 된다.
+              문구를 수정하면 해시 비교로 자동 감지되어 해당 항목만 재생성된다.
+
+        사용법:
+            !tts생성        — 미생성·변경 항목만 생성
+            !tts생성 현황    — 생성 현황 확인
+        """
+        if target == "현황":
+            st = core.tts_preset.stats()
+            await ctx.send(
+                f"🔊 **TTS 사전 생성 현황**\n"
+                f"> 파일 {st['files']}개 ({st['mb']}MB)\n"
+                f"> 대상 {st['targets']}종 · 미생성 {st['pending']}종"
+            )
+            return
+
+        st = core.tts_preset.stats()
+        if st["pending"] == 0:
+            await ctx.send(f"✅ 이미 최신입니다. (파일 {st['files']}개 / {st['mb']}MB)")
+            return
+
+        msg = await ctx.send(
+            f"⏳ 사전 생성 시작 — {st['pending']}종\n"
+            f"> 합성 비용이 발생합니다. 완료 후 런타임 호출은 0이 됩니다."
+        )
+
+        async def progress(text):
+            try:
+                await msg.edit(content=f"⏳ {text}")
+            except Exception:
+                pass
+
+        result = await core.tts_preset.build(self.bot, progress=progress)
+        await msg.edit(content=(
+            f"✅ **TTS 사전 생성 완료**\n"
+            f"> 생성 {result['built']}종 · 건너뜀 {result['skipped']}종 · "
+            f"실패 {result['failed']}종\n"
+            f"> 합성 비용 {result['cost_krw']}원 (이후 재합성 없음)"
+        ))
 
     @commands.command(name="배포")
     @commands.is_owner()
