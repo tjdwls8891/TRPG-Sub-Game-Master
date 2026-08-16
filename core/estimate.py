@@ -130,6 +130,8 @@ def estimate_input_tokens(session, action: str = "PROCEED") -> dict:
         # 원인을 드러내고, 최소한 캐시 외 입력이 0이 되지 않도록 보수적 기본값을 쓴다.
         print(f"⚠️ [예측] 프롬프트 조립 실패 — 기본값 사용: {type(e).__name__}: {e}")
         body = FALLBACK_BODY_TOKENS
+    calib = get_calibration(session)
+    body = int(body * calib)
     out["instruction"] = body
     out["narration"] = body
 
@@ -149,6 +151,9 @@ def estimate_input_tokens(session, action: str = "PROCEED") -> dict:
     # 추출층위 — 묘사문(최대 3000자) + 타겟 목록
     narr_hi = _out_range(session, "narration", "narration_out")[1]
     out["extraction"] = min(int(narr_hi), _tok("x" * 3000)) + 300
+
+    # 다음 턴 실측과 대조하기 위해 예측값을 보관한다(런타임 전용).
+    session._last_input_estimate = dict(out)
     return out
 
 
@@ -248,9 +253,55 @@ def estimate_session_open(session, hours: float) -> dict:
     }
 
 
+def record_actual_input(session, layer: str, fresh_tokens: int) -> dict | None:
+    """예측 입력과 실측 입력을 대조해 문자→토큰 계수를 자동 보정한다.
+
+    CHARS_TO_TOKENS는 한국어 근사값이므로 시나리오·프롬프트 구성에 따라
+    실제와 어긋난다. 매 턴 오차를 누적해 세션별 보정 계수를 학습한다.
+
+    Args:
+        layer: 'instruction' | 'narration' 등
+        fresh_tokens: 실제 신선 입력 토큰 (In - Cached)
+
+    Returns:
+        {"predicted": int, "actual": int, "error_pct": float, "calib": float}
+        예측값이 없으면 None
+    """
+    pred_map = getattr(session, "_last_input_estimate", None)
+    if not isinstance(pred_map, dict):
+        return None
+    predicted = pred_map.get(layer)
+    if not predicted or fresh_tokens <= 0:
+        return None
+
+    st = _stats(session)
+    entry = st.get("_calib") or {"n": 0, "ratio": 1.0}
+    # 실측/예측 비율의 누적 평균 = 보정 계수
+    ratio = fresh_tokens / predicted
+    n = entry["n"] + 1
+    entry["ratio"] = entry["ratio"] + (ratio - entry["ratio"]) / n
+    entry["n"] = n
+    st["_calib"] = entry
+
+    err = (predicted - fresh_tokens) / fresh_tokens * 100
+    print(f"[EST] {layer} 예측={predicted:,} 실제={fresh_tokens:,} "
+          f"오차 {err:+.1f}% | 보정계수 {entry['ratio']:.3f} (n={n})")
+    return {"predicted": predicted, "actual": fresh_tokens,
+            "error_pct": round(err, 1), "calib": round(entry["ratio"], 3)}
+
+
+def get_calibration(session) -> float:
+    """학습된 보정 계수. 표본이 없으면 1.0."""
+    entry = _stats(session).get("_calib")
+    if not entry or entry.get("n", 0) < 2:
+        return 1.0
+    # 극단값 방어 — 0.5~2.0 범위로 제한
+    return max(0.5, min(2.0, float(entry.get("ratio", 1.0))))
+
+
 def format_estimate(est: dict, tts: dict | None = None) -> str:
     """디스플레이 표기용 문자열. TTS는 합산하지 않고 구분 표기한다(기획 규정)."""
-    mark = {"low": "?", "mid": "~", "high": ""}.get(est.get("confidence", "low"), "")
+    mark = {"low": " (표본 부족)", "mid": "", "high": ""}.get(est.get("confidence", "low"), "")
     line = f"이번 턴 예상: {est['min_ink']}~{est['max_ink']}잉크{mark}"
     if tts:
         line += f"\n        TTS: +{tts.get('min_ink', 0)}~{tts.get('max_ink', 0)}잉크"

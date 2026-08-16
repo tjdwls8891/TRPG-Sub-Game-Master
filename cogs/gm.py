@@ -1265,6 +1265,18 @@ class GMCog(commands.Cog):
         cache_model = getattr(session, "cache_model", None)
         do_simulation = bool(cache_name and cache_model == core.DEFAULT_MODEL)
 
+        # 이번 턴 예상 비용 — 디스플레이 채널 도입 전까지 마스터 채널에 보고한다.
+        try:
+            est = core.estimate_turn(session, "PROCEED")
+            session.last_estimate = est
+            await m_send(
+                f"💰 **[예상]** {core.format_estimate(est)}\n"
+                f"> 입력 {est['input_tokens']['instruction']:,} + 캐시 "
+                f"{est['input_tokens']['cached']:,} 토큰 기준"
+            )
+        except Exception as e:
+            print(f"[EST] 예상 산출 실패(진행에는 영향 없음): {e}")
+
         # 플레이어가 보는 게임 채널에 판단 대기 안내 (판단 완료 후 삭제)
         status_msg = await core.send_status_message(
             game_ch, "🤔 *GM이 상황을 판단하는 중…*"
@@ -1683,6 +1695,8 @@ class GMCog(commands.Cog):
             # 캐시 읽기 실측 — 캐시에 구워진 지시문까지 포함된 실제 값.
             if cached_tokens > getattr(session, "cache_read_tokens", 0):
                 session.cache_read_tokens = cached_tokens
+            # 예측 대조 — 신선 입력(In - Cached)으로 문자→토큰 계수를 자동 보정한다.
+            core.record_actual_input(session, "instruction", in_tokens - cached_tokens)
             session.total_cost += cost
             core.write_cost_log(
                 session.session_id,

@@ -80,6 +80,8 @@ from .estimate import (
     estimate_input_tokens,
     estimate_turn,
     estimate_session_open,
+    record_actual_input,
+    get_calibration,
     format_estimate,
 )
 from .models import TRPGSession
@@ -165,6 +167,7 @@ __all__ = [
     # ink / accounts
     "CHARS_TO_TOKENS", "CONSERVATIVE_FACTOR", "update_stats",
     "estimate_input_tokens", "estimate_turn", "estimate_session_open", "format_estimate",
+    "record_actual_input", "get_calibration",
     "REWIND_MAX_TURNS", "TRACKED_PATHS", "capture_state", "diff_state",
     "record_delta", "record_full_log", "archive_removed", "available_range", "rewind_to",
     "serialize_log_entries", "read_jsonl",

@@ -113,6 +113,10 @@ class TRPGSession:
         # 실제 관측된 캐시 읽기 토큰 — 캐시 본문에 구워진 지시문까지 포함된 값.
         # cache_tokens(조립 텍스트 기준)와 다르므로 예측은 이 값을 우선 사용한다.
         self.cache_read_tokens = 0
+        # 직전 산출한 턴 예상치 (디스플레이 표시용)
+        self.last_estimate = {}
+        # 예측 대조용 직전 입력 추정값 — 런타임 전용(저장 안 함)
+        self._last_input_estimate = None
         # 비용 예측 통계 — 층위별 출력 토큰 이동평균 (세션 진행에 따라 수렴)
         self.cost_stats = {}
         # 되감기 — 마지막으로 델타를 기록한 턴 번호(중복 기록 방지)
