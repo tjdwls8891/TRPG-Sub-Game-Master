@@ -11,6 +11,7 @@ import core
 
 # 프롬프트 중앙 등록소에서 AI 프롬프트 상수 및 빌더 임포트
 from prompts import (
+    EXTRACTION_SYSTEM_INSTRUCTION,
     JUDGMENT_RESPONSE_SCHEMA,
     JUDGMENT_SYSTEM_INSTRUCTION,
     GM_LOGIC_RESPONSE_SCHEMA,
@@ -38,6 +39,8 @@ JUDGMENT_RECENT_LOGS = 5
 JUDGMENT_MODEL = core.DEFAULT_MODEL
 # 층위별 자체 재시도 횟수
 JUDGMENT_MAX_RETRIES = 2
+EXTRACTION_MODEL = core.DEFAULT_MODEL
+EXTRACTION_MAX_RETRIES = 2
 GM_LOGIC_MAX_RETRIES = 2
 
 MAX_ITERATIONS_PER_MESSAGE = 5
@@ -67,7 +70,7 @@ def _cap_display(cap, *, is_cost: bool = False) -> str:
 
 def _clean_proceed_instruction(instruction: str) -> str:
     """
-    지시층위이 생성한 proceed_instruction에서 마크다운 서식을 제거하고 단일 자연어 서술문으로 정제.
+    지시층위가 생성한 proceed_instruction에서 마크다운 서식을 제거하고 단일 자연어 서술문으로 정제.
     """
     if not instruction:
         return ""
@@ -242,7 +245,7 @@ def _build_logic_user_prompt(session, player_message: str, roll_results: list,
 
     # 최근 5회 PROCEED 이력 블록 조립
     # NOTE: 각 PROCEED의 지시사항 + 중간 컨텍스트(NARRATE/ASK/ROLL) + AI 묘사 출력 요약 포함.
-    # 지시층위이 직전 묘사 흐름을 인지하여 동일 상황 반복·정체를 방지하기 위함.
+    # 지시층위가 직전 묘사 흐름을 인지하여 동일 상황 반복·정체를 방지하기 위함.
     proceed_history = getattr(session, "auto_gm_proceed_history", [])
     if proceed_history:
         ph_lines = []
@@ -270,7 +273,7 @@ def _build_logic_user_prompt(session, player_message: str, roll_results: list,
         proceed_history_block = ""
 
     # NOTE: 이번 턴에 누적된 플레이어 발언·ASK 브리지·주사위 결과를 컨텍스트에 포함.
-    # ASK→플레이어 응답→ASK→... 연쇄 대화를 지시층위이 인지해야 중복 질문을 방지할 수 있음.
+    # ASK→플레이어 응답→ASK→... 연쇄 대화를 지시층위가 인지해야 중복 질문을 방지할 수 있음.
     current_turn_block = ""
     if session.current_turn_logs:
         current_turn_block = (
@@ -331,7 +334,7 @@ def _build_logic_user_prompt(session, player_message: str, roll_results: list,
         world_tl_block = ""
 
     # 정보 인지 원장 블록 (지속형): 비공개·플롯 정보별 '누가 아는가'의 확립된 기록.
-    # 지시층위이 info_access 필드로 갱신하며, 적·NPC가 도달 경로 없는 정보로 행동하지 않도록 하는 진실 기준.
+    # 지시층위가 info_access 필드로 갱신하며, 적·NPC가 도달 경로 없는 정보로 행동하지 않도록 하는 진실 기준.
     info_ledger = getattr(session, "info_ledger", []) or []
     if info_ledger:
         led_lines = []
@@ -399,7 +402,7 @@ def _build_logic_user_prompt(session, player_message: str, roll_results: list,
                 "■ 방향성 분석:\n"
                 + "\n".join(dir_lines)
                 + "※ impossible 방향은 세계관상 구조적 발생 불가.\n"
-                  "지시층위은 이 분석을 proceed_instruction·event_assessment 결정에 반드시 반영할 것.\n"
+                  "지시층위는 이 분석을 proceed_instruction·event_assessment 결정에 반드시 반영할 것.\n"
             )
         else:
             sim_block = ""
@@ -477,6 +480,51 @@ def _build_logic_user_prompt(session, player_message: str, roll_results: list,
 
 
 # ========== [GM 주사위 버튼 View] ==========
+class ExtractionRetryView(discord.ui.View):
+    """
+    추출층위 재시도 버튼 — persistent view.
+
+    NOTE: timeout=None + 고정 custom_id + bot.add_view() 등록 조합으로
+          봇 재시작 이후에도 버튼이 살아남는다. 추출 실패는 다음 턴을
+          차단하므로, 재시작으로 버튼이 죽으면 세션이 영구 정지한다.
+    """
+
+    def __init__(self, bot):
+        super().__init__(timeout=None)
+        self.bot = bot
+
+    @discord.ui.button(label="🔄 턴 정보 정리 재시도",
+                       style=discord.ButtonStyle.primary,
+                       custom_id="extraction:retry")
+    async def retry(self, interaction: discord.Interaction, _button: discord.ui.Button):
+        session = self.bot.active_sessions.get(interaction.channel.id)
+        if not session:
+            await interaction.response.send_message("세션을 찾을 수 없습니다.", ephemeral=True)
+            return
+        if not getattr(session, "extraction_pending", False):
+            await interaction.response.send_message("이미 정리가 완료되었습니다.", ephemeral=True)
+            return
+
+        await interaction.response.defer()
+        ctx_text = (getattr(session, "extraction_retry_ctx", {}) or {}).get("text", "")
+        if not ctx_text:
+            session.extraction_pending = False
+            await core.save_session_data(self.bot, session)
+            await interaction.followup.send("재시도할 원본이 없어 차단만 해제했습니다.", ephemeral=True)
+            return
+
+        cog = self.bot.get_cog("GMCog")
+        master_ch = self.bot.get_channel(session.master_ch_id) if getattr(session, "master_ch_id", None) else None
+        result = await cog._run_extraction(session, ctx_text, master_ch)
+        if result:
+            await core.save_session_data(self.bot, session)
+            await interaction.followup.send("✅ 턴 정보 정리가 완료되었습니다. 계속 진행하십시오.")
+            try:
+                await interaction.message.delete()
+            except Exception:
+                pass
+
+
 class GMRollView(discord.ui.View):
     """
     GM에서 ROLL 판정 시 플레이어에게 주사위 버튼을 제공하는 View.
@@ -887,7 +935,7 @@ class GMCog(commands.Cog):
 
     async def _finalize_round_and_process(self, session):
         """
-        모든 PC의 행동이 수집된 후 종합하여 지시층위을 호출.
+        모든 PC의 행동이 수집된 후 종합하여 지시층위를 호출.
         단일 PC면 그대로, 멀티 PC면 종합 메시지 생성 + 게임 채널에 요약 표시.
         """
         master_ch = self.bot.get_channel(session.master_ch_id)
@@ -925,6 +973,18 @@ class GMCog(commands.Cog):
         기존 자발적 플레이어 발언 처리 경로 (auto_gm_waiting_for 없을 때).
         락 획득 후 _process_actions 호출.
         """
+        # 추출층위 미완료 시 다음 턴 차단 (설계문서 1 §5)
+        if getattr(session, "extraction_pending", False):
+            try:
+                await message.channel.send(
+                    "⏸️ 이전 턴 정보 정리가 완료되지 않아 진행할 수 없습니다. "
+                    "위의 재시도 버튼을 눌러 주십시오.",
+                    delete_after=8,
+                )
+            except Exception:
+                pass
+            return
+
         master_ch = self.bot.get_channel(session.master_ch_id)
 
         async def m_send(content, **kw):
@@ -1005,7 +1065,7 @@ class GMCog(commands.Cog):
           5) 세션 저장 후, 여전히 활성이면 다음 라운드(선제 행동 질문) 시작
 
         Args:
-            event_assessment: PROCEED 계열에서 지시층위이 평가한 사건 상태.
+            event_assessment: PROCEED 계열에서 지시층위가 평가한 사건 상태.
                 None이면 서사 진행도 갱신을 건너뛴다(강제 PROCEED 폴백 경로).
         """
         if session.auto_gm_turn_cap is not None and (session.auto_gm_turns_done + 1) >= session.auto_gm_turn_cap:
@@ -1252,7 +1312,7 @@ class GMCog(commands.Cog):
         판단은 초단기 맥락과 선언만으로 가능하므로 세션 캐시를 읽지 않는다.
         ROLL 판정 명세(rolls)도 이 층위가 생성하므로, ROLL이 발생해도
         캐시 읽기는 뒤이은 지시층위 호출 1회로 유지된다.
-        (분리 이전에는 지시층위이 두 번 호출되어 캐시를 2회 읽었다.)
+        (분리 이전에는 지시층위가 두 번 호출되어 캐시를 2회 읽었다.)
 
         Returns:
             판단 결과 dict 또는 실패 시 None. 재시도는 이 함수 내부에서 처리한다.
@@ -1344,7 +1404,7 @@ class GMCog(commands.Cog):
 
         [캐시 활용 전략]
         세션 캐시(scenario_data + NPC 사전 + 세계관)가 유효한 경우, cached_content로 호출하여
-        지시층위이 시나리오 전체 컨텍스트를 읽도록 한다.
+        지시층위가 시나리오 전체 컨텍스트를 읽도록 한다.
 
         [방안 ①] GM_LOGIC_SYSTEM_INSTRUCTION은 세션 캐시 본문에 함께 구워져 있으므로,
         캐시 경로에서는 contents에 user_prompt만 넣는다(지시문이 캐시 읽기 단가로 처리됨):
@@ -1742,7 +1802,7 @@ class GMCog(commands.Cog):
 
         Args:
             session: TRPGSession
-            narrate_instruction (str): 지시층위이 생성한 경량 응답 지시문 (100자 이내)
+            narrate_instruction (str): 지시층위가 생성한 경량 응답 지시문 (100자 이내)
 
         Returns:
             str | None: 생성된 NARRATE 응답 텍스트 (스트리밍 완료 후). 실패 시 None.
@@ -1940,114 +2000,23 @@ class GMCog(commands.Cog):
         if ai_summary and getattr(session, "narrative_plan", {}).get("current_event"):
             session.narrative_plan["current_event"]["progress"] = ai_summary[:150]
 
-        # ── 방안 B: 세계 물리 타임라인 갱신 (백그라운드 태스크) ──
-        # ai_summary가 있을 때만 추출 실행. 실패해도 게임 진행에 영향 없음.
+        # ── 추출층위 (묘사 스트리밍과 동시 실행) ──
+        # 기존 _update_world_timeline을 흡수했다. 세계 타임라인 갱신은
+        # _run_extraction 내부에서 core.to_world_timeline으로 처리된다.
         if ai_summary:
-            asyncio.create_task(self._update_world_timeline(session, ai_summary))
+            asyncio.create_task(self._run_extraction(session, ai_summary))
 
         return result
 
 
-    # ─────────────────────────────────────────────────────────────
-    # 방안 B — 세계 물리 타임라인 갱신
-    # ─────────────────────────────────────────────────────────────
-
-    async def _update_world_timeline(self, session, ai_output_text: str):
-        """
-        PROCEED 완료 후 AI 묘사 텍스트를 분석하여 session.world_timeline을 갱신한다.
-        백그라운드 태스크로 실행됨. 실패해도 게임 진행에 영향 없음.
-
-        [추출 목표]
-        단순 감각 묘사가 아닌, 세계관 세력 배치·지역 규칙에 근거한 세계 상태를 기록한다.
-        지시층위의 고차원 개연성 판단(방안 6)의 기준 데이터로 활용된다.
-        """
-        existing_tl = getattr(session, "world_timeline", {})
-        existing_summary = (
-            f"기존: 위치={existing_tl.get('current_location', '미확인')}, "
-            f"시간대={existing_tl.get('time_of_day', '미확인')}, "
-            f"세력={existing_tl.get('faction_context', '미확인')}"
-        ) if existing_tl else "(없음)"
-
-        user_prompt = (
-            f"[기존 세계 상태]\n{existing_summary}\n\n"
-            f"[이번 묘사 텍스트]\n{ai_output_text[:600]}\n\n"
-            f"[시나리오 세계관 핵심 요소]\n"
-            f"{str(session.scenario_data.get('worldview', ''))[:400]}\n\n"
-            "위 묘사에서 세계 물리 상태를 추출하여 갱신하십시오.\n"
-            "세력·지역 규칙 등 세계관 논리가 확인 가능한 경우 반드시 faction_context에 명시하십시오."
-        )
-
-        try:
-            config = types.GenerateContentConfig(
-                system_instruction=WORLD_TIMELINE_EXTRACTOR_SYSTEM_INSTRUCTION,
-                temperature=0.2,
-                response_mime_type="application/json",
-                response_schema=WORLD_TIMELINE_EXTRACTION_SCHEMA,
-                safety_settings=core.TRPG_SAFETY_SETTINGS,
-            )
-            response = await asyncio.to_thread(
-                self.bot.genai_client.models.generate_content,
-                model=core.LOGIC_MODEL,
-                contents=[types.Content(role="user",
-                                        parts=[types.Part.from_text(text=user_prompt)])],
-                config=config,
-            )
-        except Exception as e:
-            print(f"[GM] 세계 타임라인 추출 실패: {e}")
-            return
-
-        # 비용 정산
-        try:
-            meta = response.usage_metadata
-            in_tokens, out_tokens, _cached_tokens, thought_tokens = core.extract_token_usage(meta)
-            breakdown  = core.calculate_text_gen_cost_breakdown(
-                core.LOGIC_MODEL, input_tokens=in_tokens, output_tokens=out_tokens)
-            cost = breakdown["total_krw"]
-            session.total_cost += cost
-            core.write_cost_log(session.session_id, f"{COST_LOG_PREFIX}세계 타임라인 갱신",
-                                 in_tokens, 0, out_tokens, cost, session.total_cost)
-        except Exception:
-            pass
-
-        raw_text = response.text or ""
-        try:
-            extracted = json.loads(raw_text)
-        except json.JSONDecodeError:
-            cleaned = re.sub(r"^```(?:json)?\s*|\s*```$", "", raw_text.strip(), flags=re.MULTILINE)
-            try:
-                extracted = json.loads(cleaned)
-            except Exception as e:
-                print(f"[GM] 세계 타임라인 JSON 파싱 실패: {e}")
-                return
-
-        # 기존 타임라인과 병합 (빈 문자열 필드는 기존 값 유지)
-        updated = dict(existing_tl)
-        for key, value in extracted.items():
-            if value != "" and value is not None:
-                updated[key] = value
-
-        # 누적 경과 시간 합산
-        elapsed = int(extracted.get("elapsed_minutes", 0) or 0)
-        updated["elapsed_minutes"] = int(existing_tl.get("elapsed_minutes", 0) or 0) + elapsed
-        updated["last_updated_turn"] = session.turn_count
-
-        session.world_timeline = updated
-        print(f"[GM/{session.session_id}] 세계 타임라인 갱신: {updated.get('current_location', '?')} / "
-              f"{updated.get('faction_context', '?')[:60]}")
-        await core.save_session_data(self.bot, session)
-
-    # ─────────────────────────────────────────────────────────────
-    # 방안 E — PROCEED 지시사항 자기 검증
-    # ─────────────────────────────────────────────────────────────
-
     async def _verify_proceed_instruction(self, session, instruction: str,
                                            player_message: str, master_ch) -> str:
         """
-        지시층위이 생성한 proceed_instruction에서 플레이어 자율성 침해 여부를 검증한다.
+        지시층위가 생성한 proceed_instruction에서 플레이어 자율성 침해 여부를 검증한다.
         위반 감지 시 corrected_instruction으로 교체하고 마스터 채널에 알림.
 
         Args:
-            instruction (str): 지시층위이 생성한 proceed_instruction
+            instruction (str): 지시층위가 생성한 proceed_instruction
             player_message (str): 플레이어의 원본 발언 (선언된 행동 확인용)
 
         Returns:
@@ -2672,3 +2641,10 @@ class GMCog(commands.Cog):
 async def setup(bot):
     """디스코드 봇이 이 파일을 로드할 때 호출되는 필수 설정 함수."""
     await bot.add_cog(GMCog(bot))
+
+    # persistent view 등록 — 봇 재시작 후에도 추출 재시도 버튼이 동작하도록 한다.
+    # 추출 실패는 다음 턴을 차단하므로, 버튼이 죽으면 세션이 영구 정지한다.
+    # 중복 등록은 무해하지만 방어적으로 플래그를 둔다.
+    if not getattr(bot, "_extraction_view_registered", False):
+        bot.add_view(ExtractionRetryView(bot))
+        bot._extraction_view_registered = True

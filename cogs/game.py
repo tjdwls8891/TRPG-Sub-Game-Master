@@ -316,7 +316,7 @@ class GameCog(commands.Cog):
 
             top_imgs, mid_imgs, bottom_imgs = [], [], []
             if cost_log_prefix:
-                # GM: 상: 태그만 허용 (지시층위이 location_images 목록에서 선택한 장소 이미지)
+                # GM: 상: 태그만 허용 (지시층위가 location_images 목록에서 선택한 장소 이미지)
                 # 중:/하: 태그는 여전히 무시 (AI의 임의 남발 방지)
                 for pos, kw in img_tags:
                     if pos == '상':
@@ -388,7 +388,7 @@ class GameCog(commands.Cog):
                 if not cost_log_prefix:
                     auto_gm_cog = self.bot.get_cog("GMCog")
                     if auto_gm_cog:
-                        await m_send("⏳ 지시사항 없음 — 지시층위이 현재 상황을 분석하여 진행 지시사항을 자동 생성합니다...")
+                        await m_send("⏳ 지시사항 없음 — 지시층위가 현재 상황을 분석하여 진행 지시사항을 자동 생성합니다...")
                         decision = await auto_gm_cog._call_gm_logic(session, "", [], master_ch)
                         if decision:
                             from cogs.gm import _clean_proceed_instruction

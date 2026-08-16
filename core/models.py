@@ -107,7 +107,11 @@ class TRPGSession:
         self.auto_gm_side_note = ""            # !자동 개입으로 주입된 GM 사이드 노트 (다음 호출에 1회 합류 후 비움)
         self.auto_gm_lock = False              # 동시 처리 방지용 락 (직렬화 시 무시)
         self.auto_gm_proceed_history = []      # 최근 PROCEED 이력 (지시사항+컨텍스트+AI요약, 반복 방지용)
-        self.info_ledger = []                  # 정보 인지 원장: 비공개·플롯 정보별 {info, known_by, suspected_by, origin, leaks} 누적 (지시층위이 갱신)
+        # 추출층위 상태 — 미완료(True)면 다음 턴 선언을 차단한다.
+        self.extraction_pending = False
+        self.extraction_retry_ctx = {}   # 재시도용 묘사 텍스트 등
+        self.last_extraction = {}        # 최근 추출 결과 (디스플레이·BGM 판단 입력)
+        self.info_ledger = []                  # 정보 인지 원장: 비공개·플롯 정보별 {info, known_by, suspected_by, origin, leaks} 누적 (지시층위가 갱신)
         self.cache_model = None                # 현재 활성 캐시에 사용된 모델 ID (캐시 생성 후 설정)
 
         # ========== [멀티플레이어 자동진행 상태 (#22)] ==========

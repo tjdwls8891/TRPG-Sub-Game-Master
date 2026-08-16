@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Gemini API + discord.py 기반의 한국어 TRPG 보조 GM 디스코드 봇. GM이 마스터 채널에서 명령어를 입력하면 AI가 묘사를 생성하고, 비용 추적·캐시 관리·기억 압축·BGM/이미지 연출·GM 진행을 자동화한다.
 
-현재 버전: **v4.3.1**  
+현재 버전: **v4.4.0**  
 총 소스코드: ~10,020줄 (core/ 패키지 ~3,080 [audio_mixer·tts 포함] / auto_gm.py 2,305 / game.py 1,310 / character.py 1,031 / prompts.py 1,019 / media.py 593 / system.py 342 / session.py 251 / main.py 95)
 
 > NOTE: `prompts.py`는 SYSTEM_INSTRUCTION 외에도 GM용 시스템 지시문·응답 스키마(지시층위, 서사 계획, 서사 방향성 시뮬레이터, 세계 타임라인 추출기)를 모두 보관하므로 ~1,019줄로 커졌다.
@@ -259,7 +259,7 @@ GM의 instruction에서 정규식으로 태그를 추출한 뒤 AI에게 전달�
 
 **멀티플레이어 라운드 수집**: PROCEED 완료 후 GM이 선제적으로 각 PC에게 행동을 순서대로 질문 (`_start_round` → `_ask_next_player`). `auto_gm_pending_players` 큐 기반 순차 수집, 전체 완료 시 지시층위 호출.
 
-**스탯 적용 분야 주입**: `_build_logic_user_prompt`가 시나리오의 `stat_descriptions` 딕셔너리를 읽어 `[PC 프로필]` 줄 끝에 인라인으로 추가한다. 지시층위이 `ROLL` 결정 시 어떤 스탯을 써야 할지 즉시 판단할 수 있다. `stat_descriptions`가 없는 시나리오에서는 기존과 동일하게 동작한다.
+**스탯 적용 분야 주입**: `_build_logic_user_prompt`가 시나리오의 `stat_descriptions` 딕셔너리를 읽어 `[PC 프로필]` 줄 끝에 인라인으로 추가한다. 지시층위가 `ROLL` 결정 시 어떤 스탯을 써야 할지 즉시 판단할 수 있다. `stat_descriptions`가 없는 시나리오에서는 기존과 동일하게 동작한다.
 
 ### Auto-GM PROCEED 이력 (반복 방지)
 
@@ -373,7 +373,7 @@ AI 묘사를 음성 채널에서 **단일 나레이터 보이스**로 읽어주�
 `PRICING_1M` 딕셔너리로 모델별 INPUT/OUTPUT/CACHE_READ/CACHE_STORAGE_PER_HOUR 단가를 관리한다. 모든 API 호출 후 `calculate_upload_cost()`로 KRW 비용을 계산해 `session.total_cost`에 누적하고 `write_cost_log()`로 `sessions/{id}/cost_log.txt`에 기록한다. 캐시 보관 비용은 초를 분 단위로 반올림하며 최대 21,600초(6시간) 상한을 적용한다. 환율은 1500 KRW/USD 고정.
 
 **턴 비용 임베드 (`build_turn_cost_embed`)**: `session.turn_cost_log` 항목은 `{"label", "cost", "in"?, "cached"?, "out"?, "manifest"?}` 형태다(토큰·manifest는 선택 — 없으면 비용만 렌더, 하위호환). 임베드는 호출별로 **토큰 내역(입력/캐시/신규/출력) + 비용**을 개별 필드로 펼치고, 전 호출의 `manifest`를 **중복 제거 합산**해 `[📥 입력에 주입된 정보]` 필드로 제시한 뒤 토큰 합계·턴 소계·누적을 붙인다.
-- **manifest(입력 주입 목록)**: 프롬프트 빌더가 실제 주입한 온디맨드 블록을 기록한다. PROCEED는 `PromptBuilder.build_prompt`가 `session.last_proceed_manifest`에(압축 기억·실시간 노트·NPC 오버라이드 n명·키워드북 목록), 지시층위은 `_build_logic_user_prompt`가 `session.auto_gm_last_logic_manifest`에(키워드북·세계 타임라인·정보 원장 n건·서사 계획·서사 시뮬 n방향·PROCEED 이력 n건·압축 기억) 기록. 둘 다 비영속 임시값. **키워드북 항목명이 그대로 표시되므로** 어느 문파·지역 항목이 입력을 부풀렸는지 즉시 진단 가능(비용 폭증 원인 추적에 직결).
+- **manifest(입력 주입 목록)**: 프롬프트 빌더가 실제 주입한 온디맨드 블록을 기록한다. PROCEED는 `PromptBuilder.build_prompt`가 `session.last_proceed_manifest`에(압축 기억·실시간 노트·NPC 오버라이드 n명·키워드북 목록), 지시층위는 `_build_logic_user_prompt`가 `session.auto_gm_last_logic_manifest`에(키워드북·세계 타임라인·정보 원장 n건·서사 계획·서사 시뮬 n방향·PROCEED 이력 n건·압축 기억) 기록. 둘 다 비영속 임시값. **키워드북 항목명이 그대로 표시되므로** 어느 문파·지역 항목이 입력을 부풀렸는지 즉시 진단 가능(비용 폭증 원인 추적에 직결).
 - **`!정보` 비용 보고**: 답변 송출 후 `build_text_gen_cost_embed`로 토큰 내역 + `[📥 입력에 주입된 정보]`(캐시 룰북 + 매칭된 키워드북 항목명)를 임베드로 보고한다.
 
 ## 시나리오 JSON 작성 시 주의사항
