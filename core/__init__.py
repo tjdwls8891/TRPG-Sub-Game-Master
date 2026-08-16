@@ -11,6 +11,7 @@
 #   resilience — API 재시도·타임아웃 차단·오류 로그
 #   stats      — 누적 플레이 통계 (계정과 분리된 저장소)
 #   display    — 디스플레이 채널 (단일 메시지 편집, persistent UI)
+#   chat_guard — 채팅 차단 (채널별 권한 검증 단일 훅)
 #   accounts   — 유저 계정 저장 계층 (등록 여부, 약관 버전, 잉크 잔액 원장)
 #   models     — TRPGSession 데이터 모델
 #   cost       — 비용 산출 함수
@@ -123,6 +124,7 @@ from .resilience import (
     USER_FACING_NOTICE,
 )
 from . import stats
+from .chat_guard import chat_guard, NOTICE_SECONDS
 from .display import build_embed, DisplayView, refresh as refresh_display
 from .models import TRPGSession
 from .cost import (
@@ -205,6 +207,7 @@ __all__ = [
     "DEFAULT_MODEL", "LOGIC_MODEL", "IMAGE_MODEL", "EXCHANGE_RATE",
     "MIN_CACHE_TOKENS", "INK_UNIT_KRW", "INK_NET_KRW", "INK_PLANS",
     # ink / accounts
+    "chat_guard", "NOTICE_SECONDS",
     "build_embed", "DisplayView", "refresh_display",
     "DEFAULT_MEDIA_FLAGS", "get_media_flags", "set_media_flag", "is_enabled",
     "tension_band", "select_bgm", "describe_bgm_pending", "format_flags", "sync_tts_flag",

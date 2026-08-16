@@ -59,7 +59,17 @@ class SessionCog(commands.Cog):
         }
         master_ch = await guild.create_text_channel(f"master-{session_id}", category=category, overwrites=overwrites)
 
+        # 디스플레이 채널 — 상태 표기와 UI 전용. 채팅은 봇만 가능하게 막는다.
+        # 기획 규정상 세션은 음성·게임·디스플레이 3채널로 구성된다.
+        display_overwrites = {
+            guild.default_role: discord.PermissionOverwrite(send_messages=False),
+            guild.me: discord.PermissionOverwrite(send_messages=True),
+        }
+        display_ch = await guild.create_text_channel(
+            f"display-{session_id}", category=category, overwrites=display_overwrites)
+
         session = core.TRPGSession(session_id, game_ch.id, master_ch.id, scenario_id, scenario_data)
+        session.display_ch_id = display_ch.id
 
         try:
             await ctx.send("⏳ 시나리오 설정 및 장기 기억 캐싱 중...")
@@ -103,6 +113,9 @@ class SessionCog(commands.Cog):
 
         self.bot.active_sessions[game_ch.id] = session
         self.bot.active_sessions[master_ch.id] = session
+        # 디스플레이 채널에서도 세션을 찾을 수 있어야 UI 버튼이 동작한다.
+        if getattr(session, "display_ch_id", None):
+            self.bot.active_sessions[session.display_ch_id] = session
         await core.save_session_data(self.bot, session)
 
         await ctx.send(f"🎉 세션 준비 완료!\n플레이어 채널: {game_ch.mention}\n마스터 채널: {master_ch.mention}")
@@ -134,6 +147,12 @@ class SessionCog(commands.Cog):
             return await ctx.send("⚠️ 이미 시작된 세션입니다. 한 세션에서 `!시작` 명령어는 한 번만 사용할 수 있습니다.")
 
         session.is_started = True
+
+        # 디스플레이 초기 렌더 (기획서 갱신 시점 ① 고정정보)
+        try:
+            await core.refresh_display(self.bot, session, reason="session_start")
+        except Exception as e:
+            print(f"[디스플레이] 초기 렌더 실패: {e}")
         await core.save_session_data(self.bot, session)
 
         # ── 게임 채널 초기화: 기존 메시지 전체 삭제 ──

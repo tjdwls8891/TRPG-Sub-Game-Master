@@ -20,9 +20,13 @@ def _cleanup_session_memory(bot, channel_id: int):
     """
     if channel_id in bot.active_sessions:
         session = bot.active_sessions.pop(channel_id)
-        other_id = session.game_ch_id if channel_id == session.master_ch_id else session.master_ch_id
-        if other_id in bot.active_sessions and bot.active_sessions[other_id] is session:
-            bot.active_sessions.pop(other_id)
+        # 같은 세션을 가리키는 나머지 채널 키를 모두 해제한다.
+        # 디스플레이 채널이 추가되면서 키가 3개가 되었다.
+        for other_id in (session.game_ch_id, session.master_ch_id,
+                         getattr(session, "display_ch_id", None)):
+            if other_id and other_id in bot.active_sessions \
+                    and bot.active_sessions[other_id] is session:
+                bot.active_sessions.pop(other_id)
 
         # 압축 선결제 미정산분 정산 (기획 확정 사항)
         # 압축 전에 세션이 끝나면 실제 발생분은 0이므로 전액 환급 대상이 된다.

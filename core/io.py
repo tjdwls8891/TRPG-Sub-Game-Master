@@ -75,6 +75,7 @@ SESSION_FIELDS: dict = {
     "world_timeline": {},
     "display_ch_id": None,
     "display_msg_id": None,
+    "awaiting_display_input": False,
     "is_private": False,
     "pending_bgm": None,
     "media_flags": {},

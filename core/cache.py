@@ -473,6 +473,9 @@ async def restore_sessions_from_disk(bot):
 
                 bot.active_sessions[session.game_ch_id] = session
                 bot.active_sessions[session.master_ch_id] = session
+                # 디스플레이 채널 — UI 버튼이 세션을 찾으려면 함께 등록해야 한다.
+                if getattr(session, "display_ch_id", None):
+                    bot.active_sessions[session.display_ch_id] = session
                 print(f"✅ 세션 {session_id} 복구 완료.")
 
             except Exception as e:

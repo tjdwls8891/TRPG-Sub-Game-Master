@@ -69,6 +69,20 @@ class TRPGBot(commands.Bot):
                     # WARNING: 모듈 로드 실패 시 봇은 구동되나 특정 기능이 누락되므로 로그 확인 요망.
                     print(f"⚠️ 모듈 로드 실패 ({filename}): {e}")
 
+    async def on_message(self, message):
+        """
+        채팅 이벤트의 최우선 진입점.
+
+        NOTE: 권한 검증을 봇 레벨 단일 훅으로 올린다(설계문서 6).
+              cog마다 흩어져 있으면 새 채널 유형이 추가될 때 누락이 생긴다.
+              차단된 메시지는 process_commands로 넘기지 않으므로 명령어도
+              실행되지 않는다. cog의 on_message 리스너는 이 훅과 무관하게
+              별도로 발화하므로, 각 리스너도 자체 조건을 유지한다.
+        """
+        if not await core.chat_guard(self, message):
+            return
+        await self.process_commands(message)
+
     async def on_ready(self):
         """
         봇 로그인 및 모든 Cogs 로드 후 1회 실행되는 초기화 이벤트.

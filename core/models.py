@@ -116,6 +116,8 @@ class TRPGSession:
         # 디스플레이 채널 — 상태 표기와 UI를 단일 메시지로 유지한다
         self.display_ch_id = None
         self.display_msg_id = None
+        # 디스플레이 채널에서 1회 텍스트 입력을 기다리는 중인지
+        self.awaiting_display_input = False
         # 비공개 세션 여부
         self.is_private = False
         # 미디어 온오프 토글 (이미지·TTS·BGM·효과음)
