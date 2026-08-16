@@ -522,6 +522,10 @@ class RewindConfirmView(discord.ui.View):
             await interaction.followup.send(f"⚠️ {result['reason']}")
             return
         await core.save_session_data(self.bot, self.session)
+        try:
+            await core.refresh_display(self.bot, self.session, reason="rewind")
+        except Exception as e:
+            print(f"[디스플레이] 되감기 갱신 실패: {e}")
         msg = (
             f"⏪ **{self.target_turn}턴 종료 시점으로 되돌렸습니다.**\n"
             f"> 제거된 턴: {', '.join(str(t) for t in result['removed_turns'])}\n"
@@ -1244,6 +1248,12 @@ class GMCog(commands.Cog):
                 print(f"[되감기] 델타 기록 실패(진행에는 영향 없음): {e}")
 
         await core.save_session_data(self.bot, session)
+
+        # 디스플레이 갱신 — 턴 종료 계층 (기획서 갱신 시점 ②)
+        try:
+            await core.refresh_display(self.bot, session, reason="turn_end")
+        except Exception as e:
+            print(f"[디스플레이] 턴 종료 갱신 실패: {e}")
 
         if session.auto_gm_active:
             await self._start_round(session)
@@ -3101,4 +3111,5 @@ async def setup(bot):
     if not getattr(bot, "_extraction_view_registered", False):
         bot.add_view(ExtractionRetryView(bot))
         bot.add_view(RewindView(bot))
+        bot.add_view(core.DisplayView(bot))
         bot._extraction_view_registered = True

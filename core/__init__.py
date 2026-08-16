@@ -10,6 +10,7 @@
 #   media_control — BGM 상황 선택, 미디어 온오프 토글
 #   resilience — API 재시도·타임아웃 차단·오류 로그
 #   stats      — 누적 플레이 통계 (계정과 분리된 저장소)
+#   display    — 디스플레이 채널 (단일 메시지 편집, persistent UI)
 #   accounts   — 유저 계정 저장 계층 (등록 여부, 약관 버전, 잉크 잔액 원장)
 #   models     — TRPGSession 데이터 모델
 #   cost       — 비용 산출 함수
@@ -122,6 +123,7 @@ from .resilience import (
     USER_FACING_NOTICE,
 )
 from . import stats
+from .display import build_embed, DisplayView, refresh as refresh_display
 from .models import TRPGSession
 from .cost import (
     extract_token_usage,
@@ -203,6 +205,7 @@ __all__ = [
     "DEFAULT_MODEL", "LOGIC_MODEL", "IMAGE_MODEL", "EXCHANGE_RATE",
     "MIN_CACHE_TOKENS", "INK_UNIT_KRW", "INK_NET_KRW", "INK_PLANS",
     # ink / accounts
+    "build_embed", "DisplayView", "refresh_display",
     "DEFAULT_MEDIA_FLAGS", "get_media_flags", "set_media_flag", "is_enabled",
     "tension_band", "select_bgm", "describe_bgm_pending", "format_flags", "sync_tts_flag",
     "call_with_retry", "get_timeout", "write_error_log",
