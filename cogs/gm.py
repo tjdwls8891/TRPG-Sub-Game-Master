@@ -1195,7 +1195,24 @@ class GMCog(commands.Cog):
             state_before = core.capture_state(session)
         cost_before = getattr(session, "total_cost", 0.0)
 
-        await self._dispatch_proceed(session, instruction)
+        # 대기 중인 BGM 재생 — 기획 규정상 온 직후가 아니라 다음 스트리밍 시작 시점이다.
+        pending = getattr(session, "pending_bgm", None)
+        if pending and core.is_enabled(session, "bgm"):
+            try:
+                media_cog = self.bot.get_cog("MediaCog")
+                if media_cog and await media_cog.start_bgm(session, pending):
+                    session.pending_bgm = None
+            except Exception as e:
+                print(f"[BGM] 재생 실패(진행에는 영향 없음): {e}")
+
+        proceed_ok = await self._dispatch_proceed(session, instruction)
+        if proceed_ok is None:
+            # 묘사층위 실패 — 턴을 성립시키지 않는다.
+            # 카운터·델타를 올리면 실패한 턴이 진행된 것으로 기록된다.
+            await core.save_session_data(self.bot, session)
+            if session.auto_gm_active:
+                await self._start_round(session)
+            return
 
         if event_assessment is not None:
             await self._update_narrative_progress(session, event_assessment, master_ch)
@@ -2164,7 +2181,13 @@ class GMCog(commands.Cog):
     # ─────────────────────────────────────────────────────────────
 
     async def _dispatch_proceed(self, session, instruction: str):
-        """기존 GameCog._execute_proceed를 호출하여 묘사 생성·연출."""
+        """기존 GameCog._execute_proceed를 호출하여 묘사 생성·연출.
+
+        Returns:
+            성공 시 결과 dict, 실패 시 None.
+            None은 '턴이 성립하지 않았음'을 뜻하며 호출부가 카운터 증가를
+            건너뛰는 신호가 된다.
+        """
         game_cog = self.bot.get_cog("GameCog")
         if not game_cog:
             master_ch = self.bot.get_channel(session.master_ch_id)
@@ -2207,6 +2230,32 @@ class GMCog(commands.Cog):
                 except Exception:
                     pass
                 break
+
+        # ── 묘사층위 실패 감지 (설계문서 6) ──
+        # 새 model 응답이 전혀 없으면 묘사가 생성되지 않은 것이다.
+        # 판단·지시·추출과 달리 묘사는 플레이어에게 직접 노출되는 산출물이므로,
+        # 실패 시 턴을 취소하고 선언 질문으로 재시작한다(기획 규정).
+        if not ai_summary:
+            print(f"[GM/{session.session_id}] 묘사층위 실패 — 턴 취소")
+            core.write_error_log(session.session_id, "narration",
+                                 RuntimeError("묘사 출력 없음"), 1)
+            game_ch = self.bot.get_channel(session.game_ch_id)
+            last_decl = ""
+            try:
+                for c in reversed(session.raw_logs):
+                    if getattr(c, "role", None) == "user":
+                        last_decl = c.parts[0].text or ""
+                        break
+            except Exception:
+                pass
+            if game_ch:
+                await game_ch.send(core.build_failed_turn_notice(last_decl))
+            if master_ch:
+                await master_ch.send("⚠️ 묘사층위 실패 — 턴을 취소하고 선언 질문으로 되돌립니다.")
+            # 실패 턴의 잔재 제거. 플레이 로그에는 정상 선언 질문처럼 남는다.
+            session.current_turn_logs = []
+            session.auto_gm_side_note = ""
+            return None
 
         # 이력 누적 (최근 5개 유지)
         if not hasattr(session, "auto_gm_proceed_history"):

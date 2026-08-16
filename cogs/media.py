@@ -388,6 +388,95 @@ class MediaCog(commands.Cog):
             await ctx.send(f"▶️ BGM **'{filename}'**의 무한 반복 재생을 시작합니다.")
 
 
+    async def start_bgm(self, session, filename: str, *, notify=None) -> bool:
+        """
+        BGM 재생 코어 — ctx 없이 호출 가능하다.
+
+        NOTE: !브금 명령은 마스터 채널 검증에 묶여 있어 추출층위의 자동 전환에서
+              쓸 수 없었다. 재생 로직만 떼어내 자동·수동 양쪽이 공유하게 한다.
+
+        Args:
+            session: TRPGSession (voice_client가 연결돼 있어야 한다)
+            filename: 확장자 제외 파일명
+            notify: 안내 메시지를 보낼 코루틴 (선택)
+
+        Returns:
+            재생 시작 여부
+        """
+        vc = getattr(session, "voice_client", None)
+        if not (vc and vc.is_connected()):
+            return False
+
+        media_dir = f"media/{session.scenario_id}"
+        path = os.path.join(media_dir, f"{filename}.mp3")
+        if not os.path.exists(path):
+            print(f"[BGM] 파일 없음: {path}")
+            return False
+
+        mixer = core.ensure_mixer(self.bot, vc)
+
+        def make_source():
+            opts = {'options': '-vn -sn -ar 48000 -ac 2'}
+            src = discord.FFmpegPCMAudio(
+                os.path.join(media_dir, f"{session.current_bgm}.mp3"), **opts)
+            return discord.PCMVolumeTransformer(src, volume=getattr(session, "volume", 0.3))
+
+        def loop_cb():
+            if not getattr(session, "is_bgm_looping", False):
+                return
+            vc2 = session.voice_client
+            if not (vc2 and vc2.is_connected()):
+                return
+            mx = core.get_mixer(vc2)
+            if mx is None:
+                return
+            if not os.path.exists(os.path.join(media_dir, f"{session.current_bgm}.mp3")):
+                return
+            try:
+                mx.set_base(make_source(), on_exhausted=loop_cb)
+            except Exception as e:
+                print(f"⚠️ BGM 루프 생성 중 오류: {e}")
+
+        fade_task = getattr(session, "fade_task", None)
+        if fade_task and not fade_task.done():
+            fade_task.cancel()
+            session.is_fading = False
+
+        prev = getattr(session, "current_bgm", None)
+        session.current_bgm = filename
+        session.is_bgm_looping = True
+
+        if mixer.has_base() and prev:
+            # 전환은 페이드로 처리한다(기획 규정).
+            session.is_fading = True
+
+            async def fade_and_swap():
+                try:
+                    vs = core.active_volume_source(vc)
+                    if vs is not None:
+                        for _ in range(20):
+                            if not mixer.has_base():
+                                break
+                            vs.volume = vs.volume * 0.8
+                            await asyncio.sleep(0.1)
+                    mixer.set_base(make_source(), on_exhausted=loop_cb)
+                except asyncio.CancelledError:
+                    pass
+                finally:
+                    session.is_fading = False
+
+            session.fade_task = self.bot.loop.create_task(fade_and_swap())
+        else:
+            mixer.set_base(make_source(), on_exhausted=loop_cb)
+
+        if notify:
+            try:
+                await notify(f"🎵 BGM: **{filename}**")
+            except Exception:
+                pass
+        return True
+
+
     @commands.command(name="플리")
     async def playlist_control(self, ctx, action: str, scenario_id: str = None):
         """
