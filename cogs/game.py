@@ -840,7 +840,10 @@ class GameCog(commands.Cog):
         total_in = total_out = 0
         enqueued = 0
         for t in texts:
-            pcm, cost, in_tok, out_tok = await core.synthesize_tts_pcm(self.bot, t, voice_name=voice_name)
+            # 캐시 경유 — 짧은 고정 문구(확인 메시지·소개글 등)는 재합성하지 않는다.
+            # 턴 묘사처럼 매번 다른 텍스트는 is_cacheable에서 걸러져 그대로 합성된다.
+            pcm, cost, in_tok, out_tok = await core.tts_cache.synthesize_cached(
+                self.bot, t, voice_name=voice_name)
             if pcm:
                 mixer.enqueue_voice(core.PCMBytesAudioSource(pcm, volume=core.TTS_NARRATION_VOLUME))
                 enqueued += 1
@@ -882,7 +885,7 @@ class GameCog(commands.Cog):
         async def _synth(spoken):
             if not spoken:
                 return (b"", 0.0, 0, 0)
-            return await core.synthesize_tts_pcm(self.bot, spoken, voice_name=voice_name)
+            return await core.tts_cache.synthesize_cached(self.bot, spoken, voice_name=voice_name)
 
         total_cost = 0.0
         total_in = total_out = 0

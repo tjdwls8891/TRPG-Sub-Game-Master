@@ -113,6 +113,8 @@ class TRPGSession:
         # 실제 관측된 캐시 읽기 토큰 — 캐시 본문에 구워진 지시문까지 포함된 값.
         # cache_tokens(조립 텍스트 기준)와 다르므로 예측은 이 값을 우선 사용한다.
         self.cache_read_tokens = 0
+        # 비정규 NPC 등록부 — 즉석 등장 인물의 이미지·목소리를 유지한다
+        self.irregular_npcs = {}
         # 디스플레이 채널 — 상태 표기와 UI를 단일 메시지로 유지한다
         self.display_ch_id = None
         self.display_msg_id = None

@@ -2411,6 +2411,29 @@ class GMCog(commands.Cog):
                 f"부여={applied['applied']} 해제={applied['cleared']}"
             )
 
+        # ── 비정규 NPC 결정 (설계문서 6) ──
+        # 추출층위의 npcs_met에서 정규 등록·이미지가 없는 인물을 골라
+        # 이미지·목소리를 배정하고 세션에 고정한다. 같은 인물이 다시 등장해도
+        # 동일한 미디어가 유지된다.
+        # 이미지 토글이 꺼져 있으면 이미지 배정을 생략한다(기획 규정).
+        try:
+            unknown = core.irregular_npc.needs_resolution(session, result.get("npcs_met") or [])
+            if unknown:
+                pool = core.irregular_npc.irregular_image_pool(session)
+                use_image = core.is_enabled(session, "image")
+                for i, name in enumerate(unknown):
+                    key = ""
+                    if use_image and pool:
+                        key = pool[(len(core.irregular_npc.get_registry(session)) + i) % len(pool)]
+                    core.irregular_npc.register(
+                        session, name, image_key=key,
+                        context=(result.get("situation") or {}).get("tag", ""),
+                        turn=getattr(session, "turn_count", 0),
+                    )
+                print(f"[GM/{session.session_id}] 비정규 NPC 등록: {unknown}")
+        except Exception as e:
+            print(f"[비정규NPC] 결정 실패(진행에는 영향 없음): {e}")
+
         # ── BGM 자동 전환 (설계문서 6) ──
         # 추출층위의 situation을 소비한다. 상황이 그대로면 select_bgm이 None을
         # 반환하므로 재생이 유지된다(기획 규정).

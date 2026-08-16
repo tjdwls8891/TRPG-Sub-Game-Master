@@ -174,6 +174,18 @@ async def maybe_send_speaker_image(channel, session, speaker: str) -> bool:
             candidate_filename = f"{speaker}.png"
 
     if not candidate_filename:
+        # 비정규 NPC — 즉석 등장 인물에게 배정된 이미지를 쓴다.
+        try:
+            from .irregular_npc import image_path_for
+            alt = image_path_for(session, speaker)
+        except Exception:
+            alt = None
+        if alt:
+            try:
+                await channel.send(file=discord.File(alt))
+                return True
+            except Exception:
+                return False
         return False
 
     filepath = os.path.join(media_dir, candidate_filename)
