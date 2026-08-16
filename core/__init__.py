@@ -3,6 +3,7 @@
 # 분리된 서브모듈:
 #   constants  — 전역 상수 (모델 ID, 환율, 안전 설정, 과금 단가표, 잉크 환산 상수)
 #   ink        — 게임머니 '잉크' 환산 (원화 비용 -> 차감 잉크, 충전 플랜 가격)
+#   extraction — 추출층위 (묘사 출력물에서 세계 상태·수치 추출, 임계값 대조)
 #   accounts   — 유저 계정 저장 계층 (등록 여부, 약관 버전, 잉크 잔액 원장)
 #   models     — TRPGSession 데이터 모델
 #   cost       — 비용 산출 함수
@@ -45,6 +46,16 @@ from .ink import (
     refund_ink,
 )
 from . import accounts
+from .extraction import (
+    COMMON_EXTRACTION_TARGETS,
+    EXTRACTION_RESPONSE_SCHEMA,
+    THRESHOLDS,
+    get_thresholds,
+    build_extraction_targets,
+    parse_extraction,
+    to_world_timeline,
+    summarize_for_report,
+)
 from .models import TRPGSession
 from .cost import (
     extract_token_usage,
@@ -126,6 +137,9 @@ __all__ = [
     "DEFAULT_MODEL", "LOGIC_MODEL", "IMAGE_MODEL", "EXCHANGE_RATE",
     "MIN_CACHE_TOKENS", "INK_UNIT_KRW", "INK_NET_KRW", "INK_PLANS",
     # ink / accounts
+    "COMMON_EXTRACTION_TARGETS", "EXTRACTION_RESPONSE_SCHEMA", "THRESHOLDS",
+    "get_thresholds", "build_extraction_targets", "parse_extraction",
+    "to_world_timeline", "summarize_for_report",
     "cost_to_ink", "ink_to_krw", "ink_to_net_krw", "plan_catalog",
     "can_afford", "format_ink", "refund_ink", "accounts",
     "TRPG_SAFETY_SETTINGS", "PRICING_1M", "IMAGE_OUTPUT_TOKENS_BY_RES",
