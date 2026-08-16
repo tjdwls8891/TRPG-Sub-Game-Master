@@ -223,7 +223,7 @@ class GameCog(commands.Cog):
         """
         입력된 지시사항과 현재 누적된 로그를 기반으로 다음 게임 턴의 상황을 생성 및 연출.
 
-        NOTE: 본체 로직은 _execute_proceed 헬퍼로 추출되어 있어, 자동 GM 모드(AutoGMCog)도
+        NOTE: 본체 로직은 _execute_proceed 헬퍼로 추출되어 있어, GM(GMCog)도
         동일한 코어를 공유한다. 이 명령 진입점은 컨텍스트 검증 후 헬퍼를 호출하는 얇은 래퍼.
         """
         session = self.bot.active_sessions.get(ctx.channel.id)
@@ -235,7 +235,7 @@ class GameCog(commands.Cog):
     async def _execute_proceed(self, session, instruction: str = "", *, master_guild=None,
                                 cost_log_prefix: str = "") -> dict:
         """
-        !진행 본체 — 명령 진입점과 자동 GM 모드(AutoGMCog)가 공유하는 코어 로직.
+        !진행 본체 — 명령 진입점과 GM(GMCog)가 공유하는 코어 로직.
 
         명령 컨텍스트(ctx)에 의존하지 않으며, 세션과 봇 객체만으로 동작.
         상태 메시지는 마스터 채널, 묘사는 게임 채널로 송출.
@@ -316,7 +316,7 @@ class GameCog(commands.Cog):
 
             top_imgs, mid_imgs, bottom_imgs = [], [], []
             if cost_log_prefix:
-                # 자동 GM 모드: 상: 태그만 허용 (GM-Logic이 location_images 목록에서 선택한 장소 이미지)
+                # GM: 상: 태그만 허용 (지시층위이 location_images 목록에서 선택한 장소 이미지)
                 # 중:/하: 태그는 여전히 무시 (AI의 임의 남발 방지)
                 for pos, kw in img_tags:
                     if pos == '상':
@@ -353,7 +353,7 @@ class GameCog(commands.Cog):
             status_tags = [(c.replace('_', ' '), s.replace('_', ' '))
                            for c, s in re.findall(status_pattern, instruction)]
 
-            # 자동 GM 모드에서는 유효한 상태이상 이름만 허용
+            # GM에서는 유효한 상태이상 이름만 허용
             valid_status_names = None
             if cost_log_prefix:
                 valid_status_names = set(core.get_merged_status_effects(session.scenario_data).keys())
@@ -386,12 +386,12 @@ class GameCog(commands.Cog):
                 # NOTE: Auto-GM 모드(cost_log_prefix가 있는 경우)는 항상 proceed_instruction이
                 # 채워진 채로 호출되므로 여기에 도달하지 않음. 수동 GM 모드 전용 분기.
                 if not cost_log_prefix:
-                    auto_gm_cog = self.bot.get_cog("AutoGMCog")
+                    auto_gm_cog = self.bot.get_cog("GMCog")
                     if auto_gm_cog:
-                        await m_send("⏳ 지시사항 없음 — GM-Logic이 현재 상황을 분석하여 진행 지시사항을 자동 생성합니다...")
+                        await m_send("⏳ 지시사항 없음 — 지시층위이 현재 상황을 분석하여 진행 지시사항을 자동 생성합니다...")
                         decision = await auto_gm_cog._call_gm_logic(session, "", [], master_ch)
                         if decision:
-                            from cogs.auto_gm import _clean_proceed_instruction
+                            from cogs.gm import _clean_proceed_instruction
                             auto_instr = _clean_proceed_instruction(decision.get("proceed_instruction", ""))
                             if auto_instr:
                                 clean_instruction = auto_instr
@@ -521,7 +521,7 @@ class GameCog(commands.Cog):
             turn_cost = breakdown["total_krw"]
             session.total_cost += turn_cost
 
-            label_prefix = "(자동 GM) " if cost_log_prefix else ""
+            label_prefix = "(GM) " if cost_log_prefix else ""
             core.write_cost_log(session.session_id, f"{cost_log_prefix}턴 진행 생성", in_tokens, cached_tokens, out_tokens, turn_cost,
                                 session.total_cost)
 
@@ -529,7 +529,7 @@ class GameCog(commands.Cog):
 
             # PROCEED 비용을 turn_cost_log에 적립한다.
             # NOTE: 턴 비용 보고 임베드는 더빙 합성 완료 후(아래)에 송출하여 TTS 비용까지 합산한다.
-            proceed_label = f"{'(자동 GM) ' if cost_log_prefix else ''}PROCEED 턴 묘사"
+            proceed_label = f"{'(GM) ' if cost_log_prefix else ''}묘사층위(PROCEED)"
             if not hasattr(session, "turn_cost_log"):
                 session.turn_cost_log = []
             session.turn_cost_log.append({
@@ -611,7 +611,7 @@ class GameCog(commands.Cog):
             status_msg = None
 
             # TTS 더빙(실험): 수동 !진행에서 토글 ON + 보이스 연결 시 '음성-텍스트 동기' 경로 사용.
-            # (문단별 음성 길이에 텍스트 스트리밍 속도를 맞춤.) 자동 GM(cost_log_prefix)·미연결 제외.
+            # (문단별 음성 길이에 텍스트 스트리밍 속도를 맞춤.) GM(cost_log_prefix)·미연결 제외.
             # dub: 더빙 합성 누적 결과 dict (비용·경고 처리는 출력 완료 후 일원화).
             dub = None
             dub_active = (
@@ -695,7 +695,7 @@ class GameCog(commands.Cog):
                         {"label": f"TTS 더빙({dub['enqueued']}/{dub['total']}문단)", "cost": dub["cost"],
                          "in": dub["in"], "cached": 0, "out": dub["out"]})
 
-            # 턴 비용 보고 임베드 송출 (PROCEED + GM-Logic 등 누적 + TTS 더빙 합산)
+            # 턴 비용 보고 임베드 송출 (PROCEED + 지시층위 등 누적 + TTS 더빙 합산)
             _turn_embed = core.build_turn_cost_embed(session.turn_count, session.turn_cost_log, session.total_cost)
             session.turn_cost_log.clear()
             await m_send(embed=_turn_embed)

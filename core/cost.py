@@ -273,7 +273,7 @@ def build_turn_cost_embed(turn_number: int, cost_log: list, total_cost: float) -
     """
     한 턴(PROCEED 직전)의 누적 비용을 배치 보고하는 Discord Embed 조립.
 
-    각 호출(시뮬·GM-Logic·PROCEED·TTS 등)을 개별 필드로 펼쳐 토큰 내역(입력/캐시/신규/출력)과
+    각 호출(시뮬·지시층위·PROCEED·TTS 등)을 개별 필드로 펼쳐 토큰 내역(입력/캐시/신규/출력)과
     비용을 보이고, 입력에 온디맨드로 주입된 정보 목록(키워드북·NPC 오버라이드·서사 계획·정보 원장 등)을
     합산해 별도 필드로 제시한다.
 

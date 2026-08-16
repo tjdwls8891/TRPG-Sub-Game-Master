@@ -1,6 +1,6 @@
 # TTS(음성 더빙) — Gemini native TTS로 한국어 텍스트를 합성하고 믹서 표준 PCM으로 변환
 #
-# [실험 기능] 단일 나레이터 보이스. NPC 개별 보이스·자동 GM 연동은 추후 단계.
+# [실험 기능] 단일 나레이터 보이스. NPC 개별 보이스 연동은 추후 단계.
 #
 # 파이프라인: 텍스트 정제 → Gemini TTS 호출(오디오 출력) → 24kHz mono PCM 추출
 #             → 48kHz stereo로 리샘플(audioop) → 믹서 voice 큐에 적재 가능한 bytes 반환

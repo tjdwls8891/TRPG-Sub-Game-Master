@@ -553,7 +553,7 @@ class MediaCog(commands.Cog):
             !더빙 켜기/on    — 켜기
             !더빙 끄기/off   — 끄기
 
-        NOTE: 수동 `!진행`에만 적용되며, 자동 GM 묘사·NPC 개별 보이스는 현재 미적용.
+        NOTE: 수동 `!진행`에만 적용되며, GM 묘사·NPC 개별 보이스는 현재 미적용.
         """
         session = self.bot.active_sessions.get(ctx.channel.id)
         if not session or ctx.channel.id != session.master_ch_id:

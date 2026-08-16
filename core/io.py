@@ -73,10 +73,10 @@ SESSION_FIELDS: dict = {
     "cached_worldview_sections": [],  # 캐시에 편입된 연고지(사문·근거지) keyword_memory 섹션 id — 온디맨드 중복 주입 억제용
     "narrative_plan": {},
     "world_timeline": {},
-    "info_ledger": [],  # 정보 인지 원장 (비공개 정보별 인지 주체 — GM-Logic이 누적 갱신)
+    "info_ledger": [],  # 정보 인지 원장 (비공개 정보별 인지 주체 — 지시층위이 누적 갱신)
     # TTS 음성 더빙 (실험)
     "tts_enabled": False,
-    # 자동 GM 설정
+    # GM 설정
     "auto_gm_active": False,
     "auto_gm_target_char": None,
     "auto_gm_turn_cap": None,

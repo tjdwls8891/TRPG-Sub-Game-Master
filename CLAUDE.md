@@ -4,12 +4,12 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## 프로젝트 개요
 
-Gemini API + discord.py 기반의 한국어 TRPG 보조 GM 디스코드 봇. GM이 마스터 채널에서 명령어를 입력하면 AI가 묘사를 생성하고, 비용 추적·캐시 관리·기억 압축·BGM/이미지 연출·자동 GM 진행을 자동화한다.
+Gemini API + discord.py 기반의 한국어 TRPG 보조 GM 디스코드 봇. GM이 마스터 채널에서 명령어를 입력하면 AI가 묘사를 생성하고, 비용 추적·캐시 관리·기억 압축·BGM/이미지 연출·GM 진행을 자동화한다.
 
-현재 버전: **v4.3.0**  
+현재 버전: **v4.3.1**  
 총 소스코드: ~10,020줄 (core/ 패키지 ~3,080 [audio_mixer·tts 포함] / auto_gm.py 2,305 / game.py 1,310 / character.py 1,031 / prompts.py 1,019 / media.py 593 / system.py 342 / session.py 251 / main.py 95)
 
-> NOTE: `prompts.py`는 SYSTEM_INSTRUCTION 외에도 자동 GM용 시스템 지시문·응답 스키마(GM-Logic, 서사 계획, 서사 방향성 시뮬레이터, 세계 타임라인 추출기)를 모두 보관하므로 ~1,019줄로 커졌다.
+> NOTE: `prompts.py`는 SYSTEM_INSTRUCTION 외에도 GM용 시스템 지시문·응답 스키마(지시층위, 서사 계획, 서사 방향성 시뮬레이터, 세계 타임라인 추출기)를 모두 보관하므로 ~1,019줄로 커졌다.
 
 ## 실행 및 환경 설정
 
@@ -38,13 +38,13 @@ python main.py
 | `main.py` | TRPGBot, active_sessions, setup_hook, restore_sessions_from_disk |
 | `core/` | 전역 상수·모델·비용·IO·캐시·프롬프트·대화·미디어·UI·유틸 — 하위 서브모듈 참조 |
 | `core_legacy.py` | 분리 이전 원본 core.py 백업 (롤백용, 운영에 사용하지 않음) |
-| `prompts.py` | SYSTEM_INSTRUCTION (GM 페르소나·묘사 가이드·금지 사항) + 자동 GM 시스템 지시문·응답 스키마 모음 |
+| `prompts.py` | SYSTEM_INSTRUCTION (GM 페르소나·묘사 가이드·금지 사항) + GM 시스템 지시문·응답 스키마 모음 |
 | `cogs/session.py` | !새세션, !시작, !소개 |
 | `cogs/game.py` | !진행, !재생성, !출력물, !수정, !주사위, !기억압축, !노트, !캐시노트 |
 | `cogs/character.py` | !참가, !설정, !증감(스탯/자원/상태), !외형, !프로필, !엔피씨, !능력치, !설정생성 |
 | `cogs/media.py` | !이미지, !브금, !플리, !볼륨, !채팅, !더빙(TTS 토글) |
 | `cogs/system.py` | !명령어, !채널정리, !세션종료, !캐시, !리로드 |
-| `cogs/auto_gm.py` | `!자동` 명령어 그룹 (시작/중단/상태/개입/턴제한/비용제한/서사/재계획) — AI 자동 GM 모드 + 서사 계획 시스템 |
+| `cogs/gm.py` | `!자동` 명령어 그룹 (시작/중단/상태/개입/턴제한/비용제한/서사/재계획) — AI GM + 서사 계획 시스템 |
 
 ### core/ 패키지 서브모듈 구조
 
@@ -70,7 +70,7 @@ python main.py
 ## 주요 상수 (core/constants.py)
 
 ```python
-DEFAULT_MODEL = "gemini-3-flash-preview"   # 턴 묘사, 캐시, GM-Logic, NARRATE
+DEFAULT_MODEL = "gemini-3-flash-preview"   # 턴 묘사, 캐시, 지시층위, NARRATE
 LOGIC_MODEL   = "gemini-3-flash-preview"   # 기억 압축, 설정생성, 서사 계획 (Pro 모델은 주석 처리됨)
 IMAGE_MODEL   = "gemini-3.1-flash-image-preview"
 EXCHANGE_RATE = 1500.0
@@ -203,7 +203,7 @@ GM의 instruction에서 정규식으로 태그를 추출한 뒤 AI에게 전달�
 | `태:이름;상태` | `session.statuses[이름]`에 상태 추가 |
 | `태:이름;-상태` | `session.statuses[이름]`에서 상태 제거 |
 
-**띄어쓰기 = 언더바(_) 규약**: 태그 종결자가 공백이라 다단어 이름·항목·상태는 잘려 무시되던 문제를 해소하기 위해, 태그 값에 띄어쓰기가 필요하면 **언더바(_)로 표기**한다(예: `태:수적_세작;내상(중상)`, `태:유이설;내력_고갈`). `_execute_proceed`가 태그 추출 직후 `_`→공백으로 복원한다. GM-Logic·SYSTEM_INSTRUCTION 프롬프트가 이 규약을 지시하며, `!증감`도 입력의 `_`를 공백으로 정규화한다(`char_name`·`args` 일괄 변환). 또한 AI 묘사 응답에 남은 태그(에코 등)는 **코드블럭 인식 전에 방어적으로 스트립**한다(태그가 코드블럭 뒤에 붙어 상태창 코드블럭 인식이 깨지던 문제 해소).
+**띄어쓰기 = 언더바(_) 규약**: 태그 종결자가 공백이라 다단어 이름·항목·상태는 잘려 무시되던 문제를 해소하기 위해, 태그 값에 띄어쓰기가 필요하면 **언더바(_)로 표기**한다(예: `태:수적_세작;내상(중상)`, `태:유이설;내력_고갈`). `_execute_proceed`가 태그 추출 직후 `_`→공백으로 복원한다. 지시층위·SYSTEM_INSTRUCTION 프롬프트가 이 규약을 지시하며, `!증감`도 입력의 `_`를 공백으로 정규화한다(`char_name`·`args` 일괄 변환). 또한 AI 묘사 응답에 남은 태그(에코 등)는 **코드블럭 인식 전에 방어적으로 스트립**한다(태그가 코드블럭 뒤에 붙어 상태창 코드블럭 인식이 깨지던 문제 해소).
 
 ### !출력물 / !수정 시스템
 
@@ -220,14 +220,14 @@ GM의 instruction에서 정규식으로 태그를 추출한 뒤 AI에게 전달�
 - **NPC**: `npc_template.info_fields`가 시나리오에 정의된 경우 그 필드 목록을 그대로 출력 양식으로 사용. 미정의 시 기본 12항목 사용. 출력 포맷은 `**필드명**: 값` 형식이며, `!엔피씨 설정 [이름] [출력물 전체]`에 붙여넣으면 자동으로 구조화 파싱된다. `has_stats`/`has_resources`/`has_statuses` 플래그에 따라 스탯·자원·상태 필드와 `stat_system`도 프롬프트에 주입된다.
 - 특수 태그 `엔:이름[,이름]`으로 참조 NPC 설정 주입 가능
 
-### 자동 GM 모드 (Auto-GM)
+### GM (Auto-GM)
 
 `!자동 시작`이 호출된 세션에서만 활성화되는 옵트인 모드.
 
-**명령어 그룹**: 모든 자동 GM 명령어는 `commands.group(name="자동", invoke_without_command=True)` 하위로 통합되어 있다. 하위명령: `!자동 시작 (대상PC)` / `!자동 중단` / `!자동 상태` / `!자동 개입 [텍스트]` / `!자동 턴제한 [N|해제]` / `!자동 비용제한 [원|해제]` / `!자동 서사` / `!자동 재계획 [메모]`. 인자 없거나 미상 하위명령이면 그룹 콜백이 사용법을 출력한다. (서사 관련 명령어도 이 그룹에 포함됨.) 하위명령 메서드는 클래스 본문 뒤쪽에 정의돼도 `@auto.command`로 묶이며, 그룹 전환 후 첫 적용은 핫스왑보다 재시작 검증을 권장한다.
+**명령어 그룹**: 모든 GM 명령어는 `commands.group(name="자동", invoke_without_command=True)` 하위로 통합되어 있다. 하위명령: `!자동 시작 (대상PC)` / `!자동 중단` / `!자동 상태` / `!자동 개입 [텍스트]` / `!자동 턴제한 [N|해제]` / `!자동 비용제한 [원|해제]` / `!자동 서사` / `!자동 재계획 [메모]`. 인자 없거나 미상 하위명령이면 그룹 콜백이 사용법을 출력한다. (서사 관련 명령어도 이 그룹에 포함됨.) 하위명령 메서드는 클래스 본문 뒤쪽에 정의돼도 `@auto.command`로 묶이며, 그룹 전환 후 첫 적용은 핫스왑보다 재시작 검증을 권장한다.
 
 **아키텍처: 2-티어 AI 루프**
-- **Tier 1 (GM-Logic)**: `cogs/auto_gm.py`에서 `DEFAULT_MODEL`로 호출. `response_mime_type="application/json"` + `GM_LOGIC_RESPONSE_SCHEMA`로 강제된 결정 JSON 출력 (`action`: `ASK`/`NARRATE`/`ROLL`/`PROCEED` + `event_assessment`).
+- **Tier 1 (지시층위)**: `cogs/gm.py`에서 `DEFAULT_MODEL`로 호출. `response_mime_type="application/json"` + `GM_LOGIC_RESPONSE_SCHEMA`로 강제된 결정 JSON 출력 (`action`: `ASK`/`NARRATE`/`ROLL`/`PROCEED` + `event_assessment`).
 - **Tier 2 (묘사 생성)**: `GameCog._execute_proceed()` 헬퍼 직접 호출 (캐시 적중 그대로 활용).
 
 **메시지 라우팅**: `on_message`가 게임 채널 발언만 큐잉. 봇 메시지·`!`로 시작하는 메시지 무시.
@@ -235,7 +235,7 @@ GM의 instruction에서 정규식으로 태그를 추출한 뒤 AI에게 전달�
 **처리 루프**: `_run_gm_logic_loop`. `ASK`는 짧은 안내만 게임 채널에 송출 후 다음 발언 대기. `NARRATE`는 캐시 기반 경량 LLM 호출로 즉답 생성 후 대기. `ROLL`은 버튼 UI로 굴림을 받고 콜백(`_continue_with_roll_results`)에서 이어 처리. `PROCEED`는 `_dispatch_proceed`를 호출하고 종료.
 - `for iteration in range(MAX_ITERATIONS_PER_MESSAGE)` 구조가 남아 있으나, 모든 action 분기가 iteration 0에서 `break`/`return` 하므로 **실질적으로 단일 패스**다. `iteration>=1` 재시도 분기와 `for...else` 강제 PROCEED는 현재 도달하지 않는 안전 스캐폴딩이다.
 
-**사전 서사 시뮬레이션 (방안 6)**: GM-Logic 첫 결정 직전, 세션 캐시가 유효하면(`cache_model == DEFAULT_MODEL`) `_simulate_narrative_directions`로 세계관 세력·지역 규칙에 근거한 서사 방향성 2~3개를 먼저 산출하고, 그 `sim_result`를 `_call_gm_logic(..., sim_result=...)`에 **순차 주입**한다. (과거에는 `asyncio.gather`로 병렬 실행했으나 첫 결정이 sim을 보지 못해 비용만 낭비되어, 순차 주입으로 교정됨.) 캐시 미스 시 시뮬레이션을 건너뛴다.
+**사전 서사 설계 (방안 6)**: 지시층위 첫 결정 직전, 세션 캐시가 유효하면(`cache_model == DEFAULT_MODEL`) `_simulate_narrative_directions`로 세계관 세력·지역 규칙에 근거한 서사 방향성 2~3개를 먼저 산출하고, 그 `sim_result`를 `_call_gm_logic(..., sim_result=...)`에 **순차 주입**한다. (과거에는 `asyncio.gather`로 병렬 실행했으나 첫 결정이 sim을 보지 못해 비용만 낭비되어, 순차 주입으로 교정됨.) 캐시 미스 시 시뮬레이션을 건너뛴다.
 
 **세계 물리 타임라인 (방안 B)**: PROCEED 완료 후 `_update_world_timeline`이 백그라운드 태스크로 AI 묘사를 분석해 `session.world_timeline`(위치·시간대·세력 배치·위협 등)을 갱신한다. 시뮬레이터 프롬프트에 주입되어 고차원 개연성 판단의 기준이 된다. 실패해도 게임 진행에 영향 없음.
 
@@ -255,11 +255,11 @@ GM의 instruction에서 정규식으로 태그를 추출한 뒤 AI에게 전달�
 
 **비용 로그 분리**: 자동 모드 호출은 `cost_log.txt`에 `[AUTO]` 접두사로 기록.
 
-**`_execute_proceed` 헬퍼**: `ctx`에 의존하지 않고 `(session, instruction, master_guild, cost_log_prefix)` 인자만 받는다. 자동 GM은 `cost_log_prefix="[AUTO] "` 인자로 호출.
+**`_execute_proceed` 헬퍼**: `ctx`에 의존하지 않고 `(session, instruction, master_guild, cost_log_prefix)` 인자만 받는다. GM은 `cost_log_prefix="[AUTO] "` 인자로 호출.
 
-**멀티플레이어 라운드 수집**: PROCEED 완료 후 GM이 선제적으로 각 PC에게 행동을 순서대로 질문 (`_start_round` → `_ask_next_player`). `auto_gm_pending_players` 큐 기반 순차 수집, 전체 완료 시 GM-Logic 호출.
+**멀티플레이어 라운드 수집**: PROCEED 완료 후 GM이 선제적으로 각 PC에게 행동을 순서대로 질문 (`_start_round` → `_ask_next_player`). `auto_gm_pending_players` 큐 기반 순차 수집, 전체 완료 시 지시층위 호출.
 
-**스탯 적용 분야 주입**: `_build_logic_user_prompt`가 시나리오의 `stat_descriptions` 딕셔너리를 읽어 `[PC 프로필]` 줄 끝에 인라인으로 추가한다. GM-Logic이 `ROLL` 결정 시 어떤 스탯을 써야 할지 즉시 판단할 수 있다. `stat_descriptions`가 없는 시나리오에서는 기존과 동일하게 동작한다.
+**스탯 적용 분야 주입**: `_build_logic_user_prompt`가 시나리오의 `stat_descriptions` 딕셔너리를 읽어 `[PC 프로필]` 줄 끝에 인라인으로 추가한다. 지시층위이 `ROLL` 결정 시 어떤 스탯을 써야 할지 즉시 판단할 수 있다. `stat_descriptions`가 없는 시나리오에서는 기존과 동일하게 동작한다.
 
 ### Auto-GM PROCEED 이력 (반복 방지)
 
@@ -272,7 +272,7 @@ GM의 instruction에서 정규식으로 태그를 추출한 뒤 AI에게 전달�
     "ai_summary": str,        # AI 출력 앞 500자 요약
 }
 ```
-`_dispatch_proceed` 완료 후 append, 3개 초과 시 가장 오래된 항목 삭제. GM-Logic 프롬프트에 `[최근 PROCEED 이력]` 블록으로 주입되어 동일 상황 반복·정체를 방지한다.
+`_dispatch_proceed` 완료 후 append, 3개 초과 시 가장 오래된 항목 삭제. 지시층위 프롬프트에 `[최근 PROCEED 이력]` 블록으로 주입되어 동일 상황 반복·정체를 방지한다.
 
 ### Auto-GM 정보 인지 원장 (Info Ledger — 정보·시간 개연성 구조화)
 
@@ -290,7 +290,7 @@ NPC·적이 물리적으로 알 수 없는 정보로 매복·간파·행동하�
 }
 ```
 
-**메커니즘 (GM-Logic 인라인 — 추가 API 호출 없음)**:
+**메커니즘 (지시층위 인라인 — 추가 API 호출 없음)**:
 - **스키마 필드 `info_access`** (`GM_LOGIC_RESPONSE_SCHEMA`): `constraint_check`와 `action` **사이**에 선언 → 선언 순서 CoT로 "누가 아는가"를 결정 전에 확정, action·proceed_instruction을 제약. 하위 필드: `assessment`(핵심 비밀·인지 주체 점검) / `new_secrets`(이번 턴 신규 비밀 델타) / `new_leaks`(기존 비밀의 신규 유출 델타, 근거 `how` 필수).
 - **주입**: `_build_logic_user_prompt`가 `session.info_ledger`를 `[정보 인지 원장]` 블록으로 렌더(최근 8건, world_timeline 옆). "확지로 적히지 않은 자가 아는 것처럼 행동하게 하지 말 것" 지시 동반.
 - **갱신**: `_call_gm_logic`이 응답 파싱 직후 `_update_info_ledger(session, decision)` 호출 — `info_access` 델타를 원장에 **append-only 병합**. 신규 비밀은 중복(정규화 매칭) 스킵, 유출은 `known_by` 확장+`suspected_by`에서 이동+근거 기록, 근거 없는 미등록 유출은 무시(날조 방어), 최대 12건 스코핑. 실패해도 진행 무영향(예외 흡수).
@@ -325,14 +325,14 @@ NPC·적이 물리적으로 알 수 없는 정보로 매복·간파·행동하�
 - PROCEED 완료 후 `_update_narrative_progress` 호출 → `event_assessment`가 `"completed"` 또는 `"deviated"`이면 `asyncio.create_task(_plan_narrative(...))` 트리거
 - `!자동 재계획` — 수동 강제 재수립
 
-**`event_assessment`** — GM-Logic JSON 응답의 추가 필드:
+**`event_assessment`** — 지시층위 JSON 응답의 추가 필드:
 - `"ongoing"` : 계획대로 진행 중 (기본값)
 - `"resolving"` : 마무리 단계 진입
 - `"completed"` : 서사 목표 달성·사건 종결 → 재계획 트리거
 - `"deviated"` : 플레이어 선택으로 예상 범위 이탈 → 재계획 트리거
 - PROCEED가 아닌 action(ASK/NARRATE/ROLL)에서는 항상 `"ongoing"`으로 고정
 
-**GM-Logic 프롬프트 주입**: `[현재 서사 계획]` 블록 — 현재 사건 제목·개요·목표·마무리 방향·진행 상황 + 다음 사건 참고용.
+**지시층위 프롬프트 주입**: `[현재 서사 계획]` 블록 — 현재 사건 제목·개요·목표·마무리 방향·진행 상황 + 다음 사건 참고용.
 
 **`_plan_narrative(session, trigger_reason, context_note="")`** — `LOGIC_MODEL` 호출, `NARRATIVE_PLAN_SCHEMA` + `NARRATIVE_PLANNER_SYSTEM_INSTRUCTION` 사용. 결과를 `session.narrative_plan`에 저장하고 마스터 채널에 보고.
 
@@ -351,20 +351,20 @@ discord.py의 `VoiceClient`는 **동시에 한 AudioSource만** 재생하므로,
 
 **주사위 효과음 연출**: 4종 주사위 버튼 콜백에서 버튼 누름 즉시 `play_dice_sfx`(논블로킹) 발사.
 - `GeneralDiceView`/`DiceView`([core/ui.py]): "굴리는 중…" 표시(`response.edit_message`) → `asyncio.sleep(1.5)` → 결과(`edit_original_response`). 효과음(`dice.mp3` ≈1.24초)이 1.5초 창 안에서 선행.
-- `AutoGMRollView`([auto_gm.py]): 효과음 발사 후 `_process_roll`에서 1.5초 하한 후 결과.
+- `GMRollView`([auto_gm.py]): 효과음 발사 후 `_process_roll`에서 1.5초 하한 후 결과.
 - `StatRollView`([character.py], `!능력치`): 효과음 1회만. 기존 스탯별 0.8초 애니메이션 유지(1.5초 미적용).
 
-> 핫스왑 주의: `core/audio_mixer.py`·`core/media.py`·`core/ui.py`는 재시작 필요(핫스왑 불가). `cogs/media.py`·`cogs/character.py`·`cogs/auto_gm.py`만 `!리로드` 가능.
+> 핫스왑 주의: `core/audio_mixer.py`·`core/media.py`·`core/ui.py`는 재시작 필요(핫스왑 불가). `cogs/media.py`·`cogs/character.py`·`cogs/gm.py`만 `!리로드` 가능.
 
 ### TTS 음성 더빙 (실험 기능 · core/tts.py)
 
-AI 묘사를 음성 채널에서 **단일 나레이터 보이스**로 읽어주는 옵트인 기능. 현재 범위: **수동 `!진행`에만** 적용(자동 GM·NPC 개별 보이스 제외).
+AI 묘사를 음성 채널에서 **단일 나레이터 보이스**로 읽어주는 옵트인 기능. 현재 범위: **수동 `!진행`에만** 적용(GM·NPC 개별 보이스 제외).
 
 - **믹서 voice 레이어**: `MixerAudioSource`에 `effects`(동시 중첩)와 별개로 **순차 재생 큐**(`enqueue_voice`/`clear_voice`/`is_voice_active`)를 둔다. 한 번에 한 문단만 재생하고, 재생 중에는 base를 `voice_duck_factor`(0.30)로 SFX보다 더 깊게 덕킹.
 - **합성**(`core.synthesize_tts_pcm`): Gemini native TTS(`TTS_MODEL`, `response_modalities=["AUDIO"]` + `SpeechConfig`/`PrebuiltVoiceConfig`) 호출 → 24kHz mono PCM 추출 → `audioop`으로 **48kHz stereo 리샘플** → bytes 반환. 비용은 출력 오디오 토큰 기준(`PRICING_1M["gemini-2.5-flash-preview-tts"]` 입력 $0.50 / 출력 $10 per 1M).
-- **음성-텍스트 동기 출력**(`GameCog._stream_paragraphs_synced`): `_execute_proceed`에서 토글 ON + 보이스 연결(`dub_active`) + 비자동GM일 때 사용하는 **기본 출력 경로**. 문단별로 ① TTS PCM을 합성(첫 문단 선합성, 다음 문단은 현재 문단 출력 중 `asyncio.create_task`로 prefetch) ② voice 큐에 적재(재생 시작) ③ 그 문단 텍스트를 **음성 길이**(`len(pcm) / TTS_PCM_BYTES_PER_SEC` 초)에 맞춘 속도로 스트리밍한다. `stream_text_to_channel(total_duration=...)`이 0.8초 간격 기준으로 틱당 단어 수를 환산해 총 출력 시간을 음성 길이에 수렴시킨다. 순차 voice 큐와 텍스트가 문단 단위 lock-step을 이루고, 합성 지연 시 음성·텍스트가 함께 대기해 재동기된다. 이미지(상/중/하) 인터리브는 비동기 경로와 동일 규칙.
+- **음성-텍스트 동기 출력**(`GameCog._stream_paragraphs_synced`): `_execute_proceed`에서 토글 ON + 보이스 연결(`dub_active`) + 비GM일 때 사용하는 **기본 출력 경로**. 문단별로 ① TTS PCM을 합성(첫 문단 선합성, 다음 문단은 현재 문단 출력 중 `asyncio.create_task`로 prefetch) ② voice 큐에 적재(재생 시작) ③ 그 문단 텍스트를 **음성 길이**(`len(pcm) / TTS_PCM_BYTES_PER_SEC` 초)에 맞춘 속도로 스트리밍한다. `stream_text_to_channel(total_duration=...)`이 0.8초 간격 기준으로 틱당 단어 수를 환산해 총 출력 시간을 음성 길이에 수렴시킨다. 순차 voice 큐와 텍스트가 문단 단위 lock-step을 이루고, 합성 지연 시 음성·텍스트가 함께 대기해 재동기된다. 이미지(상/중/하) 인터리브는 비동기 경로와 동일 규칙.
 - **비동기 폴백**(`GameCog._synthesize_and_enqueue`): 토글 OFF거나 보이스 미연결이면 기존 경로 사용. 토글 ON·미연결이면 `no_voice` 경고용으로만 백그라운드 합성을 시도한다. 합성 함수는 순수(회계 미수행)하며 `{enqueued,total,cost,in,out,no_voice}`를 반환한다.
-- **비용 보고 일원화**: 턴 비용 임베드(`build_turn_cost_embed`)를 **스트리밍·더빙 합성 완료 후**에 송출하도록 미뤘다. 동기/비동기 경로 모두 합성 결과 dict(`dub`)를 받아 TTS 비용을 `turn_cost_log`에 `"TTS 더빙(n/m문단)"`으로 합산한 뒤 임베드를 보낸다(=PROCEED·GM-Logic·TTS가 한 임베드에). `!더빙테스트`는 턴 밖이라 자체적으로 `cost_log`에 "TTS 더빙(테스트)"로 기록.
+- **비용 보고 일원화**: 턴 비용 임베드(`build_turn_cost_embed`)를 **스트리밍·더빙 합성 완료 후**에 송출하도록 미뤘다. 동기/비동기 경로 모두 합성 결과 dict(`dub`)를 받아 TTS 비용을 `turn_cost_log`에 `"TTS 더빙(n/m문단)"`으로 합산한 뒤 임베드를 보낸다(=PROCEED·지시층위·TTS가 한 임베드에). `!더빙테스트`는 턴 밖이라 자체적으로 `cost_log`에 "TTS 더빙(테스트)"로 기록.
 - **토글**: `!더빙 [켜기/끄기]`(`session.tts_enabled`, `SESSION_FIELDS` 등록). 보이스 미연결 시 합성은 no-op + 마스터 채널 경고.
 - **상수**(`core/constants.py`): `TTS_MODEL`/`TTS_NARRATOR_VOICE`/`TTS_LANGUAGE_CODE`. **WARNING**: `TTS_MODEL`은 사용 중인 API 키에서 실제 제공되는 TTS 모델 ID와 일치해야 한다(미일치 시 합성 0건 → 경고).
 
@@ -373,7 +373,7 @@ AI 묘사를 음성 채널에서 **단일 나레이터 보이스**로 읽어주�
 `PRICING_1M` 딕셔너리로 모델별 INPUT/OUTPUT/CACHE_READ/CACHE_STORAGE_PER_HOUR 단가를 관리한다. 모든 API 호출 후 `calculate_upload_cost()`로 KRW 비용을 계산해 `session.total_cost`에 누적하고 `write_cost_log()`로 `sessions/{id}/cost_log.txt`에 기록한다. 캐시 보관 비용은 초를 분 단위로 반올림하며 최대 21,600초(6시간) 상한을 적용한다. 환율은 1500 KRW/USD 고정.
 
 **턴 비용 임베드 (`build_turn_cost_embed`)**: `session.turn_cost_log` 항목은 `{"label", "cost", "in"?, "cached"?, "out"?, "manifest"?}` 형태다(토큰·manifest는 선택 — 없으면 비용만 렌더, 하위호환). 임베드는 호출별로 **토큰 내역(입력/캐시/신규/출력) + 비용**을 개별 필드로 펼치고, 전 호출의 `manifest`를 **중복 제거 합산**해 `[📥 입력에 주입된 정보]` 필드로 제시한 뒤 토큰 합계·턴 소계·누적을 붙인다.
-- **manifest(입력 주입 목록)**: 프롬프트 빌더가 실제 주입한 온디맨드 블록을 기록한다. PROCEED는 `PromptBuilder.build_prompt`가 `session.last_proceed_manifest`에(압축 기억·실시간 노트·NPC 오버라이드 n명·키워드북 목록), GM-Logic은 `_build_logic_user_prompt`가 `session.auto_gm_last_logic_manifest`에(키워드북·세계 타임라인·정보 원장 n건·서사 계획·서사 시뮬 n방향·PROCEED 이력 n건·압축 기억) 기록. 둘 다 비영속 임시값. **키워드북 항목명이 그대로 표시되므로** 어느 문파·지역 항목이 입력을 부풀렸는지 즉시 진단 가능(비용 폭증 원인 추적에 직결).
+- **manifest(입력 주입 목록)**: 프롬프트 빌더가 실제 주입한 온디맨드 블록을 기록한다. PROCEED는 `PromptBuilder.build_prompt`가 `session.last_proceed_manifest`에(압축 기억·실시간 노트·NPC 오버라이드 n명·키워드북 목록), 지시층위은 `_build_logic_user_prompt`가 `session.auto_gm_last_logic_manifest`에(키워드북·세계 타임라인·정보 원장 n건·서사 계획·서사 시뮬 n방향·PROCEED 이력 n건·압축 기억) 기록. 둘 다 비영속 임시값. **키워드북 항목명이 그대로 표시되므로** 어느 문파·지역 항목이 입력을 부풀렸는지 즉시 진단 가능(비용 폭증 원인 추적에 직결).
 - **`!정보` 비용 보고**: 답변 송출 후 `build_text_gen_cost_embed`로 토큰 내역 + `[📥 입력에 주입된 정보]`(캐시 룰북 + 매칭된 키워드북 항목명)를 임베드로 보고한다.
 
 ## 시나리오 JSON 작성 시 주의사항
@@ -390,7 +390,7 @@ AI 묘사를 음성 채널에서 **단일 나레이터 보이스**로 읽어주�
 - `image_prompts`에 형식키별 `prompt`와 `aspect_ratio`를 정의해야 `!이미지 생성`이 동작한다.
 - `profile_secondary_stats`에 `pc_template` 항목명을 리스트로 지정하면 `!프로필` 임베드에서 구분선 아래 전체 폭 필드로 표시된다.
 - `ability_stats`에 `pc_template` 항목명을 리스트로 지정하면 `!능력치` 명령어에서 주사위 굴림 대상이 된다. 순서대로 굴림이 진행되고 Hamilton 방식으로 target_total에 비례 배분된다.
-- `stat_descriptions` 항목(`{"스탯명": "설명"}` dict)을 정의하면 자동 GM의 GM-Logic 프롬프트 `[PC 프로필]` 줄에 인라인으로 추가된다. ROLL 결정 시 스탯 용도를 AI가 즉시 파악할 수 있어 판정 스탯 선택 정확도가 높아진다. 미정의 시 생략된다.
+- `stat_descriptions` 항목(`{"스탯명": "설명"}` dict)을 정의하면 GM의 지시층위 프롬프트 `[PC 프로필]` 줄에 인라인으로 추가된다. ROLL 결정 시 스탯 용도를 AI가 즉시 파악할 수 있어 판정 스탯 선택 정확도가 높아진다. 미정의 시 생략된다.
   - `stat_system` 내에 스탯별 적용 분야 섹션도 함께 작성해 메인 AI(캐시)에도 반영할 것.
 
 ## 개발 주의사항
@@ -413,6 +413,6 @@ AI 묘사를 음성 채널에서 **단일 나레이터 보이스**로 읽어주�
 - NARRATE에서 `max_output_tokens`를 설정하지 않는다. `gemini-3-flash-preview`는 thinking 모델로, `max_output_tokens`를 지정하면 thinking 토큰이 한도를 소진하여 실제 텍스트 출력이 거의 없는 조기 종료가 발생한다. 출력 길이는 프롬프트 지시로 제어한다.
 - 강제/정상 PROCEED 후처리는 반드시 `_finish_proceed_and_continue`를 거친다. 새 PROCEED 분기를 추가할 때 후처리 블록을 손으로 복붙하지 말 것 — `event_assessment`만 인자로 넘기면 된다.
 - `_run_gm_logic_loop` 내부 `save_session_data`는 의도적으로 일원화되어 있다. ASK/NARRATE 대기 분기는 개별 저장하지 않고 루프 종료 후 트레일링 save 한 번으로 처리하며, `_start_round`는 직후 `_ask_next_player`의 저장에 위임한다. 분기에 저장을 새로 추가하기 전에 중복 여부를 확인할 것.
-- `_verify_proceed_instruction`(방안 E) + `PROCEED_VERIFIER_SYSTEM_INSTRUCTION` + `PROCEED_VERIFY_SCHEMA`는 방안 D 도입 이후 **호출되지 않는 미사용 코드**다(미선언 PC 행동 방지는 GM-Logic [최우선 절대 원칙]이 담당). 제거 대기 상태이며, 살릴 경우 `_finish_proceed_and_continue` 진입 전에 호출해야 한다.
+- `_verify_proceed_instruction`(방안 E) + `PROCEED_VERIFIER_SYSTEM_INSTRUCTION` + `PROCEED_VERIFY_SCHEMA`는 방안 D 도입 이후 **호출되지 않는 미사용 코드**다(미선언 PC 행동 방지는 지시층위 [최우선 절대 원칙]이 담당). 제거 대기 상태이며, 살릴 경우 `_finish_proceed_and_continue` 진입 전에 호출해야 한다.
 - `_execute_proceed`는 AI 응답을 raw_logs 저장·문단 파싱에 넘기기 **전에** `core.strip_unauthorized_pc_dialogue`로 'NPC가 아닌 PC 이름'으로 된 `@대사:` 문단을 문자열 단계에서 제거한다(AI의 PC 대사 임의 창작 차단). PC이면서 NPC이기도 한 이름·미상 인물 대사는 보존. 제거 시 마스터 채널에 알림.
 - `!설정/증감/주사위/외형/프로필`은 이름 인자를 `core.resolve_pc`(PC 전용) 또는 `core.resolve_char_name`로 **부분 입력→고유 매칭** 해석한다. 우선순위 정확→고유 접두→고유 부분. 모호하면 후보를 안내하고 중단, 미발견이면 기존 "찾을 수 없습니다". `!증감`만 `resolve_char_name(include_npc=True)`로 NPC도 후보에 넣고, 미매칭 시 입력값을 그대로 사용해(임의·신규 자원/상태 대상 허용) 기존 동작을 보존한다.

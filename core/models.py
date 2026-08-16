@@ -58,12 +58,12 @@ class TRPGSession:
 
         # ========== [TTS 음성 더빙 — 실험 기능] ==========
         # NOTE: 옵트인. True일 때만 수동 !진행 묘사를 음성 채널에서 단일 나레이터 보이스로 읽어준다.
-        #       (자동 GM·NPC 개별 보이스는 현재 미적용)
+        #       (GM·NPC 개별 보이스는 현재 미적용)
         self.tts_enabled = False
 
         # 턴 진행 카테고리 배치 비용 로그 — PROCEED 직전에 플러시 후 초기화.
         # 형식: [{"label": str, "cost": float}, ...]
-        # GM-Logic / NARRATE / 서사 계획 / auto compression 등이 여기 누적된다.
+        # 지시층위 / NARRATE / 서사 계획 / auto compression 등이 여기 누적된다.
         self.turn_cost_log: list = []
 
         self.gm_typing_task = None
@@ -71,14 +71,14 @@ class TRPGSession:
         # 가장 최근 캐시 업로드 시점의 룰북 원본 텍스트 (패딩 제외). !캐시 출력 디버그용.
         self.cache_text = ""
 
-        # ========== [자동 GM 서사 계획] ==========
-        # NOTE: 자동 GM 전용. 사건(event) 단위의 서사 계획을 저장한다.
+        # ========== [GM 서사 계획] ==========
+        # NOTE: GM 전용. 사건(event) 단위의 서사 계획을 저장한다.
         # 구조: {"current_event": {...}, "next_event": {...}, "plan_version": int, "last_planned_turn": int}
         # !자동 시작 시 수립, PROCEED 완료 후 completed/deviated 평가 시 재수립.
         self.narrative_plan = {}
 
         # ========== [세계 물리 타임라인 (방안 B)] ==========
-        # NOTE: 자동 GM 전용. PROCEED 완료 후 AI 출력에서 추출하여 갱신되는 세계 상태.
+        # NOTE: GM 전용. PROCEED 완료 후 AI 출력에서 추출하여 갱신되는 세계 상태.
         # 세력 배치·지역 규칙 등 고차원 개연성 판단의 기준 데이터로 활용.
         # 구조: {"elapsed_minutes": int, "time_of_day": str, "weather": str,
         #        "current_location": str, "faction_context": str,
@@ -93,11 +93,11 @@ class TRPGSession:
         # 프롬프트에서는 이미 캐시에 있으므로 중복 주입하지 않는다.
         self.cached_compressed_memory = ""
 
-        # ========== [자동 GM 모드 상태] ==========
-        # NOTE: 자동 GM 모드는 게임 채널의 플레이어 발언을 받아 AI가 GM 역할을 수행하는 옵트인 모드.
+        # ========== [GM 상태] ==========
+        # NOTE: GM는 게임 채널의 플레이어 발언을 받아 AI가 GM 역할을 수행하는 옵트인 모드.
         #       기본은 비활성(False) — 활성화되어야만 on_message 리스너가 동작한다.
         self.auto_gm_active = False
-        self.auto_gm_target_char = None        # 자동 GM이 대화할 PC 이름 (단일, 하위 호환)
+        self.auto_gm_target_char = None        # GM이 대화할 PC 이름 (단일, 하위 호환)
         self.auto_gm_turn_cap = None           # 자동 진행 최대 턴 수 (None=무제한, 안전장치)
         self.auto_gm_turns_done = 0            # 활성화 이후 자동으로 처리한 턴 수
         self.auto_gm_clarify_count = 0         # 같은 플레이어 발언에 대한 명확화 누적 횟수
@@ -107,7 +107,7 @@ class TRPGSession:
         self.auto_gm_side_note = ""            # !자동 개입으로 주입된 GM 사이드 노트 (다음 호출에 1회 합류 후 비움)
         self.auto_gm_lock = False              # 동시 처리 방지용 락 (직렬화 시 무시)
         self.auto_gm_proceed_history = []      # 최근 PROCEED 이력 (지시사항+컨텍스트+AI요약, 반복 방지용)
-        self.info_ledger = []                  # 정보 인지 원장: 비공개·플롯 정보별 {info, known_by, suspected_by, origin, leaks} 누적 (GM-Logic이 갱신)
+        self.info_ledger = []                  # 정보 인지 원장: 비공개·플롯 정보별 {info, known_by, suspected_by, origin, leaks} 누적 (지시층위이 갱신)
         self.cache_model = None                # 현재 활성 캐시에 사용된 모델 ID (캐시 생성 후 설정)
 
         # ========== [멀티플레이어 자동진행 상태 (#22)] ==========

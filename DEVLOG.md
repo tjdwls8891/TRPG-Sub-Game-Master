@@ -1,6 +1,6 @@
 # TRPG Sub GM Bot — 개발 로그 (DEVLOG)
 
-> 현재 버전: **v4.3.0**  
+> 현재 버전: **v4.3.1**  
 > 최종 갱신: 2026-06-27 (오디오 믹서·TTS 더빙, 명령어 가이드 갱신)  
 > 스택: Gemini API + discord.py / 한국어 TRPG 보조 GM 봇
 
@@ -21,13 +21,13 @@
 | `main.py` | 봇 엔트리포인트, active_sessions, cog 자동 로드, 세션 복구 |
 | `core/` | 10개 서브모듈 패키지 — `constants/models/cost/io/cache/prompt/dialogue/media/audio_mixer/tts/ui/utils`. `__init__.py`가 전 심볼 re-export (기존 `core.XYZ` 호출부 무수정) |
 | `core_legacy.py` | 분리 이전 단일 core.py 백업 (롤백용, 운영 미사용) |
-| `prompts.py` | SYSTEM_INSTRUCTION + 자동 GM 시스템 지시문·응답 스키마 모음 (GM-Logic·서사 계획·시뮬레이터·타임라인) |
+| `prompts.py` | SYSTEM_INSTRUCTION + GM 시스템 지시문·응답 스키마 모음 (지시층위·서사 계획·시뮬레이터·타임라인) |
 | `cogs/session.py` | !새세션, !시작, !소개 |
 | `cogs/game.py` | !진행, !재생성, !출력물, !수정, !주사위, !기억압축, !노트, !캐시노트, !더빙테스트 |
 | `cogs/character.py` | !참가, !설정, !증감, !외형, !프로필, !엔피씨, !능력치, !설정생성 |
 | `cogs/media.py` | !이미지, !브금, !플리, !볼륨, !채팅, !더빙 |
 | `cogs/system.py` | !명령어, !채널정리, !세션종료, !캐시, !리로드 |
-| `cogs/auto_gm.py` | `!자동` 그룹 (시작/중단/상태/개입/턴제한/비용제한/서사/재계획) |
+| `cogs/gm.py` | `!자동` 그룹 (시작/중단/상태/개입/턴제한/비용제한/서사/재계획) |
 
 **핵심 데이터 흐름:**
 - 상태는 `TRPGSession` 객체 하나에 집중 관리
@@ -137,13 +137,13 @@
 
 ---
 
-### ✅ 자동 GM 모드 — Auto-GM (v1.6~v1.7)
+### ✅ GM — Auto-GM (v1.6~v1.7)
 
 #### 기반 구조 (v1.6)
 
 - `!자동시작`: 옵트인 모드 활성화, 대상 PC 지정 (단일 / 멀티플레이어)
 - **2-티어 AI 루프**:
-  - **Tier 1 (GM-Logic)**: `DEFAULT_MODEL` + `response_mime_type="application/json"` + `response_schema` → 결정 JSON 강제 출력
+  - **Tier 1 (지시층위)**: `DEFAULT_MODEL` + `response_mime_type="application/json"` + `response_schema` → 결정 JSON 강제 출력
   - **Tier 2 (묘사 생성)**: `GameCog._execute_proceed()` 직접 호출 (캐시 적중 유지)
 - `asyncio.Lock` 기반 세션별 동시 처리 방지
 - **안전장치**:
@@ -156,12 +156,12 @@
 
 #### #22 — 멀티플레이어 라운드 수집
 - PROCEED 완료 후 GM이 선제적으로 각 PC에게 행동을 순서대로 질문
-- `auto_gm_pending_players` 큐 기반 순차 수집 → 전체 완료 시 GM-Logic 호출
+- `auto_gm_pending_players` 큐 기반 순차 수집 → 전체 완료 시 지시층위 호출
 - 멀티플레이어 종합 시 게임 채널에 행동 선언 요약 표시
 - `auto_gm_waiting_for`: 특정 PC 응답 대기 중 다른 PC 발언 무시
 
 #### #25 — 능동적 서사 진행 원칙
-- `proceed_instruction` 작성 규칙 GM-Logic 시스템 지시문에 명시:
+- `proceed_instruction` 작성 규칙 지시층위 시스템 지시문에 명시:
   - 플레이어 행동의 자연스러운 결과 반영
   - 세계가 멈춰 있지 않음을 드러내는 **신규 사건** 능동 생성
   - 단순 이동·대기 상황에서도 반드시 환경 변화 발생
@@ -175,13 +175,13 @@
   - `max_output_tokens=220` (≈ 300자), `temperature=0.65`
   - 캐시 히트 시 비용 ≈ PROCEED의 절반 이하
 - **대사 마커 지원**: `@대사:이름|본문` 파싱 → 이미지 선송출 + 말풍선 포맷
-- **로그 통합**: `current_turn_logs.append("[진행자 (자동 GM)]: ...")` → PROCEED 시 AI 맥락 유지
+- **로그 통합**: `current_turn_logs.append("[진행자 (GM)]: ...")` → PROCEED 시 AI 맥락 유지
 - **안전장치**: `MAX_NARRATE_PER_MESSAGE = 7`, 초과 시 강제 PROCEED + 카운트 초기화
 - **카운트 초기화 지점**: PROCEED 완료, `_start_round()`, ASK/ROLL 강제 PROCEED, 루프 한도 초과
 
 ---
 
-### ✅ core/ 패키지 분리 · 서사 시스템 · 자동 GM 루프 정리 (v1.8~v1.9)
+### ✅ core/ 패키지 분리 · 서사 시스템 · GM 루프 정리 (v1.8~v1.9)
 
 #### core.py → core/ 10개 서브모듈 분리
 - 단일 `core.py`(1,896줄)를 `constants/models/cost/io/cache/prompt/dialogue/media/ui/utils`로 분리
@@ -190,10 +190,10 @@
 
 #### Auto-GM 서사 계획 / 시뮬레이션 / 세계 타임라인
 - **서사 계획(Narrative Plan)**: 사건 단위 `current_event`/`next_event` 구조. `!자동 시작` 시 수립, `event_assessment`가 `completed`/`deviated`면 재계획. `!자동 서사`/`!자동 재계획`
-- **서사 방향성 시뮬레이션(방안 6)**: GM-Logic 결정 전 세계관 캐시 기반으로 방향성 2~3개 사전 산출 → 결정에 주입
+- **서사 방향성 시뮬레이션(방안 6)**: 지시층위 결정 전 세계관 캐시 기반으로 방향성 2~3개 사전 산출 → 결정에 주입
 - **세계 물리 타임라인(방안 B)**: PROCEED 후 묘사에서 위치·시간대·세력·위협 추출, 시뮬레이터 기준 데이터로 사용
 
-#### 자동 GM 루프 정리 (2026-06-17)
+#### GM 루프 정리 (2026-06-17)
 - **시뮬레이션 순차 주입**: 과거 `asyncio.gather` 병렬 실행은 첫 결정이 `sim_result`를 못 보고 비용만 낭비 → 시뮬레이션을 먼저 실행하고 결과를 `_call_gm_logic`에 주입하도록 교정
 - **`_finish_proceed_and_continue` 헬퍼 추출**: 6곳(루프 5개 강제/정상 PROCEED + `_continue_with_roll_results`)에 복붙되던 후처리 블록 단일화
 - **중복 `save_session_data` 제거**: ASK/NARRATE 대기 분기 → 트레일링 save 위임, `_start_round` → `_ask_next_player` 위임 (auto_gm.py 저장 호출 24→16)
@@ -216,7 +216,7 @@
 - `synthesize_tts_pcm`: Gemini native TTS(`TTS_MODEL`) → 24kHz mono PCM → `audioop` 48kHz stereo 리샘플
 - **음성-텍스트 동기 출력**(`_stream_paragraphs_synced`): 문단별 TTS PCM 합성(다음 문단 prefetch) → voice 큐 적재 → 텍스트를 음성 길이에 맞춰 스트리밍, 문단 단위 lock-step
 - 비동기 폴백(`_synthesize_and_enqueue`): 토글 OFF·미연결 시 기존 경로
-- **비용 보고 일원화**: 턴 비용 임베드를 합성 완료 후로 미뤄 PROCEED·GM-Logic·TTS를 한 임베드에 합산
+- **비용 보고 일원화**: 턴 비용 임베드를 합성 완료 후로 미뤄 PROCEED·지시층위·TTS를 한 임베드에 합산
 - 토글 `!더빙 [켜기/끄기]`(`session.tts_enabled`), 즉시 재생 `!더빙테스트 (보이스)`
 - 상수 `TTS_MODEL`/`TTS_NARRATOR_VOICE`/`TTS_LANGUAGE_CODE`(`core/constants.py`) — `TTS_MODEL`은 API 키 제공 모델 ID와 일치해야 함
 
@@ -236,9 +236,9 @@
 
 | # | 항목 | 내용 | 파일 |
 |---|------|------|------|
-| 23 | ~~`proceed_instruction` 정비~~ ✅ | PROCEED 섹션 재작성. 태그 의무 검토 원칙(① 자원 소비·획득 시 `자:` 필수, ② 상태 변동 시 `태:` 필수), 최소 2문장 요건, [행동 결과]+[세계 능동 반응] 구조 의무화, 나쁜/좋은 예시 삽입. | `cogs/auto_gm.py` |
-| 24 | ~~지시사항 없는 `proceed_turn` 정비~~ ✅ | `!진행` 지시사항이 비어있거나 태그만 있어 `clean_instruction`이 공백이 될 때, `AutoGMCog._call_gm_logic()`을 호출해 `proceed_instruction`을 자동 생성. Auto-GM 모드(`cost_log_prefix` 있음)는 항상 채워진 상태로 진입하므로 건너뜀. 생성된 지시사항은 마스터 채널에 표시 후 `_execute_proceed`에 전달. | `cogs/game.py` |
-| 29 | ~~ASK/NARRATE 입력 중 표시~~ ✅ | `_run_gm_logic_loop` 루프 본체에서 `_call_gm_logic` 호출을 `async with game_ch.typing():` 으로 감싸 GM-Logic 응답 대기 동안 입력 중 상태 표시. NARRATE의 경우 `_dispatch_narrate` 호출도 동일하게 감쌈. PROCEED는 기존 `generate_with_retry` 내부 타이핑 유지. | `cogs/auto_gm.py` |
+| 23 | ~~`proceed_instruction` 정비~~ ✅ | PROCEED 섹션 재작성. 태그 의무 검토 원칙(① 자원 소비·획득 시 `자:` 필수, ② 상태 변동 시 `태:` 필수), 최소 2문장 요건, [행동 결과]+[세계 능동 반응] 구조 의무화, 나쁜/좋은 예시 삽입. | `cogs/gm.py` |
+| 24 | ~~지시사항 없는 `proceed_turn` 정비~~ ✅ | `!진행` 지시사항이 비어있거나 태그만 있어 `clean_instruction`이 공백이 될 때, `GMCog._call_gm_logic()`을 호출해 `proceed_instruction`을 자동 생성. Auto-GM 모드(`cost_log_prefix` 있음)는 항상 채워진 상태로 진입하므로 건너뜀. 생성된 지시사항은 마스터 채널에 표시 후 `_execute_proceed`에 전달. | `cogs/game.py` |
+| 29 | ~~ASK/NARRATE 입력 중 표시~~ ✅ | `_run_gm_logic_loop` 루프 본체에서 `_call_gm_logic` 호출을 `async with game_ch.typing():` 으로 감싸 지시층위 응답 대기 동안 입력 중 상태 표시. NARRATE의 경우 `_dispatch_narrate` 호출도 동일하게 감쌈. PROCEED는 기존 `generate_with_retry` 내부 타이핑 유지. | `cogs/gm.py` |
 
 ---
 
@@ -295,7 +295,7 @@
 ## 참고 — 현재 상수
 
 ```python
-DEFAULT_MODEL = "gemini-3-flash-preview"   # 턴 묘사, 캐시, GM-Logic, NARRATE
+DEFAULT_MODEL = "gemini-3-flash-preview"   # 턴 묘사, 캐시, 지시층위, NARRATE
 LOGIC_MODEL   = "gemini-3-flash-preview"   # 기억 압축, 설정생성, 서사 계획
 IMAGE_MODEL   = "gemini-3.1-flash-image-preview"
 TTS_MODEL     = "gemini-2.5-flash-preview-tts"  # 음성 더빙 (API 키 제공 모델과 일치 필요)

@@ -15,7 +15,7 @@ from .io import write_log, save_session_data, load_scenario_from_file, SESSION_F
 from .cost import calculate_upload_cost, calculate_cost
 from .utils import get_merged_status_effects
 
-import prompts  # GM-Logic 의사결정 지시문을 캐시에 함께 굽기 위함(방안 ①)
+import prompts  # 지시층위 의사결정 지시문을 캐시에 함께 굽기 위함(방안 ①)
 
 
 def _deserialize_log_entry(item: dict):
@@ -315,15 +315,15 @@ async def build_scenario_cache_text(bot, model_id, scenario_data: dict, cache_no
 {session_npc_section}{memory_section}{note_injection}============================
 """
 
-    # ── 방안 ①: 자동 GM 의사결정 지시문을 캐시 본문에 함께 포함 ──
-    # GM-Logic 호출 시 이 지시문을 신선 입력(contents)으로 매번 넣지 않고 캐시 읽기 단가로 활용한다.
+    # ── 방안 ①: GM 의사결정 지시문을 캐시 본문에 함께 포함 ──
+    # 지시층위 호출 시 이 지시문을 신선 입력(contents)으로 매번 넣지 않고 캐시 읽기 단가로 활용한다.
     # 이 캐시는 메인 묘사 호출도 공유하므로, 묘사 시에는 이 블록을 무시하도록 명확히 라벨링한다.
     rulebook_text += (
-        "\n\n=== [자동 GM 의사결정 엔진 전용 지시문] ===\n"
-        "(주의: 아래는 자동 GM 모드의 '판단' 단계 전용 지시문이다. "
+        "\n\n=== [GM 의사결정 엔진 전용 지시문] ===\n"
+        "(주의: 아래는 GM의 '판단' 단계 전용 지시문이다. "
         "일반 묘사(서술) 생성 시에는 이 블록을 완전히 무시하고, 위의 [시나리오 핵심 룰북]과 GM 지시사항만 따를 것.)\n"
         + prompts.GM_LOGIC_SYSTEM_INSTRUCTION
-        + "\n=== [자동 GM 의사결정 엔진 전용 지시문 끝] ===\n"
+        + "\n=== [GM 의사결정 엔진 전용 지시문 끝] ===\n"
     )
 
     if session_id:

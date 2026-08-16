@@ -6,11 +6,11 @@ TRPG 봇 프롬프트 중앙 등록소(Central Prompt Registry).
 
 포함 항목:
   - SYSTEM_INSTRUCTION          : 메인 GM 캐시 시스템 지시문
-  - GM_LOGIC_RESPONSE_SCHEMA    : 자동 GM 의사결정 JSON 스키마
-  - GM_LOGIC_SYSTEM_INSTRUCTION : 자동 GM 의사결정 시스템 지시문
+  - GM_LOGIC_RESPONSE_SCHEMA    : GM 의사결정 JSON 스키마
+  - GM_LOGIC_SYSTEM_INSTRUCTION : GM 의사결정 시스템 지시문
   - NARRATIVE_PLAN_SCHEMA       : 서사 계획 JSON 스키마
   - NARRATIVE_PLANNER_SYSTEM_INSTRUCTION : 서사 계획 설계자 시스템 지시문
-  - build_narrate_prompt()      : 자동 GM 경량 묘사(NARRATE) 프롬프트 빌더
+  - build_narrate_prompt()      : GM 경량 묘사(NARRATE) 프롬프트 빌더
   - build_compression_prompt_text() : 기억 압축 프롬프트 빌더
   - build_pc_appearance_prompt()    : PC 외형 설정 생성 프롬프트 빌더
   - build_npc_profile_prompt()      : NPC 종합 프로파일 생성 프롬프트 빌더
@@ -254,7 +254,7 @@ JUDGMENT_RESPONSE_SCHEMA = {
 }
 
 # 판단층위 시스템 지시문. 캐시를 읽지 않으므로 config.system_instruction으로 전달된다.
-JUDGMENT_SYSTEM_INSTRUCTION = """당신은 한국어 TRPG '자동 GM 모드'의 판단 엔진입니다.
+JUDGMENT_SYSTEM_INSTRUCTION = """당신은 한국어 TRPG GM의 판단층위입니다.
 플레이어의 신규 발언과 직전 맥락만을 근거로, 이번 진행을 어느 유형으로 처리할지 결정합니다.
 
 당신은 묘사문을 작성하지 않으며, 세계관 설정을 창작하지 않습니다.
@@ -335,9 +335,9 @@ NARRATE·PROCEED의 지시문은 지시층위가 별도로 생성합니다.
 """
 
 
-# ========== [자동 GM — 의사결정 엔진] ==========
+# ========== [GM — 의사결정 엔진] ==========
 
-# GM-Logic API 응답을 강제하는 JSON 스키마.
+# 지시층위 API 응답을 강제하는 JSON 스키마.
 GM_LOGIC_RESPONSE_SCHEMA = {
     "type": "object",
     "properties": {
@@ -446,9 +446,9 @@ GM_LOGIC_RESPONSE_SCHEMA = {
     ]
 }
 
-# GM-Logic 호출 시 사용되는 시스템 지시문.
-GM_LOGIC_SYSTEM_INSTRUCTION = """당신은 한국어 TRPG '자동 GM 모드'의 지시 엔진입니다.
-인간 GM이 자리를 비운 동안, 플레이어의 신규 발언을 받아 묘사 지시문을 생성합니다.
+# 지시층위 호출 시 사용되는 시스템 지시문.
+GM_LOGIC_SYSTEM_INSTRUCTION = """당신은 한국어 TRPG GM의 지시층위입니다.
+플레이어의 신규 발언을 받아, 묘사층위가 사용할 묘사 지시문을 생성합니다.
 
 [입력] 진행 유형(action)은 판단층위에서 이미 결정되어 사용자 프롬프트로 전달됩니다.
        당신은 그 유형을 바꾸지 않으며, 해당 유형에 필요한 지시문만 생성합니다.
@@ -518,7 +518,7 @@ NPC·적이 PC의 미공개 임무·비밀·소지품·목적지·정체를 알�
 GM은 묘사의 질과 세계의 반응을 담당할 뿐, 플레이어의 의지나 다음 행동을 결코 대신 결정하지 않습니다.
 
 ■ 서사 계획은 묘사 품질 도구일 뿐, 유도 도구가 아닙니다
-[현재 서사 계획] 블록은 메인 GM AI가 더 풍부한 묘사를 생성할 수 있도록 돕는 참고 자료입니다.
+[현재 서사 계획] 블록은 묘사층위가 더 풍부한 묘사를 생성할 수 있도록 돕는 참고 자료입니다.
 서사 계획에 플레이어를 특정 방향으로 유도하거나 몰기 위한 목적으로 사용하는 것을 엄격히 금지합니다.
 계획의 방향과 플레이어의 선언이 다르더라도 플레이어의 선언을 반드시 그대로 따릅니다.
 
@@ -663,7 +663,7 @@ NARRATE의 경량 응답은 별도의 경량 LLM이 생성합니다. 당신은 �
    ※ 컨텍스트에 [사용 가능한 장소 이미지 목록]이 있으면, 해당 목록에 있는 키워드만 사용 가능.
    ※ 사용 조건: 명백히 새로운 장소(공간)로 장면이 전환될 때만 삽입. 같은 장소 안에서의 행동에는 사용하지 말 것.
    ※ 목록에 현재 장면과 어울리는 이미지가 없으면 태그 생략 (억지로 유사한 것 선택 금지).
-   ※ '중:키워드', '하:키워드' 태그는 자동 GM 모드에서 사용 완전 금지.
+   ※ '중:키워드', '하:키워드' 태그는 GM에서 사용 완전 금지.
 
    ■ 서사 계획 활용 (참고 전용 — 계획은 묘사 품질 향상 도구일 뿐)
    컨텍스트에 [현재 서사 계획] 블록이 있으면 참고는 하되, 플레이어를 유도하는 데 사용해서는 안 된다.
@@ -671,7 +671,7 @@ NARRATE의 경량 응답은 별도의 경량 LLM이 생성합니다. 당신은 �
    서사 계획의 역할은 '이 장면에서 세계가 어떻게 반응할지'에 대한 풍부한 묘사 가이드라인 제공이다.
 
    a) proceed_instruction 작성 규칙:
-      묘사를 생성하는 메인 GM AI는 narrative_plan을 직접 보지 못한다.
+      묘사를 생성하는 묘사층위는 narrative_plan을 직접 보지 못한다.
       proceed_instruction은 반드시 플레이어가 선언한 행동의 결과와 그 결과로 변화한
       세계의 상태(환경·NPC 반응·사건 전개)만을 기술한다.
 
@@ -749,7 +749,7 @@ NARRATE의 경량 응답은 별도의 경량 LLM이 생성합니다. 당신은 �
 """
 
 
-# ========== [자동 GM — 서사 계획] ==========
+# ========== [GM — 서사 계획] ==========
 
 # 서사 계획 API 응답을 강제하는 JSON 스키마.
 # 2단계 구조: mid_plan(중규모) + current_event/next_event(순간 계획)
@@ -809,7 +809,7 @@ NARRATIVE_PLAN_SCHEMA = {
 
 # 서사 계획 설계자 시스템 지시문.
 NARRATIVE_PLANNER_SYSTEM_INSTRUCTION = """당신은 한국어 TRPG 세션의 서사 계획 설계자입니다.
-현재 시나리오 상황을 분석하여 자동 GM이 활용할 수 있는 2단계 서사 계획을 수립합니다.
+현재 시나리오 상황을 분석하여 GM이 활용할 수 있는 2단계 서사 계획을 수립합니다.
 
 [계획 구조]
 1. mid_plan (중규모 진행 계획): 현재 장면이 속한 서사 단위. 전체 세션 분량의 약 1~4할.
@@ -842,16 +842,16 @@ NARRATIVE_PLANNER_SYSTEM_INSTRUCTION = """당신은 한국어 TRPG 세션의 서
 지정된 JSON 스키마를 정확히 따른다. 마크다운·코드블럭 없이 순수 JSON만 출력한다."""
 
 
-# ========== [자동 GM — 경량 묘사(NARRATE)] ==========
+# ========== [GM — 경량 묘사(NARRATE)] ==========
 
 def build_narrate_prompt(recent_str: str, current_turn_str: str, narrate_instruction: str) -> str:
     """
-    자동 GM NARRATE 단계에서 경량 LLM에 전달할 프롬프트를 조립합니다.
+    GM NARRATE 단계에서 경량 LLM에 전달할 프롬프트를 조립합니다.
 
     Args:
         recent_str (str): 최근 raw_logs 요약 (최대 4개, 각 400자 제한)
         current_turn_str (str): 이번 턴 누적 대화 로그
-        narrate_instruction (str): GM-Logic이 결정한 NARRATE 지시문 (100자 이내)
+        narrate_instruction (str): 지시층위이 결정한 NARRATE 지시문 (100자 이내)
 
     Returns:
         str: 완성된 NARRATE 프롬프트 문자열
@@ -1252,7 +1252,7 @@ NARRATIVE_DIRECTION_SCHEMA = {
             },
             "description": (
                 "서사 방향성 2~3개. 개연성 높은 순 정렬. "
-                "impossible 방향도 1개까지 포함 가능(GM-Logic에 차단 정보 제공). "
+                "impossible 방향도 1개까지 포함 가능(지시층위에 차단 정보 제공). "
                 "각 방향의 primary_world_element는 서로 달라야 한다."
             )
         }

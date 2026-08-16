@@ -92,7 +92,7 @@ class SystemCog(commands.Cog):
             "`!더빙테스트 (보이스)` — 직전 묘사 마지막 문단 TTS 재생"
         ), inline=False)
 
-        embed.add_field(name="🤖  자동 GM  (`!자동` 그룹)", value=(
+        embed.add_field(name="🤖  GM  (`!자동` 그룹)", value=(
             "`!자동` — 하위명령 목록\n"
             "`!자동 시작 (대상PC)` — 게임 채널 발언을 AI GM이 자동 처리\n"
             "`!자동 중단` · `!자동 상태` — 정지 · 활성/처리 턴/누적 비용 확인\n"
@@ -110,7 +110,7 @@ class SystemCog(commands.Cog):
             "`!채널정리` — 더미 채널·카테고리 일괄 삭제 (채널 관리 권한)\n"
             "`!리로드 [모듈명]` — cogs 무중단 핫스왑\n"
             "`!배포 [리로드/재시작]` — GitHub 최신 코드 반영 (오너 전용)\n"
-            "　└ 대상: `game` `character` `media` `session` `system` `auto_gm`"
+            "　└ 대상: `game` `character` `media` `session` `system` `gm`"
         ), inline=False)
 
         embed.add_field(name="📖  설정 조회·권한", value=(
