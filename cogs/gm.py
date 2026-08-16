@@ -116,17 +116,39 @@ def _build_judgment_user_prompt(session, player_message: str, roll_results: list
             recent.append(f"[{role}]: {text}")
     lines.append("[최근 대화 맥락]\n" + ("\n\n".join(recent) if recent else "(없음)"))
 
-    # ② 능력치 목록 — ROLL 판정 명세 작성용
-    stat_lines = []
-    for char_name, profile in (session.players or {}).items():
-        stats = {}
-        if isinstance(profile, dict):
-            stats = profile.get("ability_stats") or profile.get("stats") or {}
-        if stats:
-            stat_lines.append(f"- {char_name}: " + ", ".join(f"{k} {v}" for k, v in stats.items()))
-        else:
-            stat_lines.append(f"- {char_name}: (능력치 정보 없음)")
-    lines.append("[플레이어 능력치]\n" + ("\n".join(stat_lines) if stat_lines else "(없음)"))
+    # ② 플레이어 프로필 — ROLL 판정 명세 및 상황 판단의 근거
+    # NOTE: players는 {uid: {"name", "profile", "appearance"}} 구조다.
+    #       uid가 아니라 name을 써야 하며, profile이 스탯 본체다.
+    #       자원·상태이상은 session.resources / session.statuses에 별도 보관된다.
+    prof_lines = []
+    for _uid, p_data in (session.players or {}).items():
+        if not isinstance(p_data, dict):
+            continue
+        c_name = p_data.get("name") or "(이름 미상)"
+        prof_lines.append(f"- {c_name}: [스탯] {p_data.get('profile') or '(미배분)'}")
+        if p_data.get("appearance"):
+            prof_lines.append(f"    외형: {p_data['appearance']}")
+        c_res = (session.resources or {}).get(c_name, {})
+        if c_res:
+            prof_lines.append("    소지 자원: " + ", ".join(f"{k} {v}" for k, v in c_res.items()))
+        c_sta = (session.statuses or {}).get(c_name, [])
+        prof_lines.append("    상태이상: " + (", ".join(c_sta) if c_sta else "없음"))
+    lines.append("[플레이어 프로필]\n" + ("\n".join(prof_lines) if prof_lines else "(없음)"))
+
+    # ②-2 등장 NPC — 무대에 누가 있는지 알아야 ASK 대상과 판정 대상을 정할 수 있다
+    npc_names = list((session.npcs or {}).keys())
+    if npc_names:
+        lines.append("[세션 등장 NPC]\n" + ", ".join(npc_names[:30]))
+
+    # ②-3 현재 세계 상태 — 추출층위가 갱신한 위치·시간대
+    tl = getattr(session, "world_timeline", {}) or {}
+    if tl:
+        lines.append(
+            "[현재 상황]\n"
+            f"위치: {tl.get('current_location', '미확인')} / "
+            f"시간대: {tl.get('time_of_day', '미확인')} / "
+            f"날짜: {tl.get('current_date', '미확인')}"
+        )
 
     # ③ 실시간 노트
     note = getattr(session, "note", "") or ""
