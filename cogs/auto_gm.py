@@ -11,6 +11,8 @@ import core
 
 # 프롬프트 중앙 등록소에서 AI 프롬프트 상수 및 빌더 임포트
 from prompts import (
+    JUDGMENT_RESPONSE_SCHEMA,
+    JUDGMENT_SYSTEM_INSTRUCTION,
     GM_LOGIC_RESPONSE_SCHEMA,
     GM_LOGIC_SYSTEM_INSTRUCTION,
     NARRATIVE_PLAN_SCHEMA,
@@ -30,6 +32,14 @@ from prompts import (
 
 # ========== [자동 GM 모드 상수] ==========
 # NOTE: GM-Logic 호출 시 한 플레이어 발언당 내부 루프 반복 상한.
+# 판단층위에 주입할 최근 로그 개수 (캐시 미사용이므로 맥락을 직접 공급)
+JUDGMENT_RECENT_LOGS = 5
+# 판단층위 모델 — 우선 DEFAULT_MODEL 유지. 실측 후 저비용 모델 교체 검토.
+JUDGMENT_MODEL = core.DEFAULT_MODEL
+# 층위별 자체 재시도 횟수
+JUDGMENT_MAX_RETRIES = 2
+GM_LOGIC_MAX_RETRIES = 2
+
 MAX_ITERATIONS_PER_MESSAGE = 5
 
 # NOTE: 같은 플레이어 발언에 대한 ASK 누적 상한. 초과 시 강제 PROCEED.
@@ -73,6 +83,69 @@ def _clean_proceed_instruction(instruction: str) -> str:
             cleaned.append(line)
     result = ' '.join(cleaned)
     return re.sub(r'\s+', ' ', result).strip()
+
+
+def _build_judgment_user_prompt(session, player_message: str, roll_results: list) -> str:
+    """
+    판단층위 호출용 사용자 프롬프트 조립.
+
+    NOTE: 판단층위는 세션 캐시를 읽지 않는다(비용 절감). 따라서 캐시에 들어 있는
+          시나리오 룰북·세계관에 접근할 수 없으므로, 판단에 필요한 최소 정보를
+          여기서 직접 주입한다. 주입 항목은 아래 셋으로 한정한다:
+            ① 최근 로그 N개 (JUDGMENT_RECENT_LOGS)
+            ② 플레이어 능력치 목록 (rolls 명세 작성용)
+            ③ session.note (실시간 제약)
+
+    Args:
+        session: TRPGSession
+        player_message (str): 플레이어 신규 발언
+        roll_results (list[str]): 직전 ROLL 결과 (있으면 PROCEED 우선 판단 근거)
+    """
+    lines = []
+
+    # ① 최근 로그
+    recent = []
+    for content in session.raw_logs[-JUDGMENT_RECENT_LOGS:]:
+        try:
+            text = content.parts[0].text
+        except (AttributeError, IndexError):
+            continue
+        if text:
+            role = "GM" if getattr(content, "role", "") == "model" else "플레이어"
+            recent.append(f"[{role}]: {text}")
+    lines.append("[최근 대화 맥락]\n" + ("\n\n".join(recent) if recent else "(없음)"))
+
+    # ② 능력치 목록 — ROLL 판정 명세 작성용
+    stat_lines = []
+    for char_name, profile in (session.players or {}).items():
+        stats = {}
+        if isinstance(profile, dict):
+            stats = profile.get("ability_stats") or profile.get("stats") or {}
+        if stats:
+            stat_lines.append(f"- {char_name}: " + ", ".join(f"{k} {v}" for k, v in stats.items()))
+        else:
+            stat_lines.append(f"- {char_name}: (능력치 정보 없음)")
+    lines.append("[플레이어 능력치]\n" + ("\n".join(stat_lines) if stat_lines else "(없음)"))
+
+    # ③ 실시간 노트
+    note = getattr(session, "note", "") or ""
+    if note:
+        lines.append(f"[실시간 노트 — 이번 판단에 우선 적용]\n{note}")
+
+    # 진행 상태 카운터 — ASK/NARRATE 반복 억제 판단 근거
+    lines.append(
+        f"[진행 상태] ASK 누적 {session.auto_gm_clarify_count}회 / "
+        f"NARRATE 누적 {getattr(session, 'auto_gm_narrate_count', 0)}회"
+    )
+
+    if roll_results:
+        lines.append(
+            "[직전 굴림 결과 — 이미 컨텍스트에 반영됨]\n" + "\n".join(roll_results)
+            + "\n※ 굴림 결과가 존재하므로 원칙적으로 PROCEED로 진행한다."
+        )
+
+    lines.append(f"[플레이어 신규 발언]\n{player_message}")
+    return "\n\n".join(lines)
 
 
 def _build_logic_user_prompt(session, player_message: str, roll_results: list,
@@ -1005,40 +1078,45 @@ class AutoGMCog(commands.Cog):
                 sim_result = await self._simulate_narrative_directions(
                     session, player_message, master_ch)
 
+        # ── [판단층위] 캐시 미사용 — 진행 유형과 ASK 질문·ROLL 명세를 결정 ──
         if game_ch:
             async with game_ch.typing():
-                first_decision = await self._call_gm_logic(
-                    session, player_message, roll_results, master_ch, sim_result=sim_result)
+                judgment = await self._call_judgment(
+                    session, player_message, roll_results, master_ch)
         else:
-            first_decision = await self._call_gm_logic(
-                session, player_message, roll_results, master_ch, sim_result=sim_result)
+            judgment = await self._call_judgment(
+                session, player_message, roll_results, master_ch)
 
-        # 판단 완료 → 대기 안내 제거 (이후 ASK/NARRATE/ROLL/PROCEED가 자체 출력)
         await core.clear_status_message(status_msg)
 
+        if not judgment:
+            return
+
         for iteration in range(MAX_ITERATIONS_PER_MESSAGE):
-            if iteration == 0:
-                # 사전 시뮬레이션(sim_result)이 주입된 첫 번째 결정 사용
-                decision = first_decision
-            else:
-                # 재시도(비정상 응답 복구): iteration==1에만 sim_result 주입
-                current_sim = sim_result if iteration == 1 else None
+            action = (judgment.get("action") or "ASK").upper()
+            reasoning = judgment.get("reasoning", "")
+
+            # ── [지시층위] 캐시 사용 — NARRATE·PROCEED에만 필요 ──
+            # ASK와 ROLL은 판단층위가 내용물(bridge_message·rolls)까지 생성하므로
+            # 지시층위를 호출하지 않는다 → 캐시 읽기 절감.
+            if action in ("NARRATE", "PROCEED"):
+                current_sim = sim_result if iteration == 0 else None
                 if game_ch:
                     async with game_ch.typing():
                         decision = await self._call_gm_logic(
-                            session, player_message, roll_results, master_ch, sim_result=current_sim
-                        )
+                            session, player_message, roll_results, master_ch,
+                            sim_result=current_sim, action=action)
                 else:
                     decision = await self._call_gm_logic(
-                        session, player_message, roll_results, master_ch, sim_result=current_sim
-                    )
-
-            if not decision:
-                await m_send("⚠️ 자동 GM 결정 호출 실패. 이번 발언을 스킵합니다.")
-                return
-
-            action = decision.get("action", "ASK").upper()
-            reasoning = decision.get("reasoning", "")
+                        session, player_message, roll_results, master_ch,
+                        sim_result=current_sim, action=action)
+                if not decision:
+                    await m_send("⚠️ 지시층위 호출 실패. 이번 발언을 스킵합니다.")
+                    return
+                # 판단층위 산출물과 병합 — 이후 분기는 기존 구조를 그대로 사용한다.
+                decision = {**judgment, **decision, "action": action}
+            else:
+                decision = dict(judgment)
 
             label = action_labels.get(action, action)
             print(f"[AutoGM/{session.session_id}] iter={iteration} action={action} :: {reasoning[:120]}")
@@ -1054,10 +1132,8 @@ class AutoGMCog(commands.Cog):
                     await m_send(
                         f"⚙️ **[자동 GM]** ASK 한도({MAX_CLARIFY_PER_MESSAGE}회) 초과 → 강제 PROCEED로 전환합니다."
                     )
-                    forced_instr = _clean_proceed_instruction(
-                        decision.get("proceed_instruction") or
-                        "현재 상황에서 자연스럽게 다음 묘사를 이어가십시오."
-                    )
+                    forced_instr = await self._forced_proceed_instruction(
+                        session, player_message, roll_results, master_ch, sim_result)
                     await self._finish_proceed_and_continue(session, forced_instr, master_ch)
                     return
 
@@ -1080,10 +1156,8 @@ class AutoGMCog(commands.Cog):
                     await m_send(
                         f"⚙️ **[자동 GM]** NARRATE 한도({MAX_NARRATE_PER_MESSAGE}회) 초과 → 강제 PROCEED로 전환합니다."
                     )
-                    forced_instr = _clean_proceed_instruction(
-                        decision.get("proceed_instruction") or
-                        "현재 상황에서 자연스럽게 다음 묘사를 이어가십시오."
-                    )
+                    forced_instr = await self._forced_proceed_instruction(
+                        session, player_message, roll_results, master_ch, sim_result)
                     await self._finish_proceed_and_continue(session, forced_instr, master_ch)
                     return
 
@@ -1104,10 +1178,8 @@ class AutoGMCog(commands.Cog):
                     await m_send(
                         "⚠️ 자동 GM이 ROLL을 선언했으나 굴림 항목이 비어 있어 PROCEED로 폴백합니다."
                     )
-                    fallback_instr = _clean_proceed_instruction(
-                        decision.get("proceed_instruction") or
-                        "현재 상황에서 자연스럽게 다음 묘사를 이어가십시오."
-                    )
+                    fallback_instr = await self._forced_proceed_instruction(
+                        session, player_message, roll_results, master_ch, sim_result)
                     await self._finish_proceed_and_continue(session, fallback_instr, master_ch)
                     return
 
@@ -1152,8 +1224,121 @@ class AutoGMCog(commands.Cog):
     # GM-Logic 호출
     # ─────────────────────────────────────────────────────────────
 
+    async def _forced_proceed_instruction(self, session, player_message: str,
+                                          roll_results: list, master_ch,
+                                          sim_result: dict | None = None) -> str:
+        """
+        ASK/NARRATE 한도 초과 또는 ROLL 폴백으로 강제 PROCEED 전환할 때,
+        지시층위를 호출해 묘사 지시문을 확보한다.
+
+        NOTE: 층위 분리 이후 판단층위 결정에는 proceed_instruction이 없다.
+              지시문 없이 진행하면 묘사 품질이 급락하므로 여기서 별도 확보한다.
+              호출 실패 시에만 범용 문구로 폴백한다.
+        """
+        fallback = "현재 상황에서 자연스럽게 다음 묘사를 이어가십시오."
+        decision = await self._call_gm_logic(
+            session, player_message, roll_results, master_ch,
+            sim_result=sim_result, action="PROCEED")
+        if not decision:
+            return fallback
+        return _clean_proceed_instruction(decision.get("proceed_instruction") or fallback)
+
+    async def _call_judgment(self, session, player_message: str, roll_results: list,
+                             master_ch) -> dict | None:
+        """
+        판단층위 호출 — 진행 유형(ASK/NARRATE/ROLL/PROCEED)을 결정한다.
+
+        [캐시 미사용]
+        판단은 초단기 맥락과 선언만으로 가능하므로 세션 캐시를 읽지 않는다.
+        ROLL 판정 명세(rolls)도 이 층위가 생성하므로, ROLL이 발생해도
+        캐시 읽기는 뒤이은 지시층위 호출 1회로 유지된다.
+        (분리 이전에는 GM-Logic이 두 번 호출되어 캐시를 2회 읽었다.)
+
+        Returns:
+            판단 결과 dict 또는 실패 시 None. 재시도는 이 함수 내부에서 처리한다.
+        """
+        user_prompt = _build_judgment_user_prompt(session, player_message, roll_results)
+        core.write_log(session.session_id, "api", f"[판단층위 요청 - Payload]\n{user_prompt}")
+
+        contents = [types.Content(role="user", parts=[types.Part.from_text(text=user_prompt)])]
+        config = types.GenerateContentConfig(
+            system_instruction=JUDGMENT_SYSTEM_INSTRUCTION,
+            temperature=0.4,
+            response_mime_type="application/json",
+            response_schema=JUDGMENT_RESPONSE_SCHEMA,
+            safety_settings=core.TRPG_SAFETY_SETTINGS,
+        )
+
+        # 층위 자체 재시도 — 판단 실패가 지시층위 재시도로 번지지 않게 한다.
+        decision = None
+        for attempt in range(JUDGMENT_MAX_RETRIES):
+            try:
+                response = await asyncio.to_thread(
+                    self.bot.genai_client.models.generate_content,
+                    model=JUDGMENT_MODEL,
+                    contents=contents,
+                    config=config,
+                )
+            except Exception as e:
+                print(f"[AutoGM] 판단층위 호출 실패(시도 {attempt + 1}): {type(e).__name__} - {e}")
+                continue
+
+            # 비용 정산 — 캐시 미사용이므로 cached_tokens는 0
+            try:
+                meta = response.usage_metadata
+                in_tokens, out_tokens, cached_tokens, thought_tokens = core.extract_token_usage(meta)
+                breakdown = core.calculate_text_gen_cost_breakdown(
+                    JUDGMENT_MODEL,
+                    input_tokens=in_tokens,
+                    output_tokens=out_tokens,
+                    cached_read_tokens=cached_tokens,
+                )
+                cost = breakdown["total_krw"]
+                session.total_cost += cost
+                core.write_cost_log(
+                    session.session_id, f"{COST_LOG_PREFIX}판단층위 호출",
+                    in_tokens, cached_tokens, out_tokens, cost, session.total_cost
+                )
+                print(
+                    f"[AutoGM/{session.session_id}] 판단 비용(캐시X): "
+                    f"In={in_tokens:,} Out={out_tokens:,} → {core.format_cost(cost)}"
+                )
+                if not hasattr(session, "turn_cost_log"):
+                    session.turn_cost_log = []
+                session.turn_cost_log.append({
+                    "label": "판단층위(캐시X)", "cost": cost,
+                    "in": in_tokens, "cached": cached_tokens, "out": out_tokens,
+                    "manifest": [],
+                })
+            except Exception as e:
+                print(f"[AutoGM] 판단층위 비용 정산 실패: {e}")
+
+            raw_text = response.text or ""
+            try:
+                decision = json.loads(raw_text)
+            except json.JSONDecodeError:
+                cleaned = re.sub(r"^```(?:json)?\s*|\s*```$", "", raw_text.strip(), flags=re.MULTILINE)
+                try:
+                    decision = json.loads(cleaned)
+                except Exception as e:
+                    print(f"[AutoGM] 판단층위 JSON 파싱 실패(시도 {attempt + 1}): {e}")
+                    continue
+            break
+
+        if not decision:
+            if master_ch:
+                await master_ch.send("⚠️ 판단층위 호출에 실패했습니다. 이번 발언을 스킵합니다.")
+            return None
+
+        core.write_log(
+            session.session_id, "api",
+            f"[판단층위 결정]\n{json.dumps(decision, ensure_ascii=False, indent=2)}"
+        )
+        return decision
+
     async def _call_gm_logic(self, session, player_message: str, roll_results: list,
-                              master_ch, sim_result: dict | None = None) -> dict | None:
+                              master_ch, sim_result: dict | None = None,
+                              action: str = "PROCEED") -> dict | None:
         """
         GM-Logic 모델 호출. DEFAULT_MODEL 사용.
 
@@ -1173,6 +1358,12 @@ class AutoGMCog(commands.Cog):
         """
         user_prompt = _build_logic_user_prompt(session, player_message, roll_results,
                                                 sim_result=sim_result)
+        # 판단층위가 확정한 진행 유형을 지시층위에 전달한다. 지시층위는 이 유형을 바꾸지 않는다.
+        user_prompt = (
+            f"[확정된 진행 유형] {action}\n"
+            f"※ 이 유형은 판단층위에서 이미 결정되었습니다. 변경하지 말고, "
+            f"이 유형에 필요한 지시문만 작성하십시오.\n\n"
+        ) + user_prompt
 
         core.write_log(session.session_id, "api", f"[자동 GM Logic 요청 - Payload]\n{user_prompt}")
 
