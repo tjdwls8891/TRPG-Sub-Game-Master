@@ -340,15 +340,17 @@ def _build_logic_user_prompt(session, player_message: str, roll_results: list,
     # 세계 물리 타임라인 블록 (방안 B)
     world_tl = getattr(session, "world_timeline", {})
     if world_tl:
+        # NOTE: 4.4.0에서 구버전 세계 타임라인 추출기를 추출층위가 흡수하면서
+        #       생산되는 키가 4종(current_date·time_of_day·current_location·
+        #       faction_context)으로 정리되었다. weather·known_threats·
+        #       environmental_note·last_updated_turn은 더 이상 생산되지 않으므로
+        #       소비도 하지 않는다(항상 기본값만 출력되어 토큰만 소모했다).
         world_tl_block = (
             "\n[현재 세계 상태 — 세력 배치·지역 규칙 기반 개연성 판단의 기준]\n"
+            f"날짜: {world_tl.get('current_date', '(미확인)')}\n"
             f"위치: {world_tl.get('current_location', '(미확인)')}\n"
-            f"시간대: {world_tl.get('time_of_day', '(미확인)')} "
-            f"| 날씨: {world_tl.get('weather', '(미확인)')}\n"
+            f"시간대: {world_tl.get('time_of_day', '(미확인)')}\n"
             f"세력/지역 컨텍스트: {world_tl.get('faction_context', '(미확인)')}\n"
-            f"알려진 위협: {world_tl.get('known_threats', '없음')}\n"
-            f"환경: {world_tl.get('environmental_note', '없음')}\n"
-            f"(마지막 갱신: 턴 {world_tl.get('last_updated_turn', '?')})\n"
         )
     else:
         world_tl_block = ""
@@ -2429,8 +2431,8 @@ class GMCog(commands.Cog):
             tl_note = (
                 f"\n[현재 세계 상태]\n"
                 f"위치: {tl.get('current_location', '미확인')}\n"
+                f"시간대: {tl.get('time_of_day', '미확인')}\n"
                 f"세력: {tl.get('faction_context', '미확인')}\n"
-                f"위협: {tl.get('known_threats', '없음')}\n"
             )
 
         user_prompt = (

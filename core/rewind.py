@@ -26,7 +26,11 @@ TRACKED_PATHS = [
     "statuses",
     "world_timeline",
     "info_ledger",
-    "ability_stats",
+    # NOTE: 플레이어 스탯은 players[uid]["profile"]에 들어 있다.
+    #       session.ability_stats라는 속성은 존재하지 않으며,
+    #       scenario_data["ability_stats"]는 능력치 '이름 목록'일 뿐이다.
+    #       능력치 성장·프로필 수정을 되감으려면 players 자체를 추적해야 한다.
+    "players",
     "total_cost",
     "auto_gm_turns_done",
     "compressed_memory",

@@ -25,6 +25,10 @@ CHARS_TO_TOKENS = 0.65
 # 미진행 턴의 데이터량을 평균보다 약간 많게 잡는 보수계수 (기획 규정).
 CONSERVATIVE_FACTOR = 1.15
 
+# 프롬프트 조립 실패 시 사용할 입력 토큰 보수 기본값.
+# 0으로 두면 예측이 실제보다 크게 낮아져 잔액 차단이 무력화된다.
+FALLBACK_BODY_TOKENS = 3000
+
 # 표본이 없을 때 쓰는 전역 기본값. 시나리오 cost_baseline으로 오버라이드.
 DEFAULT_BASELINE = {
     "narration_out": 2400,     # 묘사층위 출력(사고 포함)
@@ -118,8 +122,11 @@ def estimate_input_tokens(session, action: str = "PROCEED") -> dict:
         from .prompt import PromptBuilder
         assembled = PromptBuilder.build_prompt(session, "(예상 산출용)")
         body = _tok(assembled)
-    except Exception:
-        body = 0
+    except Exception as e:
+        # 조립 실패를 조용히 0으로 삼키면 예측이 실제보다 크게 낮아진다.
+        # 원인을 드러내고, 최소한 캐시 외 입력이 0이 되지 않도록 보수적 기본값을 쓴다.
+        print(f"⚠️ [예측] 프롬프트 조립 실패 — 기본값 사용: {type(e).__name__}: {e}")
+        body = FALLBACK_BODY_TOKENS
     out["instruction"] = body
     out["narration"] = body
 
