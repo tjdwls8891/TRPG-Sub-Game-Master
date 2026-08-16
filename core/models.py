@@ -107,6 +107,12 @@ class TRPGSession:
         self.auto_gm_side_note = ""            # !자동 개입으로 주입된 GM 사이드 노트 (다음 호출에 1회 합류 후 비움)
         self.auto_gm_lock = False              # 동시 처리 방지용 락 (직렬화 시 무시)
         self.auto_gm_proceed_history = []      # 최근 PROCEED 이력 (지시사항+컨텍스트+AI요약, 반복 방지용)
+        # 되감기 기준 스냅샷 — 런타임 전용(저장 안 함).
+        # 마지막 델타 기록 시점의 상태. 백그라운드 갱신이 유실되지 않게 한다.
+        self._rewind_snapshot = None
+        # 실제 관측된 캐시 읽기 토큰 — 캐시 본문에 구워진 지시문까지 포함된 값.
+        # cache_tokens(조립 텍스트 기준)와 다르므로 예측은 이 값을 우선 사용한다.
+        self.cache_read_tokens = 0
         # 비용 예측 통계 — 층위별 출력 토큰 이동평균 (세션 진행에 따라 수렴)
         self.cost_stats = {}
         # 되감기 — 마지막으로 델타를 기록한 턴 번호(중복 기록 방지)

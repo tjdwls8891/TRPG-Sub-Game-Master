@@ -115,7 +115,10 @@ def estimate_input_tokens(session, action: str = "PROCEED") -> dict:
          "extraction": int, "cached": int}
     """
     out = {"judgment": 0, "instruction": 0, "narration": 0, "extraction": 0, "cached": 0}
-    out["cached"] = int(getattr(session, "cache_tokens", 0) or 0)
+    # 실제 관측된 캐시 읽기량을 우선 사용한다. cache_tokens는 조립 텍스트 기준이라
+    # 캐시 본문에 함께 구워진 시스템 지시문(약 8천 토큰)이 빠져 있다.
+    out["cached"] = int(getattr(session, "cache_read_tokens", 0)
+                        or getattr(session, "cache_tokens", 0) or 0)
 
     # 지시·묘사층위가 공유하는 프롬프트 본문 — 실제 빌더로 조립한다.
     try:

@@ -1,3 +1,4 @@
+import os
 import re
 import json
 import random
@@ -39,6 +40,8 @@ JUDGMENT_MODEL = core.DEFAULT_MODEL
 JUDGMENT_MAX_RETRIES = 2
 EXTRACTION_MODEL = core.DEFAULT_MODEL
 EXTRACTION_MAX_RETRIES = 2
+# 추출층위 사고 예산 — 기계적 판독 작업이므로 제한한다. 0이면 사고 비활성.
+EXTRACTION_THINKING_BUDGET = int(os.getenv("EXTRACTION_THINKING_BUDGET", "512"))
 GM_LOGIC_MAX_RETRIES = 2
 
 MAX_ITERATIONS_PER_MESSAGE = 5
@@ -1180,8 +1183,16 @@ class GMCog(commands.Cog):
                     f"이번 턴을 마지막으로 자동 진행을 정지합니다."
                 )
 
-        # 되감기 델타 기준점 — 묘사 이전 상태를 스냅샷해 둔다.
-        state_before = core.capture_state(session)
+        # 되감기 델타 기준점.
+        # NOTE: 턴마다 새로 스냅샷을 뜨면, 델타 계산과 다음 스냅샷 사이에 일어난
+        #       변화(백그라운드 추출층위의 world_timeline·statuses 갱신 등)가
+        #       어느 델타에도 잡히지 않고 영구 유실된다.
+        #       따라서 '마지막으로 기록한 시점의 스냅샷'을 세션에 들고 다니며
+        #       그것과 비교한다. 늦게 도착한 변화는 다음 턴 델타에 귀속되지만
+        #       유실되지는 않는다.
+        state_before = getattr(session, "_rewind_snapshot", None)
+        if state_before is None:
+            state_before = core.capture_state(session)
         cost_before = getattr(session, "total_cost", 0.0)
 
         await self._dispatch_proceed(session, instruction)
@@ -1200,11 +1211,13 @@ class GMCog(commands.Cog):
         turn_no = session.auto_gm_turns_done
         if turn_no > getattr(session, "last_recorded_turn", 0):
             try:
-                changes = core.diff_state(state_before, core.capture_state(session))
+                state_after = core.capture_state(session)
+                changes = core.diff_state(state_before, state_after)
                 core.record_delta(
                     session, turn_no, changes,
                     cost_krw=getattr(session, "total_cost", 0.0) - cost_before,
                 )
+                session._rewind_snapshot = state_after
                 core.record_full_log(
                     session, turn_no,
                     core.serialize_log_entries(session.raw_logs[-2:]),
@@ -1667,6 +1680,9 @@ class GMCog(commands.Cog):
             )
             cost = breakdown["total_krw"]
             core.update_stats(session, "instruction", out_tokens, thought_tokens)
+            # 캐시 읽기 실측 — 캐시에 구워진 지시문까지 포함된 실제 값.
+            if cached_tokens > getattr(session, "cache_read_tokens", 0):
+                session.cache_read_tokens = cached_tokens
             session.total_cost += cost
             core.write_cost_log(
                 session.session_id,
@@ -2229,6 +2245,10 @@ class GMCog(commands.Cog):
             response_mime_type="application/json",
             response_schema=core.EXTRACTION_RESPONSE_SCHEMA,
             safety_settings=core.TRPG_SAFETY_SETTINGS,
+            # 추출은 묘사문에서 값을 읽어 옮기는 기계적 작업이다.
+            # 실측 결과 출력의 90%가 사고 토큰이었고(1039/1148) 실제 JSON은
+            # 109토큰에 불과했다. 사고 예산을 제한해 낭비를 줄인다.
+            thinking_config=types.ThinkingConfig(thinking_budget=EXTRACTION_THINKING_BUDGET),
         )
 
         result = None

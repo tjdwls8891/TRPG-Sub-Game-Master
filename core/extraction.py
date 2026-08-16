@@ -206,8 +206,10 @@ def to_world_timeline(result: dict, existing: dict | None = None) -> dict:
     loc = result.get("location") or {}
 
     def _keep(new, old):
-        """'미확인'은 기존 값을 덮어쓰지 않는다."""
-        return old if (not new or new == "미확인") else new
+        """'미확인'은 기존 값을 덮어쓰지 않는다. 기존 값도 없으면 '미확인'."""
+        if not new or new == "미확인":
+            return old if old else "미확인"
+        return new
 
     tl["current_date"] = _keep(dt.get("date"), tl.get("current_date"))
     tl["time_of_day"] = _keep(dt.get("time_of_day"), tl.get("time_of_day"))
