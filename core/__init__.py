@@ -67,6 +67,7 @@ from .rewind import (
     record_delta,
     record_full_log,
     archive_removed,
+    rewind_to,
     available_range,
     serialize_log_entries,
     read_jsonl,
@@ -153,7 +154,7 @@ __all__ = [
     "MIN_CACHE_TOKENS", "INK_UNIT_KRW", "INK_NET_KRW", "INK_PLANS",
     # ink / accounts
     "REWIND_MAX_TURNS", "TRACKED_PATHS", "capture_state", "diff_state",
-    "record_delta", "record_full_log", "archive_removed", "available_range",
+    "record_delta", "record_full_log", "archive_removed", "available_range", "rewind_to",
     "serialize_log_entries", "read_jsonl",
     "COMMON_EXTRACTION_TARGETS", "EXTRACTION_RESPONSE_SCHEMA", "THRESHOLDS",
     "get_thresholds", "build_extraction_targets", "parse_extraction",

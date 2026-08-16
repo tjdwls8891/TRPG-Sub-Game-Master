@@ -186,6 +186,139 @@ def available_range(session) -> tuple:
     return (oldest, newest)
 
 
+def _set_path(session, path: str, value):
+    """점 표기 경로에 값을 되돌린다. before가 None이면 키를 제거한다."""
+    if "." not in path:
+        setattr(session, path, value)
+        return
+    root, sub = path.split(".", 1)
+    container = getattr(session, root, None)
+    if not isinstance(container, dict):
+        return
+    if value is None:
+        container.pop(sub, None)
+    else:
+        container[sub] = value
+
+
+def rewind_to(session, target_turn: int) -> dict:
+    """목표 턴 종료 시점 상태로 되돌린다.
+
+    [절차]
+      ① 목표 턴을 초과하는 델타를 역순으로 역적용
+      ② 그 구간에 발생한 압축을 이전 원본으로 롤백
+      ③ full_logs로 raw_logs 재구성
+      ④ 제거된 정보를 아카이브로 이관
+
+    Args:
+        target_turn: 되돌아갈 턴 번호. 이 턴이 끝난 직후 상태가 된다.
+
+    Returns:
+        {"ok": bool, "reason": str, "removed_turns": [int],
+         "changes": int, "compression_rolled_back": bool}
+    """
+    oldest, newest = available_range(session)
+    if newest == 0:
+        return {"ok": False, "reason": "되감기 기록이 없습니다.",
+                "removed_turns": [], "changes": 0, "compression_rolled_back": False}
+    if target_turn >= newest:
+        return {"ok": False, "reason": f"현재 턴({newest}) 이전만 되감을 수 있습니다.",
+                "removed_turns": [], "changes": 0, "compression_rolled_back": False}
+    if target_turn < oldest:
+        return {"ok": False, "reason": f"되감기 가능 범위는 {oldest}~{newest}턴입니다.",
+                "removed_turns": [], "changes": 0, "compression_rolled_back": False}
+
+    deltas = read_jsonl(session.session_id, REWIND_LOG)
+    # 목표 턴을 초과하는 델타만 대상. 역순으로 되돌려야 중간 변경이 올바로 상쇄된다.
+    doomed = sorted(
+        [d for d in deltas if d.get("turn", 0) > target_turn],
+        key=lambda d: d.get("turn", 0), reverse=True,
+    )
+    if not doomed:
+        return {"ok": False, "reason": "되돌릴 변경이 없습니다.",
+                "removed_turns": [], "changes": 0, "compression_rolled_back": False}
+
+    change_count = 0
+    compression_rolled = False
+    for d in doomed:
+        for ch in reversed(d.get("changes") or []):
+            try:
+                _set_path(session, ch["path"], ch.get("before"))
+                change_count += 1
+            except Exception as e:
+                print(f"⚠️ [되감기] 경로 복원 실패 {ch.get('path')}: {e}")
+        comp = d.get("compression")
+        if comp and comp.get("occurred"):
+            # 압축 발생 시점 기록이 있으므로 플랜별 주기를 몰라도 정확히 되돌린다.
+            session.compressed_memory = comp.get("before", "")
+            compression_rolled = True
+
+    # raw_logs 재구성 — full_logs에서 목표 턴 이하만 복원
+    _restore_raw_logs(session, target_turn)
+
+    removed_turns = [d.get("turn") for d in doomed]
+    archive_removed(session, target_turn, doomed)
+    _truncate_jsonl(session.session_id, REWIND_LOG, target_turn)
+    _truncate_jsonl(session.session_id, FULL_LOGS, target_turn)
+
+    session.auto_gm_turns_done = target_turn
+    session.last_recorded_turn = target_turn
+
+    return {"ok": True, "reason": "", "removed_turns": removed_turns,
+            "changes": change_count, "compression_rolled_back": compression_rolled}
+
+
+def _truncate_jsonl(session_id: str, filename: str, target_turn: int) -> bool:
+    """목표 턴을 초과하는 엔트리를 파일에서 제거한다(원자적 교체)."""
+    kept = [e for e in read_jsonl(session_id, filename) if e.get("turn", 0) <= target_turn]
+    path = os.path.join(_session_dir(session_id), filename)
+    tmp = path + ".tmp"
+    try:
+        with open(tmp, "w", encoding="utf-8") as f:
+            for e in kept:
+                f.write(json.dumps(e, ensure_ascii=False) + "\n")
+        os.replace(tmp, path)
+        return True
+    except Exception as e:
+        print(f"⚠️ [되감기] {filename} 절단 실패: {e}")
+        if os.path.exists(tmp):
+            try:
+                os.remove(tmp)
+            except Exception:
+                pass
+        return False
+
+
+def _restore_raw_logs(session, target_turn: int, keep: int = 20):
+    """full_logs에서 목표 턴 이하의 대화를 읽어 raw_logs를 재구성한다.
+
+    raw_logs는 최근 keep개 캡이 걸려 있으므로 그만큼만 복원한다.
+    types.Content 생성은 호출부 의존을 피하기 위해 지연 임포트한다.
+    """
+    try:
+        from google.genai import types
+    except Exception:
+        return
+    entries = []
+    for rec in read_jsonl(session.session_id, FULL_LOGS):
+        if rec.get("turn", 0) > target_turn:
+            continue
+        entries.extend(rec.get("entries") or [])
+    if not entries:
+        return
+    rebuilt = []
+    for e in entries[-keep:]:
+        try:
+            rebuilt.append(types.Content(
+                role=e.get("role", "user"),
+                parts=[types.Part.from_text(text=e.get("text", ""))],
+            ))
+        except Exception:
+            continue
+    if rebuilt:
+        session.raw_logs = rebuilt
+
+
 def serialize_log_entries(contents) -> list:
     """types.Content 리스트를 full_logs 저장용 dict 리스트로 변환한다."""
     out = []

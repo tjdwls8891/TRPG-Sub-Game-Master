@@ -110,6 +110,7 @@ class SystemCog(commands.Cog):
             "`!채널정리` — 더미 채널·카테고리 일괄 삭제 (채널 관리 권한)\n"
             "`!리로드 [모듈명]` — cogs 무중단 핫스왑\n"
             "`!배포 [리로드/재시작]` — GitHub 최신 코드 반영 (오너 전용)\n"
+            "`!되감기 [턴번호]` — 해당 턴 종료 시점으로 롤백 (환불 불가)\n"
             "　└ 대상: `game` `character` `media` `session` `system` `gm`"
         ), inline=False)
 

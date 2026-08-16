@@ -478,6 +478,88 @@ def _build_logic_user_prompt(session, player_message: str, roll_results: list,
 
 
 # ========== [GM 주사위 버튼 View] ==========
+class RewindConfirmView(discord.ui.View):
+    """되감기 실행 확인 — 되돌리기 불가·환불 불가를 고지한 뒤 실행한다."""
+
+    def __init__(self, bot, session, target_turn: int):
+        super().__init__(timeout=60)
+        self.bot = bot
+        self.session = session
+        self.target_turn = target_turn
+
+    @discord.ui.button(label="되감기 실행", style=discord.ButtonStyle.danger)
+    async def confirm(self, interaction: discord.Interaction, _b: discord.ui.Button):
+        await interaction.response.defer()
+        result = core.rewind_to(self.session, self.target_turn)
+        if not result["ok"]:
+            await interaction.followup.send(f"⚠️ {result['reason']}")
+            return
+        await core.save_session_data(self.bot, self.session)
+        msg = (
+            f"⏪ **{self.target_turn}턴 종료 시점으로 되돌렸습니다.**\n"
+            f"> 제거된 턴: {', '.join(str(t) for t in result['removed_turns'])}\n"
+            f"> 복원된 항목: {result['changes']}건"
+        )
+        if result["compression_rolled_back"]:
+            msg += "\n> 압축 기억도 함께 롤백되었습니다."
+        await interaction.followup.send(msg)
+        try:
+            await interaction.message.delete()
+        except Exception:
+            pass
+        self.stop()
+
+    @discord.ui.button(label="취소", style=discord.ButtonStyle.secondary)
+    async def cancel(self, interaction: discord.Interaction, _b: discord.ui.Button):
+        await interaction.response.edit_message(content="되감기를 취소했습니다.", view=None)
+        self.stop()
+
+
+class RewindView(discord.ui.View):
+    """
+    되감기 버튼 — persistent view.
+
+    NOTE: 디스플레이 채널에 상주해야 하므로 timeout=None + 고정 custom_id.
+          실제 실행은 RewindConfirmView 확인을 거친다.
+    """
+
+    def __init__(self, bot):
+        super().__init__(timeout=None)
+        self.bot = bot
+
+    @discord.ui.button(label="⏪ 1턴 되감기",
+                       style=discord.ButtonStyle.secondary,
+                       custom_id="rewind:one")
+    async def rewind_one(self, interaction: discord.Interaction, _b: discord.ui.Button):
+        session = self.bot.active_sessions.get(interaction.channel.id)
+        if not session:
+            await interaction.response.send_message("세션을 찾을 수 없습니다.", ephemeral=True)
+            return
+        if getattr(session, "is_processing", False):
+            await interaction.response.send_message(
+                "턴 진행 중에는 되감을 수 없습니다.", ephemeral=True)
+            return
+
+        oldest, newest = core.available_range(session)
+        if newest == 0:
+            await interaction.response.send_message(
+                "되감기 기록이 아직 없습니다.", ephemeral=True)
+            return
+
+        target = newest - 1
+        if target < oldest:
+            await interaction.response.send_message(
+                f"되감기 가능 범위는 {oldest}~{newest}턴입니다.", ephemeral=True)
+            return
+
+        await interaction.response.send_message(
+            f"⚠️ **{newest}턴을 제거하고 {target}턴 종료 시점으로 되돌립니다.**\n"
+            f"되돌리기는 취소할 수 없으며, 이미 소모된 비용은 환불되지 않습니다.\n"
+            f"제거되는 정보는 되감기 로그로 이관됩니다.",
+            view=RewindConfirmView(self.bot, session, target),
+        )
+
+
 class ExtractionRetryView(discord.ui.View):
     """
     추출층위 재시도 버튼 — persistent view.
@@ -1311,6 +1393,52 @@ class GMCog(commands.Cog):
     # ─────────────────────────────────────────────────────────────
     # 지시층위 호출
     # ─────────────────────────────────────────────────────────────
+
+    @commands.command(name="되감기")
+    async def rewind_cmd(self, ctx, turn: str = None):
+        """
+        되감기 실행 (마스터 채널).
+
+        NOTE: 디스플레이 채널 UI 도입 전까지의 임시 진입점.
+              디스플레이 완성 후에는 RewindView 버튼이 주 경로가 된다.
+
+        사용법:
+            !되감기        — 1턴 되감기 (직전 턴 제거)
+            !되감기 8      — 8턴 종료 시점으로 되감기
+            !되감기 범위    — 되감기 가능 범위 확인
+        """
+        session = self.bot.active_sessions.get(ctx.channel.id)
+        if not session:
+            await ctx.send("이 채널에 연결된 세션이 없습니다.")
+            return
+
+        oldest, newest = core.available_range(session)
+        if newest == 0:
+            await ctx.send("되감기 기록이 아직 없습니다. (4.6.0 이후 진행한 턴부터 기록됩니다)")
+            return
+
+        if turn == "범위":
+            await ctx.send(
+                f"⏪ 되감기 가능 범위: **{oldest}~{newest - 1}턴** "
+                f"(현재 {newest}턴 / 상한 {core.REWIND_MAX_TURNS}턴)"
+            )
+            return
+
+        if turn is None:
+            target = newest - 1
+        else:
+            try:
+                target = int(turn)
+            except ValueError:
+                await ctx.send("사용법: `!되감기` / `!되감기 [턴번호]` / `!되감기 범위`")
+                return
+
+        await ctx.send(
+            f"⚠️ **{target}턴 종료 시점으로 되돌립니다.**\n"
+            f"되돌리기는 취소할 수 없으며, 이미 소모된 비용은 환불되지 않습니다.\n"
+            f"제거되는 정보는 되감기 로그로 이관됩니다.",
+            view=RewindConfirmView(self.bot, session, target),
+        )
 
     async def _forced_proceed_instruction(self, session, player_message: str,
                                           roll_results: list, master_ch,
@@ -2799,4 +2927,5 @@ async def setup(bot):
     # 중복 등록은 무해하지만 방어적으로 플래그를 둔다.
     if not getattr(bot, "_extraction_view_registered", False):
         bot.add_view(ExtractionRetryView(bot))
+        bot.add_view(RewindView(bot))
         bot._extraction_view_registered = True
