@@ -216,6 +216,103 @@ def to_world_timeline(result: dict, existing: dict | None = None) -> dict:
     return tl
 
 
+def apply_extraction(session, result: dict) -> dict:
+    """추출 수치를 임계값과 대조해 세션 상태에 적용한다.
+
+    [설계 원칙]
+    추출층위는 0~100 수치만 보고하고 그 값이 어떤 결과를 낳는지 모른다.
+    임계값 비교와 실제 적용은 이 함수(코드)가 전담한다.
+
+    적용 대상:
+      - 상태이상 부여/해제 (status_scores vs status_apply / status_clear)
+      - 만난 NPC 기록 (npcs_met)
+    적용 제외:
+      - 자원(item_changes)은 지시층위 resource_changes 필드 소관.
+        추출층위 값은 참고용으로만 남기고 여기서 적용하지 않는다.
+      - 퀘스트 진행·이탈은 서사 계층에서 소비한다(설계문서 3).
+
+    Returns:
+        {"applied": [...], "cleared": [...], "npcs": [...]} 적용 내역
+    """
+    th = get_thresholds(session)
+    applied, cleared = [], []
+
+    # 유효 캐릭터명 — 등록된 PC·NPC만 허용 (일반 명사 차단)
+    valid = set()
+    try:
+        valid |= {p.get("name") for p in (session.players or {}).values() if p.get("name")}
+        valid |= set((session.npcs or {}).keys())
+    except Exception:
+        pass
+
+    # 유효 상태이상 이름 — 시나리오에 목록이 있으면 그 안으로 제한
+    valid_status = None
+    try:
+        eff = (session.scenario_data or {}).get("status_effects")
+        if isinstance(eff, dict):
+            valid_status = set(eff.keys())
+        elif isinstance(eff, list):
+            valid_status = {e.get("name") for e in eff if isinstance(e, dict) and e.get("name")}
+    except Exception:
+        pass
+
+    for entry in (result.get("status_scores") or []):
+        if not isinstance(entry, dict):
+            continue
+        target = entry.get("target")
+        status = entry.get("status")
+        try:
+            score = int(entry.get("score", 0))
+        except (TypeError, ValueError):
+            continue
+        if not target or not status:
+            continue
+        if valid and target not in valid:
+            print(f"[추출 무시] {target};{status} — 등록되지 않은 캐릭터 이름")
+            continue
+        if valid_status is not None and status not in valid_status:
+            print(f"[추출 무시] {target};{status} — 유효 상태이상 목록에 없음")
+            continue
+
+        current = session.statuses.setdefault(target, [])
+        if score >= th["status_apply"]:
+            if status not in current:
+                current.append(status)
+                applied.append(f"{target};{status}({score})")
+        elif score <= th["status_clear"]:
+            if status in current:
+                current.remove(status)
+                cleared.append(f"{target};{status}({score})")
+
+    # 만난 NPC — 중복 없이 누적
+    npcs = [n for n in (result.get("npcs_met") or []) if isinstance(n, str) and n]
+
+    return {"applied": applied, "cleared": cleared, "npcs": npcs}
+
+
+def resource_changes_to_tags(changes: list) -> str:
+    """지시층위의 resource_changes를 기존 자원 태그 문자열로 변환한다.
+
+    NOTE: 모델이 보는 형식은 독립 필드로 강제하되, 내부 파이프라인은
+          game.py에 이미 구현된 검증(등록 캐릭터명 확인 등)을 재사용한다.
+          태그 파서가 공백을 허용하지 않으므로 언더스코어로 치환한다.
+    """
+    tags = []
+    for c in (changes or []):
+        if not isinstance(c, dict):
+            continue
+        target = str(c.get("target", "")).strip().replace(" ", "_")
+        item = str(c.get("item", "")).strip().replace(" ", "_")
+        try:
+            delta = int(c.get("delta", 0))
+        except (TypeError, ValueError):
+            continue
+        if not target or not item or delta == 0:
+            continue
+        tags.append(f"자:{target};{item};{delta:+d}")
+    return " ".join(tags)
+
+
 def summarize_for_report(result: dict) -> str:
     """마스터 채널 보고용 한 줄 요약을 만든다."""
     loc = (result.get("location") or {}).get("name", "미확인")

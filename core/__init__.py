@@ -53,6 +53,8 @@ from .extraction import (
     get_thresholds,
     build_extraction_targets,
     parse_extraction,
+    apply_extraction,
+    resource_changes_to_tags,
     to_world_timeline,
     summarize_for_report,
 )
@@ -139,6 +141,7 @@ __all__ = [
     # ink / accounts
     "COMMON_EXTRACTION_TARGETS", "EXTRACTION_RESPONSE_SCHEMA", "THRESHOLDS",
     "get_thresholds", "build_extraction_targets", "parse_extraction",
+    "apply_extraction", "resource_changes_to_tags",
     "to_world_timeline", "summarize_for_report",
     "cost_to_ink", "ink_to_krw", "ink_to_net_krw", "plan_catalog",
     "can_afford", "format_ink", "refund_ink", "accounts",

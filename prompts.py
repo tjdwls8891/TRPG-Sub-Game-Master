@@ -458,6 +458,22 @@ GM_LOGIC_RESPONSE_SCHEMA = {
             "type": "string",
             "description": "NARRATE일 때 경량 응답 LLM에 전달할 지시문 (100자 이내). 어떤 내용을 전달해야 하는지 기술. 예: '창고 내부 간략 묘사', '류가은 NPC 간단 소개', '열쇠를 집어든 결과'. 다른 action에서는 빈 문자열."
         },
+        "resource_changes": {
+            "type": "array",
+            "description": (
+                "이번 PROCEED에서 발생하는 물자 소비·획득만. 없으면 빈 배열. "
+                "proceed_instruction 본문에는 자원 태그를 쓰지 말고 반드시 이 필드로만 보고한다."
+            ),
+            "items": {
+                "type": "object",
+                "properties": {
+                    "target": {"type": "string", "description": "등록된 PC 또는 NPC 이름. 일반 명사 불가."},
+                    "item": {"type": "string", "description": "품목명"},
+                    "delta": {"type": "integer", "description": "증감 수량. 획득은 양수, 소모는 음수."}
+                },
+                "required": ["target", "item", "delta"]
+            }
+        },
         "proceed_instruction": {
             "type": "string",
             "description": "PROCEED일 때 !진행 인자 형태 지시문. 자/태/상중하 태그 포함 가능. 다른 action에서는 빈 문자열."
@@ -490,7 +506,7 @@ GM_LOGIC_RESPONSE_SCHEMA = {
     },
     "required": [
         "constraint_check", "info_access",
-        "narrate_instruction", "proceed_instruction", "event_assessment",
+        "narrate_instruction", "resource_changes", "proceed_instruction", "event_assessment",
         "self_check", "reasoning"
     ]
 }
@@ -684,28 +700,15 @@ NARRATE의 경량 응답은 별도의 경량 LLM이 생성합니다. 당신은 �
      맞는 예) 태:수적_세작;내상(중상)   태:유이설;내력_고갈   태:유이설;-내력_고갈   자:유이설;청심자하단;-1
      틀린 예) 태:수적 세작;내상(중상)   태:유이설;내력 고갈   ← 공백 때문에 파싱 실패
 
-   ■ 자원·상태 태그 의무 검토 (매 PROCEED마다 아래를 확인하라)
-   ① 플레이어나 NPC가 물자를 소비·획득했는가? → 자:이름;아이템;수치 태그 추가
+   ■ 자원 변동 의무 검토 (매 PROCEED마다 아래를 확인하라)
+   ① 플레이어나 NPC가 물자를 소비·획득했는가?
+      → proceed_instruction이 아니라 resource_changes 필드에 항목으로 기록한다.
       (이름은 반드시 등록된 PC 또는 NPC 이름. '감염자' 등 일반 명사 불가)
-   ② 부상·중독·탈진·이상 상태가 생겼거나 해소됐는가? → 태:이름;상태 / 태:이름;-상태 태그 추가
-      (이름: 등록된 PC·NPC만 / 상태 이름: [유효 상태이상 목록] 내 이름만 / 적용·제거 조건 준수)
-   ③ 위 두 경우가 아닌 단순 이동·대화는 태그 없이 서술만 해도 된다.
+   ② 단순 이동·대화는 기록 대상이 아니다.
 
-   [자원 변동 태그]
-   자:이름;아이템;수치
-   ※ 세미콜론으로 구분된 이름·아이템·수치 세 부분 필수. 수치는 정수.
-   예) 자:정원모;물;-1   자:임성진;탄약;-2   자:아서;체력포션;+1
-
-   [상태 태그]
-   태:이름;상태   (부여)  예) 태:정원모;출혈
-   태:이름;-상태  (제거)  예) 태:정원모;-출혈
-   ※ 상태 이름 끝에 마침표·쉼표·물음표 등 구두점 절대 금지.
-   ※ 틀린 예: 태:임성진;-지침.   맞는 예: 태:임성진;-지침
-   ※ [이름] 제약: 반드시 세션에 등록된 실제 PC 이름 또는 NPC 이름만 사용.
-      '감염자', '생존자', '경비', '적' 등 불특정 집단을 지칭하는 일반 명사에는 절대 사용 금지.
-   ※ [상태 이름] 제약: 컨텍스트의 [유효 상태이상 목록]에 있는 이름만 사용 가능.
-      목록에 없는 임의의 상태 이름을 만들어 사용하지 말 것.
-      적용 조건과 제거 조건을 반드시 준수하여 타당한 상황에서만 부여·제거하라.
+   ※ 상태이상(부상·중독·탈진 등)은 당신의 소관이 아니다.
+     묘사에 드러난 정도를 근거로 추출층위가 평가하고 시스템이 적용한다.
+     상태 태그를 작성하지 말 것.
 
    [장소 이미지 태그]
    상:키워드  — 묘사 맨 앞에 장소 이미지를 삽입한다.
@@ -1110,57 +1113,6 @@ def build_npc_profile_prompt(
         "[출력 양식 — 아래 항목명과 순서를 그대로 사용하여 값만 채워 출력할 것]\n"
         f"{field_format}"
     )
-
-
-# ========== [세계 물리 타임라인 추출 — 방안 B] ==========
-
-WORLD_TIMELINE_EXTRACTION_SCHEMA = {
-    "type": "object",
-    "properties": {
-        "elapsed_minutes": {
-            "type": "integer",
-            "description": "이번 묘사에서 경과한 게임 내 시간(분). 시간 경과 없으면 0."
-        },
-        "time_of_day": {
-            "type": "string",
-            "description": "현재 시간대: dawn / morning / afternoon / evening / night / unknown 중 하나"
-        },
-        "weather": {
-            "type": "string",
-            "description": "현재 날씨 및 대기 상태. 실내이거나 정보 없으면 빈 문자열."
-        },
-        "current_location": {
-            "type": "string",
-            "description": "PC들의 현재 위치를 세계관 용어로 기술. 예: '레인저 동맹 정착지 B구역 입구'"
-        },
-        "faction_context": {
-            "type": "string",
-            "description": (
-                "현 위치에서 활성 중인 세력 및 그 영향력. 세계관 논리 기반 기술. "
-                "예: '레인저 동맹 관할 구역 — 순찰 주기 2h, 외부 감염자 침입 기록 없음'"
-            )
-        },
-        "known_threats": {
-            "type": "string",
-            "description": "PC 또는 세계관상 실재하는 위협 요소. 없으면 빈 문자열."
-        },
-        "environmental_note": {
-            "type": "string",
-            "description": "조명·소리·냄새 등 현재 환경적 특성. 없으면 빈 문자열."
-        }
-    },
-    "required": ["elapsed_minutes", "time_of_day", "current_location", "faction_context"]
-}
-
-WORLD_TIMELINE_EXTRACTOR_SYSTEM_INSTRUCTION = (
-    "당신은 TRPG 세션의 세계 물리 상태를 추적하는 전문 분석가입니다.\n"
-    "이번 묘사 텍스트와 기존 세계 상태를 바탕으로 세계의 현재 물리 상태를 JSON으로 갱신하십시오.\n\n"
-    "[핵심 원칙]\n"
-    "- 시나리오 세계관의 설정·세력·지역 규칙을 절대 기준으로 삼으십시오.\n"
-    "- 감각적 묘사가 아닌 세계관 논리(세력 배치, 지역 통제 구조, 물리 법칙)를 우선합니다.\n"
-    "- '어디에 있는가'와 '그 위치에서 어떤 세력·규칙이 적용되는가'를 반드시 명시하십시오.\n"
-    "- 추론이 불확실하면 '(미확인)' 또는 기존 값 '(유지)'를 사용하십시오."
-)
 
 
 # ========== [PROCEED 지시사항 자기 검증 — 방안 E] ==========

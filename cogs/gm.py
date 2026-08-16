@@ -20,8 +20,6 @@ from prompts import (
     NARRATIVE_PLANNER_SYSTEM_INSTRUCTION,
     build_narrate_prompt,
     # 방안 B — 세계 물리 타임라인
-    WORLD_TIMELINE_EXTRACTION_SCHEMA,
-    WORLD_TIMELINE_EXTRACTOR_SYSTEM_INSTRUCTION,
     # 방안 E — PROCEED 자기 검증
     PROCEED_VERIFY_SCHEMA,
     PROCEED_VERIFIER_SYSTEM_INSTRUCTION,
@@ -1256,6 +1254,12 @@ class GMCog(commands.Cog):
                 if not instruction:
                     instruction = "현재 상황에서 자연스럽게 다음 묘사를 이어가십시오."
 
+                # 자원 변동 — 지시층위가 독립 필드로 보고한 항목을 태그로 변환해 덧붙인다.
+                # game.py의 기존 태그 파서·검증(등록 캐릭터명 확인)을 그대로 재사용하기 위함.
+                res_tags = core.resource_changes_to_tags(decision.get("resource_changes"))
+                if res_tags:
+                    instruction = f"{instruction} {res_tags}"
+
                 # ── 방안 E 제거 (방안 D) ──
                 # _verify_proceed_instruction 호출 삭제.
                 # 미선언 PC 행동 방지는 지시층위 [최우선 절대 원칙]으로 커버.
@@ -2008,6 +2012,130 @@ class GMCog(commands.Cog):
 
         return result
 
+
+    # ─────────────────────────────────────────────────────────────
+    # 추출층위 — 묘사 출력물에서 세계 상태·수치 추출
+    # ─────────────────────────────────────────────────────────────
+
+    async def _run_extraction(self, session, ai_output_text: str, master_ch=None) -> dict | None:
+        """
+        추출층위 — 묘사 출력물에서 공통·시나리오별 타겟 값을 추출한다.
+
+        [동시 실행]
+        묘사 스트리밍과 병행되므로, 실패해도 이미 출력된 묘사를 되돌릴 수 없다.
+        따라서 일반적인 턴 취소 규정을 적용하지 않고 추출만 재시도한다.
+        재시도까지 실패하면 session.extraction_pending을 세워 다음 턴을 차단하고,
+        게임 채널에 재시도 버튼을 배치한다.
+
+        [캐시 미사용] 출력물 판독에 룰북이 불필요하므로 캐시를 읽지 않는다.
+        """
+        targets = core.build_extraction_targets(session)
+        prev_tl = getattr(session, "world_timeline", {}) or {}
+        prev_summary = (
+            f"위치={prev_tl.get('current_location', '미확인')}, "
+            f"시간대={prev_tl.get('time_of_day', '미확인')}, "
+            f"날짜={prev_tl.get('current_date', '미확인')}"
+        ) if prev_tl else "(없음)"
+
+        user_prompt = (
+            "[추출 항목]\n" + "\n".join(f"- {t}" for t in targets) + "\n\n"
+            f"[직전까지의 세계 상태]\n{prev_summary}\n\n"
+            f"[이번 묘사문]\n{ai_output_text[:3000]}"
+        )
+        core.write_log(session.session_id, "api", f"[추출층위 요청 - Payload]\n{user_prompt}")
+
+        contents = [types.Content(role="user", parts=[types.Part.from_text(text=user_prompt)])]
+        config = types.GenerateContentConfig(
+            system_instruction=EXTRACTION_SYSTEM_INSTRUCTION,
+            temperature=0.2,
+            response_mime_type="application/json",
+            response_schema=core.EXTRACTION_RESPONSE_SCHEMA,
+            safety_settings=core.TRPG_SAFETY_SETTINGS,
+        )
+
+        result = None
+        for attempt in range(EXTRACTION_MAX_RETRIES):
+            try:
+                response = await asyncio.to_thread(
+                    self.bot.genai_client.models.generate_content,
+                    model=EXTRACTION_MODEL,
+                    contents=contents,
+                    config=config,
+                )
+            except Exception as e:
+                print(f"[GM] 추출층위 호출 실패(시도 {attempt + 1}): {type(e).__name__} - {e}")
+                continue
+
+            try:
+                meta = response.usage_metadata
+                in_tokens, out_tokens, cached_tokens, thought_tokens = core.extract_token_usage(meta)
+                breakdown = core.calculate_text_gen_cost_breakdown(
+                    EXTRACTION_MODEL, input_tokens=in_tokens,
+                    output_tokens=out_tokens, cached_read_tokens=cached_tokens,
+                )
+                cost = breakdown["total_krw"]
+                session.total_cost += cost
+                core.write_cost_log(
+                    session.session_id, f"{COST_LOG_PREFIX}추출층위 호출",
+                    in_tokens, cached_tokens, out_tokens, cost, session.total_cost
+                )
+                if not hasattr(session, "turn_cost_log"):
+                    session.turn_cost_log = []
+                session.turn_cost_log.append({
+                    "label": "추출층위", "cost": cost,
+                    "in": in_tokens, "cached": cached_tokens, "out": out_tokens,
+                    "manifest": [],
+                })
+            except Exception as e:
+                print(f"[GM] 추출층위 비용 정산 실패: {e}")
+
+            result = core.parse_extraction(response.text or "")
+            if result:
+                break
+            print(f"[GM] 추출층위 응답 파싱 실패(시도 {attempt + 1})")
+
+        if not result:
+            # 재시도 실패 → 다음 턴 차단 + 재시도 버튼
+            session.extraction_pending = True
+            session.extraction_retry_ctx = {"text": ai_output_text[:3000]}
+            await core.save_session_data(self.bot, session)
+            game_ch = self.bot.get_channel(session.game_ch_id)
+            if game_ch:
+                await game_ch.send(
+                    "⚠️ 턴 정보 정리 중 문제가 발생했습니다.\n"
+                    "아래 버튼으로 다시 시도해 주십시오. 완료 전까지 다음 턴은 진행되지 않습니다.",
+                    view=ExtractionRetryView(self.bot),
+                )
+            if master_ch:
+                await master_ch.send("⚠️ 추출층위 실패 — 다음 턴 차단됨. 재시도 버튼 배치.")
+            return None
+
+        # 성공 — 세계 타임라인 흡수 갱신 (기존 _update_world_timeline 대체)
+        session.world_timeline = core.to_world_timeline(result, prev_tl)
+        session.last_extraction = result
+        session.extraction_pending = False
+        session.extraction_retry_ctx = {}
+
+        # 수치 판단 적용 — 임계값 비교는 코드가 전담한다(모델은 기준을 모른다).
+        applied = core.apply_extraction(session, result)
+        if applied["applied"] or applied["cleared"]:
+            print(
+                f"[GM/{session.session_id}] 상태 적용: "
+                f"부여={applied['applied']} 해제={applied['cleared']}"
+            )
+
+        core.write_log(
+            session.session_id, "api",
+            f"[추출층위 결과]\n{json.dumps(result, ensure_ascii=False, indent=2)}"
+        )
+        if master_ch:
+            report = f"🔎 **[추출층위]** {core.summarize_for_report(result)}"
+            if applied["applied"]:
+                report += f"\n> 상태 부여: {', '.join(applied['applied'])}"
+            if applied["cleared"]:
+                report += f"\n> 상태 해제: {', '.join(applied['cleared'])}"
+            await master_ch.send(report)
+        return result
 
     async def _verify_proceed_instruction(self, session, instruction: str,
                                            player_message: str, master_ch) -> str:
