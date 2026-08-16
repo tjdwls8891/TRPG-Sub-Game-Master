@@ -113,6 +113,12 @@ class TRPGSession:
         # 실제 관측된 캐시 읽기 토큰 — 캐시 본문에 구워진 지시문까지 포함된 값.
         # cache_tokens(조립 텍스트 기준)와 다르므로 예측은 이 값을 우선 사용한다.
         self.cache_read_tokens = 0
+        # 미디어 온오프 토글 (이미지·TTS·BGM·효과음)
+        self.media_flags = {}
+        # 다음 스트리밍 시작 시 재생할 BGM (추출층위가 결정)
+        self.pending_bgm = None
+        # 직전 BGM 판단의 (상황 태그, 긴장 구간) — 동일하면 전환하지 않는다
+        self.last_bgm_situation = None
         # 세션 시작 시점의 통산 일수 — 경과 일수 계산의 기준
         self.start_day_number = None
         # 압축 선결제 누적액(원). 실제 압축 시 또는 세션 종료 시 정산된다.

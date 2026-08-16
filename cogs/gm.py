@@ -2352,6 +2352,30 @@ class GMCog(commands.Cog):
                 f"부여={applied['applied']} 해제={applied['cleared']}"
             )
 
+        # ── BGM 자동 전환 (설계문서 6) ──
+        # 추출층위의 situation을 소비한다. 상황이 그대로면 select_bgm이 None을
+        # 반환하므로 재생이 유지된다(기획 규정).
+        try:
+            track = core.select_bgm(session, result.get("situation") or {})
+            if track:
+                session.pending_bgm = track
+                print(f"[GM/{session.session_id}] BGM 전환 예정: {track}")
+        except Exception as e:
+            print(f"[BGM] 선택 실패(진행에는 영향 없음): {e}")
+
+        # ── 통계 누적 (설계문서 6) ──
+        # 되감기를 해도 통계는 되돌리지 않는다. 실제로 발생한 플레이의 기록이다.
+        try:
+            for uid in (session.players or {}):
+                await core.stats.bump(
+                    uid, turns=1,
+                    status_applied=len(applied["applied"]),
+                    status_cleared=len(applied["cleared"]),
+                )
+                await core.stats.add_npcs(uid, applied["npcs"])
+        except Exception as e:
+            print(f"[통계] 누적 실패(진행에는 영향 없음): {e}")
+
         core.write_log(
             session.session_id, "api",
             f"[추출층위 결과]\n{json.dumps(result, ensure_ascii=False, indent=2)}"

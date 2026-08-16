@@ -7,6 +7,9 @@
 #   rewind     — 되감기 델타 로그 (턴별 변화 기록, 전 턴 로그 보존)
 #   estimate   — 비용 예측 (입력 실측 + 출력 이동평균, action별 범위 산출)
 #   timeline   — 시간선 정량화 (일/24시간 단위, 나이 코드 계산)
+#   media_control — BGM 상황 선택, 미디어 온오프 토글
+#   resilience — API 재시도·타임아웃 차단·오류 로그
+#   stats      — 누적 플레이 통계 (계정과 분리된 저장소)
 #   accounts   — 유저 계정 저장 계층 (등록 여부, 약관 버전, 잉크 잔액 원장)
 #   models     — TRPGSession 데이터 모델
 #   cost       — 비용 산출 함수
@@ -100,6 +103,25 @@ from .timeline import (
     to_day_number,
     hour_of,
 )
+from .media_control import (
+    DEFAULT_MEDIA_FLAGS,
+    get_media_flags,
+    set_media_flag,
+    is_enabled,
+    sync_tts_flag,
+    tension_band,
+    select_bgm,
+    describe_bgm_pending,
+    format_flags,
+)
+from .resilience import (
+    call_with_retry,
+    get_timeout,
+    write_error_log,
+    build_failed_turn_notice,
+    USER_FACING_NOTICE,
+)
+from . import stats
 from .models import TRPGSession
 from .cost import (
     extract_token_usage,
@@ -181,6 +203,10 @@ __all__ = [
     "DEFAULT_MODEL", "LOGIC_MODEL", "IMAGE_MODEL", "EXCHANGE_RATE",
     "MIN_CACHE_TOKENS", "INK_UNIT_KRW", "INK_NET_KRW", "INK_PLANS",
     # ink / accounts
+    "DEFAULT_MEDIA_FLAGS", "get_media_flags", "set_media_flag", "is_enabled",
+    "tension_band", "select_bgm", "describe_bgm_pending", "format_flags", "sync_tts_flag",
+    "call_with_retry", "get_timeout", "write_error_log",
+    "build_failed_turn_notice", "USER_FACING_NOTICE", "stats",
     "quantify", "current_year", "compute_age", "enrich_npc_ages",
     "age_gap", "format_timeline", "to_day_number", "hour_of",
     "CHARS_TO_TOKENS", "CONSERVATIVE_FACTOR", "update_stats",
