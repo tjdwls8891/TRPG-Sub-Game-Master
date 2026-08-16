@@ -775,6 +775,20 @@ class GameCog(commands.Cog):
             if session.compressed_memory:
                 session.compressed_memory += f"\n{new_compressed_segment}"
             else:
+                # 압축 선결제 정산 — 누적 선결제분과 실제 발생분의 차액을 산출한다.
+                try:
+                    settle = core.settle_compression(session, turn_cost)
+                    core.update_stats(session, "compression", out_tokens, thought_tokens)
+                    if settle["refund_ink"] or settle["charge_ink"]:
+                        print(
+                            f"[정산] 압축 선결제 {settle['prepaid_krw']}원 vs 실제 "
+                            f"{settle['actual_krw']}원 → 환급 {settle['refund_ink']}잉크 "
+                            f"/ 추가 {settle['charge_ink']}잉크"
+                        )
+                    session.last_compression_settle = settle
+                except Exception as e:
+                    print(f"[정산] 압축 정산 실패: {e}")
+
                 # 되감기용 — 압축 발생 시점과 이전 원본을 남긴다.
                 # 발생 시점 기록만으로 압축 주기(플랜별 상이)를 몰라도 정확히 롤백된다.
                 try:
@@ -1274,6 +1288,20 @@ class GameCog(commands.Cog):
             if session.compressed_memory:
                 session.compressed_memory += f"\n{new_compressed_segment}"
             else:
+                # 압축 선결제 정산 — 누적 선결제분과 실제 발생분의 차액을 산출한다.
+                try:
+                    settle = core.settle_compression(session, turn_cost)
+                    core.update_stats(session, "compression", out_tokens, thought_tokens)
+                    if settle["refund_ink"] or settle["charge_ink"]:
+                        print(
+                            f"[정산] 압축 선결제 {settle['prepaid_krw']}원 vs 실제 "
+                            f"{settle['actual_krw']}원 → 환급 {settle['refund_ink']}잉크 "
+                            f"/ 추가 {settle['charge_ink']}잉크"
+                        )
+                    session.last_compression_settle = settle
+                except Exception as e:
+                    print(f"[정산] 압축 정산 실패: {e}")
+
                 # 되감기용 — 압축 발생 시점과 이전 원본을 남긴다.
                 # 발생 시점 기록만으로 압축 주기(플랜별 상이)를 몰라도 정확히 롤백된다.
                 try:

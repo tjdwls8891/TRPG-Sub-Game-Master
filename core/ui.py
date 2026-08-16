@@ -24,6 +24,19 @@ def _cleanup_session_memory(bot, channel_id: int):
         if other_id in bot.active_sessions and bot.active_sessions[other_id] is session:
             bot.active_sessions.pop(other_id)
 
+        # 압축 선결제 미정산분 정산 (기획 확정 사항)
+        # 압축 전에 세션이 끝나면 실제 발생분은 0이므로 전액 환급 대상이 된다.
+        try:
+            from .estimate import settle_on_session_close
+            settle = settle_on_session_close(session)
+            if settle["refund_ink"]:
+                print(
+                    f"[정산] 세션 종료 — 미정산 압축 선결제 "
+                    f"{settle['prepaid_krw']}원 → 환급 {settle['refund_ink']}잉크"
+                )
+        except Exception as e:
+            print(f"[정산] 세션 종료 정산 실패: {e}")
+
 
 class ChannelSelect(discord.ui.Select):
     """

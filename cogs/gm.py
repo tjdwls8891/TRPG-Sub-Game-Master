@@ -1268,11 +1268,24 @@ class GMCog(commands.Cog):
         # 이번 턴 예상 비용 — 디스플레이 채널 도입 전까지 마스터 채널에 보고한다.
         try:
             est = core.estimate_turn(session, "PROCEED")
+            # 압축 선결제 몫 — 5턴 압축 비용의 20%를 매 턴 예상액에 포함한다(기획 규정).
+            prepay = core.compression_prepay(session)
+            est["compression_prepay_krw"] = prepay["krw"]
+            est["min_krw"] = round(est["min_krw"] + prepay["krw"], 2)
+            est["max_krw"] = round(est["max_krw"] + prepay["krw"], 2)
+            est["min_ink"] = core.cost_to_ink(est["min_krw"])
+            est["max_ink"] = core.cost_to_ink(est["max_krw"])
             session.last_estimate = est
+            # 선결제분 누적 — 실제 압축 시 또는 세션 종료 시 정산된다.
+            session.compression_prepaid_krw = (
+                float(getattr(session, "compression_prepaid_krw", 0.0) or 0.0) + prepay["krw"]
+            )
             await m_send(
                 f"💰 **[예상]** {core.format_estimate(est)}\n"
                 f"> 입력 {est['input_tokens']['instruction']:,} + 캐시 "
-                f"{est['input_tokens']['cached']:,} 토큰 기준"
+                f"{est['input_tokens']['cached']:,} 토큰 | "
+                f"압축 선결제 {prepay['krw']:.2f}원 누적 "
+                f"{session.compression_prepaid_krw:.2f}원"
             )
         except Exception as e:
             print(f"[EST] 예상 산출 실패(진행에는 영향 없음): {e}")

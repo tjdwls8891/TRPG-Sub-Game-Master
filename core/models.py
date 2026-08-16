@@ -113,6 +113,8 @@ class TRPGSession:
         # 실제 관측된 캐시 읽기 토큰 — 캐시 본문에 구워진 지시문까지 포함된 값.
         # cache_tokens(조립 텍스트 기준)와 다르므로 예측은 이 값을 우선 사용한다.
         self.cache_read_tokens = 0
+        # 압축 선결제 누적액(원). 실제 압축 시 또는 세션 종료 시 정산된다.
+        self.compression_prepaid_krw = 0.0
         # 직전 산출한 턴 예상치 (디스플레이 표시용)
         self.last_estimate = {}
         # 예측 대조용 직전 입력 추정값 — 런타임 전용(저장 안 함)
