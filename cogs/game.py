@@ -520,6 +520,8 @@ class GameCog(commands.Cog):
             )
             turn_cost = breakdown["total_krw"]
             session.total_cost += turn_cost
+            # 비용 예측 통계 — 묘사층위 출력은 변동이 가장 크므로 이동평균이 핵심이다.
+            core.update_stats(session, "narration", out_tokens, thought_tokens)
 
             label_prefix = "(GM) " if cost_log_prefix else ""
             core.write_cost_log(session.session_id, f"{cost_log_prefix}턴 진행 생성", in_tokens, cached_tokens, out_tokens, turn_cost,

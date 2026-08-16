@@ -1515,6 +1515,7 @@ class GMCog(commands.Cog):
                     session.session_id, f"{COST_LOG_PREFIX}판단층위 호출",
                     in_tokens, cached_tokens, out_tokens, cost, session.total_cost
                 )
+                core.update_stats(session, "judgment", out_tokens, thought_tokens)
                 print(
                     f"[GM/{session.session_id}] 판단 비용: "
                     f"In={in_tokens:,} Out={out_tokens:,} → {core.format_cost(cost)}"
@@ -1641,6 +1642,7 @@ class GMCog(commands.Cog):
                 cached_read_tokens=cached_tokens,
             )
             cost = breakdown["total_krw"]
+            core.update_stats(session, "instruction", out_tokens, thought_tokens)
             session.total_cost += cost
             core.write_cost_log(
                 session.session_id,
@@ -2227,6 +2229,7 @@ class GMCog(commands.Cog):
                 )
                 cost = breakdown["total_krw"]
                 session.total_cost += cost
+                core.update_stats(session, "extraction", out_tokens, thought_tokens)
                 core.write_cost_log(
                     session.session_id, f"{COST_LOG_PREFIX}추출층위 호출",
                     in_tokens, cached_tokens, out_tokens, cost, session.total_cost
