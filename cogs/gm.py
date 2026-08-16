@@ -1074,6 +1074,10 @@ class GMCog(commands.Cog):
                     f"이번 턴을 마지막으로 자동 진행을 정지합니다."
                 )
 
+        # 되감기 델타 기준점 — 묘사 이전 상태를 스냅샷해 둔다.
+        state_before = core.capture_state(session)
+        cost_before = getattr(session, "total_cost", 0.0)
+
         await self._dispatch_proceed(session, instruction)
 
         if event_assessment is not None:
@@ -1083,6 +1087,26 @@ class GMCog(commands.Cog):
         session.auto_gm_narrate_count = 0
         session.auto_gm_turns_done += 1
         session.auto_gm_side_note = ""
+
+        # ── 되감기 기록 (4.6.0) ──
+        # NOTE: 추출층위가 백그라운드로 도는 중이라 그 결과는 이 델타에 반영되지
+        #       않을 수 있다. 추출 결과는 다음 턴 델타에서 잡힌다.
+        turn_no = session.auto_gm_turns_done
+        if turn_no > getattr(session, "last_recorded_turn", 0):
+            try:
+                changes = core.diff_state(state_before, core.capture_state(session))
+                core.record_delta(
+                    session, turn_no, changes,
+                    cost_krw=getattr(session, "total_cost", 0.0) - cost_before,
+                )
+                core.record_full_log(
+                    session, turn_no,
+                    core.serialize_log_entries(session.raw_logs[-2:]),
+                )
+                session.last_recorded_turn = turn_no
+            except Exception as e:
+                print(f"[되감기] 델타 기록 실패(진행에는 영향 없음): {e}")
+
         await core.save_session_data(self.bot, session)
 
         if session.auto_gm_active:

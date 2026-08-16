@@ -107,6 +107,8 @@ class TRPGSession:
         self.auto_gm_side_note = ""            # !자동 개입으로 주입된 GM 사이드 노트 (다음 호출에 1회 합류 후 비움)
         self.auto_gm_lock = False              # 동시 처리 방지용 락 (직렬화 시 무시)
         self.auto_gm_proceed_history = []      # 최근 PROCEED 이력 (지시사항+컨텍스트+AI요약, 반복 방지용)
+        # 되감기 — 마지막으로 델타를 기록한 턴 번호(중복 기록 방지)
+        self.last_recorded_turn = 0
         # 추출층위 상태 — 미완료(True)면 다음 턴 선언을 차단한다.
         self.extraction_pending = False
         self.extraction_retry_ctx = {}   # 재시도용 묘사 텍스트 등

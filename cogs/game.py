@@ -773,6 +773,18 @@ class GameCog(commands.Cog):
             if session.compressed_memory:
                 session.compressed_memory += f"\n{new_compressed_segment}"
             else:
+                # 되감기용 — 압축 발생 시점과 이전 원본을 남긴다.
+                # 발생 시점 기록만으로 압축 주기(플랜별 상이)를 몰라도 정확히 롤백된다.
+                try:
+                    core.record_delta(
+                        session, getattr(session, "auto_gm_turns_done", 0), [],
+                        compression={
+                            "occurred": True,
+                            "before": session.compressed_memory or "",
+                        },
+                    )
+                except Exception as e:
+                    print(f"[되감기] 압축 기록 실패: {e}")
                 session.compressed_memory = new_compressed_segment
 
             # 앞에서 count만큼 제거 (스냅샷된 대상 로그). 이후 append된 이번 턴 로그는 보존.
@@ -1260,6 +1272,18 @@ class GameCog(commands.Cog):
             if session.compressed_memory:
                 session.compressed_memory += f"\n{new_compressed_segment}"
             else:
+                # 되감기용 — 압축 발생 시점과 이전 원본을 남긴다.
+                # 발생 시점 기록만으로 압축 주기(플랜별 상이)를 몰라도 정확히 롤백된다.
+                try:
+                    core.record_delta(
+                        session, getattr(session, "auto_gm_turns_done", 0), [],
+                        compression={
+                            "occurred": True,
+                            "before": session.compressed_memory or "",
+                        },
+                    )
+                except Exception as e:
+                    print(f"[되감기] 압축 기록 실패: {e}")
                 session.compressed_memory = new_compressed_segment
 
             del session.uncompressed_logs[:len(logs_to_compress)]
