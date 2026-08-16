@@ -2337,7 +2337,9 @@ class GMCog(commands.Cog):
             return None
 
         # 성공 — 세계 타임라인 흡수 갱신 (기존 _update_world_timeline 대체)
-        session.world_timeline = core.to_world_timeline(result, prev_tl)
+        # 시간선 정량화 — 일/24시간 단위 정수 필드를 함께 보관한다.
+        session.world_timeline = core.quantify(
+            session, core.to_world_timeline(result, prev_tl))
         session.last_extraction = result
         session.extraction_pending = False
         session.extraction_retry_ctx = {}
@@ -2693,12 +2695,15 @@ class GMCog(commands.Cog):
 
     async def _update_narrative_progress(self, session, event_assessment: str, master_ch):
         """
-        PROCEED 완료 후 호출. completed/deviated 평가 시 백그라운드에서 서사 재계획을 트리거한다.
-        progress 자동 갱신은 _dispatch_proceed 내부에서 수행 (ai_summary 직후).
+        PROCEED 완료 후 호출. 서사 재계획 트리거를 판정한다.
 
-        [3턴 주기 강제 재계획]
-        completed/deviated 외에도, 마지막 계획 수립 이후 3턴 이상 경과하면 mid_plan 포함 전체 재수립.
-        last_planned_turn을 즉시 갱신하여 백그라운드 완료 전 중복 트리거를 방지한다.
+        [재계획 판정 — 수치 기반]
+        기존의 '3턴 주기 강제 재계획'은 삭제되었다. 서사 상태와 무관하게
+        주기만으로 재계획을 돌리면 불필요한 호출이 누적되기 때문이다.
+        대신 추출층위가 산출한 quest_progress 수치를 임계값과 대조해 판정한다.
+            deviation >= quest_deviated  → 전체 재수립 (mid_plan 포함)
+            advance   >= quest_advance   → 순간 계획만 재수립
+        지시층위의 event_assessment는 보조 신호로 유지한다(수치가 없을 때의 폴백).
         """
         plan = getattr(session, "narrative_plan", {})
         if not plan:
@@ -2726,24 +2731,45 @@ class GMCog(commands.Cog):
                 f"📖 **[서사 계획]** 현재 순간 사건이 마무리 단계에 진입했습니다 (resolving)."
             )
 
-        # [3턴 주기 강제 재계획]
-        # completed/deviated가 이미 트리거된 경우는 건너뜀 (중복 방지)
-        if event_assessment not in ("completed", "deviated"):
-            last_planned = plan.get("last_planned_turn", 0)
-            turns_elapsed = session.turn_count - last_planned
-            if turns_elapsed >= 3:
-                # last_planned_turn을 즉시 현재 턴으로 갱신 → 다음 턴 중복 트리거 방지
-                plan["last_planned_turn"] = session.turn_count
-                session.narrative_plan = plan
-                if master_ch:
-                    await master_ch.send(
-                        f"📖 **[서사 계획]** 마지막 계획 수립 이후 {turns_elapsed}턴 경과 → 강제 재계획...\n"
-                        f"> 현재 상황을 반영하여 전체 계획을 갱신합니다."
-                    )
-                asyncio.create_task(
-                    self._plan_narrative(session, "manual", full_replan=True,
-                                         context_note=f"{turns_elapsed}턴 주기 자동 강제 재계획")
+        # ── 수치 기반 재계획 판정 (설계문서 3) ──
+        # 추출층위가 산출한 quest_progress를 임계값과 대조한다.
+        # event_assessment로 이미 트리거된 경우는 중복을 피한다.
+        if event_assessment in ("completed", "deviated"):
+            return
+
+        ex = getattr(session, "last_extraction", {}) or {}
+        qp = ex.get("quest_progress") or {}
+        try:
+            advance = int(qp.get("advance", 0))
+            deviation = int(qp.get("deviation", 0))
+        except (TypeError, ValueError):
+            return
+
+        th = core.get_thresholds(session)
+        if deviation >= th["quest_deviated"]:
+            plan["last_planned_turn"] = session.turn_count
+            session.narrative_plan = plan
+            if master_ch:
+                await master_ch.send(
+                    f"📖 **[서사 계획]** 이탈 수치 {deviation} (임계 {th['quest_deviated']}) "
+                    f"→ 중규모 계획 포함 전체 재수립합니다."
                 )
+            asyncio.create_task(
+                self._plan_narrative(session, "deviated", full_replan=True,
+                                     context_note=f"추출 이탈 수치 {deviation}")
+            )
+        elif advance >= th["quest_advance"]:
+            plan["last_planned_turn"] = session.turn_count
+            session.narrative_plan = plan
+            if master_ch:
+                await master_ch.send(
+                    f"📖 **[서사 계획]** 진행 수치 {advance} (임계 {th['quest_advance']}) "
+                    f"→ 순간 계획을 재수립합니다."
+                )
+            asyncio.create_task(
+                self._plan_narrative(session, "completed", full_replan=False,
+                                     context_note=f"추출 진행 수치 {advance}")
+            )
 
     async def _plan_narrative(self, session, trigger_reason: str = "init",
                                context_note: str = "", full_replan: bool = True) -> bool:

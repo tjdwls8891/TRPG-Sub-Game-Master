@@ -6,6 +6,7 @@
 #   extraction — 추출층위 (묘사 출력물에서 세계 상태·수치 추출, 임계값 대조)
 #   rewind     — 되감기 델타 로그 (턴별 변화 기록, 전 턴 로그 보존)
 #   estimate   — 비용 예측 (입력 실측 + 출력 이동평균, action별 범위 산출)
+#   timeline   — 시간선 정량화 (일/24시간 단위, 나이 코드 계산)
 #   accounts   — 유저 계정 저장 계층 (등록 여부, 약관 버전, 잉크 잔액 원장)
 #   models     — TRPGSession 데이터 모델
 #   cost       — 비용 산출 함수
@@ -89,6 +90,16 @@ from .estimate import (
     get_calibration,
     format_estimate,
 )
+from .timeline import (
+    quantify,
+    current_year,
+    compute_age,
+    enrich_npc_ages,
+    age_gap,
+    format_timeline,
+    to_day_number,
+    hour_of,
+)
 from .models import TRPGSession
 from .cost import (
     extract_token_usage,
@@ -170,6 +181,8 @@ __all__ = [
     "DEFAULT_MODEL", "LOGIC_MODEL", "IMAGE_MODEL", "EXCHANGE_RATE",
     "MIN_CACHE_TOKENS", "INK_UNIT_KRW", "INK_NET_KRW", "INK_PLANS",
     # ink / accounts
+    "quantify", "current_year", "compute_age", "enrich_npc_ages",
+    "age_gap", "format_timeline", "to_day_number", "hour_of",
     "CHARS_TO_TOKENS", "CONSERVATIVE_FACTOR", "update_stats",
     "estimate_input_tokens", "estimate_turn", "estimate_session_open", "format_estimate",
     "record_actual_input", "get_calibration",
