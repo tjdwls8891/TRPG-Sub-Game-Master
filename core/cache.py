@@ -10,6 +10,7 @@ from google.genai.errors import APIError
 
 from .constants import DEFAULT_MODEL
 from .constants import MIN_CACHE_TOKENS
+from .constants import CACHE_TTL_SECONDS as MIN_CACHE_TTL
 from .models import TRPGSession
 from .io import write_log, save_session_data, load_scenario_from_file, SESSION_FIELDS, SESSION_RESET_FIELDS, SCHEMA_VERSION, _MISSING
 from .cost import calculate_upload_cost, calculate_cost
@@ -458,7 +459,7 @@ async def restore_sessions_from_disk(bot):
                             config=types.CreateCachedContentConfig(
                                 system_instruction=bot.system_instruction,
                                 contents=[types.Content(role="user", parts=[types.Part.from_text(text=caching_text)])],
-                                ttl="21600s",
+                                ttl=f"{MIN_CACHE_TTL}s",
                             )
                         )
 

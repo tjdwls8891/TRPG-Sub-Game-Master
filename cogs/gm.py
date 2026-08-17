@@ -1236,10 +1236,9 @@ class GMCog(commands.Cog):
             try:
                 state_after = core.capture_state(session)
                 changes = core.diff_state(state_before, state_after)
-                core.record_delta(
-                    session, turn_no, changes,
-                    cost_krw=getattr(session, "total_cost", 0.0) - cost_before,
-                )
+                turn_cost = getattr(session, "total_cost", 0.0) - cost_before
+                session.last_turn_cost = turn_cost   # 디스플레이 '직전 턴 금액'
+                core.record_delta(session, turn_no, changes, cost_krw=turn_cost)
                 session._rewind_snapshot = state_after
                 core.record_full_log(
                     session, turn_no,
@@ -1579,15 +1578,16 @@ class GMCog(commands.Cog):
         # 층위 자체 재시도 — 판단 실패가 지시층위 재시도로 번지지 않게 한다.
         decision = None
         for attempt in range(JUDGMENT_MAX_RETRIES):
-            try:
-                response = await asyncio.to_thread(
+            # 타임아웃 보호 — 지연된 원 응답이 재시도 결과와 경합하지 않도록
+            # wait_for가 태스크를 취소한다(기획 규정).
+            ok, response = await core.call_with_retry(
+                lambda: asyncio.to_thread(
                     self.bot.genai_client.models.generate_content,
-                    model=JUDGMENT_MODEL,
-                    contents=contents,
-                    config=config,
-                )
-            except Exception as e:
-                print(f"[GM] 판단층위 호출 실패(시도 {attempt + 1}): {type(e).__name__} - {e}")
+                    model=JUDGMENT_MODEL, contents=contents, config=config,
+                ),
+                layer="judgment", session_id=session.session_id, retries=1,
+            )
+            if not ok:
                 continue
 
             # 비용 정산 — 캐시 미사용이므로 cached_tokens는 0
@@ -2457,15 +2457,14 @@ class GMCog(commands.Cog):
 
         result = None
         for attempt in range(EXTRACTION_MAX_RETRIES):
-            try:
-                response = await asyncio.to_thread(
+            ok, response = await core.call_with_retry(
+                lambda: asyncio.to_thread(
                     self.bot.genai_client.models.generate_content,
-                    model=EXTRACTION_MODEL,
-                    contents=contents,
-                    config=config,
-                )
-            except Exception as e:
-                print(f"[GM] 추출층위 호출 실패(시도 {attempt + 1}): {type(e).__name__} - {e}")
+                    model=EXTRACTION_MODEL, contents=contents, config=config,
+                ),
+                layer="extraction", session_id=session.session_id, retries=1,
+            )
+            if not ok:
                 continue
 
             try:

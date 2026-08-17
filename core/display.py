@@ -14,6 +14,9 @@ from . import media_control
 from .cost import format_cost
 from .ink import format_ink, cost_to_ink
 from .timeline import format_timeline
+from .constants import CACHE_TTL_SECONDS, TTS_NARRATOR_VOICE
+from .estimate import estimate_session_open
+import time
 
 
 def _flag_style(on: bool) -> discord.ButtonStyle:
@@ -54,13 +57,34 @@ def build_embed(session) -> discord.Embed:
     # ── 비용 ──
     total = getattr(session, "total_cost", 0.0) or 0.0
     est = getattr(session, "last_estimate", {}) or {}
+    last = getattr(session, "last_turn_cost", 0.0) or 0.0
     cost_lines = [f"총 {cost_to_ink(total)}잉크 ({format_cost(total)})"]
+    if last:
+        cost_lines.append(f"직전 턴 {cost_to_ink(last)}잉크 ({format_cost(last)})")
     if est:
         cost_lines.append(f"다음 턴 {est.get('min_ink', 0)}~{est.get('max_ink', 0)}잉크")
     prepaid = getattr(session, "compression_prepaid_krw", 0.0) or 0.0
     if prepaid:
         cost_lines.append(f"압축 선결제 {prepaid:.1f}원")
     embed.add_field(name="비용", value="\n".join(cost_lines), inline=True)
+
+    # ── 세션 오픈 정보 ──
+    # 기획 규정: 오픈 비용·클로즈 예정 시점·예정 비용을 명시한다.
+    if is_open:
+        created = getattr(session, "cache_created_at", 0.0) or 0.0
+        tokens = getattr(session, "cache_read_tokens", 0) or getattr(session, "cache_tokens", 0) or 0
+        open_lines = [f"캐시 {tokens:,} 토큰"]
+        if created:
+            expire = created + CACHE_TTL_SECONDS
+            remain = max(0, int(expire - time.time()))
+            open_lines.append(
+                f"만료 예정 <t:{int(expire)}:t> (남은 {remain // 3600}시간 {remain % 3600 // 60}분)")
+        try:
+            plan = estimate_session_open(session, CACHE_TTL_SECONDS / 3600)
+            open_lines.append(f"오픈·유지 예정 {plan['total_ink']}잉크")
+        except Exception:
+            pass
+        embed.add_field(name="세션 오픈", value="\n".join(open_lines), inline=True)
 
     # ── 미디어 ──
     embed.add_field(
@@ -69,7 +93,8 @@ def build_embed(session) -> discord.Embed:
             f"{media_control.format_flags(session)}\n"
             f"(TTS 실효: {'ON' if media_control.is_enabled(session, 'tts') else 'OFF'})\n"
             f"볼륨 {int((getattr(session, 'volume', 0.3) or 0) * 100)}% · "
-            f"BGM {getattr(session, 'current_bgm', None) or '(없음)'}"
+            f"BGM {getattr(session, 'current_bgm', None) or '(없음)'}\n"
+            f"목소리 {getattr(session, 'tts_voice', '') or TTS_NARRATOR_VOICE}"
         ),
         inline=False,
     )
@@ -106,9 +131,15 @@ def build_embed(session) -> discord.Embed:
     # ── 기억 ──
     # NOTE: TTS 표기는 미디어 필드에 일원화한다. is_enabled('tts')가
     #       media_flags와 tts_enabled를 함께 보므로 두 곳에 적으면 어긋난다.
+    plan_label = {"normal": "노멀", "high": "하이", "low": "로우", "ultra": "울트라"}
+    mode_label = {"quest": "퀘스트", "free": "풀자유"}
     embed.add_field(
-        name="기억",
-        value=f"압축 {len(getattr(session, 'compressed_memory', '') or '')}자",
+        name="기억·서사",
+        value=(
+            f"기억 방식 {plan_label.get(getattr(session, 'memory_plan', 'normal'), '노멀')} "
+            f"(압축 {len(getattr(session, 'compressed_memory', '') or '')}자)\n"
+            f"서사설계 {mode_label.get(getattr(session, 'narrative_mode', 'quest'), '퀘스트')}"
+        ),
         inline=True,
     )
 
@@ -241,11 +272,69 @@ class DisplayView(discord.ui.View):
             ephemeral=False,
         )
 
+    @discord.ui.button(label="🔄 턴 재시작", style=discord.ButtonStyle.danger,
+                       custom_id="disp:restart", row=2)
+    async def restart(self, interaction, _b):
+        """직전 턴을 되감고 곧바로 선언 질문부터 다시 진행한다."""
+        session = self.bot.active_sessions.get(interaction.channel.id)
+        if self._busy(session):
+            await interaction.response.send_message(
+                "턴 진행 중에는 재시작할 수 없습니다.", ephemeral=True)
+            return
+        from .rewind import available_range
+        _oldest, newest = available_range(session)
+        if newest == 0:
+            await interaction.response.send_message(
+                "재시작할 턴이 없습니다.", ephemeral=True)
+            return
+        confirm_cls = getattr(__import__("cogs.gm", fromlist=["RewindConfirmView"]),
+                              "RewindConfirmView")
+        await interaction.response.send_message(
+            f"⚠️ **{newest}턴을 취소하고 선언부터 다시 진행합니다.**\n"
+            f"되돌리기는 취소할 수 없으며, 이미 소모된 비용은 환불되지 않습니다.",
+            view=confirm_cls(self.bot, session, newest - 1),
+        )
+
+    @discord.ui.button(label="⏻ 세션 오픈/클로즈", style=discord.ButtonStyle.secondary,
+                       custom_id="disp:session", row=3)
+    async def session_toggle(self, interaction, _b):
+        session = self.bot.active_sessions.get(interaction.channel.id)
+        if self._busy(session):
+            await interaction.response.send_message(
+                "턴 진행 중에는 조작할 수 없습니다.", ephemeral=True)
+            return
+        is_open = bool(getattr(session, "cache_name", None))
+        if is_open:
+            await interaction.response.send_message(
+                "세션 클로즈는 캐시 만료 처리와 환급 정산이 함께 필요합니다. "
+                "결제 시스템 도입 후 활성화됩니다.", ephemeral=True)
+        else:
+            await interaction.response.send_message(
+                "세션 오픈은 캐시 업로드 시간 입력이 선행됩니다. "
+                "세션 생성 플로우 도입 후 활성화됩니다.", ephemeral=True)
+
     @discord.ui.button(label="💰 결제", style=discord.ButtonStyle.primary,
-                       custom_id="disp:pay", row=2)
+                       custom_id="disp:pay", row=3)
     async def pay(self, interaction, _b):
         await interaction.response.send_message(
             "결제 기능은 계정·약관 시스템 도입 후 활성화됩니다.", ephemeral=True)
+
+
+def build_view(bot, session) -> discord.ui.View:
+    """UI 뷰를 조립한다. 턴 진행 중이면 민감한 버튼을 회색 비활성화한다.
+
+    기획 규정 — 턴 진행 중이거나 충돌 가능성 있는 모든 시점에 UI를 비활성화.
+    대상: 턴 회귀 · 턴 재시작 · TTS/이미지 온오프 · 세션 오픈/클로즈
+    (볼륨·BGM·효과음은 진행 중에도 안전하므로 유지한다)
+    """
+    view = DisplayView(bot)
+    if getattr(session, "is_processing", False):
+        for child in view.children:
+            cid = getattr(child, "custom_id", "")
+            if cid in ("disp:rewind", "disp:restart", "disp:tts",
+                       "disp:image", "disp:session"):
+                child.disabled = True
+    return view
 
 
 async def refresh(bot, session, *, reason: str = "") -> bool:
@@ -261,7 +350,7 @@ async def refresh(bot, session, *, reason: str = "") -> bool:
         return False
 
     embed = build_embed(session)
-    view = DisplayView(bot)
+    view = build_view(bot, session)
     msg_id = getattr(session, "display_msg_id", None)
 
     try:

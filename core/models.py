@@ -113,6 +113,14 @@ class TRPGSession:
         # 실제 관측된 캐시 읽기 토큰 — 캐시 본문에 구워진 지시문까지 포함된 값.
         # cache_tokens(조립 텍스트 기준)와 다르므로 예측은 이 값을 우선 사용한다.
         self.cache_read_tokens = 0
+        # 직전 턴 비용(원). 디스플레이 '직전 턴 금액' 표기용
+        self.last_turn_cost = 0.0
+        # TTS 목소리 — 세션 생성 시 선택. 미지정이면 기본 나레이터 보이스
+        self.tts_voice = ""
+        # 기억 압축 방식 — normal(기본) | high | low | ultra
+        self.memory_plan = "normal"
+        # 서사설계 유형 — quest(기본) | free(풀자유). 퀘스트 시스템 도입 시 사용
+        self.narrative_mode = "quest"
         # 세션 종류 — solo(기본) | multi | master.
         # 마스터 채널은 모든 세션에 생성되므로 채널 유무로는 구분할 수 없다.
         self.session_kind = "solo"

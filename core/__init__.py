@@ -28,6 +28,7 @@
 from .constants import (
     __version__,
     MIN_CACHE_TOKENS,
+    CACHE_TTL_SECONDS,
     INK_UNIT_KRW,
     INK_NET_KRW,
     INK_PLANS,
@@ -129,7 +130,7 @@ from . import stats
 from .chat_guard import chat_guard, NOTICE_SECONDS
 from . import tts_preset
 from . import irregular_npc
-from .display import build_embed, DisplayView, refresh as refresh_display
+from .display import build_embed, build_view, DisplayView, refresh as refresh_display
 from .models import TRPGSession
 from .cost import (
     extract_token_usage,
@@ -209,10 +210,10 @@ __all__ = [
     # constants
     "__version__",
     "DEFAULT_MODEL", "LOGIC_MODEL", "IMAGE_MODEL", "EXCHANGE_RATE",
-    "MIN_CACHE_TOKENS", "INK_UNIT_KRW", "INK_NET_KRW", "INK_PLANS",
+    "MIN_CACHE_TOKENS", "CACHE_TTL_SECONDS", "INK_UNIT_KRW", "INK_NET_KRW", "INK_PLANS",
     # ink / accounts
     "chat_guard", "NOTICE_SECONDS", "tts_preset", "irregular_npc",
-    "build_embed", "DisplayView", "refresh_display",
+    "build_embed", "build_view", "DisplayView", "refresh_display",
     "DEFAULT_MEDIA_FLAGS", "get_media_flags", "set_media_flag", "is_enabled",
     "tension_band", "select_bgm", "describe_bgm_pending", "format_flags", "sync_tts_flag",
     "call_with_retry", "get_timeout", "write_error_log",

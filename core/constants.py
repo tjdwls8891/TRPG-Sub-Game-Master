@@ -10,7 +10,7 @@ from google.genai import types
 #         MAJOR — 저장 스키마/세션 구조 변경(SCHEMA_VERSION 증가), 명령어 체계 개편 등 비호환 변경
 #         MINOR — 하위호환 기능 추가, 프롬프트·룰북 변경 (재시작 또는 캐시 재발급 필요)
 #         PATCH — 버그 수정, 문구 조정, 리팩터링 (핫스왑 수준)
-__version__ = "4.22.0"
+__version__ = "4.23.0"
 
 DEFAULT_MODEL = "gemini-3-flash-preview"
 LOGIC_MODEL = "gemini-3-flash-preview"
@@ -27,6 +27,9 @@ EXCHANGE_RATE = 1500.0
 # 운영 중 캐시 생성이 최소 요건 오류로 실패하면 .env에 MIN_CACHE_TOKENS를 지정해
 # 재배포 없이 되돌릴 수 있다.
 MIN_CACHE_TOKENS = int(os.getenv("MIN_CACHE_TOKENS", "1024"))
+
+# 캐시 TTL(초). 세션 오픈 유지 시간이자 만료 예정 시점 산출의 기준.
+CACHE_TTL_SECONDS = int(os.getenv("CACHE_TTL_SECONDS", "21600"))
 
 # ── 게임머니 '잉크' ──
 INK_UNIT_KRW = 10   # 판매가: 1잉크 = 10원
