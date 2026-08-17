@@ -13,6 +13,7 @@
 #   display    — 디스플레이 채널 (단일 메시지 편집, persistent UI)
 #   creation   — 세션 제작 과정 상태 기계 (단계·회귀·복원)
 #   profiles   — 사전 저장 프로필 (생성·검색·수정·삭제, 태그)
+#   profile_gen — 프로필 생성 모듈 11종 (시나리오 JSON이 지시하는 알고리즘)
 #   session_open — 세션 유지 시간 해석 결과의 환산·확인
 #   terms      — 약관 동의·계정 등록 DM 인터페이스
 #   gm_space   — 서버 GM 스페이스 (홈·명전·보드)
@@ -135,6 +136,7 @@ from .resilience import (
 from . import stats
 from . import creation
 from . import profiles
+from . import profile_gen
 from .session_open import (
     resolve_minutes,
     should_charge_interpretation,
@@ -258,7 +260,7 @@ __all__ = [
     "DEFAULT_MODEL", "LOGIC_MODEL", "IMAGE_MODEL", "EXCHANGE_RATE",
     "MIN_CACHE_TOKENS", "CACHE_TTL_SECONDS", "INK_UNIT_KRW", "INK_NET_KRW", "INK_PLANS",
     # ink / accounts
-    "creation", "profiles",
+    "creation", "profiles", "profile_gen",
     "resolve_minutes", "should_charge_interpretation", "format_confirmation",
     "VAGUE_MINUTES", "MINUTES_PER_TURN", "MIN_MINUTES", "MAX_MINUTES",
     "TERMS_TEXT", "SIGNUP_GIFT_INK", "build_terms_embed", "TermsView",
