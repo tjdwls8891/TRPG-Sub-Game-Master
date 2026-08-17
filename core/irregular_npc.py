@@ -141,6 +141,54 @@ def register(session, name: str, *, image_key: str = "", gender: str = None,
     return entry
 
 
+# 승격 트리거 — 서로 다른 턴에 이 횟수만큼 등장하면 세부 설정을 생성한다.
+PROMOTE_APPEARANCES = 3
+
+
+def note_appearance(session, name: str, turn: int) -> int:
+    """등장을 누적한다. 같은 턴 중복은 세지 않는다.
+
+    Returns:
+        누적 등장 횟수
+    """
+    reg = dict(get_registry(session))
+    entry = reg.get(name)
+    if entry is None:
+        return 0
+    seen = entry.get("seen_turns") or []
+    if turn not in seen:
+        seen.append(turn)
+        entry["seen_turns"] = seen[-20:]
+        entry["appearances"] = len(seen)
+        reg[name] = entry
+        session.irregular_npcs = reg
+    return entry.get("appearances", 0)
+
+
+def should_promote(session, name: str, *, named: bool = False) -> bool:
+    """승격 대상인지 판정한다.
+
+    기획 규정 — '비중이 생기거나 이름이 부여되면' 별도 호출로 설정 생성.
+      비중: 서로 다른 턴에 PROMOTE_APPEARANCES회 이상 등장
+      이름: 고유명이 부여됨(호출부가 판단해 named로 전달)
+    이미 설정이 생성된 인물은 다시 호출하지 않는다.
+    """
+    entry = get_registry(session).get(name)
+    if not entry or entry.get("detailed"):
+        return False
+    if named:
+        return True
+    return entry.get("appearances", 0) >= PROMOTE_APPEARANCES
+
+
+def mark_detailed(session, name: str):
+    """세부 설정 생성 완료 표시. 중복 호출을 막는다."""
+    reg = dict(get_registry(session))
+    if name in reg:
+        reg[name]["detailed"] = True
+        session.irregular_npcs = reg
+
+
 def promote(session, name: str, details: dict) -> bool:
     """비중이 생긴 비정규 NPC를 정규 NPC로 승격한다.
 

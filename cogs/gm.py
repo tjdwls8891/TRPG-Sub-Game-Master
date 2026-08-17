@@ -13,6 +13,8 @@ import core
 # 프롬프트 중앙 등록소에서 AI 프롬프트 상수 및 빌더 임포트
 from prompts import (
     EXTRACTION_SYSTEM_INSTRUCTION,
+    NPC_DETAIL_RESPONSE_SCHEMA,
+    NPC_DETAIL_SYSTEM_INSTRUCTION,
     IRREGULAR_NPC_RESPONSE_SCHEMA,
     IRREGULAR_NPC_SYSTEM_INSTRUCTION,
     JUDGMENT_RESPONSE_SCHEMA,
@@ -2345,6 +2347,112 @@ class GMCog(commands.Cog):
     # 추출층위 — 묘사 출력물에서 세계 상태·수치 추출
     # ─────────────────────────────────────────────────────────────
 
+    async def _generate_npc_detail(self, session, name: str, recent_text: str,
+                                   master_ch=None) -> bool:
+        """
+        비정규 NPC 세부 설정 생성 — 비중이 생기거나 이름이 부여되면 1회 호출.
+
+        생성 후 session.npcs로 승격되어 정규 델타 주입 대상이 된다.
+        목소리와 이미지는 배정 당시의 것을 유지한다.
+        """
+        entry = core.irregular_npc.get_registry(session).get(name)
+        if not entry:
+            return False
+
+        year = core.current_year(session)
+        user_prompt = (
+            f"[대상 인물]\n{name}\n\n"
+            f"[등장 기록]\n"
+            f"- 최초 등장: {entry.get('first_turn', 0)}턴\n"
+            f"- 누적 등장: {entry.get('appearances', 1)}회\n"
+            f"- 배정 인상: {entry.get('gender')}/{entry.get('age')}\n"
+            f"- 등장 맥락: {entry.get('context') or '(없음)'}\n\n"
+            f"[작중 현재 연도]\n{year if year is not None else '(미확인)'}\n\n"
+            f"[최근 묘사문]\n{(recent_text or '')[:1500]}"
+        )
+
+        config = types.GenerateContentConfig(
+            system_instruction=NPC_DETAIL_SYSTEM_INSTRUCTION,
+            temperature=0.5,
+            response_mime_type="application/json",
+            response_schema=NPC_DETAIL_RESPONSE_SCHEMA,
+            safety_settings=core.TRPG_SAFETY_SETTINGS,
+        )
+        contents = [types.Content(role="user", parts=[types.Part.from_text(text=user_prompt)])]
+
+        ok, response = await core.call_with_retry(
+            lambda: asyncio.to_thread(
+                self.bot.genai_client.models.generate_content,
+                model=core.DEFAULT_MODEL, contents=contents, config=config,
+            ),
+            layer="media", session_id=session.session_id, retries=1,
+        )
+        if not ok:
+            return False
+
+        try:
+            meta = response.usage_metadata
+            in_t, out_t, cached_t, thought_t = core.extract_token_usage(meta)
+            breakdown = core.calculate_text_gen_cost_breakdown(
+                core.DEFAULT_MODEL, input_tokens=in_t,
+                output_tokens=out_t, cached_read_tokens=cached_t,
+            )
+            cost = breakdown["total_krw"]
+            session.total_cost += cost
+            core.write_cost_log(
+                session.session_id, f"{COST_LOG_PREFIX}NPC 설정 생성",
+                in_t, cached_t, out_t, cost, session.total_cost
+            )
+            if not hasattr(session, "turn_cost_log"):
+                session.turn_cost_log = []
+            session.turn_cost_log.append({
+                "label": "NPC 설정 생성", "cost": cost,
+                "in": in_t, "cached": cached_t, "out": out_t, "manifest": [],
+            })
+        except Exception as e:
+            print(f"[NPC설정] 비용 정산 실패: {e}")
+
+        try:
+            data = json.loads(response.text or "{}")
+        except json.JSONDecodeError:
+            print("[NPC설정] 응답 파싱 실패")
+            return False
+
+        final_name = (data.get("name") or name).strip() or name
+        details = {
+            "details": data.get("details") or "",
+            "role": data.get("role") or "미상",
+            "attitude": data.get("attitude") or "중립",
+        }
+        # birth_year는 0이면 미상. 나이는 코드가 계산하므로 값만 보관한다.
+        try:
+            by = int(data.get("birth_year") or 0)
+            if by > 0:
+                details["birth_year"] = by
+        except (TypeError, ValueError):
+            pass
+
+        core.irregular_npc.mark_detailed(session, name)
+        promoted = core.irregular_npc.promote(session, name, details)
+        if promoted and final_name != name:
+            # 고유명이 확정되면 키를 교체한다.
+            npcs = dict(session.npcs)
+            npcs[final_name] = npcs.pop(name)
+            session.npcs = npcs
+
+        if master_ch:
+            age_txt = ""
+            if details.get("birth_year"):
+                age = core.compute_age(session, details["birth_year"])
+                if age is not None:
+                    age_txt = f" ({age}세)"
+            await master_ch.send(
+                f"📇 **[NPC 승격]** {final_name}{age_txt} — "
+                f"{details['role']} · {details['attitude']}\n"
+                f"> {details['details'][:200]}"
+            )
+        return True
+
     async def _resolve_irregular_npcs(self, session, text: str, master_ch=None) -> int:
         """
         비정규 NPC 미디어 배정 — 묘사 스트리밍 '전'에 호출된다(기획 규정).
@@ -2452,6 +2560,18 @@ class GMCog(commands.Cog):
                 turn=getattr(session, "turn_count", 0),
             )
             added += 1
+
+        # 등장 누적 및 승격 판정 — 비중이 생긴 인물의 설정을 생성한다.
+        try:
+            turn = getattr(session, "turn_count", 0)
+            for name in list(core.irregular_npc.get_registry(session).keys()):
+                if name not in (text or ""):
+                    continue
+                core.irregular_npc.note_appearance(session, name, turn)
+                if core.irregular_npc.should_promote(session, name):
+                    await self._generate_npc_detail(session, name, text, master_ch)
+        except Exception as e:
+            print(f"[NPC설정] 승격 판정 실패(진행에는 영향 없음): {e}")
 
         if added and master_ch:
             reg = core.irregular_npc.get_registry(session)
