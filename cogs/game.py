@@ -281,7 +281,10 @@ class GameCog(commands.Cog):
         # 압축 대상 로그(직전 5N까지)는 지금 uncompressed_logs에 모두 존재하므로 스냅샷하고,
         # 프로씨드는 압축 완료를 기다리지 않고 곧바로 진행한다(백그라운드 태스크).
         # 삭제는 uncompressed_logs '앞'에서 count만큼, 이번 턴 로그 append는 '뒤'로 이뤄져 경합이 없다.
-        if (session.turn_count > 0 and session.turn_count % 5 == 0
+        # 압축 주기는 플랜이 정한다(노멀 5 / 하이 3 / 로우 5 / 울트라 1).
+        # should_compress는 last_compressed_turn을 기준으로 판정하므로,
+        # 되감기로 턴이 되돌아가도 이미 압축한 구간을 재압축하지 않는다(기획 규정).
+        if (core.memory_plan.should_compress(session)
                 and session.uncompressed_logs and not getattr(session, "is_compressing", False)):
             _logs_snapshot = list(session.uncompressed_logs)
             asyncio.create_task(
@@ -762,9 +765,11 @@ class GameCog(commands.Cog):
             summary_prompt = core.build_compression_prompt(session, log_text)
             core.write_log(session.session_id, "api", f"[기억 압축 요청]\n{summary_prompt}")
 
+            # 로우 플랜은 일정 횟수 이후 저비용 모델로 전환한다.
+            comp_model = core.memory_plan.select_model(session)
             summary_response = await asyncio.to_thread(
                 self.bot.genai_client.models.generate_content,
-                model=core.LOGIC_MODEL,
+                model=comp_model,
                 contents=summary_prompt,
                 config=types.GenerateContentConfig(safety_settings=core.TRPG_SAFETY_SETTINGS),
             )
@@ -772,7 +777,8 @@ class GameCog(commands.Cog):
             meta = summary_response.usage_metadata
             in_tokens, out_tokens, cached_tokens, thought_tokens = core.extract_token_usage(meta)
 
-            turn_cost = core.calculate_upload_cost(core.LOGIC_MODEL, input_tokens=in_tokens,
+            # 비용은 실제 사용한 모델 기준으로 계산해야 한다.
+            turn_cost = core.calculate_upload_cost(comp_model, input_tokens=in_tokens,
                                                    output_tokens=out_tokens, cached_read_tokens=cached_tokens)
             session.total_cost += turn_cost
             core.write_cost_log(session.session_id, f"{cost_log_prefix}자동 기억 압축", in_tokens, cached_tokens, out_tokens,
@@ -812,6 +818,8 @@ class GameCog(commands.Cog):
                 except Exception as e:
                     print(f"[되감기] 압축 기록 실패: {e}")
                 session.compressed_memory = new_compressed_segment
+                # 압축 완료 시점 기록 — 재압축 방지와 로우 플랜 전환 판정의 근거.
+                core.memory_plan.mark_compressed(session)
 
             # 앞에서 count만큼 제거 (스냅샷된 대상 로그). 이후 append된 이번 턴 로그는 보존.
             del session.uncompressed_logs[:len(logs_to_compress)]
@@ -1325,6 +1333,8 @@ class GameCog(commands.Cog):
                 except Exception as e:
                     print(f"[되감기] 압축 기록 실패: {e}")
                 session.compressed_memory = new_compressed_segment
+                # 압축 완료 시점 기록 — 재압축 방지와 로우 플랜 전환 판정의 근거.
+                core.memory_plan.mark_compressed(session)
 
             del session.uncompressed_logs[:len(logs_to_compress)]
             await core.save_session_data(self.bot, session)

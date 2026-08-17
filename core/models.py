@@ -113,6 +113,10 @@ class TRPGSession:
         # 실제 관측된 캐시 읽기 토큰 — 캐시 본문에 구워진 지시문까지 포함된 값.
         # cache_tokens(조립 텍스트 기준)와 다르므로 예측은 이 값을 우선 사용한다.
         self.cache_read_tokens = 0
+        # 마지막으로 압축한 턴 번호 — 재압축 방지 기준
+        self.last_compressed_turn = 0
+        # 누적 압축 횟수 — 로우 플랜의 저비용 모델 전환 판정에 사용
+        self.compression_count = 0
         # 도달한 엔딩 결과. 플랜 선택 전까지 유지된다.
         self.pending_ending = ""
         # 인피니티 세션 플랜 — 메인 클리어 후 선택. 빈 값이면 미선택.

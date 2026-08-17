@@ -287,7 +287,13 @@ def build_compression_prompt(session: TRPGSession, log_text: str) -> str:
     Returns:
         str: AI 모델에 전송할 압축 지시 프롬프트 문자열
     """
+    # 플랜별 블록 — 하이·울트라는 상황 밀도 배분, 로우 후반은 고밀도 축약.
+    # 두 블록 모두 보존 항목을 건드리지 않고 서술 형태만 조절한다.
+    from .memory_plan import build_context_hint, is_aggressive
+
     return build_compression_prompt_text(
-        compressed_memory=session.compressed_memory or "없음",
-        log_text=log_text,
+        session.compressed_memory or "(없음)",
+        log_text,
+        adaptive_context=build_context_hint(session),
+        dense_form=is_aggressive(session),
     )

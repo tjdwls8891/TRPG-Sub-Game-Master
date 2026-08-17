@@ -1169,7 +1169,75 @@ def build_narrate_prompt(recent_str: str, current_turn_str: str, narrate_instruc
 
 # ========== [기억 압축] ==========
 
-def build_compression_prompt_text(compressed_memory: str, log_text: str) -> str:
+COMPRESSION_RESPONSE_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "summary": {
+            "type": "string",
+            "description": "지정된 턴 단락 양식에 따른 압축 기록 본문"
+        },
+        "key_facts": {
+            "type": "array",
+            "items": {"type": "string"},
+            "description": "이후 진행에 반드시 필요한 사실. 본문에서 다시 뽑아 적는다."
+        },
+        "unresolved": {
+            "type": "array",
+            "items": {"type": "string"},
+            "description": "아직 해결되지 않은 약속·의무·목표"
+        }
+    },
+    "required": ["summary", "key_facts", "unresolved"]
+}
+
+
+# 하이·울트라 플랜이 덧붙이는 블록. 보존 항목은 건드리지 않고
+# '어느 항목을 더 세밀하게 적을지'만 지시한다.
+ADAPTIVE_DENSITY_BLOCK = """
+══════════════════════════════════════════
+[현재 국면 — 서술 밀도 배분에만 활용]
+══════════════════════════════════════════
+{context}
+
+위 [반드시 보존해야 할 정보]는 국면과 무관하게 전부 보존합니다.
+이 항목은 '무엇을 남길지'가 아니라 '어느 항목을 더 세밀하게 적을지'를
+정하는 데만 씁니다.
+
+- 전투·추적 국면 → 행동 순서와 위치 관계, 수치 변동을 시간순으로 세밀하게
+- 대화·교섭 국면 → 발언 주체·호칭·태도·합의 내용을 발화 단위로 세밀하게
+- 이동·탐색 국면 → 경로와 발견물, 공간 구조를 세밀하게
+- 진행 중인 퀘스트가 있으면 그와 연결되는 정보를 세밀하게
+
+세밀하게 적지 않는 항목도 반드시 기록합니다. 밀도만 달라질 뿐입니다.
+
+"""
+
+
+# 로우 플랜 후반이 덧붙이는 블록. 형태와 목표 분량만 지시하며
+# 정보 손실을 전제하지 않는다.
+DENSE_FORM_BLOCK = """
+══════════════════════════════════════════
+[압축 강도 — 고밀도 축약 양식]
+══════════════════════════════════════════
+세션이 길어져 기록이 누적되었습니다. 같은 정보를 더 짧은 형태로 적으십시오.
+
+- 서술을 완전한 기호·개조식으로 전환합니다.
+  조사와 서술어를 제거하고 항목명과 값만 남깁니다.
+  (예: "홍길동이 은자 30냥을 지불했다" → "홍길동 -은자30")
+- 연속된 턴에서 같은 항목이 이어지면 하나의 행으로 병합합니다.
+  (예: 3턴 연속 이동 → "3~5턴 이동: A→B→C")
+- 턴 헤더는 범위 표기로 묶습니다. (예: [#12~16턴 | 3월 2일 | 관도])
+
+목표 분량은 표준 양식의 3분의 1 수준입니다.
+분량은 표현을 줄여 달성하며, 항목을 빼서 달성하지 않습니다.
+[반드시 보존해야 할 정보]는 형태가 바뀌어도 전부 남습니다.
+
+"""
+
+
+def build_compression_prompt_text(compressed_memory: str, log_text: str,
+                                  *, adaptive_context: str = "",
+                                  dense_form: bool = False) -> str:
     """
     대화 기록 무손실 압축을 위한 프롬프트 텍스트를 조립합니다.
 
@@ -1245,6 +1313,10 @@ def build_compression_prompt_text(compressed_memory: str, log_text: str) -> str:
         "  - 동일 내용의 반복 서술\n"
         "  - 정보를 담지 않는 잉여 구조 표현 ('그가 말했다', '그녀는 생각했다' 등)\n\n"
 
+        + (ADAPTIVE_DENSITY_BLOCK.format(context=adaptive_context)
+           if adaptive_context else "")
+        + (DENSE_FORM_BLOCK if dense_form else "")
+        +
         "══════════════════════════════════════════\n"
         "[출력 양식 — 턴 단위 단락 구조]\n"
         "══════════════════════════════════════════\n"
