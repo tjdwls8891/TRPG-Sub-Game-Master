@@ -94,6 +94,9 @@ def _passes_filter(session, quest: dict, state: dict) -> bool:
 
     # 메인라인 — 서브 클리어 수 조건
     if quest.get("line") == "main":
+        # 인피니티 플랜이 메인을 금지하면 후보에서 제외한다.
+        if not plan_allows_main(session):
+            return False
         need = f.get("min_cleared_sub") or 0
         subs = sum(1 for c in state["cleared"] if c.get("line") == "sub")
         if subs < need:
@@ -396,6 +399,60 @@ def build_quest_block(session) -> str:
     return "\n".join(lines) + "\n"
 
 
+def case_schema(session) -> dict | None:
+    """활성 퀘스트가 있을 때만 quest_case 스키마를 반환한다.
+
+    지시층위는 '어느 방향으로 이끌지'만 답한다. 실제 진전 여부는
+    추출층위 수치가 임계를 넘을 때만 일어나므로 판정 권한은 넘기지 않는다.
+    """
+    state = get_state(session)
+    active = state.get("active")
+    if not active:
+        return None
+    quest = _find_quest(session, active["id"])
+    if not quest:
+        return None
+    cases = ((quest.get("tree") or {}).get(active["node"]) or {}).get("cases") or {}
+    if not cases:
+        return None
+
+    return {
+        "type": "object",
+        "properties": {
+            "key": {
+                "type": "string",
+                "description": (
+                    "이번 묘사가 향하는 케이스 키. 제시된 후보 중 하나("
+                    + " / ".join(cases.keys())
+                    + "). 어느 쪽도 아니면 빈 문자열."
+                ),
+            },
+            "reason": {"type": "string", "description": "판단 근거 한 문장"},
+        },
+        "required": ["key", "reason"],
+    }
+
+
+def set_intended_case(session, case: dict) -> str | None:
+    """지시층위가 지정한 케이스를 보관한다. 진전은 추출 수치가 결정한다."""
+    state = get_state(session)
+    active = state.get("active")
+    if not active:
+        return None
+    key = ((case or {}).get("key") or "").strip()
+    if not key:
+        active["intended_case"] = None
+        return None
+    quest = _find_quest(session, active["id"])
+    cases = ((quest or {}).get("tree") or {}).get(active["node"], {}).get("cases") or {}
+    if key not in cases:
+        print(f"[퀘스트] 존재하지 않는 케이스 키 무시: {key}")
+        active["intended_case"] = None
+        return None
+    active["intended_case"] = key
+    return key
+
+
 def choice_schema(session) -> dict | None:
     """상황에 맞는 quest_choice 스키마를 반환한다.
 
@@ -461,15 +518,18 @@ def advance_quest(session, extraction: dict) -> dict | None:
     if advance < th["quest_advance"] or not cases:
         return {"moved": False, "node": active["node"], "outcome": None, "replan": False}
 
-    # 진전 — 다음 노드로. 어느 케이스인지는 묘사 내용이 정하므로
-    # 여기서는 첫 케이스를 기본으로 두고, 호출부가 지정할 수 있게 한다.
-    next_key = next(iter(cases))
+    # 진전 — 지시층위가 지정한 케이스를 우선한다.
+    # 지정이 없거나 유효하지 않으면 첫 케이스로 폴백한다.
+    intended = active.get("intended_case")
+    next_key = intended if intended in cases else next(iter(cases))
     next_node = cases[next_key].get("next")
     if next_node not in tree:
         return {"moved": False, "node": active["node"], "outcome": None, "replan": False}
 
     active["path"].append(next_key)
     active["node"] = next_node
+    active["intended_case"] = None
+    active["started_turn"] = getattr(session, "turn_count", 0)
     outcome = (tree.get(next_node) or {}).get("outcome")
 
     if outcome:
@@ -509,6 +569,26 @@ def move_to_case(session, case_key: str) -> bool:
     return True
 
 
+def check_secret_awareness(session, extraction: dict) -> bool:
+    """추출 수치로 이면정보 인지를 판정한다.
+
+    임계 비교는 코드가 한다 — 추출층위에는 기준을 알려주지 않는다.
+    """
+    from .extraction import get_thresholds
+
+    state = get_state(session)
+    active = state.get("active")
+    if not active or active.get("secret_known"):
+        return False
+    try:
+        score = int((extraction or {}).get("secret_awareness", 0))
+    except (TypeError, ValueError):
+        return False
+    if score < get_thresholds(session)["secret_reveal"]:
+        return False
+    return mark_secret_known(session)
+
+
 def mark_secret_known(session) -> bool:
     """플레이어가 이면정보를 알아챘음을 기록한다."""
     state = get_state(session)
@@ -525,6 +605,81 @@ def check_main_unlock(session) -> list:
     """메인라인 후보를 반환한다."""
     return [q for q in filter_available(session, limit=99)
             if q.get("line") == "main"]
+
+
+# ── 인피니티 세션 ─────────────────────────────────────────
+# 메인라인 클리어 후 이어갈 때의 플랜. 기획 규정상 비용 안내가 필수다.
+INFINITY_PLANS = {
+    "sub_only": {
+        "label": "서브라인만",
+        "desc": "중·소형 사건만 이어진다. 세션 엔딩은 다시 오지 않는다.",
+        "cost": "기본 (추가 호출 없음)",
+        "narrative_mode": "quest",
+        "allow_main": False,
+        "suppress_medium": False,
+    },
+    "with_main": {
+        "label": "메인 포함",
+        "desc": "새 메인라인이 등장할 수 있다. 클리어하면 다시 엔딩이 열린다.",
+        "cost": "기본 (추가 호출 없음)",
+        "narrative_mode": "quest",
+        "allow_main": True,
+        "suppress_medium": False,
+    },
+    "designer": {
+        "label": "서사 설계자",
+        "desc": "퀘스트 틀을 벗어나 자유롭게 전개된다. 무엇이든 일어날 수 있다.",
+        "cost": "턴당 추가 (서사 설계 호출이 매 턴 발생)",
+        "narrative_mode": "free",
+        "allow_main": False,
+        "suppress_medium": False,
+    },
+    "designer_calm": {
+        "label": "설계자 + 중형 억제",
+        "desc": "자유 전개하되 큰 사건은 억제한다. 일상과 소소한 사건 중심.",
+        "cost": "턴당 추가 (서사 설계 호출이 매 턴 발생)",
+        "narrative_mode": "free",
+        "allow_main": False,
+        "suppress_medium": True,
+    },
+}
+
+
+def is_ending(outcome: str) -> bool:
+    """세션 엔딩을 부르는 결과인지."""
+    return bool(outcome) and str(outcome).startswith("ending")
+
+
+def apply_infinity_plan(session, plan_key: str) -> dict | None:
+    """인피니티 세션 플랜을 적용한다.
+
+    기획 규정 — 메인 클리어 후 서브만 / 메인 포함 / 서사 설계자 /
+    설계자+중형 억제 중 선택. 선택에 따라 서사설계 유형이 바뀐다.
+    """
+    plan = INFINITY_PLANS.get(plan_key)
+    if not plan:
+        return None
+    session.narrative_mode = plan["narrative_mode"]
+    session.infinity_plan = plan_key
+    state = get_state(session)
+    state["active"] = None
+    return plan
+
+
+def plan_allows_main(session) -> bool:
+    """현재 플랜이 메인라인 등장을 허용하는지."""
+    key = getattr(session, "infinity_plan", "") or ""
+    if not key:
+        return True   # 인피니티 이전에는 제한 없음
+    return bool(INFINITY_PLANS.get(key, {}).get("allow_main"))
+
+
+def format_plans() -> str:
+    """플랜 선택 안내. 비용 안내가 필수다(기획 규정)."""
+    lines = ["**인피니티 세션 플랜을 선택해 주십시오.**\n"]
+    for key, p in INFINITY_PLANS.items():
+        lines.append(f"**{p['label']}**\n> {p['desc']}\n> 비용: {p['cost']}")
+    return "\n\n".join(lines)
 
 
 def summary(session) -> str:

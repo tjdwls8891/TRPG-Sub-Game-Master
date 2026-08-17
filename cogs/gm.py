@@ -649,6 +649,63 @@ class OpenConfirmView(discord.ui.View):
         self.stop()
 
 
+class InfinityPlanView(discord.ui.View):
+    """
+    인피니티 세션 플랜 선택.
+
+    기획 규정 — 메인 클리어 후 이어갈지 닫을지 묻고, 이어간다면
+    플랜을 고르게 한다. 각 플랜의 비용 안내가 필수다.
+    """
+
+    def __init__(self, bot, session):
+        super().__init__(timeout=1800)
+        self.bot = bot
+        self.session = session
+        for key, plan in core.quest.INFINITY_PLANS.items():
+            self.add_item(InfinityPlanButton(key, plan["label"]))
+
+    @discord.ui.button(label="🚪 세션 닫기", style=discord.ButtonStyle.danger, row=2)
+    async def close(self, interaction, _b):
+        for c in self.children:
+            c.disabled = True
+        await interaction.response.edit_message(view=self)
+        await interaction.followup.send(
+            "세션을 여기서 마칩니다. 수고하셨습니다.")
+        self.session.auto_gm_active = False
+        await core.save_session_data(self.bot, self.session)
+        self.stop()
+
+
+class InfinityPlanButton(discord.ui.Button):
+    def __init__(self, key: str, label: str):
+        super().__init__(label=label, style=discord.ButtonStyle.primary, row=0
+                         if key in ("sub_only", "with_main") else 1)
+        self.plan_key = key
+
+    async def callback(self, interaction: discord.Interaction):
+        view = self.view
+        plan = core.quest.apply_infinity_plan(view.session, self.plan_key)
+        if not plan:
+            await interaction.response.send_message("플랜 적용에 실패했습니다.", ephemeral=True)
+            return
+        view.session.pending_ending = ""
+        for c in view.children:
+            c.disabled = True
+        await interaction.response.edit_message(view=view)
+        await interaction.followup.send(
+            f"▶️ **인피니티 세션 — {plan['label']}**\n"
+            f"> {plan['desc']}\n"
+            f"> 비용: {plan['cost']}\n\n"
+            f"이야기가 이어집니다."
+        )
+        await core.save_session_data(view.bot, view.session)
+        try:
+            await core.refresh_display(view.bot, view.session, reason="infinity")
+        except Exception:
+            pass
+        view.stop()
+
+
 class ExtractionRetryView(discord.ui.View):
     """
     추출층위 재시도 버튼 — persistent view.
@@ -1749,11 +1806,19 @@ class GMCog(commands.Cog):
             logic_schema = GM_LOGIC_RESPONSE_SCHEMA
             try:
                 q_schema = core.quest.choice_schema(session)
-                if q_schema:
+                c_schema = core.quest.case_schema(session)
+                if q_schema or c_schema:
                     logic_schema = dict(GM_LOGIC_RESPONSE_SCHEMA)
                     logic_schema["properties"] = dict(logic_schema["properties"])
-                    logic_schema["properties"]["quest_choice"] = q_schema
-                    logic_schema["required"] = list(logic_schema["required"]) + ["quest_choice"]
+                    logic_schema["required"] = list(logic_schema["required"])
+                    if q_schema:
+                        logic_schema["properties"]["quest_choice"] = q_schema
+                        logic_schema["required"].append("quest_choice")
+                    if c_schema:
+                        # 활성 퀘스트가 있을 때만. 지시층위는 방향만 제시하고
+                        # 진전 여부는 추출 수치가 정한다.
+                        logic_schema["properties"]["quest_case"] = c_schema
+                        logic_schema["required"].append("quest_case")
             except Exception as e:
                 print(f"[퀘스트] 스키마 조립 실패: {e}")
 
@@ -1855,6 +1920,15 @@ class GMCog(commands.Cog):
             session.session_id, "api",
             f"[자동 지시층위 결정]\n{json.dumps(decision, ensure_ascii=False, indent=2)}"
         )
+
+        # 지시층위가 지정한 진전 방향을 보관한다(진전 자체는 추출 수치가 결정).
+        try:
+            if decision.get("quest_case"):
+                key = core.quest.set_intended_case(session, decision["quest_case"])
+                if key:
+                    print(f"[GM/{session.session_id}] 퀘스트 진전 방향: {key}")
+        except Exception as e:
+            print(f"[퀘스트] 케이스 지정 실패: {e}")
 
         # ── 퀘스트 선택 반영 ──
         # 코드가 검증한다: 선택 불가 상황의 값, 제시하지 않은 id는 무시된다.
@@ -2792,8 +2866,26 @@ class GMCog(commands.Cog):
             f"날짜={prev_tl.get('current_date', '미확인')}"
         ) if prev_tl else "(없음)"
 
+        # 이면정보 인지 판정을 위해 '인지 조건'만 주입한다.
+        # 이면정보 본문(truth)은 넣지 않는다 — 추출층위가 알면 판정이 오염된다.
+        secret_block = ""
+        try:
+            st = core.quest.get_state(session)
+            active = st.get("active")
+            if active and not active.get("secret_known"):
+                q = core.quest._find_quest(session, active["id"])
+                conds = ((q or {}).get("hidden") or {}).get("reveal_conditions") or []
+                if conds:
+                    secret_block = (
+                        "\n[숨겨진 사실의 인지 조건 — 아래에 해당하는 정황이 묘사에 있었는지 평가]\n"
+                        + "\n".join(f"- {c}" for c in conds) + "\n"
+                    )
+        except Exception as e:
+            print(f"[추출] 인지 조건 주입 실패: {e}")
+
         user_prompt = (
-            "[추출 항목]\n" + "\n".join(f"- {t}" for t in targets) + "\n\n"
+            "[추출 항목]\n" + "\n".join(f"- {t}" for t in targets) + "\n"
+            + secret_block + "\n"
             f"[직전까지의 세계 상태]\n{prev_summary}\n\n"
             f"[이번 묘사문]\n{ai_output_text[:3000]}"
         )
@@ -2883,13 +2975,30 @@ class GMCog(commands.Cog):
         # 퀘스트 케이스 진전 — quest_progress의 두 번째 소비처.
         # 이탈이 크면 진전시키지 않고 재계획 트리거로 넘긴다.
         try:
+            # 이면정보 인지 판정 — 임계 비교는 코드가 한다.
+            if core.quest.check_secret_awareness(session, result):
+                print(f"[GM/{session.session_id}] 이면정보 인지됨")
+                if master_ch:
+                    await master_ch.send("🔓 **[퀘스트]** 플레이어가 숨겨진 사실을 알아챘습니다.")
+
             moved = core.quest.advance_quest(session, result)
             if moved and moved.get("moved"):
+                outcome = moved.get("outcome")
                 print(f"[GM/{session.session_id}] 퀘스트 진전 → {moved['node']}"
-                      + (f" (완료: {moved['outcome']})" if moved.get("outcome") else ""))
-                if moved.get("outcome") and master_ch:
-                    await master_ch.send(
-                        f"📜 **[퀘스트]** 완료 — {moved['outcome']}")
+                      + (f" (완료: {outcome})" if outcome else ""))
+                if outcome and master_ch:
+                    await master_ch.send(f"📜 **[퀘스트]** 완료 — {outcome}")
+                # 메인라인 엔딩 — 세션 엔딩을 호출한다(기획 규정).
+                if core.quest.is_ending(outcome):
+                    session.pending_ending = outcome
+                    game_ch = self.bot.get_channel(session.game_ch_id)
+                    if game_ch:
+                        await game_ch.send(
+                            f"🎬 **세션 엔딩에 도달했습니다.**\n"
+                            f"> 결말: {outcome}\n\n"
+                            + core.quest.format_plans(),
+                            view=InfinityPlanView(self.bot, session),
+                        )
         except Exception as e:
             print(f"[퀘스트] 진전 실패(진행에는 영향 없음): {e}")
         if applied["applied"] or applied["cleared"]:

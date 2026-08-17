@@ -97,6 +97,14 @@ EXTRACTION_RESPONSE_SCHEMA = {
             "description": "이번 묘사에 등장하거나 PC와 접촉한 NPC 이름. 없으면 빈 배열.",
             "items": {"type": "string"},
         },
+        "secret_awareness": {
+            "type": "integer",
+            "description": (
+                "플레이어가 숨겨진 사실을 알아차린 정도 0~100. "
+                "0-30 전혀 모름 / 31-70 의심하거나 단서를 접함 / 71-100 명확히 인지. "
+                "숨겨진 사실이 제시되지 않았으면 0."
+            )
+        },
         "situation": {
             "type": "object",
             "description": "이번 묘사가 만들어낸 장면의 성격.",
@@ -115,7 +123,7 @@ EXTRACTION_RESPONSE_SCHEMA = {
     },
     "required": [
         "datetime", "location", "item_changes", "status_scores",
-        "quest_progress", "npcs_met", "situation",
+        "quest_progress", "npcs_met", "situation", "secret_awareness",
     ],
 }
 
@@ -128,6 +136,7 @@ THRESHOLDS = {
     "quest_advance": 71,     # 이상이면 케이스 진전
     "quest_deviated": 71,    # 이상이면 재계획 트리거
     "tension_high": 71,      # 이상이면 긴장 국면 (BGM 전환 판단에 사용)
+    "secret_reveal": 71,     # 이상이면 이면정보를 인지한 것으로 처리
 }
 
 
@@ -192,6 +201,7 @@ def parse_extraction(raw: str) -> dict | None:
     data.setdefault("quest_progress", {"advance": 0, "deviation": 0})
     data.setdefault("npcs_met", [])
     data.setdefault("situation", {"tag": "미확인", "tension": 0})
+    data.setdefault("secret_awareness", 0)
     return data
 
 
