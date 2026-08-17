@@ -3275,4 +3275,5 @@ async def setup(bot):
         bot.add_view(ExtractionRetryView(bot))
         bot.add_view(RewindView(bot))
         bot.add_view(core.DisplayView(bot))
+        bot.add_view(core.GMHomeView(bot))
         bot._extraction_view_registered = True

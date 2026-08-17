@@ -10,7 +10,7 @@ from google.genai import types
 #         MAJOR — 저장 스키마/세션 구조 변경(SCHEMA_VERSION 증가), 명령어 체계 개편 등 비호환 변경
 #         MINOR — 하위호환 기능 추가, 프롬프트·룰북 변경 (재시작 또는 캐시 재발급 필요)
 #         PATCH — 버그 수정, 문구 조정, 리팩터링 (핫스왑 수준)
-__version__ = "4.24.0"
+__version__ = "4.25.0"
 
 DEFAULT_MODEL = "gemini-3-flash-preview"
 LOGIC_MODEL = "gemini-3-flash-preview"

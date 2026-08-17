@@ -112,6 +112,7 @@ class SystemCog(commands.Cog):
             "`!배포 [리로드/재시작]` — GitHub 최신 코드 반영 (오너 전용)\n"
             "`!되감기 [턴번호]` — 해당 턴 종료 시점으로 롤백 (환불 불가)\n"
             "`!tts생성 [현황]` — 고정 문구 TTS 사전 생성 (오너 전용)\n"
+            "`!스페이스` — 서버 GM 스페이스 생성·갱신\n"
             "　└ 대상: `game` `character` `media` `session` `system` `gm`"
         ), inline=False)
 
@@ -358,6 +359,24 @@ class SystemCog(commands.Cog):
         except Exception as e:
             await ctx.send(f"⚠️ 모듈 리로드 중 오류 발생: {e}")
 
+
+    @commands.command(name="스페이스")
+    @commands.has_permissions(administrator=True)
+    async def gm_space(self, ctx):
+        """
+        서버 GM 스페이스를 생성·갱신한다.
+
+        기획 규정상 세션 오픈·보드 갱신·서버 참가 시 자동 생성되나,
+        수동 재생성 진입점을 둔다(카테고리 초기화 후 복구용).
+        """
+        msg = await ctx.send("⏳ GM 스페이스를 구성하는 중…")
+        ok_home = await core.refresh_home(self.bot, ctx.guild)
+        ok_board = await core.refresh_boards(self.bot, ctx.guild)
+        await msg.edit(content=(
+            f"{'✅' if ok_home and ok_board else '⚠️'} GM 스페이스 "
+            f"{'구성 완료' if ok_home and ok_board else '일부 실패'}\n"
+            f"> 홈 {'OK' if ok_home else 'FAIL'} · 보드 {'OK' if ok_board else 'FAIL'}"
+        ))
 
     @commands.command(name="tts생성")
     @commands.is_owner()

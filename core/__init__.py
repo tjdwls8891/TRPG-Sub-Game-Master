@@ -11,6 +11,7 @@
 #   resilience — API 재시도·타임아웃 차단·오류 로그
 #   stats      — 누적 플레이 통계 (계정과 분리된 저장소)
 #   display    — 디스플레이 채널 (단일 메시지 편집, persistent UI)
+#   gm_space   — 서버 GM 스페이스 (홈·명전·보드)
 #   growth     — 능력치 성장·행운 스탯 판정
 #   chat_guard — 채팅 차단 (채널별 권한 검증 단일 훅)
 #   tts_preset — 시스템 고정 문구 TTS 사전 생성 (런타임 합성 없이 파일 재생)
@@ -128,6 +129,14 @@ from .resilience import (
     USER_FACING_NOTICE,
 )
 from . import stats
+from .gm_space import (
+    ensure_space,
+    refresh_boards,
+    refresh_home,
+    GMHomeView,
+    build_hall_embed,
+    build_board_embed,
+)
 from .growth import (
     process_roll_outcome,
     check_growth,
@@ -226,6 +235,8 @@ __all__ = [
     "DEFAULT_MODEL", "LOGIC_MODEL", "IMAGE_MODEL", "EXCHANGE_RATE",
     "MIN_CACHE_TOKENS", "CACHE_TTL_SECONDS", "INK_UNIT_KRW", "INK_NET_KRW", "INK_PLANS",
     # ink / accounts
+    "ensure_space", "refresh_boards", "refresh_home", "GMHomeView",
+    "build_hall_embed", "build_board_embed",
     "process_roll_outcome", "check_growth", "check_luck",
     "get_growth_config", "get_luck_config", "format_growth", "format_luck",
     "chat_guard", "NOTICE_SECONDS", "tts_preset", "irregular_npc",

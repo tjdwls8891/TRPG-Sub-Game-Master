@@ -44,6 +44,18 @@ def _cleanup_session_memory(bot, channel_id: int):
         except Exception as e:
             print(f"[통계] 세션 종료 기록 실패: {e}")
 
+        # 명전·보드 일괄 갱신 (기획 규정 — 세션 클로즈 시점).
+        # 매 턴 갱신하면 API 호출이 낭비되므로 여기서만 수행한다.
+        try:
+            import asyncio as _a
+            from .gm_space import refresh_boards as _rb
+            guild = getattr(getattr(bot.get_channel(channel_id), "guild", None), "id", None)
+            g = bot.get_guild(guild) if guild else None
+            if g:
+                _a.create_task(_rb(bot, g))
+        except Exception as e:
+            print(f"[GM스페이스] 보드 갱신 예약 실패: {e}")
+
         try:
             from .estimate import settle_on_session_close
             settle = settle_on_session_close(session)
