@@ -12,6 +12,8 @@ import core
 
 # 프롬프트 중앙 등록소에서 AI 프롬프트 상수 및 빌더 임포트
 from prompts import (
+    CACHE_TIME_RESPONSE_SCHEMA,
+    CACHE_TIME_SYSTEM_INSTRUCTION,
     EXTRACTION_SYSTEM_INSTRUCTION,
     NPC_DETAIL_RESPONSE_SCHEMA,
     NPC_DETAIL_SYSTEM_INSTRUCTION,
@@ -595,6 +597,58 @@ class RewindView(discord.ui.View):
         )
 
 
+class OpenConfirmView(discord.ui.View):
+    """세션 오픈 확인 — 유지 시간과 예상 비용을 보고 진행 여부를 정한다."""
+
+    def __init__(self, bot, session, minutes: int):
+        super().__init__(timeout=300)
+        self.bot = bot
+        self.session = session
+        self.minutes = minutes
+
+    @discord.ui.button(label="세션 열기", style=discord.ButtonStyle.success)
+    async def confirm(self, interaction, _b):
+        await interaction.response.defer()
+
+        # 잔액 확인 — 선불식이므로 부족하면 진행하지 않는다(기획 규정).
+        uid = str(interaction.user.id)
+        est = core.estimate_session_open(self.session, self.minutes / 60)
+        need = est.get("total_ink", 0)
+        bal = core.accounts.get_balance(uid)
+        if bal < need:
+            await interaction.followup.send(
+                f"⚠️ 잔액이 부족합니다. 필요 **{need}잉크** / 보유 **{bal}잉크**\n"
+                f"GM 스페이스에서 충전 후 다시 시도해 주십시오."
+            )
+            return
+
+        # 해석 비용 — 2잉크 이상일 때만 청구한다(기획 규정).
+        charge, ink = core.should_charge_interpretation(self.session)
+        note = ""
+        if charge:
+            note = f"\n> 시간 해석 비용 {ink}잉크가 함께 청구되었습니다."
+        self.session.interpret_cost_krw = 0.0
+
+        for child in self.children:
+            child.disabled = True
+        await interaction.message.edit(view=self)
+        await interaction.followup.send(
+            f"✅ 세션을 {self.minutes}분간 유지합니다. "
+            f"예상 {need}잉크{note}\n"
+            f"> 실제 캐시 업로드는 시나리오 확정 후 진행됩니다."
+        )
+        self.stop()
+
+    @discord.ui.button(label="취소", style=discord.ButtonStyle.secondary)
+    async def cancel(self, interaction, _b):
+        self.session.open_minutes = 0
+        for child in self.children:
+            child.disabled = True
+        await interaction.response.edit_message(
+            content="세션 오픈을 취소했습니다.", view=self)
+        self.stop()
+
+
 class ExtractionRetryView(discord.ui.View):
     """
     추출층위 재시도 버튼 — persistent view.
@@ -942,6 +996,12 @@ class GMCog(commands.Cog):
         session = self.bot.active_sessions.get(message.channel.id)
         if not session:
             return
+
+        # 디스플레이 채널의 시간 입력 — chat_guard가 1회만 통과시킨 답변이다.
+        if message.channel.id == getattr(session, "display_ch_id", None):
+            await self._handle_open_time_input(session, message)
+            return
+
         if message.channel.id != session.game_ch_id:
             return
         if not getattr(session, "auto_gm_active", False):
@@ -2346,6 +2406,105 @@ class GMCog(commands.Cog):
     # ─────────────────────────────────────────────────────────────
     # 추출층위 — 묘사 출력물에서 세계 상태·수치 추출
     # ─────────────────────────────────────────────────────────────
+
+    async def _handle_open_time_input(self, session, message):
+        """
+        디스플레이 채널의 유지 시간 답변을 처리한다.
+
+        기획 규정 — 모든 답변은 자체 재질문이나 유저의 재입력 선택이 아닌 경우에
+        한 번만 하도록 즉시 채팅을 잠그고 UI로 진행한다.
+        """
+        try:
+            await message.delete()
+        except Exception:
+            pass
+
+        thinking = await message.channel.send("⏱️ *입력을 확인하는 중…*")
+        resolved = await self.interpret_cache_time(session, message.content)
+        try:
+            await thinking.delete()
+        except Exception:
+            pass
+
+        if resolved.get("retry"):
+            # 재질문 — 이 경우에만 다시 언락한다(기획 규정).
+            session.awaiting_display_input = True
+            await message.channel.send(
+                "❓ 입력을 이해하지 못했습니다. 다시 답해 주십시오.\n"
+                "> 예: `3시간`, `90분`, `20턴`, `적당히`, `알아서`"
+            )
+            return
+
+        session.open_minutes = resolved["minutes"]
+        try:
+            est = core.estimate_session_open(session, resolved["minutes"] / 60)
+        except Exception:
+            est = {}
+        await message.channel.send(
+            core.format_confirmation(resolved, est),
+            view=OpenConfirmView(self.bot, session, resolved["minutes"]),
+        )
+
+    async def interpret_cache_time(self, session, text: str) -> dict:
+        """
+        세션 유지 시간 입력을 해석한다 (저비용 호출).
+
+        모델은 분류만 하고 실제 시간은 core.resolve_minutes가 정한다.
+        해석 비용은 세션에 누적했다가 캐시 업로드 시점에 2잉크 이상일 때만
+        청구한다(기획 규정).
+
+        Returns:
+            core.resolve_minutes의 결과 dict
+        """
+        config = types.GenerateContentConfig(
+            system_instruction=CACHE_TIME_SYSTEM_INSTRUCTION,
+            temperature=0.1,
+            response_mime_type="application/json",
+            response_schema=CACHE_TIME_RESPONSE_SCHEMA,
+            safety_settings=core.TRPG_SAFETY_SETTINGS,
+        )
+        contents = [types.Content(
+            role="user", parts=[types.Part.from_text(text=f"[플레이어 입력]\n{(text or '')[:200]}")]
+        )]
+
+        ok, response = await core.call_with_retry(
+            lambda: asyncio.to_thread(
+                self.bot.genai_client.models.generate_content,
+                model=core.DEFAULT_MODEL, contents=contents, config=config,
+            ),
+            layer="media", session_id=session.session_id, retries=1,
+        )
+        if not ok:
+            return {"ok": False, "minutes": 0, "case": "unclear",
+                    "notes": ["해석에 실패했습니다."], "retry": True}
+
+        # 해석 비용 누적 — 즉시 청구하지 않는다.
+        try:
+            meta = response.usage_metadata
+            in_t, out_t, cached_t, _th = core.extract_token_usage(meta)
+            cost = core.calculate_text_gen_cost_breakdown(
+                core.DEFAULT_MODEL, input_tokens=in_t,
+                output_tokens=out_t, cached_read_tokens=cached_t,
+            )["total_krw"]
+            session.interpret_cost_krw = (
+                float(getattr(session, "interpret_cost_krw", 0.0) or 0.0) + cost
+            )
+        except Exception as e:
+            print(f"[시간해석] 비용 집계 실패: {e}")
+
+        try:
+            data = json.loads(response.text or "{}")
+        except json.JSONDecodeError:
+            return {"ok": False, "minutes": 0, "case": "unclear",
+                    "notes": ["해석 결과를 읽지 못했습니다."], "retry": True}
+
+        resolved = core.resolve_minutes(data)
+        core.write_log(
+            session.session_id, "api",
+            f"[유지시간 해석] 입력={text[:60]} → {json.dumps(data, ensure_ascii=False)} "
+            f"→ {resolved['minutes']}분"
+        )
+        return resolved
 
     async def _generate_npc_detail(self, session, name: str, recent_text: str,
                                    master_ch=None) -> bool:

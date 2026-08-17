@@ -11,6 +11,7 @@
 #   resilience — API 재시도·타임아웃 차단·오류 로그
 #   stats      — 누적 플레이 통계 (계정과 분리된 저장소)
 #   display    — 디스플레이 채널 (단일 메시지 편집, persistent UI)
+#   session_open — 세션 유지 시간 해석 결과의 환산·확인
 #   terms      — 약관 동의·계정 등록 DM 인터페이스
 #   gm_space   — 서버 GM 스페이스 (홈·명전·보드)
 #   growth     — 능력치 성장·행운 스탯 판정
@@ -130,6 +131,15 @@ from .resilience import (
     USER_FACING_NOTICE,
 )
 from . import stats
+from .session_open import (
+    resolve_minutes,
+    should_charge_interpretation,
+    format_confirmation,
+    VAGUE_MINUTES,
+    MINUTES_PER_TURN,
+    MIN_MINUTES,
+    MAX_MINUTES,
+)
 from .terms import (
     TERMS_TEXT,
     SIGNUP_GIFT_INK,
@@ -244,6 +254,8 @@ __all__ = [
     "DEFAULT_MODEL", "LOGIC_MODEL", "IMAGE_MODEL", "EXCHANGE_RATE",
     "MIN_CACHE_TOKENS", "CACHE_TTL_SECONDS", "INK_UNIT_KRW", "INK_NET_KRW", "INK_PLANS",
     # ink / accounts
+    "resolve_minutes", "should_charge_interpretation", "format_confirmation",
+    "VAGUE_MINUTES", "MINUTES_PER_TURN", "MIN_MINUTES", "MAX_MINUTES",
     "TERMS_TEXT", "SIGNUP_GIFT_INK", "build_terms_embed", "TermsView",
     "start_registration", "ensure_agreed",
     "ensure_space", "refresh_boards", "refresh_home", "GMHomeView",

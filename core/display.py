@@ -15,6 +15,7 @@ from .cost import format_cost
 from .ink import format_ink, cost_to_ink
 from .timeline import format_timeline
 from .constants import CACHE_TTL_SECONDS, TTS_NARRATOR_VOICE
+from .session_open import MIN_MINUTES, MAX_MINUTES
 from .estimate import estimate_session_open
 import time
 
@@ -308,10 +309,18 @@ class DisplayView(discord.ui.View):
             await interaction.response.send_message(
                 "세션 클로즈는 캐시 만료 처리와 환급 정산이 함께 필요합니다. "
                 "결제 시스템 도입 후 활성화됩니다.", ephemeral=True)
-        else:
-            await interaction.response.send_message(
-                "세션 오픈은 캐시 업로드 시간 입력이 선행됩니다. "
-                "세션 생성 플로우 도입 후 활성화됩니다.", ephemeral=True)
+            return
+
+        # 세션 오픈 — 유지 시간 입력을 받는다.
+        # 기획 규정: 버튼으로 시간 입력을 호출하고, 이때만 채팅을 언락한다.
+        # 답변은 1회만 받고 즉시 다시 잠근다(chat_guard의 awaiting_display_input).
+        session.awaiting_display_input = True
+        await interaction.response.send_message(
+            "⏱️ **세션을 얼마나 유지하시겠습니까?**\n"
+            "이 채널에 답해 주십시오. (예: `3시간`, `20턴`, `적당히`, `알아서`)\n"
+            "> 유지 시간에 비례해 캐시 유지비가 발생합니다.\n"
+            f"> 최소 {MIN_MINUTES}분 · 최대 {MAX_MINUTES // 60}시간"
+        )
 
     @discord.ui.button(label="💰 결제", style=discord.ButtonStyle.primary,
                        custom_id="disp:pay", row=3)

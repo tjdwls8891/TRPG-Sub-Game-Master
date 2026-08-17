@@ -113,6 +113,10 @@ class TRPGSession:
         # 실제 관측된 캐시 읽기 토큰 — 캐시 본문에 구워진 지시문까지 포함된 값.
         # cache_tokens(조립 텍스트 기준)와 다르므로 예측은 이 값을 우선 사용한다.
         self.cache_read_tokens = 0
+        # 유지 시간 해석 호출의 누적 비용(원). 2잉크 이상일 때만 청구한다.
+        self.interpret_cost_krw = 0.0
+        # 선택된 세션 유지 시간(분)
+        self.open_minutes = 0
         # 세션 시작 시각(epoch) — 통계의 '세션 온 시간' 산출 기준
         self.started_at = 0.0
         # 스탯별 판정 실패 누적 — 성장 판정 트리거 기준
