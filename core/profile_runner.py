@@ -246,6 +246,44 @@ def jump_to(scenario_data: dict, run: dict, field: str) -> tuple:
     return True, field
 
 
+async def run_ai_module(bot, session, scenario_data: dict, run: dict,
+                        module: str, args: dict, user_input) -> dict:
+    """AI 모듈을 실행한다. 실행부가 별도 경로로 처리하는 둘이다.
+
+    Returns:
+        {"ok": bool, "value": Any, "message": str}
+    """
+    from . import profile_ai
+
+    field = current_field(scenario_data, run) or args.get("field") or ""
+
+    if module == "ai_validate":
+        res = await profile_ai.validate(
+            bot, session, field=field, value=str(user_input or ""),
+            scenario_data=scenario_data, rules=args.get("rules") or "",
+        )
+        msg = profile_ai.format_validation(field, res)
+        if res["verdict"] == "reject":
+            return {"ok": False, "value": None, "message": msg}
+        run["pending"] = {"field": field, "value": user_input}
+        return {"ok": True, "value": user_input, "message": msg}
+
+    if module == "ai_merge":
+        values = user_input if isinstance(user_input, list) else [user_input]
+        res = await profile_ai.merge(
+            bot, session, field=field, values=values,
+            max_length=int(args.get("max_length") or 300),
+        )
+        note = ""
+        if res["dropped"]:
+            note = f"\n> 모순되어 제외됨: {', '.join(res['dropped'])}"
+        run["pending"] = {"field": field, "value": res["merged"]}
+        return {"ok": True, "value": res["merged"],
+                "message": f"{res['merged']}{note}"}
+
+    return {"ok": False, "value": None, "message": f"알 수 없는 AI 모듈: {module}"}
+
+
 def result(run: dict) -> dict:
     """완성된 프로필 값."""
     return dict(run.get("chosen") or {})

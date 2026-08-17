@@ -10,10 +10,14 @@ from google.genai import types
 #         MAJOR — 저장 스키마/세션 구조 변경(SCHEMA_VERSION 증가), 명령어 체계 개편 등 비호환 변경
 #         MINOR — 하위호환 기능 추가, 프롬프트·룰북 변경 (재시작 또는 캐시 재발급 필요)
 #         PATCH — 버그 수정, 문구 조정, 리팩터링 (핫스왑 수준)
-__version__ = "4.31.0"
+__version__ = "4.32.0"
 
 DEFAULT_MODEL = "gemini-3-flash-preview"
 LOGIC_MODEL = "gemini-3-flash-preview"
+# 프로필 생성 AI 모듈(검증·병합) 전용 모델.
+# 기획 규정상 프로필 생성 단순호출은 무료 제공 대상이므로,
+# 저비용 모델이 확정되면 이 상수만 교체한다.
+PROFILE_AI_MODEL = "gemini-3-flash-preview"
 # LOGIC_MODEL = "gemini-3-pro-preview"
 EXCHANGE_RATE = 1500.0
 
