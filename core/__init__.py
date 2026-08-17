@@ -11,6 +11,7 @@
 #   resilience — API 재시도·타임아웃 차단·오류 로그
 #   stats      — 누적 플레이 통계 (계정과 분리된 저장소)
 #   display    — 디스플레이 채널 (단일 메시지 편집, persistent UI)
+#   terms      — 약관 동의·계정 등록 DM 인터페이스
 #   gm_space   — 서버 GM 스페이스 (홈·명전·보드)
 #   growth     — 능력치 성장·행운 스탯 판정
 #   chat_guard — 채팅 차단 (채널별 권한 검증 단일 훅)
@@ -129,6 +130,14 @@ from .resilience import (
     USER_FACING_NOTICE,
 )
 from . import stats
+from .terms import (
+    TERMS_TEXT,
+    SIGNUP_GIFT_INK,
+    build_terms_embed,
+    TermsView,
+    start_registration,
+    ensure_agreed,
+)
 from .gm_space import (
     ensure_space,
     refresh_boards,
@@ -235,6 +244,8 @@ __all__ = [
     "DEFAULT_MODEL", "LOGIC_MODEL", "IMAGE_MODEL", "EXCHANGE_RATE",
     "MIN_CACHE_TOKENS", "CACHE_TTL_SECONDS", "INK_UNIT_KRW", "INK_NET_KRW", "INK_PLANS",
     # ink / accounts
+    "TERMS_TEXT", "SIGNUP_GIFT_INK", "build_terms_embed", "TermsView",
+    "start_registration", "ensure_agreed",
     "ensure_space", "refresh_boards", "refresh_home", "GMHomeView",
     "build_hall_embed", "build_board_embed",
     "process_roll_outcome", "check_growth", "check_luck",

@@ -30,6 +30,13 @@ class SessionCog(commands.Cog):
             ctx (commands.Context): 디스코드 컨텍스트 객체
             scenario_id (str): 로드할 시나리오 파일 이름
         """
+        # 계정 등록·약관 동의 확인 (기획 규정 — 세션 생성 시점에 버전 비교)
+        # 미동의·재동의 필요 시 DM으로 절차를 시작하고 생성을 중단한다.
+        ok, notice = await core.ensure_agreed(self.bot, ctx.author)
+        if not ok:
+            await ctx.send(notice)
+            return
+
         if not scenario_id:
             scenarios = core.get_available_scenarios()
             await ctx.send(f"⚠️ 시나리오 파일명을 입력해주세요. 예: `!새세션 dark_fantasy`\n(현재 파일: {', '.join(scenarios)})")

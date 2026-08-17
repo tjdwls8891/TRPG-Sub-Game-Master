@@ -20,6 +20,8 @@ ACCOUNT_SCHEMA_VERSION = 1
 CURRENT_TERMS_VERSION = 1
 
 # 가입 선물로 지급할 잉크. 기획: "동의하면 가입선물 제공".
+# 가입선물 잉크. core/terms.py의 SIGNUP_GIFT_INK가 실제 지급을 담당하므로
+# 여기서는 0으로 두어 이중 지급을 막는다.
 SIGNUP_BONUS_INK = 0
 
 _locks = {}

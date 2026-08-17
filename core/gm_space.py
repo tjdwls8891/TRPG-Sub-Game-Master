@@ -202,16 +202,28 @@ class GMHomeView(discord.ui.View):
     async def register(self, interaction, _b):
         if accounts.is_registered(interaction.user.id):
             if accounts.needs_terms_reagreement(interaction.user.id):
+                from .terms import start_registration
+
+                sent = await start_registration(self.bot, interaction.user, reagree=True)
                 await interaction.response.send_message(
-                    "약관이 개정되었습니다. DM에서 재동의를 진행해 주십시오.",
+                    "📬 약관이 개정되었습니다. DM에서 재동의를 진행해 주십시오."
+                    if sent else
+                    "⚠️ 재동의가 필요하지만 DM을 보낼 수 없습니다. "
+                    "DM 수신을 허용해 주십시오.",
                     ephemeral=True)
             else:
                 await interaction.response.send_message(
                     "이미 등록된 계정입니다.", ephemeral=True)
             return
+        from .terms import start_registration
+
+        sent = await start_registration(self.bot, interaction.user)
         await interaction.response.send_message(
-            "계정 등록은 DM에서 진행됩니다. 약관 동의 인터페이스는 "
-            "결제 시스템 도입과 함께 활성화됩니다.", ephemeral=True)
+            "📬 DM으로 약관을 보냈습니다. 확인 후 동의해 주십시오."
+            if sent else
+            "⚠️ DM을 보낼 수 없습니다. 서버 개인정보 설정에서 "
+            "DM 수신을 허용한 뒤 다시 시도해 주십시오.",
+            ephemeral=True)
 
     @discord.ui.button(label="🎲 세션 열기", style=discord.ButtonStyle.primary,
                        custom_id="gmspace:session", row=0)
