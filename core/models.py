@@ -113,6 +113,10 @@ class TRPGSession:
         # 실제 관측된 캐시 읽기 토큰 — 캐시 본문에 구워진 지시문까지 포함된 값.
         # cache_tokens(조립 텍스트 기준)와 다르므로 예측은 이 값을 우선 사용한다.
         self.cache_read_tokens = 0
+        # 퀘스트 진행 상태 — {active, cleared, known_secrets, occurrences}
+        self.quest_state = {}
+        # 플레이어 소속 세력 — 퀘스트 필터에 사용
+        self.player_faction = ""
         # 프로필 생성 AI 호출 누적 비용(원). 무료 제공이므로 차감하지 않고
         # 운영 파악용으로만 집계한다.
         self.profile_ai_cost_krw = 0.0

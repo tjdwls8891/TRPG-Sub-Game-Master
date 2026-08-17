@@ -195,6 +195,21 @@ class PromptBuilder:
         self.blocks.append(block)
         return self
 
+    def add_quest_block(self):
+        """퀘스트 블록 — 온디맨드 주입.
+
+        NOTE: 폐지된 키워드북이 쓰던 슬롯을 퀘스트가 대체한다.
+              활성 퀘스트가 있으면 그것만, 없으면 후보 목록이 실린다.
+        """
+        try:
+            from .quest import build_quest_block
+            block = build_quest_block(self.session)
+            if block:
+                self.parts.append(block)
+        except Exception as e:
+            print(f"[퀘스트] 블록 생성 실패: {e}")
+        return self
+
     def add_rule_enforcement_block(self):
         block = f"[최종 지시] 캐시된 [시나리오 핵심 룰북]의 묘사 가이드와 위 GM의 지시사항을 최우선으로 반영하여 상황을 묘사하세요.\n"
 
@@ -247,6 +262,7 @@ class PromptBuilder:
                    .add_npc_override_block()
                    .add_recent_action_block()
                    .add_gm_instruction_block()
+                   .add_quest_block()
                    .add_rule_enforcement_block())
         session.last_proceed_manifest = list(builder.manifest)
         return builder.build()

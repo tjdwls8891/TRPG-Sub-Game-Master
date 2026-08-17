@@ -26,6 +26,7 @@ TRACKED_PATHS = [
     "statuses",
     "world_timeline",
     "info_ledger",
+    "quest_state",
     # NOTE: 플레이어 스탯은 players[uid]["profile"]에 들어 있다.
     #       session.ability_stats라는 속성은 존재하지 않으며,
     #       scenario_data["ability_stats"]는 능력치 '이름 목록'일 뿐이다.

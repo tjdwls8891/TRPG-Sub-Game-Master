@@ -127,6 +127,11 @@ def build_embed(session) -> discord.Embed:
     ]
     if npcs:
         narr.append(f"등장 NPC: {', '.join(npcs[:6])}")
+    try:
+        from .quest import summary as quest_summary
+        narr.append(f"퀘스트: {quest_summary(session)}")
+    except Exception:
+        pass
     embed.add_field(name="서사", value="\n".join(narr), inline=False)
 
     # ── 기억 ──

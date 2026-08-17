@@ -17,6 +17,7 @@
 #   profile_runner — 생성 알고리즘 실행부 (해독→종료까지 단일 진입)
 #   profile_ui — 사전 프로필 관리 DM 인터페이스 (생성·출력·수정·삭제)
 #   profile_ai — 프로필 검증·병합 AI 모듈 (무료 제공, 비용 집계만)
+#   quest      — 퀘스트 시스템 (필터·슬롯·케이스 트리·온디맨드 주입)
 #   session_open — 세션 유지 시간 해석 결과의 환산·확인
 #   terms      — 약관 동의·계정 등록 DM 인터페이스
 #   gm_space   — 서버 GM 스페이스 (홈·명전·보드)
@@ -143,6 +144,7 @@ from . import profiles
 from . import profile_gen
 from . import profile_runner
 from . import profile_ai
+from . import quest
 from .profile_ui import open_manager, ProfileHomeView
 from .session_open import (
     resolve_minutes,
@@ -267,7 +269,7 @@ __all__ = [
     "DEFAULT_MODEL", "LOGIC_MODEL", "PROFILE_AI_MODEL", "IMAGE_MODEL", "EXCHANGE_RATE",
     "MIN_CACHE_TOKENS", "CACHE_TTL_SECONDS", "INK_UNIT_KRW", "INK_NET_KRW", "INK_PLANS",
     # ink / accounts
-    "creation", "profiles", "profile_gen", "profile_runner", "profile_ai",
+    "creation", "profiles", "profile_gen", "profile_runner", "profile_ai", "quest",
     "open_manager", "ProfileHomeView",
     "resolve_minutes", "should_charge_interpretation", "format_confirmation",
     "VAGUE_MINUTES", "MINUTES_PER_TURN", "MIN_MINUTES", "MAX_MINUTES",

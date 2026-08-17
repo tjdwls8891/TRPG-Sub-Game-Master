@@ -2847,6 +2847,19 @@ class GMCog(commands.Cog):
 
         # 수치 판단 적용 — 임계값 비교는 코드가 전담한다(모델은 기준을 모른다).
         applied = core.apply_extraction(session, result)
+
+        # 퀘스트 케이스 진전 — quest_progress의 두 번째 소비처.
+        # 이탈이 크면 진전시키지 않고 재계획 트리거로 넘긴다.
+        try:
+            moved = core.quest.advance_quest(session, result)
+            if moved and moved.get("moved"):
+                print(f"[GM/{session.session_id}] 퀘스트 진전 → {moved['node']}"
+                      + (f" (완료: {moved['outcome']})" if moved.get("outcome") else ""))
+                if moved.get("outcome") and master_ch:
+                    await master_ch.send(
+                        f"📜 **[퀘스트]** 완료 — {moved['outcome']}")
+        except Exception as e:
+            print(f"[퀘스트] 진전 실패(진행에는 영향 없음): {e}")
         if applied["applied"] or applied["cleared"]:
             print(
                 f"[GM/{session.session_id}] 상태 적용: "
