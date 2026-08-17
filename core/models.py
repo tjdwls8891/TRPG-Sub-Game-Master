@@ -113,6 +113,10 @@ class TRPGSession:
         # 실제 관측된 캐시 읽기 토큰 — 캐시 본문에 구워진 지시문까지 포함된 값.
         # cache_tokens(조립 텍스트 기준)와 다르므로 예측은 이 값을 우선 사용한다.
         self.cache_read_tokens = 0
+        # 세션 시작 시각(epoch) — 통계의 '세션 온 시간' 산출 기준
+        self.started_at = 0.0
+        # 스탯별 판정 실패 누적 — 성장 판정 트리거 기준
+        self.stat_fail_counts = {}
         # 직전 턴 비용(원). 디스플레이 '직전 턴 금액' 표기용
         self.last_turn_cost = 0.0
         # TTS 목소리 — 세션 생성 시 선택. 미지정이면 기본 나레이터 보이스

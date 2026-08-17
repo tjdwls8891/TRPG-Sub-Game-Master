@@ -1319,9 +1319,8 @@ class GMCog(commands.Cog):
             print(f"[EST] 예상 산출 실패(진행에는 영향 없음): {e}")
 
         # 플레이어가 보는 게임 채널에 판단 대기 안내 (판단 완료 후 삭제)
-        status_msg = await core.send_status_message(
-            game_ch, "🤔 *GM이 상황을 판단하는 중…*"
-        )
+        # 층위별 문구 — 4층위 도입으로 대기가 길어져 같은 문구 반복은 멈춘 듯 보인다.
+        status_msg = await core.send_layer_status(game_ch, "judgment")
 
         if do_simulation:
             if game_ch:
@@ -1931,6 +1930,53 @@ class GMCog(commands.Cog):
                 await master_ch.send(f"🤖 [GM 굴림]\n{line}")
             session.current_turn_logs.append(logic_line.lstrip("- "))
             results.append(logic_line)
+
+            # 통계 — 굴린 주사위 수
+            try:
+                for _uid in (session.players or {}):
+                    await core.stats.bump(_uid, dice_rolled=1)
+            except Exception:
+                pass
+
+            # ── 성장 · 행운 판정 (기획 규정) ──
+            # 스탯이 확인된 판정에만 적용한다. 판정·주사위는 전부 코드가
+            # 담당하고 결과만 지시층위에 전달한다(4층위 설계 확정 사항).
+            # NOTE: is_success는 stat_value가 확인된 분기에서만 정의된다.
+            #       조건을 그대로 두면 미정의 참조가 되므로 함께 검사한다.
+            if stat_value is not None and stat_name:
+                try:
+                    outcome = core.process_roll_outcome(
+                        session, char_name, stat_name,
+                        failed=not is_success, sides=sides,
+                    )
+                    growth = outcome["growth"]
+                    if growth:
+                        g_line = core.format_growth(char_name, stat_name, growth)
+                        if game_ch:
+                            await game_ch.send(g_line)
+                        if master_ch:
+                            await master_ch.send(g_line)
+                        if growth.get("grew"):
+                            results.append(
+                                f"- {char_name} {stat_name} 성장: "
+                                f"{growth['new_value']}로 상승"
+                            )
+                    luck = outcome["luck"]
+                    if luck:
+                        l_line = core.format_luck(char_name, luck)
+                        if game_ch:
+                            await game_ch.send(l_line)
+                        if master_ch:
+                            await master_ch.send(l_line)
+                        # 지시층위에 행운 발생을 전달한다. 서사 제약은
+                        # 프롬프트가 담당한다(행운은 상황에서 발생 가능한
+                        # 범위여야 하며 구도를 뒤틀어서는 안 된다).
+                        results.append(
+                            f"- {char_name} 행운 발생: 이번 실패를 "
+                            f"현재 상황에서 자연스럽게 발생 가능한 행운으로 완충할 것"
+                        )
+                except Exception as e:
+                    print(f"[성장·행운] 판정 실패(진행에는 영향 없음): {e}")
 
         return results
 

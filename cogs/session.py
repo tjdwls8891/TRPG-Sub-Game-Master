@@ -147,6 +147,16 @@ class SessionCog(commands.Cog):
             return await ctx.send("⚠️ 이미 시작된 세션입니다. 한 세션에서 `!시작` 명령어는 한 번만 사용할 수 있습니다.")
 
         session.is_started = True
+        session.started_at = time.time()
+
+        # 통계 — 세션 수·플레이 이력. has_played는 사전 프로필 생성 가능
+        # 여부 판정에 쓰이므로 시작 시점에 기록해야 한다.
+        try:
+            for uid in (session.players or {}):
+                await core.stats.bump(uid, sessions=1)
+                await core.stats.mark_played(uid, session.scenario_id)
+        except Exception as e:
+            print(f"[통계] 세션 시작 기록 실패: {e}")
 
         # 디스플레이 초기 렌더 (기획서 갱신 시점 ① 고정정보)
         try:

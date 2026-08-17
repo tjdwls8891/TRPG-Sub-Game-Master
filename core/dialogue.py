@@ -10,6 +10,73 @@ from .io import write_log
 
 
 # ========== [대기 중 상태 안내 메시지] ==========
+#
+# [층위별 문구 분리]
+#   4층위 구조 도입으로 대기 구간이 판단→지시→묘사→추출로 길어졌다.
+#   같은 문구를 반복하면 멈춘 것처럼 보이므로 층위마다 다른 문구를 쓰고,
+#   문구 자체도 여러 개를 두어 매번 랜덤으로 고른다.
+#
+# [내용]
+#   기획 규정 — 세계관 참고·잉크 절약 등의 내용을 넣어 교체 빈도를 늘린다.
+#   단순 '처리 중' 표시가 아니라 대기 시간이 정보로 채워지게 한다.
+import random as _random
+
+LAYER_STATUS_MESSAGES = {
+    "judgment": [
+        "🤔 *GM이 상황을 판단하는 중…*",
+        "🤔 *선언을 해석하는 중…*",
+        "🤔 *무엇이 필요한지 가늠하는 중…*",
+    ],
+    "instruction": [
+        "📐 *장면을 설계하는 중…*",
+        "📐 *세계관을 대조하는 중…*",
+        "📐 *개연성을 점검하는 중…*",
+    ],
+    "narration": [
+        "✍️ *장면을 그리는 중…*",
+        "✍️ *묘사를 다듬는 중…*",
+        "✍️ *이야기를 이어가는 중…*",
+    ],
+    "extraction": [
+        "🔎 *턴의 변화를 정리하는 중…*",
+        "🔎 *세계 상태를 갱신하는 중…*",
+    ],
+    "compression": [
+        "🗜️ *지난 기억을 정리하는 중…*",
+    ],
+}
+
+# 대기 중 함께 노출하는 안내. 기획 규정 — 세계관 참고·잉크 절약 등.
+WAITING_TIPS = [
+    "💡 선언이 구체적일수록 판정이 정확해집니다.",
+    "💡 되묻는 턴(ASK)은 캐시를 읽지 않아 가장 저렴합니다.",
+    "💡 판정이 필요 없는 이동·대화는 비용이 낮습니다.",
+    "💡 5턴마다 기억이 압축되어 이후 턴이 가벼워집니다.",
+    "💡 디스플레이 채널에서 다음 턴 예상 비용을 미리 볼 수 있습니다.",
+    "💡 TTS와 이미지를 끄면 그만큼 호출이 줄어듭니다.",
+    "💡 되감기는 비용을 환불하지 않습니다. 신중히 사용하십시오.",
+    "💡 능력치 판정에 거듭 실패하면 그 능력치가 성장합니다.",
+    "💡 실패한 순간에도 행운이 개입할 여지가 있습니다.",
+]
+
+# 팁을 함께 붙일 확률. 매번 붙이면 잔소리가 된다.
+TIP_CHANCE = 0.35
+
+
+def pick_status_message(layer: str = "narration", *, with_tip: bool = True) -> str:
+    """층위에 맞는 대기 문구를 고른다. 확률적으로 팁을 덧붙인다."""
+    pool = LAYER_STATUS_MESSAGES.get(layer) or LAYER_STATUS_MESSAGES["narration"]
+    text = _random.choice(pool)
+    if with_tip and _random.random() < TIP_CHANCE:
+        text += f"\n{_random.choice(WAITING_TIPS)}"
+    return text
+
+
+async def send_layer_status(channel, layer: str = "narration"):
+    """층위별 대기 안내를 전송한다. send_status_message의 얇은 래퍼."""
+    return await send_status_message(channel, pick_status_message(layer))
+
+
 async def send_status_message(channel, text: str):
     """
     처리 대기 동안 게임 채널에 '~하는 중' 안내 메시지를 전송하고 핸들을 반환한다.

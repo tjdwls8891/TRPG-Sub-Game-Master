@@ -30,6 +30,20 @@ def _cleanup_session_memory(bot, channel_id: int):
 
         # 압축 선결제 미정산분 정산 (기획 확정 사항)
         # 압축 전에 세션이 끝나면 실제 발생분은 0이므로 전액 환급 대상이 된다.
+        # 통계 — 세션 온 시간과 소모 잉크를 마감 시점에 누적한다.
+        try:
+            import asyncio as _asyncio
+            from . import stats as _stats
+            from .ink import cost_to_ink as _to_ink
+            started = getattr(session, "started_at", 0.0) or 0.0
+            seconds = max(0.0, __import__("time").time() - started) if started else 0.0
+            spent = _to_ink(getattr(session, "total_cost", 0.0) or 0.0)
+            for uid in (getattr(session, "players", {}) or {}):
+                _asyncio.create_task(
+                    _stats.bump(uid, session_seconds=seconds, ink_spent=spent))
+        except Exception as e:
+            print(f"[통계] 세션 종료 기록 실패: {e}")
+
         try:
             from .estimate import settle_on_session_close
             settle = settle_on_session_close(session)

@@ -403,9 +403,7 @@ class GameCog(commands.Cog):
             await m_send("⏳ AI가 묘사를 생성 중입니다. 완료 후 게임 채널에 타이핑 연출을 시작합니다...")
 
             # 플레이어가 보는 게임 채널에 대기 안내 (출력 시작 직전 삭제). 자동/수동 공통.
-            status_msg = await core.send_status_message(
-                game_channel, "🎬 *GM이 다음 장면을 구성하는 중…*"
-            )
+            status_msg = await core.send_layer_status(game_channel, "narration")
 
             prompt = core.PromptBuilder.build_prompt(session, clean_instruction)
 

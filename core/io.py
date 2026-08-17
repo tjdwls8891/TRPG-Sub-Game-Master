@@ -73,6 +73,8 @@ SESSION_FIELDS: dict = {
     "cached_worldview_sections": [],  # 캐시에 편입된 연고지(사문·근거지) keyword_memory 섹션 id — 온디맨드 중복 주입 억제용
     "narrative_plan": {},
     "world_timeline": {},
+    "started_at": 0.0,
+    "stat_fail_counts": {},
     "last_turn_cost": 0.0,
     "tts_voice": "",
     "memory_plan": "normal",

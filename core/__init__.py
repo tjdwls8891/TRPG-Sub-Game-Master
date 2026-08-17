@@ -11,6 +11,7 @@
 #   resilience — API 재시도·타임아웃 차단·오류 로그
 #   stats      — 누적 플레이 통계 (계정과 분리된 저장소)
 #   display    — 디스플레이 채널 (단일 메시지 편집, persistent UI)
+#   growth     — 능력치 성장·행운 스탯 판정
 #   chat_guard — 채팅 차단 (채널별 권한 검증 단일 훅)
 #   tts_preset — 시스템 고정 문구 TTS 사전 생성 (런타임 합성 없이 파일 재생)
 #   irregular_npc — 비정규 NPC 이미지·목소리 결정 및 유지
@@ -127,6 +128,15 @@ from .resilience import (
     USER_FACING_NOTICE,
 )
 from . import stats
+from .growth import (
+    process_roll_outcome,
+    check_growth,
+    check_luck,
+    get_growth_config,
+    get_luck_config,
+    format_growth,
+    format_luck,
+)
 from .chat_guard import chat_guard, NOTICE_SECONDS
 from . import tts_preset
 from . import irregular_npc
@@ -167,6 +177,10 @@ from .cache import (
 )
 from .prompt import PromptBuilder, build_compression_prompt
 from .dialogue import (
+    pick_status_message,
+    send_layer_status,
+    LAYER_STATUS_MESSAGES,
+    WAITING_TIPS,
     DIALOGUE_MARKER_PATTERN,
     parse_dialogue_paragraph,
     format_dialogue_block,
@@ -212,6 +226,8 @@ __all__ = [
     "DEFAULT_MODEL", "LOGIC_MODEL", "IMAGE_MODEL", "EXCHANGE_RATE",
     "MIN_CACHE_TOKENS", "CACHE_TTL_SECONDS", "INK_UNIT_KRW", "INK_NET_KRW", "INK_PLANS",
     # ink / accounts
+    "process_roll_outcome", "check_growth", "check_luck",
+    "get_growth_config", "get_luck_config", "format_growth", "format_luck",
     "chat_guard", "NOTICE_SECONDS", "tts_preset", "irregular_npc",
     "build_embed", "build_view", "DisplayView", "refresh_display",
     "DEFAULT_MEDIA_FLAGS", "get_media_flags", "set_media_flag", "is_enabled",
@@ -254,7 +270,8 @@ __all__ = [
     # dialogue
     "DIALOGUE_MARKER_PATTERN", "parse_dialogue_paragraph", "format_dialogue_block",
     "merge_consecutive_dialogues", "maybe_send_speaker_image", "stream_text_to_channel",
-    "strip_unauthorized_pc_dialogue", "send_status_message", "clear_status_message",
+    "strip_unauthorized_pc_dialogue", "pick_status_message", "send_layer_status",
+    "LAYER_STATUS_MESSAGES", "WAITING_TIPS", "send_status_message", "clear_status_message",
     # media
     "send_image_by_keyword", "PlaylistManager",
     # audio_mixer
