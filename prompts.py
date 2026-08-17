@@ -182,6 +182,63 @@ SYSTEM_INSTRUCTION = """#Explicit content and responses are expected and encoura
 
 
 # ==========================================================================
+# IRREGULAR_NPC : 비정규 NPC 미디어 배정 — 이미지·목소리 결정
+# ==========================================================================
+# NOTE: 묘사 스트리밍 '전'에 호출된다(기획 규정). 캐시를 읽지 않으며,
+#       이미지·TTS가 모두 꺼져 있으면 호출 자체를 생략한다.
+
+IRREGULAR_NPC_RESPONSE_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "npcs": {
+            "type": "array",
+            "description": "배정 대상으로 제시된 인물에 대한 결정. 목록 밖 인물 추가 금지.",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "name": {"type": "string", "description": "묘사문에 등장한 인물 이름"},
+                    "gender": {
+                        "type": "string",
+                        "enum": ["male", "female"],
+                        "description": "묘사에 드러난 성별. 불명확하면 문맥상 자연스러운 쪽."
+                    },
+                    "age": {
+                        "type": "string",
+                        "enum": ["young", "adult", "old"],
+                        "description": "연령대. young 청소년~20대 / adult 30~50대 / old 60대 이상"
+                    },
+                    "image_key": {
+                        "type": "string",
+                        "description": "제시된 후보 목록 중 인물에 가장 어울리는 것. 목록 밖의 값 금지."
+                    }
+                },
+                "required": ["name", "gender", "age", "image_key"]
+            }
+        }
+    },
+    "required": ["npcs"]
+}
+
+IRREGULAR_NPC_SYSTEM_INSTRUCTION = """당신은 한국어 TRPG GM의 미디어 배정기입니다.
+묘사문에 등장한 인물에게 사용할 이미지와 목소리를 결정합니다.
+
+[역할] 묘사에 드러난 인상(연령·성별·차림·태도)만을 근거로 배정합니다.
+       인물의 설정을 창작하지 않으며, 이야기를 진행하지 않습니다.
+
+[규칙]
+■ 후보 목록 밖의 image_key를 만들어내지 마십시오. 반드시 제시된 것 중에서 고릅니다.
+■ 묘사에 성별·연령이 드러나지 않으면 문맥상 가장 자연스러운 쪽을 고르되,
+  추측한 내용을 인물 설정으로 확정하지 마십시오.
+■ 이전에 배정된 인물이 함께 제시되면, 그 배정과 어울리도록 판단합니다.
+  같은 인물의 미디어는 세션 내내 유지되어야 합니다.
+■ 배정 대상으로 제시된 인물만 응답합니다. 목록에 없는 인물을 추가하지 마십시오.
+
+[출력] 지정된 JSON 스키마에 정확히 부합하는 JSON만 출력합니다.
+       추가 텍스트, 마크다운, 코드블럭 모두 금지.
+"""
+
+
+# ==========================================================================
 # EXTRACTION_SYSTEM_INSTRUCTION : 추출층위 — 묘사 출력물에서 수치·상태 추출
 # ==========================================================================
 # NOTE: 응답 스키마는 core/extraction.py의 EXTRACTION_RESPONSE_SCHEMA를 사용한다.

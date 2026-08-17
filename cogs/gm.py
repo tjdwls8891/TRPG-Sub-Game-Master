@@ -13,6 +13,8 @@ import core
 # 프롬프트 중앙 등록소에서 AI 프롬프트 상수 및 빌더 임포트
 from prompts import (
     EXTRACTION_SYSTEM_INSTRUCTION,
+    IRREGULAR_NPC_RESPONSE_SCHEMA,
+    IRREGULAR_NPC_SYSTEM_INSTRUCTION,
     JUDGMENT_RESPONSE_SCHEMA,
     JUDGMENT_SYSTEM_INSTRUCTION,
     GM_LOGIC_RESPONSE_SCHEMA,
@@ -2297,6 +2299,122 @@ class GMCog(commands.Cog):
     # 추출층위 — 묘사 출력물에서 세계 상태·수치 추출
     # ─────────────────────────────────────────────────────────────
 
+    async def _resolve_irregular_npcs(self, session, text: str, master_ch=None) -> int:
+        """
+        비정규 NPC 미디어 배정 — 묘사 스트리밍 '전'에 호출된다(기획 규정).
+
+        [호출 생략 조건]
+        이미지·TTS가 모두 꺼져 있으면 배정 결과를 쓸 곳이 없으므로 호출하지 않는다.
+        이미지만 꺼져 있으면 목소리 결정을 위해 호출하되 image_key는 버린다.
+
+        [동일인 유지]
+        이전 배정 기록을 함께 전달해 같은 인물의 미디어가 세션 내내 유지되게 한다.
+
+        Returns:
+            새로 배정된 인물 수
+        """
+        use_image = core.is_enabled(session, "image")
+        use_tts = core.is_enabled(session, "tts")
+        if not (use_image or use_tts):
+            return 0
+
+        names = core.irregular_npc.extract_candidate_names(text, session)
+        if not names:
+            return 0
+
+        pool = core.irregular_npc.irregular_image_pool(session)
+        if not pool:
+            # 이미지 후보가 없으면 목소리만 결정한다. image_key는 빈 값으로 응답하도록
+            # 후보 목록에 자리표시자를 넣지 않고, 아래에서 결과를 무시한다.
+            pool = ["(없음)"]
+
+        prev = core.irregular_npc.get_registry(session)
+        prev_lines = [
+            f"- {n}: {e.get('gender')}/{e.get('age')}, 이미지 {e.get('image_key') or '(없음)'}"
+            for n, e in list(prev.items())[:10]
+        ]
+
+        user_prompt = (
+            f"[이번 묘사문]\n{(text or '')[:1500]}\n\n"
+            f"[배정 대상 인물]\n" + "\n".join(f"- {n}" for n in names) + "\n\n"
+            f"[이미지 후보 목록]\n" + ", ".join(pool) + "\n\n"
+            f"[이전 배정 기록]\n" + ("\n".join(prev_lines) if prev_lines else "(없음)")
+        )
+
+        config = types.GenerateContentConfig(
+            system_instruction=IRREGULAR_NPC_SYSTEM_INSTRUCTION,
+            temperature=0.3,
+            response_mime_type="application/json",
+            response_schema=IRREGULAR_NPC_RESPONSE_SCHEMA,
+            safety_settings=core.TRPG_SAFETY_SETTINGS,
+        )
+        contents = [types.Content(role="user", parts=[types.Part.from_text(text=user_prompt)])]
+
+        try:
+            response = await asyncio.to_thread(
+                self.bot.genai_client.models.generate_content,
+                model=core.DEFAULT_MODEL, contents=contents, config=config,
+            )
+        except Exception as e:
+            print(f"[비정규NPC] 호출 실패(진행에는 영향 없음): {type(e).__name__} - {e}")
+            return 0
+
+        # 비용 정산
+        try:
+            meta = response.usage_metadata
+            in_t, out_t, cached_t, thought_t = core.extract_token_usage(meta)
+            breakdown = core.calculate_text_gen_cost_breakdown(
+                core.DEFAULT_MODEL, input_tokens=in_t,
+                output_tokens=out_t, cached_read_tokens=cached_t,
+            )
+            cost = breakdown["total_krw"]
+            session.total_cost += cost
+            core.write_cost_log(
+                session.session_id, f"{COST_LOG_PREFIX}비정규 NPC 배정",
+                in_t, cached_t, out_t, cost, session.total_cost
+            )
+            if not hasattr(session, "turn_cost_log"):
+                session.turn_cost_log = []
+            session.turn_cost_log.append({
+                "label": "비정규 NPC 배정", "cost": cost,
+                "in": in_t, "cached": cached_t, "out": out_t, "manifest": [],
+            })
+        except Exception as e:
+            print(f"[비정규NPC] 비용 정산 실패: {e}")
+
+        try:
+            data = json.loads(response.text or "{}")
+        except json.JSONDecodeError:
+            print("[비정규NPC] 응답 파싱 실패")
+            return 0
+
+        valid_pool = set(core.irregular_npc.irregular_image_pool(session))
+        added = 0
+        for item in (data.get("npcs") or []):
+            if not isinstance(item, dict):
+                continue
+            name = (item.get("name") or "").strip()
+            if not name or name not in names:
+                continue  # 목록 밖 인물 무시
+            key = (item.get("image_key") or "").strip()
+            if not use_image or key not in valid_pool:
+                key = ""  # 후보 밖 값이거나 이미지 오프면 버린다
+            core.irregular_npc.register(
+                session, name, image_key=key,
+                gender=item.get("gender"), age=item.get("age"),
+                context=(text or "")[:120],
+                turn=getattr(session, "turn_count", 0),
+            )
+            added += 1
+
+        if added and master_ch:
+            reg = core.irregular_npc.get_registry(session)
+            lines = [f"{n} — {reg[n]['gender']}/{reg[n]['age']}"
+                     f"{', ' + reg[n]['image_key'] if reg[n].get('image_key') else ''}"
+                     for n in names if n in reg]
+            await master_ch.send("🎭 **[비정규 NPC 배정]** " + " · ".join(lines))
+        return added
+
     async def _run_extraction(self, session, ai_output_text: str, master_ch=None) -> dict | None:
         """
         추출층위 — 묘사 출력물에서 공통·시나리오별 타겟 값을 추출한다.
@@ -2410,29 +2528,6 @@ class GMCog(commands.Cog):
                 f"[GM/{session.session_id}] 상태 적용: "
                 f"부여={applied['applied']} 해제={applied['cleared']}"
             )
-
-        # ── 비정규 NPC 결정 (설계문서 6) ──
-        # 추출층위의 npcs_met에서 정규 등록·이미지가 없는 인물을 골라
-        # 이미지·목소리를 배정하고 세션에 고정한다. 같은 인물이 다시 등장해도
-        # 동일한 미디어가 유지된다.
-        # 이미지 토글이 꺼져 있으면 이미지 배정을 생략한다(기획 규정).
-        try:
-            unknown = core.irregular_npc.needs_resolution(session, result.get("npcs_met") or [])
-            if unknown:
-                pool = core.irregular_npc.irregular_image_pool(session)
-                use_image = core.is_enabled(session, "image")
-                for i, name in enumerate(unknown):
-                    key = ""
-                    if use_image and pool:
-                        key = pool[(len(core.irregular_npc.get_registry(session)) + i) % len(pool)]
-                    core.irregular_npc.register(
-                        session, name, image_key=key,
-                        context=(result.get("situation") or {}).get("tag", ""),
-                        turn=getattr(session, "turn_count", 0),
-                    )
-                print(f"[GM/{session.session_id}] 비정규 NPC 등록: {unknown}")
-        except Exception as e:
-            print(f"[비정규NPC] 결정 실패(진행에는 영향 없음): {e}")
 
         # ── BGM 자동 전환 (설계문서 6) ──
         # 추출층위의 situation을 소비한다. 상황이 그대로면 select_bgm이 None을

@@ -622,6 +622,18 @@ class GameCog(commands.Cog):
                 and core.get_mixer(getattr(session, "voice_client", None)) is not None
             )
 
+            # ── 비정규 NPC 미디어 배정 (기획 규정: 스트리밍 전) ──
+            # 이미지 검색이 안 되는 인물의 이미지·목소리를 여기서 확정해야
+            # 대사 이미지 출력과 더빙 목소리에 반영된다.
+            # 동기 더빙 경로와 일반 스트리밍 경로 양쪽의 상류 지점이다.
+            # 이미지·TTS가 모두 꺼져 있으면 내부에서 호출 자체를 생략한다.
+            try:
+                gm_cog = self.bot.get_cog("GMCog")
+                if gm_cog and paragraphs:
+                    await gm_cog._resolve_irregular_npcs(session, narrative_text, master_ch)
+            except Exception as e:
+                print(f"[비정규NPC] 배정 실패(진행에는 영향 없음): {e}")
+
             if not paragraphs:
                 for kw in top_imgs + mid_imgs + bottom_imgs:
                     await core.send_image_by_keyword(game_channel, master_ch, session, kw)

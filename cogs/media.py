@@ -388,6 +388,49 @@ class MediaCog(commands.Cog):
             await ctx.send(f"▶️ BGM **'{filename}'**의 무한 반복 재생을 시작합니다.")
 
 
+    async def stop_bgm(self, session, *, fade: bool = True) -> bool:
+        """
+        BGM을 정지한다. 기본은 페이드아웃.
+
+        NOTE: 기획 규정상 BGM 토글을 끄면 '즉시 페이드아웃'해야 한다.
+              pending만 비우면 재생 중인 트랙이 계속 흐른다.
+        """
+        vc = getattr(session, "voice_client", None)
+        session.is_bgm_looping = False
+        session.pending_bgm = None
+        if not (vc and vc.is_connected()):
+            session.current_bgm = None
+            return False
+        mixer = core.get_mixer(vc)
+        if mixer is None:
+            session.current_bgm = None
+            return False
+
+        fade_task = getattr(session, "fade_task", None)
+        if fade_task and not fade_task.done():
+            fade_task.cancel()
+
+        async def fade_out():
+            try:
+                vs = core.active_volume_source(vc)
+                if fade and vs is not None:
+                    for _ in range(20):
+                        if not mixer.has_base():
+                            break
+                        vs.volume = vs.volume * 0.8
+                        await asyncio.sleep(0.1)
+                mixer.clear_base()
+            except asyncio.CancelledError:
+                pass
+            finally:
+                session.is_fading = False
+                session.current_bgm = None
+
+        session.is_fading = True
+        session.fade_task = self.bot.loop.create_task(fade_out())
+        return True
+
+
     async def start_bgm(self, session, filename: str, *, notify=None) -> bool:
         """
         BGM 재생 코어 — ctx 없이 호출 가능하다.

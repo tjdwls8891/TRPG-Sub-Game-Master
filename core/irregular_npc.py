@@ -99,6 +99,25 @@ def pick_voice(gender: str = None, age: str = None) -> str:
     return VOICE_POOL[(DEFAULT_GENDER, DEFAULT_AGE)]
 
 
+def extract_candidate_names(text: str, session, limit: int = 6) -> list:
+    """묘사문에서 배정 대상 후보 이름을 추린다.
+
+    NOTE: 추출층위의 npcs_met은 스트리밍 이후에 나오므로 여기서는 쓸 수 없다.
+          기획 규정상 배정은 스트리밍 '전'에 이뤄져야 하므로, 대사 마커에서
+          화자 이름을 뽑아 후보로 삼는다. 대사가 있는 인물이 곧 이미지·목소리가
+          필요한 인물이기도 하다.
+    """
+    import re
+
+    names = []
+    # 대사 마커 형식: 「이름」 또는 [이름] 뒤에 대사가 오는 패턴
+    for m in re.finditer(r'[「\[]\s*([^\]」\n]{1,20}?)\s*[\]」]', text or ""):
+        n = m.group(1).strip()
+        if n and n not in names:
+            names.append(n)
+    return needs_resolution(session, names)[:limit]
+
+
 def register(session, name: str, *, image_key: str = "", gender: str = None,
              age: str = None, context: str = "", turn: int = 0) -> dict:
     """비정규 NPC를 등록한다. 이미 있으면 기존 항목을 반환한다.

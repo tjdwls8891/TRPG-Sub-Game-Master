@@ -22,7 +22,11 @@ def _flag_style(on: bool) -> discord.ButtonStyle:
 
 def build_embed(session) -> discord.Embed:
     """표기 22종을 임베드로 조립한다."""
-    kind = "마스터" if getattr(session, "master_ch_id", None) else "솔로"
+    # NOTE: 현재 모든 세션에 마스터 채널이 생성되므로 master_ch_id 유무로는
+    #       구분할 수 없다. 기획상 마스터 세션은 권한자가 명시적으로 선택해
+    #       여는 것이므로 session_kind 필드로 판정한다.
+    kind = {"master": "마스터", "multi": "멀티", "solo": "솔로"}.get(
+        getattr(session, "session_kind", "solo") or "solo", "솔로")
     is_open = bool(getattr(session, "cache_name", None))
     private = "비공개" if getattr(session, "is_private", False) else "공개"
 
@@ -157,9 +161,17 @@ class DisplayView(discord.ui.View):
         note = ""
         if key == "bgm":
             if new:
-                note = " " + media_control.describe_bgm_pending(session)
+                note = media_control.describe_bgm_pending(session)
             else:
-                session.pending_bgm = None
+                # 기획 규정 — 오프 시 즉시 페이드아웃한다.
+                cog = self.bot.get_cog("MediaCog")
+                if cog:
+                    try:
+                        await cog.stop_bgm(session)
+                    except Exception as e:
+                        print(f"[BGM] 정지 실패: {e}")
+                else:
+                    session.pending_bgm = None
         await interaction.response.edit_message(
             embed=build_embed(session), view=self)
         if note:
