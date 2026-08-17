@@ -239,8 +239,14 @@ class GMHomeView(discord.ui.View):
     async def profiles(self, interaction, _b):
         if not await self._require_account(interaction):
             return
+        from .profile_ui import open_manager
+
+        sent = await open_manager(self.bot, interaction.user)
         await interaction.response.send_message(
-            "사전 프로필 관리 인터페이스는 준비 중입니다.", ephemeral=True)
+            "📬 DM으로 프로필 관리 인터페이스를 보냈습니다."
+            if sent else
+            "⚠️ DM을 보낼 수 없습니다. DM 수신을 허용해 주십시오.",
+            ephemeral=True)
 
     @discord.ui.button(label="💰 잉크 충전", style=discord.ButtonStyle.secondary,
                        custom_id="gmspace:charge", row=1)
