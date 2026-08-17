@@ -1742,6 +1742,21 @@ class GMCog(commands.Cog):
         use_cache   = bool(cache_name and cache_model == core.DEFAULT_MODEL)
 
         try:
+            # ── 상황별 스키마 조립 ──
+            # 퀘스트를 고를 수 없는 상황(진행 중)에서는 quest_choice 필드를
+            # 스키마에서 아예 뺀다. 필드가 없으면 모델이 값을 낼 수 없으므로
+            # 잘못된 선택이 구조적으로 불가능해진다.
+            logic_schema = GM_LOGIC_RESPONSE_SCHEMA
+            try:
+                q_schema = core.quest.choice_schema(session)
+                if q_schema:
+                    logic_schema = dict(GM_LOGIC_RESPONSE_SCHEMA)
+                    logic_schema["properties"] = dict(logic_schema["properties"])
+                    logic_schema["properties"]["quest_choice"] = q_schema
+                    logic_schema["required"] = list(logic_schema["required"]) + ["quest_choice"]
+            except Exception as e:
+                print(f"[퀘스트] 스키마 조립 실패: {e}")
+
             if use_cache:
                 # ── 캐시 활용 경로 (방안 ①) ──
                 # GM_LOGIC_SYSTEM_INSTRUCTION은 이제 세션 캐시 본문에 함께 구워져 있으므로
@@ -1754,7 +1769,7 @@ class GMCog(commands.Cog):
                     cached_content=cache_name,
                     temperature=0.4,
                     response_mime_type="application/json",
-                    response_schema=GM_LOGIC_RESPONSE_SCHEMA,
+                    response_schema=logic_schema,
                     safety_settings=core.TRPG_SAFETY_SETTINGS,
                 )
             else:
@@ -1766,7 +1781,7 @@ class GMCog(commands.Cog):
                     system_instruction=GM_LOGIC_SYSTEM_INSTRUCTION,
                     temperature=0.4,
                     response_mime_type="application/json",
-                    response_schema=GM_LOGIC_RESPONSE_SCHEMA,
+                    response_schema=logic_schema,
                     safety_settings=core.TRPG_SAFETY_SETTINGS,
                 )
 
@@ -1840,6 +1855,23 @@ class GMCog(commands.Cog):
             session.session_id, "api",
             f"[자동 지시층위 결정]\n{json.dumps(decision, ensure_ascii=False, indent=2)}"
         )
+
+        # ── 퀘스트 선택 반영 ──
+        # 코드가 검증한다: 선택 불가 상황의 값, 제시하지 않은 id는 무시된다.
+        try:
+            picked = decision.get("quest_choice")
+            if picked:
+                res = core.quest.apply_choice(session, picked)
+                if res["applied"]:
+                    active = core.quest.get_state(session)["active"]
+                    print(f"[GM/{session.session_id}] 퀘스트 {res['action']}: {active['name']}")
+                    if master_ch:
+                        verb = "전환" if res["action"] == "switch" else "선정"
+                        await master_ch.send(
+                            f"📜 **[퀘스트 {verb}]** {active['name']}\n"
+                            f"> {res['reason']}")
+        except Exception as e:
+            print(f"[퀘스트] 선택 반영 실패(진행에는 영향 없음): {e}")
 
         # 정보 인지 원장 갱신 (지속형): info_access 델타를 session.info_ledger에 누적 병합.
         self._update_info_ledger(session, decision)
