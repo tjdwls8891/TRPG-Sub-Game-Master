@@ -10,6 +10,51 @@ from google.genai import types
 import core
 
 # ========== [세션 관리 모듈(Session Cog)] ==========
+class StartFrameView(discord.ui.View):
+    """
+    시작 상황 삼지선다.
+
+    기획 규정 — 프로필로 필터링한 틀 중 랜덤 삼지선다를 제시하고,
+    참가자 선택으로 채널을 정리한 뒤 인트로를 재생한다.
+    """
+
+    def __init__(self, bot, session, options: list):
+        super().__init__(timeout=900)
+        self.bot = bot
+        self.session = session
+        self.options = options
+        for i, opt in enumerate(options, 1):
+            self.add_item(StartFrameButton(i, opt))
+
+
+class StartFrameButton(discord.ui.Button):
+    def __init__(self, index: int, option: dict):
+        super().__init__(label=f"{index}. {option.get('title', '')}"[:80],
+                         style=discord.ButtonStyle.primary)
+        self.option = option
+
+    async def callback(self, interaction: discord.Interaction):
+        view = self.view
+        session = view.session
+        await interaction.response.defer()
+
+        # 사전 확정 정보를 세계 상태에 반영한다(기획 규정).
+        core.start_frame.apply_facts(session, self.option)
+        session.start_frame = self.option
+
+        for c in view.children:
+            c.disabled = True
+        try:
+            await interaction.message.edit(view=view)
+        except Exception:
+            pass
+
+        cog = view.bot.get_cog("SessionCog") or view.bot.get_cog("SessionsCog")
+        if cog:
+            await cog.play_intro(session, self.option, interaction.channel)
+        view.stop()
+
+
 class SessionCog(commands.Cog):
     """
     새로운 게임 세션의 생성, 디스코드 채널 세팅, AI 컨텍스트 초기화,
@@ -185,6 +230,32 @@ class SessionCog(commands.Cog):
         except Exception as e:
             await ctx.send(f"⚠️ 게임 채널 초기화 중 오류 발생: {e}")
 
+        # ── 시작 상황 선택 (기획 규정) ──
+        # 프로필로 필터링한 틀 중 랜덤 삼지선다를 제시한다.
+        # 틀이 없는 시나리오는 기존 고정 start_message로 폴백한다.
+        profile = {}
+        for p_data in (session.players or {}).values():
+            if isinstance(p_data, dict):
+                profile = dict(p_data.get("fields") or {})
+                profile.setdefault("이름", p_data.get("name", ""))
+                prof_stat = p_data.get("profile")
+                if isinstance(prof_stat, dict):
+                    profile["능력치"] = prof_stat
+                break
+
+        options = core.start_frame.offer(session.scenario_data, profile)
+        if options:
+            lines = ["**시작 상황을 선택해 주십시오.**\n"]
+            for i, opt in enumerate(options, 1):
+                lines.append(core.start_frame.format_choice(i, opt))
+            await game_channel.send(
+                "\n\n".join(lines),
+                view=StartFrameView(self.bot, session, options),
+            )
+            session.is_started = True
+            await core.save_session_data(self.bot, session)
+            return
+
         start_message = session.scenario_data.get("start_message", "> 세션이 시작됩니다.")
         start_text = f"**[세션 시작]**\n\n{start_message}"
 
@@ -215,6 +286,50 @@ class SessionCog(commands.Cog):
         if isinstance(error, commands.MissingPermissions):
             await ctx.send("⚠️ 이 명령어는 서버 관리자 권한을 가진 사용자(GM)만 사용할 수 있습니다.")
 
+
+    async def play_intro(self, session, chosen: dict, game_channel):
+        """
+        선택된 시작 상황으로 인트로를 생성·재생한다.
+
+        기획 규정 — 채널을 정리하고, 브리핑 이후 인트로를 연결해
+        한 번에 스트리밍한다. 원경에서 근경으로 좁혀 몰입되게 시작한다.
+        """
+        # 참가자 선택으로 채널 클리어 (기획 규정)
+        try:
+            await game_channel.purge(limit=100)
+        except Exception as e:
+            print(f"[인트로] 채널 정리 실패: {e}")
+
+        profile = {}
+        for p_data in (session.players or {}).values():
+            if isinstance(p_data, dict):
+                profile = dict(p_data.get("fields") or {})
+                profile.setdefault("이름", p_data.get("name", ""))
+                prof_stat = p_data.get("profile")
+                if isinstance(prof_stat, dict):
+                    profile["능력치"] = prof_stat
+                break
+
+        instruction = core.start_frame.build_intro_instruction(
+            session.scenario_data, profile, chosen)
+
+        game_cog = self.bot.get_cog("GameCog")
+        if game_cog:
+            # 묘사층위로 인트로를 생성한다. 이후 턴과 같은 경로를 쓴다.
+            await game_cog._execute_proceed(session, instruction)
+        else:
+            # 폴백 — 요약만 출력한다.
+            briefing = core.start_frame.build_briefing(session.scenario_data, profile)
+            await core.stream_text_to_channel(
+                self.bot, game_channel,
+                f"{briefing}\n\n{chosen.get('summary', '')}",
+                words_per_tick=5, tick_interval=1.5)
+
+        await core.save_session_data(self.bot, session)
+        try:
+            await core.refresh_display(self.bot, session, reason="intro")
+        except Exception:
+            pass
 
     @commands.command(name="소개")
     async def send_intro(self, ctx):

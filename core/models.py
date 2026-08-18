@@ -113,6 +113,8 @@ class TRPGSession:
         # 실제 관측된 캐시 읽기 토큰 — 캐시 본문에 구워진 지시문까지 포함된 값.
         # cache_tokens(조립 텍스트 기준)와 다르므로 예측은 이 값을 우선 사용한다.
         self.cache_read_tokens = 0
+        # 선택된 시작 상황 틀 (사전 확정 정보 포함)
+        self.start_frame = {}
         # 마지막으로 압축한 턴 번호 — 재압축 방지 기준
         self.last_compressed_turn = 0
         # 누적 압축 횟수 — 로우 플랜의 저비용 모델 전환 판정에 사용

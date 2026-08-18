@@ -1831,5 +1831,251 @@
         "max_length": 200
       }
     }
+  ],
+  "intro_times": [
+    "새벽",
+    "아침",
+    "낮",
+    "저녁",
+    "밤"
+  ],
+  "intro_weather": [
+    "짙은 안개",
+    "가랑비",
+    "흐린 하늘",
+    "차가운 바람",
+    "따가운 볕"
+  ],
+  "intro_sounds": [
+    "멀리서 들리는 금속음",
+    "빗물이 홈통을 타는 소리",
+    "발밑에서 부서지는 유리",
+    "어디선가 들리는 개 짖는 소리",
+    "정적"
+  ],
+  "intro_objects": [
+    "버려진 배낭",
+    "말라붙은 핏자국",
+    "누군가 남긴 분필 표식",
+    "부서진 손수레",
+    "빈 물통"
+  ],
+  "briefing_formats": [
+    "{이름}. {나이}세. {출신}.\n지금 당신이 가진 것은 {스킬}뿐입니다.",
+    "이름은 {이름}. 사태 이전에는 {출신}이었습니다.\n{소속}의 이름 아래, 오늘도 하루를 버팁니다.",
+    "{소속} 소속 {이름}.\n{출신} 출신이라는 사실은 이 섬에서 그리 중요하지 않습니다. 살아 있다는 것 말고는.",
+    "{나이}세 {성별}자, {이름}.\n{스킬}로 여기까지 왔습니다.",
+    "{이름}이라는 이름이 아직 불릴 곳이 있다면, 그곳은 {소속}입니다."
+  ],
+  "start_frames": [
+    {
+      "id": "wake_shelter",
+      "title": "눈을 뜨다",
+      "conditions": {},
+      "slots": {
+        "때": "list:intro_times",
+        "날씨": "list:intro_weather",
+        "소리": "list:intro_sounds"
+      },
+      "summary": "{때}. {날씨}. 은신처에서 눈을 뜬다. {소리}가 들린다.",
+      "instruction": "좁은 은신처 내부에서 시작한다. 밖의 상황은 아직 알 수 없다. {소리}가 무엇인지 확인할지, 그대로 머물지 플레이어가 정하게 한다.",
+      "facts": {
+        "time": "{때}",
+        "location": "은신처"
+      }
+    },
+    {
+      "id": "supply_low",
+      "title": "물이 떨어졌다",
+      "conditions": {},
+      "slots": {
+        "때": "list:intro_times",
+        "물건": "list:intro_objects"
+      },
+      "summary": "{때}. 물통이 비었다. 곁에는 {물건}이 놓여 있다.",
+      "instruction": "물을 구해야 하는 상황에서 시작한다. 고지대로 오를지 저지대로 내려갈지의 선택이 자연히 떠오르게 한다. 갈증을 신체 감각으로 묘사한다.",
+      "facts": {
+        "time": "{때}",
+        "location": "은신처"
+      }
+    },
+    {
+      "id": "roadside",
+      "title": "산복도로 위에서",
+      "conditions": {},
+      "slots": {
+        "때": "list:intro_times",
+        "날씨": "list:intro_weather"
+      },
+      "summary": "{때}, {날씨} 속에서 산복도로를 걷고 있다. 차량 잔해가 길을 좁힌다.",
+      "instruction": "이동 중인 상태에서 시작한다. 좁은 길과 제한된 시야를 강조하고, 앞뒤 어느 쪽으로도 갈 수 있음을 암시한다.",
+      "facts": {
+        "time": "{때}",
+        "location": "산복도로"
+      }
+    },
+    {
+      "id": "found_mark",
+      "title": "누군가의 표식",
+      "conditions": {},
+      "slots": {
+        "때": "list:intro_times",
+        "물건": "list:intro_objects"
+      },
+      "summary": "{때}. 벽에 낯선 표식이 그려져 있다. 그 아래 {물건}이 있다.",
+      "instruction": "표식의 의미는 알 수 없다. 다른 생존자의 존재를 암시하되 적인지 아군인지는 드러내지 않는다.",
+      "facts": {
+        "time": "{때}"
+      }
+    },
+    {
+      "id": "distant_smoke",
+      "title": "먼 연기",
+      "conditions": {},
+      "slots": {
+        "때": "list:intro_times",
+        "날씨": "list:intro_weather"
+      },
+      "summary": "{때}. {날씨} 너머로 연기가 오른다. 사람이 있다는 뜻이거나, 있었다는 뜻이다.",
+      "instruction": "고지대에서 섬 전체를 조망하는 원경으로 시작한다. 연기의 방향을 명시하고 접근 여부를 플레이어가 정하게 한다.",
+      "facts": {
+        "time": "{때}",
+        "location": "봉래산 능선"
+      }
+    },
+    {
+      "id": "silence_street",
+      "title": "정적",
+      "conditions": {},
+      "slots": {
+        "때": "list:intro_times",
+        "소리": "list:intro_sounds"
+      },
+      "summary": "{때}. 거리에 아무것도 없다. {소리}만이 남아 있다.",
+      "instruction": "지나치게 조용한 거리에서 시작한다. 위협의 부재가 오히려 불안을 만들도록 묘사한다.",
+      "facts": {
+        "time": "{때}",
+        "location": "저지대 상업지구"
+      }
+    },
+    {
+      "id": "shipyard_shift",
+      "title": "교대 시간",
+      "conditions": {
+        "소속": [
+          "남항 중공업 연대"
+        ]
+      },
+      "slots": {
+        "때": "list:intro_times"
+      },
+      "summary": "{때}. 연대의 교대 호각이 울린다. 오늘 당신에게 배정된 일이 있다.",
+      "instruction": "조선소 요새 내부에서 시작한다. 규율과 배급의 질서를 보여주고, 배정된 일을 받으러 갈지 다른 행동을 할지 정하게 한다.",
+      "facts": {
+        "time": "{때}",
+        "location": "남항동 연안",
+        "faction": "남항 중공업 연대",
+        "player_faction": "남항 중공업 연대"
+      }
+    },
+    {
+      "id": "village_water",
+      "title": "물을 받는 아침",
+      "conditions": {
+        "소속": [
+          "해련 자치 마을"
+        ]
+      },
+      "slots": {
+        "때": "list:intro_times",
+        "날씨": "list:intro_weather"
+      },
+      "summary": "{때}, {날씨}. 집수 설비 앞에 사람들이 줄을 선다. 오늘 몫은 넉넉하지 않다.",
+      "instruction": "고지대 마을의 일상에서 시작한다. 물은 있으나 물자가 없는 구조적 딜레마를 배급 줄로 보여준다.",
+      "facts": {
+        "time": "{때}",
+        "location": "해련사 일대",
+        "faction": "해련 자치 마을",
+        "player_faction": "해련 자치 마을"
+      }
+    },
+    {
+      "id": "garrison_post",
+      "title": "초소 근무",
+      "conditions": {
+        "소속": [
+          "조도 방위 사령부"
+        ]
+      },
+      "slots": {
+        "때": "list:intro_times"
+      },
+      "summary": "{때}. 방파제가 내려다보이는 초소에 서 있다. 건너편은 조용하다.",
+      "instruction": "군 조직의 폐쇄성과 명령 체계를 보여준다. 400미터 개활지의 긴장을 시야로 묘사한다.",
+      "facts": {
+        "time": "{때}",
+        "location": "조도",
+        "faction": "조도 방위 사령부",
+        "player_faction": "조도 방위 사령부"
+      }
+    },
+    {
+      "id": "market_ledger",
+      "title": "장부 앞에서",
+      "conditions": {
+        "소속": [
+          "중리 교역소"
+        ]
+      },
+      "slots": {
+        "때": "list:intro_times",
+        "물건": "list:intro_objects"
+      },
+      "summary": "{때}. 교역소의 장부에 당신의 이름이 적혀 있다. 옆에는 {물건}이 놓였다.",
+      "instruction": "모든 것에 값이 매겨지는 곳임을 보여준다. 등급제의 압박을 장부와 시선으로 드러낸다.",
+      "facts": {
+        "time": "{때}",
+        "location": "중리 해변",
+        "faction": "중리 교역소",
+        "player_faction": "중리 교역소"
+      }
+    },
+    {
+      "id": "outsider_gate",
+      "title": "문 밖에서",
+      "conditions": {
+        "소속": [
+          "무소속"
+        ]
+      },
+      "slots": {
+        "때": "list:intro_times",
+        "날씨": "list:intro_weather"
+      },
+      "summary": "{때}, {날씨}. 어느 거점의 문 앞에 서 있다. 들여보내 줄지는 알 수 없다.",
+      "instruction": "어디에도 속하지 않은 자의 처지를 보여준다. 문 안쪽의 시선과 밖의 추위를 대비시킨다.",
+      "facts": {
+        "time": "{때}"
+      }
+    },
+    {
+      "id": "machine_hall",
+      "title": "멎은 기계 앞에서",
+      "conditions": {
+        "출신": [
+          "조선소 노동자"
+        ],
+        "min_기술": 10
+      },
+      "slots": {
+        "때": "list:intro_times"
+      },
+      "summary": "{때}. 손에 익은 기계가 멎어 있다. 고칠 수 있을 것 같다.",
+      "instruction": "기술자의 시선으로 설비를 읽어내는 묘사로 시작한다. 고장의 원인을 즉단하지 말고 관찰만 제시한다.",
+      "facts": {
+        "time": "{때}",
+        "location": "영도 조선소"
+      }
+    }
   ]
 }
