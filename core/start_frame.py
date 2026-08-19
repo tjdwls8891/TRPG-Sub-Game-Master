@@ -83,12 +83,14 @@ def filter_frames(scenario_data: dict, profile: dict) -> list:
 
 
 # 받침에 따라 갈리는 조사 쌍. 치환 후 자동 보정에 쓴다.
-# 뒤에 글자가 오지 않는 조사 (단독 조사)
+# 받침에 따라 갈리는 조사 쌍.
+#
+# NOTE: 텍스트 전체를 훑어 교정하면 동사 활용형을 조사로 오인한다
+#       ('말라붙은' → '말이라붙은'). 따라서 슬롯이 치환된 자리에만
+#       적용하고, 그 직후 문자만 검사한다.
 JOSA_PAIRS = [("이", "가"), ("을", "를"), ("은", "는"),
-              ("과", "와"), ("으로", "로")]
-
-# 뒤에 어미가 이어지는 형태. 별도 규칙으로 처리한다.
-JOSA_STEMS = [("이었", "였"), ("이라", "라"), ("이어", "여"), ("이며", "며")]
+              ("과", "와"), ("으로", "로"), ("이었", "였"),
+              ("이라", "라"), ("이며", "며"), ("이나", "나")]
 
 
 def _has_batchim(ch: str) -> bool:
@@ -101,41 +103,46 @@ def _has_batchim(ch: str) -> bool:
     return (code - 0xAC00) % 28 != 0
 
 
-def fix_josa(text: str) -> str:
-    """치환으로 생긴 조사 불일치를 바로잡는다.
+def fix_josa_at(text: str, pos: int) -> str:
+    """지정 위치 직후의 조사 하나만 보정한다.
 
-    슬롯 값이 무엇이 들어올지 미리 알 수 없으므로, 틀에는 아무 조사나 적고
-    여기서 앞 글자의 받침을 보고 맞춘다.
-    '금속음가 들린다' → '금속음이 들린다'
-    '노동자이었습니다' → '노동자였습니다'
+    pos는 치환된 슬롯 값의 끝 인덱스다. 그 자리에 오는 조사만 검사하므로
+    본문의 다른 단어를 건드리지 않는다.
     """
-    import re
+    if not text or pos <= 0 or pos >= len(text):
+        return text
+    prev = text[pos - 1]
+    if not _has_batchim(prev) and not (0xAC00 <= ord(prev) <= 0xD7A3):
+        return text
+    # 긴 형태부터 검사한다 ('이었'이 '이'보다 먼저).
+    for with_b, without_b in sorted(JOSA_PAIRS, key=lambda x: -len(x[0])):
+        for cand in (with_b, without_b):
+            if text.startswith(cand, pos):
+                correct = with_b if _has_batchim(prev) else without_b
+                if cand != correct:
+                    return text[:pos] + correct + text[pos + len(cand):]
+                return text
+    return text
 
+
+def substitute(text: str, slots: dict) -> str:
+    """슬롯을 치환하고 그 자리의 조사만 보정한다.
+
+    틀에는 아무 조사나 적어두면 되고, 무엇이 들어오든 자동으로 맞춰진다.
+    치환하지 않은 본문은 손대지 않는다.
+    """
     if not text:
         return ""
     out = text
-
-    # 어미가 이어지는 형태 — 뒤 글자 조건 없이 교체한다.
-    for with_b, without_b in JOSA_STEMS:
-        pattern = re.compile(r"([가-힣])(" + with_b + "|" + without_b + r")")
-
-        def _swap_stem(m):
-            prev, stem = m.group(1), m.group(2)
-            correct = with_b if _has_batchim(prev) else without_b
-            return prev + correct
-
-        out = pattern.sub(_swap_stem, out)
-
-    for with_b, without_b in JOSA_PAIRS:
-        # 앞 글자 + 조사 형태를 찾아 받침 유무로 교체한다.
-        pattern = re.compile(r"([가-힣])(" + with_b + "|" + without_b + r")(?![가-힣])")
-
-        def _swap(m):
-            prev, josa = m.group(1), m.group(2)
-            correct = with_b if _has_batchim(prev) else without_b
-            return prev + correct
-
-        out = pattern.sub(_swap, out)
+    for key, val in (slots or {}).items():
+        token = "{" + key + "}"
+        value = str(val)
+        while True:
+            idx = out.find(token)
+            if idx < 0:
+                break
+            out = out[:idx] + value + out[idx + len(token):]
+            out = fix_josa_at(out, idx + len(value))
     return out
 
 
@@ -175,10 +182,7 @@ def realize(scenario_data: dict, profile: dict, frame: dict) -> dict:
              for k, v in (frame.get("slots") or {}).items()}
 
     def _apply(text: str) -> str:
-        out = text or ""
-        for k, v in slots.items():
-            out = out.replace("{" + k + "}", v)
-        return fix_josa(out)
+        return substitute(text, slots)
 
     facts = {k: _apply(v) if isinstance(v, str) else v
              for k, v in (frame.get("facts") or {}).items()}
@@ -220,13 +224,14 @@ def build_briefing(scenario_data: dict, profile: dict) -> str:
     formats = get_briefings(scenario_data)
     if formats:
         text = random.choice(formats)
+        flat = {}
         for key, val in (profile or {}).items():
             if isinstance(val, dict):
                 val = ", ".join(f"{k} {v}" for k, v in val.items())
             elif isinstance(val, list):
                 val = ", ".join(str(x) for x in val)
-            text = text.replace("{" + key + "}", str(val))
-        return fix_josa(text)
+            flat[key] = str(val)
+        return substitute(text, flat)
 
     parts = []
     for key in ("이름", "성별", "나이", "출신", "소속"):
