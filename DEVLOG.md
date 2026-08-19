@@ -5,7 +5,7 @@
 > 스택: Gemini API + discord.py / 한국어 TRPG 보조 GM 봇
 
 ---
-
+ 
 ## 목차
 
 1. [아키텍처 요약](#아키텍처-요약)
