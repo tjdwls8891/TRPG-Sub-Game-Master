@@ -12,7 +12,7 @@ from .constants import DEFAULT_MODEL
 from .constants import MIN_CACHE_TOKENS
 from .constants import CACHE_TTL_SECONDS as MIN_CACHE_TTL
 from .models import TRPGSession
-from .io import write_log, save_session_data, load_scenario_from_file, SESSION_FIELDS, SESSION_RESET_FIELDS, SCHEMA_VERSION, _MISSING
+from .io import write_log, save_session_data, load_scenario_from_file, SESSION_FIELDS, SESSION_RESET_FIELDS, SCHEMA_VERSION, migrate_session_data, _MISSING
 from .cost import calculate_upload_cost, calculate_cost
 from .utils import get_merged_status_effects
 
@@ -381,10 +381,13 @@ async def restore_sessions_from_disk(bot):
                 with open(data_path, "r", encoding="utf-8") as f:
                     data = json.load(f)
 
-                # ── 스키마 버전 경고 ──
+                # ── 스키마 마이그레이션 ──
+                # 필드명이 바뀐 버전은 값을 옮겨 담는다. 이관하지 않으면
+                # 구세션의 GM 진행 상태가 통째로 초기화된다.
                 saved_version = data.get("schema_version", 1)
                 if saved_version < SCHEMA_VERSION:
-                    print(f"⚠️ {session_id}: 저장 스키마 v{saved_version} → 현재 v{SCHEMA_VERSION} (구버전 — 일부 필드 기본값 사용)")
+                    print(f"⚠️ {session_id}: 저장 스키마 v{saved_version} → 현재 v{SCHEMA_VERSION} — 마이그레이션 수행")
+                    data = migrate_session_data(data)
 
                 scenario_data = load_scenario_from_file(data["scenario_id"])
                 if not scenario_data:
@@ -421,7 +424,7 @@ async def restore_sessions_from_disk(bot):
 
                 # ── 런타임 전용 필드 초기화 ──
                 session.is_processing = False
-                session.auto_gm_lock = False
+                session.gm_lock = False
 
                 # ── 후처리: None으로 저장된 cache_model을 DEFAULT_MODEL로 복원 ──
                 # (process_cache_deletion이 cache_model = None으로 저장하는 경우 대비)

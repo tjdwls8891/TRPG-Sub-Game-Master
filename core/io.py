@@ -46,7 +46,57 @@ def save_authorized_users(data: dict):
 
 # ========== [직렬화 스키마 버전] ==========
 # 세션 데이터 JSON 구조가 변경될 때 증가. restore 시 구버전 경고 출력에 사용.
-SCHEMA_VERSION = 2
+# SCHEMA_VERSION 3 — auto_gm_* 13필드를 gm_*로 이관 (5.0.0)
+# 필드명이 바뀌었으므로 구버전 저장 파일은 migrate_session_data로 변환해야 한다.
+SCHEMA_VERSION = 3
+
+# 구버전 → 현행 필드명 매핑. 로드 시 자동 변환된다.
+FIELD_MIGRATIONS = {
+    2: {
+        "auto_gm_active": "gm_active",
+        "auto_gm_target_char": "gm_target_char",
+        "auto_gm_target_chars": "gm_target_chars",
+        "auto_gm_turn_cap": "gm_turn_cap",
+        "auto_gm_turns_done": "gm_turns_done",
+        "auto_gm_clarify_count": "gm_clarify_count",
+        "auto_gm_narrate_count": "gm_narrate_count",
+        "auto_gm_cost_cap_krw": "gm_cost_cap_krw",
+        "auto_gm_cost_baseline": "gm_cost_baseline",
+        "auto_gm_side_note": "gm_side_note",
+        "auto_gm_proceed_history": "gm_proceed_history",
+        "auto_gm_pending_players": "gm_pending_players",
+        "auto_gm_collected_actions": "gm_collected_actions",
+        "auto_gm_waiting_for": "gm_waiting_for",
+    },
+}
+
+
+def migrate_session_data(data: dict) -> dict:
+    """저장 데이터를 현행 스키마로 변환한다.
+
+    NOTE: 구버전 필드명을 새 이름으로 옮긴다. 값이 이미 새 이름으로
+          존재하면 덮어쓰지 않는다(부분 마이그레이션 상태 대비).
+          변환 후 schema_version을 갱신하므로 다음 로드부터는 건너뛴다.
+    """
+    ver = int(data.get("schema_version", 1) or 1)
+    if ver >= SCHEMA_VERSION:
+        return data
+
+    moved = 0
+    for from_ver in sorted(FIELD_MIGRATIONS):
+        if ver > from_ver:
+            continue
+        for old, new in FIELD_MIGRATIONS[from_ver].items():
+            if old in data:
+                if new not in data:
+                    data[new] = data[old]
+                    moved += 1
+                data.pop(old, None)
+
+    data["schema_version"] = SCHEMA_VERSION
+    if moved:
+        print(f"[마이그레이션] v{ver} → v{SCHEMA_VERSION}: {moved}개 필드 이관")
+    return data
 
 
 # ========== [선택적 필드 레지스트리] ==========
@@ -55,7 +105,7 @@ SCHEMA_VERSION = 2
 #
 # 규칙:
 #   - 값이 반드시 존재하는 핵심 필드(session_id, players 등)는 여기에 넣지 않는다.
-#   - 런타임 전용 필드(auto_gm_lock, is_processing 등)는 여기에 넣지 않는다.
+#   - 런타임 전용 필드(gm_lock, is_processing 등)는 여기에 넣지 않는다.
 #   - 재시작 시 항상 초기화되어야 하는 필드는 SESSION_RESET_FIELDS에 넣는다.
 SESSION_FIELDS: dict = {
     "note": "",
@@ -112,28 +162,28 @@ SESSION_FIELDS: dict = {
     # TTS 음성 더빙 (실험)
     "tts_enabled": False,
     # GM 설정
-    "auto_gm_active": False,
-    "auto_gm_target_char": None,
-    "auto_gm_turn_cap": None,
-    "auto_gm_turns_done": 0,
-    "auto_gm_clarify_count": 0,
-    "auto_gm_narrate_count": 0,
-    "auto_gm_cost_cap_krw": None,
-    "auto_gm_cost_baseline": 0.0,
-    "auto_gm_side_note": "",
-    "auto_gm_target_chars": [],
-    "auto_gm_proceed_history": [],
+    "gm_active": False,
+    "gm_target_char": None,
+    "gm_turn_cap": None,
+    "gm_turns_done": 0,
+    "gm_clarify_count": 0,
+    "gm_narrate_count": 0,
+    "gm_cost_cap_krw": None,
+    "gm_cost_baseline": 0.0,
+    "gm_side_note": "",
+    "gm_target_chars": [],
+    "gm_proceed_history": [],
     # 이하 세 필드는 저장은 하지만 복구 시 항상 초기화 (SESSION_RESET_FIELDS 참고)
-    "auto_gm_pending_players": [],
-    "auto_gm_collected_actions": {},
-    "auto_gm_waiting_for": None,
+    "gm_pending_players": [],
+    "gm_collected_actions": {},
+    "gm_waiting_for": None,
 }
 
 # 저장은 되지만 봇 재시작 시 항상 초기값으로 리셋되는 필드
 SESSION_RESET_FIELDS: dict = {
-    "auto_gm_pending_players": [],
-    "auto_gm_collected_actions": {},
-    "auto_gm_waiting_for": None,
+    "gm_pending_players": [],
+    "gm_collected_actions": {},
+    "gm_waiting_for": None,
 }
 
 # ──────────────────────────────────────────

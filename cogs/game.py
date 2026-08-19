@@ -389,10 +389,10 @@ class GameCog(commands.Cog):
                 # NOTE: Auto-GM 모드(cost_log_prefix가 있는 경우)는 항상 proceed_instruction이
                 # 채워진 채로 호출되므로 여기에 도달하지 않음. 수동 GM 모드 전용 분기.
                 if not cost_log_prefix:
-                    auto_gm_cog = self.bot.get_cog("GMCog")
-                    if auto_gm_cog:
+                    gm_cog = self.bot.get_cog("GMCog")
+                    if gm_cog:
                         await m_send("⏳ 지시사항 없음 — 지시층위가 현재 상황을 분석하여 진행 지시사항을 자동 생성합니다...")
-                        decision = await auto_gm_cog._call_gm_logic(session, "", [], master_ch)
+                        decision = await gm_cog._call_gm_logic(session, "", [], master_ch)
                         if decision:
                             from cogs.gm import _clean_proceed_instruction
                             auto_instr = _clean_proceed_instruction(decision.get("proceed_instruction", ""))
@@ -809,7 +809,7 @@ class GameCog(commands.Cog):
                 # 발생 시점 기록만으로 압축 주기(플랜별 상이)를 몰라도 정확히 롤백된다.
                 try:
                     core.record_delta(
-                        session, getattr(session, "auto_gm_turns_done", 0), [],
+                        session, getattr(session, "gm_turns_done", 0), [],
                         compression={
                             "occurred": True,
                             "before": session.compressed_memory or "",
@@ -1324,7 +1324,7 @@ class GameCog(commands.Cog):
                 # 발생 시점 기록만으로 압축 주기(플랜별 상이)를 몰라도 정확히 롤백된다.
                 try:
                     core.record_delta(
-                        session, getattr(session, "auto_gm_turns_done", 0), [],
+                        session, getattr(session, "gm_turns_done", 0), [],
                         compression={
                             "occurred": True,
                             "before": session.compressed_memory or "",

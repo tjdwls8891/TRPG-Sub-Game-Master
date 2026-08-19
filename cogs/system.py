@@ -113,6 +113,8 @@ class SystemCog(commands.Cog):
             "`!되감기 [턴번호]` — 해당 턴 종료 시점으로 롤백 (환불 불가)\n"
             "`!tts생성 [현황]` — 고정 문구 TTS 사전 생성 (오너 전용)\n"
             "`!스페이스` — 서버 GM 스페이스 생성·갱신\n"
+            "`!스페이스초기화 확인` — GM 스페이스 삭제 후 재생성\n"
+            "`!재시작` — 봇 프로세스 재시작 (오너 전용)\n"
             "　└ 대상: `game` `character` `media` `session` `system` `gm`"
         ), inline=False)
 
@@ -359,6 +361,74 @@ class SystemCog(commands.Cog):
         except Exception as e:
             await ctx.send(f"⚠️ 모듈 리로드 중 오류 발생: {e}")
 
+
+    @commands.command(name="재시작")
+    @commands.is_owner()
+    async def restart_bot(self, ctx):
+        """
+        봇 프로세스를 재시작한다 (오너 전용).
+
+        NOTE: core/·main.py·prompts.py 변경은 핫스왑이 불가하므로 재시작이
+              필요하다. !배포 재시작과 달리 git pull 없이 재시작만 수행한다.
+              systemd가 Restart=always로 관리하면 프로세스 종료만으로
+              재기동되며, execv는 그렇지 않은 환경을 위한 대비책이다.
+        """
+        await ctx.send("♻️ 3초 후 재시작합니다…")
+        await asyncio.sleep(3)
+        try:
+            await self.bot.close()
+        finally:
+            os.execv(sys.executable, [sys.executable] + sys.argv)
+
+    @commands.command(name="스페이스초기화")
+    @commands.has_permissions(administrator=True)
+    async def reset_space(self, ctx, confirm: str = None):
+        """
+        서버 GM 스페이스 카테고리와 채널을 삭제 후 재생성한다.
+
+        NOTE: 채널 권한이 꼬이거나 구조가 어긋났을 때의 복구 수단이다.
+              명예의 전당·보드 내용은 통계 저장소에서 다시 그려지므로
+              데이터 손실은 없다.
+
+        사용법:
+            !스페이스초기화 확인
+        """
+        if confirm != "확인":
+            await ctx.send(
+                "⚠️ GM 스페이스 카테고리와 채널 4종을 **삭제 후 재생성**합니다.\n"
+                "> 명예의 전당·보드 내용은 통계에서 다시 그려지므로 데이터 손실은 없습니다.\n"
+                "> 진행하려면 `!스페이스초기화 확인` 을 입력하십시오."
+            )
+            return
+
+        msg = await ctx.send("⏳ 기존 GM 스페이스를 정리하는 중…")
+
+        removed = 0
+        category = discord.utils.get(ctx.guild.categories, name=core.gm_space.CATEGORY_NAME)
+        if category:
+            for ch in list(category.channels):
+                try:
+                    await ch.delete(reason="GM 스페이스 초기화")
+                    removed += 1
+                except Exception as e:
+                    print(f"[스페이스초기화] 채널 삭제 실패 {ch.name}: {e}")
+            try:
+                await category.delete(reason="GM 스페이스 초기화")
+            except Exception as e:
+                print(f"[스페이스초기화] 카테고리 삭제 실패: {e}")
+
+        # 봇에 기록된 채널 id를 지워 chat_guard가 옛 채널을 참조하지 않게 한다.
+        self.bot.gm_space_ch_id = None
+
+        await msg.edit(content=f"⏳ {removed}개 채널 정리 완료. 재생성 중…")
+        ok_home = await core.refresh_home(self.bot, ctx.guild)
+        ok_board = await core.refresh_boards(self.bot, ctx.guild)
+        await msg.edit(content=(
+            f"{'✅' if ok_home and ok_board else '⚠️'} GM 스페이스 초기화 "
+            f"{'완료' if ok_home and ok_board else '일부 실패'}\n"
+            f"> 삭제 {removed}개 · 홈 {'OK' if ok_home else 'FAIL'} · "
+            f"보드 {'OK' if ok_board else 'FAIL'}"
+        ))
 
     @commands.command(name="스페이스")
     @commands.has_permissions(administrator=True)

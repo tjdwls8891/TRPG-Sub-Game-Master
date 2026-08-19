@@ -1,6 +1,6 @@
 # TRPG Sub GM Bot — 개발 로그 (DEVLOG)
 
-> 현재 버전: **v4.38.1**  
+> 현재 버전: **v5.0.0**  
 > 최종 갱신: 2026-06-27 (오디오 믹서·TTS 더빙, 명령어 가이드 갱신)  
 > 스택: Gemini API + discord.py / 한국어 TRPG 보조 GM 봇
 

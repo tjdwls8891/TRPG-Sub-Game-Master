@@ -205,6 +205,7 @@ from .cost import (
 )
 from .io import (
     SCHEMA_VERSION,
+    migrate_session_data,
     SESSION_FIELDS,
     SESSION_RESET_FIELDS,
     write_log,
@@ -314,7 +315,7 @@ __all__ = [
     "extract_token_usage", "format_cost", "calculate_text_gen_cost_breakdown", "calculate_image_gen_cost",
     "calculate_upload_cost", "calculate_storage_cost", "calculate_cost",
     # io
-    "SCHEMA_VERSION", "SESSION_FIELDS", "SESSION_RESET_FIELDS",
+    "SCHEMA_VERSION", "migrate_session_data", "SESSION_FIELDS", "SESSION_RESET_FIELDS",
     "write_log", "write_cost_log", "load_scenario_from_file", "get_available_scenarios",
     "save_session_data", "process_cache_deletion",
     "load_authorized_users", "save_authorized_users", "AUTHORIZED_USERS_PATH",

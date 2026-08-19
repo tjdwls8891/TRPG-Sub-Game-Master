@@ -96,17 +96,17 @@ class TRPGSession:
         # ========== [GM 상태] ==========
         # NOTE: GM는 게임 채널의 플레이어 발언을 받아 AI가 GM 역할을 수행하는 옵트인 모드.
         #       기본은 비활성(False) — 활성화되어야만 on_message 리스너가 동작한다.
-        self.auto_gm_active = False
-        self.auto_gm_target_char = None        # GM이 대화할 PC 이름 (단일, 하위 호환)
-        self.auto_gm_turn_cap = None           # 자동 진행 최대 턴 수 (None=무제한, 안전장치)
-        self.auto_gm_turns_done = 0            # 활성화 이후 자동으로 처리한 턴 수
-        self.auto_gm_clarify_count = 0         # 같은 플레이어 발언에 대한 명확화 누적 횟수
-        self.auto_gm_narrate_count = 0         # 같은 플레이어 발언에 대한 NARRATE 누적 횟수
-        self.auto_gm_cost_cap_krw = None       # 자동 모드 누적 비용 상한 (None=무제한, 도달 시 정지)
-        self.auto_gm_cost_baseline = 0.0       # 활성화 시점의 session.total_cost (사용량 추적용)
-        self.auto_gm_side_note = ""            # !자동 개입으로 주입된 GM 사이드 노트 (다음 호출에 1회 합류 후 비움)
-        self.auto_gm_lock = False              # 동시 처리 방지용 락 (직렬화 시 무시)
-        self.auto_gm_proceed_history = []      # 최근 PROCEED 이력 (지시사항+컨텍스트+AI요약, 반복 방지용)
+        self.gm_active = False
+        self.gm_target_char = None        # GM이 대화할 PC 이름 (단일, 하위 호환)
+        self.gm_turn_cap = None           # 자동 진행 최대 턴 수 (None=무제한, 안전장치)
+        self.gm_turns_done = 0            # 활성화 이후 자동으로 처리한 턴 수
+        self.gm_clarify_count = 0         # 같은 플레이어 발언에 대한 명확화 누적 횟수
+        self.gm_narrate_count = 0         # 같은 플레이어 발언에 대한 NARRATE 누적 횟수
+        self.gm_cost_cap_krw = None       # 자동 모드 누적 비용 상한 (None=무제한, 도달 시 정지)
+        self.gm_cost_baseline = 0.0       # 활성화 시점의 session.total_cost (사용량 추적용)
+        self.gm_side_note = ""            # !자동 개입으로 주입된 GM 사이드 노트 (다음 호출에 1회 합류 후 비움)
+        self.gm_lock = False              # 동시 처리 방지용 락 (직렬화 시 무시)
+        self.gm_proceed_history = []      # 최근 PROCEED 이력 (지시사항+컨텍스트+AI요약, 반복 방지용)
         # 되감기 기준 스냅샷 — 런타임 전용(저장 안 함).
         # 마지막 델타 기록 시점의 상태. 백그라운드 갱신이 유실되지 않게 한다.
         self._rewind_snapshot = None
@@ -187,10 +187,10 @@ class TRPGSession:
 
         # ========== [멀티플레이어 자동진행 상태 (#22)] ==========
         # NOTE: PROCEED 완료 후 GM이 선제적으로 각 PC에게 행동을 순서대로 물어보는 라운드 수집 시스템.
-        self.auto_gm_target_chars = []         # 자동진행 대상 PC 이름 전체 목록 (멀티 지원)
-        self.auto_gm_pending_players = []      # 현재 라운드에서 아직 행동 선언 안 한 PC 목록
-        self.auto_gm_collected_actions = {}    # 이번 라운드에 수집된 행동 {char_name: text}
-        self.auto_gm_waiting_for = None        # 현재 발언을 기다리는 PC 이름 (None이면 대기 없음)
+        self.gm_target_chars = []         # 자동진행 대상 PC 이름 전체 목록 (멀티 지원)
+        self.gm_pending_players = []      # 현재 라운드에서 아직 행동 선언 안 한 PC 목록
+        self.gm_collected_actions = {}    # 이번 라운드에 수집된 행동 {char_name: text}
+        self.gm_waiting_for = None        # 현재 발언을 기다리는 PC 이름 (None이면 대기 없음)
 
         self.npcs = {}
         default_npcs = scenario_data.get("default_npcs", {})
