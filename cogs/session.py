@@ -337,8 +337,25 @@ class SessionCog(commands.Cog):
             session.cache_name = cache.name
             session.cache_model = core.DEFAULT_MODEL
             core.update_session_cache_state(session)
+
+            # 선불 차감 (기획 규정). 해석 비용이 2잉크 이상이면 함께 청구한다.
+            charge_ink = core.cost_to_ink(upload_cost)
+            interpret_charge, interpret_ink = core.should_charge_interpretation(session)
+            if interpret_charge:
+                charge_ink += interpret_ink
+            session.interpret_cost_krw = 0.0
+            session.open_prepaid_ink = charge_ink
+
+            for uid in (session.players or {}) or [getattr(session, "creator_uid", "")]:
+                if not uid:
+                    continue
+                await core.accounts.deduct_ink(uid, charge_ink, allow_overdraft=True)
             await core.save_session_data(self.bot, session)
-            await _say(f"✅ 세션이 열렸습니다. (유지 {ttl // 60}분)")
+
+            await _say(
+                f"✅ 세션이 열렸습니다. (유지 {ttl // 60}분)\n"
+                f"> 선결제 **{charge_ink}잉크**"
+                + (f" (시간 해석 {interpret_ink}잉크 포함)" if interpret_charge else ""))
             return True
         except Exception as e:
             await _say(f"⚠️ 캐시 업로드 실패 (일반 모드로 진행됩니다. 원인: {e})")

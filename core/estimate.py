@@ -383,6 +383,32 @@ def settle_on_session_close(session) -> dict:
     return settle_compression(session, 0.0)
 
 
+# TTS 문자당 비용(원). 실측으로 보정한다.
+TTS_KRW_PER_CHAR = 0.02
+
+
+def estimate_tts(session) -> dict:
+    """TTS 예상 비용. 묘사 분량에 비례한다.
+
+    기획 규정 — 예상액에 합산하지 않고 구분해 표기한다.
+    TTS가 꺼져 있으면 0을 반환한다.
+    """
+    from .media_control import is_enabled
+
+    if not is_enabled(session, "tts"):
+        return {"min_ink": 0, "max_ink": 0, "enabled": False}
+
+    lo, hi = _out_range(session, "narration", "narration_out")
+    # 출력 토큰 → 문자 수 역환산 후 문자당 단가 적용
+    lo_chars = int(lo / CHARS_TO_TOKENS)
+    hi_chars = int(hi / CHARS_TO_TOKENS)
+    return {
+        "min_ink": cost_to_ink(lo_chars * TTS_KRW_PER_CHAR),
+        "max_ink": cost_to_ink(hi_chars * TTS_KRW_PER_CHAR),
+        "enabled": True,
+    }
+
+
 def format_estimate(est: dict, tts: dict | None = None) -> str:
     """디스플레이 표기용 문자열. TTS는 합산하지 않고 구분 표기한다(기획 규정)."""
     mark = {"low": " (표본 부족)", "mid": "", "high": ""}.get(est.get("confidence", "low"), "")

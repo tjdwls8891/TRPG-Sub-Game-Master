@@ -134,6 +134,8 @@ class TRPGSession:
         self.creation_state = {}
         # 유지 시간 해석 호출의 누적 비용(원). 2잉크 이상일 때만 청구한다.
         self.interpret_cost_krw = 0.0
+        # 세션 오픈 시 선결제한 잉크. 클로즈 시 환급 계산의 기준.
+        self.open_prepaid_ink = 0
         # 선택된 세션 유지 시간(분)
         self.open_minutes = 0
         # 세션 시작 시각(epoch) — 통계의 '세션 온 시간' 산출 기준

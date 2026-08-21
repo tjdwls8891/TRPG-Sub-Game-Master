@@ -1366,6 +1366,20 @@ class GMCog(commands.Cog):
                 changes = core.diff_state(state_before, state_after)
                 turn_cost = getattr(session, "total_cost", 0.0) - cost_before
                 session.last_turn_cost = turn_cost   # 디스플레이 '직전 턴 금액'
+
+                # 실제 잉크 차감. 예상 최대를 넘겨 음수가 되면 1잉크로 맞춘다.
+                # 초과분은 운영자가 부담한다(기획 규정).
+                try:
+                    ink = core.cost_to_ink(turn_cost)
+                    for _uid in (session.players or {}):
+                        res = await core.accounts.deduct_ink(_uid, ink, allow_overdraft=True)
+                        await core.stats.bump(_uid, ink_spent=ink)
+                        if res.get("overdraft"):
+                            await m_send(
+                                f"ℹ️ 예상 초과분이 발생해 잔액을 1잉크로 맞췄습니다. "
+                                f"(차감 {ink}잉크)")
+                except Exception as e:
+                    print(f"[결제] 차감 실패: {e}")
                 core.record_delta(session, turn_no, changes, cost_krw=turn_cost)
                 session._rewind_snapshot = state_after
                 core.record_full_log(
@@ -1421,6 +1435,29 @@ class GMCog(commands.Cog):
         cache_model = getattr(session, "cache_model", None)
         do_simulation = bool(cache_name and cache_model == core.DEFAULT_MODEL)
 
+        # ── 세션 오픈 여부 확인 (기획 규정 — 닫혀 있으면 차단) ──
+        if not getattr(session, "cache_name", None):
+            await m_send("⚠️ 세션이 닫혀 있습니다. 디스플레이에서 세션을 열어 주십시오.")
+            if game_ch:
+                await game_ch.send("⏸️ 세션이 닫혀 있어 진행할 수 없습니다.")
+            return
+
+        # ── 잔액 검사 (기획 규정 — 소지금 < 예상 최대금액이면 차단) ──
+        try:
+            _pre_est = core.estimate_turn(session, "PROCEED")
+            for _uid in (session.players or {}):
+                _bal = core.accounts.get_balance(_uid)
+                if _bal < _pre_est["max_ink"]:
+                    if game_ch:
+                        await game_ch.send(
+                            f"⛔ **잉크가 부족합니다.**\n"
+                            f"> 필요 {_pre_est['max_ink']}잉크 / 보유 {_bal}잉크\n"
+                            f"> GM 스페이스에서 충전 후 진행해 주십시오.")
+                    await m_send(f"⛔ 잔액 부족으로 턴 차단 (보유 {_bal} < 필요 {_pre_est['max_ink']})")
+                    return
+        except Exception as e:
+            print(f"[결제] 잔액 검사 실패(진행 허용): {e}")
+
         # 이번 턴 예상 비용 — 디스플레이 채널 도입 전까지 마스터 채널에 보고한다.
         try:
             est = core.estimate_turn(session, "PROCEED")
@@ -1436,8 +1473,9 @@ class GMCog(commands.Cog):
             session.compression_prepaid_krw = (
                 float(getattr(session, "compression_prepaid_krw", 0.0) or 0.0) + prepay["krw"]
             )
+            _tts = core.estimate_tts(session)
             await m_send(
-                f"💰 **[예상]** {core.format_estimate(est)}\n"
+                f"💰 **[예상]** {core.format_estimate(est, _tts if _tts['enabled'] else None)}\n"
                 f"> 입력 {est['input_tokens']['instruction']:,} + 캐시 "
                 f"{est['input_tokens']['cached']:,} 토큰 | "
                 f"압축 선결제 {prepay['krw']:.2f}원 누적 "

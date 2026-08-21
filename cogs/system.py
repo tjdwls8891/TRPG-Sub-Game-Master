@@ -120,6 +120,7 @@ class SystemCog(commands.Cog):
             "`!tts생성 [현황]` — 고정 문구 TTS 사전 생성 (오너 전용)\n"
             "`!스페이스` — 서버 GM 스페이스 생성·갱신\n"
             "`!스페이스초기화 확인` — GM 스페이스 삭제 후 재생성\n"
+            "`!지급 @유저 [잉크] (사유)` — 잉크 지급·회수 (오너 전용)\n"
             "`!재시작` — 봇 프로세스 재시작 (오너 전용)\n"
             "　└ 대상: `game` `character` `media` `session` `system` `gm`"
         ), inline=False)
@@ -375,6 +376,63 @@ class SystemCog(commands.Cog):
         except Exception as e:
             await ctx.send(f"⚠️ 모듈 리로드 중 오류 발생: {e}")
 
+
+    @commands.command(name="지급")
+    @commands.is_owner()
+    async def grant_ink(self, ctx, member: discord.Member = None, amount: int = None,
+                        *, reason: str = "운영자 지급"):
+        """
+        잉크를 지급한다 (오너 전용).
+
+        NOTE: 디스코드 결제가 한국 미지원이라 충전 경로가 없다.
+              그때까지 오너가 직접 지급해 플레이가 가능하게 한다.
+              계정이 없으면 먼저 등록시킨다.
+
+        사용법:
+            !지급 @유저 100
+            !지급 @유저 100 테스트 보상
+            !지급 @유저          — 잔액 조회
+        """
+        if member is None:
+            await ctx.send("사용법: `!지급 @유저 [잉크]` · 잔액 조회는 `!지급 @유저`")
+            return
+
+        uid = str(member.id)
+        if amount is None:
+            bal = core.accounts.get_balance(uid)
+            registered = core.accounts.is_registered(uid)
+            await ctx.send(
+                f"💰 {member.mention} 잔액 **{bal:,}잉크**"
+                + ("" if registered else "\n> ⚠️ 미등록 계정입니다."))
+            return
+
+        if amount == 0:
+            await ctx.send("0잉크는 지급할 수 없습니다.")
+            return
+
+        # 미등록이면 등록시킨다. 지급 대상이 계정이 없어 실패하면 곤란하다.
+        if not core.accounts.is_registered(uid):
+            await core.accounts.register_account(uid)
+            await ctx.send(f"ℹ️ {member.mention} 계정을 새로 등록했습니다.")
+
+        if amount > 0:
+            new_bal = await core.accounts.add_ink(uid, amount, reason=reason)
+            verb, sign = "지급", "+"
+        else:
+            result = await core.accounts.deduct_ink(uid, -amount, allow_overdraft=True)
+            new_bal = result.get("balance", 0) if isinstance(result, dict) else 0
+            verb, sign = "회수", ""
+
+        await ctx.send(
+            f"✅ {member.mention} {verb} **{sign}{amount:,}잉크**\n"
+            f"> 잔액 {new_bal:,}잉크 · 사유: {reason}")
+
+        try:
+            await member.send(
+                f"💰 잉크가 {verb}되었습니다: **{sign}{amount:,}잉크**\n"
+                f"> 현재 잔액 {new_bal:,}잉크\n> 사유: {reason}")
+        except Exception:
+            pass
 
     @commands.command(name="재시작")
     @commands.is_owner()

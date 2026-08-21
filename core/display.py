@@ -64,6 +64,14 @@ def build_embed(session) -> discord.Embed:
         cost_lines.append(f"직전 턴 {cost_to_ink(last)}잉크 ({format_cost(last)})")
     if est:
         cost_lines.append(f"다음 턴 {est.get('min_ink', 0)}~{est.get('max_ink', 0)}잉크")
+        # 기획 규정 — TTS는 합산하지 않고 구분해 표기한다.
+        try:
+            from .estimate import estimate_tts
+            t = estimate_tts(session)
+            if t["enabled"] and t["max_ink"]:
+                cost_lines.append(f"　+ TTS {t['min_ink']}~{t['max_ink']}잉크")
+        except Exception:
+            pass
     prepaid = getattr(session, "compression_prepaid_krw", 0.0) or 0.0
     if prepaid:
         cost_lines.append(f"압축 선결제 {prepaid:.1f}원")
@@ -329,9 +337,30 @@ class DisplayView(discord.ui.View):
             return
         is_open = bool(getattr(session, "cache_name", None))
         if is_open:
+            # 만료 전 오프하면 사용분만 계산해 차액을 돌려준다(기획 규정).
+            import time as _t
+            from .ink import refund_ink as _refund
+
+            created = getattr(session, "cache_created_at", 0.0) or 0.0
+            used_h = max(0.0, (_t.time() - created) / 3600) if created else 0.0
+            prepaid = int(getattr(session, "open_prepaid_ink", 0) or 0)
+            try:
+                from .cost import calculate_upload_cost
+                from .constants import DEFAULT_MODEL
+                used_krw = calculate_upload_cost(
+                    DEFAULT_MODEL,
+                    input_tokens=int(getattr(session, "cache_tokens", 0) or 0),
+                    store_hours=used_h)
+            except Exception:
+                used_krw = 0.0
+            refund = _refund(prepaid, used_krw)
+
             await interaction.response.send_message(
-                "세션 클로즈는 캐시 만료 처리와 환급 정산이 함께 필요합니다. "
-                "결제 시스템 도입 후 활성화됩니다.", ephemeral=True)
+                f"⚠️ **세션을 닫으시겠습니까?**\n"
+                f"> 사용 {used_h:.1f}시간 · 선결제 {prepaid}잉크\n"
+                f"> 환급 예정 **{refund}잉크**\n"
+                f"> 닫으면 캐시가 파기되며 다시 열 때 업로드 비용이 재발생합니다.",
+                view=CloseConfirmView(self.bot, session, refund))
             return
 
         # 세션 오픈 — 유지 시간 입력을 받는다.
@@ -350,6 +379,57 @@ class DisplayView(discord.ui.View):
     async def pay(self, interaction, _b):
         await interaction.response.send_message(
             "결제 기능은 계정·약관 시스템 도입 후 활성화됩니다.", ephemeral=True)
+
+
+class CloseConfirmView(discord.ui.View):
+    """세션 클로즈 확인 — 캐시 파기 후 환급액을 몇 초간 알린다(기획 규정)."""
+
+    def __init__(self, bot, session, refund: int):
+        super().__init__(timeout=300)
+        self.bot = bot
+        self.session = session
+        self.refund = refund
+
+    @discord.ui.button(label="세션 닫기", style=discord.ButtonStyle.danger)
+    async def confirm(self, interaction, _b):
+        await interaction.response.defer()
+
+        # 캐시 파기
+        name = getattr(self.session, "cache_name", None)
+        if name:
+            try:
+                import asyncio as _a
+                await _a.to_thread(self.bot.genai_client.caches.delete, name=name)
+            except Exception as e:
+                print(f"[세션] 캐시 삭제 실패: {e}")
+        self.session.cache_name = None
+        self.session.cache_obj = None
+
+        # 환급
+        if self.refund > 0:
+            from . import accounts
+            for uid in (self.session.players or {}):
+                await accounts.add_ink(uid, self.refund, reason="세션 오프 환급")
+        self.session.open_prepaid_ink = 0
+
+        from .io import save_session_data
+        await save_session_data(self.bot, self.session)
+
+        for c in self.children:
+            c.disabled = True
+        await interaction.message.edit(view=self)
+        await interaction.followup.send(
+            f"⚫ 세션을 닫았습니다.\n> 💰 **{self.refund}잉크 환급**",
+            delete_after=10)
+        await refresh(self.bot, self.session, reason="close")
+        self.stop()
+
+    @discord.ui.button(label="취소", style=discord.ButtonStyle.secondary)
+    async def cancel(self, interaction, _b):
+        for c in self.children:
+            c.disabled = True
+        await interaction.response.edit_message(content="세션 클로즈를 취소했습니다.", view=self)
+        self.stop()
 
 
 class RewindTargetModal(discord.ui.Modal, title="여러 턴 되감기"):

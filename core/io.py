@@ -133,6 +133,7 @@ SESSION_FIELDS: dict = {
     "profile_ai_cost_krw": 0.0,
     "creation_state": {},
     "interpret_cost_krw": 0.0,
+    "open_prepaid_ink": 0,
     "open_minutes": 0,
     "started_at": 0.0,
     "stat_fail_counts": {},
