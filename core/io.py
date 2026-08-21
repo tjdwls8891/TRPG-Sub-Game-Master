@@ -127,6 +127,7 @@ SESSION_FIELDS: dict = {
     "last_compressed_turn": 0,
     "compression_count": 0,
     "pending_ending": "",
+    "main_unlocked_notified": False,
     "infinity_plan": "",
     "quest_state": {},
     "player_faction": "",

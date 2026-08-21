@@ -2141,6 +2141,15 @@ class GMCog(commands.Cog):
                         announce = f"> ❌ **{stat_name}** 판정이 실패했습니다."
                     await game_ch.send(announce)
                 core.write_log(session.session_id, "game_chat", f"[판정]: {line}")
+            # 주사위 효과음 — 토글이 켜져 있을 때만.
+            try:
+                if core.is_enabled(session, "sfx"):
+                    vc = getattr(session, "voice_client", None)
+                    if vc and vc.is_connected():
+                        await core.play_dice_sfx(vc)
+            except Exception as e:
+                print(f"[효과음] 재생 실패: {e}")
+
             if master_ch:
                 await master_ch.send(f"🤖 [GM 굴림]\n{line}")
             session.current_turn_logs.append(logic_line.lstrip("- "))
@@ -3027,6 +3036,18 @@ class GMCog(commands.Cog):
                 print(f"[GM/{session.session_id}] 이면정보 인지됨")
                 if master_ch:
                     await master_ch.send("🔓 **[퀘스트]** 플레이어가 숨겨진 사실을 알아챘습니다.")
+
+            # 메인라인 해금 확인 — 조건을 갓 충족했으면 알린다.
+            try:
+                mains = core.quest.check_main_unlock(session)
+                if mains and not getattr(session, "main_unlocked_notified", False):
+                    session.main_unlocked_notified = True
+                    if master_ch:
+                        await master_ch.send(
+                            f"🗝️ **[퀘스트]** 메인라인 조건 충족 — "
+                            f"{', '.join(q['name'] for q in mains)}")
+            except Exception as e:
+                print(f"[퀘스트] 메인 해금 확인 실패: {e}")
 
             moved = core.quest.advance_quest(session, result)
             if moved and moved.get("moved"):

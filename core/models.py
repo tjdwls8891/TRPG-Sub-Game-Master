@@ -121,6 +121,8 @@ class TRPGSession:
         self.compression_count = 0
         # 도달한 엔딩 결과. 플랜 선택 전까지 유지된다.
         self.pending_ending = ""
+        # 메인라인 해금 알림 여부 — 중복 알림 방지
+        self.main_unlocked_notified = False
         # 인피니티 세션 플랜 — 메인 클리어 후 선택. 빈 값이면 미선택.
         self.infinity_plan = ""
         # 퀘스트 진행 상태 — {active, cleared, known_secrets, occurrences}

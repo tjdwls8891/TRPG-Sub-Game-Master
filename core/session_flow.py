@@ -102,8 +102,16 @@ async def render(bot, session, channel):
             view=TTSView(bot, session, channel))
 
     elif step == "memory":
+        # 대략적 비용 증가 양상을 함께 제시한다(기획 규정).
+        curves = memory_plan.compare_curves(30)
+        curve_lines = ["\n**30턴 기준 누적 압축 호출**"]
+        for key, vals in curves.items():
+            label = memory_plan.PLANS[key]["label"]
+            curve_lines.append(
+                f"> {label}: 10턴 {vals[9]}회 · 20턴 {vals[19]}회 · 30턴 {vals[29]}회")
         await channel.send(
-            f"**기억 방식**\n> {progress}\n\n{memory_plan.format_plans()}",
+            f"**기억 방식**\n> {progress}\n\n{memory_plan.format_plans()}\n"
+            + "\n".join(curve_lines),
             view=MemoryPlanView(bot, session, channel))
 
     elif step == "profile":
@@ -249,9 +257,32 @@ class ScenarioSelect(discord.ui.Select):
         data = load_scenario_from_file(sid) or {}
         intro = (data.get("scenario_intro") or "")[:600]
 
-        # 가격 안내 — 기획 규정상 정보와 함께 확인 메시지로 제시한다.
+        # 가격 안내 — 오픈·유지비용과 턴 진행비용을 함께 제시한다(기획 규정).
+        cost_note = ""
+        try:
+            from .estimate import estimate_session_open, DEFAULT_BASELINE
+            from .ink import cost_to_ink
+            from .cost import calculate_text_gen_cost_breakdown
+            from .constants import DEFAULT_MODEL
+
+            probe = type("P", (), {"cache_tokens": 0, "cache_read_tokens": 0})()
+            # 룰북 분량으로 캐시 토큰을 근사한다(실제 값은 업로드 시 확정).
+            rough = int(len(str(data.get("worldview", ""))) * 0.65)
+            probe.cache_tokens = rough
+            open3 = estimate_session_open(probe, 3.0)
+            turn_krw = calculate_text_gen_cost_breakdown(
+                DEFAULT_MODEL, input_tokens=rough // 3,
+                output_tokens=DEFAULT_BASELINE["narration_out"],
+                cached_read_tokens=rough)["total_krw"]
+            cost_note = (
+                f"\n\n**예상 비용**\n"
+                f"> 오픈·3시간 유지 약 {open3['total_ink']}잉크\n"
+                f"> 턴 진행 약 {cost_to_ink(turn_krw)}잉크 (턴이 쌓일수록 완만히 증가)")
+        except Exception as e:
+            print(f"[비용안내] 산출 실패: {e}")
+
         await interaction.followup.send(
-            f"**{sid}**\n{intro}\n\n"
+            f"**{sid}**\n{intro}{cost_note}\n\n"
             f"이 시나리오로 진행하시겠습니까?",
             view=ScenarioConfirmView(v.bot, v.session, v.channel, sid, data))
 

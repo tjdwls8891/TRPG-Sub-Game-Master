@@ -391,8 +391,14 @@ async def start(bot, session, uid, char_name: str, channel):
             "> `!능력치` `!외형` `!설정` 명령으로 직접 설정해 주십시오.")
         return None
 
-    candidates = profile_store.list_profiles(
-        uid, getattr(session, "scenario_id", None))
+    # 기획 규정 — 해당 시나리오가 처음이거나 사전 프로필이 없으면 질문 생략.
+    from . import creation
+    sid = getattr(session, "scenario_id", None)
+    if creation.can_skip_profile_question(session, uid, sid):
+        await render(state, channel)
+        return state
+
+    candidates = profile_store.list_profiles(uid, sid)
     if candidates:
         await channel.send(
             f"**{char_name}** — 저장된 프로필을 사용하시겠습니까?",

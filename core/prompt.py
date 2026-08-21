@@ -87,7 +87,24 @@ class PromptBuilder:
         )
         # 가장 최근 캐시 재발급 시점의 세션 생성 NPC 스냅샷
         cached_session_npcs = getattr(self.session, "cached_session_npcs", {})
+
+        # 나이 주입 — birth_year가 있는 NPC의 나이를 코드가 계산해 넣는다.
+        # 모델에게 뺄셈을 시키지 않기 위함이다(4.16.0 설계).
+        age_map = {}
+        try:
+            from .timeline import compute_age
+            for _n, _d in (self.session.npcs or {}).items():
+                if isinstance(_d, dict) and _d.get("birth_year"):
+                    _a = compute_age(self.session, _d["birth_year"])
+                    if _a is not None:
+                        age_map[_n] = _a
+        except Exception:
+            pass
+
         lines = []
+        if age_map:
+            lines.append("[NPC 나이 — 작중 현재 기준 계산값]")
+            lines.append(", ".join(f"{k} {v}세" for k, v in age_map.items()))
 
         for npc_name, npc_data in self.session.npcs.items():
             is_session_npc = npc_name not in default_npcs  # 세션에서 새로 생성된 NPC
