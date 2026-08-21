@@ -16,6 +16,7 @@
 #   profile_gen — 프로필 생성 모듈 11종 (시나리오 JSON이 지시하는 알고리즘)
 #   profile_runner — 생성 알고리즘 실행부 (해독→종료까지 단일 진입)
 #   profile_ui — 사전 프로필 관리 DM 인터페이스 (생성·출력·수정·삭제)
+#   profile_creation_ui — 프로필 풀오토 생성 UI (실행부 구동)
 #   profile_ai — 프로필 검증·병합 AI 모듈 (무료 제공, 비용 집계만)
 #   quest      — 퀘스트 시스템 (필터·슬롯·케이스 트리·온디맨드 주입)
 #   memory_plan — 기억 압축 플랜 4종 (주기·모델·서술 형태)
@@ -150,6 +151,7 @@ from . import quest
 from . import memory_plan
 from . import start_frame
 from .profile_ui import open_manager, ProfileHomeView
+from . import profile_creation_ui
 from .session_open import (
     resolve_minutes,
     should_charge_interpretation,
@@ -275,7 +277,7 @@ __all__ = [
     "MIN_CACHE_TOKENS", "CACHE_TTL_SECONDS", "INK_UNIT_KRW", "INK_NET_KRW", "INK_PLANS",
     # ink / accounts
     "creation", "profiles", "profile_gen", "profile_runner", "profile_ai", "quest", "memory_plan", "start_frame",
-    "open_manager", "ProfileHomeView",
+    "open_manager", "ProfileHomeView", "profile_creation_ui",
     "resolve_minutes", "should_charge_interpretation", "format_confirmation",
     "VAGUE_MINUTES", "MINUTES_PER_TURN", "MIN_MINUTES", "MAX_MINUTES",
     "TERMS_TEXT", "SIGNUP_GIFT_INK", "build_terms_embed", "TermsView",

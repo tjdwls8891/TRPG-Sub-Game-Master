@@ -63,38 +63,54 @@ class SessionCog(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
 
-    @commands.command(name="새세션")
-    async def create_session(self, ctx, scenario_id: str = None):
+    async def build_session(self, guild, author, scenario_id: str, notify=None):
         """
-        서버에 새로운 카테고리와 채널을 생성하고 시나리오 데이터를 캐싱하여 세션 준비.
+        세션 생성 코어 — 명령어와 버튼이 공유한다.
 
-        NOTE: UUID를 이용해 샌드박스화된 채널 환경을 프로비저닝하고, AI 서버에
-        장기 기억 캐시(Context Cache)를 선결제하여 게임 중 발생할 응답 지연(Delay)을 최소화.
+        NOTE: 기존 create_session은 ctx에 묶여 있어 GM 스페이스 버튼에서
+              재사용할 수 없었다. ctx 의존(guild·author·send)을 인자로
+              분리해 두 진입점이 같은 로직을 쓰게 한다.
 
         Args:
-            ctx (commands.Context): 디스코드 컨텍스트 객체
-            scenario_id (str): 로드할 시나리오 파일 이름
+            notify: 진행 상황을 받을 코루틴. None이면 출력하지 않는다.
+
+            scenario_id: 로드할 시나리오 파일 이름
+
+        Returns:
+            생성된 TRPGSession 또는 실패 시 None
+
+        UUID로 샌드박스화된 채널 환경을 프로비저닝하고, 장기 기억 캐시를
+        선결제해 게임 중 응답 지연을 최소화한다.
         """
+
+        async def _say(text, **kw):
+            if notify:
+                try:
+                    return await notify(text, **kw)
+                except Exception:
+                    return None
+            return None
+
         # 계정 등록·약관 동의 확인 (기획 규정 — 세션 생성 시점에 버전 비교)
         # 미동의·재동의 필요 시 DM으로 절차를 시작하고 생성을 중단한다.
-        ok, notice = await core.ensure_agreed(self.bot, ctx.author)
+        ok, notice = await core.ensure_agreed(self.bot, author)
         if not ok:
-            await ctx.send(notice)
-            return
+            await _say(notice)
+            return None
 
         if not scenario_id:
             scenarios = core.get_available_scenarios()
-            await ctx.send(f"⚠️ 시나리오 파일명을 입력해주세요. 예: `!새세션 dark_fantasy`\n(현재 파일: {', '.join(scenarios)})")
+            await _say(f"⚠️ 시나리오 파일명을 입력해주세요. 예: `!새세션 dark_fantasy`\n(현재 파일: {', '.join(scenarios)})")
             return
 
         scenario_data = core.load_scenario_from_file(scenario_id)
         if not scenario_data:
-            await ctx.send(f"⚠️ 'scenarios/{scenario_id}.json' 파일을 찾을 수 없거나 형식이 잘못되었습니다.")
-            return
+            await _say(f"⚠️ 'scenarios/{scenario_id}.json' 파일을 찾을 수 없거나 형식이 잘못되었습니다.")
+            return None
 
-        guild = ctx.guild
+        
         session_id = str(uuid.uuid4())[:8]
-        await ctx.send(f"🔄 '{scenario_id}.json' 데이터를 로드하여 세션({session_id})을 준비합니다...")
+        await _say(f"🔄 '{scenario_id}.json' 데이터를 로드하여 세션({session_id})을 준비합니다...")
 
         session_dir = f"sessions/{session_id}"
         os.makedirs(session_dir, exist_ok=True)
@@ -124,7 +140,7 @@ class SessionCog(commands.Cog):
         session.display_ch_id = display_ch.id
 
         try:
-            await ctx.send("⏳ 시나리오 설정 및 장기 기억 캐싱 중...")
+            await _say("⏳ 시나리오 설정 및 장기 기억 캐싱 중...")
             caching_text, cache_tokens, base_text = await core.build_scenario_cache_text(
                 self.bot, core.DEFAULT_MODEL, scenario_data, session=session
             )
@@ -158,10 +174,10 @@ class SessionCog(commands.Cog):
             session.cache_name = cache.name
             session.cache_model = core.DEFAULT_MODEL
             core.update_session_cache_state(session)
-            await ctx.send(f"✅ 캐싱 완료! (캐시 ID: {cache.name})")
+            await _say(f"✅ 캐싱 완료! (캐시 ID: {cache.name})")
         except Exception as e:
             # WARNING: 캐싱에 실패하더라도 세션 객체 자체는 정상 구동되도록 예외 처리.
-            await ctx.send(f"⚠️ 캐싱 실패 (일반 모드로 진행됩니다. 원인: {e})")
+            await _say(f"⚠️ 캐싱 실패 (일반 모드로 진행됩니다. 원인: {e})")
 
         self.bot.active_sessions[game_ch.id] = session
         self.bot.active_sessions[master_ch.id] = session
@@ -170,8 +186,21 @@ class SessionCog(commands.Cog):
             self.bot.active_sessions[session.display_ch_id] = session
         await core.save_session_data(self.bot, session)
 
-        await ctx.send(f"🎉 세션 준비 완료!\n플레이어 채널: {game_ch.mention}\n마스터 채널: {master_ch.mention}")
+        await _say(f"🎉 세션 준비 완료!\n플레이어 채널: {game_ch.mention}\n마스터 채널: {master_ch.mention}")
+        return session
 
+    @commands.command(name="새세션")
+    async def create_session(self, ctx, scenario_id: str = None):
+        """세션 생성 명령. 실제 작업은 build_session이 수행한다."""
+        ok, notice = await core.ensure_agreed(self.bot, ctx.author)
+        if not ok:
+            await ctx.send(notice)
+            return
+        if not scenario_id:
+            scenarios = core.get_available_scenarios()
+            await ctx.send(f"⚠️ 시나리오 파일명을 입력해주세요. 예: `!새세션 dark_fantasy`\n(현재 파일: {', '.join(scenarios)})")
+            return
+        await self.build_session(ctx.guild, ctx.author, scenario_id, notify=ctx.send)
 
     @commands.command(name="시작")
     @commands.has_permissions(administrator=True)

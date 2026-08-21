@@ -230,8 +230,17 @@ class GMHomeView(discord.ui.View):
     async def open_session(self, interaction, _b):
         if not await self._require_account(interaction):
             return
+        # 시나리오 선택 → 세션 생성. 기획 규정상 세션은 GM 스페이스에서 연다.
+        from .io import get_available_scenarios
+
+        scenarios = get_available_scenarios()
+        if not scenarios:
+            await interaction.response.send_message(
+                "사용 가능한 시나리오가 없습니다.", ephemeral=True)
+            return
         await interaction.response.send_message(
-            "세션 생성 플로우는 준비 중입니다. 현재는 `!새세션` 명령을 사용하십시오.",
+            "시나리오를 선택하십시오.",
+            view=ScenarioPickView(self.bot, scenarios),
             ephemeral=True)
 
     @discord.ui.button(label="👤 사전 프로필 관리", style=discord.ButtonStyle.secondary,
@@ -304,6 +313,47 @@ class GMHomeView(discord.ui.View):
         ok = await refresh_boards(self.bot, interaction.guild)
         await interaction.followup.send(
             "보드를 갱신했습니다." if ok else "갱신에 실패했습니다.", ephemeral=True)
+
+
+class ScenarioPickView(discord.ui.View):
+    """세션 생성 — 시나리오 선택."""
+
+    def __init__(self, bot, scenarios: list):
+        super().__init__(timeout=300)
+        self.bot = bot
+        options = [discord.SelectOption(label=s[:100], value=s) for s in scenarios[:25]]
+        self.add_item(ScenarioSelect(bot, options))
+
+
+class ScenarioSelect(discord.ui.Select):
+    def __init__(self, bot, options):
+        super().__init__(placeholder="시나리오 선택", options=options)
+        self.bot = bot
+
+    async def callback(self, interaction: discord.Interaction):
+        scenario_id = self.values[0]
+        await interaction.response.edit_message(
+            content=f"⏳ **{scenario_id}** 세션을 생성하는 중…", view=None)
+
+        cog = self.bot.get_cog("SessionCog")
+        if not cog:
+            await interaction.followup.send("세션 모듈을 찾을 수 없습니다.", ephemeral=True)
+            return
+
+        # 진행 상황은 임시 응답으로 흘린다. 채널 생성 전이라 보낼 곳이 없다.
+        async def notify(text, **kw):
+            try:
+                await interaction.followup.send(text, ephemeral=True)
+            except Exception:
+                pass
+
+        session = await cog.build_session(
+            interaction.guild, interaction.user, scenario_id, notify=notify)
+        if session:
+            game_ch = self.bot.get_channel(session.game_ch_id)
+            await interaction.followup.send(
+                f"✅ 세션이 열렸습니다. {game_ch.mention if game_ch else ''} 에서 진행하십시오.",
+                ephemeral=True)
 
 
 async def refresh_home(bot, guild) -> bool:

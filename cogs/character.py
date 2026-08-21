@@ -345,17 +345,18 @@ class CharacterCog(commands.Cog):
             f"(진행자(GM)가 설정을 통해 스탯을 배분해 줄 것입니다.)"
         )
 
-        # [캐릭터 생성 매니저] 마스터 채널에 생성 안내 위저드 시작 버튼 게시 (F3)
-        master_ch = self.bot.get_channel(session.master_ch_id)
-        if master_ch:
-            try:
-                steps = _build_creation_steps(session, char_name)
+        # 프로필 풀오토 생성 시작 (기획 규정 — 질문과 선택만으로 완성).
+        # 시나리오에 profile_creation이 없으면 내부에서 안내 후 종료한다.
+        try:
+            await core.profile_creation_ui.start(
+                self.bot, session, user_id_str, char_name, ctx.channel)
+        except Exception as e:
+            print(f"[프로필생성] 시작 실패: {e}")
+            master_ch = self.bot.get_channel(session.master_ch_id)
+            if master_ch:
                 await master_ch.send(
-                    f"🧙 **{char_name}** 님이 참가했습니다. 아래 버튼으로 캐릭터 생성을 시작하세요.",
-                    view=CharCreationStartView(self.bot, char_name, steps),
-                )
-            except Exception:
-                pass
+                    f"⚠️ 프로필 생성 UI를 열지 못했습니다: {e}\n"
+                    f"> `!능력치` `!외형` `!설정` 명령으로 직접 설정해 주십시오.")
 
 
     @commands.command(name="캐릭터가져오기")
