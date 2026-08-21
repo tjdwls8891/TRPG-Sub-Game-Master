@@ -153,6 +153,10 @@ class TRPGSession:
         self.session_kind = "solo"
         # 비정규 NPC 등록부 — 즉석 등장 인물의 이미지·목소리를 유지한다
         self.irregular_npcs = {}
+        # 음성 채널 — 3채널 구성(기획 규정). 참가자 인식에 쓰인다.
+        self.voice_ch_id = None
+        # 세션 개설자 uid — players가 비기 전 단계에서 소유자를 안다
+        self.creator_uid = ""
         # 디스플레이 채널 — 상태 표기와 UI를 단일 메시지로 유지한다
         self.display_ch_id = None
         self.display_msg_id = None

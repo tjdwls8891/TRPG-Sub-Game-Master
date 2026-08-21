@@ -142,6 +142,15 @@ async def finish(state: ProfileCreationSession, channel):
         view=SaveProfileView(state, result),
     )
 
+    # 세션 제작 플로우 진행 중이면 다음 단계로 넘긴다.
+    # 사전 프로필 단독 생성(_StandaloneSession)은 해당하지 않는다.
+    if getattr(state.session, "creation_state", None):
+        try:
+            from . import session_flow
+            await session_flow.on_profile_done(state.bot, state.session, channel)
+        except Exception as e:
+            print(f"[세션플로우] 프로필 완료 처리 실패: {e}")
+
 
 class _Base(discord.ui.View):
     """조작 권한 검사 — 본인만 조작할 수 있다."""

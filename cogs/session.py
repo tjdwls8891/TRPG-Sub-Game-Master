@@ -67,7 +67,13 @@ class JoinModal(discord.ui.Modal, title="세션 참가"):
             f"✅ {interaction.user.mention}님이 **{name}**(으)로 참가했습니다.")
 
         # 프로필 생성 UI를 이어서 시작한다.
+        # 제작 플로우 진행 중이면 flow의 profile 단계가 담당하므로 중복 시작하지 않는다.
         try:
+            st = getattr(self.session, "creation_state", None) or {}
+            if st.get("step") == "profile":
+                await core.session_flow.render(
+                    self.bot, self.session, interaction.channel)
+                return
             await core.profile_creation_ui.start(
                 self.bot, self.session, uid, name, interaction.channel)
         except Exception as e:
@@ -130,24 +136,16 @@ class SessionCog(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
 
-    async def build_session(self, guild, author, scenario_id: str, notify=None):
+    async def provision_session(self, guild, author, scenario_id: str,
+                                *, kind: str = "solo", private: bool = False,
+                                notify=None):
         """
-        세션 생성 코어 — 명령어와 버튼이 공유한다.
+        채널·세션 객체만 만든다. 캐시는 올리지 않는다.
 
-        NOTE: 기존 create_session은 ctx에 묶여 있어 GM 스페이스 버튼에서
-              재사용할 수 없었다. ctx 의존(guild·author·send)을 인자로
-              분리해 두 진입점이 같은 로직을 쓰게 한다.
-
-        Args:
-            notify: 진행 상황을 받을 코루틴. None이면 출력하지 않는다.
-
-            scenario_id: 로드할 시나리오 파일 이름
-
-        Returns:
-            생성된 TRPGSession 또는 실패 시 None
-
-        UUID로 샌드박스화된 채널 환경을 프로비저닝하고, 장기 기억 캐시를
-        선결제해 게임 중 응답 지연을 최소화한다.
+        NOTE: 기획 규정상 캐시 업로드는 프로필 생성 이후다. 채널 생성과
+              동시에 올리면 플레이어가 캐릭터를 만들기도 전에 비용이
+              청구되고, 중도 이탈 시 그대로 손실이 된다.
+              유지 시간 선택제도 이 시점에는 아직 답을 받지 못했다.
         """
 
         async def _say(text, **kw):
@@ -158,112 +156,162 @@ class SessionCog(commands.Cog):
                     return None
             return None
 
-        # 계정 등록·약관 동의 확인 (기획 규정 — 세션 생성 시점에 버전 비교)
-        # 미동의·재동의 필요 시 DM으로 절차를 시작하고 생성을 중단한다.
-        ok, notice = await core.ensure_agreed(self.bot, author)
-        if not ok:
-            await _say(notice)
-            return None
-
-        if not scenario_id:
-            scenarios = core.get_available_scenarios()
-            await _say(f"⚠️ 시나리오 파일명을 입력해주세요. 예: `!새세션 dark_fantasy`\n(현재 파일: {', '.join(scenarios)})")
-            return
-
         scenario_data = core.load_scenario_from_file(scenario_id)
         if not scenario_data:
-            await _say(f"⚠️ 'scenarios/{scenario_id}.json' 파일을 찾을 수 없거나 형식이 잘못되었습니다.")
+            await _say(f"⚠️ '{scenario_id}' 시나리오를 읽지 못했습니다.")
             return None
 
-        
         session_id = str(uuid.uuid4())[:8]
-        await _say(f"🔄 '{scenario_id}.json' 데이터를 로드하여 세션({session_id})을 준비합니다...")
-
-        session_dir = f"sessions/{session_id}"
-        os.makedirs(session_dir, exist_ok=True)
+        os.makedirs(f"sessions/{session_id}", exist_ok=True)
 
         category = await guild.create_category(f"TRPG Session {session_id}")
-        game_overwrites = {
-            guild.default_role: discord.PermissionOverwrite(send_messages=False)
-        }
-        game_ch = await guild.create_text_channel(f"game-{session_id}", category=category, overwrites=game_overwrites)
 
-        overwrites = {
+        # 비공개 세션은 즉시 권한으로 비참가자 읽기를 차단한다(기획 규정).
+        base_deny = discord.PermissionOverwrite(read_messages=False) if private else None
+
+        game_overwrites = {guild.default_role: discord.PermissionOverwrite(
+            send_messages=False, read_messages=not private)}
+        game_ch = await guild.create_text_channel(
+            f"game-{session_id}", category=category, overwrites=game_overwrites)
+
+        master_overwrites = {
             guild.default_role: discord.PermissionOverwrite(read_messages=False),
-            guild.me: discord.PermissionOverwrite(read_messages=True)
+            guild.me: discord.PermissionOverwrite(read_messages=True),
         }
-        master_ch = await guild.create_text_channel(f"master-{session_id}", category=category, overwrites=overwrites)
+        master_ch = await guild.create_text_channel(
+            f"master-{session_id}", category=category, overwrites=master_overwrites)
 
-        # 디스플레이 채널 — 상태 표기와 UI 전용. 채팅은 봇만 가능하게 막는다.
-        # 기획 규정상 세션은 음성·게임·디스플레이 3채널로 구성된다.
         display_overwrites = {
-            guild.default_role: discord.PermissionOverwrite(send_messages=False),
+            guild.default_role: discord.PermissionOverwrite(
+                send_messages=False, read_messages=not private),
             guild.me: discord.PermissionOverwrite(send_messages=True),
         }
         display_ch = await guild.create_text_channel(
             f"display-{session_id}", category=category, overwrites=display_overwrites)
 
-        session = core.TRPGSession(session_id, game_ch.id, master_ch.id, scenario_id, scenario_data)
+        # 음성 채널 — 3채널 구성(기획 규정). 참가자 인식에 쓰인다.
+        voice_ch = None
+        try:
+            voice_ch = await guild.create_voice_channel(
+                f"voice-{session_id}", category=category)
+        except Exception as e:
+            print(f"[세션] 음성 채널 생성 실패: {e}")
+
+        session = core.TRPGSession(session_id, game_ch.id, master_ch.id,
+                                   scenario_id, scenario_data)
         session.display_ch_id = display_ch.id
+        session.session_kind = kind
+        session.is_private = private
+        if voice_ch:
+            session.voice_ch_id = voice_ch.id
+
+        # 개설자에게 읽기 권한 부여 (비공개 세션 대비)
+        if private:
+            for ch in (game_ch, display_ch):
+                try:
+                    await ch.set_permissions(author, read_messages=True)
+                except Exception:
+                    pass
+
+        self.bot.active_sessions[game_ch.id] = session
+        self.bot.active_sessions[master_ch.id] = session
+        self.bot.active_sessions[display_ch.id] = session
+        await core.save_session_data(self.bot, session)
+        return session
+
+    async def upload_cache(self, session, *, notify=None) -> bool:
+        """
+        장기 기억 캐시를 업로드한다. 프로필 생성 완료 후 호출된다.
+
+        기획 규정 — 유지 시간은 이 시점 이전에 선택되어 있어야 하며,
+        선불식으로 잔액을 확인한 뒤 진행한다.
+        """
+
+        async def _say(text, **kw):
+            if notify:
+                try:
+                    return await notify(text, **kw)
+                except Exception:
+                    return None
+            return None
+
+        if getattr(session, "cache_name", None):
+            return True
 
         try:
-            await _say("⏳ 시나리오 설정 및 장기 기억 캐싱 중...")
+            await _say("⏳ 장기 기억 캐시를 업로드하는 중…")
             caching_text, cache_tokens, base_text = await core.build_scenario_cache_text(
-                self.bot, core.DEFAULT_MODEL, scenario_data, session=session
+                self.bot, core.DEFAULT_MODEL, session.scenario_data, session=session
             )
 
-            # NOTE: 유지 비용 선결제를 폐지하고, 캐시 생성 시점에는 순수 업로드(입력) 비용만 정산.
-            upload_cost = core.calculate_upload_cost(core.DEFAULT_MODEL, input_tokens=cache_tokens)
+            upload_cost = core.calculate_upload_cost(
+                core.DEFAULT_MODEL, input_tokens=cache_tokens)
             session.total_cost += upload_cost
             session.cache_created_at = time.time()
             session.cache_tokens = cache_tokens
             session.cache_text = base_text
-            core.write_cost_log(session.session_id, "초기 캐시 생성", cache_tokens, 0, 0, upload_cost, session.total_cost)
+            core.write_cost_log(session.session_id, "초기 캐시 생성",
+                                cache_tokens, 0, 0, upload_cost, session.total_cost)
 
-            print(f"[새 세션 캐시 업로드] upload={core.format_cost(upload_cost)} total={core.format_cost(session.total_cost)}")
-            _cache_embed = core.build_cache_cost_embed(
-                "새 세션 캐시 생성", 0.0, upload_cost, session.total_cost
-            )
             master_ch = self.bot.get_channel(session.master_ch_id)
             if master_ch:
-                await master_ch.send(embed=_cache_embed)
+                await master_ch.send(embed=core.build_cache_cost_embed(
+                    "새 세션 캐시 생성", 0.0, upload_cost, session.total_cost))
+
+            # 선택된 유지 시간을 TTL로 쓴다. 미선택이면 기본 TTL.
+            minutes = int(getattr(session, "open_minutes", 0) or 0)
+            ttl = minutes * 60 if minutes else core.CACHE_TTL_SECONDS
 
             cache = await asyncio.to_thread(
                 self.bot.genai_client.caches.create,
                 model=core.DEFAULT_MODEL,
                 config=types.CreateCachedContentConfig(
                     system_instruction=self.bot.system_instruction,
-                    contents=[types.Content(role="user", parts=[types.Part.from_text(text=caching_text)])],
-                    ttl="21600s"
-                )
+                    contents=[types.Content(role="user",
+                                            parts=[types.Part.from_text(text=caching_text)])],
+                    ttl=f"{ttl}s",
+                ),
             )
             session.cache_obj = cache
             session.cache_name = cache.name
             session.cache_model = core.DEFAULT_MODEL
             core.update_session_cache_state(session)
-            await _say(f"✅ 캐싱 완료! (캐시 ID: {cache.name})")
+            await core.save_session_data(self.bot, session)
+            await _say(f"✅ 세션이 열렸습니다. (유지 {ttl // 60}분)")
+            return True
         except Exception as e:
-            # WARNING: 캐싱에 실패하더라도 세션 객체 자체는 정상 구동되도록 예외 처리.
-            await _say(f"⚠️ 캐싱 실패 (일반 모드로 진행됩니다. 원인: {e})")
+            await _say(f"⚠️ 캐시 업로드 실패 (일반 모드로 진행됩니다. 원인: {e})")
+            return False
 
-        self.bot.active_sessions[game_ch.id] = session
-        self.bot.active_sessions[master_ch.id] = session
-        # 디스플레이 채널에서도 세션을 찾을 수 있어야 UI 버튼이 동작한다.
-        if getattr(session, "display_ch_id", None):
-            self.bot.active_sessions[session.display_ch_id] = session
-        await core.save_session_data(self.bot, session)
+    async def build_session(self, guild, author, scenario_id: str, notify=None):
+        """세션 생성 — 채널 프로비저닝 후 즉시 캐시까지 올린다.
 
-        # 게임 채널에 참가 버튼 배치 (기획 규정 — 명령어 없이 진행)
-        try:
-            await game_ch.send(
-                "**세션이 준비되었습니다.**\n"
-                "아래 버튼으로 참가하시면 캐릭터 생성이 이어집니다.",
-                view=JoinView(self.bot),
-            )
-        except Exception as e:
-            print(f"[세션] 참가 버튼 배치 실패: {e}")
+        NOTE: !새세션 명령의 기존 동작을 유지하는 경로다.
+              버튼 플로우는 provision_session과 upload_cache를 단계에 맞춰
+              따로 호출한다.
+        """
+        ok, notice = await core.ensure_agreed(self.bot, author)
+        if not ok:
+            if notify:
+                await notify(notice)
+            return None
 
-        await _say(f"🎉 세션 준비 완료!\n플레이어 채널: {game_ch.mention}\n마스터 채널: {master_ch.mention}")
+        session = await self.provision_session(
+            guild, author, scenario_id, notify=notify)
+        if not session:
+            return None
+        await self.upload_cache(session, notify=notify)
+
+        game_ch = self.bot.get_channel(session.game_ch_id)
+        if game_ch:
+            try:
+                await game_ch.send(
+                    "**세션이 준비되었습니다.**\n"
+                    "아래 버튼으로 참가하시면 캐릭터 생성이 이어집니다.",
+                    view=JoinView(self.bot),
+                )
+            except Exception as e:
+                print(f"[세션] 참가 버튼 배치 실패: {e}")
         return session
 
     @commands.command(name="새세션")

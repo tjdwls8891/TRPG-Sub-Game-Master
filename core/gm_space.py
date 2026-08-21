@@ -230,17 +230,15 @@ class GMHomeView(discord.ui.View):
     async def open_session(self, interaction, _b):
         if not await self._require_account(interaction):
             return
-        # 시나리오 선택 → 세션 생성. 기획 규정상 세션은 GM 스페이스에서 연다.
-        from .io import get_available_scenarios
-
-        scenarios = get_available_scenarios()
-        if not scenarios:
-            await interaction.response.send_message(
-                "사용 가능한 시나리오가 없습니다.", ephemeral=True)
-            return
+        # 기획 규정 — 확인 메시지 개념으로 세션 종류 선택 및 생성 취소 버튼 배치.
+        # 권한자면 마스터 세션 버튼을 추가한다.
+        is_owner = await self.bot.is_owner(interaction.user)
         await interaction.response.send_message(
-            "시나리오를 선택하십시오.",
-            view=ScenarioPickView(self.bot, scenarios),
+            "**세션을 여시겠습니까?**\n"
+            "> 솔로 세션은 음성·게임·디스플레이 채널로 구성됩니다.\n"
+            + ("> 마스터 세션에는 마스터 채널이 추가되며 명령어를 쓸 수 있습니다.\n"
+               if is_owner else ""),
+            view=SessionKindView(self.bot, is_owner),
             ephemeral=True)
 
     @discord.ui.button(label="👤 사전 프로필 관리", style=discord.ButtonStyle.secondary,
@@ -315,45 +313,82 @@ class GMHomeView(discord.ui.View):
             "보드를 갱신했습니다." if ok else "갱신에 실패했습니다.", ephemeral=True)
 
 
-class ScenarioPickView(discord.ui.View):
-    """세션 생성 — 시나리오 선택."""
+class SessionKindView(discord.ui.View):
+    """세션 종류 선택 + 생성 취소 (기획 규정)."""
 
-    def __init__(self, bot, scenarios: list):
+    def __init__(self, bot, is_owner: bool):
         super().__init__(timeout=300)
         self.bot = bot
-        options = [discord.SelectOption(label=s[:100], value=s) for s in scenarios[:25]]
-        self.add_item(ScenarioSelect(bot, options))
+        if is_owner:
+            self.add_item(KindButton("master", "🎭 마스터 세션"))
 
+    @discord.ui.button(label="🎲 솔로 세션", style=discord.ButtonStyle.primary, row=0)
+    async def solo(self, interaction, _b):
+        await _begin_flow(self.bot, interaction, "solo")
 
-class ScenarioSelect(discord.ui.Select):
-    def __init__(self, bot, options):
-        super().__init__(placeholder="시나리오 선택", options=options)
-        self.bot = bot
-
-    async def callback(self, interaction: discord.Interaction):
-        scenario_id = self.values[0]
+    @discord.ui.button(label="취소", style=discord.ButtonStyle.secondary, row=1)
+    async def cancel(self, interaction, _b):
+        for c in self.children:
+            c.disabled = True
         await interaction.response.edit_message(
-            content=f"⏳ **{scenario_id}** 세션을 생성하는 중…", view=None)
+            content="세션 생성을 취소했습니다.", view=self)
+        self.stop()
 
-        cog = self.bot.get_cog("SessionCog")
-        if not cog:
-            await interaction.followup.send("세션 모듈을 찾을 수 없습니다.", ephemeral=True)
-            return
 
-        # 진행 상황은 임시 응답으로 흘린다. 채널 생성 전이라 보낼 곳이 없다.
-        async def notify(text, **kw):
-            try:
-                await interaction.followup.send(text, ephemeral=True)
-            except Exception:
-                pass
+class KindButton(discord.ui.Button):
+    def __init__(self, kind: str, label: str):
+        super().__init__(label=label, style=discord.ButtonStyle.success, row=0)
+        self.kind = kind
 
-        session = await cog.build_session(
-            interaction.guild, interaction.user, scenario_id, notify=notify)
-        if session:
-            game_ch = self.bot.get_channel(session.game_ch_id)
-            await interaction.followup.send(
-                f"✅ 세션이 열렸습니다. {game_ch.mention if game_ch else ''} 에서 진행하십시오.",
-                ephemeral=True)
+    async def callback(self, interaction):
+        await _begin_flow(self.view.bot, interaction, self.kind)
+
+
+async def _begin_flow(bot, interaction, kind: str):
+    """채널을 만들고 17단계 플로우를 시작한다.
+
+    시나리오는 아직 정하지 않았다. 기획 순서상 소개 이후에 고르므로,
+    임시로 첫 시나리오를 로드해 세션 객체만 만든 뒤 flow가 교체한다.
+    """
+    await interaction.response.edit_message(
+        content="⏳ 채널을 만드는 중…", view=None)
+
+    from .io import get_available_scenarios
+    from . import session_flow, creation
+
+    scenarios = get_available_scenarios()
+    if not scenarios:
+        await interaction.followup.send("사용 가능한 시나리오가 없습니다.", ephemeral=True)
+        return
+
+    cog = bot.get_cog("SessionCog")
+    if not cog:
+        await interaction.followup.send("세션 모듈을 찾을 수 없습니다.", ephemeral=True)
+        return
+
+    session = await cog.provision_session(
+        interaction.guild, interaction.user, scenarios[0], kind=kind)
+    if not session:
+        await interaction.followup.send("채널 생성에 실패했습니다.", ephemeral=True)
+        return
+
+    session.creator_uid = str(interaction.user.id)
+    creation.record(session, "kind", "마스터" if kind == "master" else "솔로")
+    creation.advance(session)
+
+    game_ch = bot.get_channel(session.game_ch_id)
+    voice_ch = bot.get_channel(getattr(session, "voice_ch_id", 0) or 0)
+
+    await interaction.followup.send(
+        f"✅ 채널이 준비되었습니다. {game_ch.mention if game_ch else ''}", ephemeral=True)
+
+    if game_ch:
+        # 참가자 호출 + 음성채널 참가 안내 (기획 규정)
+        msg = f"{interaction.user.mention} 님, 세션이 시작됩니다."
+        if voice_ch:
+            msg += f"\n> 음성 채널 {voice_ch.mention} 에 참가하시면 BGM과 음성을 들으실 수 있습니다."
+        await game_ch.send(msg)
+        await session_flow.render(bot, session, game_ch)
 
 
 async def refresh_home(bot, guild) -> bool:

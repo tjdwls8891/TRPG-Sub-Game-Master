@@ -633,10 +633,19 @@ class OpenConfirmView(discord.ui.View):
             child.disabled = True
         await interaction.message.edit(view=self)
         await interaction.followup.send(
-            f"✅ 세션을 {self.minutes}분간 유지합니다. "
-            f"예상 {need}잉크{note}\n"
-            f"> 실제 캐시 업로드는 시나리오 확정 후 진행됩니다."
+            f"✅ 세션을 {self.minutes}분간 유지합니다. 예상 {need}잉크{note}"
         )
+        self.session.open_minutes = self.minutes
+
+        # 제작 플로우 진행 중이면 캐시를 올리고 시작 상황으로 넘어간다.
+        if getattr(self.session, "creation_state", None):
+            game_ch = self.bot.get_channel(self.session.game_ch_id)
+            if game_ch:
+                try:
+                    await core.session_flow.on_open_time_done(
+                        self.bot, self.session, game_ch)
+                except Exception as e:
+                    print(f"[세션플로우] 오픈 처리 실패: {e}")
         self.stop()
 
     @discord.ui.button(label="취소", style=discord.ButtonStyle.secondary)

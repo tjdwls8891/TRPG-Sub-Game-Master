@@ -142,6 +142,8 @@ SESSION_FIELDS: dict = {
     "narrative_mode": "quest",
     "session_kind": "solo",
     "irregular_npcs": {},
+    "voice_ch_id": None,
+    "creator_uid": "",
     "display_ch_id": None,
     "display_msg_id": None,
     "awaiting_display_input": False,
