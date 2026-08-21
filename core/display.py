@@ -278,6 +278,24 @@ class DisplayView(discord.ui.View):
             ephemeral=False,
         )
 
+    @discord.ui.button(label="⏪⏪ 여러 턴 되감기", style=discord.ButtonStyle.danger,
+                       custom_id="disp:rewind_multi", row=2)
+    async def rewind_multi(self, interaction, _b):
+        """목표 지점 턴 번호를 입력받아 되감는다(기획 규정)."""
+        session = self.bot.active_sessions.get(interaction.channel.id)
+        if self._busy(session):
+            await interaction.response.send_message(
+                "턴 진행 중에는 되감을 수 없습니다.", ephemeral=True)
+            return
+        from .rewind import available_range
+        oldest, newest = available_range(session)
+        if newest == 0:
+            await interaction.response.send_message(
+                "되감기 기록이 아직 없습니다.", ephemeral=True)
+            return
+        await interaction.response.send_modal(
+            RewindTargetModal(self.bot, session, oldest, newest))
+
     @discord.ui.button(label="🔄 턴 재시작", style=discord.ButtonStyle.danger,
                        custom_id="disp:restart", row=2)
     async def restart(self, interaction, _b):
@@ -334,6 +352,42 @@ class DisplayView(discord.ui.View):
             "결제 기능은 계정·약관 시스템 도입 후 활성화됩니다.", ephemeral=True)
 
 
+class RewindTargetModal(discord.ui.Modal, title="여러 턴 되감기"):
+    """목표 턴 번호 입력. 범위 밖 값은 거부한다."""
+
+    target = discord.ui.TextInput(label="되돌아갈 턴 번호", required=True, max_length=6)
+
+    def __init__(self, bot, session, oldest: int, newest: int):
+        super().__init__()
+        self.bot = bot
+        self.session = session
+        self.oldest = oldest
+        self.newest = newest
+        self.target.placeholder = f"{oldest} ~ {newest - 1}"
+
+    async def on_submit(self, interaction: discord.Interaction):
+        try:
+            t = int(str(self.target).strip())
+        except ValueError:
+            await interaction.response.send_message(
+                "숫자를 입력해 주십시오.", ephemeral=True)
+            return
+        if not (self.oldest <= t < self.newest):
+            await interaction.response.send_message(
+                f"되감기 가능 범위는 {self.oldest}~{self.newest - 1}턴입니다.",
+                ephemeral=True)
+            return
+
+        confirm_cls = getattr(__import__("cogs.gm", fromlist=["RewindConfirmView"]),
+                              "RewindConfirmView")
+        removed = self.newest - t
+        await interaction.response.send_message(
+            f"⚠️ **{t}턴 종료 시점으로 되돌립니다.** ({removed}개 턴 제거)\n"
+            f"되돌리기는 취소할 수 없으며, 이미 소모된 비용은 환불되지 않습니다.\n"
+            f"제거되는 정보는 되감기 로그로 이관됩니다.",
+            view=confirm_cls(self.bot, self.session, t))
+
+
 def build_view(bot, session) -> discord.ui.View:
     """UI 뷰를 조립한다. 턴 진행 중이면 민감한 버튼을 회색 비활성화한다.
 
@@ -345,8 +399,8 @@ def build_view(bot, session) -> discord.ui.View:
     if getattr(session, "is_processing", False):
         for child in view.children:
             cid = getattr(child, "custom_id", "")
-            if cid in ("disp:rewind", "disp:restart", "disp:tts",
-                       "disp:image", "disp:session"):
+            if cid in ("disp:rewind", "disp:rewind_multi", "disp:restart",
+                       "disp:tts", "disp:image", "disp:session"):
                 child.disabled = True
     return view
 
