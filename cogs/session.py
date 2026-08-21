@@ -10,6 +10,73 @@ from google.genai import types
 import core
 
 # ========== [세션 관리 모듈(Session Cog)] ==========
+class JoinView(discord.ui.View):
+    """
+    게임 채널 참가 버튼 — persistent view.
+
+    NOTE: 기획 규정상 명령어 사용은 일반적인 모든 상황에서 불가·불필요해야
+          한다. !참가를 치는 대신 버튼으로 참가하고, 이름은 모달로 받는다.
+          참가 즉시 프로필 생성 UI가 이어진다.
+    """
+
+    def __init__(self, bot):
+        super().__init__(timeout=None)
+        self.bot = bot
+
+    @discord.ui.button(label="🙋 세션 참가", style=discord.ButtonStyle.success,
+                       custom_id="session:join")
+    async def join(self, interaction: discord.Interaction, _b: discord.ui.Button):
+        session = self.bot.active_sessions.get(interaction.channel.id)
+        if not session:
+            await interaction.response.send_message(
+                "세션을 찾을 수 없습니다.", ephemeral=True)
+            return
+        if str(interaction.user.id) in (session.players or {}):
+            await interaction.response.send_message(
+                "이미 참가하셨습니다.", ephemeral=True)
+            return
+        await interaction.response.send_modal(JoinModal(self.bot, session))
+
+
+class JoinModal(discord.ui.Modal, title="세션 참가"):
+    char_name = discord.ui.TextInput(
+        label="캐릭터 이름", required=True, max_length=20,
+        placeholder="예: 임성진")
+
+    def __init__(self, bot, session):
+        super().__init__()
+        self.bot = bot
+        self.session = session
+
+    async def on_submit(self, interaction: discord.Interaction):
+        name = str(self.char_name).strip()
+        uid = str(interaction.user.id)
+        base_profile = (self.session.scenario_data.get("pc_template") or {}).copy()
+
+        self.session.players[uid] = {
+            "name": name, "profile": base_profile, "appearance": ""
+        }
+        await core.save_session_data(self.bot, self.session)
+
+        try:
+            await interaction.user.edit(nick=name)
+        except Exception:
+            pass
+
+        await interaction.response.send_message(
+            f"✅ {interaction.user.mention}님이 **{name}**(으)로 참가했습니다.")
+
+        # 프로필 생성 UI를 이어서 시작한다.
+        try:
+            await core.profile_creation_ui.start(
+                self.bot, self.session, uid, name, interaction.channel)
+        except Exception as e:
+            print(f"[참가] 프로필 생성 시작 실패: {e}")
+            await interaction.followup.send(
+                "⚠️ 프로필 생성 UI를 열지 못했습니다. "
+                "`!능력치` `!외형` `!설정` 명령으로 설정해 주십시오.")
+
+
 class StartFrameView(discord.ui.View):
     """
     시작 상황 삼지선다.
@@ -185,6 +252,16 @@ class SessionCog(commands.Cog):
         if getattr(session, "display_ch_id", None):
             self.bot.active_sessions[session.display_ch_id] = session
         await core.save_session_data(self.bot, session)
+
+        # 게임 채널에 참가 버튼 배치 (기획 규정 — 명령어 없이 진행)
+        try:
+            await game_ch.send(
+                "**세션이 준비되었습니다.**\n"
+                "아래 버튼으로 참가하시면 캐릭터 생성이 이어집니다.",
+                view=JoinView(self.bot),
+            )
+        except Exception as e:
+            print(f"[세션] 참가 버튼 배치 실패: {e}")
 
         await _say(f"🎉 세션 준비 완료!\n플레이어 채널: {game_ch.mention}\n마스터 채널: {master_ch.mention}")
         return session
@@ -429,3 +506,8 @@ async def setup(bot):
     디스코드 봇이 이 파일을 로드할 때 호출되는 필수 설정 함수.
     """
     await bot.add_cog(SessionCog(bot))
+
+    # persistent view 등록 — 봇 재시작 후에도 참가 버튼이 동작해야 한다.
+    if not getattr(bot, "_join_view_registered", False):
+        bot.add_view(JoinView(bot))
+        bot._join_view_registered = True

@@ -325,14 +325,80 @@ class ScenarioSelect(discord.ui.Select):
 
     async def callback(self, interaction: discord.Interaction):
         sid = None if self.values[0] == "__common__" else self.values[0]
-        fields = (profiles.COMMON_FIELDS if sid is None
-                  else profiles.SCENARIO_FIELDS)
+        await interaction.response.defer()
+
+        # 세션 없이 프로필만 만든다. 실행부는 scenario_data와 players를
+        # 참조하므로, 저장 전용 임시 컨테이너를 세션 대역으로 넘긴다.
+        from .io import load_scenario_from_file
+        from . import profile_creation_ui
+
+        if sid is None:
+            # 공통 프로필 — 이름·성별·나이·외형만 받는다.
+            await interaction.followup.send(
+                "공통 프로필 생성",
+                view=CommonProfileView(self.bot, self.user_id))
+            return
+
+        scenario_data = load_scenario_from_file(sid)
+        if not scenario_data:
+            await interaction.followup.send(f"⚠️ '{sid}' 시나리오를 읽지 못했습니다.")
+            return
+
+        stub = _StandaloneSession(sid, scenario_data)
+        await profile_creation_ui.start(
+            self.bot, stub, self.user_id, "(이름 미정)", interaction.channel)
+
+
+class _StandaloneSession:
+    """세션 없이 프로필만 만들 때 쓰는 대역 객체.
+
+    NOTE: profile_creation_ui는 세션의 scenario_data와 players를 참조한다.
+          사전 프로필 생성은 세션 밖에서 일어나므로 최소 인터페이스만 갖춘
+          껍데기를 넘긴다. 저장은 완료 후 SaveProfileView가 담당한다.
+    """
+
+    def __init__(self, scenario_id: str, scenario_data: dict):
+        self.session_id = f"standalone-{scenario_id}"
+        self.scenario_id = scenario_id
+        self.scenario_data = scenario_data
+        self.players = {}
+        self.profile_ai_cost_krw = 0.0
+
+
+class CommonProfileView(discord.ui.View):
+    """공통 프로필 — 이름·성별·나이·외형만 받는다(기획 규정)."""
+
+    def __init__(self, bot, user_id):
+        super().__init__(timeout=600)
+        self.bot = bot
+        self.user_id = str(user_id)
+
+    @discord.ui.button(label="입력하기", style=discord.ButtonStyle.primary)
+    async def enter(self, interaction, _b):
+        await interaction.response.send_modal(
+            CommonProfileModal(self.bot, self.user_id))
+
+
+class CommonProfileModal(discord.ui.Modal, title="공통 프로필"):
+    name = discord.ui.TextInput(label="이름", required=True, max_length=20)
+    gender = discord.ui.TextInput(label="성별", required=False, max_length=10)
+    age = discord.ui.TextInput(label="나이", required=False, max_length=10)
+    look = discord.ui.TextInput(label="외형", style=discord.TextStyle.paragraph,
+                                required=False, max_length=500)
+
+    def __init__(self, bot, user_id):
+        super().__init__()
+        self.bot = bot
+        self.user_id = str(user_id)
+
+    async def on_submit(self, interaction: discord.Interaction):
+        fields = {"이름": str(self.name), "성별": str(self.gender or ""),
+                  "나이": str(self.age or ""), "외형": str(self.look or "")}
+        saved = await profiles.create(
+            self.user_id, name=str(self.name), scenario_id=None, fields=fields)
         await interaction.response.send_message(
-            f"**{sid or '공통 프로필'}** 생성\n"
-            f"> 채울 항목: {', '.join(fields)}\n"
-            f"> 저장 전까지 항목을 수정할 수 있습니다.\n\n"
-            f"생성 인터페이스는 세션 생성 플로우와 함께 활성화됩니다."
-        )
+            f"💾 공통 프로필 **{self.name}** 저장 완료 (태그: {saved['tag']})"
+            if saved else "⚠️ 저장에 실패했습니다.")
 
 
 async def open_manager(bot, user) -> bool:
