@@ -300,8 +300,17 @@ class SessionCog(commands.Cog):
                 self.bot, core.DEFAULT_MODEL, session.scenario_data, session=session
             )
 
+            # 선택된 유지 시간을 먼저 확정한다. 비용 계산과 TTL이 같은 값을 써야 한다.
+            minutes = int(getattr(session, "open_minutes", 0) or 0)
+            ttl = minutes * 60 if minutes else core.CACHE_TTL_SECONDS
+            store_hours = ttl / 3600
+
+            # 업로드(입력) + 유지(저장) 비용을 함께 계산한다.
             upload_cost = core.calculate_upload_cost(
-                core.DEFAULT_MODEL, input_tokens=cache_tokens)
+                core.DEFAULT_MODEL, input_tokens=cache_tokens,
+                store_hours=store_hours)
+            if cache_tokens <= 0:
+                print(f"⚠️ [캐시] 토큰 수가 0입니다. 비용이 0원으로 계산됩니다.")
             session.total_cost += upload_cost
             session.cache_created_at = time.time()
             session.cache_tokens = cache_tokens
@@ -313,10 +322,6 @@ class SessionCog(commands.Cog):
             if master_ch:
                 await master_ch.send(embed=core.build_cache_cost_embed(
                     "새 세션 캐시 생성", 0.0, upload_cost, session.total_cost))
-
-            # 선택된 유지 시간을 TTL로 쓴다. 미선택이면 기본 TTL.
-            minutes = int(getattr(session, "open_minutes", 0) or 0)
-            ttl = minutes * 60 if minutes else core.CACHE_TTL_SECONDS
 
             cache = await asyncio.to_thread(
                 self.bot.genai_client.caches.create,

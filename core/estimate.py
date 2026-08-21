@@ -230,19 +230,15 @@ def estimate_session_open(session, hours: float) -> dict:
     from .cost import calculate_upload_cost
 
     tokens = int(getattr(session, "cache_tokens", 0) or 0)
+    # NOTE: 실제 청구와 같은 함수를 써야 예상과 결과가 어긋나지 않는다.
+    #       이전에는 여기서만 저장비를 따로 계산해 두 값이 달랐다.
     try:
-        create_krw = calculate_upload_cost(DEFAULT_MODEL, tokens)
+        create_krw = calculate_upload_cost(DEFAULT_MODEL, input_tokens=tokens)
+        total = calculate_upload_cost(DEFAULT_MODEL, input_tokens=tokens,
+                                      store_hours=hours)
+        store_krw = total - create_krw
     except Exception:
-        create_krw = 0.0
-    # 저장 단가는 시간당 과금. constants의 단가표를 그대로 쓴다.
-    try:
-        from .constants import PRICING_1M
-        store_rate = PRICING_1M[DEFAULT_MODEL].get("CACHE_STORAGE_PER_HOUR", 0.0)
-    except Exception:
-        store_rate = 0.0
-    store_krw = tokens / 1_000_000 * store_rate * hours * EXCHANGE_RATE
-
-    total = create_krw + store_krw
+        create_krw = store_krw = total = 0.0
     return {
         "cache_tokens": tokens,
         "create_krw": round(create_krw, 2),

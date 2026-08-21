@@ -123,9 +123,15 @@ def calculate_image_gen_cost(model_id: str, prompt_tokens: int = 0, image_output
     }
 
 
-def calculate_upload_cost(model_id: str, input_tokens=0, output_tokens=0, cached_read_tokens=0) -> float:
+def calculate_upload_cost(model_id: str, input_tokens=0, output_tokens=0,
+                          cached_read_tokens=0, store_hours: float = 0.0) -> float:
     """
     API 사용량을 기반으로 업로드 및 생성 과금액을 원화(KRW)로 산출.
+
+    Args:
+        store_hours: 캐시 유지 시간(시간). 0보다 크면 저장 비용을 합산한다.
+            캐시 생성은 업로드(입력) 비용과 유지 비용이 함께 발생하는데,
+            유지분이 빠져 있어 실제보다 적게 계산됐다.
 
     NOTE: 내부 데이터의 무결성을 위해 소수점 이하의 부동소수점 값을 반올림 없이 원형 그대로 반환.
     """
@@ -140,6 +146,9 @@ def calculate_upload_cost(model_id: str, input_tokens=0, output_tokens=0, cached
     cost_usd += (actual_input_tokens / 1_000_000) * rates["INPUT"]
     cost_usd += (output_tokens / 1_000_000) * rates["OUTPUT"]
     cost_usd += (cached_read_tokens / 1_000_000) * rates["CACHE_READ"]
+    if store_hours > 0:
+        cost_usd += (input_tokens / 1_000_000) * rates.get(
+            "CACHE_STORAGE_PER_HOUR", 0.0) * store_hours
 
     return cost_usd * EXCHANGE_RATE
 
