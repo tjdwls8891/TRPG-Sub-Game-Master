@@ -36,6 +36,9 @@ class TRPGBot(commands.Bot):
         intents.message_content = True
         intents.guilds = True
         intents.members = True
+        # 음성 채널 참가자 인식(상시 참가)에 필요. Intents.default()에 이미
+        # 포함되지만 의존성을 명시해 둔다.
+        intents.voice_states = True
         super().__init__(command_prefix='!', intents=intents)
 
         # 1. 기존 전역 변수들의 봇 객체 종속화 (상태 중앙 관리)

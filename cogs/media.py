@@ -318,10 +318,17 @@ class MediaCog(commands.Cog):
         if not os.path.exists(filepath):
             return await ctx.send(f"⚠️ 설정된 파일이 경로에 없습니다: `{filepath}`")
 
+        # 세션 전용 음성 채널이 있으면 그쪽을 우선한다.
+        # 참가자 인식 리스너가 이미 연결해 두었을 수 있다.
         voice_channel = ctx.author.voice.channel
+        session_vc_id = getattr(session, "voice_ch_id", None)
+        if session_vc_id:
+            ch = self.bot.get_channel(session_vc_id)
+            if ch:
+                voice_channel = ch
 
-        vc = ctx.voice_client
-        if not vc:
+        vc = getattr(session, "voice_client", None) or ctx.voice_client
+        if not (vc and vc.is_connected()):
             vc = await voice_channel.connect()
         elif isinstance(vc, discord.VoiceClient) and vc.channel != voice_channel:
             await vc.move_to(voice_channel)

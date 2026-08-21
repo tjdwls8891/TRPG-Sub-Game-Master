@@ -136,6 +136,62 @@ class SessionCog(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
 
+    @commands.Cog.listener()
+    async def on_voice_state_update(self, member, before, after):
+        """
+        세션 음성 채널 참가자를 인식해 상시 참가 처리한다(기획 규정).
+
+        NOTE: 세션 채널에 들어온 것만으로 참가로 보되, 이미 등록된 참가자는
+              건드리지 않는다. 봇이 아직 음성에 연결돼 있지 않으면 함께
+              연결해 BGM·TTS가 즉시 들리게 한다.
+
+              나갈 때 참가를 취소하지는 않는다. 잠시 끊긴 것과 이탈을
+              구분할 수 없고, 프로필과 진행 상태가 이미 세션에 묶여 있다.
+        """
+        if member.bot:
+            return
+        if after.channel is None or before.channel == after.channel:
+            return
+
+        # 이 음성 채널을 쓰는 세션 찾기
+        session = None
+        for s in set(self.bot.active_sessions.values()):
+            if getattr(s, "voice_ch_id", None) == after.channel.id:
+                session = s
+                break
+        if session is None:
+            return
+
+        uid = str(member.id)
+        game_ch = self.bot.get_channel(session.game_ch_id)
+
+        # 봇 음성 연결 — BGM·TTS 출력 경로를 미리 확보한다.
+        vc = getattr(session, "voice_client", None)
+        if not (vc and vc.is_connected()):
+            try:
+                session.voice_client = await after.channel.connect()
+            except Exception as e:
+                print(f"[음성] 연결 실패: {e}")
+
+        if uid in (session.players or {}):
+            return   # 이미 참가자
+
+        # 비공개 세션이면 읽기 권한을 부여한다.
+        if getattr(session, "is_private", False):
+            for ch_id in (session.game_ch_id, getattr(session, "display_ch_id", None)):
+                ch = self.bot.get_channel(ch_id) if ch_id else None
+                if ch:
+                    try:
+                        await ch.set_permissions(member, read_messages=True)
+                    except Exception:
+                        pass
+
+        if game_ch:
+            await game_ch.send(
+                f"🎧 {member.mention} 님이 음성 채널에 참가했습니다.\n"
+                f"아래 버튼으로 캐릭터를 만들고 세션에 합류하십시오.",
+                view=JoinView(self.bot))
+
     async def provision_session(self, guild, author, scenario_id: str,
                                 *, kind: str = "solo", private: bool = False,
                                 notify=None):
