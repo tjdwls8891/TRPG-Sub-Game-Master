@@ -238,45 +238,92 @@ class ConfirmView(_Base):
 
 class StatRollView(_Base):
     """
-    능력치 배분 — 산출은 언제나 랜덤이고 세 조건을 선택할 수 있다.
+    능력치 배분 — 산출은 언제나 랜덤이고 세 조건을 등급으로 고른다.
 
-    기획 규정 — 총합·최대 편차·특정 능력치 최대 여부를 선택사항으로 제공한다.
-    조건을 바꾸면 즉시 다시 굴린다.
+    기획 규정 — 수치 대신 별명으로 직관적으로 선택하게 한다.
+      총합   허접 · 약골 · 평범 · 튼튼 · 능력자 · 먼치킨
+      편차   만능 · 무난 · 뚜렷 · 극단
+      특화   골고루 또는 특정 능력치
     """
 
     def __init__(self, state, channel, res: dict):
         super().__init__(state, channel)
         self.res = res
-        stats = (res.get("args") or {}).get("stats") or []
+        args = res.get("args") or {}
+        sd = state.session.scenario_data
+        self.add_item(TotalTierSelect(args, sd))
+        self.add_item(SpreadTierSelect(args, sd, state.run))
+        stats = args.get("stats") or []
         if stats:
             self.add_item(TopFieldSelect(stats))
 
-    @discord.ui.button(label="🎲 다시 굴리기", style=discord.ButtonStyle.primary, row=0)
+    @discord.ui.button(label="🎲 다시 굴리기", style=discord.ButtonStyle.primary, row=3)
     async def reroll(self, interaction, _b):
         await interaction.response.defer()
         runner.cancel_pending(self.state.run)
         await render(self.state, self.channel)
 
-    @discord.ui.button(label="⚙️ 조건 설정", style=discord.ButtonStyle.secondary, row=0)
-    async def constraints(self, interaction, _b):
-        await interaction.response.send_modal(
-            StatConstraintModal(self.state, self.channel, self.res))
-
-    @discord.ui.button(label="✅ 확정", style=discord.ButtonStyle.success, row=0)
+    @discord.ui.button(label="✅ 확정", style=discord.ButtonStyle.success, row=3)
     async def ok(self, interaction, _b):
         await interaction.response.defer()
         runner.confirm(self.state.session.scenario_data, self.state.run)
         await render(self.state, self.channel)
 
 
+class TotalTierSelect(discord.ui.Select):
+    """총합 등급 — 상한 대비 비율로 환산된다."""
+
+    def __init__(self, args: dict, scenario_data: dict):
+        tiers = profile_gen.get_total_tiers(scenario_data)
+        options = [discord.SelectOption(label="총합: 무작위", value="__none__")]
+        for name in tiers:
+            options.append(discord.SelectOption(
+                label=profile_gen.describe_tier(name, args, scenario_data)[:100],
+                value=name))
+        super().__init__(placeholder="전체적인 강함", options=options[:25], row=0)
+
+    async def callback(self, interaction):
+        await interaction.response.defer()
+        v = self.view
+        val = None if self.values[0] == "__none__" else self.values[0]
+        runner.set_stat_constraint(v.state.run, "total_tier", val)
+        runner.cancel_pending(v.state.run)
+        await render(v.state, v.channel)
+
+
+class SpreadTierSelect(discord.ui.Select):
+    """편차 등급 — 총합에서 가능한 최대 편차에 비례한다."""
+
+    def __init__(self, args: dict, scenario_data: dict, run: dict):
+        tiers = profile_gen.get_spread_tiers(scenario_data)
+        cons = run.get("stat_constraints") or {}
+        total_v = (profile_gen.tier_to_total(cons["total_tier"], args, scenario_data)
+                   if cons.get("total_tier") else None)
+        options = [discord.SelectOption(label="편차: 무작위", value="__none__")]
+        for name in tiers:
+            options.append(discord.SelectOption(
+                label=profile_gen.describe_tier(
+                    name, args, scenario_data, kind="spread", total=total_v)[:100],
+                value=name))
+        super().__init__(placeholder="능력의 치우침", options=options[:25], row=1)
+
+    async def callback(self, interaction):
+        await interaction.response.defer()
+        v = self.view
+        val = None if self.values[0] == "__none__" else self.values[0]
+        runner.set_stat_constraint(v.state.run, "spread_tier", val)
+        runner.cancel_pending(v.state.run)
+        await render(v.state, v.channel)
+
+
 class TopFieldSelect(discord.ui.Select):
     """특정 능력치를 최고로 지정하거나 해제한다."""
 
     def __init__(self, stats: list):
-        options = [discord.SelectOption(label="최고 지정 없음", value="__none__")]
-        options += [discord.SelectOption(label=f"{s} 최고", value=s)
+        options = [discord.SelectOption(label="특화: 골고루", value="__none__")]
+        options += [discord.SelectOption(label=f"{s} 특화", value=s)
                     for s in stats[:24]]
-        super().__init__(placeholder="특정 능력치를 최고로", options=options, row=1)
+        super().__init__(placeholder="특화 분야", options=options, row=2)
 
     async def callback(self, interaction):
         await interaction.response.defer()
@@ -285,42 +332,6 @@ class TopFieldSelect(discord.ui.Select):
         runner.set_stat_constraint(v.state.run, "top_field", val)
         runner.cancel_pending(v.state.run)
         await render(v.state, v.channel)
-
-
-class StatConstraintModal(discord.ui.Modal, title="능력치 조건"):
-    """총합과 최대 편차를 입력받는다. 비우면 해제된다."""
-
-    total = discord.ui.TextInput(label="총합 (비우면 기본값)", required=False, max_length=4)
-    spread = discord.ui.TextInput(label="최대 편차 (비우면 제한 없음)",
-                                  required=False, max_length=3)
-
-    def __init__(self, state, channel, res: dict):
-        super().__init__()
-        self.state = state
-        self.channel = channel
-        cons = state.run.get("stat_constraints") or {}
-        if cons.get("total") is not None:
-            self.total.default = str(cons["total"])
-        if cons.get("max_spread") is not None:
-            self.spread.default = str(cons["max_spread"])
-
-    async def on_submit(self, interaction):
-        await interaction.response.defer()
-        run = self.state.run
-
-        def _parse(field):
-            t = str(field or "").strip()
-            if not t:
-                return None
-            try:
-                return max(0, int(t))
-            except ValueError:
-                return None
-
-        runner.set_stat_constraint(run, "total", _parse(self.total))
-        runner.set_stat_constraint(run, "max_spread", _parse(self.spread))
-        runner.cancel_pending(run)
-        await render(self.state, self.channel)
 
 
 class AIInputView(_Base):

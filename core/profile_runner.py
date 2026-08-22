@@ -132,10 +132,18 @@ def step(scenario_data: dict, run: dict, user_input: str = None) -> dict:
     # 제약은 run["stat_constraints"]에 보관되어 재굴림에도 유지된다.
     if module == "roll_stats":
         cons = run.get("stat_constraints") or {}
+        # 등급 라벨을 실제 수치로 환산한다. 편차는 총합에 상대적이므로
+        # 총합을 먼저 확정해야 한다.
+        total_v = profile_gen.tier_to_total(
+            cons.get("total_tier"), args, scenario_data) if cons.get("total_tier") else None
+        spread_v = profile_gen.tier_to_spread(
+            cons.get("spread_tier"), args, scenario_data,
+            total_v) if cons.get("spread_tier") else None
+
         result = profile_gen.roll_stats(
             args,
-            total=cons.get("total"),
-            max_spread=cons.get("max_spread"),
+            total=total_v,
+            max_spread=spread_v,
             top_field=cons.get("top_field"),
         )
         run["pending"] = {"field": field, "value": result["values"]}
@@ -196,14 +204,14 @@ def step(scenario_data: dict, run: dict, user_input: str = None) -> dict:
 
 
 def _describe_constraints(cons: dict) -> str:
-    """설정된 제약을 표시 문자열로."""
+    """설정된 제약을 표시 문자열로. 수치가 아니라 등급 라벨을 쓴다."""
     parts = []
-    if cons.get("total") is not None:
-        parts.append(f"총합 {cons['total']}")
-    if cons.get("max_spread") is not None:
-        parts.append(f"편차 {cons['max_spread']} 이하")
+    if cons.get("total_tier"):
+        parts.append(cons["total_tier"])
+    if cons.get("spread_tier"):
+        parts.append(cons["spread_tier"])
     if cons.get("top_field"):
-        parts.append(f"{cons['top_field']} 최고")
+        parts.append(f"{cons['top_field']} 특화")
     return " · ".join(parts)
 
 

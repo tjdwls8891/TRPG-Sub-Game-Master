@@ -143,6 +143,131 @@ def goto_step(steps: list, target_field: str) -> int | None:
 
 
 # ── 6. 능력치 프리셋 ────────────────────────────────────────
+# ── 능력치 등급 ────────────────────────────────────────────
+# 수치 대신 별명으로 고르게 한다. 비율 기준이라 스탯 개수가 다른
+# 시나리오에서도 그대로 통한다.
+#
+#   최대치 = 스탯 개수 × 상한(기본 20)
+#   영도(3종) 60 · 무협(4종) 80
+
+# 총합 등급 — 상한 대비 비율. 평범 50%는 스탯당 평균 10에 해당한다.
+TOTAL_TIERS = {
+    "허접": 0.25,
+    "약골": 0.35,
+    "평범": 0.50,
+    "튼튼": 0.62,
+    "능력자": 0.75,
+    "먼치킨": 0.90,
+}
+
+# 편차 등급 — (상한 - 하한) 대비 비율. None이면 제한 없음.
+SPREAD_TIERS = {
+    "만능": 0.10,
+    "무난": 0.30,
+    "뚜렷": 0.50,
+    "극단": None,
+}
+
+# 상한 기본값. 시나리오의 ability_stat_max로 덮인다.
+DEFAULT_STAT_CAP = 20
+
+
+def get_total_tiers(scenario_data: dict = None) -> dict:
+    """총합 등급표. 시나리오가 stat_tiers로 덮어쓸 수 있다."""
+    override = (scenario_data or {}).get("stat_tiers")
+    if isinstance(override, dict) and override:
+        return {k: float(v) for k, v in override.items()
+                if isinstance(v, (int, float))}
+    return dict(TOTAL_TIERS)
+
+
+def get_spread_tiers(scenario_data: dict = None) -> dict:
+    """편차 등급표. 시나리오가 spread_tiers로 덮어쓸 수 있다."""
+    override = (scenario_data or {}).get("spread_tiers")
+    if isinstance(override, dict) and override:
+        return {k: (float(v) if isinstance(v, (int, float)) else None)
+                for k, v in override.items()}
+    return dict(SPREAD_TIERS)
+
+
+def tier_to_total(tier: str, args: dict, scenario_data: dict = None) -> int | None:
+    """총합 등급을 실제 수치로 환산한다.
+
+    최대치는 '스탯 개수 × 상한'이며, 상한은 시나리오의
+    ability_stat_max를 따른다(미지정 20).
+    """
+    tiers = get_total_tiers(scenario_data)
+    ratio = tiers.get(tier)
+    if ratio is None:
+        return None
+    stats = args.get("stats") or []
+    n = len(stats)
+    if n == 0:
+        return None
+
+    # NOTE: 명목 상한(ability_stat_max)이 아니라 실제 배분 상한(max_single)을
+    #       기준으로 삼는다. 영도는 명목 20이지만 PC 배분 범위가 5~15라,
+    #       명목 기준으로 계산하면 먼치킨(90% = 54)이 달성 불가능한 값이 된다.
+    hi = int(args.get("max_single")
+             or (scenario_data or {}).get("ability_stat_max")
+             or DEFAULT_STAT_CAP)
+    lo = int(args.get("min_single") or 1)
+
+    # 하한 합을 바닥으로 두고 그 위 여유분에 비율을 적용한다.
+    floor = lo * n
+    room = hi * n - floor
+    return max(floor, round(floor + room * ratio))
+
+
+def max_possible_spread(args: dict, total: int = None) -> int:
+    """주어진 총합에서 실제로 만들 수 있는 최대 편차.
+
+    NOTE: 총합이 극단이면 조합이 하나뿐이라 편차 선택이 무의미해진다.
+          허접(합15, 스탯 3종, 하한 5)은 5+5+5뿐이고
+          먼치킨은 상한에 몰린다. 등급을 이 값에 비례시켜야
+          어느 총합에서도 선택이 의미를 갖는다.
+    """
+    stats = args.get("stats") or []
+    n = len(stats)
+    if n < 2:
+        return 0
+    hi = int(args.get("max_single") or DEFAULT_STAT_CAP)
+    lo = int(args.get("min_single") or 1)
+    t = int(total if total is not None else (args.get("total") or n * 3))
+    t = max(lo * n, min(hi * n, t))
+
+    # 한 항목을 최대한 올렸을 때의 값 — 나머지는 하한으로 내린다.
+    top = min(hi, t - lo * (n - 1))
+    # 한 항목을 최대한 내렸을 때의 값 — 나머지는 상한으로 올린다.
+    bottom = max(lo, t - hi * (n - 1))
+    return max(0, top - bottom)
+
+
+def tier_to_spread(tier: str, args: dict, scenario_data: dict = None,
+                   total: int = None) -> int | None:
+    """편차 등급을 실제 수치로 환산한다. 제한 없음이면 None.
+
+    총합에서 실제로 가능한 최대 편차에 비율을 적용한다.
+    """
+    tiers = get_spread_tiers(scenario_data)
+    if tier not in tiers:
+        return None
+    ratio = tiers[tier]
+    if ratio is None:
+        return None
+    return max(0, round(max_possible_spread(args, total) * ratio))
+
+
+def describe_tier(tier: str, args: dict, scenario_data: dict = None,
+                  *, kind: str = "total", total: int = None) -> str:
+    """등급 라벨에 실제 수치를 덧붙인 설명."""
+    if kind == "total":
+        v = tier_to_total(tier, args, scenario_data)
+        return f"{tier} (합 {v})" if v is not None else tier
+    v = tier_to_spread(tier, args, scenario_data, total)
+    return f"{tier} (편차 {v} 이하)" if v is not None else f"{tier} (제한 없음)"
+
+
 def roll_stats(args: dict, *, total: int = None, max_spread: int = None,
                top_field: str = None, tries: int = 200) -> dict:
     """능력치를 무작위로 배분한다 (기획 규정 6번).
