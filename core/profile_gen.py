@@ -294,7 +294,17 @@ def roll_stats(args: dict, *, total: int = None, max_spread: int = None,
                 "constraints": {}, "ok": False}
 
     n = len(stats)
-    target = int(total if total is not None else (args.get("total") or n * 3))
+    if total is not None:
+        target = int(total)
+    elif args.get("total"):
+        target = int(args["total"])
+    else:
+        # 등급을 고르지 않으면 총합도 무작위로 정한다.
+        # 기본값 n*3으로 두면 최하 등급보다도 낮은 값이 나온다.
+        # 등급표의 최저~최고 비율 사이에서 뽑아 자연스러운 분포를 만든다.
+        ratios = list(TOTAL_TIERS.values())
+        target = round(n * int(args.get("max_single") or DEFAULT_STAT_CAP)
+                       * random.uniform(min(ratios), max(ratios)))
     hi = int(args.get("max_single") or 6)
     lo = int(args.get("min_single") or 1)
 
