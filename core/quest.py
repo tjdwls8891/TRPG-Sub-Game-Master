@@ -151,36 +151,85 @@ def filter_available(session, *, limit: int = CANDIDATE_LIMIT) -> list:
     return picked[:limit]
 
 
-def fill_slots(session, quest: dict) -> dict:
-    """가변정보를 시나리오 목록에서 채운다.
+def _context_value(session, key: str):
+    """현재 세션 맥락에서 슬롯 값을 꺼낸다.
 
-    'pick': '1-2' 같은 개수 랜덤도 지원한다(기획 규정).
+    'context:location' 처럼 지정하면 추출층위가 갱신한 현재 위치를 쓴다.
+    맥락을 무시하고 무작위로 뽑으면 '저지대에 있는데 다른 동네로 가라'는
+    퀘스트가 나온다.
+    """
+    tl = getattr(session, "world_timeline", {}) or {}
+    if key == "location":
+        v = tl.get("current_location")
+    elif key == "faction":
+        v = getattr(session, "player_faction", "") or tl.get("faction_context")
+    elif key == "time":
+        v = tl.get("time_of_day")
+    else:
+        v = None
+    return v if v and v != "미확인" else None
+
+
+def fill_slots(session, quest: dict) -> dict:
+    """가변정보를 채운다.
+
+    - 'from': 'context:location' → 현재 맥락에서 가져온다
+    - 'exclude': ['출발'] → 앞서 정해진 슬롯과 같은 값을 피한다
+    - 'pick': '1-2' → 개수 랜덤(기획 규정)
+
+    슬롯은 정의 순서대로 채워지므로, exclude는 앞선 슬롯만 참조할 수 있다.
     """
     from .profile_gen import resolve_pick_count
 
     data = load_quest_data(getattr(session, "scenario_id", ""))
     pools = data.get("quest_slots") or {}
     out = {}
+
     for key, spec in (quest.get("slots") or {}).items():
         if not isinstance(spec, dict):
             continue
-        pool = pools.get(spec.get("from")) or []
+        src = spec.get("from") or ""
+
+        # 맥락 참조 — 실패하면 일반 풀로 폴백한다.
+        if src.startswith("context:"):
+            v = _context_value(session, src.split(":", 1)[1])
+            if v:
+                out[key] = v
+                continue
+            src = spec.get("fallback") or ""
+
+        pool = list(pools.get(src) or [])
         if not pool:
             continue
+
+        # 같은 퀘스트 안에서 중복을 피한다.
+        # '중리 교역소에서 중리 교역소까지' 같은 문장을 막는다.
+        taken = set()
+        for ex_key in (spec.get("exclude") or []):
+            ex_val = out.get(ex_key)
+            if isinstance(ex_val, list):
+                taken.update(ex_val)
+            elif ex_val:
+                taken.add(ex_val)
+        remain = [x for x in pool if x not in taken]
+        if remain:
+            pool = remain
+
         n = min(resolve_pick_count(spec.get("pick", 1)), len(pool))
-        chosen = random.sample(list(pool), max(1, n))
+        chosen = random.sample(pool, max(1, n))
         out[key] = chosen[0] if n <= 1 else chosen
     return out
 
 
 def _apply_slots(text: str, slots: dict) -> str:
-    """가이드 문구의 {슬롯}을 채운다."""
-    if not text:
-        return ""
-    for k, v in (slots or {}).items():
-        val = ", ".join(v) if isinstance(v, list) else str(v)
-        text = text.replace("{" + k + "}", val)
-    return text
+    """가이드 문구의 {슬롯}을 채운다.
+
+    조사 보정은 koreantext가 담당한다. 단순 replace를 쓰면
+    '빗물 집수 장비이 남아' 같은 어색한 문장이 나온다.
+    """
+    from .koreantext import substitute, strip_unfilled
+
+    return strip_unfilled(substitute(text, slots))
 
 
 def start_quest(session, quest: dict) -> dict:

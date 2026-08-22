@@ -22,6 +22,7 @@
 #   quest      — 퀘스트 시스템 (필터·슬롯·케이스 트리·온디맨드 주입)
 #   memory_plan — 기억 압축 플랜 4종 (주기·모델·서술 형태)
 #   start_frame — 시작 상황 틀·프로필 브리핑 (세션 시작 다양화)
+#   koreantext — 슬롯 치환·조사 보정 (틀·퀘스트 공용)
 #   session_open — 세션 유지 시간 해석 결과의 환산·확인
 #   terms      — 약관 동의·계정 등록 DM 인터페이스
 #   gm_space   — 서버 GM 스페이스 (홈·명전·보드)
@@ -152,6 +153,7 @@ from . import profile_ai
 from . import quest
 from . import memory_plan
 from . import start_frame
+from . import koreantext
 from .profile_ui import open_manager, ProfileHomeView
 from . import profile_creation_ui
 from . import session_flow
@@ -279,7 +281,7 @@ __all__ = [
     "DEFAULT_MODEL", "LOGIC_MODEL", "PROFILE_AI_MODEL", "IMAGE_MODEL", "EXCHANGE_RATE",
     "MIN_CACHE_TOKENS", "CACHE_TTL_SECONDS", "INK_UNIT_KRW", "INK_NET_KRW", "INK_PLANS",
     # ink / accounts
-    "creation", "profiles", "profile_gen", "profile_runner", "profile_ai", "quest", "memory_plan", "start_frame",
+    "creation", "profiles", "profile_gen", "profile_runner", "profile_ai", "quest", "memory_plan", "start_frame", "koreantext",
     "open_manager", "ProfileHomeView", "profile_creation_ui", "session_flow",
     "resolve_minutes", "should_charge_interpretation", "format_confirmation",
     "VAGUE_MINUTES", "MINUTES_PER_TURN", "MIN_MINUTES", "MAX_MINUTES",

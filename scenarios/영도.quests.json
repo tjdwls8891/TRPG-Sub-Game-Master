@@ -1,25 +1,66 @@
 {
   "_comment": "영도 시나리오 퀘스트 데이터. core/quest.py가 소비한다. 세계관의 4세력·고도 딜레마·감염 규칙을 전제로 설계했다.",
-
   "quest_slots": {
-    "faction_list": ["남항 중공업 연대", "해련 자치 마을", "조도 방위 사령부", "중리 교역소"],
-    "lowland_list": ["저지대 상업지구", "동삼동 해안로", "봉래시장 일대", "남항동 연안"],
-    "highland_list": ["봉래산 능선", "해련사 일대", "산복도로 상단"],
-    "route_list": ["산복도로", "봉래산 능선 루트", "하수도·지하 구조물", "동삼동 해안로"],
-    "supply_list": ["통조림 상자", "건전지 묶음", "정수 필터", "항생제", "발전기 부품", "빗물 집수 장비"],
-    "trade_list": ["담배 한 보루", "탄약 한 상자", "말린 생선", "재봉 도구", "라디오 부품"]
+    "faction_list": [
+      "남항 중공업 연대",
+      "해련 자치 마을",
+      "조도 방위 사령부",
+      "중리 교역소"
+    ],
+    "lowland_list": [
+      "저지대 상업지구",
+      "동삼동 해안로",
+      "봉래시장 일대",
+      "남항동 연안"
+    ],
+    "highland_list": [
+      "봉래산 능선",
+      "해련사 일대",
+      "산복도로 상단"
+    ],
+    "route_list": [
+      "산복도로",
+      "봉래산 능선 루트",
+      "하수도·지하 구조물",
+      "동삼동 해안로"
+    ],
+    "supply_list": [
+      "통조림 상자",
+      "건전지 묶음",
+      "정수 필터",
+      "항생제",
+      "발전기 부품",
+      "빗물 집수 장비"
+    ],
+    "trade_list": [
+      "담배 한 보루",
+      "탄약 한 상자",
+      "말린 생선",
+      "재봉 도구",
+      "라디오 부품"
+    ]
   },
-
   "quests": [
     {
       "id": "sub_scavenge_lowland",
       "name": "저지대 보급 탐색",
       "version": "a",
       "line": "sub",
-      "filters": { "min_turn": 1, "max_turn": null, "requires_cleared": [] },
+      "filters": {
+        "min_turn": 1,
+        "max_turn": null,
+        "requires_cleared": []
+      },
       "slots": {
-        "장소": { "from": "lowland_list", "pick": 1 },
-        "목표물": { "from": "supply_list", "pick": "1-2" }
+        "장소": {
+          "from": "context:location",
+          "fallback": "lowland_list",
+          "pick": 1
+        },
+        "목표물": {
+          "from": "supply_list",
+          "pick": "1-2"
+        }
       },
       "repeatable": true,
       "max_occurrences": 3,
@@ -27,51 +68,105 @@
         "root": {
           "guide": "{장소}에 {목표물}이 남아 있다는 정보가 돈다. 고지대 거점에서는 구할 수 없는 물자다.",
           "cases": {
-            "descend": { "next": "search", "condition": "저지대로 내려간다" },
-            "prepare": { "next": "root", "condition": "정보를 더 모으거나 장비를 챙긴다" },
-            "ignore": { "next": "missed", "condition": "위험을 피해 포기한다" }
+            "descend": {
+              "next": "search",
+              "condition": "저지대로 내려간다"
+            },
+            "prepare": {
+              "next": "root",
+              "condition": "정보를 더 모으거나 장비를 챙긴다"
+            },
+            "ignore": {
+              "next": "missed",
+              "condition": "위험을 피해 포기한다"
+            }
           }
         },
         "search": {
           "guide": "건물 내부는 어둡고 시야가 막혀 있다. 소음이 감염자를 부른다.",
           "cases": {
-            "quiet": { "next": "haul", "condition": "은밀하게 수색한다" },
-            "rush": { "next": "swarm", "condition": "빠르게 훑는다" },
-            "retreat": { "next": "missed", "condition": "물러난다" }
+            "quiet": {
+              "next": "haul",
+              "condition": "은밀하게 수색한다"
+            },
+            "rush": {
+              "next": "swarm",
+              "condition": "빠르게 훑는다"
+            },
+            "retreat": {
+              "next": "missed",
+              "condition": "물러난다"
+            }
           }
         },
         "swarm": {
           "guide": "소음에 이끌린 감염자들이 몰려든다. 물자보다 생존이 먼저다.",
           "cases": {
-            "flee": { "next": "missed", "condition": "물자를 버리고 도주" },
-            "fight": { "next": "haul", "condition": "돌파한다" },
-            "hide": { "next": "search", "condition": "숨어 지나가길 기다린다" }
+            "flee": {
+              "next": "missed",
+              "condition": "물자를 버리고 도주"
+            },
+            "fight": {
+              "next": "haul",
+              "condition": "돌파한다"
+            },
+            "hide": {
+              "next": "search",
+              "condition": "숨어 지나가길 기다린다"
+            }
           }
         },
         "haul": {
           "guide": "{목표물}을 확보했다. 이제 오르막을 올라 돌아가야 한다.",
-          "cases": { "return": { "next": "clear", "condition": "거점으로 귀환" } }
+          "cases": {
+            "return": {
+              "next": "clear",
+              "condition": "거점으로 귀환"
+            }
+          }
         },
-        "clear": { "guide": "물자를 거점에 들였다.", "cases": {}, "outcome": "clear" },
-        "missed": { "guide": "물자를 얻지 못했다. 기회는 다시 올 것이다.", "cases": {}, "outcome": "missed" }
+        "clear": {
+          "guide": "물자를 거점에 들였다.",
+          "cases": {},
+          "outcome": "clear"
+        },
+        "missed": {
+          "guide": "물자를 얻지 못했다. 기회는 다시 올 것이다.",
+          "cases": {},
+          "outcome": "missed"
+        }
       },
       "hidden": {
         "truth": "해당 건물은 다른 세력이 이미 표시해 둔 구역이다.",
-        "reveal_conditions": ["벽의 표식을 알아본다", "감시자를 발견한다"],
+        "reveal_conditions": [
+          "벽의 표식을 알아본다",
+          "감시자를 발견한다"
+        ],
         "if_unknown": "단순 보급 탐색으로 끝난다.",
         "if_known": "표식을 남긴 세력과의 마찰 가능성이 열린다."
       }
     },
-
     {
       "id": "sub_water_line",
       "name": "빗물 집수 보수",
       "version": "a",
       "line": "sub",
-      "filters": { "min_turn": 2, "faction": ["해련 자치 마을"], "requires_cleared": [] },
+      "filters": {
+        "min_turn": 2,
+        "faction": [
+          "해련 자치 마을"
+        ],
+        "requires_cleared": []
+      },
       "slots": {
-        "장소": { "from": "highland_list", "pick": 1 },
-        "부품": { "from": "supply_list", "pick": 1 }
+        "장소": {
+          "from": "highland_list",
+          "pick": 1
+        },
+        "부품": {
+          "from": "supply_list",
+          "pick": 1
+        }
       },
       "repeatable": true,
       "max_occurrences": 2,
@@ -79,83 +174,170 @@
         "root": {
           "guide": "{장소}의 집수 설비가 막혔다. 고지대의 생명줄이 끊기면 마을 전체가 저지대로 내려가야 한다.",
           "cases": {
-            "inspect": { "next": "diagnose", "condition": "설비를 살핀다" },
-            "delay": { "next": "worsen", "condition": "미룬다" }
+            "inspect": {
+              "next": "diagnose",
+              "condition": "설비를 살핀다"
+            },
+            "delay": {
+              "next": "worsen",
+              "condition": "미룬다"
+            }
           }
         },
         "diagnose": {
           "guide": "{부품}이 필요하다는 것이 드러난다. 거점에 없다면 구해와야 한다.",
           "cases": {
-            "have": { "next": "repair", "condition": "부품을 이미 갖고 있다" },
-            "fetch": { "next": "repair", "condition": "부품을 구하러 간다" },
-            "improvise": { "next": "partial", "condition": "임시방편으로 때운다" }
+            "have": {
+              "next": "repair",
+              "condition": "부품을 이미 갖고 있다"
+            },
+            "fetch": {
+              "next": "repair",
+              "condition": "부품을 구하러 간다"
+            },
+            "improvise": {
+              "next": "partial",
+              "condition": "임시방편으로 때운다"
+            }
           }
         },
-        "repair": { "guide": "설비가 복구되어 물이 다시 고인다.", "cases": {}, "outcome": "clear" },
-        "partial": { "guide": "임시로 막았으나 오래가지 않을 것이다.", "cases": {}, "outcome": "partial" },
-        "worsen": { "guide": "물 부족이 심각해진다. 마을의 시선이 곱지 않다.", "cases": {}, "outcome": "failed" }
+        "repair": {
+          "guide": "설비가 복구되어 물이 다시 고인다.",
+          "cases": {},
+          "outcome": "clear"
+        },
+        "partial": {
+          "guide": "임시로 막았으나 오래가지 않을 것이다.",
+          "cases": {},
+          "outcome": "partial"
+        },
+        "worsen": {
+          "guide": "물 부족이 심각해진다. 마을의 시선이 곱지 않다.",
+          "cases": {},
+          "outcome": "failed"
+        }
       },
       "hidden": {
         "truth": "설비를 막은 것은 우연이 아니라 누군가의 손이다.",
-        "reveal_conditions": ["절단면을 확인한다", "목격자를 찾는다"],
+        "reveal_conditions": [
+          "절단면을 확인한다",
+          "목격자를 찾는다"
+        ],
         "if_unknown": "자연 마모로 처리된다.",
         "if_known": "마을 내부의 불화가 드러난다."
       }
     },
-
     {
       "id": "sub_quarantine_line",
       "name": "검역선의 판단",
       "version": "a",
       "line": "sub",
-      "filters": { "min_turn": 3, "faction": ["남항 중공업 연대"], "requires_cleared": [] },
-      "slots": { "장소": { "from": "faction_list", "pick": 1 } },
+      "filters": {
+        "min_turn": 3,
+        "faction": [
+          "남항 중공업 연대"
+        ],
+        "requires_cleared": []
+      },
+      "slots": {
+        "장소": {
+          "from": "faction_list",
+          "pick": 1
+        }
+      },
       "repeatable": false,
       "max_occurrences": 1,
       "tree": {
         "root": {
           "guide": "제1방어선에 부상자가 도착했다. 물린 자국인지 긁힌 자국인지 분명하지 않다.",
           "cases": {
-            "examine": { "next": "verdict", "condition": "상처를 살핀다" },
-            "isolate": { "next": "wait", "condition": "일단 격리한다" },
-            "expel": { "next": "expelled", "condition": "즉시 추방한다" }
+            "examine": {
+              "next": "verdict",
+              "condition": "상처를 살핀다"
+            },
+            "isolate": {
+              "next": "wait",
+              "condition": "일단 격리한다"
+            },
+            "expel": {
+              "next": "expelled",
+              "condition": "즉시 추방한다"
+            }
           }
         },
         "verdict": {
           "guide": "판단은 갈린다. 48시간을 기다릴 자원이 있는가.",
           "cases": {
-            "admit": { "next": "wait", "condition": "받아들이고 관찰한다" },
-            "refuse": { "next": "expelled", "condition": "거부한다" }
+            "admit": {
+              "next": "wait",
+              "condition": "받아들이고 관찰한다"
+            },
+            "refuse": {
+              "next": "expelled",
+              "condition": "거부한다"
+            }
           }
         },
         "wait": {
           "guide": "48시간이 흐른다. 증상은 나타나거나 나타나지 않는다.",
           "cases": {
-            "clean": { "next": "clear", "condition": "증상이 없다" },
-            "onset": { "next": "outbreak", "condition": "고열이 시작된다" }
+            "clean": {
+              "next": "clear",
+              "condition": "증상이 없다"
+            },
+            "onset": {
+              "next": "outbreak",
+              "condition": "고열이 시작된다"
+            }
           }
         },
-        "clear": { "guide": "생존자가 하나 늘었다.", "cases": {}, "outcome": "clear" },
-        "outbreak": { "guide": "격리가 늦었다면 방어선 내부가 위험해진다.", "cases": {}, "outcome": "failed" },
-        "expelled": { "guide": "문 밖의 일은 문 밖의 일이다. 그러나 지켜본 자들이 있다.", "cases": {}, "outcome": "deviated" }
+        "clear": {
+          "guide": "생존자가 하나 늘었다.",
+          "cases": {},
+          "outcome": "clear"
+        },
+        "outbreak": {
+          "guide": "격리가 늦었다면 방어선 내부가 위험해진다.",
+          "cases": {},
+          "outcome": "failed"
+        },
+        "expelled": {
+          "guide": "문 밖의 일은 문 밖의 일이다. 그러나 지켜본 자들이 있다.",
+          "cases": {},
+          "outcome": "deviated"
+        }
       },
       "hidden": {
         "truth": "부상자는 검역 책임자의 친족이다.",
-        "reveal_conditions": ["이름을 확인한다", "검역관의 태도를 눈치챈다"],
+        "reveal_conditions": [
+          "이름을 확인한다",
+          "검역관의 태도를 눈치챈다"
+        ],
         "if_unknown": "규정대로 처리된다.",
         "if_known": "규정과 온정 사이의 선택이 된다."
       }
     },
-
     {
       "id": "sub_debt_collector",
       "name": "채무 부랑자",
       "version": "a",
       "line": "sub",
-      "filters": { "min_turn": 2, "faction": ["중리 교역소"], "requires_cleared": [] },
+      "filters": {
+        "min_turn": 2,
+        "faction": [
+          "중리 교역소"
+        ],
+        "requires_cleared": []
+      },
       "slots": {
-        "물품": { "from": "trade_list", "pick": 1 },
-        "장소": { "from": "lowland_list", "pick": 1 }
+        "물품": {
+          "from": "trade_list",
+          "pick": 1
+        },
+        "장소": {
+          "from": "lowland_list",
+          "pick": 1
+        }
       },
       "repeatable": true,
       "max_occurrences": 2,
@@ -163,502 +345,1036 @@
         "root": {
           "guide": "3등급 채무자가 {물품}을 갚지 못하고 {장소}로 달아났다. 교역소가 회수를 원한다.",
           "cases": {
-            "accept": { "next": "track", "condition": "의뢰를 받는다" },
-            "decline": { "next": "missed", "condition": "거절한다" },
-            "negotiate": { "next": "root", "condition": "조건을 흥정한다" }
+            "accept": {
+              "next": "track",
+              "condition": "의뢰를 받는다"
+            },
+            "decline": {
+              "next": "missed",
+              "condition": "거절한다"
+            },
+            "negotiate": {
+              "next": "root",
+              "condition": "조건을 흥정한다"
+            }
           }
         },
         "track": {
           "guide": "흔적은 저지대로 이어진다. 쫓는 자가 나만은 아닌 듯하다.",
           "cases": {
-            "confront": { "next": "choice", "condition": "따라잡아 대면한다" },
-            "observe": { "next": "choice", "condition": "지켜본다" },
-            "abandon": { "next": "missed", "condition": "포기한다" }
+            "confront": {
+              "next": "choice",
+              "condition": "따라잡아 대면한다"
+            },
+            "observe": {
+              "next": "choice",
+              "condition": "지켜본다"
+            },
+            "abandon": {
+              "next": "missed",
+              "condition": "포기한다"
+            }
           }
         },
         "choice": {
           "guide": "그는 빈손이다. 갚을 것이 없다고 말한다.",
           "cases": {
-            "seize": { "next": "clear", "condition": "끌고 돌아간다" },
-            "release": { "next": "deviated", "condition": "놓아준다" },
-            "cover": { "next": "clear", "condition": "대신 갚아준다" }
+            "seize": {
+              "next": "clear",
+              "condition": "끌고 돌아간다"
+            },
+            "release": {
+              "next": "deviated",
+              "condition": "놓아준다"
+            },
+            "cover": {
+              "next": "clear",
+              "condition": "대신 갚아준다"
+            }
           }
         },
-        "clear": { "guide": "교역소가 셈을 마쳤다.", "cases": {}, "outcome": "clear" },
-        "deviated": { "guide": "교역소는 이 일을 기억할 것이다.", "cases": {}, "outcome": "deviated" },
-        "missed": { "guide": "의뢰는 다른 자에게 넘어갔다.", "cases": {}, "outcome": "missed" }
+        "clear": {
+          "guide": "교역소가 셈을 마쳤다.",
+          "cases": {},
+          "outcome": "clear"
+        },
+        "deviated": {
+          "guide": "교역소는 이 일을 기억할 것이다.",
+          "cases": {},
+          "outcome": "deviated"
+        },
+        "missed": {
+          "guide": "의뢰는 다른 자에게 넘어갔다.",
+          "cases": {},
+          "outcome": "missed"
+        }
       },
       "hidden": {
         "truth": "채무는 조작된 것이며 교역소가 노동력을 묶어두는 수단이다.",
-        "reveal_conditions": ["장부를 본다", "다른 부랑자의 말을 듣는다"],
+        "reveal_conditions": [
+          "장부를 본다",
+          "다른 부랑자의 말을 듣는다"
+        ],
         "if_unknown": "정당한 회수로 끝난다.",
         "if_known": "교역소의 등급제 자체가 의심 대상이 된다."
       }
     },
-
     {
       "id": "sub_bridge_signal",
       "name": "방파제의 신호",
       "version": "a",
       "line": "sub",
-      "filters": { "min_turn": 4, "faction": ["조도 방위 사령부"], "requires_cleared": [] },
-      "slots": { "경로": { "from": "route_list", "pick": 1 } },
+      "filters": {
+        "min_turn": 4,
+        "faction": [
+          "조도 방위 사령부"
+        ],
+        "requires_cleared": []
+      },
+      "slots": {
+        "경로": {
+          "from": "route_list",
+          "pick": 1
+        }
+      },
       "repeatable": false,
       "max_occurrences": 1,
       "tree": {
         "root": {
           "guide": "조도로 이어진 아치 방파제 건너편에서 불빛이 반복된다. 신호처럼 보인다.",
           "cases": {
-            "cross": { "next": "meet", "condition": "{경로}로 접근한다" },
-            "report": { "next": "escort", "condition": "사령부에 먼저 알린다" },
-            "ignore": { "next": "missed", "condition": "무시한다" }
+            "cross": {
+              "next": "meet",
+              "condition": "{경로}로 접근한다"
+            },
+            "report": {
+              "next": "escort",
+              "condition": "사령부에 먼저 알린다"
+            },
+            "ignore": {
+              "next": "missed",
+              "condition": "무시한다"
+            }
           }
         },
         "escort": {
           "guide": "사령부는 병력을 내주지 않는다. 다만 확인은 원한다.",
-          "cases": { "go": { "next": "meet", "condition": "혼자 확인하러 간다" },
-                     "refuse": { "next": "missed", "condition": "거절한다" } }
+          "cases": {
+            "go": {
+              "next": "meet",
+              "condition": "혼자 확인하러 간다"
+            },
+            "refuse": {
+              "next": "missed",
+              "condition": "거절한다"
+            }
+          }
         },
         "meet": {
           "guide": "개활지 400미터. 은폐물이 없다. 건너편에 사람 형체가 있다.",
           "cases": {
-            "signal": { "next": "contact", "condition": "응답 신호를 보낸다" },
-            "approach": { "next": "contact", "condition": "말없이 접근한다" },
-            "withdraw": { "next": "missed", "condition": "물러난다" }
+            "signal": {
+              "next": "contact",
+              "condition": "응답 신호를 보낸다"
+            },
+            "approach": {
+              "next": "contact",
+              "condition": "말없이 접근한다"
+            },
+            "withdraw": {
+              "next": "missed",
+              "condition": "물러난다"
+            }
           }
         },
-        "contact": { "guide": "접촉이 이루어진다. 상대의 정체가 드러난다.", "cases": {}, "outcome": "clear" },
-        "missed": { "guide": "불빛은 이내 꺼졌다.", "cases": {}, "outcome": "missed" }
+        "contact": {
+          "guide": "접촉이 이루어진다. 상대의 정체가 드러난다.",
+          "cases": {},
+          "outcome": "clear"
+        },
+        "missed": {
+          "guide": "불빛은 이내 꺼졌다.",
+          "cases": {},
+          "outcome": "missed"
+        }
       },
       "hidden": {
         "truth": "신호를 보낸 것은 조도에서 이탈한 병사다.",
-        "reveal_conditions": ["군복을 알아본다", "계급장을 확인한다"],
+        "reveal_conditions": [
+          "군복을 알아본다",
+          "계급장을 확인한다"
+        ],
         "if_unknown": "떠돌이 생존자로 보고된다.",
         "if_known": "사령부의 내부 균열이 드러난다."
       }
     },
-
     {
       "id": "sub_bridge_signal_b",
       "name": "방파제의 신호",
       "version": "b",
       "line": "sub",
-      "filters": { "min_turn": 4, "faction": ["조도 방위 사령부"], "requires_cleared": [] },
-      "slots": { "경로": { "from": "route_list", "pick": 1 } },
+      "filters": {
+        "min_turn": 4,
+        "faction": [
+          "조도 방위 사령부"
+        ],
+        "requires_cleared": []
+      },
+      "slots": {
+        "경로": {
+          "from": "route_list",
+          "pick": 1
+        }
+      },
       "repeatable": false,
       "max_occurrences": 1,
       "tree": {
         "root": {
           "guide": "아치 방파제 건너편의 불빛이 규칙적으로 깜빡인다. 군용 신호 규격에 가깝다.",
           "cases": {
-            "cross": { "next": "trap", "condition": "{경로}로 접근한다" },
-            "report": { "next": "warned", "condition": "사령부에 먼저 알린다" },
-            "ignore": { "next": "missed", "condition": "무시한다" }
+            "cross": {
+              "next": "trap",
+              "condition": "{경로}로 접근한다"
+            },
+            "report": {
+              "next": "warned",
+              "condition": "사령부에 먼저 알린다"
+            },
+            "ignore": {
+              "next": "missed",
+              "condition": "무시한다"
+            }
           }
         },
         "warned": {
           "guide": "사령부는 접근을 금지한다. 이유는 말하지 않는다.",
-          "cases": { "obey": { "next": "missed", "condition": "따른다" },
-                     "defy": { "next": "trap", "condition": "몰래 확인하러 간다" } }
+          "cases": {
+            "obey": {
+              "next": "missed",
+              "condition": "따른다"
+            },
+            "defy": {
+              "next": "trap",
+              "condition": "몰래 확인하러 간다"
+            }
+          }
         },
         "trap": {
           "guide": "개활지 한가운데에서 불빛이 꺼진다. 등 뒤에서 소리가 난다.",
           "cases": {
-            "run": { "next": "escape", "condition": "달린다" },
-            "fight": { "next": "escape", "condition": "맞선다" },
-            "freeze": { "next": "caught", "condition": "멈춘다" }
+            "run": {
+              "next": "escape",
+              "condition": "달린다"
+            },
+            "fight": {
+              "next": "escape",
+              "condition": "맞선다"
+            },
+            "freeze": {
+              "next": "caught",
+              "condition": "멈춘다"
+            }
           }
         },
-        "escape": { "guide": "간신히 빠져나왔다. 함정이었다.", "cases": {}, "outcome": "partial" },
-        "caught": { "guide": "포위당했다.", "cases": {}, "outcome": "failed" },
-        "missed": { "guide": "불빛은 이내 꺼졌다.", "cases": {}, "outcome": "missed" }
+        "escape": {
+          "guide": "간신히 빠져나왔다. 함정이었다.",
+          "cases": {},
+          "outcome": "partial"
+        },
+        "caught": {
+          "guide": "포위당했다.",
+          "cases": {},
+          "outcome": "failed"
+        },
+        "missed": {
+          "guide": "불빛은 이내 꺼졌다.",
+          "cases": {},
+          "outcome": "missed"
+        }
       },
       "hidden": {
         "truth": "신호는 약탈자가 생존자를 유인하는 미끼다.",
-        "reveal_conditions": ["신호 간격의 어색함을 눈치챈다", "발자국을 발견한다"],
+        "reveal_conditions": [
+          "신호 간격의 어색함을 눈치챈다",
+          "발자국을 발견한다"
+        ],
         "if_unknown": "함정에 그대로 걸린다.",
         "if_known": "역으로 위치를 파악할 기회가 된다."
       }
     },
-
     {
       "id": "sub_ridge_watch",
       "name": "능선의 감시자",
       "version": "a",
       "line": "sub",
-      "filters": { "min_turn": 3, "location": ["봉래산 능선", "해련사 일대"], "requires_cleared": [] },
-      "slots": { "세력": { "from": "faction_list", "pick": 1 } },
+      "filters": {
+        "min_turn": 3,
+        "location": [
+          "봉래산 능선",
+          "해련사 일대"
+        ],
+        "requires_cleared": []
+      },
+      "slots": {
+        "세력": {
+          "from": "faction_list",
+          "pick": 1
+        }
+      },
       "repeatable": true,
       "max_occurrences": 2,
       "tree": {
         "root": {
           "guide": "능선에서 아래를 내려다보는 인영이 있다. {세력}의 표식을 달고 있다.",
           "cases": {
-            "hail": { "next": "talk", "condition": "말을 건다" },
-            "avoid": { "next": "missed", "condition": "우회한다" },
-            "shadow": { "next": "follow", "condition": "몰래 뒤를 밟는다" }
+            "hail": {
+              "next": "talk",
+              "condition": "말을 건다"
+            },
+            "avoid": {
+              "next": "missed",
+              "condition": "우회한다"
+            },
+            "shadow": {
+              "next": "follow",
+              "condition": "몰래 뒤를 밟는다"
+            }
           }
         },
         "talk": {
           "guide": "그는 경계하면서도 대화에 응한다. 무엇을 보고 있었는지는 말하지 않는다.",
           "cases": {
-            "press": { "next": "reveal", "condition": "캐묻는다" },
-            "trade": { "next": "reveal", "condition": "정보를 교환한다" },
-            "leave": { "next": "missed", "condition": "물러난다" }
+            "press": {
+              "next": "reveal",
+              "condition": "캐묻는다"
+            },
+            "trade": {
+              "next": "reveal",
+              "condition": "정보를 교환한다"
+            },
+            "leave": {
+              "next": "missed",
+              "condition": "물러난다"
+            }
           }
         },
         "follow": {
           "guide": "그는 능선을 따라 이동한다. 시야가 트인 곳이라 들킬 위험이 크다.",
           "cases": {
-            "continue": { "next": "reveal", "condition": "계속 따른다" },
-            "spotted": { "next": "talk", "condition": "들킨다" }
+            "continue": {
+              "next": "reveal",
+              "condition": "계속 따른다"
+            },
+            "spotted": {
+              "next": "talk",
+              "condition": "들킨다"
+            }
           }
         },
-        "reveal": { "guide": "감시의 목적이 드러난다.", "cases": {}, "outcome": "clear" },
-        "missed": { "guide": "인영은 능선 너머로 사라졌다.", "cases": {}, "outcome": "missed" }
+        "reveal": {
+          "guide": "감시의 목적이 드러난다.",
+          "cases": {},
+          "outcome": "clear"
+        },
+        "missed": {
+          "guide": "인영은 능선 너머로 사라졌다.",
+          "cases": {},
+          "outcome": "missed"
+        }
       },
       "hidden": {
         "truth": "감시 대상은 감염자가 아니라 다른 세력의 이동 경로다.",
-        "reveal_conditions": ["관측 방향을 확인한다", "기록지를 본다"],
+        "reveal_conditions": [
+          "관측 방향을 확인한다",
+          "기록지를 본다"
+        ],
         "if_unknown": "경계 근무로 보인다.",
         "if_known": "세력 간 긴장이 표면화된다."
       }
     },
-
     {
       "id": "sub_sewer_route",
       "name": "지하 통로 개척",
       "version": "a",
       "line": "sub",
-      "filters": { "min_turn": 5, "min_stat": { "기술": 3 }, "requires_cleared": [] },
-      "slots": { "출발": { "from": "faction_list", "pick": 1 }, "목적": { "from": "faction_list", "pick": 1 } },
+      "filters": {
+        "min_turn": 5,
+        "min_stat": {
+          "기술": 3
+        },
+        "requires_cleared": []
+      },
+      "slots": {
+        "출발": {
+          "from": "faction_list",
+          "pick": 1
+        },
+        "목적": {
+          "from": "faction_list",
+          "pick": 1,
+          "exclude": [
+            "출발"
+          ]
+        }
+      },
       "repeatable": false,
       "max_occurrences": 1,
       "tree": {
         "root": {
           "guide": "{출발}에서 {목적}까지 지상 경로는 노출이 크다. 하수도를 뚫으면 이동 시간이 절반이 된다.",
           "cases": {
-            "enter": { "next": "dark", "condition": "지하로 들어간다" },
-            "survey": { "next": "root", "condition": "입구를 먼저 조사한다" },
-            "abandon": { "next": "missed", "condition": "포기한다" }
+            "enter": {
+              "next": "dark",
+              "condition": "지하로 들어간다"
+            },
+            "survey": {
+              "next": "root",
+              "condition": "입구를 먼저 조사한다"
+            },
+            "abandon": {
+              "next": "missed",
+              "condition": "포기한다"
+            }
           }
         },
         "dark": {
           "guide": "방향감이 사라진다. 물소리가 어디서 오는지 알 수 없다.",
           "cases": {
-            "mark": { "next": "deep", "condition": "표식을 남기며 전진한다" },
-            "rush": { "next": "lost", "condition": "빠르게 통과를 시도한다" },
-            "back": { "next": "missed", "condition": "되돌아 나온다" }
+            "mark": {
+              "next": "deep",
+              "condition": "표식을 남기며 전진한다"
+            },
+            "rush": {
+              "next": "lost",
+              "condition": "빠르게 통과를 시도한다"
+            },
+            "back": {
+              "next": "missed",
+              "condition": "되돌아 나온다"
+            }
           }
         },
         "deep": {
           "guide": "은신하던 감염자의 기척이 있다. 좁은 통로에서는 도주로가 없다.",
           "cases": {
-            "silent": { "next": "through", "condition": "숨죽여 지나간다" },
-            "clear_path": { "next": "through", "condition": "제거한다" },
-            "retreat": { "next": "lost", "condition": "후퇴한다" }
+            "silent": {
+              "next": "through",
+              "condition": "숨죽여 지나간다"
+            },
+            "clear_path": {
+              "next": "through",
+              "condition": "제거한다"
+            },
+            "retreat": {
+              "next": "lost",
+              "condition": "후퇴한다"
+            }
           }
         },
-        "through": { "guide": "반대편 출구가 열렸다. 새 경로가 생겼다.", "cases": {}, "outcome": "clear" },
-        "lost": { "guide": "길을 잃고 원래 자리로 돌아왔다.", "cases": {}, "outcome": "failed" },
-        "missed": { "guide": "지하는 그대로 남았다.", "cases": {}, "outcome": "missed" }
+        "through": {
+          "guide": "반대편 출구가 열렸다. 새 경로가 생겼다.",
+          "cases": {},
+          "outcome": "clear"
+        },
+        "lost": {
+          "guide": "길을 잃고 원래 자리로 돌아왔다.",
+          "cases": {},
+          "outcome": "failed"
+        },
+        "missed": {
+          "guide": "지하는 그대로 남았다.",
+          "cases": {},
+          "outcome": "missed"
+        }
       },
       "hidden": {
         "truth": "통로 중간에 누군가 생활한 흔적이 있다.",
-        "reveal_conditions": ["잔불을 발견한다", "낙서를 읽는다"],
+        "reveal_conditions": [
+          "잔불을 발견한다",
+          "낙서를 읽는다"
+        ],
         "if_unknown": "빈 통로로 기록된다.",
         "if_known": "지하 거주자의 존재가 드러난다."
       }
     },
-
     {
       "id": "sub_medicine_run",
       "name": "약을 구하는 일",
       "version": "a",
       "line": "sub",
-      "filters": { "min_turn": 3, "requires_cleared": [] },
-      "slots": { "장소": { "from": "lowland_list", "pick": 1 } },
+      "filters": {
+        "min_turn": 3,
+        "requires_cleared": []
+      },
+      "slots": {
+        "장소": {
+          "from": "context:location",
+          "fallback": "lowland_list",
+          "pick": 1
+        }
+      },
       "repeatable": true,
       "max_occurrences": 2,
       "tree": {
         "root": {
           "guide": "거점에 열이 오른 사람이 있다. 감염은 아니라고 한다. {장소}의 폐병원에 항생제가 남았을지 모른다.",
           "cases": {
-            "go": { "next": "hospital", "condition": "폐병원으로 향한다" },
-            "ask": { "next": "trade", "condition": "교역소에 문의한다" },
-            "wait": { "next": "worse", "condition": "기다린다" }
+            "go": {
+              "next": "hospital",
+              "condition": "폐병원으로 향한다"
+            },
+            "ask": {
+              "next": "trade",
+              "condition": "교역소에 문의한다"
+            },
+            "wait": {
+              "next": "worse",
+              "condition": "기다린다"
+            }
           }
         },
         "hospital": {
           "guide": "약품 창고는 이미 뒤집혀 있다. 그러나 구석은 아직이다.",
           "cases": {
-            "search": { "next": "found", "condition": "구석을 뒤진다" },
-            "leave": { "next": "worse", "condition": "빈손으로 나온다" }
+            "search": {
+              "next": "found",
+              "condition": "구석을 뒤진다"
+            },
+            "leave": {
+              "next": "worse",
+              "condition": "빈손으로 나온다"
+            }
           }
         },
         "trade": {
           "guide": "교역소는 가지고 있다. 값을 부른다.",
           "cases": {
-            "pay": { "next": "found", "condition": "값을 치른다" },
-            "refuse": { "next": "hospital", "condition": "직접 구하기로 한다" }
+            "pay": {
+              "next": "found",
+              "condition": "값을 치른다"
+            },
+            "refuse": {
+              "next": "hospital",
+              "condition": "직접 구하기로 한다"
+            }
           }
         },
-        "found": { "guide": "약을 확보했다. 늦지 않았다.", "cases": {}, "outcome": "clear" },
-        "worse": { "guide": "열은 계속 오른다.", "cases": {}, "outcome": "failed" }
+        "found": {
+          "guide": "약을 확보했다. 늦지 않았다.",
+          "cases": {},
+          "outcome": "clear"
+        },
+        "worse": {
+          "guide": "열은 계속 오른다.",
+          "cases": {},
+          "outcome": "failed"
+        }
       },
       "hidden": {
         "truth": "환자의 증상은 감염 초기와 구분이 어렵다.",
-        "reveal_conditions": ["상처를 확인한다", "의료진에게 묻는다"],
+        "reveal_conditions": [
+          "상처를 확인한다",
+          "의료진에게 묻는다"
+        ],
         "if_unknown": "단순 질병으로 처리된다.",
         "if_known": "격리 여부를 두고 갈등이 생긴다."
       }
     },
-
     {
       "id": "sub_stranger_gate",
       "name": "문 앞의 낯선 이",
       "version": "a",
       "line": "sub",
-      "filters": { "min_turn": 2, "requires_cleared": [] },
-      "slots": { "세력": { "from": "faction_list", "pick": 1 } },
+      "filters": {
+        "min_turn": 2,
+        "requires_cleared": []
+      },
+      "slots": {
+        "세력": {
+          "from": "context:faction",
+          "fallback": "faction_list",
+          "pick": 1
+        }
+      },
       "repeatable": true,
       "max_occurrences": 3,
       "tree": {
         "root": {
           "guide": "낯선 생존자가 {세력}의 문 앞에 서 있다. 무기는 없고, 며칠은 굶은 얼굴이다.",
           "cases": {
-            "question": { "next": "story", "condition": "사정을 묻는다" },
-            "admit": { "next": "inside", "condition": "일단 들인다" },
-            "turn_away": { "next": "gone", "condition": "돌려보낸다" }
+            "question": {
+              "next": "story",
+              "condition": "사정을 묻는다"
+            },
+            "admit": {
+              "next": "inside",
+              "condition": "일단 들인다"
+            },
+            "turn_away": {
+              "next": "gone",
+              "condition": "돌려보낸다"
+            }
           }
         },
         "story": {
           "guide": "그의 말에는 앞뒤가 맞지 않는 부분이 있다.",
           "cases": {
-            "believe": { "next": "inside", "condition": "믿는다" },
-            "doubt": { "next": "gone", "condition": "의심하고 내보낸다" },
-            "verify": { "next": "inside", "condition": "확인할 방법을 찾는다" }
+            "believe": {
+              "next": "inside",
+              "condition": "믿는다"
+            },
+            "doubt": {
+              "next": "gone",
+              "condition": "의심하고 내보낸다"
+            },
+            "verify": {
+              "next": "inside",
+              "condition": "확인할 방법을 찾는다"
+            }
           }
         },
-        "inside": { "guide": "그는 안으로 들어왔다. 앞으로가 문제다.", "cases": {}, "outcome": "clear" },
-        "gone": { "guide": "그는 비탈 아래로 사라졌다.", "cases": {}, "outcome": "missed" }
+        "inside": {
+          "guide": "그는 안으로 들어왔다. 앞으로가 문제다.",
+          "cases": {},
+          "outcome": "clear"
+        },
+        "gone": {
+          "guide": "그는 비탈 아래로 사라졌다.",
+          "cases": {},
+          "outcome": "missed"
+        }
       },
       "hidden": {
         "truth": "그는 다른 세력이 보낸 정찰이다.",
-        "reveal_conditions": ["신발을 본다", "손의 굳은살을 본다"],
+        "reveal_conditions": [
+          "신발을 본다",
+          "손의 굳은살을 본다"
+        ],
         "if_unknown": "평범한 유민으로 받아들여진다.",
         "if_known": "받아들이면 정보가 새고, 내치면 적의가 남는다."
       }
     },
-
     {
       "id": "sub_generator_parts",
       "name": "발전기의 심장",
       "version": "a",
       "line": "sub",
-      "filters": { "min_turn": 5, "faction": ["남항 중공업 연대"], "min_stat": { "기술": 2 }, "requires_cleared": [] },
-      "slots": { "부품": { "from": "supply_list", "pick": 1 }, "장소": { "from": "lowland_list", "pick": 1 } },
+      "filters": {
+        "min_turn": 5,
+        "faction": [
+          "남항 중공업 연대"
+        ],
+        "min_stat": {
+          "기술": 2
+        },
+        "requires_cleared": []
+      },
+      "slots": {
+        "부품": {
+          "from": "supply_list",
+          "pick": 1
+        },
+        "장소": {
+          "from": "lowland_list",
+          "pick": 1
+        }
+      },
       "repeatable": false,
       "max_occurrences": 1,
       "tree": {
         "root": {
           "guide": "연대의 발전기가 멎었다. 조선소 인프라를 돌리려면 {부품}이 필요하다.",
           "cases": {
-            "salvage": { "next": "yard", "condition": "{장소}에서 뜯어온다" },
-            "request": { "next": "trade", "condition": "교역소에 요청한다" },
-            "postpone": { "next": "dark", "condition": "미룬다" }
+            "salvage": {
+              "next": "yard",
+              "condition": "{장소}에서 뜯어온다"
+            },
+            "request": {
+              "next": "trade",
+              "condition": "교역소에 요청한다"
+            },
+            "postpone": {
+              "next": "dark",
+              "condition": "미룬다"
+            }
           }
         },
         "yard": {
           "guide": "설비는 거대하고, 소리는 멀리 간다.",
           "cases": {
-            "careful": { "next": "install", "condition": "시간을 들여 뜯는다" },
-            "fast": { "next": "noise", "condition": "빠르게 뜯는다" }
+            "careful": {
+              "next": "install",
+              "condition": "시간을 들여 뜯는다"
+            },
+            "fast": {
+              "next": "noise",
+              "condition": "빠르게 뜯는다"
+            }
           }
         },
         "noise": {
           "guide": "금속음이 골목을 타고 퍼졌다.",
           "cases": {
-            "hide": { "next": "install", "condition": "숨는다" },
-            "run": { "next": "dark", "condition": "부품을 두고 달아난다" }
+            "hide": {
+              "next": "install",
+              "condition": "숨는다"
+            },
+            "run": {
+              "next": "dark",
+              "condition": "부품을 두고 달아난다"
+            }
           }
         },
         "trade": {
           "guide": "교역소는 값을 세게 부른다. 연대의 자존심이 걸린다.",
           "cases": {
-            "accept": { "next": "install", "condition": "받아들인다" },
-            "refuse": { "next": "yard", "condition": "직접 구한다" }
+            "accept": {
+              "next": "install",
+              "condition": "받아들인다"
+            },
+            "refuse": {
+              "next": "yard",
+              "condition": "직접 구한다"
+            }
           }
         },
-        "install": { "guide": "발전기가 돌아간다. 불이 들어온다.", "cases": {}, "outcome": "clear" },
-        "dark": { "guide": "연대는 어둠 속에서 겨울을 맞는다.", "cases": {}, "outcome": "failed" }
+        "install": {
+          "guide": "발전기가 돌아간다. 불이 들어온다.",
+          "cases": {},
+          "outcome": "clear"
+        },
+        "dark": {
+          "guide": "연대는 어둠 속에서 겨울을 맞는다.",
+          "cases": {},
+          "outcome": "failed"
+        }
       },
       "hidden": {
         "truth": "발전기 고장은 정비 기록이 조작된 결과다.",
-        "reveal_conditions": ["정비 일지를 확인한다", "기술국에 묻는다"],
+        "reveal_conditions": [
+          "정비 일지를 확인한다",
+          "기술국에 묻는다"
+        ],
         "if_unknown": "노후 고장으로 처리된다.",
         "if_known": "병참국과 기술국의 대립이 드러난다."
       }
     },
-
     {
       "id": "sub_funeral_rite",
       "name": "묻을 자리",
       "version": "a",
       "line": "sub",
-      "filters": { "min_turn": 6, "requires_cleared": [] },
-      "slots": { "장소": { "from": "highland_list", "pick": 1 } },
+      "filters": {
+        "min_turn": 6,
+        "requires_cleared": []
+      },
+      "slots": {
+        "장소": {
+          "from": "highland_list",
+          "pick": 1
+        }
+      },
       "repeatable": true,
       "max_occurrences": 2,
       "tree": {
         "root": {
           "guide": "죽은 이를 어디에 묻을 것인가. {장소}는 산 자의 물을 받는 곳이기도 하다.",
           "cases": {
-            "bury": { "next": "rite", "condition": "고지대에 묻는다" },
-            "burn": { "next": "rite", "condition": "태운다" },
-            "lowland": { "next": "descend", "condition": "저지대까지 내려가 묻는다" }
+            "bury": {
+              "next": "rite",
+              "condition": "고지대에 묻는다"
+            },
+            "burn": {
+              "next": "rite",
+              "condition": "태운다"
+            },
+            "lowland": {
+              "next": "descend",
+              "condition": "저지대까지 내려가 묻는다"
+            }
           }
         },
         "descend": {
           "guide": "시신을 지고 비탈을 내려가는 일은 산 자를 위험에 빠뜨린다.",
           "cases": {
-            "proceed": { "next": "rite", "condition": "그래도 내려간다" },
-            "turn_back": { "next": "rite", "condition": "돌아와 고지대에 묻는다" }
+            "proceed": {
+              "next": "rite",
+              "condition": "그래도 내려간다"
+            },
+            "turn_back": {
+              "next": "rite",
+              "condition": "돌아와 고지대에 묻는다"
+            }
           }
         },
-        "rite": { "guide": "장례가 치러졌다. 남은 자들의 표정이 조금 달라진다.", "cases": {}, "outcome": "clear" }
+        "rite": {
+          "guide": "장례가 치러졌다. 남은 자들의 표정이 조금 달라진다.",
+          "cases": {},
+          "outcome": "clear"
+        }
       },
       "hidden": {
         "truth": "죽은 이는 감염 의심 판정을 받은 적이 있다.",
-        "reveal_conditions": ["기록을 본다", "가족의 말을 듣는다"],
+        "reveal_conditions": [
+          "기록을 본다",
+          "가족의 말을 듣는다"
+        ],
         "if_unknown": "평범한 장례로 끝난다.",
         "if_known": "매장 방식을 두고 공포가 번진다."
       }
     },
-
     {
       "id": "sub_radio_voice",
       "name": "라디오의 목소리",
       "version": "a",
       "line": "sub",
-      "filters": { "min_turn": 7, "min_stat": { "기술": 3 }, "requires_cleared": [] },
-      "slots": { "부품": { "from": "trade_list", "pick": 1 } },
+      "filters": {
+        "min_turn": 7,
+        "min_stat": {
+          "기술": 3
+        },
+        "requires_cleared": []
+      },
+      "slots": {
+        "부품": {
+          "from": "trade_list",
+          "pick": 1
+        }
+      },
       "repeatable": false,
       "max_occurrences": 1,
       "tree": {
         "root": {
           "guide": "잡음 사이로 사람 목소리가 섞인다. {부품}만 있으면 주파수를 잡을 수 있다.",
           "cases": {
-            "repair": { "next": "tune", "condition": "부품을 구해 수리한다" },
-            "listen": { "next": "tune", "condition": "그대로 계속 듣는다" },
-            "off": { "next": "silence", "condition": "꺼둔다" }
+            "repair": {
+              "next": "tune",
+              "condition": "부품을 구해 수리한다"
+            },
+            "listen": {
+              "next": "tune",
+              "condition": "그대로 계속 듣는다"
+            },
+            "off": {
+              "next": "silence",
+              "condition": "꺼둔다"
+            }
           }
         },
         "tune": {
           "guide": "목소리가 또렷해진다. 내륙에서 오는 것인지, 섬 안에서 오는 것인지 알 수 없다.",
           "cases": {
-            "respond": { "next": "answer", "condition": "응답을 시도한다" },
-            "record": { "next": "answer", "condition": "듣기만 하고 기록한다" },
-            "report": { "next": "answer", "condition": "거점 지도부에 알린다" }
+            "respond": {
+              "next": "answer",
+              "condition": "응답을 시도한다"
+            },
+            "record": {
+              "next": "answer",
+              "condition": "듣기만 하고 기록한다"
+            },
+            "report": {
+              "next": "answer",
+              "condition": "거점 지도부에 알린다"
+            }
           }
         },
-        "answer": { "guide": "무언가가 응답한다.", "cases": {}, "outcome": "clear" },
-        "silence": { "guide": "목소리는 잡음에 묻혔다.", "cases": {}, "outcome": "missed" }
+        "answer": {
+          "guide": "무언가가 응답한다.",
+          "cases": {},
+          "outcome": "clear"
+        },
+        "silence": {
+          "guide": "목소리는 잡음에 묻혔다.",
+          "cases": {},
+          "outcome": "missed"
+        }
       },
       "hidden": {
         "truth": "송신원은 섬 안에 있으며 4세력 어디에도 속하지 않는다.",
-        "reveal_conditions": ["신호 강도를 측정한다", "방향을 삼각측량한다"],
+        "reveal_conditions": [
+          "신호 강도를 측정한다",
+          "방향을 삼각측량한다"
+        ],
         "if_unknown": "내륙의 생존자로 여겨진다.",
         "if_known": "제5의 집단이 존재한다는 사실이 드러난다."
       }
     },
-
     {
       "id": "sub_ration_cut",
       "name": "배급의 셈",
       "version": "a",
       "line": "sub",
-      "filters": { "min_turn": 4, "requires_cleared": [] },
-      "slots": { "세력": { "from": "faction_list", "pick": 1 } },
+      "filters": {
+        "min_turn": 4,
+        "requires_cleared": []
+      },
+      "slots": {
+        "세력": {
+          "from": "context:faction",
+          "fallback": "faction_list",
+          "pick": 1
+        }
+      },
       "repeatable": true,
       "max_occurrences": 2,
       "tree": {
         "root": {
           "guide": "{세력}의 배급이 줄었다. 장부와 창고의 수가 맞지 않는다는 말이 돈다.",
           "cases": {
-            "audit": { "next": "ledger", "condition": "장부를 확인한다" },
-            "watch": { "next": "night", "condition": "창고를 지켜본다" },
-            "ignore": { "next": "unrest", "condition": "관여하지 않는다" }
+            "audit": {
+              "next": "ledger",
+              "condition": "장부를 확인한다"
+            },
+            "watch": {
+              "next": "night",
+              "condition": "창고를 지켜본다"
+            },
+            "ignore": {
+              "next": "unrest",
+              "condition": "관여하지 않는다"
+            }
           }
         },
         "ledger": {
           "guide": "숫자는 맞다. 너무 정확해서 오히려 어색하다.",
           "cases": {
-            "dig": { "next": "culprit", "condition": "더 파고든다" },
-            "stop": { "next": "unrest", "condition": "덮는다" }
+            "dig": {
+              "next": "culprit",
+              "condition": "더 파고든다"
+            },
+            "stop": {
+              "next": "unrest",
+              "condition": "덮는다"
+            }
           }
         },
         "night": {
           "guide": "밤에 창고 문이 열린다.",
           "cases": {
-            "confront": { "next": "culprit", "condition": "붙잡는다" },
-            "observe": { "next": "culprit", "condition": "누구인지 확인만 한다" }
+            "confront": {
+              "next": "culprit",
+              "condition": "붙잡는다"
+            },
+            "observe": {
+              "next": "culprit",
+              "condition": "누구인지 확인만 한다"
+            }
           }
         },
-        "culprit": { "guide": "범인이 드러난다. 처분은 거점의 몫이다.", "cases": {}, "outcome": "clear" },
-        "unrest": { "guide": "불신이 쌓인다.", "cases": {}, "outcome": "deviated" }
+        "culprit": {
+          "guide": "범인이 드러난다. 처분은 거점의 몫이다.",
+          "cases": {},
+          "outcome": "clear"
+        },
+        "unrest": {
+          "guide": "불신이 쌓인다.",
+          "cases": {},
+          "outcome": "deviated"
+        }
       },
       "hidden": {
         "truth": "빼돌린 식량은 개인이 아니라 아이들에게 갔다.",
-        "reveal_conditions": ["행방을 추적한다", "아이들을 본다"],
+        "reveal_conditions": [
+          "행방을 추적한다",
+          "아이들을 본다"
+        ],
         "if_unknown": "단순 절도로 처벌된다.",
         "if_known": "규정과 인정 사이에서 거점이 갈린다."
       }
     },
-
     {
       "id": "main_island_choice",
       "name": "고립된 낙원",
       "version": "a",
       "line": "main",
-      "filters": { "min_turn": 20, "min_cleared_sub": 5, "requires_cleared": [] },
-      "slots": { "세력": { "from": "faction_list", "pick": 1 } },
+      "filters": {
+        "min_turn": 20,
+        "min_cleared_sub": 5,
+        "requires_cleared": []
+      },
+      "slots": {
+        "세력": {
+          "from": "faction_list",
+          "pick": 1
+        }
+      },
       "repeatable": false,
       "max_occurrences": 1,
       "tree": {
         "root": {
           "guide": "섬의 균형이 무너지려 한다. {세력}이 다른 거점을 흡수하려 움직인다. 물과 물자, 그리고 사람이 걸려 있다.",
           "cases": {
-            "side": { "next": "align", "condition": "한쪽 편에 선다" },
-            "mediate": { "next": "talks", "condition": "중재를 시도한다" },
-            "withdraw": { "next": "alone", "condition": "거리를 둔다" }
+            "side": {
+              "next": "align",
+              "condition": "한쪽 편에 선다"
+            },
+            "mediate": {
+              "next": "talks",
+              "condition": "중재를 시도한다"
+            },
+            "withdraw": {
+              "next": "alone",
+              "condition": "거리를 둔다"
+            }
           }
         },
         "align": {
           "guide": "선 편의 힘이 커진다. 반대편은 밀려난다.",
           "cases": {
-            "press": { "next": "unify", "condition": "끝까지 밀어붙인다" },
-            "halt": { "next": "talks", "condition": "멈추고 협상으로 돌린다" }
+            "press": {
+              "next": "unify",
+              "condition": "끝까지 밀어붙인다"
+            },
+            "halt": {
+              "next": "talks",
+              "condition": "멈추고 협상으로 돌린다"
+            }
           }
         },
         "talks": {
           "guide": "네 거점의 대표가 마주 앉는다. 오래 걸릴 것이다.",
           "cases": {
-            "compromise": { "next": "accord", "condition": "타협안을 만든다" },
-            "collapse": { "next": "split", "condition": "결렬된다" }
+            "compromise": {
+              "next": "accord",
+              "condition": "타협안을 만든다"
+            },
+            "collapse": {
+              "next": "split",
+              "condition": "결렬된다"
+            }
           }
         },
         "alone": {
           "guide": "섬의 일은 섬의 일대로 흘러간다. 나는 지켜볼 뿐이다.",
-          "cases": { "observe": { "next": "split", "condition": "끝까지 지켜본다" } }
+          "cases": {
+            "observe": {
+              "next": "split",
+              "condition": "끝까지 지켜본다"
+            }
+          }
         },
-        "unify": { "guide": "하나의 질서가 섬을 덮는다. 대가는 치러졌다.", "cases": {}, "outcome": "ending_unify" },
-        "accord": { "guide": "불완전한 합의가 이루어진다. 섬은 아직 넷이다.", "cases": {}, "outcome": "ending_accord" },
-        "split": { "guide": "섬은 갈라진 채 겨울을 맞는다.", "cases": {}, "outcome": "ending_split" }
+        "unify": {
+          "guide": "하나의 질서가 섬을 덮는다. 대가는 치러졌다.",
+          "cases": {},
+          "outcome": "ending_unify"
+        },
+        "accord": {
+          "guide": "불완전한 합의가 이루어진다. 섬은 아직 넷이다.",
+          "cases": {},
+          "outcome": "ending_accord"
+        },
+        "split": {
+          "guide": "섬은 갈라진 채 겨울을 맞는다.",
+          "cases": {},
+          "outcome": "ending_split"
+        }
       },
       "hidden": {
         "truth": "물자 고갈 시점은 어느 거점이 계산한 것보다 빠르다.",
-        "reveal_conditions": ["교역소 장부를 종합한다", "각 거점의 재고를 비교한다"],
+        "reveal_conditions": [
+          "교역소 장부를 종합한다",
+          "각 거점의 재고를 비교한다"
+        ],
         "if_unknown": "세력 다툼으로만 보인다.",
         "if_known": "통합이든 분열이든 시간이 없다는 것이 드러난다."
       }

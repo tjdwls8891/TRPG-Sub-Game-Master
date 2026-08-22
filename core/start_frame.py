@@ -82,68 +82,9 @@ def filter_frames(scenario_data: dict, profile: dict) -> list:
     return matched + universal
 
 
-# 받침에 따라 갈리는 조사 쌍. 치환 후 자동 보정에 쓴다.
-# 받침에 따라 갈리는 조사 쌍.
-#
-# NOTE: 텍스트 전체를 훑어 교정하면 동사 활용형을 조사로 오인한다
-#       ('말라붙은' → '말이라붙은'). 따라서 슬롯이 치환된 자리에만
-#       적용하고, 그 직후 문자만 검사한다.
-JOSA_PAIRS = [("이", "가"), ("을", "를"), ("은", "는"),
-              ("과", "와"), ("으로", "로"), ("이었", "였"),
-              ("이라", "라"), ("이며", "며"), ("이나", "나")]
-
-
-def _has_batchim(ch: str) -> bool:
-    """한글 음절에 받침이 있는지."""
-    if not ch:
-        return False
-    code = ord(ch)
-    if not (0xAC00 <= code <= 0xD7A3):
-        return False
-    return (code - 0xAC00) % 28 != 0
-
-
-def fix_josa_at(text: str, pos: int) -> str:
-    """지정 위치 직후의 조사 하나만 보정한다.
-
-    pos는 치환된 슬롯 값의 끝 인덱스다. 그 자리에 오는 조사만 검사하므로
-    본문의 다른 단어를 건드리지 않는다.
-    """
-    if not text or pos <= 0 or pos >= len(text):
-        return text
-    prev = text[pos - 1]
-    if not _has_batchim(prev) and not (0xAC00 <= ord(prev) <= 0xD7A3):
-        return text
-    # 긴 형태부터 검사한다 ('이었'이 '이'보다 먼저).
-    for with_b, without_b in sorted(JOSA_PAIRS, key=lambda x: -len(x[0])):
-        for cand in (with_b, without_b):
-            if text.startswith(cand, pos):
-                correct = with_b if _has_batchim(prev) else without_b
-                if cand != correct:
-                    return text[:pos] + correct + text[pos + len(cand):]
-                return text
-    return text
-
-
-def substitute(text: str, slots: dict) -> str:
-    """슬롯을 치환하고 그 자리의 조사만 보정한다.
-
-    틀에는 아무 조사나 적어두면 되고, 무엇이 들어오든 자동으로 맞춰진다.
-    치환하지 않은 본문은 손대지 않는다.
-    """
-    if not text:
-        return ""
-    out = text
-    for key, val in (slots or {}).items():
-        token = "{" + key + "}"
-        value = str(val)
-        while True:
-            idx = out.find(token)
-            if idx < 0:
-                break
-            out = out[:idx] + value + out[idx + len(token):]
-            out = fix_josa_at(out, idx + len(value))
-    return out
+# 조사 보정과 슬롯 치환은 koreantext가 담당한다.
+# 퀘스트 가이드도 같은 처리를 하므로 공용 모듈로 분리했다.
+from .koreantext import substitute, strip_unfilled
 
 
 def _fill_slot(scenario_data: dict, profile: dict, spec) -> str:
