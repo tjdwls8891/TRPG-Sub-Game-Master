@@ -1798,9 +1798,8 @@
           "민첩",
           "기술"
         ],
-        "total": 30,
-        "max_single": 15,
-        "min_single": 5
+        "max_single": 20,
+        "min_single": 1
       }
     },
     {

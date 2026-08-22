@@ -213,10 +213,11 @@ def tier_to_total(tier: str, args: dict, scenario_data: dict = None) -> int | No
              or DEFAULT_STAT_CAP)
     lo = int(args.get("min_single") or 1)
 
-    # 하한 합을 바닥으로 두고 그 위 여유분에 비율을 적용한다.
-    floor = lo * n
-    room = hi * n - floor
-    return max(floor, round(floor + room * ratio))
+    # 최대치(개수 × 상한)에 비율을 곧바로 적용한다.
+    # 하한 합을 바닥으로 깔면 등급별 평균이 밀려 올라간다 —
+    # 1~20 범위에서 평범 50%가 평균 10.7이 되어 룰북 기준과 어긋난다.
+    # 단순 비율이면 평균이 5·7·10·12·15·18로 떨어져 직관적이다.
+    return max(lo * n, round(n * hi * ratio))
 
 
 def max_possible_spread(args: dict, total: int = None) -> int:
