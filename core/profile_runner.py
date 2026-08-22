@@ -127,20 +127,32 @@ def step(scenario_data: dict, run: dict, user_input: str = None) -> dict:
         module = "select_one"
         handler = profile_gen.select_one
 
-    # ── 능력치 프리셋 ──
-    if module == "stat_preset":
-        if user_input is None:
-            return {"type": ASK, "field": field,
-                    "options": list(profile_gen.STAT_PRESETS.keys()),
-                    "value": None, "guide": guide, "can_back": can_back,
-                    "message": f"{field} 배분 방식을 선택해 주십시오."}
-        result = profile_gen.stat_preset(args, user_input.strip(),
-                                         args.get("top_field"))
+    # ── 능력치 배분 ──
+    # 산출은 언제나 랜덤이며, 총합·최대편차·최고항목은 선택 제약이다.
+    # 제약은 run["stat_constraints"]에 보관되어 재굴림에도 유지된다.
+    if module == "roll_stats":
+        cons = run.get("stat_constraints") or {}
+        result = profile_gen.roll_stats(
+            args,
+            total=cons.get("total"),
+            max_spread=cons.get("max_spread"),
+            top_field=cons.get("top_field"),
+        )
         run["pending"] = {"field": field, "value": result["values"]}
+        run["last_stats"] = result["values"]
+
+        note = ""
+        if not result["ok"]:
+            note = "\n> ⚠️ 지정한 조건을 모두 만족하는 조합을 찾지 못해 근사값입니다."
+        cons_txt = _describe_constraints(cons)
         return {"type": CONFIRM, "field": field, "options": [],
                 "value": result["values"], "guide": guide, "can_back": can_back,
-                "message": f"{field}: " + ", ".join(
-                    f"{k} {v}" for k, v in result["values"].items())}
+                "stat_module": True, "args": args,
+                "message": (f"{field}: " + ", ".join(
+                    f"**{k} {v}**" for k, v in result["values"].items())
+                    + f"\n> 합 {result['total']} · 편차 {result['spread']}"
+                    + (f"\n> 조건: {cons_txt}" if cons_txt else "")
+                    + note)}
 
     # ── 단일 선택 ──
     if module == "select_one":
@@ -181,6 +193,29 @@ def step(scenario_data: dict, run: dict, user_input: str = None) -> dict:
     run["index"] += 1
     return {"type": AUTO, "field": field, "options": [], "value": None,
             "message": f"{field} 처리 완료", "guide": guide, "can_back": True}
+
+
+def _describe_constraints(cons: dict) -> str:
+    """설정된 제약을 표시 문자열로."""
+    parts = []
+    if cons.get("total") is not None:
+        parts.append(f"총합 {cons['total']}")
+    if cons.get("max_spread") is not None:
+        parts.append(f"편차 {cons['max_spread']} 이하")
+    if cons.get("top_field"):
+        parts.append(f"{cons['top_field']} 최고")
+    return " · ".join(parts)
+
+
+def set_stat_constraint(run: dict, key: str, value) -> dict:
+    """능력치 제약을 설정하거나 해제한다(value가 None이면 해제)."""
+    cons = dict(run.get("stat_constraints") or {})
+    if value is None:
+        cons.pop(key, None)
+    else:
+        cons[key] = value
+    run["stat_constraints"] = cons
+    return cons
 
 
 def confirm(scenario_data: dict, run: dict) -> dict:

@@ -22,14 +22,6 @@ import re
 # 오타 검사에서 후보로 볼 최소 유사도.
 TYPO_RATIO = 0.6
 
-# 능력치 프리셋 — 총합·편차·최고항목 조합 (기획 규정 6번).
-STAT_PRESETS = {
-    "균형": {"label": "균형형", "spread": "low"},
-    "특화": {"label": "특화형", "spread": "high"},
-    "양극": {"label": "양극형", "spread": "extreme"},
-}
-
-
 def _resolve_options(scenario_data: dict, args: dict, chosen: dict) -> list:
     """옵션 목록을 확정한다.
 
@@ -151,68 +143,168 @@ def goto_step(steps: list, target_field: str) -> int | None:
 
 
 # ── 6. 능력치 프리셋 ────────────────────────────────────────
-def stat_preset(args: dict, preset: str = None, top_field: str = None) -> dict:
-    """능력치 총합·편차·최고항목 프리셋으로 배분한다.
+def roll_stats(args: dict, *, total: int = None, max_spread: int = None,
+               top_field: str = None, tries: int = 200) -> dict:
+    """능력치를 무작위로 배분한다 (기획 규정 6번).
+
+    산출은 언제나 랜덤이며, 아래 셋은 선택 가능한 제약이다.
+      total       총합 지정 (미지정이면 args의 기본 총합)
+      max_spread  능력치 간 최대 편차 상한
+      top_field   해당 능력치가 최고가 되도록
+
+    제약을 만족하는 조합을 무작위로 뽑는다. 프리셋처럼 결과가 고정되지
+    않으므로 같은 조건이라도 매번 다른 캐릭터가 나온다.
 
     Args:
-        args: {"stats": ["무공","심계",...], "total": 20, "max_single": 6, "min_single": 1}
-        preset: STAT_PRESETS 키
-        top_field: 최고 항목으로 지정할 능력치
+        args: {"stats": [...], "total": int, "max_single": int, "min_single": int}
 
     Returns:
-        {"values": {stat: int}, "preset": str, "total": int}
+        {"values": {stat: int}, "total": int, "spread": int,
+         "constraints": {...}, "ok": bool}
     """
     stats = list(args.get("stats") or [])
     if not stats:
-        return {"values": {}, "preset": preset or "균형", "total": 0}
-
-    total = int(args.get("total") or (len(stats) * 3))
-    hi = int(args.get("max_single") or 6)
-    lo = int(args.get("min_single") or 1)
-    spread = STAT_PRESETS.get(preset or "균형", STAT_PRESETS["균형"])["spread"]
+        return {"values": {}, "total": 0, "spread": 0,
+                "constraints": {}, "ok": False}
 
     n = len(stats)
-    # 편차가 클수록 기준값을 낮게 잡아 재분배할 여지를 남긴다.
-    # 기준값을 total//n으로만 두면 나누어떨어질 때 나머지가 0이 되어
-    # 세 프리셋이 같은 결과를 낸다.
-    floor_ratio = {"low": 1.0, "high": 0.7, "extreme": 0.45}[spread]
-    base = max(lo, int((total // n) * floor_ratio))
-    values = {s: base for s in stats}
-    remain = total - base * n
+    target = int(total if total is not None else (args.get("total") or n * 3))
+    hi = int(args.get("max_single") or 6)
+    lo = int(args.get("min_single") or 1)
 
-    # 편차에 따라 나머지를 어떻게 뿌릴지 정한다.
+    # 총합이 물리적으로 불가능하면 범위 안으로 당긴다.
+    target = max(lo * n, min(hi * n, target))
+
+    constraints = {"total": target, "max_spread": max_spread,
+                   "top_field": top_field}
+
+    best = None
+    for _ in range(tries):
+        values = _random_partition(stats, target, lo, hi)
+        if values is None:
+            continue
+        spread = max(values.values()) - min(values.values())
+
+        if max_spread is not None and spread > max_spread:
+            continue
+        if top_field and top_field in values:
+            # 단독 최고여야 한다. 동률이면 다시 뽑는다.
+            top_val = values[top_field]
+            if any(v >= top_val for k, v in values.items() if k != top_field):
+                continue
+
+        return {"values": values, "total": sum(values.values()),
+                "spread": spread, "constraints": constraints, "ok": True}
+
+    # 제약을 모두 만족하는 조합을 못 찾았다 — 가능한 선까지 맞춘다.
+    values = _forced_partition(stats, target, lo, hi,
+                               max_spread=max_spread, top_field=top_field)
+    return {"values": values, "total": sum(values.values()),
+            "spread": max(values.values()) - min(values.values()),
+            "constraints": constraints, "ok": False}
+
+
+def _random_partition(stats: list, target: int, lo: int, hi: int) -> dict | None:
+    """총합이 target인 무작위 배분. 각 값은 lo~hi.
+
+    최소값을 깔고 남은 몫을 무작위로 흩뿌린다. 균등 분포는 아니지만
+    치우침 없이 다양한 조합이 나온다.
+    """
+    n = len(stats)
+    remain = target - lo * n
+    if remain < 0 or remain > (hi - lo) * n:
+        return None
+
+    values = {s: lo for s in stats}
     order = list(stats)
+    while remain > 0:
+        random.shuffle(order)
+        placed = False
+        for s in order:
+            if values[s] >= hi:
+                continue
+            # 한 번에 뿌리는 양을 무작위로 해 분포를 넓힌다.
+            step = random.randint(1, min(remain, hi - values[s]))
+            values[s] += step
+            remain -= step
+            placed = True
+            if remain <= 0:
+                break
+        if not placed:
+            return None
+    return values
+
+
+def _forced_partition(stats: list, target: int, lo: int, hi: int, *,
+                      max_spread: int = None, top_field: str = None) -> dict:
+    """제약을 만족하는 조합을 못 찾았을 때의 폴백.
+
+    편차 상한을 우선 지키고, 최고 항목 지정은 마지막에 강제한다.
+    """
+    n = len(stats)
+    base = max(lo, min(hi, target // n))
+    values = {s: base for s in stats}
+    remain = target - base * n
+
+    order = list(stats)
+    random.shuffle(order)
     if top_field and top_field in order:
         order.remove(top_field)
         order.insert(0, top_field)
-    elif spread != "low":
-        random.shuffle(order)
 
-    if spread == "low":
-        idx = 0
-        while remain > 0:
-            s = order[idx % n]
-            if values[s] < hi:
-                values[s] += 1
-                remain -= 1
-            idx += 1
-            if idx > n * hi * 2:
-                break
-    else:
-        weights = [3, 2] + [1] * (n - 2) if spread == "high" else [5, 1] + [1] * (n - 2)
-        idx = 0
-        while remain > 0:
-            s = order[idx % n]
-            step = min(weights[idx % n], hi - values[s], remain)
-            if step > 0:
-                values[s] += step
-                remain -= step
-            idx += 1
-            if idx > n * hi * 2:
-                break
+    idx = 0
+    guard = 0
+    while remain != 0 and guard < n * (hi - lo) * 4:
+        s = order[idx % n]
+        if remain > 0 and values[s] < hi:
+            values[s] += 1
+            remain -= 1
+        elif remain < 0 and values[s] > lo:
+            values[s] -= 1
+            remain += 1
+        idx += 1
+        guard += 1
 
-    return {"values": values, "preset": preset or "균형",
-            "total": sum(values.values())}
+    # 편차 상한 강제 — 최고를 깎아 최저에 더한다.
+    if max_spread is not None:
+        guard = 0
+        while (max(values.values()) - min(values.values())) > max_spread and guard < 100:
+            top = max(values, key=lambda k: values[k])
+            bot = min(values, key=lambda k: values[k])
+            if values[top] - 1 < lo or values[bot] + 1 > hi:
+                break
+            values[top] -= 1
+            values[bot] += 1
+            guard += 1
+
+    # 최고 항목 강제 — 단독 1위가 되도록 한 칸 확보한다.
+    if top_field and top_field in values:
+        guard = 0
+        while guard < 100:
+            others = [k for k in values if k != top_field]
+            if not others:
+                break
+            rival = max(others, key=lambda k: values[k])
+            if values[top_field] > values[rival]:
+                break
+            if values[top_field] + 1 > hi or values[rival] - 1 < lo:
+                break
+            values[top_field] += 1
+            values[rival] -= 1
+            guard += 1
+    return values
+
+
+def reroll_stats(args: dict, previous: dict = None, **constraints) -> dict:
+    """같은 제약으로 다시 굴린다.
+
+    기획 규정상 산출은 언제나 랜덤이므로 재굴림이 자연스러운 조작이다.
+    직전 결과와 완전히 같으면 한 번 더 시도한다.
+    """
+    result = roll_stats(args, **constraints)
+    if previous and result["values"] == previous:
+        result = roll_stats(args, **constraints)
+    return result
 
 
 # ── 7. 선택에 따른 기존 선택 수정 ───────────────────────────
@@ -357,7 +449,7 @@ MODULES = {
     "warn_on_choice": warn_on_choice,
     "branch_mode": branch_mode,
     "goto_step": goto_step,
-    "stat_preset": stat_preset,
+    "roll_stats": roll_stats,
     "revise_field": revise_field,
     "merge_inputs": merge_inputs,
     "guide_from_prior": guide_from_prior,

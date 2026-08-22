@@ -66,6 +66,11 @@ async def render(state: ProfileCreationSession, channel, *, user_input=None):
                         view=AIInputView(state, channel, res))
             return
 
+        if res.get("stat_module"):
+            await _send(state, channel, res,
+                        view=StatRollView(state, channel, res))
+            return
+
         if res["type"] in (runner.CONFIRM, runner.WARN):
             await _send(state, channel, res,
                         view=ConfirmView(state, channel, res))
@@ -228,6 +233,93 @@ class ConfirmView(_Base):
         await interaction.response.defer()
         # 취소로 닫으면 재선택하며 이전 선택 흔적을 지운다(기획 규정).
         runner.cancel_pending(self.state.run)
+        await render(self.state, self.channel)
+
+
+class StatRollView(_Base):
+    """
+    능력치 배분 — 산출은 언제나 랜덤이고 세 조건을 선택할 수 있다.
+
+    기획 규정 — 총합·최대 편차·특정 능력치 최대 여부를 선택사항으로 제공한다.
+    조건을 바꾸면 즉시 다시 굴린다.
+    """
+
+    def __init__(self, state, channel, res: dict):
+        super().__init__(state, channel)
+        self.res = res
+        stats = (res.get("args") or {}).get("stats") or []
+        if stats:
+            self.add_item(TopFieldSelect(stats))
+
+    @discord.ui.button(label="🎲 다시 굴리기", style=discord.ButtonStyle.primary, row=0)
+    async def reroll(self, interaction, _b):
+        await interaction.response.defer()
+        runner.cancel_pending(self.state.run)
+        await render(self.state, self.channel)
+
+    @discord.ui.button(label="⚙️ 조건 설정", style=discord.ButtonStyle.secondary, row=0)
+    async def constraints(self, interaction, _b):
+        await interaction.response.send_modal(
+            StatConstraintModal(self.state, self.channel, self.res))
+
+    @discord.ui.button(label="✅ 확정", style=discord.ButtonStyle.success, row=0)
+    async def ok(self, interaction, _b):
+        await interaction.response.defer()
+        runner.confirm(self.state.session.scenario_data, self.state.run)
+        await render(self.state, self.channel)
+
+
+class TopFieldSelect(discord.ui.Select):
+    """특정 능력치를 최고로 지정하거나 해제한다."""
+
+    def __init__(self, stats: list):
+        options = [discord.SelectOption(label="최고 지정 없음", value="__none__")]
+        options += [discord.SelectOption(label=f"{s} 최고", value=s)
+                    for s in stats[:24]]
+        super().__init__(placeholder="특정 능력치를 최고로", options=options, row=1)
+
+    async def callback(self, interaction):
+        await interaction.response.defer()
+        v = self.view
+        val = None if self.values[0] == "__none__" else self.values[0]
+        runner.set_stat_constraint(v.state.run, "top_field", val)
+        runner.cancel_pending(v.state.run)
+        await render(v.state, v.channel)
+
+
+class StatConstraintModal(discord.ui.Modal, title="능력치 조건"):
+    """총합과 최대 편차를 입력받는다. 비우면 해제된다."""
+
+    total = discord.ui.TextInput(label="총합 (비우면 기본값)", required=False, max_length=4)
+    spread = discord.ui.TextInput(label="최대 편차 (비우면 제한 없음)",
+                                  required=False, max_length=3)
+
+    def __init__(self, state, channel, res: dict):
+        super().__init__()
+        self.state = state
+        self.channel = channel
+        cons = state.run.get("stat_constraints") or {}
+        if cons.get("total") is not None:
+            self.total.default = str(cons["total"])
+        if cons.get("max_spread") is not None:
+            self.spread.default = str(cons["max_spread"])
+
+    async def on_submit(self, interaction):
+        await interaction.response.defer()
+        run = self.state.run
+
+        def _parse(field):
+            t = str(field or "").strip()
+            if not t:
+                return None
+            try:
+                return max(0, int(t))
+            except ValueError:
+                return None
+
+        runner.set_stat_constraint(run, "total", _parse(self.total))
+        runner.set_stat_constraint(run, "max_spread", _parse(self.spread))
+        runner.cancel_pending(run)
         await render(self.state, self.channel)
 
 

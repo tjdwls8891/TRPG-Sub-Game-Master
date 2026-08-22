@@ -1791,7 +1791,7 @@
     },
     {
       "field": "능력치",
-      "module": "stat_preset",
+      "module": "roll_stats",
       "args": {
         "stats": [
           "근력",
