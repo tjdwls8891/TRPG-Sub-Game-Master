@@ -174,6 +174,8 @@ class TRPGSession:
         self.pending_bgm = None
         # 직전 BGM 판단의 (상황 태그, 긴장 구간) — 동일하면 전환하지 않는다
         self.last_bgm_situation = None
+        # 방문한 장소 목록 — 되감기 대상(미방문 상태로 정확히 복원된다)
+        self.visited_places = []
         # 세션 시작 시점의 통산 일수 — 경과 일수 계산의 기준
         self.start_day_number = None
         # 압축 선결제 누적액(원). 실제 압축 시 또는 세션 종료 시 정산된다.

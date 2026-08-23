@@ -212,6 +212,21 @@ class PromptBuilder:
         self.blocks.append(block)
         return self
 
+    def add_place_block(self):
+        """장소 정보 — 온디맨드 주입.
+
+        현재 장소 풀 정보 + inherit 상위 + 갈 수 있는 곳(방문 여부 표기).
+        미방문 장소를 미리 얕게 넣어야 이동 묘사의 재료가 생긴다.
+        """
+        try:
+            from .places import build_place_block
+            block = build_place_block(self.session)
+            if block:
+                self.parts.append(block)
+        except Exception as e:
+            print(f"[장소] 블록 생성 실패: {e}")
+        return self
+
     def add_quest_block(self):
         """퀘스트 블록 — 온디맨드 주입.
 
@@ -279,6 +294,7 @@ class PromptBuilder:
                    .add_npc_override_block()
                    .add_recent_action_block()
                    .add_gm_instruction_block()
+                   .add_place_block()
                    .add_quest_block()
                    .add_rule_enforcement_block())
         session.last_proceed_manifest = list(builder.manifest)

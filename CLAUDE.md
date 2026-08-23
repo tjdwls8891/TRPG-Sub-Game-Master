@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Gemini API + discord.py 기반의 한국어 TRPG 보조 GM 디스코드 봇. GM이 마스터 채널에서 명령어를 입력하면 AI가 묘사를 생성하고, 비용 추적·캐시 관리·기억 압축·BGM/이미지 연출·GM 진행을 자동화한다.
 
-현재 버전: **v5.7.0**  
+현재 버전: **v5.8.0**  
 총 소스코드: ~10,020줄 (core/ 패키지 ~3,080 [audio_mixer·tts 포함] / auto_gm.py 2,305 / game.py 1,310 / character.py 1,031 / prompts.py 1,019 / media.py 593 / system.py 342 / session.py 251 / main.py 95)
 
 > NOTE: `prompts.py`는 SYSTEM_INSTRUCTION 외에도 GM용 시스템 지시문·응답 스키마(지시층위, 서사 계획, 서사 방향성 시뮬레이터, 세계 타임라인 추출기)를 모두 보관하므로 ~1,019줄로 커졌다.

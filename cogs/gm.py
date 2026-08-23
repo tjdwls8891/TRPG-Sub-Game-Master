@@ -176,6 +176,15 @@ def _build_judgment_user_prompt(session, player_message: str, roll_results: list
             + "\n※ 굴림 결과가 존재하므로 원칙적으로 PROCEED로 진행한다."
         )
 
+    # ④ 이동 안내 — 판단층위는 캐시를 읽지 않아 세계관을 모른다.
+    # 코드가 경로를 계산해 재료로 넣어야 ASK로 거리를 안내할 수 있다.
+    try:
+        hint = core.places.build_move_hint(session, player_message)
+        if hint:
+            lines.append(hint)
+    except Exception as e:
+        print(f"[장소] 이동 안내 생성 실패: {e}")
+
     lines.append(f"[플레이어 신규 발언]\n{player_message}")
     return "\n\n".join(lines)
 
@@ -312,7 +321,19 @@ def _build_logic_user_prompt(session, player_message: str, roll_results: list,
         )
 
     # 장소 이미지 목록 (상: 태그 사용 시 이 목록에서만 선택 가능)
+    # 장소 이미지 후보 — places가 있으면 그쪽을 쓴다(지시 확정: 흡수).
     location_images: dict = session.scenario_data.get("location_images", {})
+    try:
+        from core.places import load_places
+        _pl = load_places(session.scenario_data)
+        if _pl:
+            location_images = {
+                n: (d.get("location_desc") or d.get("known_brief") or n)
+                for n, d in _pl.items()
+                if isinstance(d, dict) and d.get("image")
+            }
+    except Exception:
+        pass
     if location_images:
         loc_lines = [f"  - {kw}: {desc}" for kw, desc in location_images.items()]
         location_images_block = (
@@ -3019,8 +3040,27 @@ class GMCog(commands.Cog):
 
         # 성공 — 세계 타임라인 흡수 갱신 (기존 _update_world_timeline 대체)
         # 시간선 정량화 — 일/24시간 단위 정수 필드를 함께 보관한다.
-        session.world_timeline = core.quantify(
-            session, core.to_world_timeline(result, prev_tl))
+        new_tl = core.to_world_timeline(result, prev_tl)
+
+        # 장소 이동 처리 — 방문 기록과 이동 소요 시간을 반영한다.
+        try:
+            pl = core.places.load_places(session.scenario_data)
+            if pl:
+                before = core.places.resolve(pl, prev_tl.get("current_location") or "")
+                after = core.places.resolve(pl, new_tl.get("current_location") or "")
+                if after:
+                    new_tl["current_location"] = after
+                    if core.places.mark_visited(session, after):
+                        print(f"[장소] 첫 방문: {after}")
+                    # 이동 소요를 시간선에 반영한다(지시 확정).
+                    if before and before != after:
+                        hops = core.places.hops_between(session, before, after)
+                        if hops:
+                            new_tl["travel_hops"] = hops
+        except Exception as e:
+            print(f"[장소] 이동 처리 실패: {e}")
+
+        session.world_timeline = core.quantify(session, new_tl)
         session.last_extraction = result
         session.extraction_pending = False
         session.extraction_retry_ctx = {}

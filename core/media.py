@@ -31,11 +31,25 @@ async def send_image_by_keyword(game_channel, master_ctx, session, keyword):
         else:
             await master_ctx.send(f"⚠️ [이미지 경고] 설정된 파일이 경로에 없습니다: `{filepath}`")
     else:
-        # media_keywords에 없으면 location_images에서 폴백 조회
-        # location_images 값은 설명 문자열이므로 파일명은 '{keyword}.png' 규칙으로 결정
-        location_images = session.scenario_data.get("location_images", {})
-        if keyword in location_images:
-            filepath = os.path.join(media_dir, f"{keyword}.png")
+        # 장소 이미지 — places 시스템이 흡수했다(지시 확정).
+        # 명시된 이미지가 없으면 상위 항목 중 가장 하위의 것을 쓴다.
+        from .places import load_places, resolve, image_for
+
+        pl = load_places(session.scenario_data)
+        fname = None
+        if pl:
+            name = resolve(pl, keyword)
+            if name:
+                fname = image_for(pl, name)
+
+        # 구버전 location_images 폴백 — 데이터 이전 전까지 유지한다.
+        if not fname:
+            legacy = session.scenario_data.get("location_images", {})
+            if keyword in legacy:
+                fname = f"{keyword}.png"
+
+        if fname:
+            filepath = os.path.join(media_dir, fname)
             if os.path.exists(filepath):
                 await game_channel.send(file=discord.File(filepath))
             else:
