@@ -2117,9 +2117,14 @@
       "mood_interior": "서로를 아는 좁은 공동체",
       "npcs": [
         {
-          "name": "경작대원",
-          "relation": "마을 주민",
-          "frequency": "상주"
+          "name": "조원달",
+          "relation": "자치 위원회 대표",
+          "frequency": "자주"
+        },
+        {
+          "name": "강병철",
+          "relation": "정적 파수꾼 선임",
+          "frequency": "자주"
         }
       ],
       "connected": [
@@ -2127,7 +2132,11 @@
         "해련사",
         "집수 설비",
         "산복도로",
-        "봉래산 능선"
+        "봉래산 능선",
+        "스카이웨이",
+        "방음실",
+        "경작지",
+        "마을 회관"
       ],
       "inherit": [
         "봉래산"
@@ -2147,7 +2156,14 @@
       ],
       "known_brief": "마을의 창고 겸 회합 장소",
       "unknown_hint": "나무 사이로 처마 끝이 보인다.",
-      "visible_within": "해련 자치 마을"
+      "visible_within": "해련 자치 마을",
+      "npcs": [
+        {
+          "name": "법운",
+          "relation": "주지 및 창고 총괄",
+          "frequency": "상주"
+        }
+      ]
     },
     "집수 설비": {
       "parent": "해련 자치 마을",
@@ -2159,7 +2175,14 @@
       ],
       "known_brief": "빗물을 받아 저장하는 설비",
       "unknown_hint": "지붕 위로 홈통이 이어진 것이 보인다.",
-      "visible_within": "해련 자치 마을"
+      "visible_within": "해련 자치 마을",
+      "npcs": [
+        {
+          "name": "신대호",
+          "relation": "시설 관리대장",
+          "frequency": "자주"
+        }
+      ]
     },
     "봉래산 능선": {
       "parent": "봉래산",
@@ -2174,14 +2197,22 @@
         "봉래산",
         "해련 자치 마을",
         "중리 교역소",
-        "산복도로"
+        "산복도로",
+        "태종대 방면 숲"
       ],
       "inherit": [
         "봉래산"
       ],
       "known_brief": "빠르지만 몸을 숨길 곳이 없는 길",
       "unknown_hint": "능선을 따라 길이 나 있는 듯하다.",
-      "image": "능선.png"
+      "image": "능선.png",
+      "npcs": [
+        {
+          "name": "박하은",
+          "relation": "정적 파수꾼",
+          "frequency": "가끔"
+        }
+      ]
     },
     "산복도로": {
       "parent": "영도",
@@ -2194,7 +2225,9 @@
         "남항 중공업 연대",
         "저지대 상업지구",
         "중리 교역소",
-        "봉래산 능선"
+        "봉래산 능선",
+        "산복도로 상단",
+        "산복도로 하단"
       ],
       "known_brief": "거점들을 잇는 주요 도로",
       "unknown_hint": "산허리를 감고 도는 길이 보인다.",
@@ -2212,7 +2245,8 @@
       "connected": [
         "남항 중공업 연대",
         "저지대 상업지구",
-        "중리 교역소"
+        "중리 교역소",
+        "하수도 분기점"
       ],
       "known_brief": "은밀한 우회 경로. 방향감 상실 위험이 있다.",
       "unknown_hint": "맨홀 뚜껑이 열려 있는 것을 본 적 있다."
@@ -2247,14 +2281,14 @@
       "mood_interior": "규율과 배급이 지배한다",
       "npcs": [
         {
-          "name": "중앙 위원회 의장",
-          "relation": "최고 결정권자",
+          "name": "김철수",
+          "relation": "중앙 위원회 의장",
           "frequency": "가끔"
         },
         {
-          "name": "검역 담당",
-          "relation": "제1방어선",
-          "frequency": "상주"
+          "name": "노상진",
+          "relation": "수습대장",
+          "frequency": "자주"
         }
       ],
       "connected": [
@@ -2262,7 +2296,13 @@
         "제1방어선",
         "조선소 내부",
         "저지대 상업지구",
-        "하수도"
+        "하수도",
+        "컨테이너 방벽",
+        "병참 창고",
+        "배급소",
+        "하층 거주구",
+        "무너진 다리 어귀",
+        "방치된 부두"
       ],
       "known_brief": "조선소를 요새화한 최대 세력",
       "unknown_hint": "서쪽 해안에 거대한 크레인이 서 있다.",
@@ -2282,7 +2322,19 @@
       ],
       "known_brief": "감염 여부를 가리는 관문",
       "unknown_hint": "입구 쪽에 사람이 서 있는 것이 보인다.",
-      "visible_within": "남항 중공업 연대"
+      "visible_within": "남항 중공업 연대",
+      "npcs": [
+        {
+          "name": "박창수",
+          "relation": "검역 통제소 선임 경비",
+          "frequency": "상주"
+        },
+        {
+          "name": "오기태",
+          "relation": "검역 통제소 경비",
+          "frequency": "상주"
+        }
+      ]
     },
     "조선소 내부": {
       "parent": "남항 중공업 연대",
@@ -2295,7 +2347,8 @@
       "mood_interior": "쇳내와 기름내",
       "connected": [
         "남항 중공업 연대",
-        "지하 의료소"
+        "지하 의료소",
+        "기술국 작업장"
       ],
       "known_brief": "설비와 창고가 있는 작업 구역",
       "unknown_hint": "격납고 문이 반쯤 열려 있다.",
@@ -2312,7 +2365,14 @@
       ],
       "known_brief": "연대의 의료 시설",
       "unknown_hint": "아래로 내려가는 계단이 있다.",
-      "visible_within": "조선소 내부"
+      "visible_within": "조선소 내부",
+      "npcs": [
+        {
+          "name": "임재환",
+          "relation": "의료소장 겸 생체 연구원",
+          "frequency": "상주"
+        }
+      ]
     },
     "저지대 상업지구": {
       "parent": "영도",
@@ -2330,7 +2390,11 @@
         "산복도로",
         "남항 중공업 연대",
         "폐병원",
-        "하수도"
+        "하수도",
+        "봉래시장",
+        "상가 창고",
+        "주택가 골목",
+        "무너진 다리 어귀"
       ],
       "known_brief": "물자가 남은 데스 존",
       "unknown_hint": "서쪽 아래로 상가 지붕들이 이어진다.",
@@ -2363,8 +2427,13 @@
       "mood_interior": "등급이 사람을 나눈다",
       "npcs": [
         {
-          "name": "3등급 채무 부랑자",
-          "relation": "빚진 자",
+          "name": "나용순",
+          "relation": "자치 상조회 거상",
+          "frequency": "가끔"
+        },
+        {
+          "name": "장철웅",
+          "relation": "해안 경비팀장",
           "frequency": "자주"
         }
       ],
@@ -2373,7 +2442,10 @@
         "봉래산 능선",
         "동삼동 해안로",
         "중리 해변",
-        "하수도"
+        "하수도",
+        "천막 거리",
+        "장부방",
+        "태종대 방면 숲"
       ],
       "known_brief": "물물교환의 중심. 등급제로 사람을 나눈다.",
       "unknown_hint": "동남쪽에 천막들이 모여 있는 것이 보인다.",
@@ -2385,12 +2457,25 @@
       "exterior": "자갈밭에 부서진 배들이 얹혀 있다.",
       "mood_exterior": "아무도 바다로 나가지 않는다",
       "connected": [
-        "중리 교역소"
+        "중리 교역소",
+        "해녀 작업장"
       ],
       "known_brief": "부서진 배들이 있는 해변",
       "unknown_hint": "아래쪽에서 파도 소리가 들린다.",
       "image": "부두선착장.png",
-      "visible_within": "중리 교역소"
+      "visible_within": "중리 교역소",
+      "npcs": [
+        {
+          "name": "황민석",
+          "relation": "3등급 해안 수거꾼",
+          "frequency": "자주"
+        },
+        {
+          "name": "이선희",
+          "relation": "2등급 해안 수거꾼",
+          "frequency": "자주"
+        }
+      ]
     },
     "아치 방파제": {
       "parent": "영도",
@@ -2420,11 +2505,28 @@
       "mood_exterior": "폐쇄적이고 접근을 허락하지 않는다",
       "mood_interior": "명령 체계가 살아 있는 유일한 곳",
       "connected": [
-        "아치 방파제"
+        "아치 방파제",
+        "방파제 초소",
+        "강의동 병영",
+        "검역 연구소",
+        "캠퍼스 마당",
+        "군수 창고"
       ],
       "known_brief": "군 잔존 조직. 폐쇄적이다.",
       "unknown_hint": "방파제 건너편에 캠퍼스 건물이 보인다.",
-      "image": "조도사령부.png"
+      "image": "조도사령부.png",
+      "npcs": [
+        {
+          "name": "민도현",
+          "relation": "육상 작전대장",
+          "frequency": "자주"
+        },
+        {
+          "name": "윤상준",
+          "relation": "검역 담당관",
+          "frequency": "상주"
+        }
+      ]
     },
     "은신처": {
       "parent": "영도",
@@ -2437,6 +2539,496 @@
       ],
       "known_brief": "당신이 머무는 곳",
       "image": "은신처내부.png"
+    },
+    "컨테이너 방벽": {
+      "parent": "남항 중공업 연대",
+      "visible_within": "남항 중공업 연대",
+      "location_desc": "연대 외곽을 두른 방벽",
+      "exterior": "컨테이너를 3단으로 쌓아 올렸다. 위에 감시대가 걸쳐 있다.",
+      "mood_exterior": "안과 밖을 가르는 선",
+      "connected": [
+        "남항 중공업 연대",
+        "제1방어선"
+      ],
+      "known_brief": "연대를 두른 컨테이너 방벽",
+      "unknown_hint": "컨테이너가 벽처럼 늘어서 있다."
+    },
+    "병참 창고": {
+      "parent": "남항 중공업 연대",
+      "visible_within": "남항 중공업 연대",
+      "location_desc": "연대 배급을 관리하는 창고동",
+      "interior": "선반마다 수량이 적힌 종이가 붙어 있다. 장부가 벽에 걸렸다.",
+      "mood_interior": "숫자가 사람의 하루를 정한다",
+      "npcs": [
+        {
+          "name": "차봉순",
+          "relation": "병참국장",
+          "frequency": "상주"
+        }
+      ],
+      "connected": [
+        "남항 중공업 연대",
+        "배급소"
+      ],
+      "known_brief": "연대의 물자 창고",
+      "unknown_hint": "창고동 문이 굳게 닫혀 있다."
+    },
+    "배급소": {
+      "parent": "남항 중공업 연대",
+      "visible_within": "남항 중공업 연대",
+      "location_desc": "연대 중앙 마당의 배급 창구",
+      "exterior": "긴 줄이 늘어선다. 창구 앞에 명단이 붙어 있다.",
+      "mood_exterior": "줄의 순서가 곧 서열이다",
+      "connected": [
+        "남항 중공업 연대",
+        "병참 창고"
+      ],
+      "known_brief": "하루 몫을 받는 곳",
+      "unknown_hint": "마당에 사람들이 줄지어 있다."
+    },
+    "기술국 작업장": {
+      "parent": "조선소 내부",
+      "visible_within": "조선소 내부",
+      "location_desc": "설비동 한쪽 정비 구역",
+      "interior": "공구가 벽에 걸려 있다. 분해된 발전기 부품이 널려 있다.",
+      "mood_interior": "이곳이 멎으면 불이 꺼진다",
+      "npcs": [
+        {
+          "name": "서태양",
+          "relation": "마스터급 기술자",
+          "frequency": "상주"
+        }
+      ],
+      "connected": [
+        "조선소 내부"
+      ],
+      "known_brief": "연대의 설비를 고치는 곳",
+      "unknown_hint": "안쪽에서 금속 두드리는 소리가 난다."
+    },
+    "하층 거주구": {
+      "parent": "남항 중공업 연대",
+      "visible_within": "남항 중공업 연대",
+      "location_desc": "연대 아래쪽 노동자 숙소",
+      "interior": "칸막이로 나눈 좁은 잠자리가 이어진다. 천장이 낮다.",
+      "mood_interior": "가장 많은 사람이 가장 좁게 산다",
+      "npcs": [
+        {
+          "name": "황순애",
+          "relation": "하층 거주 노동자",
+          "frequency": "상주"
+        }
+      ],
+      "connected": [
+        "남항 중공업 연대"
+      ],
+      "known_brief": "노동자들이 자는 곳",
+      "unknown_hint": "아래층에서 인기척이 들린다."
+    },
+    "스카이웨이": {
+      "parent": "해련 자치 마을",
+      "visible_within": "해련 자치 마을",
+      "location_desc": "빌라와 빌라 사이를 잇는 공중 통로",
+      "exterior": "폐자재를 엮어 만든 다리가 건물 사이를 건넌다. 땅을 밟지 않고 마을을 가로지른다.",
+      "interior": "발판이 삐걱인다. 아래를 보면 골목이 아득하다.",
+      "mood_exterior": "감염자를 피해 하늘로 낸 길",
+      "mood_interior": "3번 통로는 밟을 때마다 소리가 다르다",
+      "npcs": [
+        {
+          "name": "신대호",
+          "relation": "설계자",
+          "frequency": "자주"
+        }
+      ],
+      "connected": [
+        "해련 자치 마을",
+        "마을 회관",
+        "경작지"
+      ],
+      "known_brief": "건물 사이를 잇는 공중 통로",
+      "unknown_hint": "건물 사이로 무언가가 걸쳐져 있다."
+    },
+    "방음실": {
+      "parent": "해련 자치 마을",
+      "visible_within": "해련 자치 마을",
+      "location_desc": "마을 안쪽 격리 공간",
+      "interior": "이불을 겹겹이 두른 벽. 쑥 향이 짙게 배어 있다.",
+      "mood_interior": "소리를 내면 안 되는 곳. 향 아래 무언가가 있다.",
+      "npcs": [
+        {
+          "name": "윤점순",
+          "relation": "격리 관리자",
+          "frequency": "상주"
+        }
+      ],
+      "connected": [
+        "해련 자치 마을"
+      ],
+      "known_brief": "환자와 아이를 격리하는 방음 공간",
+      "unknown_hint": "이불로 창을 막은 집이 있다."
+    },
+    "경작지": {
+      "parent": "해련 자치 마을",
+      "visible_within": "해련 자치 마을",
+      "location_desc": "마을 위쪽 계단식 밭",
+      "exterior": "비탈을 깎아 만든 좁은 밭. 그물로 위를 덮었다.",
+      "mood_exterior": "흙 한 줌이 귀하다",
+      "npcs": [
+        {
+          "name": "오명숙",
+          "relation": "경작대장",
+          "frequency": "상주"
+        }
+      ],
+      "connected": [
+        "해련 자치 마을",
+        "스카이웨이"
+      ],
+      "known_brief": "마을의 식량을 기르는 밭",
+      "unknown_hint": "비탈에 그물이 덮인 구역이 보인다."
+    },
+    "마을 회관": {
+      "parent": "해련 자치 마을",
+      "visible_within": "해련 자치 마을",
+      "location_desc": "자치 위원회가 모이는 건물",
+      "interior": "낡은 탁자 하나와 의자 여럿. 벽에 마을 지도가 걸렸다.",
+      "mood_interior": "여기서 마을의 일이 정해진다",
+      "npcs": [
+        {
+          "name": "조원달",
+          "relation": "자치 위원회 대표",
+          "frequency": "자주"
+        }
+      ],
+      "connected": [
+        "해련 자치 마을",
+        "스카이웨이"
+      ],
+      "known_brief": "마을의 회합 장소",
+      "unknown_hint": "마을 가운데 큰 건물이 있다."
+    },
+    "방파제 초소": {
+      "parent": "조도 방위 사령부",
+      "visible_within": "조도 방위 사령부",
+      "location_desc": "방파제를 내려다보는 감시 초소",
+      "exterior": "모래주머니로 둘러싼 초소. 총안이 방파제를 향한다.",
+      "mood_exterior": "400미터를 건너오는 모든 것을 본다",
+      "npcs": [
+        {
+          "name": "임철민",
+          "relation": "방파제 수비대 선임",
+          "frequency": "상주"
+        }
+      ],
+      "connected": [
+        "조도 방위 사령부",
+        "아치 방파제"
+      ],
+      "known_brief": "방파제를 감시하는 초소",
+      "unknown_hint": "방파제 끝에 구조물이 보인다."
+    },
+    "강의동 병영": {
+      "parent": "조도 방위 사령부",
+      "visible_within": "조도 방위 사령부",
+      "location_desc": "캠퍼스 강의동을 개조한 병영",
+      "interior": "책상을 치우고 침상을 들였다. 칠판에 근무표가 적혀 있다.",
+      "mood_interior": "명령 체계가 살아 있는 유일한 곳",
+      "npcs": [
+        {
+          "name": "이현석",
+          "relation": "최고 사령관",
+          "frequency": "가끔"
+        }
+      ],
+      "connected": [
+        "조도 방위 사령부",
+        "캠퍼스 마당"
+      ],
+      "known_brief": "사령부의 생활 공간",
+      "unknown_hint": "캠퍼스 건물에 불이 켜져 있다."
+    },
+    "검역 연구소": {
+      "parent": "조도 방위 사령부",
+      "visible_within": "조도 방위 사령부",
+      "location_desc": "캠퍼스 실험동을 쓰는 연구 시설",
+      "interior": "현미경과 폐자재로 조립한 분석기가 늘어서 있다.",
+      "mood_interior": "여기서 나온 숫자가 사람의 생사를 가른다",
+      "npcs": [
+        {
+          "name": "강지수",
+          "relation": "수석 연구원",
+          "frequency": "상주"
+        }
+      ],
+      "connected": [
+        "조도 방위 사령부",
+        "격리 구역"
+      ],
+      "known_brief": "감염을 연구하는 시설",
+      "unknown_hint": "실험동 창에 불빛이 있다."
+    },
+    "격리 구역": {
+      "parent": "검역 연구소",
+      "visible_within": "검역 연구소",
+      "location_desc": "연구소 안쪽 격리동",
+      "interior": "철창으로 나뉜 칸들. 안쪽은 보이지 않는다.",
+      "mood_interior": "들어간 사람이 나온 적은 드물다",
+      "npcs": [
+        {
+          "name": "문상철",
+          "relation": "격리 구역 감시병",
+          "frequency": "상주"
+        }
+      ],
+      "connected": [
+        "검역 연구소"
+      ],
+      "known_brief": "감염 의심자를 가두는 곳",
+      "unknown_hint": "안쪽에 잠긴 문이 있다."
+    },
+    "캠퍼스 마당": {
+      "parent": "조도 방위 사령부",
+      "visible_within": "조도 방위 사령부",
+      "location_desc": "건물들 사이의 열린 공간",
+      "exterior": "잡초가 무릎까지 자랐다. 한쪽에 훈련용 표적이 서 있다.",
+      "mood_exterior": "학생 대신 병사가 지나간다",
+      "connected": [
+        "조도 방위 사령부",
+        "강의동 병영",
+        "군수 창고"
+      ],
+      "known_brief": "사령부의 중앙 마당",
+      "unknown_hint": "건물 사이에 빈터가 있다."
+    },
+    "군수 창고": {
+      "parent": "조도 방위 사령부",
+      "visible_within": "조도 방위 사령부",
+      "location_desc": "탄약과 보급을 두는 창고",
+      "interior": "상자마다 봉인이 붙어 있다. 재고표가 문 안쪽에 걸렸다.",
+      "mood_interior": "남은 것이 얼마인지 아는 사람은 몇 없다",
+      "npcs": [
+        {
+          "name": "황기영",
+          "relation": "군수 담당관",
+          "frequency": "상주"
+        }
+      ],
+      "connected": [
+        "조도 방위 사령부",
+        "캠퍼스 마당"
+      ],
+      "known_brief": "사령부의 보급 창고",
+      "unknown_hint": "낮은 건물에 자물쇠가 걸려 있다."
+    },
+    "천막 거리": {
+      "parent": "중리 교역소",
+      "visible_within": "중리 교역소",
+      "location_desc": "교역소의 노점이 늘어선 골목",
+      "exterior": "천막과 판자로 세운 좌판이 이어진다. 사람이 가장 많이 오간다.",
+      "mood_exterior": "값을 부르는 소리가 끊이지 않는다",
+      "npcs": [
+        {
+          "name": "한도윤",
+          "relation": "일반 거래자",
+          "frequency": "자주"
+        }
+      ],
+      "connected": [
+        "중리 교역소",
+        "장부방"
+      ],
+      "known_brief": "물건을 사고파는 거리",
+      "unknown_hint": "천막들이 줄지어 있다."
+    },
+    "장부방": {
+      "parent": "중리 교역소",
+      "visible_within": "중리 교역소",
+      "location_desc": "등급과 채무를 관리하는 사무 공간",
+      "interior": "벽 한 면이 장부로 채워져 있다. 이름마다 숫자가 붙어 있다.",
+      "mood_interior": "여기 적힌 숫자가 사람의 등급이다",
+      "npcs": [
+        {
+          "name": "엄주섭",
+          "relation": "등급 사정관",
+          "frequency": "상주"
+        },
+        {
+          "name": "나용순",
+          "relation": "1등급 거상",
+          "frequency": "가끔"
+        }
+      ],
+      "connected": [
+        "중리 교역소",
+        "천막 거리"
+      ],
+      "known_brief": "등급과 빚을 매기는 곳",
+      "unknown_hint": "안쪽에 장부가 쌓인 방이 있다."
+    },
+    "해녀 작업장": {
+      "parent": "중리 해변",
+      "visible_within": "중리 해변",
+      "location_desc": "해변 한쪽의 채집 거점",
+      "exterior": "잠수 장비가 걸려 있다. 물기가 마르지 않는다.",
+      "mood_exterior": "바다에 들어가는 유일한 사람들",
+      "npcs": [
+        {
+          "name": "진복례",
+          "relation": "수석 해녀",
+          "frequency": "상주"
+        }
+      ],
+      "connected": [
+        "중리 해변"
+      ],
+      "known_brief": "해녀들이 채집물을 다루는 곳",
+      "unknown_hint": "해변에 장비가 걸린 오두막이 있다."
+    },
+    "봉래시장": {
+      "parent": "저지대 상업지구",
+      "visible_within": "저지대 상업지구",
+      "location_desc": "상업지구 중심의 재래시장",
+      "exterior": "아케이드 지붕이 반쯤 내려앉았다. 좌판이 뒤엎어져 있다.",
+      "interior": "통조림 상자가 무너진 채 흩어져 있다. 시야가 극도로 막힌다.",
+      "mood_interior": "가장 많이 남았고 가장 위험하다",
+      "connected": [
+        "저지대 상업지구",
+        "상가 창고"
+      ],
+      "known_brief": "통조림이 남았을 재래시장",
+      "unknown_hint": "무너진 아케이드 지붕이 보인다."
+    },
+    "상가 창고": {
+      "parent": "저지대 상업지구",
+      "visible_within": "저지대 상업지구",
+      "location_desc": "시장 뒤편의 물류 창고",
+      "interior": "적재 선반이 넘어져 통로를 막았다. 어둡다.",
+      "mood_interior": "먼저 온 자들의 흔적이 있다",
+      "connected": [
+        "저지대 상업지구",
+        "봉래시장"
+      ],
+      "known_brief": "물자가 남았을 창고",
+      "unknown_hint": "시장 뒤로 큰 문이 보인다."
+    },
+    "주택가 골목": {
+      "parent": "저지대 상업지구",
+      "visible_within": "저지대 상업지구",
+      "location_desc": "상업지구를 둘러싼 낡은 주거지",
+      "exterior": "좁은 골목이 미로처럼 얽혀 있다. 빨랫줄이 아직 걸려 있다.",
+      "mood_exterior": "사람이 살던 자리",
+      "connected": [
+        "저지대 상업지구",
+        "폐병원"
+      ],
+      "known_brief": "빈집이 늘어선 골목",
+      "unknown_hint": "아래쪽에 주택 지붕들이 빽빽하다."
+    },
+    "자취방": {
+      "parent": "주택가 골목",
+      "visible_within": "주택가 골목",
+      "location_desc": "골목 안쪽 원룸 건물의 한 방",
+      "interior": "창을 암막으로 이중 밀폐했다. 식량이 벽면에 정렬돼 있다.",
+      "mood_interior": "복도에서 벽 긁는 소리가 난다",
+      "npcs": [
+        {
+          "name": "염기준",
+          "relation": "은둔 생존자",
+          "frequency": "상주"
+        }
+      ],
+      "connected": [
+        "주택가 골목"
+      ],
+      "known_brief": "누군가 숨어 지내는 방",
+      "unknown_hint": "한 창문만 암막이 쳐져 있다."
+    },
+    "하수도 분기점": {
+      "parent": "하수도",
+      "visible_within": "하수도",
+      "location_desc": "여러 갈래가 만나는 지점",
+      "interior": "물이 네 방향에서 흘러든다. 벽에 낡은 표식이 그어져 있다.",
+      "mood_interior": "방향을 잃으면 나올 수 없다",
+      "npcs": [
+        {
+          "name": "전성남",
+          "relation": "하수도를 아는 자",
+          "frequency": "가끔"
+        }
+      ],
+      "connected": [
+        "하수도"
+      ],
+      "known_brief": "하수도의 갈림길",
+      "unknown_hint": "물소리가 여러 갈래에서 들린다."
+    },
+    "산복도로 상단": {
+      "parent": "산복도로",
+      "visible_within": "산복도로",
+      "location_desc": "해련 마을로 이어지는 구간",
+      "exterior": "경사가 급해진다. 아래로 섬 서쪽이 펼쳐진다.",
+      "mood_exterior": "오르막이 체력을 앗아간다",
+      "connected": [
+        "산복도로",
+        "해련 자치 마을",
+        "봉래산 능선"
+      ],
+      "known_brief": "마을로 오르는 구간",
+      "unknown_hint": "위쪽으로 길이 이어진다."
+    },
+    "산복도로 하단": {
+      "parent": "산복도로",
+      "visible_within": "산복도로",
+      "location_desc": "남항과 저지대로 내려가는 구간",
+      "exterior": "차량 잔해가 가장 빽빽하다. 굽이마다 시야가 끊긴다.",
+      "mood_exterior": "내려갈수록 소리가 늘어난다",
+      "connected": [
+        "산복도로",
+        "남항 중공업 연대",
+        "저지대 상업지구"
+      ],
+      "known_brief": "저지대로 내려가는 구간",
+      "unknown_hint": "아래로 길이 굽어 내려간다."
+    },
+    "무너진 다리 어귀": {
+      "parent": "영도",
+      "location_desc": "폭파된 영도대교의 영도 쪽 끝",
+      "exterior": "상판이 중간에서 끊겨 바다로 처박혀 있다. 철근이 하늘로 뻗었다.",
+      "mood_exterior": "저쪽으로 가는 길은 없다",
+      "connected": [
+        "저지대 상업지구",
+        "남항 중공업 연대"
+      ],
+      "known_brief": "끊긴 다리의 끝",
+      "unknown_hint": "북쪽에 끊긴 다리가 서 있다."
+    },
+    "태종대 방면 숲": {
+      "parent": "영도",
+      "aliases": [
+        "숲",
+        "태종대"
+      ],
+      "location_desc": "섬 남쪽의 수목 지대",
+      "exterior": "잡목이 우거져 시야가 막힌다. 사람 손이 닿지 않았다.",
+      "mood_exterior": "감염자도 사람도 드물다",
+      "connected": [
+        "중리 교역소",
+        "봉래산 능선"
+      ],
+      "known_brief": "섬 남쪽의 숲",
+      "unknown_hint": "남쪽으로 나무가 우거져 있다."
+    },
+    "방치된 부두": {
+      "parent": "영도",
+      "location_desc": "서쪽 해안의 옛 선착장",
+      "exterior": "배들이 반쯤 가라앉은 채 묶여 있다. 밧줄이 삭았다.",
+      "mood_exterior": "아무도 바다로 나가지 않는다",
+      "connected": [
+        "남항 중공업 연대",
+        "무너진 다리 어귀"
+      ],
+      "known_brief": "버려진 선착장",
+      "unknown_hint": "해안에 부두가 보인다.",
+      "image": "부두선착장.png"
     }
   }
 }
