@@ -87,12 +87,29 @@ def resolve(places: dict, text: str) -> str | None:
     return hits[0] if len(hits) == 1 else None
 
 
+def is_container(places: dict, name: str) -> bool:
+    """이동 대상이 아닌 상위 개념인지.
+
+    '영도' 같은 최상위는 장소가 아니라 범위다. 이동 경로로 쓰면
+    중리에서 조도로 갈 때 해안로와 방파제를 건너뛰는 지름길이 생긴다.
+    connected가 하나도 없는 상위 노드를 범위로 본다.
+    """
+    node = get(places, name) or {}
+    if node.get("traversable"):
+        return False
+    return not (node.get("connected") or []) and bool(children_of(places, name))
+
+
 def _neighbors(places: dict, name: str) -> list:
-    """이동 가능한 인접 노드. 직결·상하위를 모두 본다."""
+    """이동 가능한 인접 노드.
+
+    직결(connected)과 상하위를 본다. 다만 범위 노드는 통로가 되지 않는다 —
+    그 아래 실제 장소들끼리 connected로 이어져야 한다.
+    """
     node = get(places, name) or {}
     out = list(node.get("connected") or [])
     for p in parents_of(places, name):
-        if p not in out:
+        if p not in out and not is_container(places, p):
             out.append(p)
     for c in children_of(places, name):
         if c not in out:
