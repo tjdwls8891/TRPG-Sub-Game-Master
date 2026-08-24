@@ -66,20 +66,55 @@ def _passes_filter(session, quest: dict, state: dict) -> bool:
     if f.get("max_turn") and turn > f["max_turn"]:
         return False
 
-    # 위치 조건 — 추출층위가 갱신한 현재 위치를 본다.
-    locs = f.get("location")
-    if locs:
-        cur = (getattr(session, "world_timeline", {}) or {}).get("current_location") or ""
-        if not any(l in cur for l in locs):
+    # 위치 조건 — 장소 계층을 인식한다.
+    #   place    정확 일치. 그 장소에서만 발동한다.
+    #   within   상위 경로 어디든 포함되면 통과. '화음 지역 어디서나'를 표현.
+    #   location 구버전 — 문자열 부분 일치. 장소 데이터가 없는 시나리오용.
+    tl = getattr(session, "world_timeline", {}) or {}
+    cur_raw = tl.get("current_location") or ""
+
+    from . import places as _pl
+    place_map = _pl.load_places(getattr(session, "scenario_data", {}) or {})
+    cur = _pl.resolve(place_map, cur_raw) if place_map else None
+
+    want_place = f.get("place")
+    if want_place:
+        if not cur:
+            return False
+        targets = [_pl.resolve(place_map, x) or x for x in want_place]
+        if cur not in targets:
             return False
 
-    # 세력 조건 — 세션에 소속이 기록돼 있으면 대조한다.
-    factions = f.get("faction")
-    if factions:
-        cur = (getattr(session, "world_timeline", {}) or {}).get("faction_context") or ""
-        player_faction = getattr(session, "player_faction", "") or ""
-        if not any(x in cur or x == player_faction for x in factions):
+    want_within = f.get("within")
+    if want_within:
+        if not cur:
             return False
+        scope = set(_pl.path_of(place_map, cur)) | {cur}
+        targets = [_pl.resolve(place_map, x) or x for x in want_within]
+        if not any(t in scope for t in targets):
+            return False
+
+    locs = f.get("location")
+    if locs and not (want_place or want_within):
+        if not any(l in cur_raw for l in locs):
+            return False
+
+    # 세력 조건 — 두 종류를 구분한다.
+    #   faction        그 세력 소속이어야 한다 (내부자만 아는 일)
+    #   faction_scope  그 세력의 영역에 있으면 된다 (외지인도 겪는 일)
+    #
+    # 장소 필터가 생기기 전에는 faction 하나로 둘 다 표현했다. 그 결과
+    # 남항 소속이 중리에 가 있어도 중리 퀘스트를 받지 못했다.
+    player_faction = getattr(session, "player_faction", "") or ""
+    faction_ctx = tl.get("faction_context") or ""
+
+    factions = f.get("faction")
+    if factions and not any(x == player_faction for x in factions):
+        return False
+
+    scope = f.get("faction_scope")
+    if scope and not any(x == player_faction or x in faction_ctx for x in scope):
+        return False
 
     # 능력치 조건
     for stat, need in (f.get("min_stat") or {}).items():

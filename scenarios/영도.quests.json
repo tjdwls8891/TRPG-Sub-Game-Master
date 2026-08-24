@@ -49,7 +49,11 @@
       "filters": {
         "min_turn": 1,
         "max_turn": null,
-        "requires_cleared": []
+        "requires_cleared": [],
+        "within": [
+          "저지대 상업지구",
+          "산복도로"
+        ]
       },
       "slots": {
         "장소": {
@@ -156,7 +160,10 @@
         "faction": [
           "해련 자치 마을"
         ],
-        "requires_cleared": []
+        "requires_cleared": [],
+        "within": [
+          "해련 자치 마을"
+        ]
       },
       "slots": {
         "장소": {
@@ -237,7 +244,11 @@
         "faction": [
           "남항 중공업 연대"
         ],
-        "requires_cleared": []
+        "requires_cleared": [],
+        "place": [
+          "제1방어선",
+          "남항 중공업 연대"
+        ]
       },
       "slots": {
         "장소": {
@@ -324,10 +335,13 @@
       "line": "sub",
       "filters": {
         "min_turn": 2,
-        "faction": [
+        "requires_cleared": [],
+        "within": [
           "중리 교역소"
         ],
-        "requires_cleared": []
+        "faction_scope": [
+          "중리 교역소"
+        ]
       },
       "slots": {
         "물품": {
@@ -426,10 +440,15 @@
       "line": "sub",
       "filters": {
         "min_turn": 4,
-        "faction": [
+        "requires_cleared": [],
+        "within": [
+          "동삼동 해안로",
+          "아치 방파제",
           "조도 방위 사령부"
         ],
-        "requires_cleared": []
+        "faction_scope": [
+          "조도 방위 사령부"
+        ]
       },
       "slots": {
         "경로": {
@@ -515,10 +534,15 @@
       "line": "sub",
       "filters": {
         "min_turn": 4,
-        "faction": [
+        "requires_cleared": [],
+        "within": [
+          "동삼동 해안로",
+          "아치 방파제",
           "조도 방위 사령부"
         ],
-        "requires_cleared": []
+        "faction_scope": [
+          "조도 방위 사령부"
+        ]
       },
       "slots": {
         "경로": {
@@ -609,11 +633,10 @@
       "line": "sub",
       "filters": {
         "min_turn": 3,
-        "location": [
-          "봉래산 능선",
-          "해련사 일대"
-        ],
-        "requires_cleared": []
+        "requires_cleared": [],
+        "within": [
+          "봉래산"
+        ]
       },
       "slots": {
         "세력": {
@@ -702,7 +725,12 @@
         "min_stat": {
           "기술": 3
         },
-        "requires_cleared": []
+        "requires_cleared": [],
+        "within": [
+          "하수도",
+          "남항 중공업 연대",
+          "중리 교역소"
+        ]
       },
       "slots": {
         "출발": {
@@ -804,7 +832,10 @@
       "line": "sub",
       "filters": {
         "min_turn": 3,
-        "requires_cleared": []
+        "requires_cleared": [],
+        "within": [
+          "저지대 상업지구"
+        ]
       },
       "slots": {
         "장소": {
@@ -967,7 +998,10 @@
         "min_stat": {
           "기술": 2
         },
-        "requires_cleared": []
+        "requires_cleared": [],
+        "within": [
+          "남항 중공업 연대"
+        ]
       },
       "slots": {
         "부품": {
@@ -1066,7 +1100,12 @@
       "line": "sub",
       "filters": {
         "min_turn": 6,
-        "requires_cleared": []
+        "requires_cleared": [],
+        "within": [
+          "해련 자치 마을",
+          "남항 중공업 연대",
+          "중리 교역소"
+        ]
       },
       "slots": {
         "장소": {
@@ -1133,7 +1172,11 @@
         "min_stat": {
           "기술": 3
         },
-        "requires_cleared": []
+        "requires_cleared": [],
+        "within": [
+          "조도 방위 사령부",
+          "남항 중공업 연대"
+        ]
       },
       "slots": {
         "부품": {
