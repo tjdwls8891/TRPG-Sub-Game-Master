@@ -2146,7 +2146,8 @@
         "해련 자치 마을"
       ],
       "known_brief": "마을의 창고 겸 회합 장소",
-      "unknown_hint": "나무 사이로 처마 끝이 보인다."
+      "unknown_hint": "나무 사이로 처마 끝이 보인다.",
+      "visible_within": "해련 자치 마을"
     },
     "집수 설비": {
       "parent": "해련 자치 마을",
@@ -2157,7 +2158,8 @@
         "해련 자치 마을"
       ],
       "known_brief": "빗물을 받아 저장하는 설비",
-      "unknown_hint": "지붕 위로 홈통이 이어진 것이 보인다."
+      "unknown_hint": "지붕 위로 홈통이 이어진 것이 보인다.",
+      "visible_within": "해련 자치 마을"
     },
     "봉래산 능선": {
       "parent": "봉래산",
@@ -2279,7 +2281,8 @@
         "남항 중공업 연대"
       ],
       "known_brief": "감염 여부를 가리는 관문",
-      "unknown_hint": "입구 쪽에 사람이 서 있는 것이 보인다."
+      "unknown_hint": "입구 쪽에 사람이 서 있는 것이 보인다.",
+      "visible_within": "남항 중공업 연대"
     },
     "조선소 내부": {
       "parent": "남항 중공업 연대",
@@ -2296,7 +2299,8 @@
       ],
       "known_brief": "설비와 창고가 있는 작업 구역",
       "unknown_hint": "격납고 문이 반쯤 열려 있다.",
-      "image": "조선소내부창고.png"
+      "image": "조선소내부창고.png",
+      "visible_within": "남항 중공업 연대"
     },
     "지하 의료소": {
       "parent": "조선소 내부",
@@ -2307,7 +2311,8 @@
         "조선소 내부"
       ],
       "known_brief": "연대의 의료 시설",
-      "unknown_hint": "아래로 내려가는 계단이 있다."
+      "unknown_hint": "아래로 내려가는 계단이 있다.",
+      "visible_within": "조선소 내부"
     },
     "저지대 상업지구": {
       "parent": "영도",
@@ -2342,7 +2347,8 @@
       ],
       "known_brief": "약을 구할 수 있을지 모르는 곳",
       "unknown_hint": "높은 건물 하나가 서 있다.",
-      "image": "병원폐건물.png"
+      "image": "병원폐건물.png",
+      "visible_within": "저지대 상업지구"
     },
     "중리 교역소": {
       "parent": "영도",
@@ -2383,7 +2389,8 @@
       ],
       "known_brief": "부서진 배들이 있는 해변",
       "unknown_hint": "아래쪽에서 파도 소리가 들린다.",
-      "image": "부두선착장.png"
+      "image": "부두선착장.png",
+      "visible_within": "중리 교역소"
     },
     "아치 방파제": {
       "parent": "영도",

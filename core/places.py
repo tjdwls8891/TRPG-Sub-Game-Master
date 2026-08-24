@@ -117,6 +117,25 @@ def _neighbors(places: dict, name: str) -> list:
     return [n for n in out if n in places]
 
 
+def is_visible_from(places: dict, target: str, current: str) -> bool:
+    """target이 current에서 인지 가능한지.
+
+    visible_within이 지정된 장소는 상위 항목 안에 가려져 있다.
+    현재 위치의 경로에 그 상위가 포함돼야 보인다.
+
+    해련 마을에서 남항의 '제1방어선'까지 보이는 것은 이상하다.
+    거리로는 닿아도 남항 안에 들어가야 인지할 수 있는 것들이 있다.
+    """
+    node = get(places, target) or {}
+    gate = node.get("visible_within")
+    if not gate:
+        return True
+    if isinstance(gate, str):
+        gate = [gate]
+    scope = set(path_of(places, current)) | {current}
+    return any(g in scope for g in gate)
+
+
 def reachable_from(places: dict, name: str, hops: int = REACHABLE_HOPS) -> list:
     """한 턴에 이동 가능한 범위.
 
@@ -142,6 +161,12 @@ def reachable_from(places: dict, name: str, hops: int = REACHABLE_HOPS) -> list:
             break
     seen.discard(name)
     return sorted(seen)
+
+
+def _hop_distance(places: dict, start: str, goal: str) -> int:
+    """두 장소 사이의 홉 수. 경로가 없으면 큰 값."""
+    path = route(places, start, goal)
+    return len(path) - 1 if path else 99
 
 
 def can_move(places: dict, start: str, goal: str) -> bool:
@@ -287,7 +312,13 @@ def build_place_block(session) -> str:
 
     # 갈 수 있는 곳 — 미리 얕게 주입해 이동 묘사의 재료를 준다.
     # 추출층위가 장소를 바꾼 뒤에야 정보가 오면 이동을 묘사할 수 없다.
-    near = reachable_from(places, cur)
+    # 가려진 장소는 제외한다. 거리로는 닿아도 상위 안에 들어가야
+    # 인지할 수 있는 것들이 있다.
+    near = [n for n in reachable_from(places, cur)
+            if is_visible_from(places, n, cur)]
+    # 가까운 곳을 앞에 둔다. 목록이 잘릴 때 자기 하위나 직결이
+    # 먼 거점보다 뒤로 밀리면 이상하다.
+    near.sort(key=lambda n: (_hop_distance(places, cur, n), n))
     if near:
         lines.append("\n[갈 수 있는 곳]")
         for n in near[:8]:
@@ -327,6 +358,7 @@ def build_move_hint(session, goal_text: str) -> str:
         near = reachable_from(places, cur)
         if not near:
             return ""
+        near = [n for n in near if is_visible_from(places, n, cur)]
         items = []
         for n in near[:8]:
             mark = "" if is_visited(session, n) else "(미방문)"
