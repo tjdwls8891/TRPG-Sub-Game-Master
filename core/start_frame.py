@@ -100,6 +100,11 @@ def _fill_slot(scenario_data: dict, profile: dict, spec) -> str:
         field = spec[8:]
         val = _stat_of(profile, field)
         return str(val) if val is not None else "미상"
+    if spec.startswith("place:"):
+        # 시작 지점 — 표기는 평범한 장소여야 한다. 특별 취급하면
+        # 프롬프트에 '시작 지점'이라는 메타 정보가 새어 변질된다.
+        pool = (scenario_data or {}).get("start_points") or []
+        return str(random.choice(pool)) if pool else "미상"
     if spec.startswith("list:"):
         key = spec[5:]
         pool = (scenario_data or {}).get(key)
