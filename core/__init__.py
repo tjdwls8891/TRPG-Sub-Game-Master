@@ -20,6 +20,7 @@
 #   session_flow — 세션 제작 17단계 통합 플로우 (상태 기계 구동)
 #   profile_ai — 프로필 검증·병합 AI 모듈 (무료 제공, 비용 집계만)
 #   quest      — 퀘스트 시스템 (필터·슬롯·케이스 트리·온디맨드 주입)
+#   quest_filter — 필터 매칭 (통과한 값이 곧 슬롯)
 #   memory_plan — 기억 압축 플랜 4종 (주기·모델·서술 형태)
 #   start_frame — 시작 상황 틀·프로필 브리핑 (세션 시작 다양화)
 #   koreantext — 슬롯 치환·조사 보정 (틀·퀘스트 공용)
@@ -154,6 +155,7 @@ from . import profile_gen
 from . import profile_runner
 from . import profile_ai
 from . import quest
+from . import quest_filter
 from . import memory_plan
 from . import start_frame
 from . import koreantext
@@ -285,7 +287,7 @@ __all__ = [
     "DEFAULT_MODEL", "LOGIC_MODEL", "PROFILE_AI_MODEL", "IMAGE_MODEL", "EXCHANGE_RATE",
     "MIN_CACHE_TOKENS", "CACHE_TTL_SECONDS", "INK_UNIT_KRW", "INK_NET_KRW", "INK_PLANS",
     # ink / accounts
-    "creation", "profiles", "profile_gen", "profile_runner", "profile_ai", "quest", "memory_plan", "start_frame", "koreantext", "places",
+    "creation", "profiles", "profile_gen", "profile_runner", "profile_ai", "quest", "quest_filter", "memory_plan", "start_frame", "koreantext", "places",
     "open_manager", "ProfileHomeView", "profile_creation_ui", "session_flow",
     "resolve_minutes", "should_charge_interpretation", "format_confirmation",
     "VAGUE_MINUTES", "MINUTES_PER_TURN", "MIN_MINUTES", "MAX_MINUTES",

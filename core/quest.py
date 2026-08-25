@@ -57,87 +57,10 @@ def get_state(session) -> dict:
 
 
 def _passes_filter(session, quest: dict, state: dict) -> bool:
-    """퀘스트 조건을 만족하는지. 조건이 없으면 통과."""
-    f = quest.get("filters") or {}
+    """조건 충족 여부. 슬롯 값이 필요하면 match_filters를 직접 쓴다."""
+    from .quest_filter import match_filters
 
-    turn = getattr(session, "turn_count", 0) or 0
-    if f.get("min_turn") and turn < f["min_turn"]:
-        return False
-    if f.get("max_turn") and turn > f["max_turn"]:
-        return False
-
-    # 위치 조건 — 장소 계층을 인식한다.
-    #   place    정확 일치. 그 장소에서만 발동한다.
-    #   within   상위 경로 어디든 포함되면 통과. '화음 지역 어디서나'를 표현.
-    #   location 구버전 — 문자열 부분 일치. 장소 데이터가 없는 시나리오용.
-    tl = getattr(session, "world_timeline", {}) or {}
-    cur_raw = tl.get("current_location") or ""
-
-    from . import places as _pl
-    place_map = _pl.load_places(getattr(session, "scenario_data", {}) or {})
-    cur = _pl.resolve(place_map, cur_raw) if place_map else None
-
-    want_place = f.get("place")
-    if want_place:
-        if not cur:
-            return False
-        targets = [_pl.resolve(place_map, x) or x for x in want_place]
-        if cur not in targets:
-            return False
-
-    want_within = f.get("within")
-    if want_within:
-        if not cur:
-            return False
-        scope = set(_pl.path_of(place_map, cur)) | {cur}
-        targets = [_pl.resolve(place_map, x) or x for x in want_within]
-        if not any(t in scope for t in targets):
-            return False
-
-    locs = f.get("location")
-    if locs and not (want_place or want_within):
-        if not any(l in cur_raw for l in locs):
-            return False
-
-    # 세력 조건 — 두 종류를 구분한다.
-    #   faction        그 세력 소속이어야 한다 (내부자만 아는 일)
-    #   faction_scope  그 세력의 영역에 있으면 된다 (외지인도 겪는 일)
-    #
-    # 장소 필터가 생기기 전에는 faction 하나로 둘 다 표현했다. 그 결과
-    # 남항 소속이 중리에 가 있어도 중리 퀘스트를 받지 못했다.
-    player_faction = getattr(session, "player_faction", "") or ""
-    faction_ctx = tl.get("faction_context") or ""
-
-    factions = f.get("faction")
-    if factions and not any(x == player_faction for x in factions):
-        return False
-
-    scope = f.get("faction_scope")
-    if scope and not any(x == player_faction or x in faction_ctx for x in scope):
-        return False
-
-    # 능력치 조건
-    for stat, need in (f.get("min_stat") or {}).items():
-        if _player_stat(session, stat) < need:
-            return False
-
-    # 선행 퀘스트
-    cleared_names = {c.get("name") for c in state["cleared"]}
-    for req in (f.get("requires_cleared") or []):
-        if req not in cleared_names:
-            return False
-
-    # 메인라인 — 서브 클리어 수 조건
-    if quest.get("line") == "main":
-        # 인피니티 플랜이 메인을 금지하면 후보에서 제외한다.
-        if not plan_allows_main(session):
-            return False
-        need = f.get("min_cleared_sub") or 0
-        subs = sum(1 for c in state["cleared"] if c.get("line") == "sub")
-        if subs < need:
-            return False
-
-    return True
+    return match_filters(session, quest, state) is not None
 
 
 def _player_stat(session, stat: str) -> int:
@@ -205,7 +128,7 @@ def _context_value(session, key: str):
     return v if v and v != "미확인" else None
 
 
-def fill_slots(session, quest: dict) -> dict:
+def fill_slots(session, quest: dict, matched: dict = None) -> dict:
     """가변정보를 채운다.
 
     - 'from': 'context:location' → 현재 맥락에서 가져온다
@@ -218,9 +141,13 @@ def fill_slots(session, quest: dict) -> dict:
 
     data = load_quest_data(getattr(session, "scenario_id", ""))
     pools = data.get("quest_slots") or {}
-    out = {}
+
+    # 필터가 통과시킨 값이 곧 슬롯이다. 별도 정의 없이 빈칸이 채워진다.
+    out = dict((matched or {}).get("slots") or {})
 
     for key, spec in (quest.get("slots") or {}).items():
+        if key in out:
+            continue   # 필터가 이미 채운 슬롯은 덮어쓰지 않는다
         if not isinstance(spec, dict):
             continue
         src = spec.get("from") or ""
@@ -267,10 +194,18 @@ def _apply_slots(text: str, slots: dict) -> str:
     return strip_unfilled(substitute(text, slots))
 
 
-def start_quest(session, quest: dict) -> dict:
-    """퀘스트를 활성화한다. 슬롯을 채우고 root 노드에서 시작한다."""
+def start_quest(session, quest: dict, matched: dict = None) -> dict:
+    """퀘스트를 활성화한다. 슬롯을 채우고 root 노드에서 시작한다.
+
+    matched는 필터 매칭 결과다. 필터가 통과시킨 값(인물·장소 등)이
+    그대로 슬롯이 되므로 함께 넘겨야 한다.
+    """
+    from .quest_filter import match_filters
+
     state = get_state(session)
-    slots = fill_slots(session, quest)
+    if matched is None:
+        matched = match_filters(session, quest, state)
+    slots = fill_slots(session, quest, matched)
     state["active"] = {
         "id": quest.get("id"),
         "name": quest.get("name"),
