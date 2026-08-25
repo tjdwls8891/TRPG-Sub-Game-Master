@@ -146,6 +146,13 @@ def step(scenario_data: dict, run: dict, user_input: str = None) -> dict:
             max_spread=spread_v,
             top_field=cons.get("top_field"),
         )
+        # 직업에 명백한 치중이 있으면 최고값과 교환한다.
+        # 재배분이 아니라 교환이므로 총합·편차 제약을 깨지 않는다.
+        job = run["chosen"].get("직업")
+        top = profile_gen.job_top_stat(scenario_data, job) if job else None
+        if top:
+            result["values"] = profile_gen.swap_to_top(result["values"], top)
+
         run["pending"] = {"field": field, "value": result["values"]}
         run["last_stats"] = result["values"]
 
@@ -160,6 +167,7 @@ def step(scenario_data: dict, run: dict, user_input: str = None) -> dict:
                     f"**{k} {v}**" for k, v in result["values"].items())
                     + f"\n> 합 {result['total']} · 편차 {result['spread']}"
                     + (f"\n> 조건: {cons_txt}" if cons_txt else "")
+                    + (f"\n> {job} 특성으로 **{top}**이 최고가 되도록 조정됨" if top else "")
                     + note)}
 
     # ── 단일 선택 ──

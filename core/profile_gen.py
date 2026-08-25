@@ -431,6 +431,40 @@ def _forced_partition(stats: list, target: int, lo: int, hi: int, *,
     return values
 
 
+def swap_to_top(values: dict, target: str) -> dict:
+    """target이 최고값을 갖도록 가장 높은 값과 자리를 바꾼다.
+
+    직업에 명백한 스탯 치중이 있을 때만 적용한다. 총합과 편차가
+    그대로 유지되므로 등급 제약을 깨지 않는다.
+    재배분이 아니라 교환이라 분포도 손상되지 않는다.
+    """
+    if not values or target not in values:
+        return values
+    out = dict(values)
+    top_key = max(out, key=lambda k: out[k])
+    if top_key == target:
+        return out
+    out[target], out[top_key] = out[top_key], out[target]
+    return out
+
+
+def job_top_stat(scenario_data: dict, job: str) -> str | None:
+    """직업의 치중 스탯. 없으면 None."""
+    jobs = (scenario_data or {}).get("jobs") or {}
+    entry = jobs.get(job)
+    if isinstance(entry, dict):
+        return entry.get("top_stat") or None
+    return None
+
+
+def starting_items(scenario_data: dict, job: str) -> list:
+    """초기 소지품 — 공통 + 직업별."""
+    src = (scenario_data or {}).get("starting_items") or {}
+    out = list(src.get("공통") or [])
+    out += list((src.get("직업별") or {}).get(job) or [])
+    return out
+
+
 def reroll_stats(args: dict, previous: dict = None, **constraints) -> dict:
     """같은 제약으로 다시 굴린다.
 

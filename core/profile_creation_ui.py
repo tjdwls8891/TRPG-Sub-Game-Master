@@ -131,6 +131,20 @@ async def finish(state: ProfileCreationSession, channel):
     if result.get("외형"):
         player["appearance"] = str(result["외형"])
 
+    # 초기 소지품 — 공통 + 직업별 (석 달을 버틴 사람이 배로 건너온 규모)
+    try:
+        items = profile_gen.starting_items(
+            state.session.scenario_data, result.get("직업"))
+        if items:
+            res = dict(getattr(state.session, "resources", {}) or {})
+            bag = dict(res.get(state.char_name) or {})
+            for it in items:
+                bag[it] = bag.get(it, 0) + 1
+            res[state.char_name] = bag
+            state.session.resources = res
+    except Exception as e:
+        print(f"[프로필] 소지품 지급 실패: {e}")
+
     from .io import save_session_data
     await save_session_data(state.bot, state.session)
 

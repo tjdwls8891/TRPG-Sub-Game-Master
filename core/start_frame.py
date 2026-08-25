@@ -133,10 +133,15 @@ def realize(scenario_data: dict, profile: dict, frame: dict) -> dict:
     facts = {k: _apply(v) if isinstance(v, str) else v
              for k, v in (frame.get("facts") or {}).items()}
 
+    # 문안이 여럿이면 그중 하나를 고른다. 틀당 문안 하나면 골격이 반복된다.
+    pool = frame.get("summaries")
+    raw_summary = (random.choice(pool) if isinstance(pool, list) and pool
+                   else frame.get("summary"))
+
     return {
         "id": frame.get("id"),
         "title": _apply(frame.get("title")),
-        "summary": _apply(frame.get("summary")),
+        "summary": _apply(raw_summary),
         "instruction": _apply(frame.get("instruction")),
         "facts": facts,
         "slots": slots,
