@@ -388,6 +388,7 @@ def build_quest_block(session) -> str:
     candidates = filter_available(session)
     if not candidates and ctx == CTX_NONE:
         return ""
+    state = get_state(session)
 
     if ctx == CTX_SWITCH:
         lines.append("\n[퀘스트 전환 가능]")
@@ -401,7 +402,9 @@ def build_quest_block(session) -> str:
         lines.append("\n[가능 퀘스트 목록 — 하나를 선택하거나 선택하지 않을 수 있다]")
 
     for q in candidates:
-        slots = fill_slots(session, q)
+        # 필터 매칭 결과를 넘겨야 {인물}·{장소}가 채워진다.
+        from .quest_filter import match_filters
+        slots = fill_slots(session, q, match_filters(session, q, state))
         root = (q.get("tree") or {}).get("root") or {}
         lines.append(
             f"  - id={q.get('id')} | {q.get('name')} ({q.get('line')})\n"
