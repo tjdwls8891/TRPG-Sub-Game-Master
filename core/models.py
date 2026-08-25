@@ -174,6 +174,10 @@ class TRPGSession:
         self.pending_bgm = None
         # 직전 BGM 판단의 (상황 태그, 긴장 구간) — 동일하면 전환하지 않는다
         self.last_bgm_situation = None
+        # 현재 동행 중인 인물 — 함께 이동하는 관계만
+        self.companions = []
+        # 만난 적 있는 인물(누적) — 동행 여부와 무관
+        self.met_npcs = []
         # 방문한 장소 목록 — 되감기 대상(미방문 상태로 정확히 복원된다)
         self.visited_places = []
         # 세션 시작 시점의 통산 일수 — 경과 일수 계산의 기준

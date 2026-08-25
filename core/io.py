@@ -153,6 +153,8 @@ SESSION_FIELDS: dict = {
     "pending_bgm": None,
     "media_flags": {},
     "last_bgm_situation": None,
+    "companions": [],
+    "met_npcs": [],
     "visited_places": [],
     "start_day_number": None,
     "compression_prepaid_krw": 0.0,

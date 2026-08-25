@@ -97,6 +97,21 @@ EXTRACTION_RESPONSE_SCHEMA = {
             "description": "이번 묘사에 등장하거나 PC와 접촉한 NPC 이름. 없으면 빈 배열.",
             "items": {"type": "string"},
         },
+        "companions": {
+            "type": "object",
+            "description": "동행 상태 변화. 변화가 없으면 빈 배열 둘.",
+            "properties": {
+                "joined": {
+                    "type": "array", "items": {"type": "string"},
+                    "description": "이번 턴에 동행을 시작한 인물. 함께 가기로 하거나 따라나선 경우."
+                },
+                "left": {
+                    "type": "array", "items": {"type": "string"},
+                    "description": "이번 턴에 동행이 끝난 인물. 헤어지거나 남거나 죽은 경우."
+                }
+            },
+            "required": ["joined", "left"]
+        },
         "secret_awareness": {
             "type": "integer",
             "description": (
@@ -124,6 +139,7 @@ EXTRACTION_RESPONSE_SCHEMA = {
     "required": [
         "datetime", "location", "item_changes", "status_scores",
         "quest_progress", "npcs_met", "situation", "secret_awareness",
+        "companions",
     ],
 }
 
@@ -202,6 +218,12 @@ def parse_extraction(raw: str) -> dict | None:
     data.setdefault("npcs_met", [])
     data.setdefault("situation", {"tag": "미확인", "tension": 0})
     data.setdefault("secret_awareness", 0)
+    comp = data.get("companions")
+    if not isinstance(comp, dict):
+        comp = {}
+    comp.setdefault("joined", [])
+    comp.setdefault("left", [])
+    data["companions"] = comp
     return data
 
 
@@ -323,6 +345,79 @@ def resource_changes_to_tags(changes: list) -> str:
             continue
         tags.append(f"자:{target};{item};{delta:+d}")
     return " ".join(tags)
+
+
+def apply_companions(session, data: dict) -> dict:
+    """동행 상태를 갱신한다.
+
+    만난 인물(met_npcs)과 동행 중인 인물(companions)을 분리 관리한다.
+    스쳐 지나간 사람과 함께 움직이는 사람은 다르며, 퀘스트 인물 필터가
+    이를 구분하지 못하면 부정확해진다.
+
+    동행은 명시적으로 끝나기 전까지 유지된다.
+
+    Returns:
+        {"joined": [...], "left": [...]}
+    """
+    comp = data.get("companions") or {}
+    current = list(getattr(session, "companions", []) or [])
+    met = list(getattr(session, "met_npcs", []) or [])
+
+    # 만난 기록은 누적된다. 동행 여부와 무관하다.
+    for name in (data.get("npcs_met") or []):
+        if isinstance(name, str) and name and name not in met:
+            met.append(name)
+
+    joined = []
+    for name in (comp.get("joined") or []):
+        if isinstance(name, str) and name and name not in current:
+            current.append(name)
+            joined.append(name)
+            if name not in met:
+                met.append(name)
+
+    left = []
+    for name in (comp.get("left") or []):
+        if name in current:
+            current.remove(name)
+            left.append(name)
+
+    session.companions = current
+    session.met_npcs = met
+    return {"joined": joined, "left": left}
+
+
+def release_resident_companions(session, new_location: str) -> list:
+    """장소를 옮기면 그곳 상주 NPC는 동행에서 자동 해제한다.
+
+    차봉순이 병참 창고를 떠나 저지대까지 따라올 리 없다.
+    상주가 아닌 인물은 계속 동행할 수 있다.
+    """
+    from .places import load_places
+
+    current = list(getattr(session, "companions", []) or [])
+    if not current:
+        return []
+    places = load_places(getattr(session, "scenario_data", {}) or {})
+    if not places:
+        return []
+
+    resident = {}
+    for pname, node in places.items():
+        if not isinstance(node, dict):
+            continue
+        for entry in (node.get("npcs") or []):
+            if isinstance(entry, dict) and entry.get("frequency") == "상주":
+                resident[entry.get("name")] = pname
+
+    released = []
+    for name in list(current):
+        home = resident.get(name)
+        if home and home != new_location:
+            current.remove(name)
+            released.append(name)
+    session.companions = current
+    return released
 
 
 def summarize_for_report(result: dict) -> str:

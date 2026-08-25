@@ -297,6 +297,9 @@ def build_place_block(session) -> str:
         return ""
 
     lines = ["\n[현재 장소]", f"{cur}"]
+    comp = list(getattr(session, "companions", []) or [])
+    if comp:
+        lines.append(f"동행: {', '.join(comp)}")
     desc = _describe(places, cur, full=True)
     if desc:
         lines.append(desc)

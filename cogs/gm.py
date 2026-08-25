@@ -3052,6 +3052,12 @@ class GMCog(commands.Cog):
                     new_tl["current_location"] = after
                     if core.places.mark_visited(session, after):
                         print(f"[장소] 첫 방문: {after}")
+                    # 장소를 옮기면 그곳 상주 NPC는 동행에서 자동 해제한다.
+                    if before and before != after:
+                        gone = core.release_resident_companions(session, after)
+                        if gone and master_ch:
+                            await master_ch.send(
+                                f"👋 **[동행]** {', '.join(gone)}이(가) 자리에 남았습니다.")
                     # 이동 소요를 시간선에 반영한다(지시 확정).
                     if before and before != after:
                         hops = core.places.hops_between(session, before, after)
@@ -3064,6 +3070,16 @@ class GMCog(commands.Cog):
         session.last_extraction = result
         session.extraction_pending = False
         session.extraction_retry_ctx = {}
+
+        # 동행 갱신 — 만난 인물과 함께 가는 인물을 분리 관리한다.
+        try:
+            comp = core.apply_companions(session, result)
+            if comp["joined"] and master_ch:
+                await master_ch.send(f"🤝 **[동행]** {', '.join(comp['joined'])} 합류")
+            if comp["left"] and master_ch:
+                await master_ch.send(f"👋 **[동행]** {', '.join(comp['left'])} 이탈")
+        except Exception as e:
+            print(f"[동행] 갱신 실패: {e}")
 
         # 수치 판단 적용 — 임계값 비교는 코드가 전담한다(모델은 기준을 모른다).
         applied = core.apply_extraction(session, result)
