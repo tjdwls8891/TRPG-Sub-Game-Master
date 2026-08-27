@@ -554,15 +554,18 @@ def advance_quest(session, extraction: dict) -> dict | None:
     active["started_turn"] = getattr(session, "turn_count", 0)
     outcome = (tree.get(next_node) or {}).get("outcome")
 
+    granted = None
     if outcome:
         state["cleared"].append({
             "name": active["name"], "version": active["version"],
             "line": active["line"], "outcome": outcome,
             "turn": getattr(session, "turn_count", 0),
         })
+        granted = apply_grants(session, quest, outcome)
         state["active"] = None
 
-    return {"moved": True, "node": next_node, "outcome": outcome, "replan": False}
+    return {"moved": True, "node": next_node, "outcome": outcome,
+            "replan": False, "granted": granted}
 
 
 def move_to_case(session, case_key: str) -> bool:
@@ -587,6 +590,7 @@ def move_to_case(session, case_key: str) -> bool:
             "line": active["line"], "outcome": outcome,
             "turn": getattr(session, "turn_count", 0),
         })
+        apply_grants(session, quest, outcome)
         state["active"] = None
     return True
 
@@ -609,6 +613,36 @@ def check_secret_awareness(session, extraction: dict) -> bool:
     if score < get_thresholds(session)["secret_reveal"]:
         return False
     return mark_secret_known(session)
+
+
+def apply_grants(session, quest: dict, outcome: str) -> dict | None:
+    """클리어 시 세션에 반영할 것을 적용한다.
+
+    성공 계열(clear·partial)에만 적용한다. 실패나 이탈로 끝난 퀘스트가
+    소속을 주면 안 된다.
+
+    Returns:
+        적용된 내용 또는 None
+    """
+    grants = quest.get("grants")
+    if not isinstance(grants, dict) or not grants:
+        return None
+    if outcome not in ("clear", "partial"):
+        return None
+
+    applied = {}
+    faction = grants.get("faction")
+    if faction and getattr(session, "player_faction", "") != faction:
+        session.player_faction = faction
+        applied["faction"] = faction
+
+    for name in (grants.get("info") or []):
+        ledger = getattr(session, "info_ledger", None)
+        if isinstance(ledger, dict):
+            ledger[name] = True
+            applied.setdefault("info", []).append(name)
+
+    return applied or None
 
 
 def mark_secret_known(session) -> bool:

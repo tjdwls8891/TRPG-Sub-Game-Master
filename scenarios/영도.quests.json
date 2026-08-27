@@ -647,6 +647,692 @@
         "if_unknown": "한쪽만 보고 판단하게 된다.",
         "if_known": "이 섬의 구조적 딜레마를 이해하게 된다."
       }
+    },
+    {
+      "id": "join_namhang_labor",
+      "name": "손을 보이시오",
+      "version": "a",
+      "line": "sub",
+      "groups": [
+        "소속군",
+        "장소군"
+      ],
+      "scale": "전환",
+      "filters": {
+        "min_turn": 3,
+        "within": {
+          "any": [
+            "남항 중공업 연대",
+            "제1방어선"
+          ],
+          "as": "장소"
+        },
+        "faction": {
+          "none": [
+            "남항 중공업 연대"
+          ]
+        }
+      },
+      "repeatable": false,
+      "max_occurrences": 1,
+      "grants": {
+        "faction": "남항 중공업 연대"
+      },
+      "tree": {
+        "root": {
+          "guide": "제1방어선 앞이다. 철제 슬라이딩 도어가 이중으로 서 있고, 바닥에서 락스 냄새가 올라온다. 들여보내 줄 이유를 대야 한다.",
+          "cases": {
+            "labor": {
+              "next": "inspect",
+              "condition": "일할 수 있다고 말한다"
+            },
+            "skill": {
+              "next": "prove",
+              "condition": "기술이 있다고 주장한다"
+            },
+            "beg": {
+              "next": "pity",
+              "condition": "사정한다"
+            },
+            "leave": {
+              "next": "turned_away",
+              "condition": "물러난다"
+            }
+          }
+        },
+        "inspect": {
+          "guide": "검역관이 손을 내밀라고 한다. 굳은살과 상처를 본다. 일해 본 손인지 가려내는 것이다.",
+          "cases": {
+            "show": {
+              "next": "quarantine",
+              "condition": "손을 보인다"
+            },
+            "refuse": {
+              "next": "turned_away",
+              "condition": "거부한다"
+            },
+            "hide": {
+              "next": "suspected",
+              "condition": "상처를 감춘다"
+            }
+          }
+        },
+        "prove": {
+          "guide": "무엇을 다룰 줄 아느냐고 묻는다. 말로만으로는 통하지 않는다는 눈치다.",
+          "cases": {
+            "demonstrate": {
+              "next": "quarantine",
+              "condition": "실제로 보여준다"
+            },
+            "exaggerate": {
+              "next": "suspected",
+              "condition": "부풀려 말한다"
+            },
+            "admit": {
+              "next": "inspect",
+              "condition": "솔직히 말하고 노동을 자청한다"
+            }
+          }
+        },
+        "pity": {
+          "guide": "검역관의 표정이 변하지 않는다. 이곳에서 동정은 배급을 축내는 일일 뿐이다.",
+          "cases": {
+            "persist": {
+              "next": "turned_away",
+              "condition": "계속 매달린다"
+            },
+            "switch": {
+              "next": "inspect",
+              "condition": "말을 바꿔 일하겠다고 한다"
+            }
+          }
+        },
+        "suspected": {
+          "guide": "의심받았다. 이중문 사이 공간에 세워진 채 한참을 기다린다.",
+          "cases": {
+            "wait": {
+              "next": "quarantine",
+              "condition": "순순히 기다린다"
+            },
+            "protest": {
+              "next": "turned_away",
+              "condition": "항의한다"
+            }
+          }
+        },
+        "quarantine": {
+          "guide": "검역이 시작된다. 48시간을 이중문 사이에서 보내야 한다. 물린 자국이 없어야 나갈 수 있다.",
+          "cases": {
+            "endure": {
+              "next": "assigned",
+              "condition": "48시간을 버틴다"
+            },
+            "conceal": {
+              "next": "expelled",
+              "condition": "상처를 숨긴 채 버틴다"
+            }
+          }
+        },
+        "assigned": {
+          "guide": "하층부 침상 하나와 작업 배치를 받았다. 이곳의 일원이 되었다는 뜻이다.",
+          "cases": {},
+          "outcome": "clear"
+        },
+        "expelled": {
+          "guide": "숨긴 것이 드러났다. 문 밖으로 밀려났고, 얼굴이 기억되었다.",
+          "cases": {},
+          "outcome": "failed"
+        },
+        "turned_away": {
+          "guide": "문은 열리지 않았다. 다른 날, 다른 이유가 필요하다.",
+          "cases": {},
+          "outcome": "missed"
+        }
+      },
+      "hidden": {
+        "truth": "검역 통과자는 자동으로 하층부에 배정되며, 상층부로 올라가는 길은 사실상 없다.",
+        "reveal_conditions": [
+          "거주 구역의 차이를 목격한다",
+          "하층부 사람의 말을 듣는다"
+        ],
+        "if_unknown": "들어간 것만으로 안도한다.",
+        "if_known": "들어가는 것과 사람 대접을 받는 것은 다른 문제임을 알게 된다."
+      }
+    },
+    {
+      "id": "join_namhang_rescue",
+      "name": "돌아오지 못한 조",
+      "version": "a",
+      "line": "sub",
+      "groups": [
+        "소속군",
+        "중반군"
+      ],
+      "scale": "전환",
+      "filters": {
+        "min_turn": 6,
+        "within": {
+          "any": [
+            "남항 중공업 연대",
+            "제1방어선",
+            "산복도로",
+            "저지대 상업지구"
+          ],
+          "as": "장소"
+        },
+        "faction": {
+          "none": [
+            "남항 중공업 연대"
+          ]
+        }
+      },
+      "repeatable": false,
+      "max_occurrences": 1,
+      "grants": {
+        "faction": "남항 중공업 연대"
+      },
+      "tree": {
+        "root": {
+          "guide": "연대의 수습대 한 조가 저지대에서 돌아오지 않았다. 문 앞에서 대원들이 다투고 있다. 구하러 갈 것인가, 포기할 것인가로 갈린 모양이다.",
+          "cases": {
+            "volunteer": {
+              "next": "briefed",
+              "condition": "함께 가겠다고 나선다"
+            },
+            "info": {
+              "next": "tip",
+              "condition": "본 것이 있다고 말한다"
+            },
+            "watch": {
+              "next": "missed_chance",
+              "condition": "지켜보기만 한다"
+            }
+          }
+        },
+        "tip": {
+          "guide": "어디서 봤느냐고 캐묻는다. 정보가 맞다면 신뢰를 얻고, 틀리면 사람이 죽는다.",
+          "cases": {
+            "accurate": {
+              "next": "briefed",
+              "condition": "본 대로 말한다"
+            },
+            "guess": {
+              "next": "misled",
+              "condition": "추측을 보태 말한다"
+            }
+          }
+        },
+        "briefed": {
+          "guide": "수습대장이 조건을 건다. 앞장서라는 것이다. 무기는 돌아와서 반납한다.",
+          "cases": {
+            "accept": {
+              "next": "search",
+              "condition": "받아들인다"
+            },
+            "negotiate": {
+              "next": "search",
+              "condition": "조건을 흥정한다"
+            },
+            "back": {
+              "next": "missed_chance",
+              "condition": "물러선다"
+            }
+          }
+        },
+        "search": {
+          "guide": "저지대는 소리가 갇혀 울린다. 흔적을 따라가다 보면 갈림길이 나온다.",
+          "cases": {
+            "track": {
+              "next": "found",
+              "condition": "흔적을 따른다"
+            },
+            "call": {
+              "next": "swarm",
+              "condition": "이름을 부른다"
+            },
+            "split": {
+              "next": "found",
+              "condition": "흩어져 찾자고 제안한다"
+            }
+          }
+        },
+        "misled": {
+          "guide": "엉뚱한 곳이었다. 시간을 잃었고 사람들의 표정이 굳었다.",
+          "cases": {
+            "apologize": {
+              "next": "search",
+              "condition": "인정하고 다시 찾는다"
+            },
+            "insist": {
+              "next": "blamed",
+              "condition": "우긴다"
+            }
+          }
+        },
+        "swarm": {
+          "guide": "소리가 소리를 불렀다. 사방에서 몰려든다.",
+          "cases": {
+            "cover": {
+              "next": "partial_return",
+              "condition": "퇴로를 연다"
+            },
+            "flee": {
+              "next": "blamed",
+              "condition": "먼저 달아난다"
+            }
+          }
+        },
+        "found": {
+          "guide": "찾았다. 살아 있는 사람과 그렇지 못한 사람이 섞여 있다.",
+          "cases": {
+            "carry": {
+              "next": "returned",
+              "condition": "부상자를 업고 나온다"
+            },
+            "triage": {
+              "next": "partial_return",
+              "condition": "움직일 수 있는 자만 데려간다"
+            },
+            "abandon": {
+              "next": "blamed",
+              "condition": "두고 나온다"
+            }
+          }
+        },
+        "returned": {
+          "guide": "문이 열린다. 이번에는 검역을 기다리는 동안 아무도 눈을 흘기지 않는다.",
+          "cases": {},
+          "outcome": "clear"
+        },
+        "partial_return": {
+          "guide": "몇은 데려왔고 몇은 두고 왔다. 받아들여지되 시선이 남는다.",
+          "cases": {},
+          "outcome": "partial"
+        },
+        "blamed": {
+          "guide": "먼저 달아난 자를 연대는 받아들이지 않는다.",
+          "cases": {},
+          "outcome": "failed"
+        },
+        "missed_chance": {
+          "guide": "조는 돌아오지 못했고, 기회도 함께 사라졌다.",
+          "cases": {},
+          "outcome": "missed"
+        }
+      },
+      "hidden": {
+        "truth": "수습대장은 이 조를 이미 포기했으며, 구조는 남은 대원들의 사기를 위한 명분이다.",
+        "reveal_conditions": [
+          "수습대장의 지시가 형식적임을 눈치챈다",
+          "대원들의 대화를 엿듣는다"
+        ],
+        "if_unknown": "구조 작전으로 여긴다.",
+        "if_known": "연대가 사람을 어떻게 계산하는지 알게 된다."
+      }
+    },
+    {
+      "id": "join_namhang_trade",
+      "name": "값을 치르고 들어가다",
+      "version": "a",
+      "line": "sub",
+      "groups": [
+        "소속군"
+      ],
+      "scale": "전환",
+      "filters": {
+        "min_turn": 5,
+        "within": {
+          "any": [
+            "남항 중공업 연대",
+            "제1방어선"
+          ],
+          "as": "장소"
+        },
+        "item": {
+          "any": [
+            "발전기 부품",
+            "정수 필터",
+            "항생제",
+            "공구",
+            "연료"
+          ],
+          "as": "물품"
+        },
+        "faction": {
+          "none": [
+            "남항 중공업 연대"
+          ]
+        }
+      },
+      "repeatable": false,
+      "max_occurrences": 1,
+      "grants": {
+        "faction": "남항 중공업 연대"
+      },
+      "tree": {
+        "root": {
+          "guide": "가진 {물품}은 이곳에서 값이 나가는 물건이다. 문 앞에서 흥정할 여지가 있다.",
+          "cases": {
+            "offer": {
+              "next": "haggle",
+              "condition": "내놓고 입장을 요구한다"
+            },
+            "gift": {
+              "next": "favor",
+              "condition": "조건 없이 건넨다"
+            },
+            "probe": {
+              "next": "market",
+              "condition": "먼저 시세를 떠본다"
+            },
+            "keep": {
+              "next": "withheld",
+              "condition": "보여주기만 하고 넣는다"
+            }
+          }
+        },
+        "market": {
+          "guide": "오가는 이들의 말을 듣는다. 연대가 지금 무엇에 목말라 있는지가 값을 정한다.",
+          "cases": {
+            "informed": {
+              "next": "haggle",
+              "condition": "알아낸 것을 들고 흥정에 들어간다"
+            },
+            "toolong": {
+              "next": "noticed",
+              "condition": "오래 서성인다"
+            }
+          }
+        },
+        "noticed": {
+          "guide": "문 앞을 어슬렁거리는 자를 검역관이 먼저 부른다. 유리한 자리는 아니다.",
+          "cases": {
+            "straight": {
+              "next": "haggle",
+              "condition": "단도직입으로 말한다"
+            },
+            "retreat": {
+              "next": "withheld",
+              "condition": "물러난다"
+            }
+          }
+        },
+        "haggle": {
+          "guide": "병참국장이 나온다. 물건을 살피는 눈이 매섭다. 값은 물건이 아니라 필요가 정한다.",
+          "cases": {
+            "firm": {
+              "next": "terms",
+              "condition": "입장 외에는 받지 않겠다고 못박는다"
+            },
+            "yield": {
+              "next": "terms",
+              "condition": "조건을 낮춘다"
+            },
+            "inflate": {
+              "next": "called_out",
+              "condition": "물건의 가치를 부풀린다"
+            },
+            "walk": {
+              "next": "withheld",
+              "condition": "돌아선다"
+            }
+          }
+        },
+        "favor": {
+          "guide": "대가 없이 내놓자 오히려 경계한다. 이곳 사람들은 공짜를 믿지 않는다.",
+          "cases": {
+            "explain": {
+              "next": "terms",
+              "condition": "이유를 설명한다"
+            },
+            "silent": {
+              "next": "suspected_gift",
+              "condition": "아무 말 하지 않는다"
+            }
+          }
+        },
+        "suspected_gift": {
+          "guide": "무엇을 노리느냐고 묻는다. 대답에 따라 문이 열리거나 닫힌다.",
+          "cases": {
+            "honest": {
+              "next": "terms",
+              "condition": "들어가고 싶다고 말한다"
+            },
+            "deflect": {
+              "next": "withheld",
+              "condition": "얼버무린다"
+            }
+          }
+        },
+        "called_out": {
+          "guide": "허풍이 드러났다. 물건은 그대로인데 신용이 깎였다.",
+          "cases": {
+            "concede": {
+              "next": "terms",
+              "condition": "물러서서 사실대로 말한다"
+            },
+            "double": {
+              "next": "barred",
+              "condition": "끝까지 우긴다"
+            }
+          }
+        },
+        "terms": {
+          "guide": "조건이 제시된다. 물건을 넘기고, 명부에 이름을 올리고, 배치를 받는다.",
+          "cases": {
+            "sign": {
+              "next": "deal",
+              "condition": "받아들인다"
+            },
+            "haggle_more": {
+              "next": "deal",
+              "condition": "조건 하나만 더 흥정한다"
+            },
+            "refuse": {
+              "next": "withheld",
+              "condition": "거절한다"
+            }
+          }
+        },
+        "deal": {
+          "guide": "물건이 넘어가고 이름이 명부에 오른다. 거래로 얻은 자리다.",
+          "cases": {},
+          "outcome": "clear"
+        },
+        "barred": {
+          "guide": "허풍쟁이로 기록되었다. 이 문에서 흥정할 기회는 사라졌다.",
+          "cases": {},
+          "outcome": "failed"
+        },
+        "withheld": {
+          "guide": "물건도 자리도 그대로다.",
+          "cases": {},
+          "outcome": "missed"
+        }
+      },
+      "hidden": {
+        "truth": "거래로 들어온 자는 명부에 '외부 조달' 표기가 붙어 배급 순위가 뒤로 밀린다.",
+        "reveal_conditions": [
+          "명부의 표기를 본다",
+          "배급 줄에서 밀리는 것을 겪는다"
+        ],
+        "if_unknown": "동등한 일원이 된 줄 안다.",
+        "if_known": "이곳의 서열이 어떻게 매겨지는지 알게 된다."
+      }
+    },
+    {
+      "id": "join_namhang_smuggle",
+      "name": "문을 거치지 않고",
+      "version": "a",
+      "line": "sub",
+      "groups": [
+        "소속군",
+        "중반군"
+      ],
+      "scale": "전환",
+      "filters": {
+        "min_turn": 8,
+        "within": {
+          "any": [
+            "남항 중공업 연대",
+            "제1방어선",
+            "하수도",
+            "서부 간선"
+          ],
+          "as": "장소"
+        },
+        "min_stat": {
+          "민첩": 10
+        },
+        "faction": {
+          "none": [
+            "남항 중공업 연대"
+          ]
+        }
+      },
+      "repeatable": false,
+      "max_occurrences": 1,
+      "grants": {
+        "faction": "남항 중공업 연대"
+      },
+      "tree": {
+        "root": {
+          "guide": "정문으로 들어갈 방법이 없다면 다른 길이 있다. 하수도가 요새 아래를 지난다는 것을 안다.",
+          "cases": {
+            "sewer": {
+              "next": "crawl",
+              "condition": "하수도로 접근한다"
+            },
+            "vent": {
+              "next": "roof",
+              "condition": "환기 설비 쪽을 노린다"
+            },
+            "reconsider": {
+              "next": "aborted",
+              "condition": "그만둔다"
+            }
+          }
+        },
+        "crawl": {
+          "guide": "관로가 좁아진다. 위쪽에서 발전기 진동이 전해진다. 요새 아래에 닿았다는 뜻이다.",
+          "cases": {
+            "quiet": {
+              "next": "inside",
+              "condition": "소리를 죽이고 나아간다"
+            },
+            "force": {
+              "next": "caught",
+              "condition": "막힌 곳을 억지로 연다"
+            }
+          }
+        },
+        "roof": {
+          "guide": "옥상 환기팬이 돌아간다. 철망이 이중으로 덧대어져 있다.",
+          "cases": {
+            "cut": {
+              "next": "inside",
+              "condition": "철망을 자른다"
+            },
+            "wait": {
+              "next": "inside",
+              "condition": "교대 시간을 노린다"
+            },
+            "slip": {
+              "next": "caught",
+              "condition": "서두르다 미끄러진다"
+            }
+          }
+        },
+        "inside": {
+          "guide": "안에 들어왔다. 이제 여기서 무엇을 할지가 문제다. 발각되면 침입자다.",
+          "cases": {
+            "surrender": {
+              "next": "judged",
+              "condition": "스스로 모습을 드러낸다"
+            },
+            "hide": {
+              "next": "discovered",
+              "condition": "숨어 지낸다"
+            },
+            "steal": {
+              "next": "thief",
+              "condition": "필요한 것만 챙겨 나간다"
+            }
+          }
+        },
+        "caught": {
+          "guide": "소리를 냈다. 손전등 불빛이 이쪽을 향한다.",
+          "cases": {
+            "explain": {
+              "next": "judged",
+              "condition": "사정을 말한다"
+            },
+            "run": {
+              "next": "marked",
+              "condition": "달아난다"
+            }
+          }
+        },
+        "discovered": {
+          "guide": "며칠은 버텼으나 좁은 요새에서 낯선 얼굴은 오래 숨지 못한다.",
+          "cases": {
+            "confess": {
+              "next": "judged",
+              "condition": "자백한다"
+            },
+            "resist": {
+              "next": "marked",
+              "condition": "저항한다"
+            }
+          }
+        },
+        "judged": {
+          "guide": "중앙 위원회 앞에 선다. 침입 경로를 아는 자는 위험하지만, 그만큼 쓸모도 있다.",
+          "cases": {
+            "offer_route": {
+              "next": "conditional",
+              "condition": "경로를 알려주는 대가로 자리를 요구한다"
+            },
+            "plead": {
+              "next": "conditional",
+              "condition": "쓸모를 증명하겠다고 한다"
+            },
+            "defiant": {
+              "next": "marked",
+              "condition": "끝까지 뻗댄다"
+            }
+          }
+        },
+        "conditional": {
+          "guide": "조건부로 받아들여졌다. 감시가 따르지만 문 안이다.",
+          "cases": {},
+          "outcome": "clear"
+        },
+        "thief": {
+          "guide": "필요한 것은 얻었으나 이곳에 들어갈 길은 영영 닫혔다.",
+          "cases": {},
+          "outcome": "deviated"
+        },
+        "marked": {
+          "guide": "얼굴이 기록되었다. 이 문은 다시 열리지 않는다.",
+          "cases": {},
+          "outcome": "failed"
+        },
+        "aborted": {
+          "guide": "발길을 돌렸다.",
+          "cases": {},
+          "outcome": "missed"
+        }
+      },
+      "hidden": {
+        "truth": "침입 경로의 존재는 연대 상부가 이미 알고 있으나 막지 않고 있다. 감시용으로 쓰기 때문이다.",
+        "reveal_conditions": [
+          "경로 주변의 감시 흔적을 발견한다",
+          "위원회의 반응이 미지근함을 눈치챈다"
+        ],
+        "if_unknown": "스스로 찾아낸 허점이라 여긴다.",
+        "if_known": "연대가 무엇을 통제하고 무엇을 방치하는지 알게 된다."
+      }
     }
   ]
 }

@@ -3112,6 +3112,15 @@ class GMCog(commands.Cog):
                       + (f" (완료: {outcome})" if outcome else ""))
                 if outcome and master_ch:
                     await master_ch.send(f"📜 **[퀘스트]** 완료 — {outcome}")
+                # 소속 획득 등 클리어 보상 반영
+                if moved.get("granted"):
+                    g = moved["granted"]
+                    if g.get("faction"):
+                        print(f"[GM/{session.session_id}] 소속 획득: {g['faction']}")
+                        game_ch2 = self.bot.get_channel(session.game_ch_id)
+                        if game_ch2:
+                            await game_ch2.send(
+                                f"🏛️ **{g['faction']}**의 일원이 되었습니다.")
                 # 메인라인 엔딩 — 세션 엔딩을 호출한다(기획 규정).
                 if core.quest.is_ending(outcome):
                     session.pending_ending = outcome
