@@ -1998,6 +1998,670 @@
         "if_unknown": "평범한 경계 근무로 여긴다.",
         "if_known": "마을이 무엇을 숨기고 누구를 잃었는지 알게 된다."
       }
+    },
+    {
+      "id": "join_jodo_screening",
+      "name": "신체와 사상",
+      "version": "a",
+      "line": "sub",
+      "groups": [
+        "소속군",
+        "장소군"
+      ],
+      "scale": "전환",
+      "filters": {
+        "min_turn": 4,
+        "within": {
+          "any": [
+            "조도 방위 사령부",
+            "다중 검문소",
+            "방파제 초소",
+            "강의동 병영",
+            "검역 연구소",
+            "격리 구역",
+            "캠퍼스 마당",
+            "군수 창고",
+            "고정 함정",
+            "아치 방파제",
+            "동삼동 해안로",
+            "혁신지구 캠퍼스"
+          ],
+          "as": "장소"
+        },
+        "faction": {
+          "none": [
+            "조도 방위 사령부"
+          ]
+        }
+      },
+      "repeatable": false,
+      "max_occurrences": 1,
+      "grants": {
+        "faction": "조도 방위 사령부"
+      },
+      "tree": {
+        "root": {
+          "guide": "다중 검문소다. 컨테이너와 철조망 사이로 통로 하나가 나 있고, 총구가 그쪽을 향해 있다. 크레졸 냄새가 코를 찌른다. 절차를 밟겠다면 서라고 한다.",
+          "cases": {
+            "comply": {
+              "next": "strip",
+              "condition": "지시에 따른다"
+            },
+            "question": {
+              "next": "warned",
+              "condition": "무슨 절차냐고 묻는다"
+            },
+            "credentials": {
+              "next": "vetting",
+              "condition": "쓸모를 먼저 밝힌다"
+            },
+            "leave": {
+              "next": "turned_back",
+              "condition": "돌아선다"
+            }
+          }
+        },
+        "warned": {
+          "guide": "질문은 허용되지 않는다는 답이 돌아온다. 두 번째 경고는 없다고 덧붙인다.",
+          "cases": {
+            "obey": {
+              "next": "strip",
+              "condition": "입을 다물고 따른다"
+            },
+            "argue": {
+              "next": "turned_back",
+              "condition": "항의한다"
+            }
+          }
+        },
+        "strip": {
+          "guide": "옷을 벗고 서 있으라 한다. 온몸의 상처를 하나하나 기록한다. 오래된 흉터까지 묻는다.",
+          "cases": {
+            "honest": {
+              "next": "vetting",
+              "condition": "묻는 대로 답한다"
+            },
+            "hide": {
+              "next": "flagged",
+              "condition": "오래된 상처를 대충 넘긴다"
+            },
+            "refuse": {
+              "next": "turned_back",
+              "condition": "거부한다"
+            }
+          }
+        },
+        "flagged": {
+          "guide": "기록이 맞지 않는다며 다시 묻는다. 같은 질문을 표현만 바꿔 세 번 던진다.",
+          "cases": {
+            "correct": {
+              "next": "vetting",
+              "condition": "바로잡아 말한다"
+            },
+            "consistent": {
+              "next": "detained",
+              "condition": "끝까지 같은 답을 고수한다"
+            }
+          }
+        },
+        "vetting": {
+          "guide": "사상 검증이다. 본토에서 무엇을 했고, 누구와 있었으며, 왜 혼자 남았는지를 묻는다. 답의 내용보다 흔들림을 본다.",
+          "cases": {
+            "plain": {
+              "next": "assigned_labor",
+              "condition": "있는 대로 말한다"
+            },
+            "useful": {
+              "next": "assigned_skill",
+              "condition": "기술과 경력을 강조한다"
+            },
+            "evade": {
+              "next": "detained",
+              "condition": "말을 돌린다"
+            }
+          }
+        },
+        "assigned_labor": {
+          "guide": "선별된 시민으로 분류된다. 혁신지구 하역과 거주 구역 정비가 배정된다. 고된 일이지만 안쪽이다.",
+          "cases": {},
+          "outcome": "clear"
+        },
+        "assigned_skill": {
+          "guide": "기술 인력으로 분류된다. 발전 설비 보조에 배치된다. 대우가 다르다.",
+          "cases": {},
+          "outcome": "clear"
+        },
+        "detained": {
+          "guide": "격리 구역으로 옮겨진다. 검증이 끝나지 않은 자는 안에도 밖에도 두지 않는다.",
+          "cases": {},
+          "outcome": "failed"
+        },
+        "turned_back": {
+          "guide": "방파제를 되돌아 건넌다. 400미터 내내 등에 시선이 붙는다.",
+          "cases": {},
+          "outcome": "missed"
+        }
+      },
+      "hidden": {
+        "truth": "신체검사의 목적은 감염 여부만이 아니다. 폭력 이력이 있는 자를 가려내 노동조에서 배제한다.",
+        "reveal_conditions": [
+          "기록관의 질문 방향을 눈치챈다",
+          "분류 기준의 차이를 목격한다"
+        ],
+        "if_unknown": "단순 검역으로 여긴다.",
+        "if_known": "이 조직이 사람을 어떤 기준으로 나누는지 알게 된다."
+      }
+    },
+    {
+      "id": "join_jodo_signal",
+      "name": "주파수를 아는 자",
+      "version": "a",
+      "line": "sub",
+      "groups": [
+        "소속군",
+        "기타군",
+        "중반군"
+      ],
+      "scale": "전환",
+      "filters": {
+        "min_turn": 7,
+        "within": {
+          "any": [
+            "조도 방위 사령부",
+            "다중 검문소",
+            "방파제 초소",
+            "강의동 병영",
+            "검역 연구소",
+            "격리 구역",
+            "캠퍼스 마당",
+            "군수 창고",
+            "고정 함정",
+            "아치 방파제",
+            "동삼동 해안로",
+            "혁신지구 캠퍼스"
+          ],
+          "as": "장소"
+        },
+        "min_stat": {
+          "기술": 11
+        },
+        "faction": {
+          "none": [
+            "조도 방위 사령부"
+          ]
+        }
+      },
+      "repeatable": false,
+      "max_occurrences": 1,
+      "grants": {
+        "faction": "조도 방위 사령부"
+      },
+      "tree": {
+        "root": {
+          "guide": "사령부의 무전이 며칠째 잡음뿐이라는 말이 돈다. 태양광은 멀쩡한데 신호가 서지 않는다. 기술을 아는 자를 찾는다는 뜻이기도 하다.",
+          "cases": {
+            "offer": {
+              "next": "tested",
+              "condition": "고칠 수 있다고 나선다"
+            },
+            "observe": {
+              "next": "diagnose",
+              "condition": "먼저 설비를 살펴본다"
+            },
+            "ignore": {
+              "next": "passed_over",
+              "condition": "관여하지 않는다"
+            }
+          }
+        },
+        "diagnose": {
+          "guide": "멀리서 안테나를 본다. 방향이 어긋나 있거나, 급전선이 상했거나, 둘 다일 수 있다.",
+          "cases": {
+            "specific": {
+              "next": "tested",
+              "condition": "짚어서 말한다"
+            },
+            "vague": {
+              "next": "doubted",
+              "condition": "두루뭉술하게 말한다"
+            }
+          }
+        },
+        "tested": {
+          "guide": "검문소 밖에서 시험이 붙는다. 안으로 들이기 전에 실력을 본다. 부품 몇 개와 고장 난 무전기 하나가 주어진다.",
+          "cases": {
+            "repair": {
+              "next": "escorted",
+              "condition": "고쳐 보인다"
+            },
+            "explain": {
+              "next": "escorted",
+              "condition": "고칠 수는 없으나 원인을 정확히 짚는다"
+            },
+            "fail": {
+              "next": "doubted",
+              "condition": "손대다 망친다"
+            }
+          }
+        },
+        "doubted": {
+          "guide": "기술자를 자처하는 자는 많고, 실제로 그런 자는 드물다는 답이 돌아온다.",
+          "cases": {
+            "retry": {
+              "next": "tested",
+              "condition": "다시 기회를 청한다"
+            },
+            "withdraw": {
+              "next": "passed_over",
+              "condition": "물러난다"
+            }
+          }
+        },
+        "escorted": {
+          "guide": "호송을 받아 안으로 들어간다. 눈을 가리지는 않지만 어디를 보는지 기록한다.",
+          "cases": {
+            "focus": {
+              "next": "antenna",
+              "condition": "설비에만 집중한다"
+            },
+            "look": {
+              "next": "suspected_spy",
+              "condition": "주변을 눈여겨본다"
+            }
+          }
+        },
+        "antenna": {
+          "guide": "옥상이다. 급전선이 염분에 삭아 있다. 태양광 배선과 간섭도 있다. 손볼 것이 둘이다.",
+          "cases": {
+            "both": {
+              "next": "restored",
+              "condition": "둘 다 손본다"
+            },
+            "quick": {
+              "next": "partial_fix",
+              "condition": "급한 쪽만 손본다"
+            },
+            "sabotage": {
+              "next": "expelled_spy",
+              "condition": "몰래 손을 대둔다"
+            }
+          }
+        },
+        "suspected_spy": {
+          "guide": "시선을 기록당했다. 설비 앞에 세워두고 감시가 하나 더 붙는다.",
+          "cases": {
+            "work": {
+              "next": "antenna",
+              "condition": "묵묵히 일한다"
+            },
+            "protest": {
+              "next": "expelled_spy",
+              "condition": "불쾌함을 드러낸다"
+            }
+          }
+        },
+        "restored": {
+          "guide": "신호가 선다. 잡음 사이로 목소리가 잡히는 순간 실내가 조용해진다. 이 사람은 내보내지 않는다는 결정이 그 자리에서 난다.",
+          "cases": {},
+          "outcome": "clear"
+        },
+        "partial_fix": {
+          "guide": "신호가 잡히다 끊긴다. 쓸모는 인정받았으나 조건부다.",
+          "cases": {},
+          "outcome": "partial"
+        },
+        "expelled_spy": {
+          "guide": "첩자로 분류되었다. 방파제 밖으로 끌려 나간다.",
+          "cases": {},
+          "outcome": "failed"
+        },
+        "passed_over": {
+          "guide": "다른 누군가가 그 자리에 불려 갔다.",
+          "cases": {},
+          "outcome": "missed"
+        }
+      },
+      "hidden": {
+        "truth": "무전이 끊긴 것은 고장이 아니라, 잡히면 안 될 송신을 차단하려 상부가 손을 댄 결과다.",
+        "reveal_conditions": [
+          "배선의 손상이 인위적임을 알아본다",
+          "복구 직후 상부의 반응을 본다"
+        ],
+        "if_unknown": "단순 고장 복구로 끝난다.",
+        "if_known": "사령부가 무엇을 듣지 않으려 하는지 알게 된다."
+      }
+    },
+    {
+      "id": "join_jodo_causeway",
+      "name": "400미터",
+      "version": "a",
+      "line": "sub",
+      "groups": [
+        "소속군",
+        "장소군",
+        "중반군"
+      ],
+      "scale": "전환",
+      "filters": {
+        "min_turn": 6,
+        "within": {
+          "any": [
+            "아치 방파제",
+            "동삼동 해안로",
+            "혁신지구 캠퍼스"
+          ],
+          "as": "장소"
+        },
+        "faction": {
+          "none": [
+            "조도 방위 사령부"
+          ]
+        }
+      },
+      "repeatable": false,
+      "max_occurrences": 1,
+      "grants": {
+        "faction": "조도 방위 사령부"
+      },
+      "tree": {
+        "root": {
+          "guide": "방파제 입구에서 수색조 하나가 발이 묶여 있다. 부상자를 업은 채 400미터 개활지를 건너야 하는데, 뒤에서 따라붙은 것들이 이미 해안로를 메웠다. 초소는 사격을 망설이고 있다.",
+          "cases": {
+            "decoy": {
+              "next": "lure",
+              "condition": "미끼를 자처해 시선을 끈다"
+            },
+            "carry": {
+              "next": "burden",
+              "condition": "부상자를 대신 업는다"
+            },
+            "signal": {
+              "next": "comms",
+              "condition": "초소에 신호를 보낸다"
+            },
+            "watch": {
+              "next": "too_late",
+              "condition": "지켜본다"
+            }
+          }
+        },
+        "lure": {
+          "guide": "반대편으로 달리며 소리를 낸다. 몇이 방향을 튼다. 전부는 아니다.",
+          "cases": {
+            "keep": {
+              "next": "crossing",
+              "condition": "계속 끌고 간다"
+            },
+            "circle": {
+              "next": "crossing",
+              "condition": "돌아서 방파제로 합류한다"
+            },
+            "trapped": {
+              "next": "cut_off",
+              "condition": "퇴로가 막힌다"
+            }
+          }
+        },
+        "burden": {
+          "guide": "부상자를 업자 무게가 예상보다 무겁다. 개활지에서는 뛸 수 없다.",
+          "cases": {
+            "steady": {
+              "next": "crossing",
+              "condition": "속도를 유지한다"
+            },
+            "sprint": {
+              "next": "cut_off",
+              "condition": "전력으로 달린다"
+            }
+          }
+        },
+        "comms": {
+          "guide": "초소가 반응한다. 사격 허가가 나려면 지휘관 승인이 필요하다는 답이 온다. 시간이 없다.",
+          "cases": {
+            "insist": {
+              "next": "crossing",
+              "condition": "책임지겠다고 외친다"
+            },
+            "self": {
+              "next": "lure",
+              "condition": "스스로 처리하기로 한다"
+            }
+          }
+        },
+        "crossing": {
+          "guide": "방파제 위다. 양쪽이 트여 있고 은폐물이 없다. 400미터가 이렇게 긴 줄 몰랐다.",
+          "cases": {
+            "run": {
+              "next": "gate",
+              "condition": "끝까지 달린다"
+            },
+            "cover": {
+              "next": "gate",
+              "condition": "뒤를 막으며 물러선다"
+            },
+            "drop": {
+              "next": "survived_alone",
+              "condition": "짐을 버린다"
+            }
+          }
+        },
+        "cut_off": {
+          "guide": "퇴로가 끊겼다. 바다와 그것들 사이에 서 있다.",
+          "cases": {
+            "swim": {
+              "next": "survived_alone",
+              "condition": "물로 뛰어든다"
+            },
+            "stand": {
+              "next": "gate",
+              "condition": "자리에서 버틴다"
+            }
+          }
+        },
+        "gate": {
+          "guide": "검문소 문이 열린다. 절차를 밟을 때가 아니라는 판단이 선 것이다.",
+          "cases": {
+            "collapse": {
+              "next": "honored",
+              "condition": "쓰러진다"
+            },
+            "report": {
+              "next": "honored",
+              "condition": "상황부터 보고한다"
+            }
+          }
+        },
+        "honored": {
+          "guide": "사령관 앞에 선다. 검역은 형식적으로 끝나고, 배치가 먼저 정해진다. 이곳은 이런 방식으로 사람을 들인다.",
+          "cases": {},
+          "outcome": "clear"
+        },
+        "survived_alone": {
+          "guide": "혼자 살아남았다. 문은 열리지 않았고, 그 선택을 초소가 보았다.",
+          "cases": {},
+          "outcome": "deviated"
+        },
+        "too_late": {
+          "guide": "수색조는 건너지 못했다. 방파제에 남은 것들이 한동안 치워지지 않는다.",
+          "cases": {},
+          "outcome": "missed"
+        }
+      },
+      "hidden": {
+        "truth": "초소가 망설인 것은 승인 절차 때문이 아니라, 탄약이 남지 않았기 때문이다.",
+        "reveal_conditions": [
+          "초소의 사격이 끝내 없었음을 알아챈다",
+          "군수 담당관의 말을 듣는다"
+        ],
+        "if_unknown": "관료적 지연으로 여긴다.",
+        "if_known": "이 요새의 무력이 겉보기와 다르다는 것을 알게 된다."
+      }
+    },
+    {
+      "id": "join_jodo_defector",
+      "name": "돌아온 병사",
+      "version": "a",
+      "line": "sub",
+      "groups": [
+        "소속군",
+        "인물군",
+        "중반군"
+      ],
+      "scale": "전환",
+      "filters": {
+        "min_turn": 9,
+        "within": {
+          "any": [
+            "조도 방위 사령부",
+            "다중 검문소",
+            "방파제 초소",
+            "강의동 병영",
+            "검역 연구소",
+            "격리 구역",
+            "캠퍼스 마당",
+            "군수 창고",
+            "고정 함정",
+            "아치 방파제",
+            "동삼동 해안로",
+            "혁신지구 캠퍼스"
+          ],
+          "as": "장소"
+        },
+        "faction": {
+          "none": [
+            "조도 방위 사령부"
+          ]
+        }
+      },
+      "repeatable": false,
+      "max_occurrences": 1,
+      "grants": {
+        "faction": "조도 방위 사령부"
+      },
+      "tree": {
+        "root": {
+          "guide": "본섬 쪽에서 군복 차림의 사내를 만난다. 계급장은 뜯겨 있고, 조도로 돌아가려 한다면서도 방파제 앞에서 걸음을 멈춘다. 이탈자다.",
+          "cases": {
+            "listen": {
+              "next": "story",
+              "condition": "사정을 듣는다"
+            },
+            "escort": {
+              "next": "approach",
+              "condition": "함께 가주겠다고 한다"
+            },
+            "report": {
+              "next": "informed",
+              "condition": "초소에 알린다"
+            },
+            "avoid": {
+              "next": "vanished",
+              "condition": "엮이지 않는다"
+            }
+          }
+        },
+        "story": {
+          "guide": "명령을 어겼다고 한다. 무엇을 어겼는지는 말하지 않는다. 다만 돌아가면 어떻게 되는지는 안다고 한다.",
+          "cases": {
+            "press": {
+              "next": "truth_told",
+              "condition": "캐묻는다"
+            },
+            "accept": {
+              "next": "approach",
+              "condition": "더 묻지 않고 함께 간다"
+            },
+            "turn": {
+              "next": "informed",
+              "condition": "위험하다고 판단해 신고한다"
+            }
+          }
+        },
+        "truth_told": {
+          "guide": "격리 구역에서 벌어진 일을 말한다. 검증이 끝난 사람도 나오지 못한 경우가 있었다는 것이다.",
+          "cases": {
+            "believe": {
+              "next": "approach",
+              "condition": "믿고 함께 간다"
+            },
+            "doubt": {
+              "next": "informed",
+              "condition": "거짓일 수 있다고 본다"
+            }
+          }
+        },
+        "approach": {
+          "guide": "둘이 검문소로 향한다. 이탈자를 데려오는 자는 협조자인가 공범인가. 초소가 판단할 것이다.",
+          "cases": {
+            "front": {
+              "next": "judged",
+              "condition": "당당히 나선다"
+            },
+            "shield": {
+              "next": "judged",
+              "condition": "이탈자를 뒤에 세운다"
+            },
+            "abandon": {
+              "next": "informed",
+              "condition": "막판에 떨어진다"
+            }
+          }
+        },
+        "informed": {
+          "guide": "신고가 접수된다. 수색조가 나가고, 얼마 뒤 혼자 돌아온다.",
+          "cases": {
+            "silent": {
+              "next": "rewarded",
+              "condition": "묻지 않는다"
+            },
+            "ask": {
+              "next": "rewarded",
+              "condition": "무슨 일이 있었는지 묻는다"
+            }
+          }
+        },
+        "judged": {
+          "guide": "사령관 앞이다. 이탈자는 끌려가고, 당신에 대한 판단이 남는다.",
+          "cases": {
+            "vouch": {
+              "next": "conditional_entry",
+              "condition": "그를 변호한다"
+            },
+            "distance": {
+              "next": "rewarded",
+              "condition": "선을 긋는다"
+            },
+            "accuse": {
+              "next": "rewarded",
+              "condition": "들은 것을 고발한다"
+            }
+          }
+        },
+        "conditional_entry": {
+          "guide": "이탈자를 변호한 자는 감시 대상이 된다. 다만 쓸모는 인정받아 안에 들어간다.",
+          "cases": {},
+          "outcome": "partial"
+        },
+        "rewarded": {
+          "guide": "협조자로 기록되어 정식 절차 없이 받아들여진다. 대가로 무언가를 넘겼다는 감각이 남는다.",
+          "cases": {},
+          "outcome": "clear"
+        },
+        "vanished": {
+          "guide": "사내는 방파제를 등지고 사라졌다. 어디로 갔는지는 아무도 모른다.",
+          "cases": {},
+          "outcome": "missed"
+        }
+      },
+      "hidden": {
+        "truth": "이탈자가 어긴 명령은 격리 구역의 처분에 관한 것이며, 그 사실을 아는 자는 사령부에 들어가도 감시를 벗어나지 못한다.",
+        "reveal_conditions": [
+          "격리 구역의 실태를 목격한다",
+          "이탈자의 말을 끝까지 듣는다"
+        ],
+        "if_unknown": "단순 탈영으로 여긴다.",
+        "if_known": "이 조직이 무엇을 대가로 질서를 유지하는지 알게 된다."
+      }
     }
   ]
 }
