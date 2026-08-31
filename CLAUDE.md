@@ -388,6 +388,110 @@ rewind:one         1턴 되감기 확인
 
 ---
 
+## 검증 루틴
+
+커밋 전 세 루틴을 실행한다. 전부 `OK`여야 커밋한다.
+
+### ① 구문 · 미정의 self 참조
+
+```bash
+python3 -c "
+import ast, pathlib, re
+SKIP = {'_execute_proceed', '_call_gm_logic', '_resolve_irregular_npcs',
+        '_next', '_begin_flow'}   # 다른 cog·뷰의 메서드를 정상 호출
+bad = 0
+for f in sorted(pathlib.Path('.').rglob('*.py')):
+    src = f.read_text(encoding='utf-8')
+    ast.parse(src)
+    defined = set(re.findall(r'(?:async )?def (\w+)\(', src))
+    called  = set(re.findall(r'self\.(_\w+)\(', src)) - SKIP
+    if called - defined:
+        print('미정의', f, sorted(called - defined)); bad += 1
+print('OK' if bad == 0 else f'{bad}건')
+"
+```
+
+### ② 재수출 · 세션 필드 정합
+
+```bash
+python3 -c "
+import sys, re, pathlib; sys.path.insert(0, '.')
+import core
+print('재수출:', [n for n in core.__all__ if not hasattr(core, n)] or 'OK')
+attrs = set(re.findall(r'self\.(\w+)\s*=',
+            pathlib.Path('core/models.py').read_text(encoding='utf-8')))
+attrs.add('cached_worldview_sections')   # cache.py가 동적 생성하는 정상 예외
+print('필드:', [k for k in core.SESSION_FIELDS if k not in attrs] or 'OK')
+"
+```
+
+`SESSION_FIELDS`에 등록했는데 `models.py`에 없으면 로드 시 `getattr` 기본값으로 조용히 넘어가 버그를 늦게 발견한다.
+
+### ③ 퀘스트 트리 무결 · 장소 참조
+
+```bash
+python3 -c "
+import sys, json; sys.path.insert(0, '.')
+import core
+d  = json.load(open('scenarios/영도.json', encoding='utf-8'))
+q  = json.load(open('scenarios/영도.quests.json', encoding='utf-8'))
+PL = core.places.load_places(d)
+err = []
+for x in q['quests']:
+    t = x['tree']
+    # next 참조 무결
+    for node, body in t.items():
+        for ck, cv in (body.get('cases') or {}).items():
+            if cv['next'] not in t:
+                err.append(f\"{x['id']}:{node}.{ck} -> {cv['next']}\")
+    # 도달 불가 노드
+    reach, changed = {'root'}, True
+    while changed:
+        changed = False
+        for n in list(reach):
+            for cv in (t.get(n, {}).get('cases') or {}).values():
+                if cv['next'] not in reach:
+                    reach.add(cv['next']); changed = True
+    if set(t) - reach:
+        err.append(f\"{x['id']}: 도달불가 {sorted(set(t) - reach)}\")
+    # outcome 존재
+    if not any(b.get('outcome') for b in t.values()):
+        err.append(f\"{x['id']}: outcome 없음\")
+    # 필터가 실재 장소를 가리키는가
+    for key in ('place', 'within'):
+        f = x['filters'].get(key)
+        vals = f.get('any', []) if isinstance(f, dict) else (f or [])
+        for v in vals:
+            if v not in PL:
+                err.append(f\"{x['id']}: 미존재 장소 {v}\")
+print(err or 'OK')
+"
+```
+
+### ④ 봇 로딩 (선택)
+
+cog 로드와 persistent view 등록까지 확인한다. 실제 로그인 없이 실행하므로 `presence.py` 경고는 무시한다.
+
+```bash
+GEMINI_API_KEY=dummy python3 -c "
+import sys, asyncio, pathlib; sys.path.insert(0, '.')
+import discord
+from discord.ext import commands
+async def t():
+    bot = commands.Bot(command_prefix='!', intents=discord.Intents.default())
+    for f in sorted(pathlib.Path('cogs').glob('*.py')):
+        if not f.name.startswith('__'):
+            await bot.load_extension(f'cogs.{f.stem}')
+    print('cogs', len(bot.cogs), '| 명령어', len(bot.commands),
+          '| views', len(bot.persistent_views))
+asyncio.run(t())
+" 2>&1 | grep -E 'cogs|Error'
+```
+
+기준값 — cogs 9 · 명령어 44 · views 5
+
+---
+
 ## 현재 미완 항목
 
 | 항목 | 상태 |
