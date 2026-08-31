@@ -391,9 +391,19 @@ async def _begin_flow(bot, interaction, kind: str):
         await session_flow.render(bot, session, game_ch)
 
 
-async def refresh_home(bot, guild) -> bool:
-    """홈 채널의 안내와 UI를 갱신한다."""
+async def refresh_home(bot, guild, *, create: bool = True) -> bool:
+    """홈 채널의 안내와 UI를 갱신한다.
+
+    Args:
+        create: False면 스페이스가 없는 서버를 건너뛴다.
+            재시작 시 자동 갱신에 쓴다 — 스페이스를 쓰지 않는 서버에까지
+            채널을 만들어 버리면 곤란하다.
+    """
     try:
+        if not create:
+            category = discord.utils.get(guild.categories, name=CATEGORY_NAME)
+            if not category:
+                return False
         chans = await ensure_space(guild)
         channel = chans["home"]
         embed = build_home_embed(bot)

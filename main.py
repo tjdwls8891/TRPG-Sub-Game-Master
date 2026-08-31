@@ -111,9 +111,37 @@ class TRPGBot(commands.Bot):
         except Exception as e:
             print(f"⚠️ 오너 식별 실패(권한 체크는 허가 목록으로만 동작): {e}")
 
+        # [초대 링크] GM 홈 임베드가 bot.invite_url을 읽는다. 설정하지 않으면
+        # '(미설정)'으로 남으므로 로그인 후 client_id로 생성해 둔다.
+        try:
+            self.invite_url = discord.utils.oauth_url(
+                self.user.id,
+                permissions=discord.Permissions(
+                    manage_channels=True, manage_roles=True,
+                    read_messages=True, send_messages=True,
+                    manage_messages=True, embed_links=True,
+                    attach_files=True, read_message_history=True,
+                    connect=True, speak=True, use_application_commands=True,
+                ),
+                scopes=("bot", "applications.commands"),
+            )
+            print(f"초대 링크 준비 완료")
+        except Exception as e:
+            print(f"⚠️ 초대 링크 생성 실패(무시): {e}")
+
         # [디스크에 저장된 세션 복구 및 캐시 재연동 실행]
         # 봇 재시작으로 인한 데이터 증발을 막기 위해 sessions 폴더의 data.json을 메모리에 재적재.
         await core.restore_sessions_from_disk(self)
+
+        # [GM 홈 갱신] 봇 버전·초대 링크가 임베드에 박혀 있어, 배포로 값이
+        # 바뀌어도 !스페이스를 다시 치기 전까지 낡은 채로 남는다.
+        # 재시작 때마다 갱신해 표기와 실제를 일치시킨다.
+        for guild in self.guilds:
+            try:
+                if await core.refresh_home(self, guild, create=False):
+                    print(f"GM 홈 갱신: {guild.name}")
+            except Exception as e:
+                print(f"⚠️ GM 홈 갱신 실패({guild.name}, 무시): {e}")
 
         # [효과음 사전 디코드] 주사위 효과음을 미리 PCM으로 캐시해 첫 재생 지연 제거.
         try:
