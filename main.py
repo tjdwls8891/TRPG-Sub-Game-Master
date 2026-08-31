@@ -133,15 +133,19 @@ class TRPGBot(commands.Bot):
         # 봇 재시작으로 인한 데이터 증발을 막기 위해 sessions 폴더의 data.json을 메모리에 재적재.
         await core.restore_sessions_from_disk(self)
 
-        # [GM 홈 갱신] 봇 버전·초대 링크가 임베드에 박혀 있어, 배포로 값이
-        # 바뀌어도 !스페이스를 다시 치기 전까지 낡은 채로 남는다.
-        # 재시작 때마다 갱신해 표기와 실제를 일치시킨다.
+        # [GM 홈 갱신·복구] GM 스페이스는 오너가 아닌 유저의 유일한 세션
+        # 진입점이다. 명령어는 마스터 채널 전용이므로, 스페이스가 없으면
+        # 일반 유저는 세션을 열 방법이 없다.
+        # 카테고리가 사라졌으면 재생성하고, 봇 버전·초대 링크를 갱신한다.
         for guild in self.guilds:
             try:
-                if await core.refresh_home(self, guild, create=False):
-                    print(f"GM 홈 갱신: {guild.name}")
+                if await core.refresh_home(self, guild):
+                    # 명전·보드도 함께 채운다. 카테고리가 새로 만들어졌다면
+                    # 홈만 갱신해서는 나머지 채널이 비어 있게 된다.
+                    await core.refresh_boards(self, guild)
+                    print(f"GM 홈 준비: {guild.name}")
             except Exception as e:
-                print(f"⚠️ GM 홈 갱신 실패({guild.name}, 무시): {e}")
+                print(f"⚠️ GM 홈 준비 실패({guild.name}, 무시): {e}")
 
         # [효과음 사전 디코드] 주사위 효과음을 미리 PCM으로 캐시해 첫 재생 지연 제거.
         try:
