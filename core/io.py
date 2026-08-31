@@ -228,6 +228,14 @@ def _serialize_log_entry(content) -> dict | None:
 
 # ========== [코어 유틸리티 함수(Utilities)] ==========
 
+# 시나리오 본체가 아닌 부속 파일의 접미사. 목록에서 제외한다.
+#   {이름}.quests.json  — 퀘스트 데이터 (core/quest.py가 별도 로드)
+SCENARIO_SIDECAR_SUFFIXES = (".quests.json",)
+
+# 예제·템플릿 파일. 실제 플레이 대상이 아니다.
+SCENARIO_EXCLUDED_STEMS = {"scenario.example"}
+
+
 def load_scenario_from_file(scenario_id: str) -> dict | None:
     """
     지정된 시나리오 ID에 해당하는 JSON 파일을 파싱하여 딕셔너리로 반환.
@@ -238,6 +246,12 @@ def load_scenario_from_file(scenario_id: str) -> dict | None:
     Returns:
         dict | None: 파싱된 시나리오 데이터 딕셔너리. 파일 부재 시 None 반환.
     """
+    # 부속 파일을 시나리오로 열지 않는다. 목록에서 걸러도 id가 직접
+    # 지정되면 통과하므로 여기서도 막는다.
+    if any(str(scenario_id).endswith(sfx[:-len(".json")])
+           for sfx in SCENARIO_SIDECAR_SUFFIXES):
+        return None
+
     filepath = f"scenarios/{scenario_id}.json"
     if os.path.exists(filepath):
         with open(filepath, "r", encoding="utf-8") as f:
@@ -279,13 +293,27 @@ def write_cost_log(session_id: str, usage_context: str, in_tokens: int, cached_t
 
 
 def get_available_scenarios() -> list:
-    """
-    scenarios 폴더 내에 존재하는 사용 가능한 시나리오 파일 목록을 스캔하여 반환.
+    """플레이 가능한 시나리오 목록.
+
+    NOTE: 부속 파일과 예제를 제외한다. 이전에는 '.json'으로 끝나는 모든
+          파일을 반환해 '영도.quests'가 선택지에 노출됐다.
+          확장자 제거도 replace가 아니라 접미사 절삭으로 처리한다 —
+          replace는 파일명 중간의 '.json'까지 지운다.
 
     Returns:
-        list: '.json' 확장자가 제거된 파일명 문자열 리스트
+        list: 확장자를 뗀 시나리오 이름
     """
-    return [f.replace(".json", "") for f in os.listdir("scenarios") if f.endswith(".json")]
+    out = []
+    for f in sorted(os.listdir("scenarios")):
+        if not f.endswith(".json"):
+            continue
+        if any(f.endswith(sfx) for sfx in SCENARIO_SIDECAR_SUFFIXES):
+            continue
+        stem = f[:-len(".json")]
+        if stem in SCENARIO_EXCLUDED_STEMS:
+            continue
+        out.append(stem)
+    return out
 
 
 async def save_session_data(bot, session: TRPGSession):
