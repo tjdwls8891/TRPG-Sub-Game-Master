@@ -269,6 +269,26 @@ def match_filters(session, quest: dict, state: dict) -> dict | None:
         if _player_stat(session, stat) < need:
             return None
 
+    # ── 결말 이력 ──
+    # 성향을 별도 필드로 두지 않고 지금까지의 결말로 판정한다.
+    # 과격 노선은 이탈·실패가 쌓인 플레이어에게만 열린다.
+    need_out = f.get("min_outcome")
+    if need_out:
+        tally = {}
+        for c in (state.get("cleared") or []):
+            oc = c.get("outcome")
+            if oc:
+                tally[oc] = tally.get(oc, 0) + 1
+        for oc, need in need_out.items():
+            if tally.get(oc, 0) < int(need):
+                return None
+
+    # ── 방문 장소 수 ──
+    if f.get("min_visited"):
+        visited = getattr(session, "visited_places", None) or []
+        if len(visited) < int(f["min_visited"]):
+            return None
+
     # ── 선행 퀘스트 ──
     cleared = {c.get("name") for c in (state.get("cleared") or [])}
     for req in _as_list(f.get("requires_cleared")):

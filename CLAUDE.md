@@ -8,7 +8,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 AI가 4개 층위로 나뉘어 판단·지시·묘사·추출을 분담한다. 플레이어는 서버 GM 스페이스에서 버튼으로 세션을 열고, 캐릭터를 만들고, 턴을 진행한다. **명령어는 GM의 수동 개입·복구 수단이며 일반 플레이에는 쓰지 않는다.**
 
-현재 버전: **v5.16.1** · `SCHEMA_VERSION` 3 · 총 ~23,800줄
+현재 버전: **v5.17.0** · `SCHEMA_VERSION` 3 · 총 ~23,800줄
 
 ---
 
@@ -236,7 +236,7 @@ FIELD_MIGRATIONS = {2: {"auto_gm_active": "gm_active", ...}}
 | `profile_creation` | 10단계 | 성별→이름→나이→직업→스킬→능력치→외모→외형→배경→복장 |
 | `starting_items` | 공통 6 + 직업별 2 | |
 | `briefing_formats` | 5 | |
-| 퀘스트 (`영도.quests.json`) | 37 | 커버리지 122/122 |
+| 퀘스트 (`영도.quests.json`) | 44 | 커버리지 122/122 |
 
 ### 무협 (`scenarios/무협.json`, 22키)
 

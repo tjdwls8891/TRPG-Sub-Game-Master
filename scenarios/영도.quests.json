@@ -5241,6 +5241,1643 @@
         }
       },
       "hidden": {}
+    },
+    {
+      "id": "main_alone_survive",
+      "name": "홀로 남다",
+      "version": "a",
+      "line": "main",
+      "groups": [
+        "메인",
+        "개인군"
+      ],
+      "scale": "엔드",
+      "filters": {
+        "min_turn": 20,
+        "min_cleared_sub": 5,
+        "faction": {
+          "any": [
+            "무소속"
+          ],
+          "as": "소속"
+        },
+        "npc": {
+          "any": [
+            "전성남",
+            "염기준",
+            "황민석",
+            "박하은",
+            "한도윤",
+            "황순애"
+          ],
+          "as": "동료",
+          "scope": "any"
+        }
+      },
+      "repeatable": false,
+      "max_occurrences": 1,
+      "tree": {
+        "root": {
+          "guide": "어느 거점에도 이름을 올리지 않은 채 여기까지 왔다. 이제 겨울이 온다. 지금의 자리로는 넘길 수 없다는 것을 몸이 먼저 안다. 스스로의 거처를 완성하든지, 아니면 결국 어느 문을 두드리든지 해야 한다.",
+          "cases": {
+            "fortify": {
+              "next": "site",
+              "condition": "거처를 제대로 만들기로 한다"
+            },
+            "network": {
+              "next": "reach_out",
+              "condition": "아는 얼굴들에게 손을 뻗는다"
+            },
+            "wander": {
+              "next": "drift",
+              "condition": "계속 떠돌기로 한다"
+            },
+            "reconsider": {
+              "next": "doorstep",
+              "condition": "거점에 들어갈지 고민한다"
+            }
+          }
+        },
+        "site": {
+          "guide": "자리부터 정해야 한다. 물이 가까우면 위험이 가깝고, 높으면 오르내림이 고되다. 이 섬의 모든 선택이 그렇듯 하나를 얻으면 하나를 잃는다.",
+          "cases": {
+            "high": {
+              "next": "build",
+              "condition": "고지대에 자리를 잡는다"
+            },
+            "hidden": {
+              "next": "build",
+              "condition": "눈에 띄지 않는 곳을 고른다"
+            },
+            "under": {
+              "next": "build",
+              "condition": "지하를 택한다"
+            },
+            "coast": {
+              "next": "build",
+              "condition": "해안 가까이에 둔다"
+            }
+          }
+        },
+        "build": {
+          "guide": "자재를 모으고 물길을 내고 문을 건다. 혼자 하기에는 손이 모자라고, 그것을 인정하는 데 시간이 걸린다.",
+          "cases": {
+            "alone": {
+              "next": "winter",
+              "condition": "끝까지 혼자 한다"
+            },
+            "trade": {
+              "next": "reach_out",
+              "condition": "필요한 것만 거래로 구한다"
+            },
+            "help": {
+              "next": "reach_out",
+              "condition": "손을 빌린다"
+            }
+          }
+        },
+        "reach_out": {
+          "guide": "{동료}가 떠오른다. 어디에도 온전히 속하지 못한 사람. 이쪽과 비슷한 처지다.",
+          "cases": {
+            "ask": {
+              "next": "pact",
+              "condition": "함께하자고 제안한다"
+            },
+            "barter": {
+              "next": "pact",
+              "condition": "거래만 트기로 한다"
+            },
+            "alone2": {
+              "next": "winter",
+              "condition": "결국 혼자 하기로 한다"
+            },
+            "burden": {
+              "next": "strained",
+              "condition": "일방적으로 도움을 청한다"
+            }
+          }
+        },
+        "pact": {
+          "guide": "{동료}가 조건을 건다. 서로의 자리를 알되 서로의 일에 끼어들지 않는다는 것. 이 섬에서 가능한 가장 느슨한 약속이다.",
+          "cases": {
+            "accept": {
+              "next": "winter",
+              "condition": "받아들인다"
+            },
+            "deepen": {
+              "next": "winter",
+              "condition": "더 가까운 관계를 제안한다"
+            },
+            "refuse": {
+              "next": "strained",
+              "condition": "조건을 거부한다"
+            }
+          }
+        },
+        "strained": {
+          "guide": "관계가 어긋났다. 도움도 거래도 끊긴 채 겨울이 다가온다.",
+          "cases": {
+            "mend": {
+              "next": "pact",
+              "condition": "다시 찾아가 사과한다"
+            },
+            "endure": {
+              "next": "winter",
+              "condition": "혼자 버티기로 한다"
+            }
+          }
+        },
+        "drift": {
+          "guide": "자리를 정하지 않고 떠돈다. 어디에도 매이지 않지만 어디에도 쌓이는 것이 없다.",
+          "cases": {
+            "settle": {
+              "next": "site",
+              "condition": "결국 자리를 정한다"
+            },
+            "keep": {
+              "next": "winter",
+              "condition": "계속 떠돈다"
+            },
+            "door": {
+              "next": "doorstep",
+              "condition": "거점 문 앞에 선다"
+            }
+          }
+        },
+        "doorstep": {
+          "guide": "어느 거점의 문 앞이다. 들어가면 지금까지 지킨 것을 내려놓아야 한다. 들어가지 않으면 겨울을 혼자 맞는다.",
+          "cases": {
+            "knock": {
+              "next": "gave_in",
+              "condition": "문을 두드린다"
+            },
+            "turn": {
+              "next": "winter",
+              "condition": "돌아선다"
+            }
+          }
+        },
+        "winter": {
+          "guide": "첫서리가 내린다. 이제부터가 시험이다. 물은 얼고, 나갈 수 있는 날이 줄고, 남은 것으로 버텨야 한다.",
+          "cases": {
+            "self": {
+              "next": "ending_self",
+              "condition": "준비한 것으로 넘긴다"
+            },
+            "loose": {
+              "next": "ending_loose",
+              "condition": "주고받으며 넘긴다"
+            },
+            "hide": {
+              "next": "ending_hermit",
+              "condition": "아무와도 마주치지 않고 넘긴다"
+            },
+            "fail": {
+              "next": "gave_in",
+              "condition": "버티지 못한다"
+            }
+          }
+        },
+        "ending_self": {
+          "guide": "겨울을 넘겼다. 누구의 배급표에도 이름이 없고, 누구의 명부에도 오르지 않았다. 이 섬에서 그것을 해낸 사람은 많지 않다.",
+          "cases": {},
+          "outcome": "clear"
+        },
+        "ending_loose": {
+          "guide": "겨울을 넘겼다. 완전히 혼자는 아니었다. 이름을 올리지 않고도 사람과 이어질 수 있다는 것을 알게 됐다.",
+          "cases": {},
+          "outcome": "clear"
+        },
+        "ending_hermit": {
+          "guide": "겨울을 넘겼다. 누구와도 말을 섞지 않은 채로. 살아 있다는 것 외에 남은 것이 무엇인지는 스스로도 답하지 못한다.",
+          "cases": {},
+          "outcome": "clear"
+        },
+        "gave_in": {
+          "guide": "결국 문을 두드렸다. 지금까지 지킨 것이 무엇이었는지 되묻게 된다.",
+          "cases": {},
+          "outcome": "partial"
+        }
+      },
+      "hidden": {
+        "truth": "무소속으로 겨울을 넘긴 사람이 이전에도 있었고, 그들이 남긴 자리와 방법이 섬 곳곳에 흔적으로 남아 있다.",
+        "reveal_conditions": [
+          "빈 거처의 구조를 알아본다",
+          "{동료}에게서 앞선 사람의 이야기를 듣는다"
+        ],
+        "if_unknown": "처음부터 혼자 알아내야 한다.",
+        "if_known": "앞선 자의 방식을 빌려 겨울 준비가 수월해진다."
+      }
+    },
+    {
+      "id": "main_alone_escape",
+      "name": "배를 만들다",
+      "version": "a",
+      "line": "main",
+      "groups": [
+        "메인",
+        "개인군",
+        "장소군"
+      ],
+      "scale": "엔드",
+      "filters": {
+        "min_turn": 18,
+        "min_cleared_sub": 6,
+        "min_visited": 12,
+        "within": {
+          "any": [
+            "청학동 선착장",
+            "영선동 방파제",
+            "동삼동 갯가",
+            "감지해변",
+            "물양장",
+            "갯바위 지대",
+            "어판장",
+            "중리 해변",
+            "방치된 부두",
+            "해안 창고",
+            "흰여울 절벽길"
+          ],
+          "as": "해안"
+        },
+        "npc": [
+          {
+            "any": [
+              "진복례",
+              "이선희",
+              "황민석",
+              "장철웅"
+            ],
+            "as": "바다사람",
+            "scope": "any"
+          },
+          {
+            "any": [
+              "염기준",
+              "전성남",
+              "한도윤",
+              "박하은",
+              "황순애"
+            ],
+            "as": "동행자",
+            "scope": "any"
+          }
+        ]
+      },
+      "repeatable": false,
+      "max_occurrences": 1,
+      "tree": {
+        "root": {
+          "guide": "{해안}에 서서 바다를 본다. 다리는 전부 끊겼고 남은 길은 이것뿐이다. 사람들은 바다가 죽음이라 말하지만, 그 말을 한 사람들 중 누구도 직접 확인하지는 않았다.",
+          "cases": {
+            "plan": {
+              "next": "materials",
+              "condition": "배를 만들 방법을 궁리한다"
+            },
+            "ask": {
+              "next": "warned",
+              "condition": "바다를 아는 사람에게 묻는다"
+            },
+            "salvage": {
+              "next": "materials",
+              "condition": "부서진 배를 찾아 나선다"
+            },
+            "abandon": {
+              "next": "turned_inland",
+              "condition": "생각을 접는다"
+            }
+          }
+        },
+        "warned": {
+          "guide": "{바다사람}이 손을 젓는다. 물에 들어간 사람들이 어떻게 됐는지, 그것을 본 사람이 왜 다시 들어가지 않는지를 말한다. 말리는 것이 아니라 알려주는 어조다.",
+          "cases": {
+            "listen": {
+              "next": "informed",
+              "condition": "끝까지 듣는다"
+            },
+            "dismiss": {
+              "next": "materials",
+              "condition": "흘려듣는다"
+            },
+            "recruit": {
+              "next": "companion",
+              "condition": "함께 가자고 한다"
+            }
+          }
+        },
+        "informed": {
+          "guide": "해수에 무엇이 있는지 알게 됐다. 그것을 알고도 갈 것인지가 이제부터의 문제다.",
+          "cases": {
+            "still": {
+              "next": "materials",
+              "condition": "그래도 간다"
+            },
+            "stay": {
+              "next": "chose_land",
+              "condition": "남기로 한다"
+            },
+            "delay": {
+              "next": "materials",
+              "condition": "준비를 더 하기로 한다"
+            }
+          }
+        },
+        "materials": {
+          "guide": "목재와 밧줄, 방수할 것이 필요하다. 물양장과 해안 창고, 부서진 배들. 모을 수는 있으나 눈에 띈다.",
+          "cases": {
+            "quiet": {
+              "next": "build_boat",
+              "condition": "조용히 모은다"
+            },
+            "trade": {
+              "next": "exposed",
+              "condition": "거래로 구한다"
+            },
+            "steal": {
+              "next": "exposed",
+              "condition": "세력 물자에 손댄다"
+            }
+          }
+        },
+        "exposed": {
+          "guide": "소문이 돈다. 배를 만드는 자가 있다는 것. 어떤 이는 미쳤다 하고 어떤 이는 데려가 달라 한다.",
+          "cases": {
+            "deny": {
+              "next": "build_boat",
+              "condition": "부인한다"
+            },
+            "open": {
+              "next": "companion",
+              "condition": "인정하고 동행을 받는다"
+            },
+            "hurry": {
+              "next": "build_boat",
+              "condition": "서둘러 완성한다"
+            }
+          }
+        },
+        "companion": {
+          "guide": "{동행자}가 함께 가겠다고 한다. 둘이면 노를 나눠 젓고 밤을 나눠 새울 수 있다. 잃을 것도 둘이 된다.",
+          "cases": {
+            "accept": {
+              "next": "build_boat",
+              "condition": "함께 가기로 한다"
+            },
+            "refuse": {
+              "next": "build_boat",
+              "condition": "혼자 가겠다고 한다"
+            },
+            "persuade": {
+              "next": "chose_land",
+              "condition": "그를 말리다 스스로도 흔들린다"
+            }
+          }
+        },
+        "build_boat": {
+          "guide": "배가 형태를 갖춘다. 튼튼하지 않다. 그러나 이 섬에서 만들 수 있는 것은 이 정도다. 출항할 날을 정해야 한다.",
+          "cases": {
+            "calm": {
+              "next": "launch",
+              "condition": "물결이 잔잔한 날을 고른다"
+            },
+            "fog": {
+              "next": "launch",
+              "condition": "안개 낀 날을 고른다. 보이지 않게"
+            },
+            "now": {
+              "next": "launch",
+              "condition": "기다리지 않는다"
+            },
+            "halt": {
+              "next": "chose_land",
+              "condition": "마지막에 멈춘다"
+            }
+          }
+        },
+        "launch": {
+          "guide": "배를 물에 띄운다. 발이 뭍에서 떨어지는 순간, 돌아올 방법은 없어진다. 지금이 마지막으로 내릴 수 있는 때다.",
+          "cases": {
+            "row_alone": {
+              "next": "ending_lost_alone",
+              "condition": "혼자 노를 젓는다"
+            },
+            "row_together": {
+              "next": "ending_lost_together",
+              "condition": "함께 젓는다"
+            },
+            "step_back": {
+              "next": "ending_stayed",
+              "condition": "내린다"
+            }
+          }
+        },
+        "turned_inland": {
+          "guide": "바다에 등을 돌린다. 이 섬에서 살아갈 방법을 다시 생각해야 한다.",
+          "cases": {
+            "again": {
+              "next": "root",
+              "condition": "결국 다시 바다를 본다"
+            },
+            "final": {
+              "next": "ending_stayed",
+              "condition": "다시는 돌아보지 않는다"
+            }
+          }
+        },
+        "chose_land": {
+          "guide": "떠나지 않기로 한다. 만든 것은 남고, 그것을 볼 때마다 오늘의 선택을 떠올리게 될 것이다.",
+          "cases": {
+            "keep": {
+              "next": "ending_stayed",
+              "condition": "배를 남겨둔다"
+            },
+            "burn": {
+              "next": "ending_stayed",
+              "condition": "태워버린다"
+            }
+          }
+        },
+        "ending_lost_alone": {
+          "guide": "뭍이 멀어진다. 노를 젓는 소리 외에는 아무 소리도 없다. 얼마 지나지 않아 물 아래에서 무언가가 배를 스친다. 이 사람이 어디까지 갔는지는 아무도 알지 못한다.",
+          "cases": {},
+          "outcome": "clear"
+        },
+        "ending_lost_together": {
+          "guide": "둘이 노를 젓는다. 서로 말을 하지 않아도 같은 것을 생각하고 있다는 것을 안다. 물 아래에서 무언가가 올라온다. 두 사람이 어디까지 갔는지는 아무도 알지 못한다.",
+          "cases": {},
+          "outcome": "clear"
+        },
+        "ending_stayed": {
+          "guide": "배는 물에 닿지 않았다. 남기로 한 사람은 남아서 겨울을 맞는다. 바다는 여전히 거기 있고, 여전히 아무도 건너지 못한다.",
+          "cases": {},
+          "outcome": "clear"
+        }
+      },
+      "hidden": {
+        "truth": "해수에는 변이한 것들이 있으며, 물 위로도 올라온다. 바다로 나간 사람은 예외 없이 돌아오지 못했다.",
+        "reveal_conditions": [
+          "{바다사람}의 경고를 끝까지 듣는다",
+          "해녀들이 왜 짧게만 잠수하는지 안다"
+        ],
+        "if_unknown": "바다를 그저 먼 길로 여기고 출항한다.",
+        "if_known": "알고도 가는 것이 되며, 남는 선택이 열린다."
+      }
+    },
+    {
+      "id": "main_namhang_order",
+      "name": "규율의 완성",
+      "version": "a",
+      "line": "main",
+      "groups": [
+        "메인",
+        "소속군"
+      ],
+      "scale": "엔드",
+      "filters": {
+        "min_turn": 18,
+        "min_cleared_sub": 5,
+        "faction": {
+          "any": [
+            "남항 중공업 연대"
+          ],
+          "as": "소속"
+        },
+        "npc": [
+          {
+            "any": [
+              "김철수",
+              "차봉순",
+              "노상진"
+            ],
+            "as": "간부",
+            "scope": "any"
+          },
+          {
+            "any": [
+              "황순애",
+              "서태양",
+              "박창수",
+              "오기태"
+            ],
+            "as": "현장",
+            "scope": "any"
+          }
+        ]
+      },
+      "repeatable": false,
+      "max_occurrences": 1,
+      "tree": {
+        "root": {
+          "guide": "배급이 또 줄었다. 하층부에서 사람이 셋 빠졌고, 그중 둘은 어디로 갔는지 아무도 말하지 않는다. {현장}이 당신을 붙잡고 낮은 목소리로 묻는다. 이대로 두고 볼 것이냐고.",
+          "cases": {
+            "listen": {
+              "next": "grievance",
+              "condition": "이야기를 듣는다"
+            },
+            "report": {
+              "next": "summoned",
+              "condition": "{간부}에게 알린다"
+            },
+            "check": {
+              "next": "ledger",
+              "condition": "먼저 배급 장부를 확인한다"
+            },
+            "avoid": {
+              "next": "deferred",
+              "condition": "관여하지 않는다"
+            }
+          }
+        },
+        "grievance": {
+          "guide": "{현장}이 숫자를 댄다. 상층부와 하층부의 몫이 얼마나 다른지, 언제부터 그랬는지. 계산이 맞다면 규율은 이미 한쪽으로만 작동하고 있다.",
+          "cases": {
+            "verify": {
+              "next": "ledger",
+              "condition": "직접 확인하겠다고 한다"
+            },
+            "organize": {
+              "next": "gathering",
+              "condition": "사람을 모으자고 한다"
+            },
+            "calm": {
+              "next": "summoned",
+              "condition": "진정시키고 위로 올린다"
+            }
+          }
+        },
+        "ledger": {
+          "guide": "장부는 맞다. 그리고 맞기 때문에 문제다. 격차는 규정대로이며, 규정 자체가 그렇게 쓰여 있다.",
+          "cases": {
+            "amend": {
+              "next": "proposal",
+              "condition": "규정을 고치자고 제안한다"
+            },
+            "expose": {
+              "next": "gathering",
+              "condition": "숫자를 아래에 알린다"
+            },
+            "keep": {
+              "next": "summoned",
+              "condition": "덮고 위에 보고한다"
+            }
+          }
+        },
+        "summoned": {
+          "guide": "{간부}가 부른다. 요새는 규율로 서 있고 규율이 흔들리면 문이 열린다는 말을 한다. 틀린 말은 아니다.",
+          "cases": {
+            "agree": {
+              "next": "enforce",
+              "condition": "동의하고 통제를 맡는다"
+            },
+            "propose": {
+              "next": "proposal",
+              "condition": "개선안을 제시한다"
+            },
+            "confront": {
+              "next": "gathering",
+              "condition": "격차를 정면으로 묻는다"
+            }
+          }
+        },
+        "proposal": {
+          "guide": "개선안을 올린다. 배급 재산정, 하층부 대표 참여, 의료소 기록 공개. 셋 중 무엇을 관철할지가 관건이다.",
+          "cases": {
+            "ration": {
+              "next": "vote",
+              "condition": "배급 재산정을 밀어붙인다"
+            },
+            "voice": {
+              "next": "vote",
+              "condition": "대표 참여를 밀어붙인다"
+            },
+            "medical": {
+              "next": "clinic",
+              "condition": "의료소 기록을 요구한다"
+            }
+          }
+        },
+        "clinic": {
+          "guide": "지하 의료소의 기록을 본다. 사라진 사람들의 이름이 있고, 그 옆에 처치 항목이 있다. 감염 판정 이후의 기록이 없다.",
+          "cases": {
+            "silent": {
+              "next": "vote",
+              "condition": "알고도 덮는다"
+            },
+            "confront2": {
+              "next": "gathering",
+              "condition": "이것을 들고 아래로 간다"
+            },
+            "bargain": {
+              "next": "enforce",
+              "condition": "거래 재료로 쓴다"
+            }
+          }
+        },
+        "gathering": {
+          "guide": "하층부가 모인다. 숫자가 늘어날수록 되돌리기 어려워진다. {간부}가 이 사실을 아는 데는 오래 걸리지 않을 것이다.",
+          "cases": {
+            "lead": {
+              "next": "confrontation",
+              "condition": "앞장선다"
+            },
+            "mediate": {
+              "next": "vote",
+              "condition": "협상 자리를 만든다"
+            },
+            "disperse": {
+              "next": "enforce",
+              "condition": "해산시킨다"
+            }
+          }
+        },
+        "vote": {
+          "guide": "위원회가 열린다. 찬반이 갈리고, 결정은 한 표 차로 기운다. 무엇을 말하느냐가 그 한 표를 정한다.",
+          "cases": {
+            "reform": {
+              "next": "ending_reform",
+              "condition": "개혁안을 관철한다"
+            },
+            "compromise": {
+              "next": "ending_order",
+              "condition": "현행 유지에 손을 든다"
+            },
+            "walkout": {
+              "next": "confrontation",
+              "condition": "자리를 박차고 나간다"
+            }
+          }
+        },
+        "enforce": {
+          "guide": "통제를 맡는다. 규율은 유지되고, 유지되는 방식이 무엇인지 이제 안다.",
+          "cases": {
+            "full": {
+              "next": "ending_order",
+              "condition": "끝까지 집행한다"
+            },
+            "waver": {
+              "next": "vote",
+              "condition": "도중에 멈춘다"
+            }
+          }
+        },
+        "confrontation": {
+          "guide": "제1방어선 앞에서 양쪽이 마주 선다. 문을 열 것인가, 지킬 것인가. 이 요새의 규율이 오늘 결정된다.",
+          "cases": {
+            "seize": {
+              "next": "ending_overthrow",
+              "condition": "통제권을 빼앗는다"
+            },
+            "talk": {
+              "next": "ending_reform",
+              "condition": "마지막으로 대화를 시도한다"
+            },
+            "stand_down": {
+              "next": "ending_order",
+              "condition": "물러선다"
+            }
+          }
+        },
+        "deferred": {
+          "guide": "관여하지 않았다. 며칠 뒤 하층부에서 사람이 더 줄었다.",
+          "cases": {
+            "later": {
+              "next": "root",
+              "condition": "결국 나선다"
+            },
+            "never": {
+              "next": "ending_order",
+              "condition": "끝까지 침묵한다"
+            }
+          }
+        },
+        "ending_order": {
+          "guide": "규율은 유지됐다. 요새는 서 있고 배급은 나온다. 사라진 이름들은 장부에서 지워졌고 아무도 묻지 않는다.",
+          "cases": {},
+          "outcome": "clear"
+        },
+        "ending_reform": {
+          "guide": "규정이 바뀌었다. 격차는 줄었고 하층부에 목소리가 생겼다. 요새가 이 변화를 버틸 수 있을지는 겨울이 답할 것이다.",
+          "cases": {},
+          "outcome": "clear"
+        },
+        "ending_overthrow": {
+          "guide": "통제권이 넘어갔다. 위원회는 해체되고 새 질서가 선다. 새 질서도 결국 규율을 필요로 한다는 것을, 앞으로 알게 될 것이다.",
+          "cases": {},
+          "outcome": "clear"
+        }
+      },
+      "hidden": {
+        "truth": "사라진 사람들은 감염 판정 후 지하 의료소로 옮겨졌고, 그곳에서 생체 연구 대상이 되었다.",
+        "reveal_conditions": [
+          "의료소 기록의 공백을 알아챈다",
+          "{현장}이 대는 이름을 끝까지 추적한다"
+        ],
+        "if_unknown": "배급 격차 문제로만 다룬다.",
+        "if_known": "규율이 무엇을 대가로 유지되는지 알고 선택하게 된다."
+      }
+    },
+    {
+      "id": "main_haeryeon_water",
+      "name": "물의 값",
+      "version": "a",
+      "line": "main",
+      "groups": [
+        "메인",
+        "소속군"
+      ],
+      "scale": "엔드",
+      "filters": {
+        "min_turn": 18,
+        "min_cleared_sub": 5,
+        "faction": {
+          "any": [
+            "해련 자치 마을"
+          ],
+          "as": "소속"
+        },
+        "npc": [
+          {
+            "any": [
+              "조원달",
+              "법운",
+              "신대호"
+            ],
+            "as": "어른",
+            "scope": "any"
+          },
+          {
+            "any": [
+              "오명숙",
+              "윤점순",
+              "강병철",
+              "박하은"
+            ],
+            "as": "이웃",
+            "scope": "any"
+          }
+        ]
+      },
+      "repeatable": false,
+      "max_occurrences": 1,
+      "tree": {
+        "root": {
+          "guide": "빗물 저장고의 눈금이 바닥에 가까워졌다. 비가 오지 않은 지 오래다. {어른}이 회의를 소집한다. 남은 물을 어떻게 할 것인가.",
+          "cases": {
+            "attend": {
+              "next": "council",
+              "condition": "회의에 참석한다"
+            },
+            "inspect": {
+              "next": "cistern",
+              "condition": "먼저 설비를 확인한다"
+            },
+            "outside": {
+              "next": "petition",
+              "condition": "밖에서 물을 구할 방법을 찾는다"
+            },
+            "quiet": {
+              "next": "deferred",
+              "condition": "결정에 맡긴다"
+            }
+          }
+        },
+        "cistern": {
+          "guide": "설비를 살핀다. 홈통 하나가 다시 끊겨 있다. 이번에도 절단면이 고르다. 마모가 아니다.",
+          "cases": {
+            "report": {
+              "next": "council",
+              "condition": "회의에서 알린다"
+            },
+            "trace": {
+              "next": "culprit",
+              "condition": "누구인지 찾는다"
+            },
+            "fix_quiet": {
+              "next": "council",
+              "condition": "조용히 고치고 넘어간다"
+            }
+          }
+        },
+        "culprit": {
+          "guide": "흔적이 마을 안쪽으로 이어진다. {이웃}이 그쪽에서 나오는 것을 본 사람이 있다.",
+          "cases": {
+            "ask": {
+              "next": "confession",
+              "condition": "직접 묻는다"
+            },
+            "watch": {
+              "next": "confession",
+              "condition": "지켜본다"
+            },
+            "accuse": {
+              "next": "rift",
+              "condition": "회의에서 지목한다"
+            }
+          }
+        },
+        "confession": {
+          "guide": "{이웃}이 입을 연다. 물을 아래로 내보내고 있었다는 것이다. 저지대에 남은 사람들이 있고, 그들에게는 아무것도 없다고.",
+          "cases": {
+            "understand": {
+              "next": "petition",
+              "condition": "사정을 이해한다"
+            },
+            "duty": {
+              "next": "rift",
+              "condition": "규칙은 규칙이라고 한다"
+            },
+            "silence": {
+              "next": "council",
+              "condition": "함께 감추기로 한다"
+            }
+          }
+        },
+        "council": {
+          "guide": "회의가 열린다. 침묵 속에서 손짓만 오간다. 배급을 줄일 것인가, 받는 사람을 줄일 것인가.",
+          "cases": {
+            "ration": {
+              "next": "decision",
+              "condition": "모두의 몫을 줄이자고 한다"
+            },
+            "restrict": {
+              "next": "decision",
+              "condition": "받는 사람을 줄이자고 한다"
+            },
+            "open": {
+              "next": "petition",
+              "condition": "밖에도 나누자고 한다"
+            },
+            "expose_here": {
+              "next": "rift",
+              "condition": "방음실 이야기를 꺼낸다"
+            }
+          }
+        },
+        "petition": {
+          "guide": "물을 나누자는 말은 이 마을에서 위험한 제안이다. 물이 곧 목숨이고, 목숨을 나누라는 뜻이 되기 때문이다.",
+          "cases": {
+            "persuade": {
+              "next": "decision",
+              "condition": "설득을 이어간다"
+            },
+            "act": {
+              "next": "outflow",
+              "condition": "직접 내보내기 시작한다"
+            },
+            "withdraw": {
+              "next": "decision",
+              "condition": "물러선다"
+            }
+          }
+        },
+        "outflow": {
+          "guide": "물이 아래로 흐른다. 마을의 눈금은 더 빨리 내려가고, 밖에서는 사람이 모여든다. 문 앞이 소란해진다.",
+          "cases": {
+            "hold": {
+              "next": "ending_open",
+              "condition": "끝까지 연다"
+            },
+            "shut": {
+              "next": "decision",
+              "condition": "닫는다"
+            },
+            "reveal": {
+              "next": "rift",
+              "condition": "마을에 모든 것을 밝힌다"
+            }
+          }
+        },
+        "rift": {
+          "guide": "마을이 갈라진다. 방음실에 무엇이 있는지, 홈통을 누가 끊었는지, 어른들이 무엇을 알고 있었는지가 한꺼번에 터진다.",
+          "cases": {
+            "truth": {
+              "next": "ending_expose",
+              "condition": "전부 드러낸다"
+            },
+            "mend": {
+              "next": "decision",
+              "condition": "봉합을 시도한다"
+            },
+            "leave": {
+              "next": "ending_closed",
+              "condition": "등을 돌린다"
+            }
+          }
+        },
+        "decision": {
+          "guide": "결정의 순간이다. 이 마을이 무엇을 지키는 공동체인지가 오늘 정해진다.",
+          "cases": {
+            "share": {
+              "next": "ending_open",
+              "condition": "나누기로 한다"
+            },
+            "guard": {
+              "next": "ending_closed",
+              "condition": "지키기로 한다"
+            },
+            "truth2": {
+              "next": "ending_expose",
+              "condition": "감춘 것부터 밝히자고 한다"
+            }
+          }
+        },
+        "deferred": {
+          "guide": "결정에 맡겼다. 눈금은 계속 내려간다.",
+          "cases": {
+            "step": {
+              "next": "root",
+              "condition": "결국 나선다"
+            },
+            "watch2": {
+              "next": "ending_closed",
+              "condition": "끝까지 지켜본다"
+            }
+          }
+        },
+        "ending_open": {
+          "guide": "물이 밖으로 흐른다. 마을의 몫은 줄었고 사람은 늘었다. 겨울을 넘길 수 있을지는 아무도 장담하지 못한다. 다만 문 앞에서 돌려보낸 사람은 없다.",
+          "cases": {},
+          "outcome": "clear"
+        },
+        "ending_closed": {
+          "guide": "문은 닫혔다. 마을은 겨울을 넘길 것이다. 밖에서 들리던 소리는 며칠 만에 그쳤고, 아무도 그 이야기를 하지 않는다.",
+          "cases": {},
+          "outcome": "clear"
+        },
+        "ending_expose": {
+          "guide": "감춘 것이 전부 드러났다. 방음실도, 끊긴 홈통도, 어른들이 알고 있었다는 사실도. 침묵으로 지탱하던 공동체가 말을 시작했고, 그것이 무너짐인지 시작인지는 아직 모른다.",
+          "cases": {},
+          "outcome": "clear"
+        }
+      },
+      "hidden": {
+        "truth": "방음실에는 감염이 진행된 사람이 있으며, 마을의 어른들은 그것을 알고도 향으로 가려왔다.",
+        "reveal_conditions": [
+          "방음실 안쪽을 본다",
+          "{이웃}의 말을 끝까지 듣는다"
+        ],
+        "if_unknown": "물 분배 문제로만 다룬다.",
+        "if_known": "이 공동체가 무엇을 감추며 유지되는지 알고 선택하게 된다."
+      }
+    },
+    {
+      "id": "main_jodo_command",
+      "name": "명령의 끝",
+      "version": "a",
+      "line": "main",
+      "groups": [
+        "메인",
+        "소속군"
+      ],
+      "scale": "엔드",
+      "filters": {
+        "min_turn": 18,
+        "min_cleared_sub": 5,
+        "faction": {
+          "any": [
+            "조도 방위 사령부"
+          ],
+          "as": "소속"
+        },
+        "npc": [
+          {
+            "any": [
+              "이현석",
+              "민도현",
+              "윤상준"
+            ],
+            "as": "지휘관",
+            "scope": "any"
+          },
+          {
+            "any": [
+              "임철민",
+              "문상철",
+              "강지수",
+              "황기영",
+              "최수연"
+            ],
+            "as": "부하",
+            "scope": "any"
+          }
+        ]
+      },
+      "repeatable": false,
+      "max_occurrences": 1,
+      "tree": {
+        "root": {
+          "guide": "{지휘관}이 소집한다. 본섬의 전초를 접고 방파제를 폐쇄한다는 것이다. 건너오려는 자는 예외 없이 저지한다는 조항이 붙어 있다. 명령서에 서명란이 비어 있다.",
+          "cases": {
+            "sign": {
+              "next": "execute",
+              "condition": "서명한다"
+            },
+            "question": {
+              "next": "briefing",
+              "condition": "근거를 묻는다"
+            },
+            "check": {
+              "next": "armory",
+              "condition": "먼저 보급 상태를 확인한다"
+            },
+            "delay": {
+              "next": "deferred",
+              "condition": "판단을 미룬다"
+            }
+          }
+        },
+        "briefing": {
+          "guide": "{지휘관}이 답한다. 인원과 물자를 계산하면 본섬을 감당할 수 없다는 것. 숫자는 맞다. 숫자 밖에 있는 것이 문제일 뿐이다.",
+          "cases": {
+            "accept": {
+              "next": "execute",
+              "condition": "납득한다"
+            },
+            "counter": {
+              "next": "proposal",
+              "condition": "대안을 제시한다"
+            },
+            "probe": {
+              "next": "armory",
+              "condition": "탄약 잔량을 캐묻는다"
+            }
+          }
+        },
+        "armory": {
+          "guide": "군수 창고의 재고표를 본다. 탄약이 거의 없다. 방파제를 저지한다는 명령은 실행 수단이 없는 명령이다.",
+          "cases": {
+            "tell": {
+              "next": "proposal",
+              "condition": "{지휘관}에게 짚어 말한다"
+            },
+            "spread": {
+              "next": "unrest",
+              "condition": "부대에 알린다"
+            },
+            "hold": {
+              "next": "execute",
+              "condition": "알고도 덮는다"
+            }
+          }
+        },
+        "proposal": {
+          "guide": "대안을 낸다. 선별 수용, 전초 축소, 무전 복구를 통한 외부 접촉. 셋 중 하나는 통할 수 있다.",
+          "cases": {
+            "screen": {
+              "next": "decision",
+              "condition": "선별 수용을 밀어붙인다"
+            },
+            "radio": {
+              "next": "signal",
+              "condition": "무전 복구를 요구한다"
+            },
+            "shrink": {
+              "next": "decision",
+              "condition": "전초 축소만 관철한다"
+            }
+          }
+        },
+        "signal": {
+          "guide": "무전을 되살린다. 잡음 사이로 본토의 신호가 잡힌다. 그 순간 {지휘관}의 표정이 바뀐다. 이미 알고 있었다는 얼굴이다.",
+          "cases": {
+            "demand": {
+              "next": "confrontation",
+              "condition": "해명을 요구한다"
+            },
+            "record": {
+              "next": "unrest",
+              "condition": "기록하고 부대에 알린다"
+            },
+            "quiet": {
+              "next": "decision",
+              "condition": "묻어둔다"
+            }
+          }
+        },
+        "execute": {
+          "guide": "명령이 집행된다. 방파제가 닫히고 초소에 사격 지시가 내려간다. 이틀 뒤 {부하}가 찾아온다. 건너오려던 사람들 이야기다.",
+          "cases": {
+            "listen": {
+              "next": "unrest",
+              "condition": "듣는다"
+            },
+            "duty": {
+              "next": "decision",
+              "condition": "명령은 명령이라고 답한다"
+            },
+            "review": {
+              "next": "proposal",
+              "condition": "명령을 재검토하자고 한다"
+            }
+          }
+        },
+        "unrest": {
+          "guide": "부대가 술렁인다. 탄약이 없다는 것과 상부가 무전을 끊었다는 것이 함께 돈다. 지휘 체계가 흔들리기 시작한다.",
+          "cases": {
+            "organize": {
+              "next": "confrontation",
+              "condition": "모아서 요구한다"
+            },
+            "settle": {
+              "next": "decision",
+              "condition": "진정시킨다"
+            },
+            "sidewith": {
+              "next": "confrontation",
+              "condition": "{부하} 편에 선다"
+            }
+          }
+        },
+        "confrontation": {
+          "guide": "강의동 병영에서 마주 선다. 명령권과 실질이 갈라지는 자리다. 여기서 나온 답이 이 조직의 마지막 형태가 된다.",
+          "cases": {
+            "obey": {
+              "next": "ending_obey",
+              "condition": "복종한다"
+            },
+            "persuade": {
+              "next": "ending_persuade",
+              "condition": "설득을 관철한다"
+            },
+            "defy": {
+              "next": "ending_defy",
+              "condition": "명령을 거부한다"
+            }
+          }
+        },
+        "decision": {
+          "guide": "결정이 내려진다. 방파제를 어떻게 할 것인지가 곧 이 조직이 무엇인지를 정한다.",
+          "cases": {
+            "close": {
+              "next": "ending_obey",
+              "condition": "폐쇄를 승인한다"
+            },
+            "conditional": {
+              "next": "ending_persuade",
+              "condition": "조건부 개방으로 돌린다"
+            },
+            "refuse": {
+              "next": "confrontation",
+              "condition": "끝내 거부한다"
+            }
+          }
+        },
+        "deferred": {
+          "guide": "판단을 미뤘다. 명령은 다른 사람의 서명으로 집행된다.",
+          "cases": {
+            "step": {
+              "next": "execute",
+              "condition": "뒤늦게 나선다"
+            },
+            "stay": {
+              "next": "ending_obey",
+              "condition": "끝까지 침묵한다"
+            }
+          }
+        },
+        "ending_obey": {
+          "guide": "방파제가 닫혔다. 명령 체계는 온전하고 조도는 안전하다. 400미터 건너편에서 무슨 일이 있었는지는 기록되지 않는다.",
+          "cases": {},
+          "outcome": "clear"
+        },
+        "ending_persuade": {
+          "guide": "조건부로 열렸다. 선별하고 검역하고 받는다. 느리고 불완전하지만 문이 완전히 닫히지는 않았다.",
+          "cases": {},
+          "outcome": "clear"
+        },
+        "ending_defy": {
+          "guide": "명령을 거부했다. 지휘 체계가 무너지고 새 질서가 임시로 선다. 이 조직이 군대이기를 그만둔 날이다.",
+          "cases": {},
+          "outcome": "clear"
+        }
+      },
+      "hidden": {
+        "truth": "무전은 고장 난 것이 아니라 상부가 끊은 것이며, 본토의 신호에는 조도가 응하지 않기로 한 요청이 담겨 있었다.",
+        "reveal_conditions": [
+          "무전을 복구해 신호를 듣는다",
+          "{지휘관}의 반응을 눈여겨본다"
+        ],
+        "if_unknown": "보급 부족에 따른 결정으로 여긴다.",
+        "if_known": "이 조직이 무엇을 외면했는지 알고 선택하게 된다."
+      }
+    },
+    {
+      "id": "main_jungri_ledger",
+      "name": "장부를 덮다",
+      "version": "a",
+      "line": "main",
+      "groups": [
+        "메인",
+        "소속군"
+      ],
+      "scale": "엔드",
+      "filters": {
+        "min_turn": 18,
+        "min_cleared_sub": 5,
+        "faction": {
+          "any": [
+            "중리 교역소"
+          ],
+          "as": "소속"
+        },
+        "npc": [
+          {
+            "any": [
+              "나용순",
+              "엄주섭",
+              "장철웅"
+            ],
+            "as": "윗선",
+            "scope": "any"
+          },
+          {
+            "any": [
+              "한도윤",
+              "황민석",
+              "이선희",
+              "진복례"
+            ],
+            "as": "아랫사람",
+            "scope": "any"
+          }
+        ]
+      },
+      "repeatable": false,
+      "max_occurrences": 1,
+      "tree": {
+        "root": {
+          "guide": "3등급 몇이 배급을 거부했다. 갚아도 줄지 않는 이자를 더는 못 견디겠다는 것이다. {윗선}이 당신을 부른다. 정리하라는 뜻이다.",
+          "cases": {
+            "obey": {
+              "next": "suppress",
+              "condition": "지시대로 정리한다"
+            },
+            "hear": {
+              "next": "debtors",
+              "condition": "먼저 그들 이야기를 듣는다"
+            },
+            "audit": {
+              "next": "numbers",
+              "condition": "장부의 계산을 확인한다"
+            },
+            "avoid": {
+              "next": "deferred",
+              "condition": "빠진다"
+            }
+          }
+        },
+        "debtors": {
+          "guide": "{아랫사람}이 장부를 펴 보인다. 원금은 그대로인데 이자만 세 배가 됐다. 일한 만큼 오히려 늘어나는 구조다.",
+          "cases": {
+            "verify": {
+              "next": "numbers",
+              "condition": "직접 계산해본다"
+            },
+            "promise": {
+              "next": "negotiation",
+              "condition": "바꿔보겠다고 약속한다"
+            },
+            "dismiss": {
+              "next": "suppress",
+              "condition": "규칙이라고 답한다"
+            }
+          }
+        },
+        "numbers": {
+          "guide": "계산이 맞다. 이 구조에서 3등급이 2등급이 되는 경우는 없다. 애초에 그렇게 설계되어 있다.",
+          "cases": {
+            "confront": {
+              "next": "negotiation",
+              "condition": "{윗선}에게 따진다"
+            },
+            "publish": {
+              "next": "uprising",
+              "condition": "장부를 공개한다"
+            },
+            "keep": {
+              "next": "suppress",
+              "condition": "덮는다"
+            }
+          }
+        },
+        "negotiation": {
+          "guide": "{윗선}이 자리를 마련한다. 등급제를 손볼 여지는 있으나, 시장이 굴러가는 방식 자체를 바꿀 수는 없다고 한다.",
+          "cases": {
+            "cap": {
+              "next": "decision",
+              "condition": "이자 상한을 요구한다"
+            },
+            "reset": {
+              "next": "decision",
+              "condition": "채무 탕감을 요구한다"
+            },
+            "abolish": {
+              "next": "uprising",
+              "condition": "등급제 폐지를 요구한다"
+            }
+          }
+        },
+        "suppress": {
+          "guide": "경비조가 움직인다. 거부한 자들을 끌어낸다. 이 시장은 이런 방식으로 질서를 유지해 왔다.",
+          "cases": {
+            "lead_it": {
+              "next": "decision",
+              "condition": "직접 지휘한다"
+            },
+            "minimal": {
+              "next": "negotiation",
+              "condition": "최소한으로 그친다"
+            },
+            "refuse": {
+              "next": "uprising",
+              "condition": "손을 놓는다"
+            }
+          }
+        },
+        "uprising": {
+          "guide": "바자르가 멎는다. 셔터가 내려가고 장부방 앞에 사람이 모인다. 이 시장에서 처음 있는 일이다.",
+          "cases": {
+            "mediate": {
+              "next": "decision",
+              "condition": "중재에 나선다"
+            },
+            "sidewith": {
+              "next": "burning",
+              "condition": "모인 쪽에 선다"
+            },
+            "guard": {
+              "next": "decision",
+              "condition": "장부방을 지킨다"
+            }
+          }
+        },
+        "burning": {
+          "guide": "장부방 문이 열린다. 벽 한 면을 채운 장부가 눈앞에 있다. 이것을 태우면 모든 채무가 사라지고, 이 시장의 근거도 함께 사라진다.",
+          "cases": {
+            "burn": {
+              "next": "ending_burn",
+              "condition": "불을 놓는다"
+            },
+            "stop": {
+              "next": "decision",
+              "condition": "막는다"
+            },
+            "take": {
+              "next": "ending_reform",
+              "condition": "장부를 들고 협상 자리로 간다"
+            }
+          }
+        },
+        "decision": {
+          "guide": "결정의 자리다. 등급이 사람을 나누는 방식이 오늘 정해진다.",
+          "cases": {
+            "keep_order": {
+              "next": "ending_order",
+              "condition": "현행 유지"
+            },
+            "restructure": {
+              "next": "ending_reform",
+              "condition": "등급 재편"
+            },
+            "let_burn": {
+              "next": "burning",
+              "condition": "막지 않는다"
+            }
+          }
+        },
+        "deferred": {
+          "guide": "빠졌다. 정리는 다른 사람 손에 끝났다.",
+          "cases": {
+            "step": {
+              "next": "debtors",
+              "condition": "뒤늦게 찾아간다"
+            },
+            "stay": {
+              "next": "ending_order",
+              "condition": "끝까지 관여하지 않는다"
+            }
+          }
+        },
+        "ending_order": {
+          "guide": "장부는 그대로다. 거부한 자들은 등급이 내려갔고 시장은 다시 굴러간다. 값이 매겨진 사람들은 여전히 값이 매겨진 채다.",
+          "cases": {},
+          "outcome": "clear"
+        },
+        "ending_reform": {
+          "guide": "등급이 재편됐다. 이자에 상한이 생기고 3등급도 올라갈 길이 열렸다. 값을 매기는 일은 계속되지만 방식이 달라졌다.",
+          "cases": {},
+          "outcome": "clear"
+        },
+        "ending_burn": {
+          "guide": "장부가 탄다. 빚도 등급도 함께 사라진다. 무엇으로 사람을 나눌지 정해지지 않은 채, 시장은 처음부터 다시 시작한다.",
+          "cases": {},
+          "outcome": "clear"
+        }
+      },
+      "hidden": {
+        "truth": "등급제는 노동력을 묶어두기 위한 장치이며, 1등급 거상들은 채무자가 갚지 못하는 편이 유리하다.",
+        "reveal_conditions": [
+          "이자 계산을 직접 해본다",
+          "{윗선}의 거래 기록을 본다"
+        ],
+        "if_unknown": "관행으로 여긴다.",
+        "if_known": "이 시장이 무엇 위에 서 있는지 알고 선택하게 된다."
+      }
+    },
+    {
+      "id": "main_upheaval",
+      "name": "섬을 흔들다",
+      "version": "a",
+      "line": "main",
+      "groups": [
+        "메인",
+        "중반군"
+      ],
+      "scale": "엔드",
+      "filters": {
+        "min_turn": 25,
+        "min_cleared_sub": 7,
+        "min_outcome": {
+          "deviated": 2
+        },
+        "npc": {
+          "any": [
+            "나용순",
+            "김철수",
+            "이현석",
+            "조원달",
+            "전성남",
+            "엄주섭",
+            "민도현"
+          ],
+          "as": "거물",
+          "scope": "any"
+        }
+      },
+      "repeatable": false,
+      "max_occurrences": 1,
+      "tree": {
+        "root": {
+          "guide": "네 거점은 서로를 견제하며 균형을 유지해 왔다. 그 균형이 누구를 위한 것인지는 아래에 있는 사람들이 안다. {거물}과 마주 앉는다. 이 섬을 다시 짤 방법이 없지는 않다.",
+          "cases": {
+            "unify": {
+              "next": "coalition",
+              "condition": "통합을 제안한다"
+            },
+            "leverage": {
+              "next": "secrets",
+              "condition": "쥔 정보로 압박한다"
+            },
+            "arm": {
+              "next": "muster",
+              "condition": "힘을 모은다"
+            },
+            "step_back": {
+              "next": "deferred",
+              "condition": "물러선다"
+            }
+          }
+        },
+        "secrets": {
+          "guide": "각 거점이 감춘 것들이 손에 있다. 지하 의료소의 기록, 방음실, 끊긴 무전, 갚을 수 없는 장부. 어느 것을 터뜨리느냐에 따라 무너지는 순서가 달라진다.",
+          "cases": {
+            "one": {
+              "next": "coalition",
+              "condition": "하나만 골라 협상 재료로 쓴다"
+            },
+            "all": {
+              "next": "cascade",
+              "condition": "전부 공개한다"
+            },
+            "trade": {
+              "next": "muster",
+              "condition": "거래로 세력을 산다"
+            }
+          }
+        },
+        "coalition": {
+          "guide": "거점 대표들이 한자리에 모인다. 사태 이후 처음이다. 앉아 있는 것만으로도 위태롭다.",
+          "cases": {
+            "charter": {
+              "next": "assembly",
+              "condition": "공동 규약을 제안한다"
+            },
+            "resource": {
+              "next": "assembly",
+              "condition": "자원 분담부터 논한다"
+            },
+            "threat": {
+              "next": "cascade",
+              "condition": "결렬 시의 결과를 들이민다"
+            }
+          }
+        },
+        "muster": {
+          "guide": "사람이 모인다. 무소속과 3등급, 하층부와 이탈자들. 잃을 것이 적은 이들이 가장 먼저 온다.",
+          "cases": {
+            "discipline": {
+              "next": "assembly",
+              "condition": "규율을 세워 협상력으로 쓴다"
+            },
+            "strike": {
+              "next": "clash",
+              "condition": "거점 하나를 친다"
+            },
+            "hold": {
+              "next": "coalition",
+              "condition": "보여주기만 하고 협상한다"
+            }
+          }
+        },
+        "cascade": {
+          "guide": "감춘 것들이 한꺼번에 터진다. 각 거점 안에서 동시에 균열이 생기고, 누구도 이것을 통제하지 못한다.",
+          "cases": {
+            "guide_it": {
+              "next": "assembly",
+              "condition": "방향을 잡으려 한다"
+            },
+            "push": {
+              "next": "clash",
+              "condition": "더 밀어붙인다"
+            },
+            "watch": {
+              "next": "ending_collapse",
+              "condition": "지켜본다"
+            }
+          }
+        },
+        "clash": {
+          "guide": "충돌이 시작된다. 방파제와 산복도로와 저지대에서 동시에. 감염자들이 그 소리를 향해 움직이기 시작한다.",
+          "cases": {
+            "end_it": {
+              "next": "assembly",
+              "condition": "멈추게 한다"
+            },
+            "win": {
+              "next": "ending_war",
+              "condition": "끝까지 간다"
+            },
+            "abandon": {
+              "next": "ending_collapse",
+              "condition": "손을 뗀다"
+            }
+          }
+        },
+        "assembly": {
+          "guide": "마지막 자리다. 네 거점과 그 밖의 사람들이 처음으로 같은 방에 있다. 여기서 무엇이 정해지든 영도는 어제와 달라진다.",
+          "cases": {
+            "found": {
+              "next": "ending_unify",
+              "condition": "단일 공동체를 세운다"
+            },
+            "fail": {
+              "next": "ending_war",
+              "condition": "결렬된다"
+            },
+            "dissolve": {
+              "next": "ending_collapse",
+              "condition": "각자 흩어지기로 한다"
+            }
+          }
+        },
+        "deferred": {
+          "guide": "물러섰다. 균형은 유지되고 아래는 그대로다.",
+          "cases": {
+            "return": {
+              "next": "root",
+              "condition": "다시 나선다"
+            },
+            "final": {
+              "next": "ending_collapse",
+              "condition": "두 번 다시 나서지 않는다"
+            }
+          }
+        },
+        "ending_unify": {
+          "guide": "하나의 규약 아래 섬이 묶였다. 물과 물자와 사람이 처음으로 함께 계산된다. 오래갈지는 알 수 없다. 다만 오늘 이전으로는 돌아가지 않는다.",
+          "cases": {},
+          "outcome": "clear"
+        },
+        "ending_war": {
+          "guide": "싸움이 끝났다. 이긴 쪽이 남았고 진 쪽의 자리는 비었다. 소음에 몰려든 것들이 그 빈자리를 채우기 시작한다.",
+          "cases": {},
+          "outcome": "clear"
+        },
+        "ending_collapse": {
+          "guide": "균형이 무너졌고 무엇도 대신 서지 않았다. 사람들은 흩어져 각자의 자리로 돌아간다. 이 섬에 거점이라 부를 것이 더는 없다.",
+          "cases": {},
+          "outcome": "clear"
+        }
+      },
+      "hidden": {
+        "truth": "네 거점의 균형은 우연이 아니라 자원 분업의 결과이며, 하나가 무너지면 나머지도 오래 버티지 못한다.",
+        "reveal_conditions": [
+          "거점 간 물자 흐름을 파악한다",
+          "{거물}에게서 분업의 내막을 듣는다"
+        ],
+        "if_unknown": "균형을 깨는 것이 해방이라고 여긴다.",
+        "if_known": "무엇을 대신 세워야 하는지 알고 움직이게 된다."
+      }
     }
   ]
 }
