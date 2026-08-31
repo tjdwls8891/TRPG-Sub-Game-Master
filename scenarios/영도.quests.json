@@ -3429,6 +3429,1818 @@
         "if_unknown": "단순 물자 수송으로 여긴다.",
         "if_known": "중리가 중립을 유지하는 방식이 무엇인지 알게 된다."
       }
+    },
+    {
+      "id": "place_shop_scavenge",
+      "name": "남은 것",
+      "version": "a",
+      "line": "sub",
+      "groups": [
+        "장소군"
+      ],
+      "scale": "조우",
+      "filters": {
+        "place": {
+          "any": [
+            "약국",
+            "분식집",
+            "철물점",
+            "구멍가게",
+            "전당포",
+            "피시방",
+            "세탁소",
+            "중고 무기상",
+            "약재 좌판",
+            "의무실 대기실",
+            "지하 의료소"
+          ],
+          "as": "장소"
+        }
+      },
+      "repeatable": true,
+      "max_occurrences": 5,
+      "tree": {
+        "root": {
+          "guide": "{장소} 안이다. 먼저 다녀간 흔적이 있지만 구석까지 뒤진 것 같지는 않다. 다만 안쪽은 어둡고 시야가 막힌다.",
+          "cases": {
+            "thorough": {
+              "next": "deep",
+              "condition": "시간을 들여 구석까지 뒤진다"
+            },
+            "quick": {
+              "next": "grab",
+              "condition": "눈에 띄는 것만 챙긴다"
+            },
+            "listen": {
+              "next": "assess",
+              "condition": "먼저 안쪽 기척을 살핀다"
+            },
+            "skip": {
+              "next": "passed",
+              "condition": "들어가지 않는다"
+            }
+          }
+        },
+        "assess": {
+          "guide": "숨을 죽이고 듣는다. 아무 소리도 없거나, 소리가 없다는 것이 이상하거나 둘 중 하나다.",
+          "cases": {
+            "enter": {
+              "next": "deep",
+              "condition": "안심하고 들어간다"
+            },
+            "prep": {
+              "next": "deep",
+              "condition": "퇴로를 확인하고 들어간다"
+            },
+            "avoid": {
+              "next": "passed",
+              "condition": "물러난다"
+            }
+          }
+        },
+        "deep": {
+          "guide": "안쪽에서 쓸 만한 것이 나온다. 다만 뒤지는 동안 소리가 났다.",
+          "cases": {
+            "finish": {
+              "next": "hauled",
+              "condition": "끝까지 챙긴다"
+            },
+            "cut": {
+              "next": "grab",
+              "condition": "적당히 하고 나온다"
+            },
+            "freeze": {
+              "next": "cornered",
+              "condition": "멈춰 선다"
+            }
+          }
+        },
+        "grab": {
+          "guide": "손에 잡히는 대로 챙겨 나온다.",
+          "cases": {},
+          "outcome": "partial"
+        },
+        "hauled": {
+          "guide": "제법 건졌다. 무게가 늘었지만 오늘은 그럴 가치가 있다.",
+          "cases": {},
+          "outcome": "clear"
+        },
+        "cornered": {
+          "guide": "안쪽에서 무언가 움직였다. 좁은 곳에서는 도망이 어렵다.",
+          "cases": {},
+          "outcome": "failed"
+        },
+        "passed": {
+          "guide": "들어가지 않았다.",
+          "cases": {},
+          "outcome": "missed"
+        }
+      },
+      "hidden": {
+        "truth": "먼저 다녀간 자들이 표식을 남겼다. 그것이 무엇을 뜻하는지 아는 사람들이 있다.",
+        "reveal_conditions": [
+          "문틀이나 벽의 표식을 알아본다",
+          "같은 표식을 다른 곳에서 다시 본다"
+        ],
+        "if_unknown": "단순 수색으로 끝난다.",
+        "if_known": "표식의 체계를 알면 어디를 뒤질지 미리 안다."
+      }
+    },
+    {
+      "id": "place_home_traces",
+      "name": "살던 사람",
+      "version": "a",
+      "line": "sub",
+      "groups": [
+        "장소군"
+      ],
+      "scale": "조우",
+      "filters": {
+        "place": {
+          "any": [
+            "빈 가정집",
+            "반지하 셋방",
+            "옥탑방",
+            "자취방",
+            "골목 공터",
+            "세탁소",
+            "주택가 골목",
+            "옥상 텃밭"
+          ],
+          "as": "장소"
+        }
+      },
+      "repeatable": true,
+      "max_occurrences": 4,
+      "tree": {
+        "root": {
+          "guide": "{장소}에 사람이 살던 흔적이 그대로다. 밥상, 사진, 벗어둔 옷. 여기 있던 사람들이 어디로 갔는지는 알 수 없다.",
+          "cases": {
+            "search": {
+              "next": "belongings",
+              "condition": "쓸 만한 것을 찾는다"
+            },
+            "respect": {
+              "next": "quiet_exit",
+              "condition": "손대지 않고 나간다"
+            },
+            "rest": {
+              "next": "linger",
+              "condition": "잠시 앉아 쉰다"
+            }
+          }
+        },
+        "belongings": {
+          "guide": "서랍과 찬장을 연다. 남의 삶을 뒤지는 감각은 익숙해지지 않는다.",
+          "cases": {
+            "take": {
+              "next": "supplied",
+              "condition": "필요한 것만 챙긴다"
+            },
+            "all": {
+              "next": "stripped",
+              "condition": "쓸 만한 건 전부 챙긴다"
+            },
+            "stop": {
+              "next": "quiet_exit",
+              "condition": "도중에 그만둔다"
+            }
+          }
+        },
+        "linger": {
+          "guide": "앉아 있자니 벽에 걸린 사진이 눈에 들어온다. 오래 있을 곳은 아니다.",
+          "cases": {
+            "recover": {
+              "next": "supplied",
+              "condition": "기운을 차리고 챙길 것을 챙긴다"
+            },
+            "sleep": {
+              "next": "disturbed",
+              "condition": "눈을 붙인다"
+            }
+          }
+        },
+        "disturbed": {
+          "guide": "인기척에 눈을 떴다. 이 집에 돌아온 것이 있다.",
+          "cases": {
+            "hide": {
+              "next": "quiet_exit",
+              "condition": "숨는다"
+            },
+            "confront": {
+              "next": "stripped",
+              "condition": "맞선다"
+            }
+          }
+        },
+        "supplied": {
+          "guide": "필요한 것을 얻었다. 문을 닫고 나온다.",
+          "cases": {},
+          "outcome": "clear"
+        },
+        "stripped": {
+          "guide": "챙길 만큼 챙겼다. 뒤가 개운하지 않다.",
+          "cases": {},
+          "outcome": "partial"
+        },
+        "quiet_exit": {
+          "guide": "그대로 두고 나왔다.",
+          "cases": {},
+          "outcome": "missed"
+        }
+      },
+      "hidden": {
+        "truth": "이 집 사람들은 나가지 못했다. 어딘가에 아직 있다.",
+        "reveal_conditions": [
+          "안쪽 방문이 밖에서 잠긴 것을 본다",
+          "냄새의 출처를 찾는다"
+        ],
+        "if_unknown": "떠난 집으로 여긴다.",
+        "if_known": "빈집이 정말 비었는지 확인하는 습관이 생긴다."
+      }
+    },
+    {
+      "id": "place_coast_tide",
+      "name": "물때",
+      "version": "a",
+      "line": "sub",
+      "groups": [
+        "장소군",
+        "기타군"
+      ],
+      "scale": "조우",
+      "filters": {
+        "place": {
+          "any": [
+            "청학동 선착장",
+            "영선동 방파제",
+            "동삼동 갯가",
+            "감지해변",
+            "물양장",
+            "갯바위 지대",
+            "어판장",
+            "중리 해변",
+            "방치된 부두",
+            "해안 창고"
+          ],
+          "as": "장소"
+        }
+      },
+      "repeatable": true,
+      "max_occurrences": 4,
+      "tree": {
+        "root": {
+          "guide": "{장소}의 물이 빠지고 있다. 드러난 바위 사이에 무언가 걸려 있고, 물이 다시 차기 전까지가 시간이다.",
+          "cases": {
+            "gather": {
+              "next": "reach",
+              "condition": "내려가 건진다"
+            },
+            "observe": {
+              "next": "judge",
+              "condition": "물때를 먼저 가늠한다"
+            },
+            "ignore": {
+              "next": "washed",
+              "condition": "두고 간다"
+            }
+          }
+        },
+        "judge": {
+          "guide": "물이 도는 속도를 본다. 생각보다 빠르다. 한 번 왕복할 시간은 될 것 같다.",
+          "cases": {
+            "one": {
+              "next": "reach",
+              "condition": "한 번만 다녀온다"
+            },
+            "two": {
+              "next": "trapped",
+              "condition": "두 번 다녀오려 한다"
+            },
+            "quit": {
+              "next": "washed",
+              "condition": "포기한다"
+            }
+          }
+        },
+        "reach": {
+          "guide": "바위를 딛고 내려간다. 발밑이 미끄럽고, 손에 닿은 것은 생각보다 무겁다.",
+          "cases": {
+            "haul": {
+              "next": "salvaged",
+              "condition": "끌어올린다"
+            },
+            "inspect": {
+              "next": "tainted_find",
+              "condition": "먼저 무엇인지 확인한다"
+            },
+            "drop": {
+              "next": "washed",
+              "condition": "놓고 올라온다"
+            }
+          }
+        },
+        "tainted_find": {
+          "guide": "바다에서 온 것이다. 만지는 것조차 위험하다는 말을 들은 적이 있다.",
+          "cases": {
+            "leave": {
+              "next": "washed",
+              "condition": "손대지 않는다"
+            },
+            "risk": {
+              "next": "contaminated",
+              "condition": "그래도 챙긴다"
+            }
+          }
+        },
+        "trapped": {
+          "guide": "물이 예상보다 빨리 찼다. 돌아갈 길이 잠겼다.",
+          "cases": {
+            "swim": {
+              "next": "washed",
+              "condition": "헤엄쳐 나온다"
+            },
+            "climb": {
+              "next": "salvaged",
+              "condition": "바위를 타고 오른다"
+            }
+          }
+        },
+        "salvaged": {
+          "guide": "건졌다. 물이 자리를 덮는다.",
+          "cases": {},
+          "outcome": "clear"
+        },
+        "contaminated": {
+          "guide": "손에 닿았다. 그것이 무엇을 뜻하는지 며칠 뒤에 알게 된다.",
+          "cases": {},
+          "outcome": "failed"
+        },
+        "washed": {
+          "guide": "물이 다시 찼다. 무엇이 있었는지는 알 수 없게 됐다.",
+          "cases": {},
+          "outcome": "missed"
+        }
+      },
+      "hidden": {
+        "truth": "해수에는 변이한 것들이 있으며, 조간대 생물은 그것을 몸에 담고 있다.",
+        "reveal_conditions": [
+          "해녀들의 소독 절차를 본다",
+          "중리 사람의 경고를 듣는다"
+        ],
+        "if_unknown": "바다에서 온 것을 무심코 다룬다.",
+        "if_known": "물에서 나온 것에 손대지 않게 된다."
+      }
+    },
+    {
+      "id": "place_high_vantage",
+      "name": "내려다보다",
+      "version": "a",
+      "line": "sub",
+      "groups": [
+        "장소군"
+      ],
+      "scale": "조우",
+      "filters": {
+        "place": {
+          "any": [
+            "봉래산 정상",
+            "봉래산 능선",
+            "등산로",
+            "송신탑",
+            "산불감시초소",
+            "무연고 묘역",
+            "약수터",
+            "배수지",
+            "벌목 지대",
+            "봉래산"
+          ],
+          "as": "장소"
+        }
+      },
+      "repeatable": true,
+      "max_occurrences": 4,
+      "tree": {
+        "root": {
+          "guide": "{장소}에서 섬이 내려다보인다. 어디에 무엇이 있는지 눈에 들어오지만, 시야가 트였다는 것은 이쪽도 보인다는 뜻이다.",
+          "cases": {
+            "scan": {
+              "next": "survey",
+              "condition": "천천히 훑어본다"
+            },
+            "mark": {
+              "next": "survey",
+              "condition": "지형을 외운다"
+            },
+            "signal": {
+              "next": "seen",
+              "condition": "신호를 보내본다"
+            },
+            "descend": {
+              "next": "unused",
+              "condition": "바로 내려간다"
+            }
+          }
+        },
+        "survey": {
+          "guide": "연기, 움직임, 불빛. 세 가지가 사람이 있는 자리를 알려준다. 한 곳에서 무언가 반복적으로 움직인다.",
+          "cases": {
+            "focus": {
+              "next": "noted",
+              "condition": "그곳을 자세히 본다"
+            },
+            "broad": {
+              "next": "noted",
+              "condition": "전체를 파악하는 데 집중한다"
+            },
+            "linger": {
+              "next": "seen",
+              "condition": "오래 머문다"
+            }
+          }
+        },
+        "seen": {
+          "guide": "저 아래에서 무언가 이쪽을 향한다. 시야가 트인 곳의 대가다.",
+          "cases": {
+            "drop": {
+              "next": "noted",
+              "condition": "몸을 낮추고 기다린다"
+            },
+            "flee": {
+              "next": "unused",
+              "condition": "서둘러 내려간다"
+            }
+          }
+        },
+        "noted": {
+          "guide": "섬의 지형과 사람 있는 자리를 머릿속에 담았다. 다음 이동이 수월해진다.",
+          "cases": {},
+          "outcome": "clear"
+        },
+        "unused": {
+          "guide": "오래 있을 수 없었다.",
+          "cases": {},
+          "outcome": "missed"
+        }
+      },
+      "hidden": {
+        "truth": "고지대에서 신호를 보내면 세 거점이 모두 본다. 어느 쪽이 먼저 오는지가 문제다.",
+        "reveal_conditions": [
+          "다른 고지대의 관측 흔적을 발견한다",
+          "거점 사람에게 듣는다"
+        ],
+        "if_unknown": "신호를 가볍게 여긴다.",
+        "if_known": "고지대에서의 행동이 누구에게 보이는지 의식하게 된다."
+      }
+    },
+    {
+      "id": "place_under_dark",
+      "name": "어둠 속에서",
+      "version": "a",
+      "line": "sub",
+      "groups": [
+        "장소군"
+      ],
+      "scale": "사건",
+      "filters": {
+        "place": {
+          "any": [
+            "하수도",
+            "하수도 분기점",
+            "서부 간선",
+            "동부 간선",
+            "남부 지선",
+            "빗물 저류조",
+            "펌프실",
+            "붕괴 구간",
+            "지하 주차장",
+            "막힌 구간",
+            "전성남의 은신처"
+          ],
+          "as": "장소"
+        }
+      },
+      "repeatable": true,
+      "max_occurrences": 3,
+      "tree": {
+        "root": {
+          "guide": "{장소}는 빛이 들지 않는다. 방향 감각이 먼저 사라지고, 소리만 남는다.",
+          "cases": {
+            "light": {
+              "next": "lit",
+              "condition": "불을 켠다"
+            },
+            "feel": {
+              "next": "grope",
+              "condition": "벽을 짚고 나아간다"
+            },
+            "listen": {
+              "next": "grope",
+              "condition": "멈춰 서서 듣는다"
+            },
+            "back": {
+              "next": "withdrew",
+              "condition": "돌아 나간다"
+            }
+          }
+        },
+        "lit": {
+          "guide": "빛이 있으니 보이지만, 빛은 멀리서도 보인다.",
+          "cases": {
+            "shield": {
+              "next": "passage",
+              "condition": "빛을 가리고 나아간다"
+            },
+            "bright": {
+              "next": "drawn",
+              "condition": "그대로 나아간다"
+            }
+          }
+        },
+        "grope": {
+          "guide": "손끝에 이음매와 갈래가 닿는다. 어느 쪽이 나가는 길인지 알 수 없다.",
+          "cases": {
+            "mark": {
+              "next": "passage",
+              "condition": "표식을 남기며 나아간다"
+            },
+            "guess": {
+              "next": "lost",
+              "condition": "감으로 고른다"
+            },
+            "retrace": {
+              "next": "withdrew",
+              "condition": "왔던 길을 되짚는다"
+            }
+          }
+        },
+        "drawn": {
+          "guide": "빛을 보고 무언가 다가온다. 좁은 곳에서 마주치면 지나칠 수 없다.",
+          "cases": {
+            "douse": {
+              "next": "passage",
+              "condition": "불을 끄고 숨는다"
+            },
+            "run": {
+              "next": "lost",
+              "condition": "달린다"
+            },
+            "face": {
+              "next": "cornered_dark",
+              "condition": "맞선다"
+            }
+          }
+        },
+        "passage": {
+          "guide": "반대편 빛이 보인다. 지하를 지나 다른 곳에 닿았다.",
+          "cases": {},
+          "outcome": "clear"
+        },
+        "lost": {
+          "guide": "한참을 헤맨 끝에 처음 자리로 돌아왔다. 시간과 체력을 잃었다.",
+          "cases": {},
+          "outcome": "partial"
+        },
+        "cornered_dark": {
+          "guide": "좁은 관로에서는 물러설 데가 없다.",
+          "cases": {},
+          "outcome": "failed"
+        },
+        "withdrew": {
+          "guide": "지하는 그대로 두었다.",
+          "cases": {},
+          "outcome": "missed"
+        }
+      },
+      "hidden": {
+        "truth": "지하에는 사람이 산다. 표식은 길잡이가 아니라 영역 표시다.",
+        "reveal_conditions": [
+          "표식의 규칙성을 알아챈다",
+          "생활 흔적을 발견한다"
+        ],
+        "if_unknown": "버려진 통로로 여긴다.",
+        "if_known": "지하를 지나려면 허락이 필요하다는 것을 알게 된다."
+      }
+    },
+    {
+      "id": "place_store_haul",
+      "name": "들고 갈 수 있는 만큼",
+      "version": "a",
+      "line": "sub",
+      "groups": [
+        "장소군"
+      ],
+      "scale": "사건",
+      "filters": {
+        "place": {
+          "any": [
+            "상가 창고",
+            "해안 창고",
+            "봉래동 물류창고",
+            "컨테이너 야적장",
+            "조선소 내부",
+            "폐수 처리조"
+          ],
+          "as": "장소"
+        }
+      },
+      "repeatable": true,
+      "max_occurrences": 3,
+      "tree": {
+        "root": {
+          "guide": "{장소}에는 물자가 남아 있다. 문제는 양이 아니라 무게다. 한 번에 들고 갈 수 있는 것은 정해져 있고, 두 번 오가는 것은 두 배로 위험하다.",
+          "cases": {
+            "survey": {
+              "next": "inventory",
+              "condition": "무엇이 있는지 먼저 본다"
+            },
+            "grab": {
+              "next": "overload",
+              "condition": "눈에 띄는 대로 담는다"
+            },
+            "cart": {
+              "next": "transport",
+              "condition": "운반할 것을 찾는다"
+            },
+            "leave": {
+              "next": "untouched",
+              "condition": "두고 간다"
+            }
+          }
+        },
+        "inventory": {
+          "guide": "쓸 것과 못 쓸 것이 갈린다. 값나가는 것일수록 무겁다는 것이 문제다.",
+          "cases": {
+            "priority": {
+              "next": "packed",
+              "condition": "우선순위를 정해 담는다"
+            },
+            "greed": {
+              "next": "overload",
+              "condition": "욕심껏 담는다"
+            },
+            "mark_return": {
+              "next": "cached",
+              "condition": "위치를 외워두고 조금만 챙긴다"
+            }
+          }
+        },
+        "transport": {
+          "guide": "손수레나 자루가 될 만한 것을 찾는다. 바퀴 소리가 문제다.",
+          "cases": {
+            "wrap": {
+              "next": "packed",
+              "condition": "바퀴를 천으로 감는다"
+            },
+            "drag": {
+              "next": "noisy",
+              "condition": "그냥 끌고 간다"
+            }
+          }
+        },
+        "overload": {
+          "guide": "짐이 무겁다. 빨리 걸을 수 없고, 버리려면 결정을 해야 한다.",
+          "cases": {
+            "shed": {
+              "next": "packed",
+              "condition": "덜어낸다"
+            },
+            "persist": {
+              "next": "noisy",
+              "condition": "버티고 간다"
+            }
+          }
+        },
+        "noisy": {
+          "guide": "소리가 났다. 무거운 짐을 진 채로는 달릴 수 없다.",
+          "cases": {
+            "abandon": {
+              "next": "escaped_light",
+              "condition": "짐을 버리고 달아난다"
+            },
+            "hide": {
+              "next": "packed",
+              "condition": "짐째로 숨는다"
+            },
+            "stand": {
+              "next": "lost_haul",
+              "condition": "버틴다"
+            }
+          }
+        },
+        "packed": {
+          "guide": "들고 갈 만큼 챙겨 나왔다. 나머지는 다음을 기약한다.",
+          "cases": {},
+          "outcome": "clear"
+        },
+        "cached": {
+          "guide": "위치를 기억해 두었다. 언제든 돌아올 수 있다.",
+          "cases": {},
+          "outcome": "partial"
+        },
+        "escaped_light": {
+          "guide": "몸만 빠져나왔다. 살아 있는 것이 남는 것이다.",
+          "cases": {},
+          "outcome": "partial"
+        },
+        "lost_haul": {
+          "guide": "짐도 잃고 다치기까지 했다.",
+          "cases": {},
+          "outcome": "failed"
+        },
+        "untouched": {
+          "guide": "손대지 않고 지나쳤다.",
+          "cases": {},
+          "outcome": "missed"
+        }
+      },
+      "hidden": {
+        "truth": "이 창고는 이미 어느 세력이 점찍어 둔 곳이며, 정기적으로 확인하러 온다.",
+        "reveal_conditions": [
+          "최근 드나든 자국을 발견한다",
+          "세력 표식을 알아본다"
+        ],
+        "if_unknown": "주인 없는 물자로 여긴다.",
+        "if_known": "가져가는 것이 곧 도둑질이 됨을 알게 된다."
+      }
+    },
+    {
+      "id": "place_public_record",
+      "name": "남겨진 기록",
+      "version": "a",
+      "line": "sub",
+      "groups": [
+        "장소군",
+        "기타군"
+      ],
+      "scale": "조우",
+      "filters": {
+        "place": {
+          "any": [
+            "폐교",
+            "파출소",
+            "소방서",
+            "교회",
+            "교회 지하",
+            "도서관",
+            "종교시설 폐허",
+            "버려진 정류장",
+            "피시방"
+          ],
+          "as": "장소"
+        }
+      },
+      "repeatable": true,
+      "max_occurrences": 4,
+      "tree": {
+        "root": {
+          "guide": "{장소}에 서류와 명부가 흩어져 있다. 사태 초기에 무슨 일이 있었는지가 종이에 남아 있다.",
+          "cases": {
+            "read": {
+              "next": "records",
+              "condition": "읽어본다"
+            },
+            "collect": {
+              "next": "records",
+              "condition": "쓸 만한 것만 챙긴다"
+            },
+            "burn": {
+              "next": "destroyed",
+              "condition": "태워 불을 얻는다"
+            },
+            "pass": {
+              "next": "ignored",
+              "condition": "관심을 두지 않는다"
+            }
+          }
+        },
+        "records": {
+          "guide": "대피 명단, 배급표, 마지막 지시사항. 이름들 옆에 표시가 있고, 표시의 의미는 적혀 있지 않다.",
+          "cases": {
+            "names": {
+              "next": "insight",
+              "condition": "이름과 표시를 대조한다"
+            },
+            "map": {
+              "next": "insight",
+              "condition": "지도와 경로만 챙긴다"
+            },
+            "enough": {
+              "next": "partial_read",
+              "condition": "대충 훑고 만다"
+            }
+          }
+        },
+        "insight": {
+          "guide": "패턴이 보인다. 어디로 사람들이 갔고 어디서 멈췄는지가 종이 위에 그려진다.",
+          "cases": {},
+          "outcome": "clear"
+        },
+        "partial_read": {
+          "guide": "몇 가지는 알았고 몇 가지는 놓쳤다.",
+          "cases": {},
+          "outcome": "partial"
+        },
+        "destroyed": {
+          "guide": "불은 얻었고 기록은 사라졌다.",
+          "cases": {},
+          "outcome": "deviated"
+        },
+        "ignored": {
+          "guide": "종이는 종이로 남았다.",
+          "cases": {},
+          "outcome": "missed"
+        }
+      },
+      "hidden": {
+        "truth": "명단의 표시는 감염 판정 결과이며, 판정을 내린 자들이 지금 어느 거점에 있다.",
+        "reveal_conditions": [
+          "표시 체계를 해독한다",
+          "같은 서식을 거점에서 다시 본다"
+        ],
+        "if_unknown": "행정 기록으로 여긴다.",
+        "if_known": "초기 대응에 누가 관여했는지 알게 된다."
+      }
+    },
+    {
+      "id": "place_route_block",
+      "name": "막힌 길",
+      "version": "a",
+      "line": "sub",
+      "groups": [
+        "장소군"
+      ],
+      "scale": "조우",
+      "filters": {
+        "place": {
+          "any": [
+            "산복도로",
+            "산복도로 상단",
+            "산복도로 하단",
+            "영선고개",
+            "동삼 언덕",
+            "흰여울 절벽길",
+            "동삼동 해안로",
+            "태종대 방면 숲",
+            "폐채석장",
+            "버스 차고지",
+            "아치 방파제",
+            "무너진 다리 어귀"
+          ],
+          "as": "장소"
+        }
+      },
+      "repeatable": true,
+      "max_occurrences": 5,
+      "tree": {
+        "root": {
+          "guide": "{장소}가 막혀 있다. 차량 잔해인지 무너진 구조물인지, 아니면 누군가 일부러 쌓아둔 것인지는 가까이 가야 안다.",
+          "cases": {
+            "inspect": {
+              "next": "nature",
+              "condition": "막은 것이 무엇인지 본다"
+            },
+            "climb": {
+              "next": "over",
+              "condition": "넘어간다"
+            },
+            "detour": {
+              "next": "around",
+              "condition": "돌아간다"
+            },
+            "back": {
+              "next": "turned",
+              "condition": "돌아선다"
+            }
+          }
+        },
+        "nature": {
+          "guide": "쌓인 방식이 자연스럽지 않다. 누군가 길을 끊어 놓았고, 그렇다면 이유가 있다.",
+          "cases": {
+            "heed": {
+              "next": "around",
+              "condition": "경고로 받아들이고 돌아간다"
+            },
+            "ignore_warn": {
+              "next": "over",
+              "condition": "그래도 넘는다"
+            },
+            "dismantle": {
+              "next": "opened",
+              "condition": "치우고 길을 낸다"
+            }
+          }
+        },
+        "over": {
+          "guide": "넘는 동안 소리가 나고 몸이 드러난다. 반대편이 보이지 않는다.",
+          "cases": {
+            "quiet": {
+              "next": "crossed",
+              "condition": "천천히 넘는다"
+            },
+            "fast": {
+              "next": "exposed",
+              "condition": "빠르게 넘는다"
+            }
+          }
+        },
+        "around": {
+          "guide": "우회로는 멀고, 지나본 적 없는 길이다.",
+          "cases": {
+            "careful": {
+              "next": "crossed",
+              "condition": "조심히 간다"
+            },
+            "hurry": {
+              "next": "exposed",
+              "condition": "서두른다"
+            }
+          }
+        },
+        "opened": {
+          "guide": "길을 텄다. 오가기 편해졌지만 막아둔 이유도 함께 사라졌다.",
+          "cases": {},
+          "outcome": "partial"
+        },
+        "crossed": {
+          "guide": "반대편에 닿았다.",
+          "cases": {},
+          "outcome": "clear"
+        },
+        "exposed": {
+          "guide": "넘는 도중 눈에 띄었다. 이 길은 당분간 쓸 수 없다.",
+          "cases": {},
+          "outcome": "failed"
+        },
+        "turned": {
+          "guide": "다른 길을 찾기로 한다.",
+          "cases": {},
+          "outcome": "missed"
+        }
+      },
+      "hidden": {
+        "truth": "길을 막은 것은 감염자를 한쪽으로 몰기 위한 세력의 조치다. 치우면 흐름이 바뀐다.",
+        "reveal_conditions": [
+          "막은 방식의 규칙성을 알아본다",
+          "반대편의 밀집을 목격한다"
+        ],
+        "if_unknown": "단순 장애물로 여긴다.",
+        "if_known": "섬의 감염자 분포가 인위적으로 관리되고 있음을 알게 된다."
+      }
+    },
+    {
+      "id": "place_night_move",
+      "name": "밤에 움직이는 일",
+      "version": "a",
+      "line": "sub",
+      "groups": [
+        "장소군",
+        "기타군"
+      ],
+      "scale": "사건",
+      "filters": {
+        "place": {
+          "any": [
+            "산복도로",
+            "산복도로 상단",
+            "산복도로 하단",
+            "영선고개",
+            "동삼 언덕",
+            "흰여울 절벽길",
+            "동삼동 해안로",
+            "태종대 방면 숲",
+            "폐채석장",
+            "버스 차고지",
+            "아치 방파제",
+            "무너진 다리 어귀"
+          ],
+          "as": "장소"
+        },
+        "time_of_day": {
+          "any": [
+            "밤",
+            "해질 무렵"
+          ]
+        }
+      },
+      "repeatable": true,
+      "max_occurrences": 3,
+      "tree": {
+        "root": {
+          "guide": "{장소}에서 해가 완전히 넘어갔다. 일몰 후 이 섬은 전기가 없다. 발밑조차 보이지 않는다.",
+          "cases": {
+            "light": {
+              "next": "lit_path",
+              "condition": "불을 켠다"
+            },
+            "dark": {
+              "next": "blind",
+              "condition": "불 없이 간다"
+            },
+            "shelter": {
+              "next": "waited",
+              "condition": "어딘가 들어가 밤을 넘긴다"
+            }
+          }
+        },
+        "lit_path": {
+          "guide": "길이 보인다. 동시에 이쪽도 아주 멀리서 보인다.",
+          "cases": {
+            "brief": {
+              "next": "progress",
+              "condition": "필요할 때만 켠다"
+            },
+            "steady": {
+              "next": "followed",
+              "condition": "계속 켜둔다"
+            }
+          }
+        },
+        "blind": {
+          "guide": "손으로 벽을 짚으며 간다. 느리지만 보이지 않는다는 것은 상대에게도 마찬가지다.",
+          "cases": {
+            "slow": {
+              "next": "progress",
+              "condition": "속도를 포기한다"
+            },
+            "memory": {
+              "next": "progress",
+              "condition": "낮에 본 지형을 떠올린다"
+            },
+            "stumble": {
+              "next": "fell",
+              "condition": "발을 헛디딘다"
+            }
+          }
+        },
+        "followed": {
+          "guide": "뒤에서 무언가 따라온다. 불을 끄면 이쪽도 앞을 못 본다.",
+          "cases": {
+            "douse": {
+              "next": "blind",
+              "condition": "불을 끈다"
+            },
+            "run": {
+              "next": "fell",
+              "condition": "달린다"
+            },
+            "circle": {
+              "next": "progress",
+              "condition": "돌아서 따돌린다"
+            }
+          }
+        },
+        "fell": {
+          "guide": "넘어졌다. 어디를 다쳤는지는 밝아야 안다.",
+          "cases": {
+            "crawl": {
+              "next": "limped",
+              "condition": "기어서라도 간다"
+            },
+            "stay": {
+              "next": "waited",
+              "condition": "자리에서 아침을 기다린다"
+            }
+          }
+        },
+        "progress": {
+          "guide": "밤길을 넘겼다. 낮에 걸었다면 절반 시간이었을 것이다.",
+          "cases": {},
+          "outcome": "clear"
+        },
+        "limped": {
+          "guide": "닿기는 했다. 대가를 치렀다.",
+          "cases": {},
+          "outcome": "partial"
+        },
+        "waited": {
+          "guide": "움직이지 않기로 했다. 밤이 길다.",
+          "cases": {},
+          "outcome": "missed"
+        }
+      },
+      "hidden": {
+        "truth": "야간에 이동하는 자들이 따로 있으며, 그들은 불을 쓰지 않는 방법을 안다.",
+        "reveal_conditions": [
+          "불 없이 지나간 흔적을 발견한다",
+          "정적 파수꾼의 통신망을 눈치챈다"
+        ],
+        "if_unknown": "밤은 그저 위험한 시간이다.",
+        "if_known": "밤을 쓰는 방법이 있다는 것을 알게 된다."
+      }
+    },
+    {
+      "id": "npc_keeper_ledger",
+      "name": "장부를 쥔 사람",
+      "version": "a",
+      "line": "sub",
+      "groups": [
+        "인물군",
+        "장소군"
+      ],
+      "scale": "사건",
+      "filters": {
+        "min_turn": 5,
+        "npc": {
+          "any": [
+            "엄주섭",
+            "차봉순",
+            "황기영",
+            "법운",
+            "조원달"
+          ],
+          "as": "관리자"
+        },
+        "place": {
+          "any": [
+            "장부방",
+            "지하 병참 창고",
+            "군수 창고",
+            "해련사 배급소",
+            "취사반",
+            "해련사"
+          ],
+          "as": "장소"
+        }
+      },
+      "repeatable": true,
+      "max_occurrences": 3,
+      "tree": {
+        "root": {
+          "guide": "{장소}에서 {관리자}가 장부를 들여다보고 있다. 숫자가 맞지 않는 듯 같은 줄을 세 번 짚는다.",
+          "cases": {
+            "offer": {
+              "next": "listen",
+              "condition": "도울 일이 있는지 묻는다"
+            },
+            "observe": {
+              "next": "notice",
+              "condition": "지켜본다"
+            },
+            "request": {
+              "next": "refused",
+              "condition": "먼저 필요한 것을 청한다"
+            },
+            "leave": {
+              "next": "unaware",
+              "condition": "지나친다"
+            }
+          }
+        },
+        "listen": {
+          "guide": "{관리자}가 잠시 망설이다 입을 연다. 재고가 비는데 원인을 못 찾고 있다는 것이다.",
+          "cases": {
+            "count": {
+              "next": "audit",
+              "condition": "함께 세어본다"
+            },
+            "watch_night": {
+              "next": "stakeout",
+              "condition": "밤에 지켜보자고 제안한다"
+            },
+            "shrug": {
+              "next": "unaware",
+              "condition": "할 말이 없다고 한다"
+            }
+          }
+        },
+        "notice": {
+          "guide": "장부를 덮는 손짓이 급하다. 누가 볼까 신경 쓰는 기색이다.",
+          "cases": {
+            "approach": {
+              "next": "listen",
+              "condition": "다가가 말을 건다"
+            },
+            "later": {
+              "next": "stakeout",
+              "condition": "나중에 따로 확인하기로 한다"
+            }
+          }
+        },
+        "audit": {
+          "guide": "수를 맞춰본다. 장부와 실물이 어긋나는 지점이 나온다. 누군가 조금씩 가져가고 있다.",
+          "cases": {
+            "report": {
+              "next": "resolved",
+              "condition": "{관리자}에게 알린다"
+            },
+            "silent": {
+              "next": "leverage",
+              "condition": "알아낸 것을 혼자 쥔다"
+            },
+            "trace": {
+              "next": "stakeout",
+              "condition": "누구인지 밝히자고 한다"
+            }
+          }
+        },
+        "stakeout": {
+          "guide": "어두워진 뒤 자리를 지킨다. 오래 기다린 끝에 문이 열린다.",
+          "cases": {
+            "confront": {
+              "next": "culprit",
+              "condition": "붙잡는다"
+            },
+            "identify": {
+              "next": "culprit",
+              "condition": "누구인지만 확인한다"
+            },
+            "letgo": {
+              "next": "leverage",
+              "condition": "모른 척한다"
+            }
+          }
+        },
+        "culprit": {
+          "guide": "가져간 사람이 드러난다. 처분은 {관리자}의 몫이지만, 사정을 아는 것은 이제 둘이다.",
+          "cases": {
+            "justice": {
+              "next": "resolved",
+              "condition": "규정대로 처리하게 둔다"
+            },
+            "mercy": {
+              "next": "resolved",
+              "condition": "사정을 대신 말해준다"
+            }
+          }
+        },
+        "resolved": {
+          "guide": "수가 맞았다. {관리자}가 처음으로 이름을 부른다.",
+          "cases": {},
+          "outcome": "clear"
+        },
+        "leverage": {
+          "guide": "알아낸 것을 쥐고 있기로 했다. 언젠가 쓸 데가 있을 것이다.",
+          "cases": {},
+          "outcome": "deviated"
+        },
+        "refused": {
+          "guide": "장부를 든 사람에게 먼저 청하는 것은 순서가 아니었다.",
+          "cases": {},
+          "outcome": "missed"
+        },
+        "unaware": {
+          "guide": "숫자는 여전히 맞지 않는다.",
+          "cases": {},
+          "outcome": "missed"
+        }
+      },
+      "hidden": {
+        "truth": "빼돌린 것은 개인의 몫이 아니라 배급에서 밀려난 사람들에게 갔다.",
+        "reveal_conditions": [
+          "행방을 추적한다",
+          "받은 쪽을 목격한다"
+        ],
+        "if_unknown": "단순 절도로 처리된다.",
+        "if_known": "규정과 사정 사이에서 선택하게 된다."
+      }
+    },
+    {
+      "id": "npc_worker_shift",
+      "name": "교대 시간",
+      "version": "a",
+      "line": "sub",
+      "groups": [
+        "인물군",
+        "소속군"
+      ],
+      "scale": "조우",
+      "filters": {
+        "min_turn": 4,
+        "npc": {
+          "any": [
+            "황순애",
+            "서태양",
+            "노상진",
+            "오명숙",
+            "진복례",
+            "장철웅",
+            "임철민"
+          ],
+          "as": "작업자"
+        },
+        "place": {
+          "any": [
+            "거주 시설 하층부",
+            "흑색 작업장",
+            "수습대 집결지",
+            "중앙 주차장 텃밭",
+            "해녀 작업장",
+            "경비조 대기소",
+            "방파제 초소"
+          ],
+          "as": "장소"
+        }
+      },
+      "repeatable": true,
+      "max_occurrences": 4,
+      "tree": {
+        "root": {
+          "guide": "{장소}에서 {작업자}가 교대를 기다리고 있다. 올 사람이 오지 않는 모양이다.",
+          "cases": {
+            "fill": {
+              "next": "shift",
+              "condition": "대신 서겠다고 한다"
+            },
+            "ask": {
+              "next": "why",
+              "condition": "무슨 일이냐고 묻는다"
+            },
+            "wait": {
+              "next": "idle",
+              "condition": "함께 기다린다"
+            },
+            "go": {
+              "next": "passed",
+              "condition": "자리를 뜬다"
+            }
+          }
+        },
+        "why": {
+          "guide": "{작업자}가 짧게 답한다. 어제부터 한 명이 줄었다는 것이다. 이유는 말하지 않는다.",
+          "cases": {
+            "press": {
+              "next": "confided",
+              "condition": "더 묻는다"
+            },
+            "offer2": {
+              "next": "shift",
+              "condition": "그러면 돕겠다고 한다"
+            }
+          }
+        },
+        "confided": {
+          "guide": "목소리가 낮아진다. 줄어든 사람이 어디로 갔는지, 그 자리에서는 말할 수 없다고 한다.",
+          "cases": {
+            "later": {
+              "next": "shift",
+              "condition": "나중에 듣기로 하고 일을 돕는다"
+            },
+            "now": {
+              "next": "idle",
+              "condition": "지금 들으려 한다"
+            }
+          }
+        },
+        "shift": {
+          "guide": "일을 나눠 진다. 손이 맞으면 말수가 줄고, 그것이 이곳의 대화다.",
+          "cases": {
+            "steady": {
+              "next": "trusted",
+              "condition": "끝까지 함께한다"
+            },
+            "learn": {
+              "next": "trusted",
+              "condition": "방식을 배우며 한다"
+            },
+            "quit": {
+              "next": "idle",
+              "condition": "중간에 빠진다"
+            }
+          }
+        },
+        "trusted": {
+          "guide": "{작업자}가 교대를 마치며 고개를 끄덕인다. 다음에도 부를 것이다.",
+          "cases": {},
+          "outcome": "clear"
+        },
+        "idle": {
+          "guide": "시간만 흘렀다.",
+          "cases": {},
+          "outcome": "partial"
+        },
+        "passed": {
+          "guide": "교대는 끝내 이뤄지지 않았다.",
+          "cases": {},
+          "outcome": "missed"
+        }
+      },
+      "hidden": {
+        "truth": "줄어든 인원은 사고가 아니라 검역에서 걸려 격리된 것이며, 그 사실이 아래로는 전해지지 않는다.",
+        "reveal_conditions": [
+          "격리 시설을 목격한다",
+          "다른 작업자에게 확인한다"
+        ],
+        "if_unknown": "인력 부족으로 여긴다.",
+        "if_known": "조직이 무엇을 아래에 숨기는지 알게 된다."
+      }
+    },
+    {
+      "id": "npc_hidden_ill",
+      "name": "감추는 사람",
+      "version": "a",
+      "line": "sub",
+      "groups": [
+        "인물군"
+      ],
+      "scale": "사건",
+      "filters": {
+        "min_turn": 7,
+        "npc": {
+          "any": [
+            "진복례",
+            "윤점순",
+            "염기준",
+            "전성남",
+            "임재환"
+          ],
+          "as": "인물"
+        }
+      },
+      "repeatable": false,
+      "max_occurrences": 1,
+      "tree": {
+        "root": {
+          "guide": "{인물}의 몸짓에 어색한 데가 있다. 무언가를 가리는 동작이 반복된다. 이 섬에서 몸을 가린다는 것은 대개 한 가지 뜻이다.",
+          "cases": {
+            "watch": {
+              "next": "pattern",
+              "condition": "조용히 지켜본다"
+            },
+            "ask": {
+              "next": "deflect",
+              "condition": "직접 묻는다"
+            },
+            "help": {
+              "next": "opened",
+              "condition": "필요한 것이 있는지 묻는다"
+            },
+            "ignore": {
+              "next": "unseen",
+              "condition": "모른 척한다"
+            }
+          }
+        },
+        "pattern": {
+          "guide": "같은 동작이 시간마다 반복된다. 소독약 냄새가 유난히 짙다.",
+          "cases": {
+            "confirm": {
+              "next": "confronted",
+              "condition": "확인하려 한다"
+            },
+            "wait": {
+              "next": "opened",
+              "condition": "먼저 말할 때까지 기다린다"
+            }
+          }
+        },
+        "deflect": {
+          "guide": "{인물}이 화제를 돌린다. 대답보다 그 속도가 답이다.",
+          "cases": {
+            "back_off": {
+              "next": "opened",
+              "condition": "물러서 준다"
+            },
+            "insist": {
+              "next": "confronted",
+              "condition": "밀어붙인다"
+            }
+          }
+        },
+        "confronted": {
+          "guide": "드러났다. 가린 자리가 어떤 상태인지 둘 다 안다. {인물}이 아무 말도 하지 않는다.",
+          "cases": {
+            "report": {
+              "next": "exposed",
+              "condition": "알린다"
+            },
+            "keep": {
+              "next": "complicit",
+              "condition": "함께 감추기로 한다"
+            },
+            "urge": {
+              "next": "opened",
+              "condition": "스스로 말하라고 한다"
+            }
+          }
+        },
+        "opened": {
+          "guide": "{인물}이 먼저 이야기를 꺼낸다. 얼마나 됐고, 왜 말하지 못했는지.",
+          "cases": {
+            "listen": {
+              "next": "pact",
+              "condition": "끝까지 듣는다"
+            },
+            "advise": {
+              "next": "pact",
+              "condition": "어떻게 할지 함께 정한다"
+            },
+            "recoil": {
+              "next": "exposed",
+              "condition": "물러선다"
+            }
+          }
+        },
+        "pact": {
+          "guide": "둘 사이의 약속이 생겼다. 이 섬에서 비밀을 나누는 것은 가장 무거운 관계다.",
+          "cases": {},
+          "outcome": "clear"
+        },
+        "complicit": {
+          "guide": "함께 감추기로 했다. 언젠가 대가를 치를 것이다.",
+          "cases": {},
+          "outcome": "deviated"
+        },
+        "exposed": {
+          "guide": "알려졌다. 그 뒤의 일은 규정이 정한다.",
+          "cases": {},
+          "outcome": "failed"
+        },
+        "unseen": {
+          "guide": "보지 않은 것으로 했다.",
+          "cases": {},
+          "outcome": "missed"
+        }
+      },
+      "hidden": {
+        "truth": "감춘 것이 감염이 아닌 경우도 있다. 그러나 이 섬에서는 구분되지 않는다.",
+        "reveal_conditions": [
+          "증상을 정확히 관찰한다",
+          "의료 지식으로 판단한다"
+        ],
+        "if_unknown": "감염으로 단정하게 된다.",
+        "if_known": "공포와 실제가 다를 수 있음을 알게 된다."
+      }
+    },
+    {
+      "id": "place_home_quarter",
+      "name": "잠자리",
+      "version": "a",
+      "line": "sub",
+      "groups": [
+        "장소군",
+        "개인군"
+      ],
+      "scale": "소품",
+      "filters": {
+        "place": {
+          "any": [
+            "은신처",
+            "거주 시설 하층부",
+            "상층부 거주구",
+            "채무자 숙소",
+            "아이들 방",
+            "옥탑방",
+            "반지하 셋방"
+          ],
+          "as": "장소"
+        }
+      },
+      "repeatable": true,
+      "max_occurrences": 5,
+      "tree": {
+        "root": {
+          "guide": "{장소}에서 하루를 정리한다. 몸을 뉘일 자리가 있다는 것만으로 이 섬에서는 드문 일이다.",
+          "cases": {
+            "rest": {
+              "next": "recovered",
+              "condition": "눈을 붙인다"
+            },
+            "tend": {
+              "next": "maintained",
+              "condition": "장비와 상처를 손본다"
+            },
+            "watch": {
+              "next": "maintained",
+              "condition": "잠들지 않고 지킨다"
+            }
+          }
+        },
+        "recovered": {
+          "guide": "오랜만에 깊이 잤다. 몸이 조금 돌아왔다.",
+          "cases": {},
+          "outcome": "clear"
+        },
+        "maintained": {
+          "guide": "장비를 정비하고 상처를 살폈다. 잠은 부족하다.",
+          "cases": {},
+          "outcome": "partial"
+        }
+      },
+      "hidden": {}
+    },
+    {
+      "id": "place_utility_check",
+      "name": "돌아가게 하는 것",
+      "version": "a",
+      "line": "sub",
+      "groups": [
+        "장소군",
+        "소속군"
+      ],
+      "scale": "조우",
+      "filters": {
+        "min_turn": 4,
+        "place": {
+          "any": [
+            "옥상 환기팬",
+            "태양광 패널 옥상",
+            "실습 공장",
+            "펌프실",
+            "빗물 저장고",
+            "집수 설비",
+            "주유소",
+            "송신탑",
+            "배수지",
+            "약초밭"
+          ],
+          "as": "장소"
+        }
+      },
+      "repeatable": true,
+      "max_occurrences": 4,
+      "tree": {
+        "root": {
+          "guide": "{장소}의 설비가 온전치 않다. 지금 당장 멎지는 않지만, 멎으면 곧바로 사람이 곤란해지는 종류의 것이다.",
+          "cases": {
+            "examine": {
+              "next": "diagnose",
+              "condition": "들여다본다"
+            },
+            "report": {
+              "next": "reported",
+              "condition": "관리하는 쪽에 알린다"
+            },
+            "fix": {
+              "next": "attempt",
+              "condition": "직접 손본다"
+            },
+            "ignore": {
+              "next": "deferred",
+              "condition": "두고 간다"
+            }
+          }
+        },
+        "diagnose": {
+          "guide": "원인이 보인다. 부품이 삭았거나, 배선이 벗겨졌거나, 둘 다다.",
+          "cases": {
+            "part": {
+              "next": "attempt",
+              "condition": "대체할 것을 찾는다"
+            },
+            "temp": {
+              "next": "patched",
+              "condition": "임시로 묶는다"
+            },
+            "tell": {
+              "next": "reported",
+              "condition": "알리는 편이 낫다고 판단한다"
+            }
+          }
+        },
+        "attempt": {
+          "guide": "손을 댄다. 잘못 건드리면 지금 멎는다.",
+          "cases": {
+            "careful": {
+              "next": "restored",
+              "condition": "차근히 한다"
+            },
+            "force": {
+              "next": "broke",
+              "condition": "힘으로 밀어붙인다"
+            }
+          }
+        },
+        "restored": {
+          "guide": "돌아간다. 소리가 다시 규칙적으로 들린다.",
+          "cases": {},
+          "outcome": "clear"
+        },
+        "patched": {
+          "guide": "임시로 막았다. 오래가지 않는다.",
+          "cases": {},
+          "outcome": "partial"
+        },
+        "reported": {
+          "guide": "알렸다. 고치는 것은 다른 사람의 일이 되었다.",
+          "cases": {},
+          "outcome": "partial"
+        },
+        "broke": {
+          "guide": "멎었다. 이제 이곳 사람들이 곤란해진다.",
+          "cases": {},
+          "outcome": "failed"
+        },
+        "deferred": {
+          "guide": "설비는 아직 돌아간다. 언제까지일지는 모른다.",
+          "cases": {},
+          "outcome": "missed"
+        }
+      },
+      "hidden": {
+        "truth": "이 설비의 예비 부품은 이미 다른 거점이 쥐고 있다.",
+        "reveal_conditions": [
+          "부품의 출처를 확인한다",
+          "교역소의 재고를 본다"
+        ],
+        "if_unknown": "고치면 끝나는 일로 여긴다.",
+        "if_known": "거점 간 의존 관계를 알게 된다."
+      }
+    },
+    {
+      "id": "place_market_dig",
+      "name": "시장 바닥",
+      "version": "a",
+      "line": "sub",
+      "groups": [
+        "장소군"
+      ],
+      "scale": "조우",
+      "filters": {
+        "place": {
+          "any": [
+            "봉래시장",
+            "정보 거래소",
+            "바자르",
+            "폐병원",
+            "주유소"
+          ],
+          "as": "장소"
+        }
+      },
+      "repeatable": true,
+      "max_occurrences": 4,
+      "tree": {
+        "root": {
+          "guide": "{장소}는 사람이 많이 지나간 곳이다. 그만큼 남은 것도 적지만, 남들이 지나친 자리가 있기 마련이다.",
+          "cases": {
+            "under": {
+              "next": "beneath",
+              "condition": "무너진 것 아래를 본다"
+            },
+            "back": {
+              "next": "beneath",
+              "condition": "뒤쪽이나 위쪽을 본다"
+            },
+            "ask": {
+              "next": "hearsay",
+              "condition": "오가는 사람에게 묻는다"
+            },
+            "pass": {
+              "next": "nothing",
+              "condition": "지나친다"
+            }
+          }
+        },
+        "beneath": {
+          "guide": "손이 닿기 어려운 곳에서 무언가 나온다. 꺼내려면 몸을 밀어 넣어야 한다.",
+          "cases": {
+            "reach": {
+              "next": "found_item",
+              "condition": "팔을 뻗는다"
+            },
+            "tool": {
+              "next": "found_item",
+              "condition": "도구를 쓴다"
+            },
+            "give": {
+              "next": "nothing",
+              "condition": "포기한다"
+            }
+          }
+        },
+        "hearsay": {
+          "guide": "쓸 만한 말을 하나 듣는다. 값을 치러야 할 수도 있다.",
+          "cases": {
+            "pay": {
+              "next": "tip_led",
+              "condition": "값을 치른다"
+            },
+            "trade_info": {
+              "next": "tip_led",
+              "condition": "아는 것을 대신 준다"
+            },
+            "refuse": {
+              "next": "nothing",
+              "condition": "거절한다"
+            }
+          }
+        },
+        "tip_led": {
+          "guide": "들은 대로 가본다. 맞을 때도 있고 아닐 때도 있다.",
+          "cases": {
+            "correct": {
+              "next": "found_item",
+              "condition": "정보가 맞았다"
+            },
+            "wrong": {
+              "next": "nothing",
+              "condition": "헛걸음이었다"
+            }
+          }
+        },
+        "found_item": {
+          "guide": "남들이 지나친 것을 손에 넣었다.",
+          "cases": {},
+          "outcome": "clear"
+        },
+        "nothing": {
+          "guide": "이미 훑고 간 자리였다.",
+          "cases": {},
+          "outcome": "missed"
+        }
+      },
+      "hidden": {}
     }
   ]
 }
