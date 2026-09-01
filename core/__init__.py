@@ -162,6 +162,7 @@ from . import koreantext
 from . import places
 from .profile_ui import open_manager, ProfileHomeView
 from . import profile_creation_ui
+from . import intro
 from . import session_flow
 from .session_open import (
     resolve_minutes,
@@ -288,7 +289,7 @@ __all__ = [
     "MIN_CACHE_TOKENS", "CACHE_TTL_SECONDS", "INK_UNIT_KRW", "INK_NET_KRW", "INK_PLANS",
     # ink / accounts
     "creation", "profiles", "profile_gen", "profile_runner", "profile_ai", "quest", "quest_filter", "memory_plan", "start_frame", "koreantext", "places",
-    "open_manager", "ProfileHomeView", "profile_creation_ui", "session_flow",
+    "open_manager", "ProfileHomeView", "profile_creation_ui", "session_flow", "intro",
     "resolve_minutes", "should_charge_interpretation", "format_confirmation",
     "VAGUE_MINUTES", "MINUTES_PER_TURN", "MIN_MINUTES", "MAX_MINUTES",
     "TERMS_TEXT", "SIGNUP_GIFT_INK", "build_terms_embed", "TermsView",

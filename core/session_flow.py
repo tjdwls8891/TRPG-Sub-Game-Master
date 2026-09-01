@@ -26,6 +26,7 @@
 import discord
 
 from . import creation
+from . import intro as intro_mod
 from . import memory_plan
 from . import profiles as profile_store
 from . import stats
@@ -33,89 +34,6 @@ from .constants import TTS_VOICES
 from .io import get_available_scenarios, load_scenario_from_file
 
 # 소개 단계에서 보여줄 항목 (기획 규정 — TRPG 개념·특성·진행·과금·예시·디스플레이)
-INTRO_TOPICS = [
-    ("trpg", "TRPG란 무엇인가",
-     "TRPG(Tabletop Role-Playing Game)는 컴퓨터나 스마트폰 화면을 벗어나, "
-     "테이블에 둘러앉아 대화와 상상력만으로 진행하는 일종의 '스토리텔링 보드게임'입니다.\n\n"
-     "대중적으로 널리 알려진 '던전 앤 드래곤(D&D)'을 떠올려 보시거나, "
-     "방탈출 게임을 대화로 진행한다고 생각하시면 이해하기 쉽습니다. "
-     "여러분은 각자의 캐릭터를 맡게 되며, 게임 마스터(GM)가 묘사하는 세계 속에서 "
-     "직접 주도하여 한 편의 이야기를 만들어가게 됩니다.\n\n"
-     "이 게임의 가장 큰 특징은 **압도적인 자유도**입니다. "
-     "개발자가 미리 만들어둔 선택지를 고르는 비디오 게임과 달리, "
-     "여러분이 상상할 수 있는 거의 모든 행동을 시도할 수 있습니다.\n\n"
-     "굳게 닫힌 문을 마주했을 때, 단순히 열쇠를 찾는 것에 그치지 않습니다. "
-     "문을 강제로 부수거나, 창문으로 우회하거나, 문지기를 속여서 열게 하는 등 "
-     "어떠한 기발한 접근도 허용됩니다."),
-
-    ("indaim", "INDAIM의 특성",
-     "이곳에서는 인간 진행자 대신 AI가 게임 마스터를 맡습니다. "
-     "다만 하나의 AI가 전부를 처리하지 않습니다. "
-     "**판단·지시·묘사·정리**를 각각 다른 층위가 나눠 맡아, "
-     "무엇을 할 상황인지 가늠하는 쪽과 실제로 장면을 그리는 쪽이 분리되어 있습니다.\n\n"
-     "그 덕분에 되묻는 대화는 가볍고 빠르게, "
-     "이야기가 크게 움직이는 순간은 충분한 분량으로 처리됩니다.\n\n"
-     "세계는 여러분의 행동에 실제로 반응해 변합니다. "
-     "지나온 장소, 만난 사람, 나눈 약속, 남긴 흔적이 모두 기록되어 이후 전개에 관여합니다. "
-     "어떤 인물과 함께 움직이기로 했다면 그 인물은 다음 사건에도 곁에 있고, "
-     "어느 세력에 몸담았다면 그곳 사람만 아는 일이 열립니다.\n\n"
-     "가보지 않은 곳은 밖에서 보이는 만큼만 묘사되며, "
-     "한 번에 갈 수 없는 거리는 GM이 경로와 소요를 먼저 알려드립니다."),
-
-    ("turn", "진행 방식",
-     "게임의 진행은 철저히 **묘사와 선언의 교환**으로 이루어집니다.\n\n"
-     "먼저 GM이 여러분이 처한 상황과 주변 환경, 인물들의 행동을 묘사하여 상황을 제시합니다. "
-     "이를 바탕으로 여러분은 자신의 캐릭터가 무엇을 할지, 어떤 대사를 할지 "
-     "구체적으로 적어 GM에게 선언합니다.\n\n"
-     "단, 선언한 행동이 항상 성공하는 것은 아닙니다. "
-     "결과가 불확실하거나 위험이 따르는 행동을 시도할 때는 **주사위**를 굴려 판정합니다. "
-     "캐릭터가 가진 고유의 능력치와 주사위 눈을 비교하여 성공과 실패가 결정됩니다.\n\n"
-     "때로는 주사위가 치명적인 실패를 안겨주기도 합니다. "
-     "그러나 실패를 두려워하지 마십시오. "
-     "TRPG에서는 주사위의 실패조차도 극적인 긴장감을 유발하며 "
-     "예상치 못한 방향으로 이야기를 굴러가게 만드는 훌륭한 장치입니다.\n\n"
-     "같은 능력치로 거듭 실패하면 그 능력치가 성장하고, "
-     "실패한 순간에도 행운이 개입할 여지가 남아 있습니다."),
-
-    ("example", "플레이 예시",
-     "이해를 돕기 위해 간단한 플레이 예시를 보여드리겠습니다.\n\n"
-     "**[GM]** 플레이어님은 불길한 숲에 진입합니다. 앞으로 나아가고 머지않아 발견한 것은, "
-     "단검을 든 고블린입니다. 어떻게 하시겠습니까?\n\n"
-     "**[플레이어]** 고블린은 강해 보이나요?\n\n"
-     "**[GM]** 키는 120cm쯤 되어 보이고 꽤나 마른 체형입니다만, "
-     "상당히 공격적인 태도를 취하고 있네요.\n\n"
-     "**[플레이어]** 들고 있는 무기로 공격합니다.\n\n"
-     "**[GM]** '근력' 능력치로 성공 여부를 판정하겠습니다. "
-     "주사위 눈이 능력치 숫자보다 작은 경우 성공합니다. 주사위를 굴려 주세요.\n\n"
-     "위와 같은 대화를 통해 게임이 진행됩니다. "
-     "무엇을 할지 묻는 것도, 주변을 살피는 것도, 바로 행동하는 것도 모두 한 턴입니다."),
-
-    ("cost", "과금 구조",
-     "진행에는 **잉크**가 소모됩니다. AI를 호출하는 데 실제 비용이 들기 때문입니다.\n\n"
-     "다만 모든 턴이 같은 값은 아닙니다. "
-     "되묻거나 둘러보는 턴은 세계 정보를 다시 읽지 않아 가장 저렴하고, "
-     "상황이 크게 움직여 세계 상태가 바뀌는 턴은 그만큼 비쌉니다.\n\n"
-     "턴을 진행하기 전에 예상 비용이 **범위로** 표시되므로 "
-     "무엇을 할지 정할 때 참고하실 수 있습니다. "
-     "음성 나레이션을 켜면 그 비용은 따로 구분해 보여드립니다.\n\n"
-     "세션을 여는 데도 비용이 듭니다. "
-     "세계관을 AI에게 올려두고 유지하는 값이며, 미리 결제한 뒤 "
-     "예정보다 일찍 닫으시면 남은 만큼 돌려드립니다.\n\n"
-     "되감기는 이미 쓴 비용을 환불하지 않습니다. 신중히 사용해 주십시오."),
-
-    ("display", "디스플레이 채널",
-     "세션 채널 중 하나는 **디스플레이 채널**입니다. "
-     "지금 세계가 어떤 상태인지 한눈에 보여주고, 조작 버튼이 모두 여기 모여 있습니다.\n\n"
-     "표시되는 것 — 현재 턴 수와 누적 소모 잉크, 다음 턴 예상 비용, "
-     "작중 날짜와 시각, 현재 위치, 진행 중인 퀘스트, 캐릭터 정보, "
-     "주변 인물, 세션 유지 시간.\n\n"
-     "조작할 수 있는 것 — 턴 되감기(한 턴 또는 여러 턴), 턴 재시작, "
-     "음성·이미지·배경음·효과음 켜고 끄기, 볼륨 조절, 세션 열고 닫기, 결제.\n\n"
-     "턴이 진행 중이거나 다른 작업이 도는 동안에는 "
-     "충돌할 수 있는 버튼이 회색으로 비활성화됩니다."),
-]
-
-
 def _state(session):
     return creation.get_state(session)
 
@@ -143,19 +61,22 @@ async def render(bot, session, channel):
             view=PrivateView(bot, session, channel))
 
     elif step == "intro":
-        played = stats.load_stats(str(_owner(session))).get("played_scenarios") or []
-        if played:
-            # 경험자 — 케이스 트리로 원하는 항목만(기획 규정)
-            await channel.send(
-                f"**소개**\n> {progress}\n\n"
-                "이전에 플레이하신 적이 있으시군요. 필요한 설명만 골라 보십시오.",
-                view=IntroTopicView(bot, session, channel, skippable=True))
-        else:
+        uid = _owner(session)
+        level = intro_mod.judge_level(
+            stats.load_stats(str(uid)), getattr(session, "scenario_id", ""))
+        st = creation.get_state(session)
+        st["intro_level"] = level
+
+        if level == intro_mod.LEVEL_NEW:
             # 첫 플레이 — 스킵 선택지를 주지 않고 풀소개(기획 규정)
             await channel.send(
-                f"**소개**\n> {progress}\n\n"
-                "처음이시군요. 순서대로 안내해 드리겠습니다.",
-                view=IntroTopicView(bot, session, channel, skippable=False))
+                f"**소개**\n> {progress}\n\n{intro_mod.greeting(level)}",
+                view=FullIntroView(bot, session, channel, level))
+        else:
+            # 경험자·숙련자 — 케이스 트리로 물어가며 진행(기획 규정)
+            await channel.send(
+                f"**소개**\n> {progress}\n\n{intro_mod.greeting(level)}",
+                view=IntroCaseView(bot, session, channel, level))
 
     elif step == "scenario":
         scenarios = _visible_scenarios(session)
@@ -268,52 +189,96 @@ class PrivateView(_Step):
         await self._next(interaction, "private", "비공개")
 
 
-class IntroTopicView(_Step):
-    """인지 수준 분기 — 첫 플레이는 스킵 없이 전부, 경험자는 선택(기획 규정)."""
+class FullIntroView(_Step):
+    """첫 플레이 — 6항목을 순서대로 전부 본다. 스킵 없음."""
 
-    def __init__(self, bot, session, channel, *, skippable: bool):
+    def __init__(self, bot, session, channel, level):
         super().__init__(bot, session, channel)
-        self.skippable = skippable
-        self.seen = set()
-        # row당 3개씩 나눈다. 라벨이 길어 5개를 한 줄에 두면 잘린다.
-        for i, (key, label, _body) in enumerate(INTRO_TOPICS):
-            self.add_item(TopicButton(key, label, row=i // 3))
-        if skippable:
-            self.add_item(SkipIntroButton())
+        self.level = level
+        self.index = 0
 
-    async def mark(self, interaction, key: str):
-        self.seen.add(key)
-        body = next((b for k, _l, b in INTRO_TOPICS if k == key), "")
-        await interaction.followup.send(f"**{key}**\n> {body}")
-        if not self.skippable and len(self.seen) >= len(INTRO_TOPICS):
+    @discord.ui.button(label="▶ 시작", style=discord.ButtonStyle.primary)
+    async def advance(self, interaction, btn):
+        await interaction.response.defer()
+        order = intro_mod.FULL_ORDER
+        key = order[self.index]
+        await _send_topic(self.bot, self.session, self.channel, key, self.level)
+        self.index += 1
+
+        if self.index >= len(order):
+            for c in self.children:
+                c.disabled = True
+            try:
+                await interaction.message.edit(view=self)
+            except Exception:
+                pass
             await self._next(interaction, "intro", "풀소개")
+            return
+
+        nxt = intro_mod.get_label(order[self.index])
+        btn.label = f"▶ 다음: {nxt}"
+        try:
+            await interaction.message.edit(view=self)
+        except Exception:
+            pass
 
 
-class TopicButton(discord.ui.Button):
+class IntroCaseView(_Step):
+    """경험자·숙련자 — 무엇이 궁금한지 물어 갈래를 나눈다."""
+
+    def __init__(self, bot, session, channel, level):
+        super().__init__(bot, session, channel)
+        self.level = level
+        for i, (key, case) in enumerate(intro_mod.CASES.items()):
+            self.add_item(CaseButton(key, case["label"], row=i // 2))
+
+
+class CaseButton(discord.ui.Button):
     def __init__(self, key: str, label: str, row: int = 0):
-        super().__init__(label=label, style=discord.ButtonStyle.secondary, row=row)
+        style = (discord.ButtonStyle.primary if key == "skip"
+                 else discord.ButtonStyle.secondary)
+        super().__init__(label=label, style=style, row=row)
         self.key = key
 
     async def callback(self, interaction):
         await interaction.response.defer()
-        self.style = discord.ButtonStyle.success
+        v = self.view
+        case = intro_mod.CASES.get(self.key) or {}
+        topics = case.get("topics") or []
+
+        for c in v.children:
+            c.disabled = True
         try:
-            await interaction.message.edit(view=self.view)
+            await interaction.message.edit(view=v)
         except Exception:
             pass
-        await self.view.mark(interaction, self.key)
+
+        for key in topics:
+            await _send_topic(v.bot, v.session, v.channel, key, v.level)
+
+        await v._next(interaction, "intro", case.get("label", self.key))
 
 
-class SkipIntroButton(discord.ui.Button):
-    def __init__(self):
-        # 항목 버튼 아래에 둔다. row당 3개이므로 항목 수로 줄 위치를 정한다.
-        row = min(4, (len(INTRO_TOPICS) + 2) // 3)
-        super().__init__(label="▶ 설명은 이만 보고 진행하기",
-                         style=discord.ButtonStyle.primary, row=row)
+async def _send_topic(bot, session, channel, key: str, level: str):
+    """항목 하나를 보낸다. 시나리오가 이미지를 지정했으면 함께 붙인다."""
+    body = intro_mod.get_body(key, level)
+    if not body:
+        return
+    text = f"**{intro_mod.get_label(key)}**\n{body}"
 
-    async def callback(self, interaction):
-        await interaction.response.defer()
-        await self.view._next(interaction, "intro", "요약")
+    # 기획 규정의 '미디어 활용한 설명'. 시나리오가 지정한 이미지가
+    # 실제로 있을 때만 붙인다. 없으면 텍스트만 나간다.
+    sd = getattr(session, "scenario_data", {}) or {}
+    fname = intro_mod.media_for(key, sd)
+    if fname:
+        import os
+        media_dir = f"media/{getattr(session, 'scenario_id', '') or ''}"
+        path = os.path.join(media_dir, fname)
+        if os.path.exists(path):
+            await channel.send(text, file=discord.File(path))
+            return
+        print(f"[소개] 이미지 없음: {path}")
+    await channel.send(text)
 
 
 class ScenarioView(_Step):
