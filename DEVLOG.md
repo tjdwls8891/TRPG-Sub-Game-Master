@@ -1,6 +1,6 @@
 # INDAIM — 개발 로그 (DEVLOG)
 
-> 현재 버전: **v5.17.1** · `SCHEMA_VERSION` 3
+> 현재 버전: **v5.17.2** · `SCHEMA_VERSION` 3
 > 스택: Gemini API + discord.py / 한국어 TRPG 보조 GM 봇
 > 저장소: `tjdwls8891/TRPG-Sub-Game-Master`
 

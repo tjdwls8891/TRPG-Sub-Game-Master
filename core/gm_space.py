@@ -85,9 +85,7 @@ def build_home_embed(bot) -> discord.Embed:
     embed.add_field(
         name="알아두실 것",
         value=("· 진행에는 **잉크**가 듭니다. 턴마다 예상 비용이 표시됩니다.\n"
-               "· 되묻거나 둘러보는 턴은 저렴하고, 상황이 크게 움직이는 턴은 비쌉니다.\n"
-               "· 세션 상태와 조작은 **디스플레이 채널**에 모여 있습니다.\n"
-               "· 잘못된 선택은 되감을 수 있으나 비용은 돌아오지 않습니다."),
+               "· TRPG가 처음이시라면 세션을 열 때 안내해 드립니다."),
         inline=False,
     )
     embed.add_field(name="버전", value=f"v{__version__}", inline=True)
