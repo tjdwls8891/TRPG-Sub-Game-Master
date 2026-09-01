@@ -91,7 +91,9 @@ async def render(bot, session, channel):
     elif step == "scenario":
         scenarios = _visible_scenarios(session)
         await channel.send(
-            f"**시나리오 선택**\n> {progress}",
+            f"**시나리오 선택**\n> {progress}\n\n"
+            "어느 세계에서 시작하시겠습니까?\n"
+            "> 고르시면 배경과 예상 비용을 먼저 보여드립니다.",
             view=ScenarioView(bot, session, channel, scenarios))
 
     elif step == "tts":
@@ -110,7 +112,10 @@ async def render(bot, session, channel):
             curve_lines.append(
                 f"> {label}: 10턴 {vals[9]}회 · 20턴 {vals[19]}회 · 30턴 {vals[29]}회")
         await channel.send(
-            f"**기억 방식**\n> {progress}\n\n{memory_plan.format_plans()}\n"
+            f"**기억 방식**\n> {progress}\n\n"
+            "턴이 쌓이면 지난 일을 간추려 보관합니다. 자주 간추릴수록 "
+            "세부가 오래 남지만 그만큼 비용이 듭니다.\n\n"
+            f"{memory_plan.format_plans()}\n"
             + "\n".join(curve_lines),
             view=MemoryPlanView(bot, session, channel))
 
@@ -120,8 +125,9 @@ async def render(bot, session, channel):
     elif step == "open":
         await channel.send(
             f"**세션 오픈**\n> {progress}\n\n"
-            "세션을 얼마나 유지하시겠습니까?\n"
-            "> 디스플레이 채널에서 시간을 입력해 주십시오.",
+            "이제 세계를 불러올 차례입니다. 얼마나 플레이하실 예정인가요?\n"
+            "> 그 시간만큼 미리 결제하고, 일찍 닫으면 남은 만큼 돌려드립니다.\n"
+            "> 아래 버튼을 누르면 디스플레이 채널에서 답하실 수 있습니다.",
             view=OpenTimeView(bot, session, channel))
 
     elif step == "start":

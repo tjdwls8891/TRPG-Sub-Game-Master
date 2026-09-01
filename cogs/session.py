@@ -385,7 +385,8 @@ class SessionCog(commands.Cog):
             try:
                 await game_ch.send(
                     "**세션이 준비되었습니다.**\n"
-                    "아래 버튼으로 참가하시면 캐릭터 생성이 이어집니다.",
+                    "아래 버튼을 누르면 이름을 묻고 캐릭터 만들기가 이어집니다.\n"
+                    "> 만들고 나면 이 채널에서 하고 싶은 것을 적으시면 됩니다.",
                     view=JoinView(self.bot),
                 )
             except Exception as e:

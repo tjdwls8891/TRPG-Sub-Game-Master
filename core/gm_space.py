@@ -67,17 +67,34 @@ def build_home_embed(bot) -> discord.Embed:
     from .constants import __version__
 
     embed = discord.Embed(
-        title="🎲 INDAIM — GM 스페이스",
+        title="🎲 INDAIM",
         description=(
-            "세션 생성과 계정 관리를 이곳에서 진행합니다.\n"
-            "아래 버튼으로 조작하십시오. 이 채널은 채팅이 불가합니다."
+            "**AI가 진행하는 한국어 TRPG.**\n"
+            "당신이 무엇을 할지 말하면, 세계가 그에 반응합니다.\n"
+            "정해진 답은 없고 실패도 이야기가 됩니다."
         ),
         color=0x5865F2,
     )
-    embed.add_field(name="봇 버전", value=f"v{__version__}", inline=True)
-    invite = getattr(bot, "invite_url", "") or "(미설정)"
-    embed.add_field(name="초대 링크", value=invite, inline=True)
-    embed.set_footer(text="계정 등록 후 세션을 열 수 있습니다.")
+    embed.add_field(
+        name="처음이신가요",
+        value=("**① 계정 등록** — 약관에 동의하고 가입 선물을 받습니다.\n"
+               "**② 세션 열기** — 시나리오를 고르고 캐릭터를 만듭니다.\n"
+               "**③ 진행** — 게임 채널에서 하고 싶은 것을 적으면 됩니다."),
+        inline=False,
+    )
+    embed.add_field(
+        name="알아두실 것",
+        value=("· 진행에는 **잉크**가 듭니다. 턴마다 예상 비용이 표시됩니다.\n"
+               "· 되묻거나 둘러보는 턴은 저렴하고, 상황이 크게 움직이는 턴은 비쌉니다.\n"
+               "· 세션 상태와 조작은 **디스플레이 채널**에 모여 있습니다.\n"
+               "· 잘못된 선택은 되감을 수 있으나 비용은 돌아오지 않습니다."),
+        inline=False,
+    )
+    embed.add_field(name="버전", value=f"v{__version__}", inline=True)
+    invite = getattr(bot, "invite_url", "")
+    if invite:
+        embed.add_field(name="봇 초대", value=f"[다른 서버에 추가]({invite})", inline=True)
+    embed.set_footer(text="이 채널은 채팅이 잠겨 있습니다. 아래 버튼으로 조작하십시오.")
     return embed
 
 
@@ -384,9 +401,13 @@ async def _begin_flow(bot, interaction, kind: str):
 
     if game_ch:
         # 참가자 호출 + 음성채널 참가 안내 (기획 규정)
-        msg = f"{interaction.user.mention} 님, 세션이 시작됩니다."
+        msg = (
+            f"{interaction.user.mention} 님, 여기서 세션을 만들어 갑니다.\n"
+            "몇 가지를 여쭙고 캐릭터를 만든 뒤 이야기가 시작됩니다."
+        )
         if voice_ch:
-            msg += f"\n> 음성 채널 {voice_ch.mention} 에 참가하시면 BGM과 음성을 들으실 수 있습니다."
+            msg += (f"\n\n🎧 음성 채널 {voice_ch.mention} 에 들어오시면 "
+                    "배경음과 음성이 함께 재생됩니다. 지금 들어오셔도 되고 나중에 오셔도 됩니다.")
         await game_ch.send(msg)
         await session_flow.render(bot, session, game_ch)
 
