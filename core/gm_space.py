@@ -67,32 +67,17 @@ def build_home_embed(bot) -> discord.Embed:
     from .constants import __version__
 
     embed = discord.Embed(
-        title="🎲 INDAIM",
+        title="🎲 INDAIM — GM 스페이스",
         description=(
-            "**AI가 진행하는 한국어 TRPG.**\n"
-            "당신이 무엇을 할지 말하면, 세계가 그에 반응합니다.\n"
-            "정해진 답은 없고 실패도 이야기가 됩니다."
+            "세션 생성과 계정 관리를 이곳에서 진행합니다.\n"
+            "아래 버튼으로 조작하십시오. 이 채널은 채팅이 불가합니다."
         ),
         color=0x5865F2,
     )
-    embed.add_field(
-        name="처음이신가요",
-        value=("**① 계정 등록** — 약관에 동의하고 가입 선물을 받습니다.\n"
-               "**② 세션 열기** — 시나리오를 고르고 캐릭터를 만듭니다.\n"
-               "**③ 진행** — 게임 채널에서 하고 싶은 것을 적으면 됩니다."),
-        inline=False,
-    )
-    embed.add_field(
-        name="알아두실 것",
-        value=("· 진행에는 **잉크**가 듭니다. 턴마다 예상 비용이 표시됩니다.\n"
-               "· TRPG가 처음이시라면 세션을 열 때 안내해 드립니다."),
-        inline=False,
-    )
-    embed.add_field(name="버전", value=f"v{__version__}", inline=True)
-    invite = getattr(bot, "invite_url", "")
-    if invite:
-        embed.add_field(name="봇 초대", value=f"[다른 서버에 추가]({invite})", inline=True)
-    embed.set_footer(text="이 채널은 채팅이 잠겨 있습니다. 아래 버튼으로 조작하십시오.")
+    embed.add_field(name="봇 버전", value=f"v{__version__}", inline=True)
+    invite = getattr(bot, "invite_url", "") or "(미설정)"
+    embed.add_field(name="초대 링크", value=invite, inline=True)
+    embed.set_footer(text="계정 등록 후 세션을 열 수 있습니다.")
     return embed
 
 
