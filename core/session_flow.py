@@ -71,7 +71,7 @@ async def render(bot, session, channel):
             # 첫 플레이 — 스킵 선택지를 주지 않고 풀소개(기획 규정)
             await channel.send(
                 f"**소개**\n> {progress}\n\n{intro_mod.greeting(level)}",
-                view=FullIntroView(bot, session, channel, level))
+                view=IntroStepView(bot, session, channel, level))
         else:
             # 경험자·숙련자 — 케이스 트리로 물어가며 진행(기획 규정)
             await channel.send(
@@ -189,38 +189,97 @@ class PrivateView(_Step):
         await self._next(interaction, "private", "비공개")
 
 
-class FullIntroView(_Step):
-    """첫 플레이 — 6항목을 순서대로 전부 본다. 스킵 없음."""
+class IntroStepView(_Step):
+    """
+    소개를 한 항목씩 진행한다.
 
-    def __init__(self, bot, session, channel, level):
+    기획 규정 — 항목별로 설명문을 준비해놓고 순서를 정해둔 뒤,
+    다음 설명을 출력할지 건너뛸지 결정하게 한다.
+
+    첫 플레이(LEVEL_NEW)는 건너뛰기 버튼을 주지 않는다.
+    """
+
+    def __init__(self, bot, session, channel, level, order=None, index=0):
         super().__init__(bot, session, channel)
         self.level = level
-        self.index = 0
+        self.order = list(order or intro_mod.FULL_ORDER)
+        self.index = index
+        self._build()
 
-    @discord.ui.button(label="▶ 시작", style=discord.ButtonStyle.primary)
-    async def advance(self, interaction, btn):
-        await interaction.response.defer()
-        order = intro_mod.FULL_ORDER
-        key = order[self.index]
-        await _send_topic(self.bot, self.session, self.channel, key, self.level)
-        self.index += 1
-
-        if self.index >= len(order):
-            for c in self.children:
-                c.disabled = True
-            try:
-                await interaction.message.edit(view=self)
-            except Exception:
-                pass
-            await self._next(interaction, "intro", "풀소개")
+    def _build(self):
+        self.clear_items()
+        remain = len(self.order) - self.index
+        if remain <= 0:
             return
 
-        nxt = intro_mod.get_label(order[self.index])
-        btn.label = f"▶ 다음: {nxt}"
+        nxt = intro_mod.get_label(self.order[self.index])
+        self.add_item(NextTopicButton(f"▶ {nxt}"))
+
+        # 첫 플레이는 건너뛰지 못한다(기획 규정).
+        if self.level != intro_mod.LEVEL_NEW:
+            if remain > 1:
+                self.add_item(SkipOneButton())
+            self.add_item(SkipAllButton())
+
+    async def show_next(self, interaction):
+        """현재 항목을 출력하고 다음으로 넘긴다."""
+        key = self.order[self.index]
+        await _send_topic(self.bot, self.session, self.channel, key, self.level)
+        self.index += 1
+        await self._refresh(interaction)
+
+    async def skip_one(self, interaction):
+        self.index += 1
+        await self._refresh(interaction)
+
+    async def _refresh(self, interaction):
+        """남은 항목이 있으면 버튼을 갱신하고, 없으면 단계를 넘긴다."""
+        if self.index >= len(self.order):
+            await self._finish(interaction, "완료")
+            return
+
+        self._build()
+        remain = len(self.order) - self.index
         try:
-            await interaction.message.edit(view=self)
+            await interaction.message.edit(
+                content=f"**소개** — {remain}개 남았습니다.", view=self)
         except Exception:
             pass
+
+    async def _finish(self, interaction, note: str):
+        self.clear_items()
+        try:
+            await interaction.message.edit(content="**소개**를 마쳤습니다.", view=None)
+        except Exception:
+            pass
+        await self._next(interaction, "intro", note)
+
+
+class NextTopicButton(discord.ui.Button):
+    def __init__(self, label: str):
+        super().__init__(label=label[:80], style=discord.ButtonStyle.primary)
+
+    async def callback(self, interaction):
+        await interaction.response.defer()
+        await self.view.show_next(interaction)
+
+
+class SkipOneButton(discord.ui.Button):
+    def __init__(self):
+        super().__init__(label="건너뛰기", style=discord.ButtonStyle.secondary)
+
+    async def callback(self, interaction):
+        await interaction.response.defer()
+        await self.view.skip_one(interaction)
+
+
+class SkipAllButton(discord.ui.Button):
+    def __init__(self):
+        super().__init__(label="⏭ 바로 시작", style=discord.ButtonStyle.secondary)
+
+    async def callback(self, interaction):
+        await interaction.response.defer()
+        await self.view._finish(interaction, "건너뜀")
 
 
 class IntroCaseView(_Step):
@@ -253,10 +312,14 @@ class CaseButton(discord.ui.Button):
         except Exception:
             pass
 
-        for key in topics:
-            await _send_topic(v.bot, v.session, v.channel, key, v.level)
+        if not topics:
+            await v._next(interaction, "intro", case.get("label", self.key))
+            return
 
-        await v._next(interaction, "intro", case.get("label", self.key))
+        # 고른 갈래도 한 항목씩 진행한다. 한꺼번에 쏟아내지 않는다.
+        step = IntroStepView(v.bot, v.session, v.channel, v.level, order=topics)
+        await v.channel.send(
+            f"**소개** — {len(topics)}개 준비했습니다.", view=step)
 
 
 async def _send_topic(bot, session, channel, key: str, level: str):
@@ -264,7 +327,7 @@ async def _send_topic(bot, session, channel, key: str, level: str):
     body = intro_mod.get_body(key, level)
     if not body:
         return
-    text = f"**{intro_mod.get_label(key)}**\n{body}"
+    text = f"**{intro_mod.get_label(key)}**\n\n{body}"
 
     # 기획 규정의 '미디어 활용한 설명'. 시나리오가 지정한 이미지가
     # 실제로 있을 때만 붙인다. 없으면 텍스트만 나간다.
