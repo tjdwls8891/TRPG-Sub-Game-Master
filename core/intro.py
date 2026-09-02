@@ -159,6 +159,40 @@ NEW_GREETING = (
 )
 
 
+def split_sections(body: str) -> list:
+    """본문을 임베드 필드 단위로 자른다.
+
+    빈 줄로 나뉜 문단을 묶되, 굵게 시작하거나 목록으로 시작하는 문단은
+    새 구획으로 연다. 한 덩어리로 쏟아내면 읽히지 않는다.
+
+    Returns:
+        [(제목 또는 None, 본문)] — 제목이 None이면 이어지는 설명
+    """
+    paras = [x.strip() for x in (body or "").split("\n\n") if x.strip()]
+    if not paras:
+        return []
+
+    out = []
+    buf = []
+    for para in paras:
+        # 목록(·)으로 시작하면 따로 떼어 눈에 띄게 한다.
+        is_list = para.lstrip().startswith("·")
+        if is_list:
+            if buf:
+                out.append((None, "\n\n".join(buf)))
+                buf = []
+            out.append((None, para))
+            continue
+        buf.append(para)
+        # 두 문단이 모이면 한 구획으로 끊는다. 필드가 너무 길면 안 읽힌다.
+        if len(buf) >= 2:
+            out.append((None, "\n\n".join(buf)))
+            buf = []
+    if buf:
+        out.append((None, "\n\n".join(buf)))
+    return out
+
+
 def get_body(key: str, level: str) -> str:
     """항목 본문. 초심자에게는 고정 문안, 그 외에는 바리에이션."""
     topic = TOPICS.get(key)
