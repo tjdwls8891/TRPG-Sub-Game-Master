@@ -298,7 +298,31 @@ async def maybe_send_speaker_image(channel, session, speaker: str) -> bool:
         return False
 
 
-async def stream_text_to_channel(bot, channel, text: str, words_per_tick: int = 10, tick_interval: float = 1.5,
+async def send_streamed(bot, channel, text: str, **kwargs):
+    """게임 채널 전용 전송. 순수 텍스트면 스트리밍한다.
+
+    기획 규정 — 게임 채널의 모든 메시지는 스트리밍한다.
+    다만 코드블럭과 임베드는 제외한다. 코드블럭은 부분 출력 도중
+    마크다운이 깨지고, 임베드는 애초에 점진 출력이 되지 않는다.
+
+    파일·뷰가 붙은 경우도 그대로 보낸다. 스트리밍 중에는 버튼이
+    여러 번 다시 그려져 조작이 어긋난다.
+    """
+    if not text:
+        return await channel.send(**kwargs) if kwargs else None
+
+    # 스트리밍 대상이 아닌 것들
+    if kwargs.get("embed") or kwargs.get("embeds") or kwargs.get("file") \
+            or kwargs.get("files") or kwargs.get("view"):
+        return await channel.send(text, **kwargs)
+    if "```" in text:
+        return await channel.send(text, **kwargs)
+
+    await stream_text_to_channel(bot, channel, text, quote_prefix=False)
+    return None
+
+
+async def stream_text_to_channel(bot, channel, text: str, words_per_tick: int = 30, tick_interval: float = 1.5,
                                   quote_prefix: bool = True, total_duration: float | None = None):
     """
     디스코드 채널에 텍스트를 문단과 단어 단위로 쪼개어 타이핑 치듯 스트리밍 연출.
@@ -310,7 +334,9 @@ async def stream_text_to_channel(bot, channel, text: str, words_per_tick: int = 
         bot: 메인 봇 인스턴스
         channel (discord.TextChannel): 텍스트를 출력할 디스코드 채널 객체
         text (str): 출력할 원본 전체 텍스트
-        words_per_tick (int): 한 번의 갱신에 출력할 단어 수
+        words_per_tick (int): 한 번의 갱신에 출력할 단어 수.
+            간격을 줄이면 API 호출이 늘어 레이트 리밋에 걸리므로,
+            속도는 이 값으로 조절한다.
         tick_interval (float): 갱신 간격 (초 단위)
         quote_prefix (bool): True면 문단 앞에 '> '를 자동 부착 (기본). 인물 대사 등 헤더 마크다운이 들어간 문단은 False.
         total_duration (float | None): 지정 시(>0) 이 문단 전체를 해당 초만큼에 걸쳐 출력하도록

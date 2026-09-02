@@ -249,6 +249,7 @@ from .dialogue import (
     merge_consecutive_dialogues,
     maybe_send_speaker_image,
     stream_text_to_channel,
+    send_streamed,
     strip_unauthorized_pc_dialogue,
     send_status_message,
     clear_status_message,
@@ -339,7 +340,7 @@ __all__ = [
     "PromptBuilder", "build_compression_prompt",
     # dialogue
     "DIALOGUE_MARKER_PATTERN", "parse_dialogue_paragraph", "format_dialogue_block",
-    "merge_consecutive_dialogues", "maybe_send_speaker_image", "stream_text_to_channel",
+    "merge_consecutive_dialogues", "maybe_send_speaker_image", "stream_text_to_channel", "send_streamed",
     "strip_unauthorized_pc_dialogue", "pick_status_message", "send_layer_status",
     "LAYER_STATUS_MESSAGES", "WAITING_TIPS", "send_status_message", "clear_status_message",
     # media

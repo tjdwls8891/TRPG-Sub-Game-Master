@@ -98,7 +98,7 @@ class GameCog(commands.Cog):
         if message.channel.id == session.master_ch_id:
             game_channel = self.bot.get_channel(session.game_ch_id)
             if game_channel:
-                await core.stream_text_to_channel(self.bot, game_channel, f"> {message.content}", words_per_tick=5,
+                await core.stream_text_to_channel(self.bot, game_channel, f"> {message.content}", words_per_tick=15,
                                                   tick_interval=1.5)
                 session.current_turn_logs.append(f"[진행자]: {message.content}")
                 await core.save_session_data(self.bot, session)
@@ -665,11 +665,11 @@ class GameCog(commands.Cog):
                         await core.maybe_send_speaker_image(game_channel, session, speaker)
                         formatted = core.format_dialogue_block(speaker, content)
                         await core.stream_text_to_channel(self.bot, game_channel, formatted,
-                                                          words_per_tick=5, tick_interval=1.5,
+                                                          words_per_tick=15, tick_interval=1.5,
                                                           quote_prefix=False)
                     else:
                         await core.stream_text_to_channel(self.bot, game_channel, paragraph,
-                                                          words_per_tick=5, tick_interval=1.5)
+                                                          words_per_tick=15, tick_interval=1.5)
 
                     if i == 0:
                         for kw in top_imgs:

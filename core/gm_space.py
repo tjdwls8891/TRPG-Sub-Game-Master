@@ -391,7 +391,8 @@ async def _begin_flow(bot, interaction, kind: str):
         if voice_ch:
             msg += (f"\n\n🎧 음성 채널 {voice_ch.mention} 에 들어오시면 "
                     "배경음과 음성이 함께 재생됩니다. 지금 들어오셔도 되고 나중에 오셔도 됩니다.")
-        await game_ch.send(msg)
+        from .dialogue import send_streamed
+        await send_streamed(bot, game_ch, msg)
         await session_flow.render(bot, session, game_ch)
 
 

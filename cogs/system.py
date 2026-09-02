@@ -204,7 +204,7 @@ class SystemCog(commands.Cog):
         # 1. 게임 채널 잠금
         try:
             await game_channel.set_permissions(ctx.guild.default_role, send_messages=False)
-            await game_channel.send("🔒 **세션이 종료되어 채널이 잠겼습니다.**")
+            await core.send_streamed(self.bot, game_channel, "🔒 **세션이 종료되어 채널이 잠겼습니다.**")
         except Exception as e:
             await ctx.send(f"⚠️ 게임 채널 잠금 실패: {e}")
 

@@ -1163,7 +1163,7 @@ class GMCog(commands.Cog):
         if game_ch:
             await core.stream_text_to_channel(
                 self.bot, game_ch, f"> {prompt}",
-                words_per_tick=8, tick_interval=0.8
+                words_per_tick=24, tick_interval=0.8
             )
         # 선제 질문도 current_turn_logs에 기록
         session.current_turn_logs.append(f"[진행자 (GM)]: {prompt}")
@@ -1216,7 +1216,7 @@ class GMCog(commands.Cog):
             # 멀티플레이어 — 게임 채널에 행동 종합 표시
             summary_lines = "\n".join([f"> **{k}**: {v}" for k, v in actions.items()])
             if game_ch:
-                await game_ch.send(f"> 📋 **행동 선언 종합:**\n{summary_lines}")
+                await core.send_streamed(self.bot, game_ch, f"> 📋 **행동 선언 종합:**\n{summary_lines}")
                 core.write_log(session.session_id, "game_chat",
                                f"[행동 종합]: {'; '.join([f'{k}: {v}' for k, v in actions.items()])}")
             player_message = "\n".join([f"[{k}]: {v}" for k, v in actions.items()])
@@ -1460,7 +1460,7 @@ class GMCog(commands.Cog):
         if not getattr(session, "cache_name", None):
             await m_send("⚠️ 세션이 닫혀 있습니다. 디스플레이에서 세션을 열어 주십시오.")
             if game_ch:
-                await game_ch.send("⏸️ 세션이 닫혀 있어 진행할 수 없습니다.")
+                await core.send_streamed(self.bot, game_ch, "⏸️ 세션이 닫혀 있어 진행할 수 없습니다.")
             return
 
         # ── 잔액 검사 (기획 규정 — 소지금 < 예상 최대금액이면 차단) ──
@@ -1470,7 +1470,7 @@ class GMCog(commands.Cog):
                 _bal = core.accounts.get_balance(_uid)
                 if _bal < _pre_est["max_ink"]:
                     if game_ch:
-                        await game_ch.send(
+                        await core.send_streamed(self.bot, game_ch,
                             f"⛔ **잉크가 부족합니다.**\n"
                             f"> 필요 {_pre_est['max_ink']}잉크 / 보유 {_bal}잉크\n"
                             f"> GM 스페이스에서 충전 후 진행해 주십시오.")
@@ -1581,7 +1581,7 @@ class GMCog(commands.Cog):
                 if game_ch:
                     await core.stream_text_to_channel(
                         self.bot, game_ch, bridge,
-                        words_per_tick=5, tick_interval=1.5
+                        words_per_tick=15, tick_interval=1.5
                     )
                 # ASK 브리지를 current_turn_logs에 기록 → 다음 지시층위 호출 시 맥락 유지
                 session.current_turn_logs.append(f"[진행자 (GM)]: {bridge}")
@@ -2149,7 +2149,7 @@ class GMCog(commands.Cog):
                 )
 
             if game_ch:
-                await game_ch.send(line)
+                await core.send_streamed(self.bot, game_ch, line)
                 # 판정 결과 안내 메시지 (stat_value가 확인된 경우에만 출력)
                 if stat_value is not None:
                     if "대성공" in crit:
@@ -2160,7 +2160,7 @@ class GMCog(commands.Cog):
                         announce = f"> ✅ **{stat_name}** 판정이 성공했습니다."
                     else:
                         announce = f"> ❌ **{stat_name}** 판정이 실패했습니다."
-                    await game_ch.send(announce)
+                    await core.send_streamed(self.bot, game_ch, announce)
                 core.write_log(session.session_id, "game_chat", f"[판정]: {line}")
             # 주사위 효과음 — 토글이 켜져 있을 때만.
             try:
@@ -2198,7 +2198,7 @@ class GMCog(commands.Cog):
                     if growth:
                         g_line = core.format_growth(char_name, stat_name, growth)
                         if game_ch:
-                            await game_ch.send(g_line)
+                            await core.send_streamed(self.bot, game_ch, g_line)
                         if master_ch:
                             await master_ch.send(g_line)
                         if growth.get("grew"):
@@ -2210,7 +2210,7 @@ class GMCog(commands.Cog):
                     if luck:
                         l_line = core.format_luck(char_name, luck)
                         if game_ch:
-                            await game_ch.send(l_line)
+                            await core.send_streamed(self.bot, game_ch, l_line)
                         if master_ch:
                             await master_ch.send(l_line)
                         # 지시층위에 행운 발생을 전달한다. 서사 제약은
@@ -2467,12 +2467,12 @@ class GMCog(commands.Cog):
                     formatted = core.format_dialogue_block(speaker, content)
                     await core.stream_text_to_channel(
                         self.bot, game_ch, formatted,
-                        words_per_tick=5, tick_interval=1.5, quote_prefix=False
+                        words_per_tick=15, tick_interval=1.5, quote_prefix=False
                     )
                 else:
                     await core.stream_text_to_channel(
                         self.bot, game_ch, paragraph,
-                        words_per_tick=5, tick_interval=1.5
+                        words_per_tick=15, tick_interval=1.5
                     )
 
         # current_turn_logs에 추가 — PROCEED 시 AI가 맥락을 볼 수 있도록
@@ -2552,7 +2552,7 @@ class GMCog(commands.Cog):
             except Exception:
                 pass
             if game_ch:
-                await game_ch.send(core.build_failed_turn_notice(last_decl))
+                await core.send_streamed(self.bot, game_ch, core.build_failed_turn_notice(last_decl))
             if master_ch:
                 await master_ch.send("⚠️ 묘사층위 실패 — 턴을 취소하고 선언 질문으로 되돌립니다.")
             # 실패 턴의 잔재 제거. 플레이 로그에는 정상 선언 질문처럼 남는다.

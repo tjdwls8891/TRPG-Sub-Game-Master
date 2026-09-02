@@ -483,7 +483,7 @@ class CharacterCog(commands.Cog):
 
         game_channel = self.bot.get_channel(session.game_ch_id)
         if game_channel:
-            await game_channel.send(f"✅ <@{user_id_str}>의 [{key}] 항목이 '{value}'(으)로 갱신되었습니다.")
+            await core.send_streamed(self.bot, game_channel, f"✅ <@{user_id_str}>의 [{key}] 항목이 '{value}'(으)로 갱신되었습니다.")
 
 
     @commands.command(name="증감")
@@ -556,7 +556,7 @@ class CharacterCog(commands.Cog):
                     f"✅ {char_name}의 자원 [{item_name}]: {old_val} → 0 ({amount:+d}) — 소진되어 목록에서 제거됨"
                 )
                 if game_channel:
-                    await game_channel.send(
+                    await core.send_streamed(self.bot, game_channel,
                         f"> 📦 **[자원 소진]** {char_name}의 [{item_name}] 소진됨 (이전: {old_val})"
                     )
             else:
@@ -564,7 +564,7 @@ class CharacterCog(commands.Cog):
                     f"✅ {char_name}의 자원 [{item_name}]: {old_val} → {new_val} ({amount:+d})"
                 )
                 if game_channel:
-                    await game_channel.send(
+                    await core.send_streamed(self.bot, game_channel,
                         f"> 📦 **[자원 변동]** {char_name}의 [{item_name}]: {old_val} → {new_val} ({amount:+d})"
                     )
             return
@@ -590,7 +590,7 @@ class CharacterCog(commands.Cog):
                     await core.save_session_data(self.bot, session)
                     await ctx.send(f"✅ {char_name}의 상태이상 [{target}] 제거 완료.")
                     if game_channel:
-                        await game_channel.send(
+                        await core.send_streamed(self.bot, game_channel,
                             f"> 🔵 **[상태 해제]** {char_name}의 [{target}] 상태이상이 해제되었습니다."
                         )
                 else:
@@ -601,7 +601,7 @@ class CharacterCog(commands.Cog):
                     await core.save_session_data(self.bot, session)
                     await ctx.send(f"✅ {char_name}에게 상태이상 [{status_text}] 부여 완료.")
                     if game_channel:
-                        await game_channel.send(
+                        await core.send_streamed(self.bot, game_channel,
                             f"> 🔴 **[상태 부여]** {char_name}에게 [{status_text}] 상태이상이 부여되었습니다."
                         )
                 else:
@@ -645,7 +645,7 @@ class CharacterCog(commands.Cog):
 
         await ctx.send(f"✅ {char_name}의 [{key}] 수치 연산 완료: {old_val} → {new_val} ({amount:+d})")
         if game_channel:
-            await game_channel.send(
+            await core.send_streamed(self.bot, game_channel,
                 f"> 📢 **[스탯 변동]** {char_name}의 [{key}]이(가) {new_val}(으)로 변경되었습니다. ({old_val}{amount:+d})"
             )
 
@@ -1107,7 +1107,7 @@ class CharacterCog(commands.Cog):
         stats_str = " / ".join(ability_stats)
         cap_info = f" (개별 상한: **{stat_max}**)" if stat_max is not None else ""
 
-        await game_channel.send(
+        await core.send_streamed(self.bot, game_channel,
             f"> 🎲 <@{user_id_str}>님, **{char_name}**의 능력치를 굴릴 시간입니다!\n"
             f"> 대상 스탯: **{stats_str}**\n"
             f"> d{dice_sides} × {len(ability_stats)}회 굴림 → 비율에 맞춰 합계 **{target_total}** 자동 배분{cap_info}\n"

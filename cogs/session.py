@@ -492,7 +492,7 @@ class SessionCog(commands.Cog):
         start_message = session.scenario_data.get("start_message", "> 세션이 시작됩니다.")
         start_text = f"**[세션 시작]**\n\n{start_message}"
 
-        await core.stream_text_to_channel(self.bot, game_channel, start_text, words_per_tick=5, tick_interval=1.5)
+        await core.stream_text_to_channel(self.bot, game_channel, start_text, words_per_tick=15, tick_interval=1.5)
 
         # NOTE: Gemini API는 contents 배열이 반드시 role="user"로 시작해야 한다.
         # start_text를 model 단독으로 삽입하면 API가 해당 메시지를 무시하므로,
@@ -556,7 +556,7 @@ class SessionCog(commands.Cog):
             await core.stream_text_to_channel(
                 self.bot, game_channel,
                 f"{briefing}\n\n{chosen.get('summary', '')}",
-                words_per_tick=5, tick_interval=1.5)
+                words_per_tick=15, tick_interval=1.5)
 
         await core.save_session_data(self.bot, session)
         try:
@@ -623,7 +623,7 @@ class SessionCog(commands.Cog):
         # 전체 분량(~2,000자, 다수 문단)을 고려해 체감 대기 시간을 줄인다.
         # (!시작·AI 턴 묘사의 연출 속도는 그대로 유지)
         for paragraph in paragraphs:
-            await core.stream_text_to_channel(self.bot, game_channel, paragraph, words_per_tick=5, tick_interval=0.6)
+            await core.stream_text_to_channel(self.bot, game_channel, paragraph, words_per_tick=15, tick_interval=0.6)
 
         await ctx.send("✅ 소개 스트리밍이 완료되었습니다.")
 
