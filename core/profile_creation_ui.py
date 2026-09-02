@@ -32,7 +32,11 @@ class ProfileCreationSession:
         self.uid = str(uid)
         self.char_name = char_name
         self.run = runner.new_run(session.scenario_data)
+        # 화면은 메시지 하나를 고쳐 쓴다. 단계마다 새로 보내면 지난
+        # 인터페이스가 남아 눌리고, 위아래로 스크롤해야 한다.
         self.message = None
+        # AUTO 단계에서 코드가 정한 결과를 모아 화면에 함께 보여준다.
+        self.notes = []
 
 
 async def render(state: ProfileCreationSession, channel, *, user_input=None):
@@ -47,7 +51,9 @@ async def render(state: ProfileCreationSession, channel, *, user_input=None):
         user_input = None
 
         if res["type"] == runner.AUTO:
-            await channel.send(f"▸ {res['message']}")
+            # 자동 확정은 따로 보내지 않고 다음 화면에 함께 싣는다.
+            if res.get("message"):
+                state.notes.append(res["message"])
             continue
 
         if res["type"] == runner.DONE:
@@ -55,10 +61,10 @@ async def render(state: ProfileCreationSession, channel, *, user_input=None):
             return
 
         if res["type"] == runner.ERROR:
-            await channel.send(
-                f"⚠️ {res['message']}\n"
-                f"> 이전 단계로 돌아가 다시 선택해 주십시오.",
-                view=BackOnlyView(state, channel))
+            await _send(state, channel,
+                        {"message": f"⚠️ {res['message']}",
+                         "guide": "이전 단계로 돌아가 다시 골라 주세요."},
+                        view=BackOnlyView(state, channel))
             return
 
         if res.get("ai_module"):
@@ -83,27 +89,41 @@ async def render(state: ProfileCreationSession, channel, *, user_input=None):
         return
 
 
-async def _send(state, channel, res: dict, *, view):
-    """단계 화면을 그린다. 기존 메시지는 정리해 채널을 깨끗이 유지한다."""
-    progress = runner.progress(state.session.scenario_data, state.run)
-    lines = [f"**[{state.char_name} 생성 · {progress}]**"]
+def _embed(state, res: dict) -> discord.Embed:
+    """단계 임베드. 진행도는 푸터 한 곳에만 둔다."""
+    e = discord.Embed(
+        title=f"{state.char_name} 만들기",
+        description=res.get("message") or "",
+        color=0x5865F2,
+    )
     if res.get("guide"):
-        lines.append(f"> {res['guide']}")
-    lines.append("")
-    lines.append(res.get("message") or "")
+        e.add_field(name="\u200b", value=f"💡 {res['guide']}", inline=False)
+
+    # 직전에 코드가 자동으로 정한 것들을 함께 보여준다.
+    if state.notes:
+        e.add_field(name="자동 확정", value="\n".join(f"· {n}" for n in state.notes),
+                    inline=False)
+        state.notes = []
 
     if res.get("options") and len(res["options"]) <= SELECT_THRESHOLD:
-        lines.append("")
-        lines.append("· " + "  ·  ".join(str(o) for o in res["options"]))
+        e.add_field(name="\u200b",
+                    value="  ·  ".join(str(o) for o in res["options"]),
+                    inline=False)
 
-    content = "\n".join(lines)
+    e.set_footer(text=runner.progress(state.session.scenario_data, state.run))
+    return e
+
+
+async def _send(state, channel, res: dict, *, view):
+    """단계 화면을 그린다. 메시지 하나를 계속 고쳐 쓴다."""
+    embed = _embed(state, res)
     if state.message:
         try:
-            await state.message.edit(content=content, view=view)
+            await state.message.edit(embed=embed, view=view, content=None)
             return
         except Exception:
-            pass
-    state.message = await channel.send(content, view=view)
+            state.message = None
+    state.message = await channel.send(embed=embed, view=view)
 
 
 async def finish(state: ProfileCreationSession, channel):
@@ -148,27 +168,45 @@ async def finish(state: ProfileCreationSession, channel):
     from .io import save_session_data
     await save_session_data(state.bot, state.session)
 
-    summary = "\n".join(f"> {k}: {v}" for k, v in profile.items() if v)
+    # 완성 화면도 같은 메시지를 고쳐 쓴다.
+    e = discord.Embed(
+        title=f"{state.char_name}",
+        description="캐릭터가 완성되었습니다.",
+        color=0x57F287,
+    )
+    stats_line = []
+    for k, v in profile.items():
+        if not v:
+            continue
+        if len(str(v)) > 60:
+            e.add_field(name=k, value=str(v)[:1000], inline=False)
+        else:
+            stats_line.append(f"**{k}** {v}")
+    if stats_line:
+        e.insert_field_at(0, name="\u200b", value=" · ".join(stats_line),
+                          inline=False)
+
+    try:
+        items = profile_gen.starting_items(
+            state.session.scenario_data, result.get("직업"))
+        if items:
+            e.add_field(name="소지품", value=", ".join(items), inline=False)
+    except Exception:
+        pass
+
+    view = SaveProfileView(state, result)
     if state.message:
         try:
-            await state.message.delete()
+            await state.message.edit(embed=e, view=view, content=None)
+            view.message = state.message
         except Exception:
-            pass
-        state.message = None
+            state.message = None
+    if not state.message:
+        state.message = await channel.send(embed=e, view=view)
+        view.message = state.message
 
-    await channel.send(
-        f"✅ **{state.char_name}** 생성이 완료되었습니다.\n{summary}",
-        view=SaveProfileView(state, result),
-    )
-
-    # 세션 제작 플로우 진행 중이면 다음 단계로 넘긴다.
-    # 사전 프로필 단독 생성(_StandaloneSession)은 해당하지 않는다.
-    if getattr(state.session, "creation_state", None):
-        try:
-            from . import session_flow
-            await session_flow.on_profile_done(state.bot, state.session, channel)
-        except Exception as e:
-            print(f"[세션플로우] 프로필 완료 처리 실패: {e}")
+    # NOTE: 다음 단계로 넘기는 것은 SaveProfileView가 한다.
+    #       여기서 넘기면 저장 여부를 묻기도 전에 화면이 바뀐다.
 
 
 class _Base(discord.ui.View):
@@ -239,7 +277,8 @@ class ConfirmView(_Base):
         await interaction.response.defer()
         outcome = runner.confirm(self.state.session.scenario_data, self.state.run)
         if outcome.get("revised"):
-            await self.channel.send(f"↻ {outcome['revised']['reason']}")
+            # 별도 메시지로 보내면 화면 밖에 쌓인다. 다음 화면에 함께 싣는다.
+            self.state.notes.append(outcome["revised"]["reason"])
         await render(self.state, self.channel)
 
     @discord.ui.button(label="다시 선택", style=discord.ButtonStyle.secondary)
@@ -388,7 +427,7 @@ class InputModal(discord.ui.Modal):
                 module, self.res.get("args") or {}, text,
             )
             if outcome.get("message"):
-                await self.channel.send(outcome["message"])
+                self.state.notes.append(outcome["message"])
             if not outcome.get("ok"):
                 # 반려 — 같은 단계를 다시 묻는다.
                 await render(self.state, self.channel)
@@ -425,11 +464,31 @@ class BackOnlyView(_Base):
 
 
 class SaveProfileView(_Base):
-    """완성 후 사전 프로필 저장 여부를 묻는다(기획 규정)."""
+    """완성 후 사전 프로필 저장 여부를 묻는다(기획 규정).
+
+    어느 쪽을 고르든 화면을 정리하고 세션 플로우로 넘긴다.
+    버튼만 비활성화하고 두면 다음 단계가 시작되지 않는다.
+    """
 
     def __init__(self, state, result: dict):
         super().__init__(state, None, timeout=600)
         self.result = result
+        self.message = None
+
+    async def _close(self, interaction, note: str):
+        self.clear_items()
+        e = discord.Embed(
+            title=f"{self.state.char_name}",
+            description=note,
+            color=0x57F287,
+        )
+        try:
+            await interaction.message.edit(embed=e, view=None)
+        except Exception:
+            pass
+        self.state.message = None
+        self.stop()
+        await _advance_flow(self.state, interaction.channel)
 
     @discord.ui.button(label="💾 사전 프로필로 저장", style=discord.ButtonStyle.success)
     async def save(self, interaction, _b):
@@ -440,42 +499,42 @@ class SaveProfileView(_Base):
             scenario_id=getattr(self.state.session, "scenario_id", None),
             fields=dict(self.result),
         )
-        for c in self.children:
-            c.disabled = True
-        try:
-            await interaction.message.edit(view=self)
-        except Exception:
-            pass
-        await interaction.followup.send(
-            f"💾 저장했습니다. (태그: {saved['tag']})" if saved else "⚠️ 저장에 실패했습니다.",
-            ephemeral=True)
+        note = (f"저장했습니다. 다음에 이 시나리오를 하실 때 불러오실 수 있어요.\n"
+                f"태그: **{saved['tag']}**") if saved else "저장에 실패했습니다."
+        await self._close(interaction, note)
 
     @discord.ui.button(label="저장 안 함", style=discord.ButtonStyle.secondary)
     async def skip(self, interaction, _b):
-        for c in self.children:
-            c.disabled = True
-        await interaction.response.edit_message(view=self)
+        await interaction.response.defer()
+        await self._close(interaction, "준비가 끝났습니다.")
 
 
 class PrefillView(_Base):
-    """사전 프로필 사용 여부(기획 규정 — 보유자에게만 묻는다)."""
+    """사전 프로필 사용 여부(기획 규정 — 보유자에게만 묻는다).
+
+    고르든 새로 만들든 이 화면을 그대로 생성 화면으로 바꿔 이어간다.
+    새 메시지를 보내면 이 버튼들이 남아 다시 눌린다.
+    """
 
     def __init__(self, state, channel, candidates: list):
         super().__init__(state, channel)
-        dup = profile_store.duplicate_names(state.uid,
-                                            getattr(state.session, "scenario_id", None))
+        dup = profile_store.duplicate_names(
+            state.uid, getattr(state.session, "scenario_id", None))
         self.add_item(PrefillSelect(candidates, dup))
 
     @discord.ui.button(label="새로 만들기", style=discord.ButtonStyle.primary, row=1)
     async def fresh(self, interaction, _b):
         await interaction.response.defer()
+        self.state.message = interaction.message
+        self.clear_items()
+        self.stop()
         await render(self.state, self.channel)
 
 
 class PrefillSelect(discord.ui.Select):
     def __init__(self, candidates, dup):
         super().__init__(
-            placeholder="사전 프로필 사용",
+            placeholder="저장해둔 프로필 사용",
             options=[discord.SelectOption(
                 label=profile_store.display_name(p, dup)[:100], value=p["id"])
                 for p in candidates[:MAX_OPTIONS]],
@@ -485,12 +544,32 @@ class PrefillSelect(discord.ui.Select):
     async def callback(self, interaction):
         await interaction.response.defer()
         v = self.view
-        picked = next((p for p in self.candidates if p["id"] == self.values[0]), None)
+        picked = next((p for p in self.candidates
+                       if p["id"] == self.values[0]), None)
         if picked:
             # 사전 프로필 값을 채워 두면 실행부가 해당 단계를 건너뛴다.
-            v.state.run = runner.new_run(v.state.session.scenario_data,
-                                         prefill=dict(picked.get("fields") or {}))
+            v.state.run = runner.new_run(
+                v.state.session.scenario_data,
+                prefill=dict(picked.get("fields") or {}))
+            v.state.notes.append(
+                f"{picked.get('name', '저장한 프로필')}을(를) 불러왔습니다")
+
+        # 이 메시지를 생성 화면으로 이어 쓴다.
+        v.state.message = interaction.message
+        v.clear_items()
+        v.stop()
         await render(v.state, v.channel)
+
+
+async def _advance_flow(state, channel):
+    """세션 제작 플로우 진행 중이면 다음 단계로 넘긴다."""
+    if not getattr(state.session, "creation_state", None):
+        return
+    try:
+        from . import session_flow
+        await session_flow.on_profile_done(state.bot, state.session, channel)
+    except Exception as e:
+        print(f"[세션플로우] 프로필 완료 처리 실패: {e}")
 
 
 async def start(bot, session, uid, char_name: str, channel):
@@ -503,9 +582,13 @@ async def start(bot, session, uid, char_name: str, channel):
 
     steps = profile_gen.get_steps(session.scenario_data)
     if not steps:
-        await channel.send(
-            "⚠️ 이 시나리오에는 프로필 생성 알고리즘이 정의되어 있지 않습니다.\n"
-            "> `!능력치` `!외형` `!설정` 명령으로 직접 설정해 주십시오.")
+        # 알고리즘이 없으면 흐름이 끊기지 않도록 안내 후 다음 단계로 넘긴다.
+        await channel.send(embed=discord.Embed(
+            title="캐릭터 설정",
+            description=("이 시나리오에는 자동 생성 절차가 준비되어 있지 않습니다.\n"
+                         "`!능력치` `!외형` `!설정` 명령으로 직접 정해 주세요."),
+            color=0xFEE75C))
+        await _advance_flow(state, channel)
         return None
 
     # 기획 규정 — 해당 시나리오가 처음이거나 사전 프로필이 없으면 질문 생략.
@@ -517,9 +600,13 @@ async def start(bot, session, uid, char_name: str, channel):
 
     candidates = profile_store.list_profiles(uid, sid)
     if candidates:
-        await channel.send(
-            f"**{char_name}** — 저장된 프로필을 사용하시겠습니까?",
-            view=PrefillView(state, channel, candidates))
+        e = discord.Embed(
+            title=f"{char_name} 만들기",
+            description=("전에 저장해두신 프로필이 있어요.\n"
+                         "불러다 쓰시겠어요, 아니면 새로 만드시겠어요?"),
+            color=0x5865F2)
+        state.message = await channel.send(
+            embed=e, view=PrefillView(state, channel, candidates))
         return state
 
     await render(state, channel)
