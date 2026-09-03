@@ -134,14 +134,9 @@ async def render(bot, session, channel):
         st = creation.get_state(session)
         st["intro_level"] = level
 
-        if level == intro_mod.LEVEL_NEW:
-            # 첫 플레이 — 건너뛰기 없이 순서대로(기획 규정)
-            view = IntroStepView(bot, session, channel, level)
-            await view.open(channel)
-        else:
-            # 경험자·숙련자 — 항목마다 물어가며 진행(기획 규정)
-            view = IntroTalkView(bot, session, channel, level)
-            await show(bot, session, channel, view._embed(), view)
+        # 첫 플레이는 건너뛰기 없이 전부, 경험자는 언제든 넘길 수 있다.
+        view = IntroView(bot, session, channel, level)
+        await show(bot, session, channel, view._embed(), view)
 
     elif step == "scenario":
         scenarios = _visible_scenarios(session)
@@ -266,59 +261,82 @@ class PrivateView(_Step):
         await self._next(interaction, "private", "비공개")
 
 
-class IntroStepView(_Step):
+class IntroView(_Step):
     """
-    소개를 한 화면에서 진행한다.
+    소개 — 강의처럼 설명하고 중간중간 확인한다(기획 규정).
 
-    기획 규정 — 항목별로 설명문을 준비해놓고 순서를 정해둔 뒤,
-    다음 설명을 출력할지 건너뛸지 결정하게 한다.
+    설명이 먼저 나오고 그 끝에서 다음을 물어야 한다. 질문이 앞서면
+    무엇을 고르는지 모른 채 답하게 된다.
 
-    내용과 버튼을 같은 메시지에 두고 갱신한다. 별도 메시지로 쏟아내면
-    위아래로 스크롤해야 하고 지난 항목이 계속 쌓인다.
+      [설명]
+      … 여기까지 괜찮으세요?
+      다음: 무엇을 적으면 되는지
+      [계속 들을게요] [이건 알아요] [◀ 이전]
+
+    첫 플레이는 건너뛰기를 주지 않는다(기획 규정).
     """
 
     def __init__(self, bot, session, channel, level, order=None):
         super().__init__(bot, session, channel)
         self.level = level
-        self.order = list(order or intro_mod.FULL_ORDER)
-        self.index = 0
-        self.message = None
-        self.started = False
-        # 항목별 문안을 한 번만 뽑아 고정한다. 이전/다음을 오갈 때마다
-        # 바리에이션이 바뀌면 같은 항목이 다른 글로 보인다.
+        self.order = list(order or intro_mod.QUESTION_ORDER)
+        self.index = -1        # -1은 시작 전
+        self.seen = []         # 실제로 본 항목
         self._bodies = {}
         self._pending_image = None
         self._build()
 
+    @property
+    def _key(self):
+        if 0 <= self.index < len(self.order):
+            return self.order[self.index]
+        return None
+
+    def _next_key(self):
+        nxt = self.index + 1
+        return self.order[nxt] if nxt < len(self.order) else None
+
     # ── 화면 ──
     def _embed(self) -> discord.Embed:
-        total = len(self.order)
-
-        if not self.started:
-            return discord.Embed(
+        if self.index < 0:
+            e = discord.Embed(
                 title="소개",
                 description=intro_mod.greeting(self.level),
-                color=0x5865F2,
-            ).set_footer(text=f"모두 {total}가지입니다.")
+                color=0x5865F2)
+            nxt = self.order[0]
+            e.add_field(
+                name="먼저 드릴 말씀",
+                value=f"**{intro_mod.get_label(nxt)}** — {intro_mod.summary_of(nxt)}",
+                inline=False)
+            e.set_footer(text=f"모두 {len(self.order)}가지입니다.")
+            return e
 
-        key = self.order[self.index]
-        # 문안은 고정한다. 버튼을 누를 때마다 표현이 바뀌면 혼란스럽다.
+        key = self._key
         body = self._bodies.setdefault(key, intro_mod.get_body(key, self.level))
 
         sections = intro_mod.split_sections(body)
         e = discord.Embed(title=intro_mod.get_label(key), color=0x5865F2)
         if sections:
-            # 첫 구획은 설명문으로, 나머지는 필드로 나눠 읽기 쉽게 한다.
             e.description = sections[0][1]
             for _t, chunk in sections[1:]:
                 e.add_field(name="\u200b", value=chunk, inline=False)
         else:
             e.description = body
 
-        # 기획 규정의 '미디어 활용한 설명'. 시나리오가 지정한 이미지가
-        # 실제로 있으면 임베드에 붙인다. 없으면 텍스트만 나간다.
+        # 설명을 마무리하며 확인하고, 다음이 무엇인지 미리 알린다.
+        tail = intro_mod.check_of(key)
+        nxt = self._next_key()
+        if nxt:
+            lead = intro_mod.lead_of(key)
+            tail = f"{tail}\n{lead}" if lead else tail
+            tail += (f"\n\n▸ 다음 — **{intro_mod.get_label(nxt)}**"
+                     f" ({intro_mod.summary_of(nxt)})")
+        e.add_field(name="\u200b", value=tail, inline=False)
+
+        # 미디어(기획 규정) — 지정된 이미지가 실제로 있을 때만 붙인다.
         sd = getattr(self.session, "scenario_data", {}) or {}
         fname = intro_mod.media_for(key, sd)
+        self._pending_image = None
         if fname:
             import os
             path = os.path.join(
@@ -326,55 +344,59 @@ class IntroStepView(_Step):
             if os.path.exists(path):
                 e.set_image(url=f"attachment://{os.path.basename(path)}")
                 self._pending_image = path
-            else:
-                self._pending_image = None
-        else:
-            self._pending_image = None
 
-        # 진행도는 한 곳에만 — 점으로 표시해 한눈에 들어오게 한다.
-        dots = "".join("●" if i <= self.index else "○" for i in range(total))
-        e.set_footer(text=f"{dots}   {self.index + 1} / {total}")
+        dots = "".join("●" if i <= self.index else "○"
+                       for i in range(len(self.order)))
+        e.set_footer(text=f"{dots}   {self.index + 1} / {len(self.order)}")
         return e
 
     def _build(self):
         self.clear_items()
-        total = len(self.order)
+        skippable = self.level != intro_mod.LEVEL_NEW
 
-        if not self.started:
-            self.add_item(IntroNavButton("start", "▶ 시작하기",
-                                         discord.ButtonStyle.primary))
-            if self.level != intro_mod.LEVEL_NEW:
-                self.add_item(IntroNavButton("skip_all", "모두 건너뛰기",
-                                             discord.ButtonStyle.secondary))
+        if self.index < 0:
+            self.add_item(IntroBtn("next", "▶ 들어볼게요",
+                                   discord.ButtonStyle.primary))
+            if skippable:
+                self.add_item(IntroBtn("end", "모두 건너뛰기",
+                                       discord.ButtonStyle.secondary))
             return
 
-        # 이전
-        self.add_item(IntroNavButton(
+        last = self.index >= len(self.order) - 1
+        self.add_item(IntroBtn(
             "prev", "◀ 이전", discord.ButtonStyle.secondary,
             disabled=self.index <= 0))
-
-        # 다음 — 마지막이면 마침
-        last = self.index >= total - 1
-        self.add_item(IntroNavButton(
-            "next", "마치기" if last else "다음 ▶",
+        self.add_item(IntroBtn(
+            "next", "마치기" if last else "계속 들을게요",
             discord.ButtonStyle.primary))
-
-        if self.level != intro_mod.LEVEL_NEW:
-            self.add_item(IntroNavButton("skip_all", "모두 건너뛰기",
-                                         discord.ButtonStyle.secondary))
+        if skippable and not last:
+            # 아는 내용이면 다음 것도 굳이 들을 필요가 없다.
+            self.add_item(IntroBtn("end", "여기까지 알겠습니다",
+                                   discord.ButtonStyle.secondary))
 
     # ── 조작 ──
     async def open(self, channel):
-        """첫 화면을 띄운다."""
-        embed = self._embed()
-        self.message = await channel.send(embed=embed, view=self)
+        self.message = await channel.send(embed=self._embed(), view=self)
+
+    async def go(self, interaction, action: str):
+        if action == "end":
+            await self._close(interaction, "건너뜀")
+            return
+        if action == "next":
+            if self.index >= len(self.order) - 1:
+                await self._close(interaction, "완료")
+                return
+            self.index += 1
+            if self._key not in self.seen:
+                self.seen.append(self._key)
+        elif action == "prev":
+            self.index = max(0, self.index - 1)
+
+        self._build()
+        await self._edit(interaction)
 
     async def _edit(self, interaction):
-        """화면을 갱신한다. 이미지가 붙는 항목은 메시지를 새로 보낸다.
-
-        NOTE: 첨부 파일은 edit으로 교체할 수 없다. 이미지가 있는 항목만
-              예외적으로 다시 보내고, 나머지는 같은 메시지를 고친다.
-        """
+        """화면 갱신. 이미지가 붙는 항목만 메시지를 새로 보낸다."""
         embed = self._embed()
         if self._pending_image:
             try:
@@ -386,46 +408,28 @@ class IntroStepView(_Step):
                 file=discord.File(self._pending_image))
             return
         try:
-            await interaction.message.edit(embed=embed, view=self, attachments=[])
+            await interaction.message.edit(
+                embed=embed, view=self, attachments=[])
         except Exception:
             try:
                 await interaction.message.edit(embed=embed, view=self)
             except Exception:
                 pass
 
-    async def go(self, interaction, action: str):
-        if action == "start":
-            self.started = True
-        elif action == "next":
-            if self.index >= len(self.order) - 1:
-                await self.finish(interaction, "완료")
-                return
-            self.index += 1
-        elif action == "prev":
-            self.index = max(0, self.index - 1)
-        elif action == "skip_all":
-            await self.finish(interaction, "건너뜀")
-            return
-
-        self._build()
-        await self._edit(interaction)
-
-    async def finish(self, interaction, note: str):
-        """소개를 닫고 다음 단계로. 화면은 한 줄로 접는다."""
+    async def _close(self, interaction, note: str):
         self.clear_items()
-        done = discord.Embed(
-            title="소개를 마쳤습니다",
-            description="이제 세계를 고를 차례입니다.",
-            color=0x5865F2,
-        )
         try:
-            await interaction.message.edit(embed=done, view=None)
+            await interaction.message.edit(embed=discord.Embed(
+                title="소개를 마쳤습니다",
+                description="이제 세계를 고를 차례입니다.",
+                color=0x5865F2), view=None, attachments=[])
         except Exception:
             pass
+        creation.get_state(self.session)["flow_msg_id"] = interaction.message.id
         await self._next(interaction, "intro", note)
 
 
-class IntroNavButton(discord.ui.Button):
+class IntroBtn(discord.ui.Button):
     def __init__(self, action: str, label: str,
                  style=discord.ButtonStyle.secondary, disabled: bool = False):
         super().__init__(label=label, style=style, disabled=disabled)
@@ -434,129 +438,6 @@ class IntroNavButton(discord.ui.Button):
     async def callback(self, interaction):
         await interaction.response.defer()
         await self.view.go(interaction, self.action)
-
-
-class IntroTalkView(_Step):
-    """
-    경험자 소개 — 항목마다 묻고 답에 따라 갈라진다(기획 규정).
-
-    한 메시지 안에서 대화가 오간다.
-      GM: TRPG는 해보신 적 있으시죠?
-      나: [네]
-      GM: 그럼 이건 넘어갈게요.  → 다음 질문
-      나: [아니오]
-      GM: 그럼 이것부터 말씀드릴게요.  → 설명 후 다음 질문
-
-    '안다'고 답하면 함께 생략되는 항목이 있다(IMPLIED).
-    인지 수준뿐 아니라 답한 내용에 따라 갈라지게 하기 위함이다.
-    """
-
-    def __init__(self, bot, session, channel, level):
-        super().__init__(bot, session, channel)
-        self.level = level
-        self.queue = list(intro_mod.QUESTION_ORDER)
-        self.log = []          # 오간 대화. 화면에 쌓아 보여준다.
-        self.body = None       # 이번에 보여줄 설명
-        self.body_key = None
-        self._bodies = {}
-        self._build()
-
-    # ── 화면 ──
-    def _embed(self) -> discord.Embed:
-        if self.body:
-            e = discord.Embed(title=intro_mod.get_label(self.body_key),
-                              description=self.body, color=0x5865F2)
-        else:
-            key = self.queue[0] if self.queue else None
-            e = discord.Embed(
-                title="소개",
-                description=(intro_mod.question_of(key) if key
-                             else "필요하신 건 다 보신 것 같네요."),
-                color=0x5865F2)
-
-        # 지금까지의 대화를 짧게 남겨 흐름이 보이게 한다.
-        if self.log:
-            e.add_field(name="\u200b", value="\n".join(self.log[-4:]),
-                        inline=False)
-        done = len(intro_mod.QUESTION_ORDER) - len(self.queue)
-        e.set_footer(text=f"{done} / {len(intro_mod.QUESTION_ORDER)} 확인")
-        return e
-
-    def _build(self):
-        self.clear_items()
-        if self.body:
-            self.add_item(TalkButton("read", "알겠습니다",
-                                     discord.ButtonStyle.primary))
-        elif self.queue:
-            self.add_item(TalkButton("yes", "네, 압니다",
-                                     discord.ButtonStyle.secondary))
-            self.add_item(TalkButton("no", "아니요, 알려주세요",
-                                     discord.ButtonStyle.primary))
-        else:
-            self.add_item(TalkButton("done", "시작하기",
-                                     discord.ButtonStyle.success))
-            return
-        self.add_item(TalkButton("skip_all", "모두 건너뛰기",
-                                 discord.ButtonStyle.secondary))
-
-    # ── 조작 ──
-    async def answer(self, interaction, action: str):
-        if action == "skip_all":
-            await self._close(interaction, "건너뜀")
-            return
-        if action == "done":
-            await self._close(interaction, "완료")
-            return
-
-        if action == "read":
-            # 설명을 다 봤다. 다음 질문으로.
-            self.body = None
-            self.body_key = None
-        else:
-            key = self.queue.pop(0)
-            knows = (action == "yes")
-            self.log.append(
-                f"**Q.** {intro_mod.question_of(key)}\n"
-                f"**A.** {'네' if knows else '아니요'} — "
-                f"{intro_mod.reply_of(key, knows)}")
-
-            for sk in intro_mod.implied_skips(key, knows):
-                if sk in self.queue:
-                    self.queue.remove(sk)
-
-            if intro_mod.shows_body(key, knows):
-                self.body_key = key
-                self.body = self._bodies.setdefault(
-                    key, intro_mod.get_body(key, self.level))
-
-        self._build()
-        try:
-            await interaction.message.edit(embed=self._embed(), view=self)
-        except Exception:
-            pass
-
-    async def _close(self, interaction, note: str):
-        self.clear_items()
-        try:
-            await interaction.message.edit(embed=discord.Embed(
-                title="소개를 마쳤습니다",
-                description="이제 세계를 고를 차례입니다.",
-                color=0x5865F2), view=None)
-        except Exception:
-            pass
-        creation.get_state(self.session)["flow_msg_id"] = interaction.message.id
-        await self._next(interaction, "intro", note)
-
-
-class TalkButton(discord.ui.Button):
-    def __init__(self, action: str, label: str,
-                 style=discord.ButtonStyle.secondary):
-        super().__init__(label=label, style=style)
-        self.action = action
-
-    async def callback(self, interaction):
-        await interaction.response.defer()
-        await self.view.answer(interaction, self.action)
 
 
 class ScenarioView(_Step):
