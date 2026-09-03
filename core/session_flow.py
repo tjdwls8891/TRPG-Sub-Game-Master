@@ -358,7 +358,7 @@ class IntroView(_Step):
             self.add_item(IntroBtn("next", "▶ 들어볼게요",
                                    discord.ButtonStyle.primary))
             if skippable:
-                self.add_item(IntroBtn("end", "모두 건너뛰기",
+                self.add_item(IntroBtn("end", "모든 설명 건너뛰기",
                                        discord.ButtonStyle.secondary))
             return
 
@@ -370,8 +370,7 @@ class IntroView(_Step):
             "next", "마치기" if last else "계속 들을게요",
             discord.ButtonStyle.primary))
         if skippable and not last:
-            # 아는 내용이면 다음 것도 굳이 들을 필요가 없다.
-            self.add_item(IntroBtn("end", "여기까지 알겠습니다",
+            self.add_item(IntroBtn("end", "모든 설명 건너뛰기",
                                    discord.ButtonStyle.secondary))
 
     # ── 조작 ──
