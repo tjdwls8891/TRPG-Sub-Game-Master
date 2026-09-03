@@ -327,43 +327,20 @@ class DisplayView(discord.ui.View):
             view=confirm_cls(self.bot, session, newest - 1),
         )
 
-    @discord.ui.button(label="⏻ 세션 오픈/클로즈", style=discord.ButtonStyle.secondary,
-                       custom_id="disp:session", row=3)
-    async def session_toggle(self, interaction, _b):
+    @discord.ui.button(label="⏻ 세션 열기", style=discord.ButtonStyle.success,
+                       custom_id="disp:open", row=3)
+    async def session_open(self, interaction, _b):
+        """세션 오픈 — 유지 시간을 묻고 캐시를 올린다."""
         session = self.bot.active_sessions.get(interaction.channel.id)
         if self._busy(session):
             await interaction.response.send_message(
                 "턴 진행 중에는 조작할 수 없습니다.", ephemeral=True)
             return
-        is_open = bool(getattr(session, "cache_name", None))
-        if is_open:
-            # 만료 전 오프하면 사용분만 계산해 차액을 돌려준다(기획 규정).
-            import time as _t
-            from .ink import refund_ink as _refund
-
-            created = getattr(session, "cache_created_at", 0.0) or 0.0
-            used_h = max(0.0, (_t.time() - created) / 3600) if created else 0.0
-            prepaid = int(getattr(session, "open_prepaid_ink", 0) or 0)
-            try:
-                from .cost import calculate_upload_cost
-                from .constants import DEFAULT_MODEL
-                used_krw = calculate_upload_cost(
-                    DEFAULT_MODEL,
-                    input_tokens=int(getattr(session, "cache_tokens", 0) or 0),
-                    store_hours=used_h)
-            except Exception:
-                used_krw = 0.0
-            refund = _refund(prepaid, used_krw)
-
+        if getattr(session, "cache_name", None):
             await interaction.response.send_message(
-                f"⚠️ **세션을 닫으시겠습니까?**\n"
-                f"> 사용 {used_h:.1f}시간 · 선결제 {prepaid}잉크\n"
-                f"> 환급 예정 **{refund}잉크**\n"
-                f"> 닫으면 캐시가 파기되며 다시 열 때 업로드 비용이 재발생합니다.",
-                view=CloseConfirmView(self.bot, session, refund))
+                "이미 열려 있습니다.", ephemeral=True)
             return
 
-        # 세션 오픈 — 유지 시간 입력을 받는다.
         # 기획 규정: 버튼으로 시간 입력을 호출하고, 이때만 채팅을 언락한다.
         # 답변은 1회만 받고 즉시 다시 잠근다(chat_guard의 awaiting_display_input).
         session.awaiting_display_input = True
@@ -373,6 +350,44 @@ class DisplayView(discord.ui.View):
             "> 유지 시간에 비례해 캐시 유지비가 발생합니다.\n"
             f"> 최소 {MIN_MINUTES}분 · 최대 {MAX_MINUTES // 60}시간"
         )
+
+    @discord.ui.button(label="⏹ 세션 닫기", style=discord.ButtonStyle.danger,
+                       custom_id="disp:close", row=3)
+    async def session_close(self, interaction, _b):
+        """세션 클로즈 — 사용분만 계산해 차액을 환급한다(기획 규정)."""
+        session = self.bot.active_sessions.get(interaction.channel.id)
+        if self._busy(session):
+            await interaction.response.send_message(
+                "턴 진행 중에는 조작할 수 없습니다.", ephemeral=True)
+            return
+        if not getattr(session, "cache_name", None):
+            await interaction.response.send_message(
+                "아직 열려 있지 않습니다.", ephemeral=True)
+            return
+
+        import time as _t
+        from .ink import refund_ink as _refund
+
+        created = getattr(session, "cache_created_at", 0.0) or 0.0
+        used_h = max(0.0, (_t.time() - created) / 3600) if created else 0.0
+        prepaid = int(getattr(session, "open_prepaid_ink", 0) or 0)
+        try:
+            from .cost import calculate_upload_cost
+            from .constants import DEFAULT_MODEL
+            used_krw = calculate_upload_cost(
+                DEFAULT_MODEL,
+                input_tokens=int(getattr(session, "cache_tokens", 0) or 0),
+                store_hours=used_h)
+        except Exception:
+            used_krw = 0.0
+        refund = _refund(prepaid, used_krw)
+
+        await interaction.response.send_message(
+            f"⚠️ **세션을 닫으시겠습니까?**\n"
+            f"> 사용 {used_h:.1f}시간 · 선결제 {prepaid}잉크\n"
+            f"> 환급 예정 **{refund}잉크**\n"
+            f"> 닫으면 캐시가 파기되며 다시 열 때 업로드 비용이 재발생합니다.",
+            view=CloseConfirmView(self.bot, session, refund))
 
     @discord.ui.button(label="💰 결제", style=discord.ButtonStyle.primary,
                        custom_id="disp:pay", row=3)
@@ -480,8 +495,17 @@ def build_view(bot, session) -> discord.ui.View:
         for child in view.children:
             cid = getattr(child, "custom_id", "")
             if cid in ("disp:rewind", "disp:rewind_multi", "disp:restart",
-                       "disp:tts", "disp:image", "disp:session"):
+                       "disp:tts", "disp:image", "disp:open", "disp:close"):
                 child.disabled = True
+
+    # 상태에 맞지 않는 버튼은 눌러도 소용없으므로 미리 잠근다.
+    is_open = bool(getattr(session, "cache_name", None))
+    for child in view.children:
+        cid = getattr(child, "custom_id", "")
+        if cid == "disp:open" and is_open:
+            child.disabled = True
+        elif cid == "disp:close" and not is_open:
+            child.disabled = True
     return view
 
 

@@ -658,15 +658,28 @@ class OpenConfirmView(discord.ui.View):
         )
         self.session.open_minutes = self.minutes
 
-        # 제작 플로우 진행 중이면 캐시를 올리고 시작 상황으로 넘어간다.
-        if getattr(self.session, "creation_state", None):
-            game_ch = self.bot.get_channel(self.session.game_ch_id)
-            if game_ch:
-                try:
-                    await core.session_flow.on_open_time_done(
-                        self.bot, self.session, game_ch)
-                except Exception as e:
-                    print(f"[세션플로우] 오픈 처리 실패: {e}")
+        game_ch = self.bot.get_channel(self.session.game_ch_id)
+        step = core.creation.current_step(self.session)
+
+        if step == "open" and game_ch:
+            # 세션 제작 중 — 캐시를 올리고 시작 상황으로 넘어간다.
+            try:
+                await core.session_flow.on_open_time_done(
+                    self.bot, self.session, game_ch)
+            except Exception as e:
+                print(f"[세션플로우] 오픈 처리 실패: {e}")
+        else:
+            # 닫았던 세션을 다시 여는 경우. 캐시만 새로 올린다.
+            # 이 분기가 없으면 시간만 정해지고 세션이 열리지 않는다.
+            cog = self.bot.get_cog("SessionCog")
+            if cog:
+                notify = game_ch.send if game_ch else None
+                ok = await cog.upload_cache(self.session, notify=notify)
+                if ok:
+                    self.session.is_started = True
+                    await core.save_session_data(self.bot, self.session)
+                    from core.display import refresh as _refresh
+                    await _refresh(self.bot, self.session, reason="reopen")
         self.stop()
 
     @discord.ui.button(label="취소", style=discord.ButtonStyle.secondary)
