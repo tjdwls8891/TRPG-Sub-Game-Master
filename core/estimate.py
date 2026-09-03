@@ -230,6 +230,13 @@ def estimate_session_open(session, hours: float) -> dict:
     from .cost import calculate_upload_cost
 
     tokens = int(getattr(session, "cache_tokens", 0) or 0)
+    if tokens <= 0:
+        # 아직 업로드 전이면 실측값이 없다. 시간 선택은 업로드보다 먼저
+        # 일어나므로, 룰북 분량으로 근사해야 0원으로 뜨지 않는다.
+        sd = getattr(session, "scenario_data", {}) or {}
+        raw = len(str(sd.get("worldview", ""))) + len(str(sd.get("rules", "")))
+        # 한국어는 글자당 대략 0.65토큰. 캐시에는 룰북 외 항목도 실린다.
+        tokens = int(raw * 0.65 * 1.3) if raw else 0
     # NOTE: 실제 청구와 같은 함수를 써야 예상과 결과가 어긋나지 않는다.
     #       이전에는 여기서만 저장비를 따로 계산해 두 값이 달랐다.
     try:

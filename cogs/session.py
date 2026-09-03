@@ -302,6 +302,12 @@ class SessionCog(commands.Cog):
 
             # 선택된 유지 시간을 먼저 확정한다. 비용 계산과 TTL이 같은 값을 써야 한다.
             minutes = int(getattr(session, "open_minutes", 0) or 0)
+            if minutes <= 0:
+                # 여기까지 왔는데 시간이 없다면 선택 단계가 건너뛰어진 것이다.
+                # 기본값(6시간)으로 올리면 고르지도 않은 비용이 청구된다.
+                print(f"⚠️ [캐시] open_minutes 미설정 — 기본 TTL로 진행합니다. "
+                      f"세션 {session.session_id}")
+                await _say("⚠️ 유지 시간이 정해지지 않아 기본값으로 엽니다.")
             ttl = minutes * 60 if minutes else core.CACHE_TTL_SECONDS
             store_hours = ttl / 3600
 
@@ -563,6 +569,16 @@ class SessionCog(commands.Cog):
             await core.refresh_display(self.bot, session, reason="intro")
         except Exception:
             pass
+
+        # 인트로가 끝나면 자동 GM이 서사 계획을 세우고 첫 라운드를 연다.
+        # 이것이 없으면 세션은 열렸는데 GM이 아무것도 묻지 않는다.
+        if getattr(session, "gm_active", False):
+            gm_cog = self.bot.get_cog("GMCog")
+            if gm_cog:
+                import asyncio
+                asyncio.create_task(gm_cog._init_narrative_and_start(session))
+            else:
+                print("[인트로] GMCog를 찾지 못해 라운드를 시작하지 못했습니다")
 
     @commands.command(name="소개")
     async def send_intro(self, ctx):

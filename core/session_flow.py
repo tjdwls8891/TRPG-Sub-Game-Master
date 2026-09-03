@@ -661,6 +661,27 @@ async def on_open_time_done(bot, session, channel):
     # !시작 명령 경로에만 있어 버튼 플로우에서는 영원히 False였다.
     session.is_started = True
 
+    # 자동 GM을 켠다. 버튼으로 만든 세션은 !자동 시작을 칠 일이 없으므로
+    # 여기서 켜주지 않으면 첫 턴이 열려도 GM이 반응하지 않는다.
+    # !자동 시작과 같은 필드를 초기화해야 이후 턴 처리가 어긋나지 않는다.
+    names = [p.get("name") for p in (session.players or {}).values()
+             if p.get("name")]
+    if names:
+        session.gm_active = True
+        session.gm_target_chars = names
+        session.gm_target_char = names[0]   # 지시층위 단일 PC 참조용
+        session.gm_turns_done = 0
+        session.gm_clarify_count = 0
+        session.gm_cost_baseline = getattr(session, "total_cost", 0.0)
+        session.gm_side_note = ""
+        session.gm_pending_players = []
+        session.gm_collected_actions = {}
+        session.gm_waiting_for = None
+        session.gm_proceed_history = []
+        session.gm_narrate_count = 0
+    else:
+        print(f"[세션플로우] PC가 없어 자동 GM을 켜지 못했습니다")
+
     creation.advance(session)
     from .io import save_session_data
     await save_session_data(bot, session)
