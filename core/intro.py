@@ -113,28 +113,86 @@ TOPICS = {
 # 초심자에게 보여줄 순서. 개념 → 이 봇 → 방법 → 예시 → 비용 → 도구
 FULL_ORDER = ["trpg", "turn", "example", "fail", "world", "cost", "display"]
 
-# 경험자 케이스 — 무엇이 궁금한지 물어 갈래를 나눈다.
-CASES = {
-    "trpg_new_bot": {
-        "label": "TRPG는 압니다. 이 봇은 처음입니다",
-        "topics": ["world", "cost", "display"],
+# 항목별 질문과 반응.
+#   ask     "이건 아시나요?" — 대화체로 묻는다
+#   yes     안다고 답했을 때의 한마디 (설명은 건너뛴다)
+#   no      모른다고 답했을 때의 한마디 (설명이 이어진다)
+# 기획 규정 — 경험자면 케이스 맞춰 질문해가며 진행.
+QUESTIONS = {
+    "trpg": {
+        "ask": "TRPG는 해보신 적 있으시죠?",
+        "yes": ["그럼 이건 넘어갈게요.",
+                "익숙하시겠네요. 다음으로 갈게요.",
+                "네, 그럼 건너뛰겠습니다."],
+        "no": ["그럼 이것부터 말씀드릴게요.",
+               "괜찮습니다. 어렵지 않아요.",
+               "그럼 짧게 짚고 갈게요."],
     },
-    "cost_only": {
-        "label": "비용이 어떻게 되나요",
-        "topics": ["cost"],
+    "turn": {
+        "ask": "무엇을 어떻게 하시면 되는지, 감이 오시나요?",
+        "yes": ["좋습니다. 그럼 넘어갈게요.",
+                "네, 그럼 이건 생략하겠습니다.",
+                "그러시다면 바로 다음으로."],
+        "no": ["그럼 요령부터 알려드릴게요.",
+               "그 부분을 먼저 짚고 갈게요.",
+               "어렵지 않으니 잠깐만요."],
     },
-    "how_play": {
-        "label": "진행 방식만 다시 보겠습니다",
-        "topics": ["turn", "example", "fail"],
+    "example": {
+        "ask": "실제로 어떻게 오가는지, 예시를 보시겠어요?",
+        "yes": ["그럼 하나 보여드릴게요.",
+                "네, 짧은 걸로 하나 준비했습니다.",
+                "보시는 게 빠르실 거예요."],
+        "no": ["그럼 넘어가겠습니다.",
+               "네, 다음으로 갈게요.",
+               "알겠습니다."],
+        # 예시는 '보시겠어요?'라 예/아니오가 뒤집힌다
+        "invert": True,
     },
-    "full": {
-        "label": "전부 다시 보겠습니다",
-        "topics": FULL_ORDER,
+    "fail": {
+        "ask": "판정에 실패했을 때 어떻게 되는지는 아시나요?",
+        "yes": ["그럼 이 얘기는 넘어갈게요.",
+                "네, 아시는군요.",
+                "그러시다면 다음으로."],
+        "no": ["그 부분을 말씀드릴게요. 겁내실 것 없습니다.",
+               "짚고 넘어가는 게 좋겠네요.",
+               "그럼 잠깐 설명드릴게요."],
     },
-    "skip": {
-        "label": "바로 시작하겠습니다",
-        "topics": [],
+    "world": {
+        "ask": "이 세계가 여러분이 한 일을 어떻게 기억하는지, 들어보셨나요?",
+        "yes": ["그럼 넘어가겠습니다.",
+                "네, 그러시다면.",
+                "알고 계시는군요."],
+        "no": ["이건 꽤 중요한 부분이라 말씀드릴게요.",
+               "그럼 짚어드리겠습니다.",
+               "알아두시면 도움이 되실 거예요."],
     },
+    "cost": {
+        "ask": "잉크가 어떻게 드는지는 아시나요?",
+        "yes": ["그럼 생략할게요.",
+                "네, 그럼 넘어가겠습니다.",
+                "아시는군요."],
+        "no": ["그럼 간단히 말씀드릴게요.",
+               "부담되지 않게 쓰는 요령도 함께 알려드릴게요.",
+               "짧게 짚고 가겠습니다."],
+    },
+    "display": {
+        "ask": "디스플레이 채널은 써보셨어요?",
+        "yes": ["그럼 다 되셨네요.",
+                "네, 그럼 이걸로 마치겠습니다.",
+                "익숙하시군요."],
+        "no": ["마지막으로 이것만 알려드릴게요.",
+               "이건 알아두시면 편하실 거예요.",
+               "짧게 보고 가시죠."],
+    },
+}
+
+# 질문 순서. 앞의 것을 안다고 하면 뒤의 기초 항목은 묻지 않는다.
+QUESTION_ORDER = ["trpg", "turn", "example", "fail", "world", "cost", "display"]
+
+# 'trpg를 안다'고 답하면 생략해도 되는 항목.
+# 기획 규정 — 인지 수준 '및 설명 따라' 갈라진다.
+IMPLIED = {
+    "trpg": ["fail"],      # TRPG를 알면 실패의 의미도 안다
 }
 
 # 숙련자 인사말 바리에이션
@@ -191,6 +249,36 @@ def split_sections(body: str) -> list:
     if buf:
         out.append((None, "\n\n".join(buf)))
     return out
+
+
+def question_of(key: str) -> str:
+    """항목의 질문 문장."""
+    return (QUESTIONS.get(key) or {}).get("ask", "")
+
+
+def reply_of(key: str, knows: bool) -> str:
+    """답변에 대한 GM의 한마디. 매번 조금씩 다르게 골라 대화처럼 만든다."""
+    q = QUESTIONS.get(key) or {}
+    pool = q.get("yes" if knows else "no") or []
+    return random.choice(pool) if pool else ""
+
+
+def shows_body(key: str, knows: bool) -> bool:
+    """그 답에 설명이 이어지는지.
+
+    대개 '모른다'면 설명하지만, '예시를 보시겠어요?'처럼 질문이 뒤집힌
+    항목은 '예'일 때 보여준다.
+    """
+    q = QUESTIONS.get(key) or {}
+    return knows if q.get("invert") else (not knows)
+
+
+def implied_skips(key: str, knows: bool) -> list:
+    """그 답으로 함께 생략되는 항목.
+
+    TRPG를 안다고 하면 실패의 의미도 아실 테니 다시 묻지 않는다.
+    """
+    return list(IMPLIED.get(key, [])) if knows else []
 
 
 def get_body(key: str, level: str) -> str:

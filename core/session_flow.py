@@ -139,9 +139,9 @@ async def render(bot, session, channel):
             view = IntroStepView(bot, session, channel, level)
             await view.open(channel)
         else:
-            # 경험자·숙련자 — 케이스 트리로 물어가며 진행(기획 규정)
-            view = IntroCaseView(bot, session, channel, level)
-            await show(bot, session, channel, view.embed(), view)
+            # 경험자·숙련자 — 항목마다 물어가며 진행(기획 규정)
+            view = IntroTalkView(bot, session, channel, level)
+            await show(bot, session, channel, view._embed(), view)
 
     elif step == "scenario":
         scenarios = _visible_scenarios(session)
@@ -436,59 +436,127 @@ class IntroNavButton(discord.ui.Button):
         await self.view.go(interaction, self.action)
 
 
-class IntroCaseView(_Step):
-    """경험자·숙련자 — 무엇이 궁금한지 물어 갈래를 나눈다."""
+class IntroTalkView(_Step):
+    """
+    경험자 소개 — 항목마다 묻고 답에 따라 갈라진다(기획 규정).
+
+    한 메시지 안에서 대화가 오간다.
+      GM: TRPG는 해보신 적 있으시죠?
+      나: [네]
+      GM: 그럼 이건 넘어갈게요.  → 다음 질문
+      나: [아니오]
+      GM: 그럼 이것부터 말씀드릴게요.  → 설명 후 다음 질문
+
+    '안다'고 답하면 함께 생략되는 항목이 있다(IMPLIED).
+    인지 수준뿐 아니라 답한 내용에 따라 갈라지게 하기 위함이다.
+    """
 
     def __init__(self, bot, session, channel, level):
         super().__init__(bot, session, channel)
         self.level = level
-        for i, (key, case) in enumerate(intro_mod.CASES.items()):
-            self.add_item(CaseButton(key, case["label"], row=i // 2))
+        self.queue = list(intro_mod.QUESTION_ORDER)
+        self.log = []          # 오간 대화. 화면에 쌓아 보여준다.
+        self.body = None       # 이번에 보여줄 설명
+        self.body_key = None
+        self._bodies = {}
+        self._build()
 
-    def embed(self) -> discord.Embed:
-        return discord.Embed(
-            title="소개",
-            description=intro_mod.greeting(self.level),
-            color=0x5865F2,
-        ).set_footer(text="필요하신 것만 골라 보셔도 됩니다.")
+    # ── 화면 ──
+    def _embed(self) -> discord.Embed:
+        if self.body:
+            e = discord.Embed(title=intro_mod.get_label(self.body_key),
+                              description=self.body, color=0x5865F2)
+        else:
+            key = self.queue[0] if self.queue else None
+            e = discord.Embed(
+                title="소개",
+                description=(intro_mod.question_of(key) if key
+                             else "필요하신 건 다 보신 것 같네요."),
+                color=0x5865F2)
+
+        # 지금까지의 대화를 짧게 남겨 흐름이 보이게 한다.
+        if self.log:
+            e.add_field(name="\u200b", value="\n".join(self.log[-4:]),
+                        inline=False)
+        done = len(intro_mod.QUESTION_ORDER) - len(self.queue)
+        e.set_footer(text=f"{done} / {len(intro_mod.QUESTION_ORDER)} 확인")
+        return e
+
+    def _build(self):
+        self.clear_items()
+        if self.body:
+            self.add_item(TalkButton("read", "알겠습니다",
+                                     discord.ButtonStyle.primary))
+        elif self.queue:
+            self.add_item(TalkButton("yes", "네, 압니다",
+                                     discord.ButtonStyle.secondary))
+            self.add_item(TalkButton("no", "아니요, 알려주세요",
+                                     discord.ButtonStyle.primary))
+        else:
+            self.add_item(TalkButton("done", "시작하기",
+                                     discord.ButtonStyle.success))
+            return
+        self.add_item(TalkButton("skip_all", "모두 건너뛰기",
+                                 discord.ButtonStyle.secondary))
+
+    # ── 조작 ──
+    async def answer(self, interaction, action: str):
+        if action == "skip_all":
+            await self._close(interaction, "건너뜀")
+            return
+        if action == "done":
+            await self._close(interaction, "완료")
+            return
+
+        if action == "read":
+            # 설명을 다 봤다. 다음 질문으로.
+            self.body = None
+            self.body_key = None
+        else:
+            key = self.queue.pop(0)
+            knows = (action == "yes")
+            self.log.append(
+                f"**Q.** {intro_mod.question_of(key)}\n"
+                f"**A.** {'네' if knows else '아니요'} — "
+                f"{intro_mod.reply_of(key, knows)}")
+
+            for sk in intro_mod.implied_skips(key, knows):
+                if sk in self.queue:
+                    self.queue.remove(sk)
+
+            if intro_mod.shows_body(key, knows):
+                self.body_key = key
+                self.body = self._bodies.setdefault(
+                    key, intro_mod.get_body(key, self.level))
+
+        self._build()
+        try:
+            await interaction.message.edit(embed=self._embed(), view=self)
+        except Exception:
+            pass
+
+    async def _close(self, interaction, note: str):
+        self.clear_items()
+        try:
+            await interaction.message.edit(embed=discord.Embed(
+                title="소개를 마쳤습니다",
+                description="이제 세계를 고를 차례입니다.",
+                color=0x5865F2), view=None)
+        except Exception:
+            pass
+        creation.get_state(self.session)["flow_msg_id"] = interaction.message.id
+        await self._next(interaction, "intro", note)
 
 
-class CaseButton(discord.ui.Button):
-    def __init__(self, key: str, label: str, row: int = 0):
-        style = (discord.ButtonStyle.primary if key == "skip"
-                 else discord.ButtonStyle.secondary)
-        super().__init__(label=label, style=style, row=row)
-        self.key = key
+class TalkButton(discord.ui.Button):
+    def __init__(self, action: str, label: str,
+                 style=discord.ButtonStyle.secondary):
+        super().__init__(label=label, style=style)
+        self.action = action
 
     async def callback(self, interaction):
         await interaction.response.defer()
-        v = self.view
-        case = intro_mod.CASES.get(self.key) or {}
-        topics = case.get("topics") or []
-
-        if not topics:
-            v.clear_items()
-            try:
-                await interaction.message.edit(
-                    embed=discord.Embed(
-                        title="바로 시작합니다",
-                        description="필요하시면 언제든 다시 물어보셔도 됩니다.",
-                        color=0x5865F2),
-                    view=None)
-            except Exception:
-                pass
-            await v._next(interaction, "intro", case.get("label", self.key))
-            return
-
-        # 같은 메시지를 소개 화면으로 바꿔 이어간다. 새 메시지를 쌓지 않는다.
-        step = IntroStepView(v.bot, v.session, v.channel, v.level, order=topics)
-        step.started = True
-        step._build()
-        step.message = interaction.message
-        try:
-            await interaction.message.edit(embed=step._embed(), view=step)
-        except Exception:
-            pass
+        await self.view.answer(interaction, self.action)
 
 
 class ScenarioView(_Step):
