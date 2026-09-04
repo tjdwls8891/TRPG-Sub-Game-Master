@@ -235,6 +235,7 @@ from .io import (
 from .cache import (
     build_scenario_cache_text,
     update_session_cache_state,
+    remaining_ttl,
     restore_sessions_from_disk,
 )
 from .prompt import PromptBuilder, build_compression_prompt
@@ -336,7 +337,7 @@ __all__ = [
     "save_session_data", "process_cache_deletion",
     "load_authorized_users", "save_authorized_users", "AUTHORIZED_USERS_PATH",
     # cache
-    "build_scenario_cache_text", "update_session_cache_state", "restore_sessions_from_disk",
+    "build_scenario_cache_text", "update_session_cache_state", "remaining_ttl", "restore_sessions_from_disk",
     # prompt
     "PromptBuilder", "build_compression_prompt",
     # dialogue

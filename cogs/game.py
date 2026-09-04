@@ -459,7 +459,9 @@ class GameCog(commands.Cog):
                         system_instruction=self.bot.system_instruction,
                         contents=[
                             types.Content(role="user", parts=[types.Part.from_text(text=caching_text)])],
-                        ttl="21600s",
+                        # 남은 유지 시간을 이어간다. 매번 6시간을 새로 주면
+                        # 결제한 것보다 오래 살아 비용이 어긋난다.
+                        ttl=f"{core.remaining_ttl(session)}s",
                     )
                 )
                 session.cache_obj = new_cache

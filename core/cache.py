@@ -75,6 +75,26 @@ def get_home_section_ids(session) -> list:
     return ids
 
 
+# 캐시 최소 유지 시간. 남은 시간이 이보다 짧아도 이 값은 준다.
+MIN_TTL_SECONDS = 600
+
+
+def remaining_ttl(session) -> int:
+    """세션에 남은 캐시 유지 시간(초).
+
+    재발급·복구 시 원래 고른 시간을 이어가야 한다. 매번 6시간을 새로
+    주면 결제한 것보다 오래 유지되어 비용이 어긋난다.
+    """
+    minutes = int(getattr(session, "open_minutes", 0) or 0)
+    total = minutes * 60 if minutes else MIN_CACHE_TTL
+
+    created = getattr(session, "cache_created_at", 0.0) or 0.0
+    if created:
+        elapsed = max(0, int(time.time() - created))
+        return max(MIN_TTL_SECONDS, total - elapsed)
+    return max(MIN_TTL_SECONDS, total)
+
+
 def update_session_cache_state(session: TRPGSession):
     """
     캐시 재발급(또는 신규 발급) 완료 직후 호출하여 세션 캐시 연동 상태를 동기화한다.
@@ -462,7 +482,8 @@ async def restore_sessions_from_disk(bot):
                             config=types.CreateCachedContentConfig(
                                 system_instruction=bot.system_instruction,
                                 contents=[types.Content(role="user", parts=[types.Part.from_text(text=caching_text)])],
-                                ttl=f"{MIN_CACHE_TTL}s",
+                                # 복구 시에도 남은 시간만 준다.
+                                ttl=f"{remaining_ttl(session)}s",
                             )
                         )
 

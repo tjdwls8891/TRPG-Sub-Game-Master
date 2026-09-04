@@ -291,7 +291,8 @@ class SystemCog(commands.Cog):
                     config=types.CreateCachedContentConfig(
                         system_instruction=self.bot.system_instruction,
                         contents=[types.Content(role="user", parts=[types.Part.from_text(text=caching_text)])],
-                        ttl="21600s"  # 6시간
+                        # 남은 유지 시간을 이어간다(고정 6시간 금지).
+                        ttl=f"{core.remaining_ttl(session)}s",
                     )
                 )
 
