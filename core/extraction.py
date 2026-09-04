@@ -421,18 +421,72 @@ def release_resident_companions(session, new_location: str) -> list:
 
 
 def summarize_for_report(result: dict) -> str:
-    """마스터 채널 보고용 한 줄 요약을 만든다."""
+    """마스터 채널 보고용 요약을 만든다.
+
+    추출 스키마의 전 항목을 다룬다. 일부만 보고하면 무엇이 왜 바뀌었는지
+    추적할 수 없다. 값이 없는 항목은 줄을 차지하지 않는다.
+    """
+    dtb = result.get("datetime") or {}
     loc = (result.get("location") or {}).get("name", "미확인")
-    dt = (result.get("datetime") or {}).get("time_of_day", "미확인")
     sit = result.get("situation") or {}
     qp = result.get("quest_progress") or {}
-    npcs = result.get("npcs_met") or []
-    parts = [
+
+    # 날짜가 잡혔으면 시간대와 함께 보여준다.
+    when = dtb.get("time_of_day", "미확인")
+    if dtb.get("date"):
+        when = f"{dtb['date']} {when}"
+
+    head = [
         f"위치 {loc}",
-        f"시간대 {dt}",
+        f"시각 {when}",
         f"장면 {sit.get('tag', '미확인')}(긴장 {sit.get('tension', 0)})",
         f"진행 {qp.get('advance', 0)} / 이탈 {qp.get('deviation', 0)}",
     ]
+    lines = [" · ".join(head)]
+
+    npcs = result.get("npcs_met") or []
     if npcs:
-        parts.append(f"NPC {', '.join(npcs[:5])}")
-    return " · ".join(parts)
+        lines.append(f"> 등장 NPC: {', '.join(npcs[:8])}")
+
+    comp = result.get("companions") or {}
+    moves = []
+    if comp.get("joined"):
+        moves.append(f"합류 {', '.join(comp['joined'])}")
+    if comp.get("left"):
+        moves.append(f"이탈 {', '.join(comp['left'])}")
+    if moves:
+        lines.append(f"> 동행: {' · '.join(moves)}")
+
+    items = result.get("item_changes") or []
+    if items:
+        shown = []
+        for it in items[:6]:
+            if not isinstance(it, dict):
+                continue
+            name = it.get("item") or "?"
+            delta = it.get("delta", 0)
+            sign = "+" if isinstance(delta, int) and delta > 0 else ""
+            who = it.get("target") or ""
+            shown.append(f"{who + ' ' if who else ''}{name} {sign}{delta}")
+        if shown:
+            lines.append(f"> 소지품: {', '.join(shown)}")
+
+    scores = result.get("status_scores") or []
+    seen = []
+    for sc in scores:
+        if not isinstance(sc, dict):
+            continue
+        val = sc.get("score", 0)
+        # 조짐 이상만 싣는다. 0점까지 나열하면 읽히지 않는다.
+        if isinstance(val, int) and val >= 31:
+            who = sc.get("target") or ""
+            seen.append(f"{who + ' ' if who else ''}{sc.get('status', '?')} {val}")
+    if seen:
+        lines.append(f"> 상태 징후: {', '.join(seen)}")
+
+    aware = result.get("secret_awareness", 0)
+    if isinstance(aware, int) and aware >= 31:
+        label = "명확히 인지" if aware >= 71 else "단서를 접함"
+        lines.append(f"> 이면정보 인지 {aware} ({label})")
+
+    return "\n".join(lines)
