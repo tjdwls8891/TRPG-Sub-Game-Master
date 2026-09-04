@@ -546,7 +546,8 @@ class RewindConfirmView(discord.ui.View):
         await interaction.response.defer()
         result = core.rewind_to(self.session, self.target_turn)
         if not result["ok"]:
-            await interaction.followup.send(f"⚠️ {result['reason']}")
+            await core.display.close_notice(
+                interaction, f"⚠️ {result['reason']}", seconds=8)
             return
         await core.save_session_data(self.bot, self.session)
         try:
@@ -560,16 +561,15 @@ class RewindConfirmView(discord.ui.View):
         )
         if result["compression_rolled_back"]:
             msg += "\n> 압축 기억도 함께 롤백되었습니다."
-        await interaction.followup.send(msg)
-        try:
-            await interaction.message.delete()
-        except Exception:
-            pass
+        # 확인 메시지를 결과로 바꾸고 잠시 뒤 지운다.
+        # 확인·결과가 따로 남으면 상태판이 위로 밀려난다.
+        await core.display.close_notice(interaction, msg)
         self.stop()
 
     @discord.ui.button(label="취소", style=discord.ButtonStyle.secondary)
     async def cancel(self, interaction: discord.Interaction, _b: discord.ui.Button):
-        await interaction.response.edit_message(content="되감기를 취소했습니다.", view=None)
+        await interaction.response.defer()
+        await core.display.close_notice(interaction, "되감기를 취소했습니다.", seconds=6)
         self.stop()
 
 
@@ -637,10 +637,10 @@ class OpenConfirmView(discord.ui.View):
         need = est.get("total_ink", 0)
         bal = core.accounts.get_balance(uid)
         if bal < need:
-            await interaction.followup.send(
+            await core.display.close_notice(
+                interaction,
                 f"⚠️ 잔액이 부족합니다. 필요 **{need}잉크** / 보유 **{bal}잉크**\n"
-                f"GM 스페이스에서 충전 후 다시 시도해 주십시오."
-            )
+                f"GM 스페이스에서 충전 후 다시 시도해 주십시오.", seconds=15)
             return
 
         # 해석 비용 — 2잉크 이상일 때만 청구한다(기획 규정).
@@ -653,9 +653,9 @@ class OpenConfirmView(discord.ui.View):
         for child in self.children:
             child.disabled = True
         await interaction.message.edit(view=self)
-        await interaction.followup.send(
-            f"✅ 세션을 {self.minutes}분간 유지합니다. 예상 {need}잉크{note}"
-        )
+        await core.display.close_notice(
+            interaction,
+            f"✅ 세션을 {self.minutes}분간 유지합니다. 예상 {need}잉크{note}")
         self.session.open_minutes = self.minutes
 
         game_ch = self.bot.get_channel(self.session.game_ch_id)
@@ -687,8 +687,9 @@ class OpenConfirmView(discord.ui.View):
         self.session.open_minutes = 0
         for child in self.children:
             child.disabled = True
-        await interaction.response.edit_message(
-            content="세션 오픈을 취소했습니다.", view=self)
+        await interaction.response.defer()
+        await core.display.close_notice(
+            interaction, "세션 오픈을 취소했습니다.", seconds=6)
         self.stop()
 
 
@@ -787,7 +788,8 @@ class ExtractionRetryView(discord.ui.View):
         result = await cog._run_extraction(session, ctx_text, master_ch)
         if result:
             await core.save_session_data(self.bot, session)
-            await interaction.followup.send("✅ 턴 정보 정리가 완료되었습니다. 계속 진행하십시오.")
+            await core.display.close_notice(
+                interaction, "✅ 턴 정보 정리가 완료되었습니다. 계속 진행하십시오.")
             try:
                 await interaction.message.delete()
             except Exception:

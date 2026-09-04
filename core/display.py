@@ -8,6 +8,7 @@
 #   기획서는 갱신 시점을 5계층으로 구분하지만, 임베드 조립은 API 호출이 아니라
 #   문자열 작업이라 부분 갱신의 이득이 없다. refresh()는 항상 전체를 다시 그리고,
 #   계층 구분은 '언제 호출하는가'로만 표현한다.
+import asyncio
 import discord
 
 from . import media_control
@@ -82,15 +83,25 @@ def build_embed(session) -> discord.Embed:
     if is_open:
         created = getattr(session, "cache_created_at", 0.0) or 0.0
         tokens = getattr(session, "cache_read_tokens", 0) or getattr(session, "cache_tokens", 0) or 0
+        # 실제 선택한 유지 시간을 쓴다. 고정값(6시간)으로 계산하면
+        # 3시간을 고른 세션도 6시간 뒤 만료로 표시되어 어긋난다.
+        minutes = int(getattr(session, "open_minutes", 0) or 0)
+        ttl = minutes * 60 if minutes else CACHE_TTL_SECONDS
+
         open_lines = [f"캐시 {tokens:,} 토큰"]
         if created:
-            expire = created + CACHE_TTL_SECONDS
+            expire = created + ttl
             remain = max(0, int(expire - time.time()))
             open_lines.append(
                 f"만료 예정 <t:{int(expire)}:t> (남은 {remain // 3600}시간 {remain % 3600 // 60}분)")
         try:
-            plan = estimate_session_open(session, CACHE_TTL_SECONDS / 3600)
-            open_lines.append(f"오픈·유지 예정 {plan['total_ink']}잉크")
+            plan = estimate_session_open(session, ttl / 3600)
+            prepaid = int(getattr(session, "open_prepaid_ink", 0) or 0)
+            if prepaid:
+                # 이미 결제했다면 예상이 아니라 실제 낸 값을 보여준다.
+                open_lines.append(f"선결제 {prepaid}잉크 ({ttl / 3600:.1f}시간)")
+            else:
+                open_lines.append(f"오픈·유지 예정 {plan['total_ink']}잉크")
         except Exception:
             pass
         embed.add_field(name="세션 오픈", value="\n".join(open_lines), inline=True)
@@ -430,20 +441,17 @@ class CloseConfirmView(discord.ui.View):
         from .io import save_session_data
         await save_session_data(self.bot, self.session)
 
-        for c in self.children:
-            c.disabled = True
-        await interaction.message.edit(view=self)
-        await interaction.followup.send(
-            f"⚫ 세션을 닫았습니다.\n> 💰 **{self.refund}잉크 환급**",
-            delete_after=10)
+        # 확인 메시지를 결과로 바꿔 쓴다. 둘을 따로 남기면 상태판이 밀린다.
+        await close_notice(
+            interaction,
+            f"⚫ 세션을 닫았습니다.\n> 💰 **{self.refund}잉크 환급**")
         await refresh(self.bot, self.session, reason="close")
         self.stop()
 
     @discord.ui.button(label="취소", style=discord.ButtonStyle.secondary)
     async def cancel(self, interaction, _b):
-        for c in self.children:
-            c.disabled = True
-        await interaction.response.edit_message(content="세션 클로즈를 취소했습니다.", view=self)
+        await interaction.response.defer()
+        await close_notice(interaction, "세션 클로즈를 취소했습니다.", seconds=6)
         self.stop()
 
 
@@ -481,6 +489,63 @@ class RewindTargetModal(discord.ui.Modal, title="여러 턴 되감기"):
             f"되돌리기는 취소할 수 없으며, 이미 소모된 비용은 환불되지 않습니다.\n"
             f"제거되는 정보는 되감기 로그로 이관됩니다.",
             view=confirm_cls(self.bot, self.session, t))
+
+
+async def notify(interaction, text: str, *, seconds: int = 12, view=None):
+    """디스플레이 채널에 잠시 알린 뒤 스스로 사라지는 메시지.
+
+    디스플레이는 상태판이다. 확인·결과 알림이 쌓이면 정작 봐야 할
+    상태 임베드가 위로 밀려난다. 확인이 필요한 것은 view를 함께 넘기고,
+    단순 알림은 시간이 지나면 지운다.
+    """
+    try:
+        if interaction.response.is_done():
+            msg = await interaction.followup.send(text, view=view) if view \
+                else await interaction.followup.send(text)
+        else:
+            if view:
+                await interaction.response.send_message(text, view=view)
+            else:
+                await interaction.response.send_message(text)
+            msg = await interaction.original_response()
+    except Exception as e:
+        print(f"[디스플레이] 알림 실패: {e}")
+        return None
+
+    if view is None and seconds:
+        # 확인 뷰가 붙은 메시지는 사용자가 누를 때까지 둔다.
+        async def _expire():
+            await asyncio.sleep(seconds)
+            try:
+                await msg.delete()
+            except Exception:
+                pass
+        asyncio.create_task(_expire())
+    return msg
+
+
+async def close_notice(interaction, text: str, *, seconds: int = 12):
+    """확인 메시지를 결과로 바꾸고 잠시 뒤 지운다.
+
+    확인 → 결과가 별개 메시지로 남으면 두 개가 쌓인다.
+    같은 자리를 고쳐 쓰고 스스로 정리하게 한다.
+    """
+    try:
+        await interaction.message.edit(content=text, view=None, embed=None)
+        target = interaction.message
+    except Exception:
+        try:
+            target = await interaction.followup.send(text)
+        except Exception:
+            return
+
+    async def _expire():
+        await asyncio.sleep(seconds)
+        try:
+            await target.delete()
+        except Exception:
+            pass
+    asyncio.create_task(_expire())
 
 
 def build_view(bot, session) -> discord.ui.View:
