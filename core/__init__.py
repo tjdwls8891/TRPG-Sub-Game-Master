@@ -241,6 +241,7 @@ from .prompt import PromptBuilder, build_compression_prompt
 from .dialogue import (
     pick_status_message,
     send_layer_status,
+    WaitingStatus,
     LAYER_STATUS_MESSAGES,
     WAITING_TIPS,
     DIALOGUE_MARKER_PATTERN,
@@ -341,7 +342,7 @@ __all__ = [
     # dialogue
     "DIALOGUE_MARKER_PATTERN", "parse_dialogue_paragraph", "format_dialogue_block",
     "merge_consecutive_dialogues", "maybe_send_speaker_image", "stream_text_to_channel", "send_streamed",
-    "strip_unauthorized_pc_dialogue", "pick_status_message", "send_layer_status",
+    "strip_unauthorized_pc_dialogue", "pick_status_message", "send_layer_status", "WaitingStatus",
     "LAYER_STATUS_MESSAGES", "WAITING_TIPS", "send_status_message", "clear_status_message",
     # media
     "send_image_by_keyword", "PlaylistManager",

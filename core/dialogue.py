@@ -108,6 +108,61 @@ async def send_layer_status(channel, layer: str = "narration"):
     return await send_status_message(channel, pick_status_message(layer))
 
 
+class WaitingStatus:
+    """대기 동안 문구를 바꿔가며 기다림을 덜어준다.
+
+    한 번 보내고 두면 응답이 길어질 때 멈춘 것처럼 보인다.
+    같은 메시지를 주기적으로 고쳐 쓰므로 채널이 지저분해지지 않는다.
+
+    사용:
+        status = await WaitingStatus.begin(channel, "narration")
+        ...  # 오래 걸리는 작업
+        await status.done()          # 메시지 삭제
+        await status.done(keep=True) # 남겨두고 루프만 정지
+    """
+
+    # 문구 교체 간격. 너무 짧으면 읽기 전에 바뀌고, 길면 멈춰 보인다.
+    ROTATE_SECONDS = 6.0
+
+    def __init__(self, message, layer: str):
+        self.message = message
+        self.layer = layer
+        self._task = None
+
+    @classmethod
+    async def begin(cls, channel, layer: str = "narration"):
+        msg = await send_status_message(channel, pick_status_message(layer))
+        if not msg:
+            return cls(None, layer)
+        self = cls(msg, layer)
+        self._task = asyncio.create_task(self._rotate())
+        return self
+
+    async def _rotate(self):
+        """문구를 갈아 끼운다. 팁은 매번 붙이지 않는다."""
+        try:
+            while True:
+                await asyncio.sleep(self.ROTATE_SECONDS)
+                text = pick_status_message(self.layer)
+                try:
+                    await self.message.edit(content=text)
+                except Exception:
+                    return
+        except asyncio.CancelledError:
+            return
+
+    async def done(self, *, keep: bool = False):
+        if self._task:
+            self._task.cancel()
+            self._task = None
+        if self.message and not keep:
+            try:
+                await self.message.delete()
+            except Exception:
+                pass
+            self.message = None
+
+
 async def send_status_message(channel, text: str):
     """
     처리 대기 동안 게임 채널에 '~하는 중' 안내 메시지를 전송하고 핸들을 반환한다.

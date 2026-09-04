@@ -1520,7 +1520,7 @@ class GMCog(commands.Cog):
 
         # 플레이어가 보는 게임 채널에 판단 대기 안내 (판단 완료 후 삭제)
         # 층위별 문구 — 4층위 도입으로 대기가 길어져 같은 문구 반복은 멈춘 듯 보인다.
-        status_msg = await core.send_layer_status(game_ch, "judgment")
+        status_msg = await core.WaitingStatus.begin(game_ch, "judgment")
 
         if do_simulation:
             if game_ch:
@@ -1540,7 +1540,8 @@ class GMCog(commands.Cog):
             judgment = await self._call_judgment(
                 session, player_message, roll_results, master_ch)
 
-        await core.clear_status_message(status_msg)
+        if status_msg:
+            await status_msg.done()
 
         if not judgment:
             return

@@ -406,7 +406,8 @@ class GameCog(commands.Cog):
             await m_send("⏳ AI가 묘사를 생성 중입니다. 완료 후 게임 채널에 타이핑 연출을 시작합니다...")
 
             # 플레이어가 보는 게임 채널에 대기 안내 (출력 시작 직전 삭제). 자동/수동 공통.
-            status_msg = await core.send_layer_status(game_channel, "narration")
+            # 묘사는 가장 오래 걸린다. 문구를 갈아 끼워 멈춘 것처럼 보이지 않게 한다.
+            status_msg = await core.WaitingStatus.begin(game_channel, "narration")
 
             prompt = core.PromptBuilder.build_prompt(session, clean_instruction)
 
@@ -610,7 +611,8 @@ class GameCog(commands.Cog):
                 await m_send(f"🛡️ 플레이어 이름({_uniq_pc})으로 된 발화 문단을 출력에서 제거했습니다.")
 
             # 출력(타이핑 연출) 시작 직전 대기 안내 메시지 제거
-            await core.clear_status_message(status_msg)
+            if status_msg:
+                await status_msg.done()
             status_msg = None
 
             # TTS 더빙(실험): 수동 !진행에서 토글 ON + 보이스 연결 시 '음성-텍스트 동기' 경로 사용.
@@ -723,7 +725,8 @@ class GameCog(commands.Cog):
             await core.save_session_data(self.bot, session)
 
         except Exception as e:
-            await core.clear_status_message(status_msg)
+            if status_msg:
+                await status_msg.done()
             await m_send(f"⚠️ 시스템 오류가 발생했습니다: {str(e)}")
             session.is_processing = False
             try:
