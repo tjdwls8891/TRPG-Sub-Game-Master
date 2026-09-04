@@ -737,6 +737,26 @@ GM_LOGIC_RESPONSE_SCHEMA = {
             "type": "string",
             "description": "PROCEED일 때 !진행 인자 형태 지시문. 자/태/상중하 태그 포함 가능. 다른 action에서는 빈 문자열."
         },
+        "quest_choice": {
+            "type": "object",
+            "description": (
+                "[퀘스트 선택] 사용자 프롬프트의 [가능 퀘스트 목록]을 검토해 이번 턴에 열 퀘스트를 정한다. "
+                "목록이 없거나 지금 상황에 어울리지 않으면 id를 빈 문자열로 두고 열지 않는다. "
+                "[진행 중인 퀘스트]가 있는데 목록도 함께 제시되었다면, 전환할 만한 이유가 있을 때만 "
+                "새 id를 적고 그렇지 않으면 빈 문자열로 유지한다."
+            ),
+            "properties": {
+                "id": {
+                    "type": "string",
+                    "description": "열 퀘스트의 id. 목록에 제시된 id만 쓸 수 있다. 열지 않으면 빈 문자열."
+                },
+                "reason": {
+                    "type": "string",
+                    "description": "선택 또는 미선택 사유를 한 문장으로. 플레이어의 어떤 행동이 그 방향을 향했는지 짚는다."
+                }
+            },
+            "required": ["id", "reason"]
+        },
         "event_assessment": {
             "type": "string",
             "enum": ["ongoing", "resolving", "completed", "deviated"],
@@ -765,7 +785,8 @@ GM_LOGIC_RESPONSE_SCHEMA = {
     },
     "required": [
         "constraint_check", "info_access",
-        "narrate_instruction", "resource_changes", "proceed_instruction", "event_assessment",
+        "narrate_instruction", "resource_changes", "proceed_instruction",
+        "quest_choice", "event_assessment",
         "self_check", "reasoning"
     ]
 }
@@ -1052,6 +1073,15 @@ NARRATE의 경량 응답은 별도의 경량 LLM이 생성합니다. 당신은 �
 
    ✗ 나쁜 예: "임성진이 경비원과 대화를 나눈다."
    ✓ 좋은 예: "임성진이 말을 꺼내기도 전에 고참 경비가 손을 들어 막는다. 조선소 쪽에서 빠른 발소리가 이쪽으로 달려오고 있고, 경비들의 눈빛이 순식간에 날카로워진다."
+
+[퀘스트 선택 — quest_choice]
+- 억지로 열지 마세요. 플레이어의 행동이 그 방향을 향할 때만 엽니다.
+  둘러보거나 이동하는 중이라면 열지 않는 편이 낫습니다.
+- 열기로 했다면 proceed_instruction에 그 퀘스트의 시작 상황을 자연스럽게
+  녹여 넣으세요. "퀘스트가 시작되었다" 같은 메타 서술은 금지합니다.
+- 진행 중인 퀘스트가 있으면 대개 유지합니다. 플레이어가 명백히 다른 방향으로
+  움직였을 때만 전환을 고려하세요.
+- 목록에 없는 id를 적으면 무시됩니다.
 
 [엄격한 규칙]
 - 시나리오 종결(엔딩) 판단은 절대 하지 마세요. 그것은 인간 GM의 권한입니다.

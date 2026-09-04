@@ -1568,6 +1568,10 @@ class GMCog(commands.Cog):
                     return
                 # 판단층위 산출물과 병합 — 이후 분기는 기존 구조를 그대로 사용한다.
                 decision = {**judgment, **decision, "action": action}
+
+                # 퀘스트 선택 — 지시층위가 고른 것을 실제로 연다.
+                # 이 연결이 없으면 후보만 주입되고 아무것도 시작되지 않는다.
+                await self._apply_quest_choice(session, decision, m_send)
             else:
                 decision = dict(judgment)
 
@@ -1682,6 +1686,84 @@ class GMCog(commands.Cog):
     # ─────────────────────────────────────────────────────────────
     # 지시층위 호출
     # ─────────────────────────────────────────────────────────────
+
+    @auto.command(name="퀘스트")
+    async def auto_quest(self, ctx, action: str = "", *, arg: str = ""):
+        """퀘스트 확인·간섭 (기획 규정 — 마스터 세션에서 명령어로 가능하게).
+
+        !자동 퀘스트            현재 상태와 후보
+        !자동 퀘스트 열기 <id>   특정 퀘스트를 연다
+        !자동 퀘스트 닫기        진행 중인 퀘스트를 중단한다
+        !자동 퀘스트 진전 <케이스> 특정 케이스로 진전시킨다
+        """
+        session = self.bot.active_sessions.get(ctx.channel.id)
+        if not session:
+            await ctx.send("이 채널에는 세션이 없습니다.")
+            return
+
+        state = core.quest.get_state(session)
+        active = state.get("active")
+
+        if not action:
+            lines = ["**[퀘스트 상태]**"]
+            if active:
+                lines.append(f"진행 중: **{active['name']}** (노드 `{active['node']}`)")
+                if active.get("path"):
+                    lines.append(f"> 경로: {' → '.join(active['path'])}")
+                if active.get("slots"):
+                    lines.append(f"> 슬롯: {active['slots']}")
+            else:
+                lines.append("진행 중인 퀘스트가 없습니다.")
+
+            cleared = state.get("cleared") or []
+            if cleared:
+                subs = sum(1 for c in cleared if c.get("line") == "sub")
+                lines.append(f"클리어: 서브 {subs} · 전체 {len(cleared)}")
+
+            cands = core.quest.filter_available(session)
+            if cands:
+                lines.append("\n**[현재 후보]**")
+                for q in cands[:10]:
+                    lines.append(f"· `{q['id']}` {q['name']} ({q['line']})")
+            await ctx.send("\n".join(lines)[:1900])
+            return
+
+        if action == "열기":
+            qid = arg.strip()
+            quest = core.quest._find_quest(session, qid)
+            if not quest:
+                await ctx.send(f"`{qid}` 퀘스트를 찾을 수 없습니다.")
+                return
+            opened = core.quest.start_quest(session, quest)
+            await core.save_session_data(self.bot, session)
+            await ctx.send(f"📜 **{opened['name']}** 을(를) 열었습니다.")
+            return
+
+        if action == "닫기":
+            if not active:
+                await ctx.send("진행 중인 퀘스트가 없습니다.")
+                return
+            name = active["name"]
+            state["active"] = None
+            await core.save_session_data(self.bot, session)
+            await ctx.send(f"⏹ **{name}** 을(를) 중단했습니다.")
+            return
+
+        if action == "진전":
+            if not active:
+                await ctx.send("진행 중인 퀘스트가 없습니다.")
+                return
+            if core.quest.move_to_case(session, arg.strip()):
+                await core.save_session_data(self.bot, session)
+                st = core.quest.get_state(session)
+                cur = st.get("active")
+                node = cur["node"] if cur else "(종료)"
+                await ctx.send(f"▶ `{arg.strip()}` 으로 진전했습니다. 현재 노드 `{node}`")
+            else:
+                await ctx.send(f"`{arg.strip()}` 케이스로 진전할 수 없습니다.")
+            return
+
+        await ctx.send("사용법: `!자동 퀘스트 [열기|닫기|진전] [값]`")
 
     @commands.command(name="되감기")
     async def rewind_cmd(self, ctx, turn: str = None):
@@ -2594,7 +2676,11 @@ class GMCog(commands.Cog):
         # 기존 _update_world_timeline을 흡수했다. 세계 타임라인 갱신은
         # _run_extraction 내부에서 core.to_world_timeline으로 처리된다.
         if ai_summary:
-            asyncio.create_task(self._run_extraction(session, ai_summary))
+            # master_ch를 넘겨야 추출 결과가 마스터 채널에 보고된다.
+            # 넘기지 않으면 조용히 적용만 되고 무엇이 바뀌었는지 알 수 없다.
+            _mch = self.bot.get_channel(getattr(session, "master_ch_id", 0))
+            asyncio.create_task(
+                self._run_extraction(session, ai_summary, _mch))
 
         return result
 
@@ -3508,6 +3594,48 @@ class GMCog(commands.Cog):
     # 서사 계획 내부 함수
     # ─────────────────────────────────────────────────────────────
 
+    async def _apply_quest_choice(self, session, decision, m_send):
+        """지시층위가 고른 퀘스트를 연다.
+
+        기획 규정 — 필터링한 후보 중에서 랜덤 택일하거나 지시층위가 선택.
+        시나리오가 quest_select를 'random'으로 두면 코드가 무작위로 고른다.
+        """
+        if getattr(session, "narrative_mode", "quest") != "quest":
+            return   # 풀자유 세션은 서사설계자가 주도한다
+
+        state = core.quest.get_state(session)
+        if state.get("active"):
+            return   # 진행 중이면 새로 열지 않는다
+
+        offered = list(getattr(session, "_quest_offered", []) or [])
+        if not offered:
+            return
+
+        mode = (session.scenario_data or {}).get("quest_select") or "logic"
+        if mode == "random":
+            import random as _r
+            qid = _r.choice(offered)
+            reason = "무작위 선정"
+        else:
+            qc = decision.get("quest_choice") or {}
+            qid = (qc.get("id") or "").strip()
+            reason = qc.get("reason") or ""
+            if qid and qid not in offered:
+                print(f"[퀘스트] 제시하지 않은 id 무시: {qid}")
+                qid = ""
+
+        if not qid:
+            return
+
+        quest = core.quest._find_quest(session, qid)
+        if not quest:
+            return
+        try:
+            opened = core.quest.start_quest(session, quest)
+            await m_send(f"📜 **[퀘스트 시작]** {opened['name']}\n> {reason[:150]}")
+        except Exception as e:
+            print(f"[퀘스트] 시작 실패({qid}): {e}")
+
     async def _init_narrative_and_start(self, session):
         """
         !자동 시작 직후 호출. 서사 계획이 없으면 새로 수립한 뒤 첫 라운드를 시작한다.
@@ -3612,6 +3740,14 @@ class GMCog(commands.Cog):
             bool: 성공 여부
         """
         master_ch = self.bot.get_channel(session.master_ch_id)
+
+        # 퀘스트 모드에서는 서사설계자가 주도하지 않는다(기획 규정).
+        # 퀘스트 시스템이 서사 가이드를 대신하므로, 계획까지 세우면
+        # 두 서사가 겹쳐 지시층위가 어느 쪽을 따를지 모호해진다.
+        # 서사설계자는 풀자유 세션과 인피니티 플랜에서 쓴다.
+        if getattr(session, "narrative_mode", "quest") != "free":
+            print(f"[서사설계] 퀘스트 모드 — 계획 수립 생략")
+            return False
 
         # ── 시나리오 정보 ──
         story_guide = session.scenario_data.get("story_guide", "")
