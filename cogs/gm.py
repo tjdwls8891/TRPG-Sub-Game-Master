@@ -1475,9 +1475,6 @@ class GMCog(commands.Cog):
         cache_model = getattr(session, "cache_model", None)
         do_simulation = bool(cache_name and cache_model == core.DEFAULT_MODEL)
 
-        # 턴이 바뀌었으니 이미지 중복 기록을 비운다.
-        session._images_this_turn = []
-
         # ── 세션 오픈 여부 확인 (기획 규정 — 닫혀 있으면 차단) ──
         # 만료된 캐시로 진행하면 API 오류가 난다. 미리 막고 안내한다.
         if not core.is_session_open(session):
@@ -3293,13 +3290,6 @@ class GMCog(commands.Cog):
                 report += f"\n> 상태 부여: {', '.join(applied['applied'])}"
             if applied["cleared"]:
                 report += f"\n> 상태 해제: {', '.join(applied['cleared'])}"
-            # 등장한 NPC의 이미지를 내보낸다. 지금까지는 @대사: 마커가
-            # 붙은 인물만 나가서, 대사 없이 등장하면 얼굴을 볼 수 없었다.
-            try:
-                await self._send_met_npc_images(session, applied.get("npcs") or [])
-            except Exception as e:
-                print(f"[NPC이미지] 전송 실패(무시): {e}")
-
             if applied.get("items"):
                 shown = [f"{i['target']} {i['item']} "
                          f"{'+' if i['delta'] > 0 else ''}{i['delta']} (→{i['after']})"
@@ -3646,27 +3636,6 @@ class GMCog(commands.Cog):
     # ─────────────────────────────────────────────────────────────
     # 서사 계획 내부 함수
     # ─────────────────────────────────────────────────────────────
-
-    async def _send_met_npc_images(self, session, names: list):
-        """등장한 NPC의 이미지를 게임 채널에 내보낸다.
-
-        같은 턴에 대사로 이미 나간 인물은 건너뛴다. 한 턴에 두 번
-        같은 얼굴이 뜨면 지저분하다.
-        """
-        if not names or not getattr(session, "image_enabled", True):
-            return
-        game_ch = self.bot.get_channel(getattr(session, "game_ch_id", 0))
-        if not game_ch:
-            return
-
-        shown = set(getattr(session, "_images_this_turn", None) or [])
-        for name in names[:3]:      # 한 턴에 세 명까지
-            if name in shown:
-                continue
-            ok = await core.maybe_send_speaker_image(game_ch, session, name)
-            if ok:
-                shown.add(name)
-        session._images_this_turn = list(shown)
 
     async def _apply_quest_choice(self, session, decision, m_send):
         """지시층위가 고른 퀘스트를 연다.
