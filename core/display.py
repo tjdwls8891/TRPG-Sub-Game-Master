@@ -12,7 +12,6 @@ import asyncio
 import discord
 
 from . import media_control
-from .cost import format_cost
 from .ink import format_ink, cost_to_ink
 from .timeline import format_timeline
 from .constants import CACHE_TTL_SECONDS, TTS_NARRATOR_VOICE
@@ -61,12 +60,15 @@ def build_embed(session) -> discord.Embed:
     )
 
     # ── 비용 ──
-    total = getattr(session, "total_cost", 0.0) or 0.0
+    # 기획 규정 — 플레이어에게는 잉크 단위만 보인다. 원 단위는 마스터 전용.
+    # 누적은 원 단위 총합을 변환하지 않고 실제 차감한 잉크를 더한 값을 쓴다.
+    # 매 턴 올림하므로 변환값과 결제액이 어긋난다.
+    spent = int(getattr(session, "total_ink_spent", 0) or 0)
     est = getattr(session, "last_estimate", {}) or {}
     last = getattr(session, "last_turn_cost", 0.0) or 0.0
-    cost_lines = [f"총 {cost_to_ink(total)}잉크 ({format_cost(total)})"]
+    cost_lines = [f"총 {spent:,}잉크"]
     if last:
-        cost_lines.append(f"직전 턴 {cost_to_ink(last)}잉크 ({format_cost(last)})")
+        cost_lines.append(f"직전 턴 {cost_to_ink(last)}잉크")
     if est:
         cost_lines.append(f"다음 턴 {est.get('min_ink', 0)}~{est.get('max_ink', 0)}잉크")
         # 기획 규정 — TTS는 합산하지 않고 구분해 표기한다.
@@ -79,7 +81,7 @@ def build_embed(session) -> discord.Embed:
             pass
     prepaid = getattr(session, "compression_prepaid_krw", 0.0) or 0.0
     if prepaid:
-        cost_lines.append(f"압축 선결제 {prepaid:.1f}원")
+        cost_lines.append(f"압축 선결제 {cost_to_ink(prepaid)}잉크")
     embed.add_field(name="비용", value="\n".join(cost_lines), inline=True)
 
     # ── 세션 오픈 정보 ──

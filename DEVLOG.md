@@ -1,6 +1,6 @@
 # INDAIM — 개발 로그 (DEVLOG)
 
-> 현재 버전: **v5.27.0** · `SCHEMA_VERSION` 3
+> 현재 버전: **v5.28.0** · `SCHEMA_VERSION` 3
 > 스택: Gemini API + discord.py / 한국어 TRPG 보조 GM 봇
 > 저장소: `tjdwls8891/TRPG-Sub-Game-Master`
 
@@ -196,7 +196,7 @@
 
 ```
 장소 122 · NPC 47(32명 배치) · 직업 16 · 퀘스트 44
-시작 틀 8 · 프로필 단계 10 · SESSION_FIELDS 74 · TRACKED_PATHS 14
+시작 틀 8 · 프로필 단계 10 · SESSION_FIELDS 75 · TRACKED_PATHS 14
 명령어 44 · persistent view 5종 22버튼
 ```
 

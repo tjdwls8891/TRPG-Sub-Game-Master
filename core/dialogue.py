@@ -347,6 +347,11 @@ async def maybe_send_speaker_image(channel, session, speaker: str) -> bool:
 
     try:
         await channel.send(file=discord.File(filepath))
+        # 같은 턴에 추출층위가 다시 내보내지 않도록 기록한다.
+        seen = list(getattr(session, "_images_this_turn", None) or [])
+        if speaker not in seen:
+            seen.append(speaker)
+            session._images_this_turn = seen
         return True
     except Exception as e:
         print(f"[Dialogue Image] {speaker} 이미지 전송 실패: {e}")

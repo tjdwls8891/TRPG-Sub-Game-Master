@@ -1407,6 +1407,10 @@ class GMCog(commands.Cog):
                 # 초과분은 운영자가 부담한다(기획 규정).
                 try:
                     ink = core.cost_to_ink(turn_cost)
+                    # 실제 차감액을 누적한다. 원 단위 총합을 나중에 변환하면
+                    # 매 턴 올림한 것과 어긋나 결제액과 맞지 않는다.
+                    session.total_ink_spent = int(
+                        getattr(session, "total_ink_spent", 0) or 0) + ink
                     for _uid in (session.players or {}):
                         res = await core.accounts.deduct_ink(_uid, ink, allow_overdraft=True)
                         await core.stats.bump(_uid, ink_spent=ink)
@@ -1470,6 +1474,9 @@ class GMCog(commands.Cog):
         cache_name  = getattr(session, "cache_name",  None)
         cache_model = getattr(session, "cache_model", None)
         do_simulation = bool(cache_name and cache_model == core.DEFAULT_MODEL)
+
+        # 턴이 바뀌었으니 이미지 중복 기록을 비운다.
+        session._images_this_turn = []
 
         # ── 세션 오픈 여부 확인 (기획 규정 — 닫혀 있으면 차단) ──
         # 만료된 캐시로 진행하면 API 오류가 난다. 미리 막고 안내한다.
@@ -3286,6 +3293,13 @@ class GMCog(commands.Cog):
                 report += f"\n> 상태 부여: {', '.join(applied['applied'])}"
             if applied["cleared"]:
                 report += f"\n> 상태 해제: {', '.join(applied['cleared'])}"
+            # 등장한 NPC의 이미지를 내보낸다. 지금까지는 @대사: 마커가
+            # 붙은 인물만 나가서, 대사 없이 등장하면 얼굴을 볼 수 없었다.
+            try:
+                await self._send_met_npc_images(session, applied.get("npcs") or [])
+            except Exception as e:
+                print(f"[NPC이미지] 전송 실패(무시): {e}")
+
             if applied.get("items"):
                 shown = [f"{i['target']} {i['item']} "
                          f"{'+' if i['delta'] > 0 else ''}{i['delta']} (→{i['after']})"
@@ -3463,7 +3477,9 @@ class GMCog(commands.Cog):
                                  in_tokens, cached_tokens, out_tokens, cost, session.total_cost)
             if not hasattr(session, "turn_cost_log"):
                 session.turn_cost_log = []
-            session.turn_cost_log.append({"label": "서사 설계자(방향성)", "cost": cost,
+            # 라벨을 '서사 설계자'라 두면 _plan_narrative와 혼동된다.
+            # 이것은 지시층위 직전에 세계관 개연성을 미리 훑는 별개 호출이다.
+            session.turn_cost_log.append({"label": "개연성 시뮬레이션", "cost": cost,
                                           "in": in_tokens, "cached": cached_tokens, "out": out_tokens})
             print(
                 f"[GM/{session.session_id}] 시뮬레이션 비용: "
@@ -3481,8 +3497,27 @@ class GMCog(commands.Cog):
             try:
                 sim_data = json.loads(cleaned)
             except Exception as e:
-                print(f"[GM] 서사 설계 JSON 파싱 실패: {e}")
+                print(f"[GM] 개연성 시뮬레이션 JSON 파싱 실패: {e}")
                 return None
+
+        # 결과를 마스터에 알린다. 비용이 드는 호출인데 무엇을 얻었는지
+        # 보이지 않으면 켜둘 가치가 있는지 판단할 수 없다.
+        if master_ch:
+            try:
+                dirs = sim_data.get("directions") or []
+                lines = [f"🔮 **[개연성 시뮬레이션]** 방향 {len(dirs)}건"]
+                contact = sim_data.get("action_world_contact")
+                if contact:
+                    lines.append(f"> 접점: {str(contact)[:150]}")
+                for d in dirs[:3]:
+                    if not isinstance(d, dict):
+                        continue
+                    lines.append(
+                        f"> `{d.get('plausibility', '?')}` "
+                        f"{str(d.get('label') or d.get('direction', ''))[:70]}")
+                await master_ch.send("\n".join(lines)[:1900])
+            except Exception as e:
+                print(f"[GM] 시뮬레이션 보고 실패(무시): {e}")
 
         core.write_log(session.session_id, "api",
                        f"[서사 방향성 시뮬레이션]\n{json.dumps(sim_data, ensure_ascii=False, indent=2)}")
@@ -3611,6 +3646,27 @@ class GMCog(commands.Cog):
     # ─────────────────────────────────────────────────────────────
     # 서사 계획 내부 함수
     # ─────────────────────────────────────────────────────────────
+
+    async def _send_met_npc_images(self, session, names: list):
+        """등장한 NPC의 이미지를 게임 채널에 내보낸다.
+
+        같은 턴에 대사로 이미 나간 인물은 건너뛴다. 한 턴에 두 번
+        같은 얼굴이 뜨면 지저분하다.
+        """
+        if not names or not getattr(session, "image_enabled", True):
+            return
+        game_ch = self.bot.get_channel(getattr(session, "game_ch_id", 0))
+        if not game_ch:
+            return
+
+        shown = set(getattr(session, "_images_this_turn", None) or [])
+        for name in names[:3]:      # 한 턴에 세 명까지
+            if name in shown:
+                continue
+            ok = await core.maybe_send_speaker_image(game_ch, session, name)
+            if ok:
+                shown.add(name)
+        session._images_this_turn = list(shown)
 
     async def _apply_quest_choice(self, session, decision, m_send):
         """지시층위가 고른 퀘스트를 연다.

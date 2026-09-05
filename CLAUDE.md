@@ -8,7 +8,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 AI가 4개 층위로 나뉘어 판단·지시·묘사·추출을 분담한다. 플레이어는 서버 GM 스페이스에서 버튼으로 세션을 열고, 캐릭터를 만들고, 턴을 진행한다. **명령어는 GM의 수동 개입·복구 수단이며 일반 플레이에는 쓰지 않는다.**
 
-현재 버전: **v5.27.0** · `SCHEMA_VERSION` 3 · 총 ~23,800줄
+현재 버전: **v5.28.0** · `SCHEMA_VERSION` 3 · 총 ~23,800줄
 
 ---
 
@@ -108,7 +108,7 @@ python main.py
 |---|---|---|
 | `constants.py` | 143 | `DEFAULT_MODEL`, `LOGIC_MODEL`, `IMAGE_MODEL`, `EXCHANGE_RATE`, `PRICING_1M`, `TTS_VOICES`, `__version__` |
 | `models.py` | 237 | `TRPGSession` — 단일 세션의 모든 상태를 담는 중앙 컨테이너 |
-| `io.py` | 396 | `SCHEMA_VERSION`, `SESSION_FIELDS`(74), `migrate_session_data`, 직렬화·로그·시나리오 로드 |
+| `io.py` | 396 | `SCHEMA_VERSION`, `SESSION_FIELDS`(75), `migrate_session_data`, 직렬화·로그·시나리오 로드 |
 | `cache.py` | 486 | 룰북 캐시 빌드, 캐시 상태 동기화, 세션 디스크 복구 |
 | `resilience.py` | 107 | `call_with_retry` — 재시도·타임아웃·오류 로그 분리 |
 

@@ -140,6 +140,9 @@ class TRPGSession:
         self.open_prepaid_ink = 0
         # 선택된 세션 유지 시간(분)
         self.open_minutes = 0
+        # 턴별로 실제 차감한 잉크의 누적. 원 단위 총합을 변환하면
+        # 매 턴 올림한 것과 어긋나 실제 결제액과 맞지 않는다.
+        self.total_ink_spent = 0
         # 만료 알림을 한 번만 보내기 위한 플래그. 재오픈 시 풀린다.
         self.cache_expired_notified = False
         # 세션 시작 시각(epoch) — 통계의 '세션 온 시간' 산출 기준

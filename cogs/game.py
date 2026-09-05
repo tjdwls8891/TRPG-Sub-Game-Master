@@ -716,7 +716,9 @@ class GameCog(commands.Cog):
                          "in": dub["in"], "cached": 0, "out": dub["out"]})
 
             # 턴 비용 보고 임베드 송출 (PROCEED + 지시층위 등 누적 + TTS 더빙 합산)
-            _turn_embed = core.build_turn_cost_embed(session.turn_count, session.turn_cost_log, session.total_cost)
+            _turn_embed = core.build_turn_cost_embed(
+                session.turn_count, session.turn_cost_log, session.total_cost,
+                total_ink=int(getattr(session, "total_ink_spent", 0) or 0))
             session.turn_cost_log.clear()
             await m_send(embed=_turn_embed)
 

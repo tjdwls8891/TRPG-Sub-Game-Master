@@ -278,25 +278,57 @@ def build_compression_cost_embed(label: str, in_tokens: int, cached_tokens: int,
     return embed
 
 
-def build_turn_cost_embed(turn_number: int, cost_log: list, total_cost: float) -> discord.Embed:
-    """
-    한 턴(PROCEED 직전)의 누적 비용을 배치 보고하는 Discord Embed 조립.
+def format_breakdown(entry: dict) -> str:
+    """호출 하나의 비용을 계산식으로 펼친다.
 
-    각 호출(시뮬·지시층위·PROCEED·TTS 등)을 개별 필드로 펼쳐 토큰 내역(입력/캐시/신규/출력)과
-    비용을 보이고, 입력에 온디맨드로 주입된 정보 목록(키워드북·NPC 오버라이드·서사 계획·정보 원장 등)을
-    합산해 별도 필드로 제시한다.
+    기획 규정 — 캐시입력토큰×단가 + 순수입력토큰×단가 + 출력토큰×단가
+    + 기타 발생 비용의 구조로 표기해 어디서 비용이 나는지 드러낸다.
+    """
+    in_t = int(entry.get("in") or 0)
+    cached = int(entry.get("cached") or 0)
+    out_t = int(entry.get("out") or 0)
+    fresh = max(in_t - cached, 0)
+    model = entry.get("model") or DEFAULT_MODEL
+    rates = PRICING_1M.get(model, PRICING_1M[DEFAULT_MODEL])
+
+    parts = []
+    if cached:
+        krw = (cached / 1_000_000) * rates["CACHE_READ"] * EXCHANGE_RATE
+        parts.append(f"캐시 `{cached:,}`×${rates['CACHE_READ']} = {krw:,.2f}원")
+    if fresh:
+        krw = (fresh / 1_000_000) * rates["INPUT"] * EXCHANGE_RATE
+        parts.append(f"입력 `{fresh:,}`×${rates['INPUT']} = {krw:,.2f}원")
+    if out_t:
+        krw = (out_t / 1_000_000) * rates["OUTPUT"] * EXCHANGE_RATE
+        parts.append(f"출력 `{out_t:,}`×${rates['OUTPUT']} = {krw:,.2f}원")
+
+    extra = entry.get("extra_krw") or 0.0
+    if extra:
+        parts.append(f"{entry.get('extra_label', '기타')} = {extra:,.2f}원")
+
+    cost = entry.get("cost", 0.0)
+    if not parts:
+        return f"**{format_cost(cost)}**"
+    return "\n".join(f"· {x}" for x in parts) + f"\n**합 {format_cost(cost)}**"
+
+
+def build_turn_cost_embed(turn_number: int, cost_log: list, total_cost: float,
+                          *, total_ink: int = None) -> discord.Embed:
+    """
+    한 턴의 비용을 호출별로 분해해 보고한다(마스터 채널 전용).
+
+    각 호출을 계산식으로 펼쳐 캐시·신규입력·출력의 기여를 드러낸다.
+    합계에도 같은 구조를 적용해, 소계가 어떻게 나왔는지 추적할 수 있다.
 
     Args:
-        turn_number (int): 현재 진행 턴 번호 (session.turn_count + 1)
-        cost_log (list): [{"label", "cost", "in"?, "cached"?, "out"?, "manifest"?}, ...] 항목 목록
-        total_cost (float): session.total_cost 누적값 (KRW)
-
-    Returns:
-        discord.Embed
+        turn_number: 현재 진행 턴 번호
+        cost_log: [{"label", "cost", "in"?, "cached"?, "out"?, "model"?, "manifest"?}, ...]
+        total_cost: session.total_cost 누적값 (KRW)
+        total_ink: 누적 잉크. 원 단위 누적을 변환하지 않고 턴별 잉크를 더한 값.
     """
     embed = discord.Embed(
-        title=f"🎲 턴 진행 비용 리포트  ·  #{turn_number}",
-        description=f"이번 턴에 발생한 **{len(cost_log)}건**의 AI 호출 내역입니다.",
+        title=f"🎲 턴 비용 리포트 · #{turn_number}",
+        description=f"AI 호출 **{len(cost_log)}건**",
         color=0xE67E22,
     )
     total_turn_cost = sum(entry.get("cost", 0.0) for entry in cost_log)
@@ -305,23 +337,13 @@ def build_turn_cost_embed(turn_number: int, cost_log: list, total_cost: float) -
 
     for entry in cost_log:
         label = entry.get("label", "?")
-        cost = entry.get("cost", 0.0)
         in_t = entry.get("in")
         if in_t is not None:
-            in_t = int(in_t or 0)
-            cached_t = int(entry.get("cached", 0) or 0)
-            out_t = int(entry.get("out", 0) or 0)
-            fresh = max(in_t - cached_t, 0)
-            total_in += in_t
-            total_cached += cached_t
-            total_out += out_t
-            value = (
-                f"🔢 입력 `{in_t:,}`  (캐시 `{cached_t:,}` · 신규 `{fresh:,}`)  ·  출력 `{out_t:,}`\n"
-                f"💰 **{format_cost(cost)}**"
-            )
-        else:
-            value = f"💰 **{format_cost(cost)}**"
-        embed.add_field(name=f"▫️ {label}", value=value, inline=False)
+            total_in += int(in_t or 0)
+            total_cached += int(entry.get("cached", 0) or 0)
+            total_out += int(entry.get("out", 0) or 0)
+        embed.add_field(name=f"▫️ {label}",
+                        value=format_breakdown(entry)[:1020], inline=False)
 
         for m in (entry.get("manifest") or []):
             if m not in merged_manifest:
@@ -329,16 +351,33 @@ def build_turn_cost_embed(turn_number: int, cost_log: list, total_cost: float) -
 
     if merged_manifest:
         manifest_text = "\n".join(f"• {m}" for m in merged_manifest)
-        embed.add_field(name="📥 입력에 주입된 정보 (온디맨드)", value=manifest_text[:1020], inline=False)
+        embed.add_field(name="📥 입력에 주입된 정보 (온디맨드)",
+                        value=manifest_text[:1020], inline=False)
 
+    # 합계도 같은 구조로 — 어느 항목이 얼마를 차지했는지 보인다.
     if total_in or total_out:
+        rates = PRICING_1M[DEFAULT_MODEL]
+        fresh = max(total_in - total_cached, 0)
+        c_krw = (total_cached / 1_000_000) * rates["CACHE_READ"] * EXCHANGE_RATE
+        i_krw = (fresh / 1_000_000) * rates["INPUT"] * EXCHANGE_RATE
+        o_krw = (total_out / 1_000_000) * rates["OUTPUT"] * EXCHANGE_RATE
         embed.add_field(
             name="🧾 토큰 합계",
-            value=(f"입력 `{total_in:,}` (캐시 `{total_cached:,}`)  ·  출력 `{total_out:,}`"),
-            inline=False,
-        )
-    embed.add_field(name="🧮 턴 소계", value=f"**{format_cost(total_turn_cost)}**", inline=True)
-    embed.add_field(name="Σ 누적 비용", value=format_cost(total_cost), inline=True)
+            value=(f"· 캐시 `{total_cached:,}` = {c_krw:,.2f}원\n"
+                   f"· 입력 `{fresh:,}` = {i_krw:,.2f}원\n"
+                   f"· 출력 `{total_out:,}` = {o_krw:,.2f}원"),
+            inline=False)
+
+    # ink는 cost를 임포트하므로 여기서 지연 임포트한다.
+    from .ink import cost_to_ink
+    embed.add_field(name="🧮 턴 소계",
+                    value=f"**{format_cost(total_turn_cost)}**\n"
+                          f"= {cost_to_ink(total_turn_cost)}잉크",
+                    inline=True)
+    acc = format_cost(total_cost)
+    if total_ink is not None:
+        acc += f"\n= **{total_ink:,}잉크** (턴별 누적)"
+    embed.add_field(name="Σ 누적", value=acc, inline=True)
     return embed
 
 
