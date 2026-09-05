@@ -79,6 +79,28 @@ def get_home_section_ids(session) -> list:
 MIN_TTL_SECONDS = 600
 
 
+def is_cache_expired(session) -> bool:
+    """캐시가 시간상 만료됐는지.
+
+    cache_name만 보면 만료 뒤에도 열려 있는 것으로 보인다. 실제로는
+    API 호출이 실패해야 알아차리므로, 그 전까지 디스플레이가 잘못된
+    상태를 보여주고 열기 버튼도 잠겨 있다.
+    """
+    if not getattr(session, "cache_name", None):
+        return False
+    created = getattr(session, "cache_created_at", 0.0) or 0.0
+    if not created:
+        return False
+    minutes = int(getattr(session, "open_minutes", 0) or 0)
+    total = minutes * 60 if minutes else MIN_CACHE_TTL
+    return (time.time() - created) >= total
+
+
+def is_session_open(session) -> bool:
+    """세션이 실제로 열려 있는지. 만료된 캐시는 열린 것이 아니다."""
+    return bool(getattr(session, "cache_name", None)) and not is_cache_expired(session)
+
+
 def remaining_ttl(session) -> int:
     """세션에 남은 캐시 유지 시간(초).
 

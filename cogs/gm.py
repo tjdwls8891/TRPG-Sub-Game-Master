@@ -1472,10 +1472,16 @@ class GMCog(commands.Cog):
         do_simulation = bool(cache_name and cache_model == core.DEFAULT_MODEL)
 
         # ── 세션 오픈 여부 확인 (기획 규정 — 닫혀 있으면 차단) ──
-        if not getattr(session, "cache_name", None):
-            await m_send("⚠️ 세션이 닫혀 있습니다. 디스플레이에서 세션을 열어 주십시오.")
+        # 만료된 캐시로 진행하면 API 오류가 난다. 미리 막고 안내한다.
+        if not core.is_session_open(session):
+            expired = core.is_cache_expired(session)
+            note = ("유지 시간이 지나 캐시가 만료되었습니다."
+                    if expired else "세션이 닫혀 있습니다.")
+            await m_send(f"⚠️ {note} 디스플레이에서 세션을 열어 주십시오.")
             if game_ch:
-                await core.send_streamed(self.bot, game_ch, "⏸️ 세션이 닫혀 있어 진행할 수 없습니다.")
+                await core.send_streamed(
+                    self.bot, game_ch,
+                    f"⏸️ {note}\n> 디스플레이 채널의 **세션 열기**를 눌러 주십시오.")
             return
 
         # ── 잔액 검사 (기획 규정 — 소지금 < 예상 최대금액이면 차단) ──

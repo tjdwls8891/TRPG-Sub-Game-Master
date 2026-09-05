@@ -32,17 +32,21 @@ def build_embed(session) -> discord.Embed:
     #       여는 것이므로 session_kind 필드로 판정한다.
     kind = {"master": "마스터", "multi": "멀티", "solo": "솔로"}.get(
         getattr(session, "session_kind", "solo") or "solo", "솔로")
-    is_open = bool(getattr(session, "cache_name", None))
+    # 만료된 캐시는 열린 것이 아니다. cache_name만 보면 API 오류가 날
+    # 때까지 '오픈'으로 보이고, 그동안 열기 버튼도 잠겨 있다.
+    from .cache import is_cache_expired
+    expired = is_cache_expired(session)
+    is_open = bool(getattr(session, "cache_name", None)) and not expired
     private = "비공개" if getattr(session, "is_private", False) else "공개"
 
+    state = "🟢 오픈" if is_open else ("🔴 만료" if expired else "⚫ 클로즈")
     embed = discord.Embed(
         title=f"🎲 {getattr(session, 'scenario_id', '(시나리오 미정)')}",
         description=(
-            f"세션 {kind} · {private} · "
-            f"{'🟢 오픈' if is_open else '⚫ 클로즈'}\n"
+            f"세션 {kind} · {private} · {state}\n"
             f"`{getattr(session, 'session_id', '?')}`"
         ),
-        color=0x2ECC71 if is_open else 0x95A5A6,
+        color=0x2ECC71 if is_open else (0xE74C3C if expired else 0x95A5A6),
     )
 
     # ── 진행 상태 ──
@@ -80,7 +84,14 @@ def build_embed(session) -> discord.Embed:
 
     # ── 세션 오픈 정보 ──
     # 기획 규정: 오픈 비용·클로즈 예정 시점·예정 비용을 명시한다.
-    if is_open:
+    if expired:
+        embed.add_field(
+            name="세션 만료",
+            value=("유지 시간이 지나 캐시가 파기되었습니다.\n"
+                   "**세션 열기**를 누르시면 다시 시작할 수 있습니다.\n"
+                   "> 업로드 비용이 새로 듭니다."),
+            inline=False)
+    elif is_open:
         created = getattr(session, "cache_created_at", 0.0) or 0.0
         tokens = getattr(session, "cache_read_tokens", 0) or getattr(session, "cache_tokens", 0) or 0
         # 실제 선택한 유지 시간을 쓴다. 고정값(6시간)으로 계산하면
@@ -564,7 +575,9 @@ def build_view(bot, session) -> discord.ui.View:
                 child.disabled = True
 
     # 상태에 맞지 않는 버튼은 눌러도 소용없으므로 미리 잠근다.
-    is_open = bool(getattr(session, "cache_name", None))
+    # 만료됐으면 다시 열 수 있어야 한다. cache_name만 보면 열기가 잠긴다.
+    from .cache import is_session_open
+    is_open = is_session_open(session)
     for child in view.children:
         cid = getattr(child, "custom_id", "")
         if cid == "disp:open" and is_open:
