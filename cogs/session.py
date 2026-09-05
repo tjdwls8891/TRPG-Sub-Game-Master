@@ -319,6 +319,8 @@ class SessionCog(commands.Cog):
                 print(f"⚠️ [캐시] 토큰 수가 0입니다. 비용이 0원으로 계산됩니다.")
             session.total_cost += upload_cost
             session.cache_created_at = time.time()
+            # 새로 열렸으므로 만료 알림 플래그를 푼다.
+            session.cache_expired_notified = False
             session.cache_tokens = cache_tokens
             session.cache_text = base_text
             core.write_cost_log(session.session_id, "초기 캐시 생성",

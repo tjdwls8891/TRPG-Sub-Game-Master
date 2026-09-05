@@ -9,6 +9,8 @@
 import discord
 from discord.ext import commands, tasks
 
+import core
+
 STATUS_ROTATE_SECONDS = 15  # 상태 메시지 교체 주기(초). 디스코드 레이트리밋상 12초 이상 권장.
 
 
@@ -43,8 +45,53 @@ class PresenceCog(commands.Cog):
             (discord.ActivityType.watching, "플레이어가 발견 못 한 비밀 🎭"),
         ]
 
+    async def _check_expired(self):
+        """열린 세션의 캐시 만료를 점검한다.
+
+        만료는 API 호출이 실패해야 알아차리므로, 그 전까지 디스플레이가
+        열린 것으로 보인다. 상태 메시지 주기에 얹어 확인한다.
+
+        열린 세션만 보므로 부담이 적다. 대개 0~2개다.
+        """
+        seen = set()
+        for session in list(self.bot.active_sessions.values()):
+            sid = getattr(session, "session_id", None)
+            if not sid or sid in seen:
+                continue
+            seen.add(sid)
+
+            # 이미 닫힌 세션은 볼 것이 없다.
+            if not getattr(session, "cache_name", None):
+                continue
+            if not core.is_cache_expired(session):
+                continue
+            # 같은 만료를 반복 처리하지 않는다.
+            if getattr(session, "cache_expired_notified", False):
+                continue
+
+            session.cache_expired_notified = True
+            print(f"[Presence] 캐시 만료 감지: {sid}")
+            try:
+                await core.refresh_display(self.bot, session, reason="expired")
+            except Exception as e:
+                print(f"[Presence] 디스플레이 갱신 실패(무시): {e}")
+
+            game_ch = self.bot.get_channel(getattr(session, "game_ch_id", 0))
+            if game_ch:
+                try:
+                    await game_ch.send(
+                        "⏸️ **세션 유지 시간이 끝났습니다.**\n"
+                        "> 디스플레이 채널의 **세션 열기**를 누르시면 이어서 진행하실 수 있습니다.")
+                except Exception:
+                    pass
+
     @tasks.loop(seconds=STATUS_ROTATE_SECONDS)
     async def rotate_status(self):
+        try:
+            await self._check_expired()
+        except Exception as e:
+            print(f"[Presence] 만료 점검 실패(무시): {e}")
+
         statuses = self._statuses()
         atype, text = statuses[self._index % len(statuses)]
         self._index += 1

@@ -136,6 +136,7 @@ SESSION_FIELDS: dict = {
     "interpret_cost_krw": 0.0,
     "open_prepaid_ink": 0,
     "open_minutes": 0,
+    "cache_expired_notified": False,
     "started_at": 0.0,
     "stat_fail_counts": {},
     "last_turn_cost": 0.0,

@@ -140,6 +140,8 @@ class TRPGSession:
         self.open_prepaid_ink = 0
         # 선택된 세션 유지 시간(분)
         self.open_minutes = 0
+        # 만료 알림을 한 번만 보내기 위한 플래그. 재오픈 시 풀린다.
+        self.cache_expired_notified = False
         # 세션 시작 시각(epoch) — 통계의 '세션 온 시간' 산출 기준
         self.started_at = 0.0
         # 스탯별 판정 실패 누적 — 성장 판정 트리거 기준

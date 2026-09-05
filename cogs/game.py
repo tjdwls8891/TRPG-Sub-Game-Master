@@ -441,6 +441,7 @@ class GameCog(commands.Cog):
                 upload_cost = core.calculate_upload_cost(core.DEFAULT_MODEL, input_tokens=cache_tokens)
                 session.total_cost += upload_cost
                 session.cache_created_at = time.time()
+                session.cache_expired_notified = False
                 session.cache_tokens = cache_tokens
 
                 core.write_cost_log(session.session_id, f"{cost_log_prefix}{reason_label}", cache_tokens, 0, 0, upload_cost,

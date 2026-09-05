@@ -513,6 +513,7 @@ async def restore_sessions_from_disk(bot):
                         session.cache_name = cache.name
                         session.cache_text = base_text
                         session.cache_created_at = time.time()
+                        session.cache_expired_notified = False
                         session.cache_tokens = cache_tokens
                         session.cache_model = DEFAULT_MODEL
                         update_session_cache_state(session)
