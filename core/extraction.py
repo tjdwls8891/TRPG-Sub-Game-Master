@@ -260,13 +260,15 @@ def apply_extraction(session, result: dict) -> dict:
     적용 대상:
       - 상태이상 부여/해제 (status_scores vs status_apply / status_clear)
       - 만난 NPC 기록 (npcs_met)
+      - 소지품 증감 (item_changes)
+        기획 규정에 따라 지시층위의 자원 수정 권한을 걷고 추출층위로 옮겼다.
+        묘사에 실제로 드러난 것을 읽는 쪽이 정확하다.
+
     적용 제외:
-      - 자원(item_changes)은 지시층위 resource_changes 필드 소관.
-        추출층위 값은 참고용으로만 남기고 여기서 적용하지 않는다.
       - 퀘스트 진행·이탈은 서사 계층에서 소비한다(설계문서 3).
 
     Returns:
-        {"applied": [...], "cleared": [...], "npcs": [...]} 적용 내역
+        {"applied": [...], "cleared": [...], "npcs": [...], "items": [...]}
     """
     th = get_thresholds(session)
     applied, cleared = [], []
@@ -321,7 +323,40 @@ def apply_extraction(session, result: dict) -> dict:
     # 만난 NPC — 중복 없이 누적
     npcs = [n for n in (result.get("npcs_met") or []) if isinstance(n, str) and n]
 
-    return {"applied": applied, "cleared": cleared, "npcs": npcs}
+    # ── 소지품 증감 ──
+    # 대상은 상태이상과 같은 기준으로 검증한다. 없는 캐릭터에게 물건을
+    # 주면 자원 원장이 어긋난다.
+    items = []
+    resources = dict(getattr(session, "resources", {}) or {})
+    for entry in (result.get("item_changes") or []):
+        if not isinstance(entry, dict):
+            continue
+        target = entry.get("target")
+        name = (entry.get("item") or "").strip()
+        if not name or (valid and target not in valid):
+            continue
+        try:
+            delta = int(entry.get("delta", 0))
+        except (TypeError, ValueError):
+            continue
+        if delta == 0:
+            continue
+
+        bag = dict(resources.get(target) or {})
+        before = int(bag.get(name, 0) or 0)
+        after = max(0, before + delta)
+        if after == 0:
+            bag.pop(name, None)
+        else:
+            bag[name] = after
+        resources[target] = bag
+        items.append({"target": target, "item": name,
+                      "delta": after - before, "after": after})
+
+    if items:
+        session.resources = resources
+
+    return {"applied": applied, "cleared": cleared, "npcs": npcs, "items": items}
 
 
 def resource_changes_to_tags(changes: list) -> str:
@@ -418,6 +453,43 @@ def release_resident_companions(session, new_location: str) -> list:
             released.append(name)
     session.companions = current
     return released
+
+
+def build_extraction_limits(session) -> str:
+    """추출층위에 유효 목록을 알린다.
+
+    코드가 걸러내기는 하지만 목록 없이는 매번 없는 상태이상을 만들고
+    인물이 아닌 것을 npcs_met에 넣는다. 헛일을 반복시키지 않는다.
+    """
+    sd = getattr(session, "scenario_data", {}) or {}
+    blocks = []
+
+    # 상태이상 — 이름과 부여 조건을 함께 준다.
+    eff = sd.get("status_effects")
+    names = []
+    if isinstance(eff, dict):
+        names = [(k, (v or {}).get("apply_condition", "")) for k, v in eff.items()]
+    elif isinstance(eff, list):
+        names = [(e.get("name"), e.get("apply_condition", ""))
+                 for e in eff if isinstance(e, dict) and e.get("name")]
+    if names:
+        lines = [f"- {n}: {c}" if c else f"- {n}" for n, c in names]
+        blocks.append("\n[이 시나리오의 상태이상 — 이 목록에 없는 이름은 쓰지 말 것]\n"
+                      + "\n".join(lines))
+
+    # 인물 — 고정 NPC와 이미 등장한 비정규 NPC.
+    known = list((sd.get("default_npcs") or {}).keys())
+    try:
+        from .irregular_npc import get_registry
+        known += [n for n in get_registry(session).keys() if n not in known]
+    except Exception:
+        pass
+    # 플레이어도 인물이지만 npcs_met 대상이 아니다.
+    if known:
+        blocks.append("\n[이 세계의 인물 — npcs_met에는 이 목록의 이름만 쓸 것]\n"
+                      + " · ".join(known))
+
+    return "\n".join(blocks) + "\n" if blocks else ""
 
 
 def summarize_for_report(result: dict) -> str:

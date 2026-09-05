@@ -89,6 +89,7 @@ from .extraction import (
     resource_changes_to_tags,
     to_world_timeline,
     summarize_for_report,
+    build_extraction_limits,
 )
 from .rewind import (
     REWIND_MAX_TURNS,
@@ -322,7 +323,7 @@ __all__ = [
     "COMMON_EXTRACTION_TARGETS", "EXTRACTION_RESPONSE_SCHEMA", "THRESHOLDS",
     "get_thresholds", "build_extraction_targets", "parse_extraction",
     "apply_extraction", "apply_companions", "release_resident_companions", "resource_changes_to_tags",
-    "to_world_timeline", "summarize_for_report",
+    "to_world_timeline", "summarize_for_report", "build_extraction_limits",
     "cost_to_ink", "ink_to_krw", "ink_to_net_krw", "plan_catalog",
     "can_afford", "format_ink", "refund_ink", "accounts",
     "TRPG_SAFETY_SETTINGS", "PRICING_1M", "IMAGE_OUTPUT_TOKENS_BY_RES",

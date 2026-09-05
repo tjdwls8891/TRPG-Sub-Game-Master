@@ -3068,9 +3068,13 @@ class GMCog(commands.Cog):
         except Exception as e:
             print(f"[추출] 인지 조건 주입 실패: {e}")
 
+        # 유효 목록을 주입한다. 코드가 걸러내기는 하지만, 목록을 주지 않으면
+        # 매번 없는 상태이상을 만들고 인물 아닌 것을 npcs_met에 넣는다.
+        limit_block = core.build_extraction_limits(session)
+
         user_prompt = (
             "[추출 항목]\n" + "\n".join(f"- {t}" for t in targets) + "\n"
-            + secret_block + "\n"
+            + limit_block + secret_block + "\n"
             f"[직전까지의 세계 상태]\n{prev_summary}\n\n"
             f"[이번 묘사문]\n{ai_output_text[:3000]}"
         )
@@ -3282,6 +3286,11 @@ class GMCog(commands.Cog):
                 report += f"\n> 상태 부여: {', '.join(applied['applied'])}"
             if applied["cleared"]:
                 report += f"\n> 상태 해제: {', '.join(applied['cleared'])}"
+            if applied.get("items"):
+                shown = [f"{i['target']} {i['item']} "
+                         f"{'+' if i['delta'] > 0 else ''}{i['delta']} (→{i['after']})"
+                         for i in applied["items"][:6]]
+                report += f"\n> 소지품 반영: {', '.join(shown)}"
             await master_ch.send(report)
         return result
 
