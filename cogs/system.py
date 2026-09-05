@@ -435,6 +435,71 @@ class SystemCog(commands.Cog):
         except Exception:
             pass
 
+    @commands.command(name="잉크")
+    @commands.is_owner()
+    async def set_ink(self, ctx, member: discord.Member = None,
+                      amount: int = None, *, reason: str = "운영자 조정"):
+        """잔액을 지정 값으로 맞춘다 (오너 전용).
+
+        !지급은 증감만 하므로 잘못된 잔액을 바로잡거나 테스트 계정을
+        특정 값으로 세팅할 수단이 없었다.
+
+        사용법:
+            !잉크 @유저 500        — 잔액을 500으로 설정
+            !잉크 @유저 0          — 잔액 초기화
+            !잉크 @유저 500 테스트  — 사유 지정
+            !잉크 @유저            — 잔액·이력 조회
+        """
+        if member is None:
+            await ctx.send("사용법: `!잉크 @유저 [설정할 잔액]` · 조회는 `!잉크 @유저`")
+            return
+
+        uid = str(member.id)
+
+        if amount is None:
+            acc = core.accounts.load_account(uid)
+            bal = int(acc.get("ink_balance", 0))
+            hist = (acc.get("history") or [])[-5:]
+            lines = [f"💰 {member.mention} 잔액 **{bal:,}잉크**"]
+            if not core.accounts.is_registered(uid):
+                lines.append("> ⚠️ 미등록 계정입니다.")
+            if hist:
+                lines.append("**최근 내역**")
+                for h in reversed(hist):
+                    d = h.get("delta", 0)
+                    sign = "+" if d > 0 else ""
+                    lines.append(
+                        f"> {sign}{d:,} → {h.get('balance', 0):,} · {h.get('reason', '')}")
+            await ctx.send("\n".join(lines)[:1900])
+            return
+
+        if amount < 0:
+            await ctx.send("잔액은 음수로 설정할 수 없습니다. 회수는 `!지급 @유저 -100`을 쓰십시오.")
+            return
+
+        if not core.accounts.is_registered(uid):
+            await core.accounts.register_account(uid)
+            await ctx.send(f"ℹ️ {member.mention} 계정을 새로 등록했습니다.")
+
+        res = await core.accounts.set_balance(uid, amount, reason=reason)
+        if not res["ok"]:
+            await ctx.send("⚠️ 저장에 실패했습니다.")
+            return
+
+        d = res["delta"]
+        sign = "+" if d > 0 else ""
+        await ctx.send(
+            f"✅ {member.mention} 잔액을 **{res['after']:,}잉크**로 설정했습니다.\n"
+            f"> {res['before']:,} → {res['after']:,} ({sign}{d:,}) · 사유: {reason}")
+
+        try:
+            await member.send(
+                f"💰 잉크 잔액이 조정되었습니다.\n"
+                f"> {res['before']:,} → **{res['after']:,}잉크**\n"
+                f"> 사유: {reason}")
+        except Exception:
+            pass
+
     @commands.command(name="재시작")
     @commands.is_owner()
     async def restart_bot(self, ctx):

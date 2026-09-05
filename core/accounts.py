@@ -151,6 +151,31 @@ async def add_ink(user_id, amount: int, reason: str = "충전") -> int:
         return acc["ink_balance"]
 
 
+async def set_balance(user_id, amount: int, reason: str = "운영자 조정") -> dict:
+    """잔액을 지정 값으로 맞춘다(오너 전용 경로에서만 쓴다).
+
+    add_ink·deduct_ink는 증감만 다루므로, 잘못된 잔액을 바로잡거나
+    테스트 계정을 특정 값으로 세팅할 때 쓸 수단이 없었다.
+
+    Returns:
+        {"ok": bool, "before": int, "after": int, "delta": int}
+    """
+    amount = max(0, int(amount))
+    async with _lock_for(user_id):
+        acc = load_account(user_id)
+        before = int(acc.get("ink_balance", 0))
+        acc["ink_balance"] = amount
+        acc.setdefault("history", []).append({
+            "at": _now(),
+            "delta": amount - before,
+            "balance": amount,
+            "reason": reason,
+        })
+        ok = _write_account(acc)
+    return {"ok": ok, "before": before, "after": amount,
+            "delta": amount - before}
+
+
 async def deduct_ink(user_id, amount: int, allow_overdraft: bool = False) -> dict:
     """잉크를 차감한다.
 

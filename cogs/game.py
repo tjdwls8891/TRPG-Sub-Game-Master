@@ -844,7 +844,8 @@ class GameCog(commands.Cog):
         finally:
             session.is_compressing = False
 
-    async def _synthesize_and_enqueue(self, session, texts, voice_name=None) -> dict:
+    async def _synthesize_and_enqueue(self, session, texts, voice_name=None,
+                                      *, force: bool = False) -> dict:
         """
         문단 텍스트를 순서대로 TTS 합성해 믹서 voice 큐에 적재한다. (회계는 호출 측 담당)
 
@@ -855,6 +856,14 @@ class GameCog(commands.Cog):
             dict: {"enqueued": int, "total": int, "cost": float, "in": int, "out": int, "no_voice": bool}
                   비용·로그 기록·임베드 반영은 호출자가 반환값으로 처리한다.
         """
+        # 호출부가 막고 있지만 여기서도 확인한다. 새 경로가 추가될 때
+        # 가드를 빠뜨리면 꺼둔 세션에 비용이 붙는다.
+        # force는 !더빙테스트처럼 명시적으로 요청한 경우에만 쓴다.
+        if not force and not getattr(session, "tts_enabled", False):
+            print(f"[TTS] 비활성 세션 합성 차단: {getattr(session, 'session_id', '?')}")
+            return {"enqueued": 0, "total": len(texts), "cost": 0.0,
+                    "in": 0, "out": 0, "no_voice": False, "disabled": True}
+
         vc = getattr(session, "voice_client", None)
         mixer = core.get_mixer(vc)
         if mixer is None:
@@ -907,6 +916,7 @@ class GameCog(commands.Cog):
             if not spoken:
                 return (b"", 0.0, 0, 0)
             return await core.synthesize_tts_pcm(self.bot, spoken, voice_name=voice_name)
+
 
         total_cost = 0.0
         total_in = total_out = 0
@@ -1015,7 +1025,9 @@ class GameCog(commands.Cog):
         await ctx.send(
             f"🔊 직전 묘사 마지막 문단을 낭독합니다 (보이스 `{voice_name or core.TTS_NARRATOR_VOICE}`):\n> {spoken[:300]}")
 
-        dub = await self._synthesize_and_enqueue(session, [spoken], voice_name=voice_name)
+        # 명시적으로 요청한 테스트이므로 tts_enabled와 무관하게 합성한다.
+        dub = await self._synthesize_and_enqueue(
+            session, [spoken], voice_name=voice_name, force=True)
         if dub.get("no_voice"):
             return await ctx.send(
                 "🔇 음성 채널에 연결돼 있지 않습니다. `!브금`/`!플리`로 입장 후 다시 시도하세요.")
