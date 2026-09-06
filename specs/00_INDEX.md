@@ -10,7 +10,7 @@
 
 | # | 영역 | 모듈 | 줄 | 상태 | 발견 | 확인필요 | 커밋 |
 |---|---|---|---|---|---|---|---|
-| 1 | base | constants · models · io · utils | 1,101 | ⬜ 대기 | - | - | - |
+| 1 | base | constants · models · io · utils | 1,101 | ✅ 완료 | 11 | 11 | (이 커밋) |
 | 2 | ai | prompt · extraction · dialogue · resilience | 1,461 | ⬜ 대기 | - | - | - |
 | 3 | world | places · timeline · start_frame · irregular_npc · growth · koreantext | 1,413 | ⬜ 대기 | - | - | - |
 | 4 | quest | quest · quest_filter | 1,075 | ⬜ 대기 | - | - | - |
@@ -44,7 +44,28 @@
 
 > 영역 완료 시 여기에 모은다. 사용자가 한 번에 답할 수 있도록.
 
-(아직 없음)
+### base (11건)
+
+**비용 관련 — 우선 확인 권장**
+- [ ] `process_cache_deletion`의 21600초 상한이 `open_minutes`를 반영해야 합니까?
+      3시간 세션도 6시간까지 청구될 수 있습니다.
+- [ ] `cache_tokens` 폴백 32768 — `MIN_CACHE_TOKENS`가 1024로 바뀌기 전 값입니다.
+      도달하면 32배 과다 청구됩니다.
+- [ ] `write_cost_log`에 달러를 추가할 필요가 있습니까?
+
+**데이터 정합**
+- [ ] `total_ink_spent`·`total_usd`를 되감기 추적에서 뺀 것이 의도입니까?
+- [ ] `build_extraction_limits`가 공통 상태이상(`get_merged_status_effects`)도 주입해야 합니까?
+- [ ] `SESSION_RESET_FIELDS` 3개를 재시작 시 초기화하는 이유가 라운드 수집 정합성 때문이 맞습니까?
+
+**정리 대상**
+- [ ] `models.py:220` `_npc_info_fields`가 미사용입니다. 쓰려던 것이 있었습니까?
+- [ ] `models.py:30` `self.npcs = {}` 중복 초기화를 지워도 됩니까?
+- [ ] `write_log`의 파일 쓰기 예외가 28개 호출부로 전파됩니다. 감싸야 합니까?
+
+**설계 의도**
+- [ ] `PROFILE_AI_MODEL` — *"저비용 모델이 확정되면"*이라 되어 있는데 후보가 있습니까?
+- [ ] `LOGIC_MODEL` 주석의 `gemini-3-pro-preview` 대안을 쓸 계획이 있습니까?
 
 ---
 
