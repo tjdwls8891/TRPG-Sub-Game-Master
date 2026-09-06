@@ -8,7 +8,7 @@ import time
 from google.genai import types
 from google.genai.errors import APIError
 
-from .constants import DEFAULT_MODEL
+from .constants import DEFAULT_MODEL, EXCHANGE_RATE
 from .constants import MIN_CACHE_TOKENS
 from .constants import CACHE_TTL_SECONDS as MIN_CACHE_TTL
 from .models import TRPGSession
@@ -494,7 +494,8 @@ async def restore_sessions_from_disk(bot):
 
                         creation_cost = calculate_cost(DEFAULT_MODEL, input_tokens=cache_tokens)
                         storage_cost = calculate_cost(DEFAULT_MODEL, cache_storage_tokens=cache_tokens, storage_hours=1)
-                        accrue(session, creation_cost + storage_cost)
+                        accrue(session, creation_cost + storage_cost,
+                               (creation_cost + storage_cost) / EXCHANGE_RATE)
                         print(
                             f"💰 [비용 보고] 세션({session_id}) 복구용 캐시 발급: ${creation_cost + storage_cost:.6f} (누적: ${session.total_cost:.6f})")
 

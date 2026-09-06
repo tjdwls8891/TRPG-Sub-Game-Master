@@ -439,7 +439,7 @@ class GameCog(commands.Cog):
                 )
 
                 upload_cost = core.calculate_upload_cost(core.DEFAULT_MODEL, input_tokens=cache_tokens)
-                core.accrue(session, upload_cost)
+                core.accrue(session, upload_cost, upload_cost / core.EXCHANGE_RATE)
                 session.cache_created_at = time.time()
                 session.cache_expired_notified = False
                 session.cache_tokens = cache_tokens
@@ -708,7 +708,7 @@ class GameCog(commands.Cog):
                 elif dub["enqueued"] == 0:
                     await m_send("⚠️ TTS 더빙: 합성된 음성이 없습니다. (`core.TTS_MODEL` 설정·API 응답 확인)")
                 if dub["cost"] > 0:
-                    core.accrue(session, dub["cost"])
+                    core.accrue(session, dub["cost"], dub.get("usd"))
                     core.write_cost_log(session.session_id, "TTS 더빙",
                                         dub["in"], 0, dub["out"], dub["cost"], session.total_cost)
                     session.turn_cost_log.append(
@@ -885,6 +885,7 @@ class GameCog(commands.Cog):
             total_out += out_tok
 
         return {"enqueued": enqueued, "total": len(texts), "cost": total_cost,
+                "usd": total_cost / core.EXCHANGE_RATE if core.EXCHANGE_RATE else 0.0,
                 "in": total_in, "out": total_out, "no_voice": False}
 
     async def _stream_paragraphs_synced(self, session, paragraphs, game_channel, master_ch,
@@ -978,6 +979,7 @@ class GameCog(commands.Cog):
             await core.send_image_by_keyword(game_channel, master_ch, session, kw)
 
         return {"enqueued": enqueued, "total": len(items), "cost": total_cost,
+                "usd": total_cost / core.EXCHANGE_RATE if core.EXCHANGE_RATE else 0.0,
                 "in": total_in, "out": total_out, "no_voice": False}
 
     @commands.command(name="더빙테스트")
@@ -1038,7 +1040,7 @@ class GameCog(commands.Cog):
             return await ctx.send(
                 "⚠️ 합성된 음성이 없습니다. (`core.TTS_MODEL` 설정 또는 API 응답을 확인하세요)")
         if dub["cost"] > 0:
-            core.accrue(session, dub["cost"])
+            core.accrue(session, dub["cost"], dub.get("usd"))
             core.write_cost_log(session.session_id, "TTS 더빙(테스트)",
                                 dub["in"], 0, dub["out"], dub["cost"], session.total_cost)
             await core.save_session_data(self.bot, session)

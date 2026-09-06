@@ -8,6 +8,7 @@ from datetime import datetime
 
 from .constants import DEFAULT_MODEL
 from .cost import calculate_storage_cost
+from .constants import EXCHANGE_RATE
 from .models import TRPGSession
 
 
@@ -414,7 +415,8 @@ async def process_cache_deletion(bot, session) -> float:
         model_id = getattr(session, "cache_model", DEFAULT_MODEL) or DEFAULT_MODEL
         storage_cost_krw = calculate_storage_cost(model_id, cache_tokens, duration_seconds)
         from .cost import accrue as _accrue
-        _accrue(session, storage_cost_krw)
+        _accrue(session, storage_cost_krw,
+                storage_cost_krw / EXCHANGE_RATE)
 
     session.cache_name = None
     session.cache_obj = None

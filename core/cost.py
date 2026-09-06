@@ -179,7 +179,27 @@ def calculate_upload_cost(model_id: str, input_tokens=0, output_tokens=0,
         cost_usd += (input_tokens / 1_000_000) * rates.get(
             "CACHE_STORAGE_PER_HOUR", 0.0) * store_hours
 
+    # 호출부 호환을 위해 원화를 반환하되, USD는 별도 함수로 얻는다.
     return cost_usd * EXCHANGE_RATE
+
+
+def calculate_upload_cost_usd(model_id: str, input_tokens: int = 0,
+                              output_tokens: int = 0, cached_read_tokens: int = 0,
+                              store_hours: float = 0.0) -> float:
+    """캐시 업로드·유지 비용을 달러로.
+
+    청구 근거는 달러다. 원화만 다루면 환율이 바뀔 때 과거분이 왜곡된다.
+    """
+    return calculate_upload_cost(
+        model_id, input_tokens=input_tokens, output_tokens=output_tokens,
+        cached_read_tokens=cached_read_tokens,
+        store_hours=store_hours) / EXCHANGE_RATE
+
+
+def calculate_storage_cost_usd(model_id: str, tokens: int, hours: float) -> float:
+    """캐시 보관비를 달러로."""
+    rates = PRICING_1M.get(model_id, PRICING_1M[DEFAULT_MODEL])
+    return (tokens / 1_000_000) * rates.get("CACHE_STORAGE_PER_HOUR", 0.0) * hours
 
 
 # ========== [디스코드 임베드 비용 보고 빌더] ==========

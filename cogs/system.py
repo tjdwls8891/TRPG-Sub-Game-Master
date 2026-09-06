@@ -273,7 +273,7 @@ class SystemCog(commands.Cog):
                 )
 
                 upload_cost = core.calculate_upload_cost(core.DEFAULT_MODEL, input_tokens=cache_tokens)
-                core.accrue(session, upload_cost)
+                core.accrue(session, upload_cost, upload_cost / core.EXCHANGE_RATE)
                 core.write_cost_log(session.session_id, "수동 캐시 재발급 (업로드)", cache_tokens, 0, 0, upload_cost,
                                     session.total_cost)
                 session.cache_created_at = time.time()

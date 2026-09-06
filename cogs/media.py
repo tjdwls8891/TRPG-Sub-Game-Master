@@ -182,7 +182,7 @@ class MediaCog(commands.Cog):
                     text_output_tokens=text_tokens,
                 )
                 turn_cost = cost_breakdown["total_krw"]
-                core.accrue(session, turn_cost)
+                core.accrue(session, turn_cost, cost_breakdown["total_usd"])
                 core.write_cost_log(
                     session.session_id, f"이미지 생성 ({filename_key})",
                     prompt_tokens, 0, image_tokens + text_tokens, turn_cost, session.total_cost
