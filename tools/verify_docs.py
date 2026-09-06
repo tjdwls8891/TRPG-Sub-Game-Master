@@ -66,7 +66,6 @@ PATTERNS = [
     ("CLAUDE.md", r"\| `jobs` \| (\d+) \|", "jobs", "직업"),
     ("CLAUDE.md", r"\| `start_frames` \| (\d+) \|", "start_frames", "시작 틀"),
     ("CLAUDE.md", r"\| `profile_creation` \| (\d+)단계 \|", "profile_steps", "프로필 단계"),
-    ("CLAUDE.md", r"\| `briefing_formats` \| (\d+) \|", "briefings", "브리핑 양식"),
     ("CLAUDE.md", r"영도\.quests\.json`\) \| (\d+) \|", "quests", "퀘스트"),
     ("DEVLOG.md", r"현재 버전: \*\*v([\d.]+)\*\*", "version", "버전"),
     ("DEVLOG.md", r"`SCHEMA_VERSION` (\d+)", "schema_version", "SCHEMA_VERSION"),
