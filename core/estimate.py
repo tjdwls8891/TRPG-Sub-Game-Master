@@ -222,6 +222,38 @@ def estimate_turn(session, action: str = "PROCEED") -> dict:
     }
 
 
+def approx_cache_tokens(scenario_data: dict) -> int:
+    """업로드 전 캐시 토큰 근사.
+
+    build_scenario_cache_text가 넣는 항목을 같은 구성으로 세야 한다.
+    worldview만 세면 영도 기준 21,413 대 실측 26,268로 18% 적게 나와
+    예상 17잉크 / 실제 20잉크의 오차가 생긴다.
+    """
+    sd = scenario_data or {}
+    raw = 0
+    for key in ("worldview", "story_guide", "stat_system", "desc_guide",
+                "status_code_block"):
+        raw += len(str(sd.get(key, "")))
+
+    # NPC 사전 — 캐시 텍스트의 가장 큰 비중이다. 다만 info_fields에
+    # 지정된 필드만 실리므로 dict 전체를 세면 과대 추정된다.
+    tpl = sd.get("npc_template") or {}
+    fields = tpl.get("info_fields") or []
+    for name, data in (sd.get("default_npcs") or {}).items():
+        if not isinstance(data, dict):
+            raw += len(str(name)) + len(str(data))
+            continue
+        raw += len(str(name)) + 4
+        for f in fields:
+            v = data.get(f)
+            if v:
+                raw += len(str(f)) + len(str(v)) + 4
+
+    # 영도 실측 기준 79,988자 → 26,268토큰. 한국어 혼합 텍스트라
+    # 글자당 0.33토큰이다. 이전에 0.65로 두어 두 배로 잡혔다.
+    return int(raw * 0.33) if raw else 0
+
+
 def estimate_session_open(session, hours: float) -> dict:
     """세션 오픈(캐시 업로드) 및 유지 비용.
 
@@ -232,11 +264,9 @@ def estimate_session_open(session, hours: float) -> dict:
     tokens = int(getattr(session, "cache_tokens", 0) or 0)
     if tokens <= 0:
         # 아직 업로드 전이면 실측값이 없다. 시간 선택은 업로드보다 먼저
-        # 일어나므로, 룰북 분량으로 근사해야 0원으로 뜨지 않는다.
-        sd = getattr(session, "scenario_data", {}) or {}
-        raw = len(str(sd.get("worldview", ""))) + len(str(sd.get("rules", "")))
-        # 한국어는 글자당 대략 0.65토큰. 캐시에는 룰북 외 항목도 실린다.
-        tokens = int(raw * 0.65 * 1.3) if raw else 0
+        # 일어나므로 근사해야 하는데, worldview만 세면 실제와 크게 어긋난다.
+        # 캐시에는 story_guide·stat_system·desc_guide·NPC 사전도 함께 실린다.
+        tokens = approx_cache_tokens(getattr(session, "scenario_data", {}) or {})
     # NOTE: 실제 청구와 같은 함수를 써야 예상과 결과가 어긋나지 않는다.
     #       이전에는 여기서만 저장비를 따로 계산해 두 값이 달랐다.
     try:
