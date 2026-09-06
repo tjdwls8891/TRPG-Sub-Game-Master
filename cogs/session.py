@@ -317,7 +317,7 @@ class SessionCog(commands.Cog):
                 store_hours=store_hours)
             if cache_tokens <= 0:
                 print(f"⚠️ [캐시] 토큰 수가 0입니다. 비용이 0원으로 계산됩니다.")
-            session.total_cost += upload_cost
+            core.accrue(session, upload_cost)
             session.cache_created_at = time.time()
             # 새로 열렸으므로 만료 알림 플래그를 푼다.
             session.cache_expired_notified = False

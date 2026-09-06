@@ -1895,7 +1895,7 @@ class GMCog(commands.Cog):
                     cached_read_tokens=cached_tokens,
                 )
                 cost = breakdown["total_krw"]
-                session.total_cost += cost
+                core.accrue(session, cost, breakdown["total_usd"])
                 core.write_cost_log(
                     session.session_id, f"{COST_LOG_PREFIX}판단층위 호출",
                     in_tokens, cached_tokens, out_tokens, cost, session.total_cost
@@ -2056,7 +2056,7 @@ class GMCog(commands.Cog):
                 session.cache_read_tokens = cached_tokens
             # 예측 대조 — 신선 입력(In - Cached)으로 문자→토큰 계수를 자동 보정한다.
             core.record_actual_input(session, "instruction", in_tokens - cached_tokens)
-            session.total_cost += cost
+            core.accrue(session, cost)
             core.write_cost_log(
                 session.session_id,
                 f"{COST_LOG_PREFIX}지시층위 호출",
@@ -2534,7 +2534,7 @@ class GMCog(commands.Cog):
                 cached_read_tokens=cached_tokens,
             )
             cost = breakdown["total_krw"]
-            session.total_cost += cost
+            core.accrue(session, cost, breakdown["total_usd"])
             core.write_cost_log(
                 session.session_id,
                 f"{COST_LOG_PREFIX}NARRATE 경량 응답",
@@ -2852,7 +2852,7 @@ class GMCog(commands.Cog):
                 output_tokens=out_t, cached_read_tokens=cached_t,
             )
             cost = breakdown["total_krw"]
-            session.total_cost += cost
+            core.accrue(session, cost, breakdown["total_usd"])
             core.write_cost_log(
                 session.session_id, f"{COST_LOG_PREFIX}NPC 설정 생성",
                 in_t, cached_t, out_t, cost, session.total_cost
@@ -2976,7 +2976,7 @@ class GMCog(commands.Cog):
                 output_tokens=out_t, cached_read_tokens=cached_t,
             )
             cost = breakdown["total_krw"]
-            session.total_cost += cost
+            core.accrue(session, cost, breakdown["total_usd"])
             core.write_cost_log(
                 session.session_id, f"{COST_LOG_PREFIX}비정규 NPC 배정",
                 in_t, cached_t, out_t, cost, session.total_cost
@@ -3117,7 +3117,7 @@ class GMCog(commands.Cog):
                     output_tokens=out_tokens, cached_read_tokens=cached_tokens,
                 )
                 cost = breakdown["total_krw"]
-                session.total_cost += cost
+                core.accrue(session, cost, breakdown["total_usd"])
                 core.update_stats(session, "extraction", out_tokens, thought_tokens)
                 core.write_cost_log(
                     session.session_id, f"{COST_LOG_PREFIX}추출층위 호출",
@@ -3343,7 +3343,7 @@ class GMCog(commands.Cog):
             breakdown  = core.calculate_text_gen_cost_breakdown(
                 core.LOGIC_MODEL, input_tokens=in_tokens, output_tokens=out_tokens)
             cost = breakdown["total_krw"]
-            session.total_cost += cost
+            core.accrue(session, cost, breakdown["total_usd"])
             core.write_cost_log(session.session_id, f"{COST_LOG_PREFIX}PROCEED 자기 검증",
                                  in_tokens, 0, out_tokens, cost, session.total_cost)
         except Exception:
@@ -3462,7 +3462,7 @@ class GMCog(commands.Cog):
                 core.DEFAULT_MODEL, input_tokens=in_tokens, output_tokens=out_tokens,
                 cached_read_tokens=cached_tokens)
             cost = breakdown["total_krw"]
-            session.total_cost += cost
+            core.accrue(session, cost, breakdown["total_usd"])
             core.write_cost_log(session.session_id, f"{COST_LOG_PREFIX}서사 방향성 시뮬레이션",
                                  in_tokens, cached_tokens, out_tokens, cost, session.total_cost)
             if not hasattr(session, "turn_cost_log"):
@@ -3920,7 +3920,7 @@ class GMCog(commands.Cog):
                 cached_read_tokens=cached_tokens,
             )
             cost = breakdown["total_krw"]
-            session.total_cost += cost
+            core.accrue(session, cost, breakdown["total_usd"])
             core.write_cost_log(
                 session.session_id,
                 f"{COST_LOG_PREFIX}서사 계획 수립",

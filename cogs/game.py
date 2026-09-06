@@ -439,7 +439,7 @@ class GameCog(commands.Cog):
                 )
 
                 upload_cost = core.calculate_upload_cost(core.DEFAULT_MODEL, input_tokens=cache_tokens)
-                session.total_cost += upload_cost
+                core.accrue(session, upload_cost)
                 session.cache_created_at = time.time()
                 session.cache_expired_notified = False
                 session.cache_tokens = cache_tokens
@@ -524,7 +524,7 @@ class GameCog(commands.Cog):
                 cached_read_tokens=cached_tokens,
             )
             turn_cost = breakdown["total_krw"]
-            session.total_cost += turn_cost
+            core.accrue(session, turn_cost, breakdown["total_usd"])
             # 비용 예측 통계 — 묘사층위 출력은 변동이 가장 크므로 이동평균이 핵심이다.
             core.update_stats(session, "narration", out_tokens, thought_tokens)
 
@@ -708,7 +708,7 @@ class GameCog(commands.Cog):
                 elif dub["enqueued"] == 0:
                     await m_send("⚠️ TTS 더빙: 합성된 음성이 없습니다. (`core.TTS_MODEL` 설정·API 응답 확인)")
                 if dub["cost"] > 0:
-                    session.total_cost += dub["cost"]
+                    core.accrue(session, dub["cost"])
                     core.write_cost_log(session.session_id, "TTS 더빙",
                                         dub["in"], 0, dub["out"], dub["cost"], session.total_cost)
                     session.turn_cost_log.append(
@@ -718,7 +718,8 @@ class GameCog(commands.Cog):
             # 턴 비용 보고 임베드 송출 (PROCEED + 지시층위 등 누적 + TTS 더빙 합산)
             _turn_embed = core.build_turn_cost_embed(
                 session.turn_count, session.turn_cost_log, session.total_cost,
-                total_ink=int(getattr(session, "total_ink_spent", 0) or 0))
+                total_ink=int(getattr(session, "total_ink_spent", 0) or 0),
+                total_usd=float(getattr(session, "total_usd", 0.0) or 0.0))
             session.turn_cost_log.clear()
             await m_send(embed=_turn_embed)
 
@@ -788,7 +789,7 @@ class GameCog(commands.Cog):
             # 비용은 실제 사용한 모델 기준으로 계산해야 한다.
             turn_cost = core.calculate_upload_cost(comp_model, input_tokens=in_tokens,
                                                    output_tokens=out_tokens, cached_read_tokens=cached_tokens)
-            session.total_cost += turn_cost
+            core.accrue(session, turn_cost)
             core.write_cost_log(session.session_id, f"{cost_log_prefix}자동 기억 압축", in_tokens, cached_tokens, out_tokens,
                                 turn_cost, session.total_cost)
             print(f"[자동 기억 압축 비용] In:{in_tokens} Cached:{cached_tokens} Out:{out_tokens} | {core.format_cost(turn_cost)}")
@@ -1037,7 +1038,7 @@ class GameCog(commands.Cog):
             return await ctx.send(
                 "⚠️ 합성된 음성이 없습니다. (`core.TTS_MODEL` 설정 또는 API 응답을 확인하세요)")
         if dub["cost"] > 0:
-            session.total_cost += dub["cost"]
+            core.accrue(session, dub["cost"])
             core.write_cost_log(session.session_id, "TTS 더빙(테스트)",
                                 dub["in"], 0, dub["out"], dub["cost"], session.total_cost)
             await core.save_session_data(self.bot, session)
@@ -1311,7 +1312,7 @@ class GameCog(commands.Cog):
 
             turn_cost = core.calculate_upload_cost(core.LOGIC_MODEL, input_tokens=in_tokens, output_tokens=out_tokens,
                                             cached_read_tokens=cached_tokens)
-            session.total_cost += turn_cost
+            core.accrue(session, turn_cost)
 
             core.write_cost_log(session.session_id, "수동 기억 압축", in_tokens, cached_tokens, out_tokens, turn_cost,
                                 session.total_cost)

@@ -273,7 +273,7 @@ class SystemCog(commands.Cog):
                 )
 
                 upload_cost = core.calculate_upload_cost(core.DEFAULT_MODEL, input_tokens=cache_tokens)
-                session.total_cost += upload_cost
+                core.accrue(session, upload_cost)
                 core.write_cost_log(session.session_id, "수동 캐시 재발급 (업로드)", cache_tokens, 0, 0, upload_cost,
                                     session.total_cost)
                 session.cache_created_at = time.time()
@@ -434,6 +434,112 @@ class SystemCog(commands.Cog):
                 f"> 현재 잔액 {new_bal:,}잉크\n> 사유: {reason}")
         except Exception:
             pass
+
+    @commands.command(name="사용량")
+    async def usage_report(self, ctx, scope: str = ""):
+        """실제 발생 비용을 조회한다 (마스터 채널).
+
+        !사용량         현재 세션의 누적 사용량
+        !사용량 전체     전 세션 합계 (오너 전용)
+
+        원화는 조회 시점 환율로 환산한 참고값이다. 청구 근거는 달러다.
+        """
+        if scope == "전체":
+            if not await self.bot.is_owner(ctx.author):
+                await ctx.send("전체 조회는 오너만 가능합니다.")
+                return
+            await self._usage_all(ctx)
+            return
+
+        session = self.bot.active_sessions.get(ctx.channel.id)
+        if not session:
+            await ctx.send("이 채널에는 세션이 없습니다. 전체는 `!사용량 전체`.")
+            return
+
+        usd = float(getattr(session, "total_usd", 0.0) or 0.0)
+        krw = float(getattr(session, "total_cost", 0.0) or 0.0)
+        ink = int(getattr(session, "total_ink_spent", 0) or 0)
+
+        e = discord.Embed(title="📊 세션 사용량", color=0xE67E22)
+        e.add_field(
+            name="누적",
+            value=(f"**{core.format_usd(usd)}**\n"
+                   f"= {core.usd_to_krw(usd):,.2f}원 (환율 {core.EXCHANGE_RATE:,.0f})\n"
+                   f"= 결제 **{ink:,}잉크**"),
+            inline=False)
+
+        # 원화 누적과 달러 환산이 어긋나면 환율이 바뀐 것이다.
+        gap = abs(core.usd_to_krw(usd) - krw)
+        if gap > 1.0:
+            e.add_field(
+                name="⚠️ 환율 변동",
+                value=(f"기록된 원화 {krw:,.2f}원과 현재 환산값이 "
+                       f"{gap:,.2f}원 차이납니다.\n"
+                       f"청구 근거는 달러이므로 위 값을 따릅니다."),
+                inline=False)
+
+        # 이번 턴 내역
+        log = getattr(session, "turn_cost_log", None) or []
+        if log:
+            lines = [f"· {x.get('label', '?')} {core.format_cost(x.get('cost', 0))}"
+                     for x in log[:8]]
+            e.add_field(name=f"직전 턴 호출 {len(log)}건",
+                        value="\n".join(lines)[:1020], inline=False)
+
+        cache_t = int(getattr(session, "cache_tokens", 0) or 0)
+        if cache_t:
+            e.add_field(name="캐시", value=f"{cache_t:,} 토큰", inline=True)
+        e.add_field(name="턴", value=f"{getattr(session, 'turn_count', 0)}", inline=True)
+        await ctx.send(embed=e)
+
+    async def _usage_all(self, ctx):
+        """전 세션 합계. 디스크의 세션 파일을 훑는다."""
+        import os
+        import json as _json
+
+        total_usd = total_krw = 0.0
+        total_ink = 0
+        rows = []
+        base = "sessions"
+        if not os.path.isdir(base):
+            await ctx.send("세션 기록이 없습니다.")
+            return
+
+        for sid in sorted(os.listdir(base)):
+            path = os.path.join(base, sid, "data.json")
+            if not os.path.exists(path):
+                continue
+            try:
+                with open(path, "r", encoding="utf-8") as f:
+                    d = _json.load(f)
+            except Exception:
+                continue
+            u = float(d.get("total_usd", 0.0) or 0.0)
+            k = float(d.get("total_cost", 0.0) or 0.0)
+            i = int(d.get("total_ink_spent", 0) or 0)
+            # USD 기록이 없는 구세션은 원화에서 역산한다.
+            if not u and k:
+                u = k / core.EXCHANGE_RATE
+            total_usd += u
+            total_krw += k
+            total_ink += i
+            rows.append((sid, u, i, int(d.get("turn_count", 0) or 0)))
+
+        e = discord.Embed(title="📊 전체 사용량", color=0xE67E22)
+        e.add_field(
+            name=f"합계 · 세션 {len(rows)}개",
+            value=(f"**{core.format_usd(total_usd)}**\n"
+                   f"= {core.usd_to_krw(total_usd):,.0f}원\n"
+                   f"= 결제 {total_ink:,}잉크"),
+            inline=False)
+
+        # 비용이 큰 순으로
+        rows.sort(key=lambda r: -r[1])
+        if rows:
+            lines = [f"`{sid[:22]}` {core.format_usd(u)} · {t}턴 · {i}잉크"
+                     for sid, u, i, t in rows[:10]]
+            e.add_field(name="상위 세션", value="\n".join(lines)[:1020], inline=False)
+        await ctx.send(embed=e)
 
     @commands.command(name="잉크")
     @commands.is_owner()

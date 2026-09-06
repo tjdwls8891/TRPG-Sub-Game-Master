@@ -13,7 +13,7 @@ from .constants import MIN_CACHE_TOKENS
 from .constants import CACHE_TTL_SECONDS as MIN_CACHE_TTL
 from .models import TRPGSession
 from .io import write_log, save_session_data, load_scenario_from_file, SESSION_FIELDS, SESSION_RESET_FIELDS, SCHEMA_VERSION, migrate_session_data, _MISSING
-from .cost import calculate_upload_cost, calculate_cost
+from .cost import calculate_upload_cost, calculate_cost, accrue
 from .utils import get_merged_status_effects
 
 import prompts  # 지시층위 의사결정 지시문을 캐시에 함께 굽기 위함(방안 ①)
@@ -494,7 +494,7 @@ async def restore_sessions_from_disk(bot):
 
                         creation_cost = calculate_cost(DEFAULT_MODEL, input_tokens=cache_tokens)
                         storage_cost = calculate_cost(DEFAULT_MODEL, cache_storage_tokens=cache_tokens, storage_hours=1)
-                        session.total_cost += (creation_cost + storage_cost)
+                        accrue(session, creation_cost + storage_cost)
                         print(
                             f"💰 [비용 보고] 세션({session_id}) 복구용 캐시 발급: ${creation_cost + storage_cost:.6f} (누적: ${session.total_cost:.6f})")
 

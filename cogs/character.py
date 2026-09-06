@@ -1200,7 +1200,7 @@ class CharacterCog(commands.Cog):
                 cached_read_tokens=cached_tokens,
             )
             turn_cost = breakdown["total_krw"]
-            session.total_cost += turn_cost
+            core.accrue(session, turn_cost, breakdown["total_usd"])
 
             core.write_cost_log(session.session_id, f"설정 초안 생성 ({char_type}/{char_name})",
                                 in_tokens, cached_tokens, out_tokens, turn_cost, session.total_cost)

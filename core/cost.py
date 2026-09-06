@@ -40,6 +40,35 @@ def format_cost(cost_krw: float) -> str:
     return f"₩{cost_krw:.2f}"
 
 
+def accrue(session, krw: float = 0.0, usd: float = None):
+    """세션 비용을 누적한다.
+
+    원화만 쌓으면 환율이 바뀔 때 과거분이 왜곡된다. 청구 근거는 달러로
+    남기고, 원화는 그 시점의 환율로 환산한 값을 함께 둔다.
+
+    usd를 주지 않으면 현재 환율로 역산한다. 정확한 값을 원하면
+    breakdown["total_usd"]를 직접 넘길 것.
+    """
+    if usd is None:
+        usd = (krw / EXCHANGE_RATE) if EXCHANGE_RATE else 0.0
+    if krw is None or krw == 0.0:
+        krw = usd * EXCHANGE_RATE
+
+    session.total_cost = float(getattr(session, "total_cost", 0.0) or 0.0) + krw
+    session.total_usd = float(getattr(session, "total_usd", 0.0) or 0.0) + usd
+    return session.total_cost
+
+
+def usd_to_krw(usd: float) -> float:
+    """달러를 원화로. 표시 직전에만 쓴다."""
+    return float(usd or 0.0) * EXCHANGE_RATE
+
+
+def format_usd(usd: float) -> str:
+    """달러 표기. 마스터 채널 전용."""
+    return f"${usd:,.6f}" if abs(usd) < 0.01 else f"${usd:,.4f}"
+
+
 def calculate_text_gen_cost_breakdown(model_id: str, input_tokens: int = 0, output_tokens: int = 0,
                                        cached_read_tokens: int = 0) -> dict:
     """
@@ -313,7 +342,8 @@ def format_breakdown(entry: dict) -> str:
 
 
 def build_turn_cost_embed(turn_number: int, cost_log: list, total_cost: float,
-                          *, total_ink: int = None) -> discord.Embed:
+                          *, total_ink: int = None,
+                          total_usd: float = None) -> discord.Embed:
     """
     한 턴의 비용을 호출별로 분해해 보고한다(마스터 채널 전용).
 
@@ -374,9 +404,12 @@ def build_turn_cost_embed(turn_number: int, cost_log: list, total_cost: float,
                     value=f"**{format_cost(total_turn_cost)}**\n"
                           f"= {cost_to_ink(total_turn_cost)}잉크",
                     inline=True)
+    # 청구 근거는 달러다. 원화는 현재 환율로 환산한 참고값.
     acc = format_cost(total_cost)
+    if total_usd is not None:
+        acc = f"{format_usd(total_usd)}\n= {acc}"
     if total_ink is not None:
-        acc += f"\n= **{total_ink:,}잉크** (턴별 누적)"
+        acc += f"\n= **{total_ink:,}잉크**"
     embed.add_field(name="Σ 누적", value=acc, inline=True)
     return embed
 

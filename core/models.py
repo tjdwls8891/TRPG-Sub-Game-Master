@@ -143,6 +143,9 @@ class TRPGSession:
         # 턴별로 실제 차감한 잉크의 누적. 원 단위 총합을 변환하면
         # 매 턴 올림한 것과 어긋나 실제 결제액과 맞지 않는다.
         self.total_ink_spent = 0
+        # USD 누적. 원화는 환율이 바뀌면 과거분이 왜곡되므로
+        # 청구 근거는 달러로 남기고 표시할 때 환산한다.
+        self.total_usd = 0.0
         # 만료 알림을 한 번만 보내기 위한 플래그. 재오픈 시 풀린다.
         self.cache_expired_notified = False
         # 세션 시작 시각(epoch) — 통계의 '세션 온 시간' 산출 기준

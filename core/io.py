@@ -137,6 +137,7 @@ SESSION_FIELDS: dict = {
     "open_prepaid_ink": 0,
     "open_minutes": 0,
     "total_ink_spent": 0,
+    "total_usd": 0.0,
     "cache_expired_notified": False,
     "started_at": 0.0,
     "stat_fail_counts": {},
@@ -412,7 +413,8 @@ async def process_cache_deletion(bot, session) -> float:
         # NOTE: AttributeError 방지를 위해 getattr를 사용하여 안전하게 접근하고 기본값(DEFAULT_MODEL) 할당.
         model_id = getattr(session, "cache_model", DEFAULT_MODEL) or DEFAULT_MODEL
         storage_cost_krw = calculate_storage_cost(model_id, cache_tokens, duration_seconds)
-        session.total_cost += storage_cost_krw
+        from .cost import accrue as _accrue
+        _accrue(session, storage_cost_krw)
 
     session.cache_name = None
     session.cache_obj = None
