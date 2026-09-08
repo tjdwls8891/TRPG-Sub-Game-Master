@@ -12,7 +12,7 @@
 |---|---|---|---|---|---|---|---|
 | 1 | base | constants · models · io · utils | 1,101 | ✅ 완료 | 11 | 11 | (이 커밋) |
 | 2 | ai | prompt · extraction · dialogue · resilience | 1,461 | ✅ 완료 | 10 | 12 | (이 커밋) |
-| 3 | world | places · timeline · start_frame · irregular_npc · growth · koreantext | 1,413 | ⬜ 대기 | - | - | - |
+| 3 | world | places · timeline · start_frame · irregular_npc · growth · koreantext | 1,413 | ✅ 완료 | 9 | 11 | (이 커밋) |
 | 4 | quest | quest · quest_filter | 1,075 | ⬜ 대기 | - | - | - |
 | 5 | session | session_flow · creation · session_open · gm_space · intro | 1,699 | ⬜ 대기 | - | - | - |
 | 6 | profile | profile_gen · profile_runner · profile_creation_ui · profile_ai · profiles · profile_ui | 2,455 | ⬜ 대기 | - | - | - |
@@ -94,6 +94,31 @@
 - [ ] `_build_logic_user_prompt`(339줄)를 `PromptBuilder` 같은 빌더로 바꿔야 합니까?
 - [ ] 판단·추출층위의 프롬프트 조립을 모듈로 분리해야 합니까?
 
+### world (11건)
+
+**기능 단절**
+- [ ] **`voice_for`를 TTS에 연결해야 합니까?** 인물별 목소리를 고르고 저장하는
+      사슬이 있는데 꺼내 쓰는 쪽이 없습니다. 비정규 NPC뿐 아니라
+      **정규 NPC의 `voice` 필드도 이 함수로만 읽혀** 전부 기본 나레이터로 나갑니다.
+      같은 사슬의 이미지(`image_path_for`)는 정상 연결돼 있습니다.
+- [ ] **NPC `birth_year`를 채울 계획이 있습니까?** 영도 47명 전원이 비어
+      나이 계산 기능(`compute_age`·`enrich_npc_ages`·`age_gap`)이 유휴 상태입니다.
+
+**미사용 함수**
+- [ ] `enrich_npc_ages` — `prompt.py`의 `compute_age` 직접 호출로 대체된 것이 맞습니까?
+- [ ] `age_gap` — 항렬 판정용입니까? 무협 시나리오를 위한 것입니까?
+- [ ] `is_leaf` — 최소단위 판정을 어디서 쓰려 했습니까?
+
+**설계 의도**
+- [ ] `irregular_npcs`·`stat_fail_counts`를 되감기 추적에서 뺀 것이 의도입니까?
+- [ ] `REACHABLE_HOPS = 3`을 시나리오별로 조정할 필요가 있습니까?
+- [ ] `build_place_block`의 `[갈 수 있는 곳]` 8개 상한이 적절합니까?
+      영도는 장소가 122개라 잘리는 경우가 잦을 수 있습니다.
+
+**정리**
+- [ ] `format_choice`가 5.21.0 임베드 전환 후에도 `session.py:491`에서 쓰입니다.
+- [ ] `_hop_distance`가 `build_place_block` 정렬마다 BFS를 반복합니다(8곳이면 8회).
+
 ---
 
 ## 누적 발견 사항
@@ -149,6 +174,10 @@
 | `PromptBuilder.add_place_block` | `self.parts` 오타로 5.8.0부터 미작동 |
 | `PromptBuilder.add_quest_block` | 같은 오타로 4.33.0부터 미작동 |
 | `dialogue.send_layer_status` | 호출부 없음 (WaitingStatus로 대체) |
+| `irregular_npc.voice_for` | 호출부 없음 — 인물별 목소리 전체가 미반영 |
+| `timeline.enrich_npc_ages` | 호출부 없음 |
+| `timeline.age_gap` | 호출부 없음 |
+| `places.is_leaf` | 호출부 없음 |
 
 **이름과 실체 불일치**
 
