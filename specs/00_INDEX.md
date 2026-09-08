@@ -11,7 +11,7 @@
 | # | 영역 | 모듈 | 줄 | 상태 | 발견 | 확인필요 | 커밋 |
 |---|---|---|---|---|---|---|---|
 | 1 | base | constants · models · io · utils | 1,101 | ✅ 완료 | 11 | 11 | (이 커밋) |
-| 2 | ai | prompt · extraction · dialogue · resilience | 1,461 | ⬜ 대기 | - | - | - |
+| 2 | ai | prompt · extraction · dialogue · resilience | 1,461 | ✅ 완료 | 10 | 12 | (이 커밋) |
 | 3 | world | places · timeline · start_frame · irregular_npc · growth · koreantext | 1,413 | ⬜ 대기 | - | - | - |
 | 4 | quest | quest · quest_filter | 1,075 | ⬜ 대기 | - | - | - |
 | 5 | session | session_flow · creation · session_open · gm_space · intro | 1,699 | ⬜ 대기 | - | - | - |
@@ -67,6 +67,33 @@
 - [ ] `PROFILE_AI_MODEL` — *"저비용 모델이 확정되면"*이라 되어 있는데 후보가 있습니까?
 - [ ] `LOGIC_MODEL` 주석의 `gemini-3-pro-preview` 대안을 쓸 계획이 있습니까?
 
+### ai (12건)
+
+**🔴 최우선 — 중대 결함**
+- [ ] **장소·퀘스트 블록이 프롬프트에 주입되지 않습니다.**
+      `PromptBuilder.add_place_block`·`add_quest_block`이 없는 `self.parts`에
+      append해 조용히 실패합니다. 퀘스트는 4.33.0, 장소는 5.8.0부터입니다.
+      `self.blocks`로 고치면 되는 단순 오타로 보이나, **두 블록이 들어가면
+      프롬프트가 크게 늘어 비용이 오릅니다.** 고칠까요?
+- [ ] 고친 뒤 두 블록을 `manifest`(비용 보고)에 등록할까요?
+
+**설계 의도**
+- [ ] 임계값 31~70 구간에서 상태 부여도 해제도 안 되는 것이 의도된 이력 현상입니까?
+- [ ] `call_with_retry`가 AI 호출 18곳 중 5곳만 보호합니다. 전체 적용해야 합니까?
+- [ ] 지시층위의 `resource_changes` 경로를 제거해야 합니까?
+      5.27.0에서 자원 권한을 추출층위로 옮겼는데 양쪽이 살아 있어 이중 적용될 수 있습니다.
+- [ ] `strip_unauthorized_pc_dialogue`(PC 대사 창작 제거)가 `game.py` 한 곳에만
+      적용됩니다. 자동 GM 경로에도 넣어야 합니까?
+
+**정리 대상**
+- [ ] `send_layer_status` 호출부가 없습니다(WaitingStatus로 대체). 제거해도 됩니까?
+- [ ] `dialogue.py:350~354`의 `_images_this_turn` 기록이 읽는 쪽 없이 남았습니다.
+- [ ] `apply_extraction`의 `valid_status`가 공통 상태이상을 포함해야 합니까?
+
+**구조**
+- [ ] `_build_logic_user_prompt`(339줄)를 `PromptBuilder` 같은 빌더로 바꿔야 합니까?
+- [ ] 판단·추출층위의 프롬프트 조립을 모듈로 분리해야 합니까?
+
 ---
 
 ## 누적 발견 사항
@@ -114,6 +141,14 @@
 | 225 | `models.py::__init__` |
 | 218 | `media.py::send_media` |
 | 187 | `gm.py::_call_gm_logic` |
+
+**🔴 미작동 기능 (ai 명세에서 발견)**
+
+| 기능 | 상태 |
+|---|---|
+| `PromptBuilder.add_place_block` | `self.parts` 오타로 5.8.0부터 미작동 |
+| `PromptBuilder.add_quest_block` | 같은 오타로 4.33.0부터 미작동 |
+| `dialogue.send_layer_status` | 호출부 없음 (WaitingStatus로 대체) |
 
 **이름과 실체 불일치**
 
