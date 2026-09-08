@@ -476,7 +476,9 @@ def _build_logic_user_prompt(session, player_message: str, roll_results: list,
 
     # NOTE: 키워드북(keyword_memory) 온디맨드 주입 폐지 — 매 턴 토큰을 소모하는 데 비해
     #       기여가 낮아 제거했다. 세계관 상세는 캐시 룰북 참조로 일원화한다.
+    #       비운 슬롯은 장소·퀘스트가 대체한다.
     km_block = ""
+
 
     # 시나리오 금지사항 살라이언스 강화: 캐시 [6]에도 있으나, 지시층위 결정 시점 상기를 위해
     # 사용자 프롬프트 말미(플레이어 발언 직전)에도 재주입한다. 판단의 중요도만 키우는 목적.
@@ -495,6 +497,28 @@ def _build_logic_user_prompt(session, player_message: str, roll_results: list,
 
     # 입력에 실제 주입된 온디맨드 정보 목록 (비용 보고용). 비어있는 블록은 제외.
     manifest = []
+    # 장소 — 이동 개연성 판단의 근거. 지시층위가 갈 수 있는 곳을 알아야
+    # "거기까지는 한 번에 못 간다"를 판정할 수 있다.
+    place_block = ""
+    try:
+        _pb = core.places.build_place_block(session)
+        if _pb:
+            place_block = "\n" + _pb
+            manifest.append("장소 정보")
+    except Exception as e:
+        print(f"[지시층위] 장소 블록 실패: {e}")
+
+    # 퀘스트 — 후보 목록을 여기서 제시해야 quest_choice로 고를 수 있다.
+    # build_quest_block이 session._quest_offered를 채우고, 코드가 그것으로
+    # 모델의 선택을 검증한다. 이 호출이 없으면 후보가 비어 아무것도 열리지 않는다.
+    quest_block = ""
+    try:
+        _qb = core.quest.build_quest_block(session)
+        if _qb:
+            quest_block = "\n" + _qb
+            manifest.append("퀘스트")
+    except Exception as e:
+        print(f"[지시층위] 퀘스트 블록 실패: {e}")
     if world_tl_block:
         manifest.append("세계 타임라인")
     if info_ledger_block:
@@ -519,7 +543,7 @@ def _build_logic_user_prompt(session, player_message: str, roll_results: list,
 [PC 상태]: {sta_str}{gm_note_block}
 [직전 ASK 횟수 / 한도]: {clarify_count} / {MAX_CLARIFY_PER_MESSAGE}
 [직전 NARRATE 횟수 / 한도]: {narrate_count} / {MAX_NARRATE_PER_MESSAGE}
-{multi_info}{note_block}{world_tl_block}{info_ledger_block}{memory_block}{km_block}
+{multi_info}{note_block}{world_tl_block}{info_ledger_block}{memory_block}{km_block}{place_block}{quest_block}
 [최근 5턴 컨텍스트 (온전 원문)]
 {recent_logs_str}
 {current_turn_block}{proceed_history_block}{narrative_block}{sim_block}{location_images_block}{valid_status_block}

@@ -222,7 +222,8 @@ class PromptBuilder:
             from .places import build_place_block
             block = build_place_block(self.session)
             if block:
-                self.parts.append(block)
+                self.blocks.append(block)
+                self.manifest.append("장소 정보")
         except Exception as e:
             print(f"[장소] 블록 생성 실패: {e}")
         return self
@@ -237,7 +238,8 @@ class PromptBuilder:
             from .quest import build_quest_block
             block = build_quest_block(self.session)
             if block:
-                self.parts.append(block)
+                self.blocks.append(block)
+                self.manifest.append("퀘스트")
         except Exception as e:
             print(f"[퀘스트] 블록 생성 실패: {e}")
         return self
