@@ -14,7 +14,7 @@
 | 2 | ai | prompt · extraction · dialogue · resilience | 1,461 | ✅ 완료 | 10 | 12 | (이 커밋) |
 | 3 | world | places · timeline · start_frame · irregular_npc · growth · koreantext | 1,413 | ✅ 완료 | 9 | 11 | (이 커밋) |
 | 4 | quest | quest · quest_filter | 1,075 | ✅ 완료 | 7 | 8 | (이 커밋) |
-| 5 | session | session_flow · creation · session_open · gm_space · intro | 1,699 | ⬜ 대기 | - | - | - |
+| 5 | session | session_flow · creation · session_open · gm_space · intro | 1,699 | ✅ 완료 | 7 | 8 | (이 커밋) |
 | 6 | profile | profile_gen · profile_runner · profile_creation_ui · profile_ai · profiles · profile_ui | 2,455 | ⬜ 대기 | - | - | - |
 | 7 | cost | cost · estimate · ink · accounts · terms · stats | 1,620 | ⬜ 대기 | - | - | - |
 | 8 | memory | memory_plan · rewind · cache | 1,073 | ⬜ 대기 | - | - | - |
@@ -146,6 +146,31 @@
 **성능**
 - [ ] `match_filters`가 한 턴에 6회 이상 돕니다. 결과를 캐시해야 합니까?
 
+### session (8건)
+
+**🔴 최우선 — 데이터 오염**
+- [ ] **임시 시나리오 NPC가 세션에 남습니다.** `_begin_flow`가 `scenarios[0]`
+      (정렬상 다크판타지)로 세션을 만들고, `ScenarioConfirmView`가 교체할 때
+      `npcs`·`resources`·`statuses`를 정리하지 않습니다.
+      영도 세션에 다크판타지 인물 21명이 남아 추출층위 유효 검증(`apply_extraction`)과
+      캐시 조립에 섞입니다. 실측 확인했습니다.
+      `ScenarioConfirmView`에서 NPC를 다시 전개해야 합니까?
+- [ ] 아니면 세션 객체 생성을 시나리오 선택 이후로 미뤄야 합니까?
+      다만 채널은 먼저 만들어야 플로우를 띄울 수 있습니다.
+
+**정리**
+- [ ] `creation.get_data`·`reset`·`progress_text`·`summary` 호출부가 없습니다.
+      `progress_text`·`summary`는 5.21.0 임베드 전환으로 죽은 듯합니다.
+- [ ] `session_flow.advance_to` 호출부가 없습니다.
+- [ ] `빈시나리오`가 선택지에 노출됩니다. 템플릿으로 보이는데 제외해야 합니까?
+
+**설계 의도**
+- [ ] `flow_msg_id`·`intro_level`을 `creation_state`에 런타임 추가하는 것이 의도입니까?
+      저장 대상이라 디스크에도 남습니다.
+- [ ] `intro_images` 자산을 준비할 계획이 있습니까? 연결부만 있습니다.
+- [ ] `MINUTES_PER_TURN = 4`가 "세션 통계로 보정 가능"이라 되어 있는데
+      실제 보정 경로가 없습니다.
+
 ---
 
 ## 누적 발견 사항
@@ -206,6 +231,8 @@
 | `timeline.age_gap` | 호출부 없음 |
 | `places.is_leaf` | 호출부 없음 |
 | `quest.summary` | 호출부 없음 |
+| `creation.get_data` · `reset` · `progress_text` · `summary` | 호출부 없음 |
+| `session_flow.advance_to` | 호출부 없음 |
 
 **이름과 실체 불일치**
 
