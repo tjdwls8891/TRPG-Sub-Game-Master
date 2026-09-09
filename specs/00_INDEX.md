@@ -17,7 +17,7 @@
 | 5 | session | session_flow · creation · session_open · gm_space · intro | 1,699 | ✅ 완료 | 7 | 8 | (이 커밋) |
 | 6 | profile | profile_gen · profile_runner · profile_creation_ui · profile_ai · profiles · profile_ui | 2,455 | ✅ 완료 | 6 | 8 | (이 커밋) |
 | 7 | cost | cost · estimate · ink · accounts · terms · stats | 1,620 | ✅ 완료 | 7 | 9 | (이 커밋) |
-| 8 | memory | memory_plan · rewind · cache | 1,073 | ⬜ 대기 | - | - | - |
+| 8 | memory | memory_plan · rewind · cache | 1,073 | ✅ 완료 | 7 | 7 | (이 커밋) |
 | 9 | media | audio_mixer · tts · tts_preset · media · media_control | 1,092 | ⬜ 대기 | - | - | - |
 | 10 | ui | display · ui · chat_guard | 998 | ⬜ 대기 | - | - | - |
 
@@ -223,6 +223,30 @@
 - [ ] `calculate_cost`와 `calculate_text_gen_cost_breakdown`이 겹칩니다.
 - [ ] `profile_ai_cost_krw`를 어딘가에 표시해야 합니까?
 
+### memory (7건)
+
+**플랜**
+- [ ] **로우 플랜의 `late_model`이 `model`과 같은 값입니다.**
+      `DEFAULT_MODEL`과 `LOGIC_MODEL`이 둘 다 `gemini-3-flash-preview`라
+      3회 압축 후 전환해도 비용이 동일합니다.
+      "저렴한 모델로 크게 압축"이라는 설계 의도가 실현되지 않았습니다.
+      저비용 모델 후보가 정해지면 바꿀 계획입니까, 플랜 설명을 고쳐야 합니까?
+
+**되감기**
+- [ ] `total_ink_spent`·`total_usd`를 `TRACKED_PATHS`에 넣어야 합니까?
+      되감아도 잉크 표기가 그대로입니다.
+- [ ] `REWIND_MAX_TURNS = 20`이 적절합니까?
+
+**정리**
+- [ ] `memory_plan.plan_key`·`cost_curve` 호출부가 없습니다.
+- [ ] `rewind.serialize_log_entries`와 `io._serialize_log_entry`가 겹칩니다.
+- [ ] `MIN_CACHE_TTL` 별칭을 `CACHE_TTL_SECONDS`로 되돌려야 합니까?
+
+**구조**
+- [ ] **압축 실행이 `game.py`에 두 번 있습니다.** 유사도 90%입니다.
+      `_run_auto_compression`(94줄)과 `compress_memory`(96줄).
+      `memory` 영역 모듈로 합쳐야 합니까?
+
 ---
 
 ## 누적 발견 사항
@@ -290,6 +314,7 @@
 | `stats.record_session` · `record_turn` | 호출부 없음 — **통계가 갱신되지 않음** |
 | `cost.calculate_upload_cost_usd` · `calculate_storage_cost_usd` | 호출부 없음 |
 | `ink.can_afford` · `format_ink` · `plan_catalog` | 호출부 없음 |
+| `memory_plan.plan_key` · `cost_curve` | 호출부 없음 |
 
 **이름과 실체 불일치**
 
