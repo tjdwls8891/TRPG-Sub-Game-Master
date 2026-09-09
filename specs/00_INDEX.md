@@ -18,7 +18,7 @@
 | 6 | profile | profile_gen · profile_runner · profile_creation_ui · profile_ai · profiles · profile_ui | 2,455 | ✅ 완료 | 6 | 8 | (이 커밋) |
 | 7 | cost | cost · estimate · ink · accounts · terms · stats | 1,620 | ✅ 완료 | 7 | 9 | (이 커밋) |
 | 8 | memory | memory_plan · rewind · cache | 1,073 | ✅ 완료 | 7 | 7 | (이 커밋) |
-| 9 | media | audio_mixer · tts · tts_preset · media · media_control | 1,092 | ⬜ 대기 | - | - | - |
+| 9 | media | audio_mixer · tts · tts_preset · media · media_control | 1,092 | ✅ 완료 | 7 | 6 | (이 커밋) |
 | 10 | ui | display · ui · chat_guard | 998 | ⬜ 대기 | - | - | - |
 
 **작업 순서는 위 표의 순서를 따른다.** 아래에서 위로 쌓아야 참조가 성립한다.
@@ -247,6 +247,27 @@
       `_run_auto_compression`(94줄)과 `compress_memory`(96줄).
       `memory` 영역 모듈로 합쳐야 합니까?
 
+### media (6건)
+
+**환경 위험**
+- [ ] **`audioop`이 Python 3.13에서 제거됩니다.** 지금 대비해야 합니까?
+      올리면 음성이 전부 멈춥니다. 코드에 "numpy로 `_mix_frames`만 교체"라는
+      메모가 있습니다. 운영 서버는 현재 3.12입니다.
+
+**자산 부재**
+- [ ] **BGM 트랙 파일이 하나도 없습니다.** `bgm_map`은 9개 태그·2종 트랙이
+      저작됐는데 `media/영도/`에 해당 파일이 없습니다.
+- [ ] **`!tts생성`을 실행한 적이 있습니까?** `index.json`이 없어
+      사전 합성 이점(런타임 API 0회)이 실현되지 않았습니다.
+      시스템 문구가 무음으로 나갑니다.
+- [ ] 효과음이 `dice.mp3` 하나뿐입니다. 추가할 계획이 있습니까?
+
+**연결**
+- [ ] `irregular_npc.voice_for`를 TTS에 연결해야 합니까? (world 영역과 중복)
+
+**정리**
+- [ ] `tts_preset.text_of` 호출부가 없습니다.
+
 ---
 
 ## 누적 발견 사항
@@ -315,6 +336,7 @@
 | `cost.calculate_upload_cost_usd` · `calculate_storage_cost_usd` | 호출부 없음 |
 | `ink.can_afford` · `format_ink` · `plan_catalog` | 호출부 없음 |
 | `memory_plan.plan_key` · `cost_curve` | 호출부 없음 |
+| `tts_preset.text_of` | 호출부 없음 |
 
 **이름과 실체 불일치**
 
