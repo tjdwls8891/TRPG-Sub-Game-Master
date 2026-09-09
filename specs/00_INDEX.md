@@ -16,7 +16,7 @@
 | 4 | quest | quest · quest_filter | 1,075 | ✅ 완료 | 7 | 8 | (이 커밋) |
 | 5 | session | session_flow · creation · session_open · gm_space · intro | 1,699 | ✅ 완료 | 7 | 8 | (이 커밋) |
 | 6 | profile | profile_gen · profile_runner · profile_creation_ui · profile_ai · profiles · profile_ui | 2,455 | ✅ 완료 | 6 | 8 | (이 커밋) |
-| 7 | cost | cost · estimate · ink · accounts · terms · stats | 1,620 | ⬜ 대기 | - | - | - |
+| 7 | cost | cost · estimate · ink · accounts · terms · stats | 1,620 | ✅ 완료 | 7 | 9 | (이 커밋) |
 | 8 | memory | memory_plan · rewind · cache | 1,073 | ⬜ 대기 | - | - | - |
 | 9 | media | audio_mixer · tts · tts_preset · media · media_control | 1,092 | ⬜ 대기 | - | - | - |
 | 10 | ui | display · ui · chat_guard | 998 | ⬜ 대기 | - | - | - |
@@ -195,6 +195,34 @@
 - [ ] 3계층(gen → runner → ui) 분리가 의도대로 작동합니까?
       `runner.step`의 호출부가 하나뿐이라 중간 계층의 이점이 보이지 않습니다.
 
+### cost (9건)
+
+**🔴 최우선 — 통계 미갱신**
+- [ ] **`record_session`·`record_turn`을 연결해야 합니까?**
+      통계를 읽는 곳은 11곳인데 쓰는 곳이 없습니다.
+      실증 결과 `judge_level`이 항상 `new`를 반환해
+      **모든 유저가 매번 초심자 풀소개를 보고 건너뛰기 버튼도 없습니다.**
+      명예의 전당·월드보드 집계도 비어 있을 것입니다.
+- [ ] 연결 시점은 턴 종료(`record_turn`)·세션 클로즈(`record_session`)가
+      자연스러워 보이는데 맞습니까?
+
+**토큰 계수**
+- [ ] **`CHARS_TO_TOKENS`(0.65)를 0.33으로 낮춰야 합니까?**
+      영도 캐시 실측으로는 0.33이 맞습니다(오차 0.5%).
+      0.65면 입력 예측이 2배로 잡혀 잔액 차단이 과하게 걸릴 수 있습니다.
+- [ ] 두 계수가 다른 이유가 있습니까? 캐시 텍스트와 프롬프트의 성격 차이입니까?
+
+**미사용**
+- [ ] `calculate_upload_cost_usd`·`calculate_storage_cost_usd` — 5.29.1에서
+      만들었으나 역산 코드를 대신 넣었습니다. 이 함수들로 교체할까요?
+- [ ] `ink.can_afford`·`format_ink`·`plan_catalog` — 제거해도 됩니까?
+      `plan_catalog`는 결제 도입 시 필요해 보입니다.
+
+**정합**
+- [ ] `record_actual_input`이 지시층위만 기록합니다. 묘사층위도 해야 합니까?
+- [ ] `calculate_cost`와 `calculate_text_gen_cost_breakdown`이 겹칩니다.
+- [ ] `profile_ai_cost_krw`를 어딘가에 표시해야 합니까?
+
 ---
 
 ## 누적 발견 사항
@@ -259,6 +287,9 @@
 | `session_flow.advance_to` | 호출부 없음 |
 | `profile_gen.branch_mode` · `reroll_stats` · `validate_steps` | 호출부 없음 |
 | `profile_runner.jump_to` | 호출부 없음 (기획 필요기능 5번) |
+| `stats.record_session` · `record_turn` | 호출부 없음 — **통계가 갱신되지 않음** |
+| `cost.calculate_upload_cost_usd` · `calculate_storage_cost_usd` | 호출부 없음 |
+| `ink.can_afford` · `format_ink` · `plan_catalog` | 호출부 없음 |
 
 **이름과 실체 불일치**
 
