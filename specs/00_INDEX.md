@@ -15,7 +15,7 @@
 | 3 | world | places · timeline · start_frame · irregular_npc · growth · koreantext | 1,413 | ✅ 완료 | 9 | 11 | (이 커밋) |
 | 4 | quest | quest · quest_filter | 1,075 | ✅ 완료 | 7 | 8 | (이 커밋) |
 | 5 | session | session_flow · creation · session_open · gm_space · intro | 1,699 | ✅ 완료 | 7 | 8 | (이 커밋) |
-| 6 | profile | profile_gen · profile_runner · profile_creation_ui · profile_ai · profiles · profile_ui | 2,455 | ⬜ 대기 | - | - | - |
+| 6 | profile | profile_gen · profile_runner · profile_creation_ui · profile_ai · profiles · profile_ui | 2,455 | ✅ 완료 | 6 | 8 | (이 커밋) |
 | 7 | cost | cost · estimate · ink · accounts · terms · stats | 1,620 | ⬜ 대기 | - | - | - |
 | 8 | memory | memory_plan · rewind · cache | 1,073 | ⬜ 대기 | - | - | - |
 | 9 | media | audio_mixer · tts · tts_preset · media · media_control | 1,092 | ⬜ 대기 | - | - | - |
@@ -171,6 +171,30 @@
 - [ ] `MINUTES_PER_TURN = 4`가 "세션 통계로 보정 가능"이라 되어 있는데
       실제 보정 경로가 없습니다.
 
+### profile (8건)
+
+**비용**
+- [ ] **프로필 AI 비용을 `total_cost`에 누적해야 합니까?**
+      `_accrue`가 `session.profile_ai_cost_krw`에만 넣는데, 이 필드를 읽는 곳이
+      하나도 없습니다. 무료 제공이라 차감은 안 하더라도 `!사용량`·`cost_log`
+      어디에도 나타나지 않아 **집계는 되는데 볼 방법이 없습니다.**
+
+**미사용 함수**
+- [ ] `validate_steps` — 시나리오 알고리즘 정합성 검사입니다.
+      저작 시 쓸 수 있게 명령으로 노출해야 합니까?
+- [ ] `jump_to` — 기획 필요기능 5번인데 UI 버튼이 없어 닿지 못합니다.
+- [ ] `branch_mode` — 조건 분기 모드로 보입니다. 무엇을 위한 것이었습니까?
+- [ ] `reroll_stats` — UI가 `cancel_pending`으로 우회합니다.
+
+**데이터**
+- [ ] 무협·다크판타지에 `profile_creation`을 만들 계획이 있습니까?
+      영도만 10단계가 있고 나머지 셋은 수동 설정에 의존합니다.
+
+**구조**
+- [ ] `cogs/character.py::manage_npc`(267줄)를 분할해야 합니까?
+- [ ] 3계층(gen → runner → ui) 분리가 의도대로 작동합니까?
+      `runner.step`의 호출부가 하나뿐이라 중간 계층의 이점이 보이지 않습니다.
+
 ---
 
 ## 누적 발견 사항
@@ -233,6 +257,8 @@
 | `quest.summary` | 호출부 없음 |
 | `creation.get_data` · `reset` · `progress_text` · `summary` | 호출부 없음 |
 | `session_flow.advance_to` | 호출부 없음 |
+| `profile_gen.branch_mode` · `reroll_stats` · `validate_steps` | 호출부 없음 |
+| `profile_runner.jump_to` | 호출부 없음 (기획 필요기능 5번) |
 
 **이름과 실체 불일치**
 
