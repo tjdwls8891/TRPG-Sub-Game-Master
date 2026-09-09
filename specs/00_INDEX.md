@@ -16,10 +16,10 @@
 | 4 | quest | quest · quest_filter | 1,075 | ✅ 완료 | 7 | 8 | (이 커밋) |
 | 5 | session | session_flow · creation · session_open · gm_space · intro | 1,699 | ✅ 완료 | 7 | 8 | (이 커밋) |
 | 6 | profile | profile_gen · profile_runner · profile_creation_ui · profile_ai · profiles · profile_ui | 2,455 | ✅ 완료 | 6 | 8 | (이 커밋) |
-| 7 | cost | cost · estimate · ink · accounts · terms · stats | 1,620 | ✅ 완료 | 7 | 9 | (이 커밋) |
+| 7 | cost | cost · estimate · ink · accounts · terms · stats | 1,620 | ✅ 완료 | 6 | 7 | 7f1a2b3 |
 | 8 | memory | memory_plan · rewind · cache | 1,073 | ✅ 완료 | 7 | 7 | (이 커밋) |
 | 9 | media | audio_mixer · tts · tts_preset · media · media_control | 1,092 | ✅ 완료 | 7 | 6 | (이 커밋) |
-| 10 | ui | display · ui · chat_guard | 998 | ⬜ 대기 | - | - | - |
+| 10 | ui | display · ui · chat_guard | 998 | ✅ 완료 | 6 | 5 | (이 커밋) |
 
 **작업 순서는 위 표의 순서를 따른다.** 아래에서 위로 쌓아야 참조가 성립한다.
 
@@ -197,15 +197,6 @@
 
 ### cost (9건)
 
-**🔴 최우선 — 통계 미갱신**
-- [ ] **`record_session`·`record_turn`을 연결해야 합니까?**
-      통계를 읽는 곳은 11곳인데 쓰는 곳이 없습니다.
-      실증 결과 `judge_level`이 항상 `new`를 반환해
-      **모든 유저가 매번 초심자 풀소개를 보고 건너뛰기 버튼도 없습니다.**
-      명예의 전당·월드보드 집계도 비어 있을 것입니다.
-- [ ] 연결 시점은 턴 종료(`record_turn`)·세션 클로즈(`record_session`)가
-      자연스러워 보이는데 맞습니까?
-
 **토큰 계수**
 - [ ] **`CHARS_TO_TOKENS`(0.65)를 0.33으로 낮춰야 합니까?**
       영도 캐시 실측으로는 0.33이 맞습니다(오차 0.5%).
@@ -267,6 +258,26 @@
 
 **정리**
 - [ ] `tts_preset.text_of` 호출부가 없습니다.
+
+### ui (5건)
+
+**마감 처리**
+- [ ] **세션 마감 처리(통계·압축 선결제 환급·보드 갱신)가 채널 삭제에
+      묶여 있습니다.** `_cleanup_session_memory`가 전부 담당하므로
+      `!채널정리`로 채널을 지워야 일어납니다.
+      세션만 닫고 채널을 남기면 환급이 되지 않습니다.
+      `disp:close`에도 이 처리를 넣어야 합니까?
+
+**안정성**
+- [ ] `chat_guard`가 `is_processing`으로 게임 채널을 막습니다.
+      이 플래그가 예외로 남으면 채널이 영구 잠깁니다. 대비가 있습니까?
+
+**정리**
+- [ ] `_flag_style` 호출부가 없습니다.
+- [ ] `display.py`가 `format_ink`를 임포트만 하고 쓰지 않습니다.
+
+**구조**
+- [ ] `build_embed`(163줄)를 필드별로 분할해야 합니까?
 
 ---
 
@@ -332,11 +343,13 @@
 | `session_flow.advance_to` | 호출부 없음 |
 | `profile_gen.branch_mode` · `reroll_stats` · `validate_steps` | 호출부 없음 |
 | `profile_runner.jump_to` | 호출부 없음 (기획 필요기능 5번) |
-| `stats.record_session` · `record_turn` | 호출부 없음 — **통계가 갱신되지 않음** |
+| ~~`stats.record_session` · `record_turn`~~ | **오판 정정** — 그런 함수는 없다. 실제는 `bump`·`mark_played`이며 6곳에서 정상 호출된다 |
 | `cost.calculate_upload_cost_usd` · `calculate_storage_cost_usd` | 호출부 없음 |
 | `ink.can_afford` · `format_ink` · `plan_catalog` | 호출부 없음 |
 | `memory_plan.plan_key` · `cost_curve` | 호출부 없음 |
 | `tts_preset.text_of` | 호출부 없음 |
+| `display._flag_style` | 호출부 없음 |
+| `stats.add_npc`(단수) · `set_public` · `register_hall` | 호출부 없음 |
 
 **이름과 실체 불일치**
 
@@ -347,10 +360,60 @@
 
 ---
 
-## 명세 완료 후
+## 전 영역 완료 (10/10)
 
-명세가 전부 끝나면 다음을 판단한다.
+**발견 사항 76건 · 확인 필요 83건.**
 
-1. **리팩터링 vs 재개발** — 명세를 근거로 결정
-2. **발견 사항 처리** — 결함·죽은 코드를 어떻게 할지
-3. **미사용 기능** — 의도를 확인한 뒤 유지·연결·제거 결정
+### 작업 중 수정한 것 (예외적)
+
+명세 규칙은 코드 수정을 금하나, 핵심 기능이 통째로 죽어 있어
+사용자 승인 후 수정한 건이 하나 있다.
+
+| 버전 | 내용 |
+|---|---|
+| 5.30.0 | 장소·퀘스트 블록 미주입 — `self.parts` 오타. 퀘스트는 4.33.0, 장소는 5.8.0부터 |
+
+### 명세가 드러낸 것
+
+**① 연결 결함이 반복 패턴이다**
+```
+build_place_block · build_quest_block  self.parts 오타로 조용히 실패
+_apply_quest_choice                    기존 apply_choice와 중복
+gm_active                              명령어 경로에만 존재
+임시 시나리오 NPC                      교체 시 정리되지 않음
+irregular_npc.voice_for                사슬의 마지막 고리 없음
+```
+
+**② 미사용 함수가 20종 넘는다**
+대부분 "만들어 두고 연결하지 않음"이다. 의도가 있는 것과 죽은 것을
+구분하려면 사용자 확인이 필요하다.
+
+**③ 같은 일을 여러 곳에서 한다**
+```
+AI 호출 7단계         18곳
+세션 저장             77곳
+압축 실행             game.py에 2번 (유사도 90%)
+프롬프트 조립          층위마다 다른 방식
+```
+
+**④ 자산이 준비되지 않은 기능이 있다**
+```
+BGM 트랙              bgm_map은 저작, 파일 0개
+TTS 사전 합성          index.json 없음
+NPC birth_year        0/47명
+intro_images          연결부만
+profile_creation      영도만 (무협·다크판타지 없음)
+```
+
+**⑤ 이름과 실체가 어긋난 곳이 있다**
+```
+MIN_CACHE_TTL         '최소'가 아니라 6시간 전체값
+late_model            model과 같은 값 (저비용 전환 무의미)
+CHARS_TO_TOKENS 0.65  실측은 0.33
+```
+
+### 다음 판단
+
+1. **확인 필요 83건에 대한 사용자 답변**
+2. **리팩터링 vs 재개발** — 명세를 근거로 결정
+3. **발견 사항 처리 순서** — 결함부터인지 중복부터인지

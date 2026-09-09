@@ -295,15 +295,25 @@ TTS 예상. **합산하지 않고 구분 표기**한다(기획 규정).
 |---|---|---|
 | `load_stats(uid)` | 통계 조회 | 11곳 |
 | `has_played(uid, sid)` | 해당 시나리오 경험 | `creation.py:169` |
-| `record_session` · `record_turn` | 기록 | ⚠️ **호출부 없음** |
+| `bump(uid, **deltas)` | 카운터 증가 | **6곳** |
+| `mark_played(uid, sid)` | 시나리오 이력 | `session.py:450` |
+| `add_npcs(uid, names)` | 만난 NPC 누적 | `gm.py:3303` |
+| `leaderboard` · `format_summary` | 명전 표기 | `gm_space` |
 
-> ⚠️ **통계가 갱신되지 않는다.** `record_session`·`record_turn`이 정의만 되어 있다.
-> `load_stats`는 11곳에서 읽는데 **쓰는 곳이 없다.**
->
-> 영향
-> - `intro.judge_level`이 `sessions`·`turns`로 인지 수준을 판정한다 → **항상 `LEVEL_NEW`**
-> - `creation.can_skip_profile_question`이 `has_played`를 본다 → **항상 생략**
-> - 명예의 전당·`!사용량 전체`의 통계도 비어 있을 것
+**기록 지점 6곳** `[코드]`
+```
+session.py:449  세션 시작   bump(sessions=1) + mark_played
+gm.py:1440      턴 차감     bump(ink_spent=ink)
+gm.py:2314      주사위      bump(dice_rolled=1)
+gm.py:3298      턴 종료     bump(turns=1 등)
+gm.py:3303      추출 후     add_npcs
+ui.py:43        세션 종료   bump(session_seconds, ink_spent)
+```
+
+> **정정** — 초기 조사에서 `record_session`·`record_turn`을 미사용으로
+> 판정했으나, **그런 이름의 함수는 존재하지 않는다.** 실제 기록 함수는
+> `bump`·`mark_played`·`add_npcs`이며 정상 호출된다.
+> 존재하지 않는 함수명으로 검색해 잘못된 결론을 냈다.
 
 ---
 
@@ -369,21 +379,6 @@ upload_cache
 
 ## 발견 사항
 
-> 🔴 **통계가 갱신되지 않는다 — `record_session`·`record_turn` 호출부 없음**
->
-> `load_stats`를 11곳에서 읽는데 **쓰는 곳이 하나도 없다.**
->
-> 연쇄 영향
-> ```
-> intro.judge_level        sessions·turns로 판정 → 항상 LEVEL_NEW
->                          모든 유저가 매번 초심자 풀소개를 본다
-> can_skip_profile_question has_played → 항상 False → 질문 항상 생략
-> 명예의 전당·월드보드      집계가 비어 있을 것
-> ```
->
-> 5.22.x에서 소개의 인지 수준 분기를 정교하게 만들었으나, **판정 근거가 되는
-> 데이터가 채워지지 않아 경험자 경로가 실행되지 않는다.** `[확인 필요]`
-
 > ⚠️ **토큰 계수가 두 개다**
 > ```
 > CHARS_TO_TOKENS      0.65  (estimate 전역)
@@ -411,16 +406,6 @@ upload_cache
 
 ## 확인 필요 목록
 
-### 🔴 최우선 — 통계 미갱신
-
-- [ ] **`record_session`·`record_turn`을 연결해야 합니까?**
-      통계를 읽는 곳은 11곳인데 쓰는 곳이 없습니다.
-      그 결과 `intro.judge_level`이 항상 `LEVEL_NEW`를 반환해
-      **모든 유저가 매번 초심자 풀소개를 봅니다.**
-      명예의 전당·월드보드 집계도 비어 있을 것입니다.
-- [ ] 연결한다면 어느 시점입니까? 턴 종료 시 `record_turn`, 세션 클로즈 시
-      `record_session`이 자연스러워 보입니다.
-
 ### 계수
 
 - [ ] **`CHARS_TO_TOKENS`(0.65)를 0.33으로 낮춰야 합니까?**
@@ -434,6 +419,8 @@ upload_cache
       만들었으나 역산 코드를 대신 넣었습니다. 이 함수들로 교체할까요?
 - [ ] `ink.can_afford`·`format_ink`·`plan_catalog` — 제거해도 됩니까?
       `plan_catalog`는 결제 도입 시 필요해 보입니다.
+- [ ] `stats.add_npc`(단수)·`set_public`·`register_hall` 호출부가 없습니다.
+      `add_npcs`(복수)는 쓰입니다. 이름이 비슷해 혼동될 수 있습니다.
 
 ### 정합
 
