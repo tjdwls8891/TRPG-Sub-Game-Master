@@ -13,7 +13,7 @@
 | 1 | base | constants · models · io · utils | 1,101 | ✅ 완료 | 11 | 11 | (이 커밋) |
 | 2 | ai | prompt · extraction · dialogue · resilience | 1,461 | ✅ 완료 | 10 | 12 | (이 커밋) |
 | 3 | world | places · timeline · start_frame · irregular_npc · growth · koreantext | 1,413 | ✅ 완료 | 9 | 11 | (이 커밋) |
-| 4 | quest | quest · quest_filter | 1,075 | ⬜ 대기 | - | - | - |
+| 4 | quest | quest · quest_filter | 1,075 | ✅ 완료 | 7 | 8 | (이 커밋) |
 | 5 | session | session_flow · creation · session_open · gm_space · intro | 1,699 | ⬜ 대기 | - | - | - |
 | 6 | profile | profile_gen · profile_runner · profile_creation_ui · profile_ai · profiles · profile_ui | 2,455 | ⬜ 대기 | - | - | - |
 | 7 | cost | cost · estimate · ink · accounts · terms · stats | 1,620 | ⬜ 대기 | - | - | - |
@@ -119,6 +119,33 @@
 - [ ] `format_choice`가 5.21.0 임베드 전환 후에도 `session.py:491`에서 쓰입니다.
 - [ ] `_hop_distance`가 `build_place_block` 정렬마다 BFS를 반복합니다(8곳이면 8회).
 
+### quest (8건)
+
+**🔴 최우선 — 중복 구현**
+- [ ] **`_apply_quest_choice`를 제거하고 `apply_choice`로 일원화해야 합니까?**
+      5.24.0에서 제가 기존 경로를 모르고 만든 중복입니다. 같은 턴에 순차 실행됩니다.
+      `apply_choice`가 3-상황 검증·`offered_ids` 대조·전환 시 `abandoned` 기록까지
+      갖춰 더 완비돼 있습니다.
+      `apply_choice`가 막은 경우(CTX_ACTIVE)에 `_apply_quest_choice`가
+      이어서 시도하므로 **검증이 무력화될 수 있습니다.**
+- [ ] 일원화 시 `_apply_quest_choice`에만 있는 두 기능을 옮겨야 합니까?
+      · `narrative_mode != "quest"`면 건너뛰기
+      · `quest_select: "random"`이면 코드가 무작위 선택
+
+**설계 의도**
+- [ ] `advance_quest`의 폴백이 `next(iter(cases))`입니다. 지시층위가 방향을
+      지정하지 않으면 항상 첫 케이스로 갑니다. 무작위가 나을까요?
+- [ ] `CANDIDATE_LIMIT = 4`가 적절합니까? 영도는 퀘스트가 44종입니다.
+- [ ] `STALL_TURNS = 3`(root 정체 시 전환 허용)이 적절합니까?
+
+**정리**
+- [ ] `quest.summary` 호출부가 없습니다. 제거해도 됩니까?
+- [ ] `load_quest_data`의 `_cache`를 비우는 명령이 필요합니까?
+      퀘스트 JSON을 고쳐도 봇 재시작 전까지 반영되지 않습니다.
+
+**성능**
+- [ ] `match_filters`가 한 턴에 6회 이상 돕니다. 결과를 캐시해야 합니까?
+
 ---
 
 ## 누적 발견 사항
@@ -178,6 +205,7 @@
 | `timeline.enrich_npc_ages` | 호출부 없음 |
 | `timeline.age_gap` | 호출부 없음 |
 | `places.is_leaf` | 호출부 없음 |
+| `quest.summary` | 호출부 없음 |
 
 **이름과 실체 불일치**
 
