@@ -1690,11 +1690,9 @@ class GMCog(commands.Cog):
                 if not instruction:
                     instruction = "현재 상황에서 자연스럽게 다음 묘사를 이어가십시오."
 
-                # 자원 변동 — 지시층위가 독립 필드로 보고한 항목을 태그로 변환해 덧붙인다.
-                # game.py의 기존 태그 파서·검증(등록 캐릭터명 확인)을 그대로 재사용하기 위함.
-                res_tags = core.resource_changes_to_tags(decision.get("resource_changes"))
-                if res_tags:
-                    instruction = f"{instruction} {res_tags}"
+                # NOTE: 자원 증감은 추출층위 소관이다(기획 규정 — 지시층위의 자원·상태
+                #       수정권한 제거). 5.27.0에서 apply_extraction으로 옮겼는데
+                #       이 경로가 남아 같은 턴에 이중 적용될 수 있었다.
 
                 # ── 방안 E 제거 (방안 D) ──
                 # _verify_proceed_instruction 호출 삭제.

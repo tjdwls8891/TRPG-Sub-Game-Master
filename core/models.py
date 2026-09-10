@@ -214,20 +214,42 @@ class TRPGSession:
         self.gm_collected_actions = {}    # 이번 라운드에 수집된 행동 {char_name: text}
         self.gm_waiting_for = None        # 현재 발언을 기다리는 PC 이름 (None이면 대기 없음)
 
-        self.npcs = {}
-        default_npcs = scenario_data.get("default_npcs", {})
-        npc_template = scenario_data.get("npc_template", {})
-        _npc_info_fields = npc_template.get("info_fields", []) if isinstance(npc_template, dict) else []
+        self.expand_default_npcs()
+
+    def expand_default_npcs(self, *, replace: bool = False):
+        """시나리오의 default_npcs를 런타임 npcs·resources·statuses로 전개한다.
+
+        Args:
+            replace: True면 기존 전개분을 먼저 지운다.
+                세션 생성 플로우는 시나리오를 정하기 전에 임시 시나리오로
+                세션 객체를 만든다. 시나리오가 확정되면 이 메서드를
+                replace=True로 다시 불러야 임시 NPC가 남지 않는다.
+
+        NOTE: resources·statuses는 npc_entry에서 제외하고 런타임 딕셔너리로
+              옮긴다. 태그·!증감이 그 값을 기준으로 증감하기 때문이다.
+        """
+        default_npcs = (self.scenario_data or {}).get("default_npcs", {}) or {}
+
+        if replace:
+            # 이전 시나리오의 전개분만 걷어낸다. 플레이 중 생긴 세션 NPC와
+            # 플레이어 자원·상태는 건드리지 않는다.
+            for name in list(self.npcs.keys()):
+                if name in default_npcs:
+                    continue
+                # 이전 default에서 온 것인지 알 수 없으므로, 새 시나리오에
+                # 없는 이름은 전개분으로 간주해 제거한다.
+                self.npcs.pop(name, None)
+                self.resources.pop(name, None)
+                self.statuses.pop(name, None)
 
         for npc_name, npc_data in default_npcs.items():
             if isinstance(npc_data, dict):
                 # 전체 NPC 항목을 복사 (구조화 필드 + 하위 호환 details 모두 보존)
-                npc_entry = {k: v for k, v in npc_data.items() if k != "resources" and k != "statuses"}
+                npc_entry = {k: v for k, v in npc_data.items()
+                             if k not in ("resources", "statuses")}
                 npc_entry["name"] = npc_data.get("name", npc_name)
                 self.npcs[npc_name] = npc_entry
 
-                # NPC 기본값 resources/statuses → 런타임 딕셔너리에 사전 적용
-                # (태그·!증감이 이 값을 기준으로 증감하도록)
                 default_res = npc_data.get("resources", {})
                 if default_res:
                     self.resources.setdefault(npc_name, {})
@@ -235,11 +257,8 @@ class TRPGSession:
                 default_stat = npc_data.get("statuses", [])
                 if default_stat:
                     self.statuses.setdefault(npc_name, [])
-                    for s in default_stat:
-                        if s not in self.statuses[npc_name]:
-                            self.statuses[npc_name].append(s)
+                    for st in default_stat:
+                        if st not in self.statuses[npc_name]:
+                            self.statuses[npc_name].append(st)
             else:
-                self.npcs[npc_name] = {
-                    "name": npc_name,
-                    "details": str(npc_data)
-                }
+                self.npcs[npc_name] = {"name": npc_name, "details": str(npc_data)}

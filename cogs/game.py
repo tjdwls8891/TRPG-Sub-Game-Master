@@ -884,7 +884,18 @@ class GameCog(commands.Cog):
         total_in = total_out = 0
         enqueued = 0
         for t in texts:
-            pcm, cost, in_tok, out_tok = await core.synthesize_tts_pcm(self.bot, t, voice_name=voice_name)
+            # 문단이 대사면 그 인물의 목소리를 쓴다. voice_for가 정규 NPC의
+            # npcs[name]["voice"]와 비정규 NPC 등록부를 모두 본다.
+            # 이 연결이 없으면 시나리오가 목소리를 지정해도 전부 나레이터로 나갔다.
+            _v = voice_name
+            if _v is None:
+                try:
+                    parsed = core.parse_dialogue_paragraph(t)
+                    if parsed:
+                        _v = core.irregular_npc.voice_for(session, parsed[0])
+                except Exception:
+                    _v = None
+            pcm, cost, in_tok, out_tok = await core.synthesize_tts_pcm(self.bot, t, voice_name=_v)
             if pcm:
                 mixer.enqueue_voice(core.PCMBytesAudioSource(pcm, volume=core.TTS_NARRATION_VOLUME))
                 enqueued += 1

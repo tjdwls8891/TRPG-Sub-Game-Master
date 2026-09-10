@@ -733,22 +733,6 @@ GM_LOGIC_RESPONSE_SCHEMA = {
             "type": "string",
             "description": "NARRATE일 때 경량 응답 LLM에 전달할 지시문 (100자 이내). 어떤 내용을 전달해야 하는지 기술. 예: '창고 내부 간략 묘사', '류가은 NPC 간단 소개', '열쇠를 집어든 결과'. 다른 action에서는 빈 문자열."
         },
-        "resource_changes": {
-            "type": "array",
-            "description": (
-                "이번 PROCEED에서 발생하는 물자 소비·획득만. 없으면 빈 배열. "
-                "proceed_instruction 본문에는 자원 태그를 쓰지 말고 반드시 이 필드로만 보고한다."
-            ),
-            "items": {
-                "type": "object",
-                "properties": {
-                    "target": {"type": "string", "description": "등록된 PC 또는 NPC 이름. 일반 명사 불가."},
-                    "item": {"type": "string", "description": "품목명"},
-                    "delta": {"type": "integer", "description": "증감 수량. 획득은 양수, 소모는 음수."}
-                },
-                "required": ["target", "item", "delta"]
-            }
-        },
         "proceed_instruction": {
             "type": "string",
             "description": "PROCEED일 때 !진행 인자 형태 지시문. 자/태/상중하 태그 포함 가능. 다른 action에서는 빈 문자열."
@@ -801,7 +785,7 @@ GM_LOGIC_RESPONSE_SCHEMA = {
     },
     "required": [
         "constraint_check", "info_access",
-        "narrate_instruction", "resource_changes", "proceed_instruction",
+        "narrate_instruction", "proceed_instruction",
         "quest_choice", "event_assessment",
         "self_check", "reasoning"
     ]
@@ -996,15 +980,11 @@ NARRATE의 경량 응답은 별도의 경량 LLM이 생성합니다. 당신은 �
      맞는 예) 태:수적_세작;내상(중상)   태:유이설;내력_고갈   태:유이설;-내력_고갈   자:유이설;청심자하단;-1
      틀린 예) 태:수적 세작;내상(중상)   태:유이설;내력 고갈   ← 공백 때문에 파싱 실패
 
-   ■ 자원 변동 의무 검토 (매 PROCEED마다 아래를 확인하라)
-   ① 플레이어나 NPC가 물자를 소비·획득했는가?
-      → proceed_instruction이 아니라 resource_changes 필드에 항목으로 기록한다.
-      (이름은 반드시 등록된 PC 또는 NPC 이름. '감염자' 등 일반 명사 불가)
-   ② 단순 이동·대화는 기록 대상이 아니다.
-
-   ※ 상태이상(부상·중독·탈진 등)은 당신의 소관이 아니다.
-     묘사에 드러난 정도를 근거로 추출층위가 평가하고 시스템이 적용한다.
-     상태 태그를 작성하지 말 것.
+   ※ 자원(소지품)과 상태이상은 당신의 소관이 아니다.
+     물자를 소비·획득했다면 그 사실이 묘사에 드러나게 지시하라.
+     ("물통을 비우고 배낭에 넣는다", "밧줄 두 뭉치를 챙긴다")
+     실제 증감은 묘사에 드러난 것을 근거로 추출층위가 읽고 시스템이 적용한다.
+     자원 태그·상태 태그를 직접 작성하지 말 것.
 
    [장소 이미지 태그]
    상:키워드  — 묘사 맨 앞에 장소 이미지를 삽입한다.

@@ -517,6 +517,13 @@ class ScenarioConfirmView(_Step):
         await interaction.response.defer()
         self.session.scenario_id = self.sid
         self.session.scenario_data = self.data
+        # 임시 시나리오로 전개된 NPC를 걷고 새로 전개한다.
+        # 이것이 없으면 다크판타지 인물 21명이 영도 세션에 남아
+        # 추출층위 유효 검증과 캐시 조립에 섞인다.
+        try:
+            self.session.expand_default_npcs(replace=True)
+        except Exception as e:
+            print(f"[세션플로우] NPC 재전개 실패: {e}")
         await self._next(interaction, "scenario", self.sid)
 
     @discord.ui.button(label="◀ 다시 고르기", style=discord.ButtonStyle.secondary)

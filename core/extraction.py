@@ -362,29 +362,6 @@ def apply_extraction(session, result: dict) -> dict:
     return {"applied": applied, "cleared": cleared, "npcs": npcs, "items": items}
 
 
-def resource_changes_to_tags(changes: list) -> str:
-    """지시층위의 resource_changes를 기존 자원 태그 문자열로 변환한다.
-
-    NOTE: 모델이 보는 형식은 독립 필드로 강제하되, 내부 파이프라인은
-          game.py에 이미 구현된 검증(등록 캐릭터명 확인 등)을 재사용한다.
-          태그 파서가 공백을 허용하지 않으므로 언더스코어로 치환한다.
-    """
-    tags = []
-    for c in (changes or []):
-        if not isinstance(c, dict):
-            continue
-        target = str(c.get("target", "")).strip().replace(" ", "_")
-        item = str(c.get("item", "")).strip().replace(" ", "_")
-        try:
-            delta = int(c.get("delta", 0))
-        except (TypeError, ValueError):
-            continue
-        if not target or not item or delta == 0:
-            continue
-        tags.append(f"자:{target};{item};{delta:+d}")
-    return " ".join(tags)
-
-
 def apply_companions(session, data: dict) -> dict:
     """동행 상태를 갱신한다.
 
