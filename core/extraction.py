@@ -284,7 +284,10 @@ def apply_extraction(session, result: dict) -> dict:
     # 유효 상태이상 이름 — 시나리오에 목록이 있으면 그 안으로 제한
     valid_status = None
     try:
-        eff = (session.scenario_data or {}).get("status_effects")
+        # 공통 상태이상도 유효 목록에 넣는다. 시나리오 것만 보면
+        # data/common_status_effects.json의 항목이 항상 걸러진다.
+        from .utils import get_merged_status_effects
+        eff = get_merged_status_effects(session.scenario_data or {})
         if isinstance(eff, dict):
             valid_status = set(eff.keys())
         elif isinstance(eff, list):
@@ -465,7 +468,13 @@ def build_extraction_limits(session) -> str:
     blocks = []
 
     # 상태이상 — 이름과 부여 조건을 함께 준다.
-    eff = sd.get("status_effects")
+    # 공통 상태이상(data/common_status_effects.json)도 병합해야 한다.
+    # 시나리오 것만 주면 공통 상태를 모델이 쓸 수 없고, 써도 코드가 걸러낸다.
+    try:
+        from .utils import get_merged_status_effects
+        eff = get_merged_status_effects(sd)
+    except Exception:
+        eff = sd.get("status_effects")
     names = []
     if isinstance(eff, dict):
         names = [(k, (v or {}).get("apply_condition", "")) for k, v in eff.items()]

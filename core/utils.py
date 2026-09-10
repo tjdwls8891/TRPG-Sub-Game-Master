@@ -232,12 +232,18 @@ async def generate_character_details(bot, scenario_data, char_type, char_name, i
 
     write_log(session_id, "api", f"[{char_type.upper()} 설정 생성 요청 - {char_name}]\n{prompt}")
 
-    response = await asyncio.to_thread(
-        bot.genai_client.models.generate_content,
-        model=LOGIC_MODEL,
-        contents=prompt,
-        config=types.GenerateContentConfig(safety_settings=TRPG_SAFETY_SETTINGS)
+    from .resilience import call_with_retry
+    _ok, response = await call_with_retry(
+        lambda: asyncio.to_thread(
+            bot.genai_client.models.generate_content,
+            model=LOGIC_MODEL,
+            contents=prompt,
+            config=types.GenerateContentConfig(safety_settings=TRPG_SAFETY_SETTINGS),
+        ),
+        layer="instruction", session_id=session_id or "",
     )
+    if not _ok:
+        raise RuntimeError("설정 생성 호출 실패")
     return response
 
 

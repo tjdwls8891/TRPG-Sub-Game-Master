@@ -488,6 +488,9 @@ class GameCog(commands.Cog):
                             contents=current_contents,
                             config=config
                         )
+                # NOTE: 이 경로는 call_with_retry를 쓰지 않는다. 캐시 만료를
+                #       감지해 재발급 후 재시도하는 자체 복구 로직이 있으며,
+                #       바깥에서 한 번 더 감싸면 재발급이 두 번 일어난다.
                 except APIError as e:
                     if retry_count == 0 and ("cache" in str(e).lower() or e.code in [400, 404]):
                         await m_send("🔄 **[시스템 알림]** 장기 기억 캐시가 만료되어 자동으로 재발급을 진행합니다. 턴 묘사는 이어서 출력됩니다...")
@@ -776,12 +779,17 @@ class GameCog(commands.Cog):
 
             # 로우 플랜은 일정 횟수 이후 저비용 모델로 전환한다.
             comp_model = core.memory_plan.select_model(session)
-            summary_response = await asyncio.to_thread(
-                self.bot.genai_client.models.generate_content,
-                model=comp_model,
-                contents=summary_prompt,
-                config=types.GenerateContentConfig(safety_settings=core.TRPG_SAFETY_SETTINGS),
+            _ok, summary_response = await core.call_with_retry(
+                lambda: asyncio.to_thread(
+                    self.bot.genai_client.models.generate_content,
+                    model=comp_model,
+                    contents=summary_prompt,
+                    config=types.GenerateContentConfig(safety_settings=core.TRPG_SAFETY_SETTINGS),
+                ),
+                layer="compression", session_id=session.session_id,
             )
+            if not _ok:
+                raise RuntimeError("압축 호출 실패")
 
             meta = summary_response.usage_metadata
             in_tokens, out_tokens, cached_tokens, thought_tokens = core.extract_token_usage(meta)
@@ -1300,14 +1308,19 @@ class GameCog(commands.Cog):
         core.write_log(session.session_id, "api", f"[기억 압축 요청]\n{summary_prompt}")
 
         try:
-            summary_response = await asyncio.to_thread(
-                self.bot.genai_client.models.generate_content,
-                model=core.LOGIC_MODEL,
-                contents=summary_prompt,
-                config=types.GenerateContentConfig(
-                    safety_settings=core.TRPG_SAFETY_SETTINGS
-                )
+            _ok, summary_response = await core.call_with_retry(
+                lambda: asyncio.to_thread(
+                    self.bot.genai_client.models.generate_content,
+                    model=core.LOGIC_MODEL,
+                    contents=summary_prompt,
+                    config=types.GenerateContentConfig(
+                        safety_settings=core.TRPG_SAFETY_SETTINGS
+                    ),
+                ),
+                layer="compression", session_id=session.session_id,
             )
+            if not _ok:
+                raise RuntimeError("압축 호출 실패")
 
             meta = summary_response.usage_metadata
             in_tokens, out_tokens, cached_tokens, thought_tokens = core.extract_token_usage(meta)

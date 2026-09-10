@@ -98,11 +98,17 @@ class MediaCog(commands.Cog):
                 print(f"[DEBUG] API 호출 시작: {filename_key}")
 
                 async with ctx.typing():
-                    response = await asyncio.to_thread(
-                        self.bot.genai_client.models.generate_content,
-                        model=core.IMAGE_MODEL,
-                        contents=contents_payload
+                    _ok, response = await core.call_with_retry(
+                        lambda: asyncio.to_thread(
+                            self.bot.genai_client.models.generate_content,
+                            model=core.IMAGE_MODEL,
+                            contents=contents_payload,
+                        ),
+                        layer="media",
+                        session_id=getattr(session, "session_id", ""),
                     )
+                    if not _ok:
+                        raise RuntimeError("이미지 생성 실패")
 
                 print(f"[DEBUG] API 응답 완료: {filename_key}")
 

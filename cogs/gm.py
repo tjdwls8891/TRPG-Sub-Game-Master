@@ -2050,12 +2050,18 @@ class GMCog(commands.Cog):
                     safety_settings=core.TRPG_SAFETY_SETTINGS,
                 )
 
-            response = await asyncio.to_thread(
-                self.bot.genai_client.models.generate_content,
-                model=core.DEFAULT_MODEL,
-                contents=logic_contents,
-                config=config,
+            # 재시도·타임아웃 보호. 층위 호출은 모두 이 관문을 통과한다.
+            _ok, response = await core.call_with_retry(
+                lambda: asyncio.to_thread(
+                    self.bot.genai_client.models.generate_content,
+                    model=core.DEFAULT_MODEL,
+                    contents=logic_contents,
+                    config=config,
+                ),
+                layer="instruction", session_id=session.session_id,
             )
+            if not _ok:
+                raise RuntimeError("AI 호출 실패")
         except Exception as e:
             print(f"[GM] Logic 호출 실패: {type(e).__name__} - {e}")
             if master_ch:
@@ -2527,19 +2533,29 @@ class GMCog(commands.Cog):
             # 출력(stream_text_to_channel)은 typing 컨텍스트 밖에서 실행한다.
             if game_ch:
                 async with game_ch.typing():
-                    response = await asyncio.to_thread(
+                    _ok, response = await core.call_with_retry(
+                        lambda: asyncio.to_thread(
+                            self.bot.genai_client.models.generate_content,
+                            model=core.DEFAULT_MODEL,
+                            contents=[types.Content(role="user", parts=[types.Part.from_text(text=narrate_prompt)])],
+                            config=config,
+                        ),
+                        layer="narration", session_id=session.session_id,
+                    )
+                    if not _ok:
+                        raise RuntimeError("AI 호출 실패")
+            else:
+                _ok, response = await core.call_with_retry(
+                    lambda: asyncio.to_thread(
                         self.bot.genai_client.models.generate_content,
                         model=core.DEFAULT_MODEL,
                         contents=[types.Content(role="user", parts=[types.Part.from_text(text=narrate_prompt)])],
                         config=config,
-                    )
-            else:
-                response = await asyncio.to_thread(
-                    self.bot.genai_client.models.generate_content,
-                    model=core.DEFAULT_MODEL,
-                    contents=[types.Content(role="user", parts=[types.Part.from_text(text=narrate_prompt)])],
-                    config=config,
+                    ),
+                    layer="narration", session_id=session.session_id,
                 )
+                if not _ok:
+                    raise RuntimeError("AI 호출 실패")
         except Exception as e:
             print(f"[GM] NARRATE 호출 실패: {type(e).__name__} - {e}")
             if master_ch:
@@ -2983,10 +2999,15 @@ class GMCog(commands.Cog):
         contents = [types.Content(role="user", parts=[types.Part.from_text(text=user_prompt)])]
 
         try:
-            response = await asyncio.to_thread(
-                self.bot.genai_client.models.generate_content,
-                model=core.DEFAULT_MODEL, contents=contents, config=config,
+            _ok, response = await core.call_with_retry(
+                lambda: asyncio.to_thread(
+                    self.bot.genai_client.models.generate_content,
+                    model=core.DEFAULT_MODEL, contents=contents, config=config,
+                ),
+                layer="media", session_id=session.session_id,
             )
+            if not _ok:
+                return 0
         except Exception as e:
             print(f"[비정규NPC] 호출 실패(진행에는 영향 없음): {type(e).__name__} - {e}")
             return 0
@@ -3349,13 +3370,17 @@ class GMCog(commands.Cog):
                 response_schema=PROCEED_VERIFY_SCHEMA,
                 safety_settings=core.TRPG_SAFETY_SETTINGS,
             )
-            response = await asyncio.to_thread(
-                self.bot.genai_client.models.generate_content,
-                model=core.LOGIC_MODEL,
-                contents=[types.Content(role="user",
-                                        parts=[types.Part.from_text(text=user_prompt)])],
-                config=config,
+            _ok, response = await core.call_with_retry(
+                lambda: asyncio.to_thread(
+                    self.bot.genai_client.models.generate_content,
+                    model=core.LOGIC_MODEL,
+                    contents=[types.Content(role="user", parts=[types.Part.from_text(text=user_prompt)])],
+                    config=config,
+                ),
+                layer="instruction", session_id=session.session_id,
             )
+            if not _ok:
+                raise RuntimeError("AI 호출 실패")
         except Exception as e:
             print(f"[GM] PROCEED 검증 실패 (원본 사용): {e}")
             return instruction
@@ -3468,12 +3493,18 @@ class GMCog(commands.Cog):
                 response_schema=NARRATIVE_DIRECTION_SCHEMA,
                 safety_settings=core.TRPG_SAFETY_SETTINGS,
             )
-            response = await asyncio.to_thread(
-                self.bot.genai_client.models.generate_content,
-                model=core.DEFAULT_MODEL,
-                contents=sim_contents,
-                config=config,
+            # 재시도·타임아웃 보호. 층위 호출은 모두 이 관문을 통과한다.
+            _ok, response = await core.call_with_retry(
+                lambda: asyncio.to_thread(
+                    self.bot.genai_client.models.generate_content,
+                    model=core.DEFAULT_MODEL,
+                    contents=sim_contents,
+                    config=config,
+                ),
+                layer="instruction", session_id=session.session_id,
             )
+            if not _ok:
+                raise RuntimeError("AI 호출 실패")
         except Exception as e:
             print(f"[GM] 서사 설계 호출 실패: {e}")
             return None
@@ -3921,12 +3952,17 @@ class GMCog(commands.Cog):
                 response_schema=NARRATIVE_PLAN_SCHEMA,
                 safety_settings=core.TRPG_SAFETY_SETTINGS,
             )
-            response = await asyncio.to_thread(
-                self.bot.genai_client.models.generate_content,
-                model=core.LOGIC_MODEL,
-                contents=[types.Content(role="user", parts=[types.Part.from_text(text=user_prompt)])],
-                config=config,
+            _ok, response = await core.call_with_retry(
+                lambda: asyncio.to_thread(
+                    self.bot.genai_client.models.generate_content,
+                    model=core.LOGIC_MODEL,
+                    contents=[types.Content(role="user", parts=[types.Part.from_text(text=user_prompt)])],
+                    config=config,
+                ),
+                layer="instruction", session_id=session.session_id,
             )
+            if not _ok:
+                raise RuntimeError("AI 호출 실패")
         except Exception as e:
             print(f"[GM] 서사 계획 호출 실패: {type(e).__name__} - {e}")
             if master_ch:

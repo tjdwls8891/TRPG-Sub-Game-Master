@@ -104,12 +104,18 @@ async def synthesize_tts_pcm(bot, text: str, voice_name: str = None):
     )
 
     try:
-        response = await asyncio.to_thread(
-            bot.genai_client.models.generate_content,
-            model=TTS_MODEL,
-            contents=prompt,
-            config=config,
+        from .resilience import call_with_retry
+        _ok, response = await call_with_retry(
+            lambda: asyncio.to_thread(
+                bot.genai_client.models.generate_content,
+                model=TTS_MODEL,
+                contents=prompt,
+                config=config,
+            ),
+            layer="media",
         )
+        if not _ok:
+            return (b"", 0.0, 0, 0)
     except Exception as e:  # noqa: BLE001
         print(f"[TTS] 합성 호출 실패(무시): {type(e).__name__} - {e}")
         return b"", 0.0, 0, 0

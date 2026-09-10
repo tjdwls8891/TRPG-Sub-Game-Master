@@ -8,7 +8,7 @@ from datetime import datetime
 
 from .constants import DEFAULT_MODEL
 from .cost import calculate_storage_cost
-from .constants import EXCHANGE_RATE
+from .constants import EXCHANGE_RATE, CACHE_TTL_SECONDS, MIN_CACHE_TOKENS
 from .models import TRPGSession
 
 
@@ -406,10 +406,15 @@ async def process_cache_deletion(bot, session) -> float:
     storage_cost_krw = 0.0
     if session.cache_name and getattr(session, "cache_created_at", 0.0) > 0:
         duration_seconds = time.time() - session.cache_created_at
-        # NOTE: 설정된 최대 캐시 유지 시간(6시간 = 21600초)을 초과한 과금 방지용 상한선(Cap) 적용.
-        duration_seconds = min(duration_seconds, 21600.0)
+        # 상한은 유저가 정한 유지 시간이다. 고정 6시간으로 두면 3시간을 고른
+        # 세션도 6시간까지 청구될 수 있다.
+        minutes = int(getattr(session, "open_minutes", 0) or 0)
+        cap_seconds = minutes * 60 if minutes else CACHE_TTL_SECONDS
+        duration_seconds = min(duration_seconds, float(cap_seconds))
 
-        cache_tokens = getattr(session, "cache_tokens", 32768)
+        # 폴백은 MIN_CACHE_TOKENS다. 이전 값 32768은 4.1.0에서 최소 토큰이
+        # 1024로 정정되기 전의 것으로, 도달하면 32배 과다 청구된다.
+        cache_tokens = getattr(session, "cache_tokens", 0) or MIN_CACHE_TOKENS
 
         # NOTE: AttributeError 방지를 위해 getattr를 사용하여 안전하게 접근하고 기본값(DEFAULT_MODEL) 할당.
         model_id = getattr(session, "cache_model", DEFAULT_MODEL) or DEFAULT_MODEL
