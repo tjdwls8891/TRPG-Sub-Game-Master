@@ -363,7 +363,8 @@ def format_breakdown(entry: dict) -> str:
 
 def build_turn_cost_embed(turn_number: int, cost_log: list, total_cost: float,
                           *, total_ink: int = None,
-                          total_usd: float = None) -> discord.Embed:
+                          total_usd: float = None,
+                          free_krw: float = 0.0) -> discord.Embed:
     """
     한 턴의 비용을 호출별로 분해해 보고한다(마스터 채널 전용).
 
@@ -430,6 +431,10 @@ def build_turn_cost_embed(turn_number: int, cost_log: list, total_cost: float,
         acc = f"{format_usd(total_usd)}\n= {acc}"
     if total_ink is not None:
         acc += f"\n= **{total_ink:,}잉크**"
+    if free_krw:
+        # 무료 제공분은 청구액과 구분해 표기한다. 섞으면 어느 쪽이
+        # 플레이어 부담인지 알 수 없다.
+        acc += f"\n(무료 {format_cost(free_krw)})"
     embed.add_field(name="Σ 누적", value=acc, inline=True)
     return embed
 

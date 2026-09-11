@@ -38,18 +38,36 @@ def _scenario_context(scenario_data: dict) -> str:
     return text[:CONTEXT_LIMIT] if text else "(없음)"
 
 
-def _accrue(session, response) -> float:
-    """비용을 집계한다. 차감하지 않는다(무료 제공)."""
+def _accrue(session, response, label: str = "프로필 AI") -> float:
+    """비용을 집계한다. 차감하지 않는다(무료 제공).
+
+    NOTE: 잉크는 차감하지 않지만 실제 API 비용은 발생한다. 운영자가
+          파악할 수 있도록 cost_log에 남기고 total_usd에도 누적한다.
+          total_cost(원화)에는 넣지 않는다 — 그 값은 플레이어 청구
+          기준이므로 무료분이 섞이면 표기가 어긋난다.
+    """
     try:
         meta = response.usage_metadata
         in_t, out_t, cached_t, _th = extract_token_usage(meta)
-        cost = calculate_text_gen_cost_breakdown(
+        bd = calculate_text_gen_cost_breakdown(
             PROFILE_AI_MODEL, input_tokens=in_t,
             output_tokens=out_t, cached_read_tokens=cached_t,
-        )["total_krw"]
+        )
+        cost = bd["total_krw"]
         session.profile_ai_cost_krw = (
             float(getattr(session, "profile_ai_cost_krw", 0.0) or 0.0) + cost
         )
+        session.total_usd = (
+            float(getattr(session, "total_usd", 0.0) or 0.0) + bd["total_usd"]
+        )
+
+        sid = getattr(session, "session_id", "")
+        if sid:
+            from .io import write_cost_log
+            write_cost_log(
+                sid, f"[무료] {label}",
+                in_t, cached_t, out_t, cost,
+                float(getattr(session, "total_cost", 0.0) or 0.0))
         return cost
     except Exception as e:
         print(f"[프로필AI] 비용 집계 실패: {e}")

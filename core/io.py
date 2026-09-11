@@ -278,10 +278,16 @@ def write_log(session_id: str, log_type: str, content: str):
     log_filename = f"sessions/{session_id}/{log_type}_log.txt"
     now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
-    with open(log_filename, "a", encoding="utf-8") as f:
-        f.write(f"[{now_str}] {content}\n")
-        if log_type == "api":
-            f.write("-" * 60 + "\n")
+    # 로그 실패가 게임 진행을 막지 않게 한다. 호출부가 28곳이라
+    # 각자 감싸는 대신 여기서 흡수한다.
+    try:
+        os.makedirs(os.path.dirname(log_filename), exist_ok=True)
+        with open(log_filename, "a", encoding="utf-8") as f:
+            f.write(f"[{now_str}] {content}\n")
+            if log_type == "api":
+                f.write("-" * 60 + "\n")
+    except Exception as e:
+        print(f"[로그 실패] {session_id}/{log_type}: {e}")
 
 
 def write_cost_log(session_id: str, usage_context: str, in_tokens: int, cached_tokens: int, out_tokens: int, cost: float, total_cost: float):
@@ -292,8 +298,22 @@ def write_cost_log(session_id: str, usage_context: str, in_tokens: int, cached_t
         return
     log_filename = f"sessions/{session_id}/cost_log.txt"
     now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    with open(log_filename, "a", encoding="utf-8") as f:
-        f.write(f"[{now_str}] [사용처: {usage_context}] 토큰: In({in_tokens}), Cached({cached_tokens}), Out({out_tokens}) | 발생 비용: ₩{cost:.2f} | 누적 비용: ₩{total_cost:.2f}\n")
+
+    # 청구 근거는 달러다. 원화는 그 시점 환율로 환산한 값이므로
+    # 나중에 환율이 바뀌면 대조할 수 없다. 둘을 함께 남긴다.
+    usd = (cost / EXCHANGE_RATE) if EXCHANGE_RATE else 0.0
+    total_usd = (total_cost / EXCHANGE_RATE) if EXCHANGE_RATE else 0.0
+
+    try:
+        os.makedirs(os.path.dirname(log_filename), exist_ok=True)
+        with open(log_filename, "a", encoding="utf-8") as f:
+            f.write(
+                f"[{now_str}] [사용처: {usage_context}] "
+                f"토큰: In({in_tokens}), Cached({cached_tokens}), Out({out_tokens}) | "
+                f"발생: ${usd:.6f} (₩{cost:.2f}) | "
+                f"누적: ${total_usd:.4f} (₩{total_cost:.2f})\n")
+    except Exception as e:
+        print(f"[비용로그 실패] {session_id}: {e}")
 
 
 def get_available_scenarios() -> list:

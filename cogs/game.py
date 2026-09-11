@@ -531,6 +531,15 @@ class GameCog(commands.Cog):
             # 비용 예측 통계 — 묘사층위 출력은 변동이 가장 크므로 이동평균이 핵심이다.
             core.update_stats(session, "narration", out_tokens, thought_tokens)
 
+            # 문자→토큰 계수 보정. 지시층위만 기록하면 보정이 편향된다.
+            # 묘사층위 프롬프트가 가장 크므로 이쪽 실측이 더 중요하다.
+            _cal = core.record_actual_input(
+                session, "narration", in_tokens - cached_tokens)
+            if _cal:
+                print(f"[CALIB] narration 예측 {_cal['predicted']} "
+                      f"실측 {_cal['actual']} 오차 {_cal['error_pct']:+.1f}% "
+                      f"계수 {_cal['calib']:.3f}")
+
             label_prefix = "(GM) " if cost_log_prefix else ""
             core.write_cost_log(session.session_id, f"{cost_log_prefix}턴 진행 생성", in_tokens, cached_tokens, out_tokens, turn_cost,
                                 session.total_cost)
@@ -722,7 +731,8 @@ class GameCog(commands.Cog):
             _turn_embed = core.build_turn_cost_embed(
                 session.turn_count, session.turn_cost_log, session.total_cost,
                 total_ink=int(getattr(session, "total_ink_spent", 0) or 0),
-                total_usd=float(getattr(session, "total_usd", 0.0) or 0.0))
+                total_usd=float(getattr(session, "total_usd", 0.0) or 0.0),
+                free_krw=float(getattr(session, "profile_ai_cost_krw", 0.0) or 0.0))
             session.turn_cost_log.clear()
             await m_send(embed=_turn_embed)
 

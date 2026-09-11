@@ -254,6 +254,18 @@ class SystemCog(commands.Cog):
         if action == "재발급":
             await ctx.send("⏳ 수동 캐시 재발급을 시작합니다...")
 
+            # 퀘스트 데이터 캐시도 함께 비운다. 이것이 없으면 퀘스트 JSON을
+            # 고쳐도 봇을 재시작하기 전까지 반영되지 않는다.
+            try:
+                core.quest.clear_cache()
+                _fresh = core.load_scenario_from_file(session.scenario_id)
+                if _fresh:
+                    session.scenario_data = _fresh
+                    session.expand_default_npcs(replace=True)
+                    await ctx.send("> 시나리오·퀘스트 데이터를 다시 읽었습니다.")
+            except Exception as e:
+                print(f"[캐시] 시나리오 재로드 실패: {e}")
+
             # 파기 및 정산
             storage_cost = 0.0
             if session.cache_name:
@@ -485,6 +497,15 @@ class SystemCog(commands.Cog):
                      for x in log[:8]]
             e.add_field(name=f"직전 턴 호출 {len(log)}건",
                         value="\n".join(lines)[:1020], inline=False)
+
+        # 무료 제공분 — 잉크를 차감하지 않으나 실제 비용은 발생한다.
+        free_krw = float(getattr(session, "profile_ai_cost_krw", 0.0) or 0.0)
+        if free_krw:
+            e.add_field(
+                name="무료 제공분",
+                value=(f"프로필 AI {core.format_cost(free_krw)}\n"
+                       f"> 잉크 차감 없음. 운영 비용으로 발생합니다."),
+                inline=False)
 
         cache_t = int(getattr(session, "cache_tokens", 0) or 0)
         if cache_t:

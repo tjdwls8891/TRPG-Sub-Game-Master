@@ -23,6 +23,18 @@ CANDIDATE_LIMIT = 4
 _cache = {}
 
 
+def clear_cache(scenario_id: str = None):
+    """퀘스트 데이터 캐시를 비운다.
+
+    !캐시 재발급에서 함께 호출한다. 이것이 없으면 퀘스트 JSON을 고쳐도
+    봇을 재시작하기 전까지 반영되지 않는다.
+    """
+    if scenario_id:
+        _cache.pop(scenario_id, None)
+    else:
+        _cache.clear()
+
+
 def load_quest_data(scenario_id: str) -> dict:
     """시나리오의 퀘스트 데이터를 읽는다. 파일 단위로 캐시한다."""
     if not scenario_id:
@@ -231,7 +243,7 @@ def _find_quest(session, quest_id: str) -> dict | None:
 
 
 # 전환 가능 판정 — root 노드에서 이만큼 정체하면 진입 실패로 본다.
-STALL_TURNS = 3
+STALL_TURNS = 5
 
 # 상황 코드
 CTX_ACTIVE = "active"      # A. 진행 중 — 선택 불가
