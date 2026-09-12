@@ -1606,9 +1606,6 @@ class GMCog(commands.Cog):
                 # 판단층위 산출물과 병합 — 이후 분기는 기존 구조를 그대로 사용한다.
                 decision = {**judgment, **decision, "action": action}
 
-                # 퀘스트 선택 — 지시층위가 고른 것을 실제로 연다.
-                # 이 연결이 없으면 후보만 주입되고 아무것도 시작되지 않는다.
-                await self._apply_quest_choice(session, decision, m_send)
             else:
                 decision = dict(judgment)
 
@@ -2137,17 +2134,18 @@ class GMCog(commands.Cog):
         # ── 퀘스트 선택 반영 ──
         # 코드가 검증한다: 선택 불가 상황의 값, 제시하지 않은 id는 무시된다.
         try:
-            picked = decision.get("quest_choice")
-            if picked:
-                res = core.quest.apply_choice(session, picked)
-                if res["applied"]:
-                    active = core.quest.get_state(session)["active"]
-                    print(f"[GM/{session.session_id}] 퀘스트 {res['action']}: {active['name']}")
-                    if master_ch:
-                        verb = "전환" if res["action"] == "switch" else "선정"
-                        await master_ch.send(
-                            f"📜 **[퀘스트 {verb}]** {active['name']}\n"
-                            f"> {res['reason']}")
+            # quest_choice가 비어도 호출한다. quest_select가 'random'이면
+            # 코드가 후보에서 고르므로 모델 응답이 없어도 열려야 한다.
+            picked = decision.get("quest_choice") or {}
+            res = core.quest.apply_choice(session, picked)
+            if res["applied"]:
+                active = core.quest.get_state(session)["active"]
+                print(f"[GM/{session.session_id}] 퀘스트 {res['action']}: {active['name']}")
+                if master_ch:
+                    verb = "전환" if res["action"] == "switch" else "선정"
+                    await master_ch.send(
+                        f"📜 **[퀘스트 {verb}]** {active['name']}\n"
+                        f"> {res['reason']}")
         except Exception as e:
             print(f"[퀘스트] 선택 반영 실패(진행에는 영향 없음): {e}")
 
@@ -3689,48 +3687,6 @@ class GMCog(commands.Cog):
     # ─────────────────────────────────────────────────────────────
     # 서사 계획 내부 함수
     # ─────────────────────────────────────────────────────────────
-
-    async def _apply_quest_choice(self, session, decision, m_send):
-        """지시층위가 고른 퀘스트를 연다.
-
-        기획 규정 — 필터링한 후보 중에서 랜덤 택일하거나 지시층위가 선택.
-        시나리오가 quest_select를 'random'으로 두면 코드가 무작위로 고른다.
-        """
-        if getattr(session, "narrative_mode", "quest") != "quest":
-            return   # 풀자유 세션은 서사설계자가 주도한다
-
-        state = core.quest.get_state(session)
-        if state.get("active"):
-            return   # 진행 중이면 새로 열지 않는다
-
-        offered = list(getattr(session, "_quest_offered", []) or [])
-        if not offered:
-            return
-
-        mode = (session.scenario_data or {}).get("quest_select") or "logic"
-        if mode == "random":
-            import random as _r
-            qid = _r.choice(offered)
-            reason = "무작위 선정"
-        else:
-            qc = decision.get("quest_choice") or {}
-            qid = (qc.get("id") or "").strip()
-            reason = qc.get("reason") or ""
-            if qid and qid not in offered:
-                print(f"[퀘스트] 제시하지 않은 id 무시: {qid}")
-                qid = ""
-
-        if not qid:
-            return
-
-        quest = core.quest._find_quest(session, qid)
-        if not quest:
-            return
-        try:
-            opened = core.quest.start_quest(session, quest)
-            await m_send(f"📜 **[퀘스트 시작]** {opened['name']}\n> {reason[:150]}")
-        except Exception as e:
-            print(f"[퀘스트] 시작 실패({qid}): {e}")
 
     async def _init_narrative_and_start(self, session):
         """

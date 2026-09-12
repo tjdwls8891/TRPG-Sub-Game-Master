@@ -301,15 +301,32 @@ def apply_choice(session, choice: dict) -> dict:
       - 제시하지 않은 id면 무시
       - 전환 시 진행 중이던 퀘스트는 abandoned로 기록
 
+    기획 규정 — 필터링한 후보 중에서 랜덤 택일하거나 지시층위가 선택.
+    시나리오가 quest_select를 'random'으로 두면 코드가 무작위로 고른다.
+
     Returns:
         {"applied": bool, "action": "start"|"switch"|"keep"|"ignored", "reason": str}
     """
+    # 풀자유 세션은 서사설계자가 주도한다. 퀘스트를 열지 않는다.
+    if getattr(session, "narrative_mode", "quest") != "quest":
+        return {"applied": False, "action": "ignored", "reason": "서사설계자 모드"}
+
     ctx = choice_context(session)
     if ctx == CTX_ACTIVE:
         # 필드를 주지 않았는데 값이 왔다면 오작동이다.
         if choice and (choice.get("id") or "").strip():
             print("[퀘스트] 선택 불가 상황의 quest_choice 무시")
         return {"applied": False, "action": "ignored", "reason": "선택 불가 상황"}
+
+    # 선택 주체 — 시나리오가 'random'이면 코드가 후보에서 무작위로 고른다.
+    mode = ((getattr(session, "scenario_data", {}) or {}).get("quest_select")
+            or "logic")
+    if mode == "random":
+        pool = offered_ids(session)
+        if not pool:
+            return {"applied": False, "action": "keep", "reason": "후보 없음"}
+        qid = random.choice(pool)
+        choice = {"id": qid, "reason": "무작위 선정"}
 
     qid = ((choice or {}).get("id") or "").strip()
     if not qid:
@@ -553,9 +570,14 @@ def advance_quest(session, extraction: dict) -> dict | None:
         return {"moved": False, "node": active["node"], "outcome": None, "replan": False}
 
     # 진전 — 지시층위가 지정한 케이스를 우선한다.
-    # 지정이 없거나 유효하지 않으면 첫 케이스로 폴백한다.
+    # 지정이 없거나 유효하지 않으면 무작위로 고른다. 첫 케이스로 폴백하면
+    # dict 순서상 항상 같은 갈래로 가 트리의 다른 가지가 쓰이지 않는다.
     intended = active.get("intended_case")
-    next_key = intended if intended in cases else next(iter(cases))
+    if intended in cases:
+        next_key = intended
+    else:
+        next_key = random.choice(list(cases.keys()))
+        print(f"[퀘스트] 방향 미지정 — 무작위 진전: {next_key}")
     next_node = cases[next_key].get("next")
     if next_node not in tree:
         return {"moved": False, "node": active["node"], "outcome": None, "replan": False}

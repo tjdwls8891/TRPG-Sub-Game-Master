@@ -487,8 +487,13 @@ is_ending              → 인피니티 플랜 제시
 > `_apply_quest_choice`가 이어서 시도한다. 이때는 `apply_choice`가 막은 것을
 > 우회해 여는 셈이라 **검증이 무력화된다.** `[확인 필요]`
 
-> ⚠️ **`quest.summary` 호출부 없음**
-> `!자동 퀘스트`가 자체 조립하는 방식으로 대체된 듯하다.
+> **정정** — `quest.summary`는 미사용이 아니다.
+> `display.py:164`가 `quest_summary`라는 별칭으로 쓴다.
+> ```python
+> from .quest import summary as quest_summary
+> ```
+> `ink.refund_ink`(`as _refund`)·`display.refresh`(`as refresh_display`)와
+> 같은 패턴이다. **별칭 임포트를 단순 검색으로 잡지 못한 세 번째 사례다.**
 
 > ⚠️ **`_cache`를 비우는 경로가 없다**
 > 퀘스트 JSON을 고쳐도 봇 재시작 전까지 반영되지 않는다.
@@ -532,7 +537,6 @@ is_ending              → 인피니티 플랜 제시
 
 ### 정리
 
-- [ ] `quest.summary` 호출부가 없습니다. 제거해도 됩니까?
 - [ ] `load_quest_data`의 `_cache`를 비우는 명령이 필요합니까?
       퀘스트 JSON을 고쳐도 재시작 전까지 반영되지 않습니다.
 

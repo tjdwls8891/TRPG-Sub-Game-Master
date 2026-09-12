@@ -338,7 +338,7 @@
 | `timeline.enrich_npc_ages` | 호출부 없음 |
 | `timeline.age_gap` | 호출부 없음 |
 | `places.is_leaf` | 호출부 없음 |
-| `quest.summary` | 호출부 없음 |
+| ~~`quest.summary`~~ | **오판 정정** — `display.py:164`가 `quest_summary` 별칭으로 사용 중 |
 | `creation.get_data` · `reset` · `progress_text` · `summary` | 호출부 없음 |
 | `session_flow.advance_to` | 호출부 없음 |
 | `profile_gen.branch_mode` · `reroll_stats` · `validate_steps` | 호출부 없음 |

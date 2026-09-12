@@ -262,11 +262,45 @@ docs(spec): {영역명} 명세 작성
 ### 검출 결과를 확인 없이 믿지 말 것
 
 ```
-refund_ink 미사용으로 판정 → 실제로는 as _refund 별칭으로 사용 중
-npcs 중복 정의로 판정      → __init__ 내 정상 초기화
+refund_ink 미사용으로 판정  → 실제로는 as _refund 별칭으로 사용 중
+quest.summary 미사용 판정   → display.py가 as quest_summary로 사용 중
+record_session 미사용 판정  → 그런 이름의 함수가 애초에 없었다
+npcs 중복 정의로 판정       → __init__ 내 정상 초기화
 ```
 
 **반드시 코드를 열어 확인**합니다.
+
+### 별칭 임포트 목록 (미사용 오판 방지)
+
+`from X import Y as Z` 형태는 `Y(`로 검색해도 잡히지 않는다.
+**미사용 판정 전에 이 목록을 확인할 것.**
+
+| 원본 | 별칭 | 쓰는 곳 |
+|---|---|---|
+| `display.refresh` | `refresh_display` · `_refresh` | `__init__.py` · `gm.py` |
+| `quest.summary` | `quest_summary` | `display.py` |
+| `ink.refund_ink` | `_refund` | `display.py` |
+| `ink.cost_to_ink` | `_to_ink` | `ui.py` |
+| `cost.accrue` | `_accrue` | `io.py` |
+| `constants.CACHE_TTL_SECONDS` | `MIN_CACHE_TTL` | `cache.py` |
+| `stats` | `stats_mod` · `_stats` | `gm_space.py` · `ui.py` |
+| `places.get` | `get_place` | `quest_filter.py` |
+| `intro` | `intro_mod` | `session_flow.py` |
+| `profiles` | `profile_store` | `profile_creation_ui.py` · `session_flow.py` |
+| `profile_runner` | `runner` | `profile_creation_ui.py` |
+| `gm_space.refresh_boards` | `_rb` | `ui.py` |
+
+전수 조사 명령:
+```bash
+grep -rn "import .* as " --include=*.py core/ cogs/
+```
+
+### 존재하지 않는 이름으로 검색하지 말 것
+
+`record_session`·`record_turn`을 미사용으로 판정했으나 **그런 함수는 없었다.**
+실제 기록 함수는 `bump`·`mark_played`·`add_npcs`였다.
+
+**검색 전에 `grep "^def " 파일`로 실제 함수 목록을 먼저 확인**한다.
 
 ### 이름이 실체와 다를 수 있다
 
