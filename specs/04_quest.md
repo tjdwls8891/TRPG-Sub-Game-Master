@@ -517,6 +517,31 @@ is_ending              → 인피니티 플랜 제시
 
 ---
 
+## 조치 이력
+
+### RETRACTED — 5.34.0 퀘스트 선택 일원화 (2026-09-11)
+
+`_apply_quest_choice` 제거와 `apply_choice` 일원화를 5.34.0으로 적용했으나
+**되돌렸다.** 사유:
+
+- `MASTER_ROADMAP.md` Track H가 *"duplicate quest apply path"*를
+  은퇴 대상으로 명시하며, 이는 Phase 4(legacy deletion) 범위다.
+- WP-00 기준 스냅샷이 v5.33.0이므로, 특성화 테스트가 관측할 대상이
+  달라지면 이후 WP의 근거가 흔들린다.
+- `AI_IMPLEMENTATION_GUARDRAILS.md` §4 단일 소유자 규칙에 따르면
+  이 이중 소유는 TurnTransaction 도입 이후 정리되어야 한다.
+
+되돌린 내용 — `cogs/gm.py`·`core/quest.py`를 a5cc828~1 상태로 복원.
+  · `_apply_quest_choice` 복원 (중복 경로 재존재)
+  · `apply_choice`의 `narrative_mode`·`quest_select` 처리 제거
+  · `advance_quest` 폴백을 `next(iter(cases))`로 복원
+  · `STALL_TURNS`는 5.33.0에 이미 5였으므로 변화 없음
+
+**결함 자체는 해소되지 않았다.** 아래 확인 필요 목록의 최우선 항목은
+Track H / 커밋 파이프라인 이행 시점까지 유효하다.
+
+---
+
 ## 확인 필요 목록
 
 ### 최우선 — 중복 구현
