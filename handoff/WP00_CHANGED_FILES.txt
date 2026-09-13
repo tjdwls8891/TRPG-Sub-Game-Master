@@ -1,0 +1,36 @@
+WP-00 CHANGED FILES
+baseline: 482ffc0 (production == v5.33.0)
+========================================
+
+[신규 — 테스트 전용]
+  handoff/WP00_CALLSITE_SCAN.txt
+  handoff/WP00_CHANGED_FILES.txt
+  handoff/WP00_COMPLETION_REPORT.md
+  handoff/WP00_NEW_FINDINGS.md
+  handoff/WP00_TEST_RESULTS.txt
+  pytest.ini
+  requirements-dev.txt
+  tests/__init__.py
+  tests/characterize/__init__.py
+  tests/characterize/test_auto_turn_orchestration.py
+  tests/characterize/test_execute_proceed_shared_paths.py
+  tests/characterize/test_harness_selfcheck.py
+  tests/characterize/test_persistence_behavior.py
+  tests/conftest.py
+  tests/defects/__init__.py
+  tests/defects/test_cache_accounting.py
+  tests/defects/test_extraction_boundary.py
+  tests/defects/test_instruction_side_effects.py
+  tests/defects/test_rewind_accounting.py
+  tests/defects/test_turn_commit_races.py
+  tests/fakes/__init__.py
+  tests/fakes/bot_fakes.py
+  tests/fakes/discord_fakes.py
+  tests/fakes/genai_fakes.py
+  tests/policy/__init__.py
+  tests/policy/test_billing_policy.py
+  tests/policy/test_message_lifecycle_policy.py
+  tests/policy/test_transaction_identity_policy.py
+
+[프로덕션 변경]
+  없음

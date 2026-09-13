@@ -1,0 +1,25 @@
+.........................................x..x...xx..x...x..xxx.......... [ 93%]
+.....                                                                    [100%]
+68 passed, 1 skipped, 9 xfailed in 1.25s
+
+
+=== 테스트 인벤토리 ===
+  characterize    37
+  defects         25
+  policy          15
+  합계              77
+
+상태별
+  PASSED      68
+  XFAIL        9
+
+=== strict xfail 목록 ===
+  test_cache_accounting.py::test_d006e_single_settlement_point
+  test_extraction_boundary.py::test_d001b_late_fact_reaches_extraction
+  test_instruction_side_effects.py::test_d003c_failed_narration_rolls_back_instruction_effects
+  test_instruction_side_effects.py::test_d003d_info_ledger_rolls_back_on_failure
+  test_rewind_accounting.py::test_d004c_rewind_to_n_preserves_n_extraction
+  test_rewind_accounting.py::test_d005d_provider_history_is_irreversible
+  test_turn_commit_races.py::test_d002c_no_next_round_before_commit
+  test_turn_commit_races.py::test_d002d_delta_recorded_after_extraction_commit
+  test_turn_commit_races.py::test_d002e_failed_attempt_does_not_charge_player

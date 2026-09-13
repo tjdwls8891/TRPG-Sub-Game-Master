@@ -355,6 +355,31 @@ session:join  extraction:retry  rewind:one
 
 ---
 
+## 테스트 하네스 (WP-00)
+
+```bash
+pip install -r requirements-dev.txt
+python3 -m pytest tests/ -q
+```
+
+`tests/`는 **현재 동작을 고정**한다. 바람직한 동작이 아니다.
+
+| 분류 | 의미 |
+|---|---|
+| `characterize` | v5.33.0의 관측된 동작. 의도적 변경 시 함께 바뀐다 |
+| `defect` | 알려진 결함 재현. 바람직한 단언은 `xfail(strict=True)` |
+| `policy` | 목표 정책. 프로덕션 프리미티브 부재 시 skip |
+
+**strict xfail이 XPASS로 바뀌면 실패한다.** 결함이 고쳐졌다는 뜻이므로
+리뷰 후 xfail을 제거해야 한다.
+
+라이브 디스코드·Gemini·네트워크·자격증명을 쓰지 않는다.
+`tests/conftest.py`의 autouse 픽스처가 자격증명을 지우고 SDK 생성을 막는다.
+
+인도 번들: `handoff/WP00_*`
+
+---
+
 ## 진행 중인 작업 — 기능 명세
 
 전 기능의 명세를 코드에서 역추출하는 작업이 진행 중이다.

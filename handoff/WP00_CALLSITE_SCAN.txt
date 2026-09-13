@@ -1,0 +1,258 @@
+WP-00 PRE-EDIT CALLSITE SCAN
+baseline: v5.33.0 (commit 482ffc0 production == a5cc828~1)
+==============================================================================
+
+[_execute_proceed]  defs=1 calls=3
+  CALL cogs/game.py:233   in proceed_turn
+  DEF  cogs/game.py:235   in _execute_proceed
+  CALL cogs/gm.py:2667  in _dispatch_proceed
+  CALL cogs/session.py:560   in play_intro
+
+[_dispatch_proceed]  defs=1 calls=1
+  CALL cogs/gm.py:1402  in _finish_proceed_and_continue
+  DEF  cogs/gm.py:2632  in _dispatch_proceed
+
+[_finish_proceed_and_continue]  defs=1 calls=6
+  DEF  cogs/gm.py:1357  in _finish_proceed_and_continue
+  CALL cogs/gm.py:1631  in _run_gm_logic_loop
+  CALL cogs/gm.py:1655  in _run_gm_logic_loop
+  CALL cogs/gm.py:1677  in _run_gm_logic_loop
+  CALL cogs/gm.py:1702  in _run_gm_logic_loop
+  CALL cogs/gm.py:1714  in _run_gm_logic_loop
+  CALL cogs/gm.py:2468  in _continue_with_roll_results
+
+[_start_round]  defs=1 calls=4
+  DEF  cogs/gm.py:1154  in _start_round
+  CALL cogs/gm.py:1408  in _finish_proceed_and_continue
+  CALL cogs/gm.py:1466  in _finish_proceed_and_continue
+  CALL cogs/gm.py:1471  in _run_gm_logic_loop
+  CALL cogs/gm.py:3743  in _init_narrative_and_start
+
+[_run_extraction]  defs=1 calls=2
+  CALL cogs/gm.py:812   in retry
+  CALL cogs/gm.py:2734  in _dispatch_proceed
+  DEF  cogs/gm.py:3081  in _run_extraction
+
+[_run_gm_logic_loop]  defs=1 calls=1
+  CALL cogs/gm.py:1351  in _process_actions
+  DEF  cogs/gm.py:1468  in _run_gm_logic_loop
+
+[_process_actions]  defs=1 calls=2
+  CALL cogs/gm.py:1266  in _finalize_round_and_process
+  CALL cogs/gm.py:1321  in _handle_player_message
+  DEF  cogs/gm.py:1323  in _process_actions
+
+[_continue_with_roll_results]  defs=1 calls=2
+  CALL cogs/gm.py:870   in _process_roll
+  CALL cogs/gm.py:887   in on_timeout
+  DEF  cogs/gm.py:2421  in _continue_with_roll_results
+
+[_process_roll]  defs=1 calls=1
+  CALL cogs/gm.py:862   in roll_button
+  DEF  cogs/gm.py:864   in _process_roll
+
+[_update_narrative_progress]  defs=1 calls=1
+  CALL cogs/gm.py:1412  in _finish_proceed_and_continue
+  DEF  cogs/gm.py:3745  in _update_narrative_progress
+
+[_call_gm_logic]  defs=1 calls=5
+  CALL cogs/game.py:395   in _execute_proceed
+  CALL cogs/gm.py:1596  in _run_gm_logic_loop
+  CALL cogs/gm.py:1600  in _run_gm_logic_loop
+  CALL cogs/gm.py:1861  in _forced_proceed_instruction
+  DEF  cogs/gm.py:1963  in _call_gm_logic
+  CALL cogs/gm.py:2443  in _continue_with_roll_results
+
+[_call_judgment]  defs=1 calls=2
+  CALL cogs/gm.py:1573  in _run_gm_logic_loop
+  CALL cogs/gm.py:1576  in _run_gm_logic_loop
+  DEF  cogs/gm.py:1868  in _call_judgment
+
+[save_session_data]  defs=1 calls=77
+  CALL cogs/character.py:191   in roll_button
+  CALL cogs/character.py:336   in join_session
+  CALL cogs/character.py:438   in import_character
+  CALL cogs/character.py:482   in set_profile
+  CALL cogs/character.py:553   in adjust_stat
+  CALL cogs/character.py:590   in adjust_stat
+  CALL cogs/character.py:601   in adjust_stat
+  CALL cogs/character.py:644   in adjust_stat
+  CALL cogs/character.py:678   in manage_appearance
+  CALL cogs/character.py:827   in manage_npc
+  CALL cogs/character.py:892   in manage_npc
+  CALL cogs/character.py:928   in manage_npc
+  CALL cogs/character.py:975   in manage_npc
+  CALL cogs/character.py:1229  in generate_character_cmd
+  CALL cogs/game.py:104   in on_message
+  CALL cogs/game.py:117   in on_message
+  CALL cogs/game.py:473   in _reissue_cache
+  CALL cogs/game.py:744   in _execute_proceed
+  CALL cogs/game.py:862   in _run_auto_compression
+  CALL cogs/game.py:1075  in test_tts
+  CALL cogs/game.py:1137  in regenerate_turn
+  CALL cogs/game.py:1297  in edit_last_output
+  CALL cogs/game.py:1397  in compress_memory
+  CALL cogs/game.py:1430  in manage_note
+  CALL cogs/game.py:1437  in manage_note
+  CALL cogs/game.py:1477  in manage_cache_note
+  CALL cogs/game.py:1484  in manage_cache_note
+  CALL cogs/gm.py:576   in confirm
+  CALL cogs/gm.py:704   in confirm
+  CALL cogs/gm.py:743   in close
+  CALL cogs/gm.py:769   in callback
+  CALL cogs/gm.py:806   in retry
+  CALL cogs/gm.py:814   in retry
+  CALL cogs/gm.py:978   in auto_start
+  CALL cogs/gm.py:1012  in auto_stop
+  CALL cogs/gm.py:1060  in auto_inject
+  CALL cogs/gm.py:1074  in auto_set_cap
+  CALL cogs/gm.py:1085  in auto_set_cap
+  CALL cogs/gm.py:1097  in auto_set_cost_cap
+  CALL cogs/gm.py:1108  in auto_set_cost_cap
+  CALL cogs/gm.py:1209  in _ask_next_player
+  CALL cogs/gm.py:1231  in _handle_waiting_response
+  CALL cogs/gm.py:1305  in _handle_player_message
+  CALL cogs/gm.py:1314  in _handle_player_message
+  CALL cogs/gm.py:1338  in _process_actions
+  CALL cogs/gm.py:1348  in _process_actions
+  CALL cogs/gm.py:1406  in _finish_proceed_and_continue
+  CALL cogs/gm.py:1457  in _finish_proceed_and_continue
+  CALL cogs/gm.py:1682  in _run_gm_logic_loop
+  CALL cogs/gm.py:1719  in _run_gm_logic_loop
+  CALL cogs/gm.py:1773  in auto_quest
+  CALL cogs/gm.py:1783  in auto_quest
+  CALL cogs/gm.py:1792  in auto_quest
+  CALL cogs/gm.py:2440  in _continue_with_roll_results
+  CALL cogs/gm.py:3188  in _run_extraction
+  CALL cogs/gm.py:4017  in _plan_narrative
+  CALL cogs/media.py:197   in send_media
+  CALL cogs/media.py:636   in set_volume
+  CALL cogs/media.py:719   in toggle_tts
+  CALL cogs/session.py:59    in on_submit
+  CALL cogs/session.py:275   in provision_session
+  CALL cogs/session.py:361   in upload_cache
+  CALL cogs/session.py:459   in start_game
+  CALL cogs/session.py:497   in start_game
+  CALL cogs/session.py:512   in start_game
+  CALL cogs/session.py:569   in play_intro
+  CALL cogs/system.py:225   in end_session
+  CALL cogs/system.py:316   in manage_cache
+  CALL core/cache.py:521   in restore_sessions_from_disk
+  CALL core/display.py:455   in confirm
+  DEF  core/io.py:343   in save_session_data
+  CALL core/io.py:454   in process_cache_deletion
+  CALL core/profile_creation_ui.py:169   in finish
+  CALL core/session_flow.py:231   in _next
+  CALL core/session_flow.py:694   in on_open_time_done
+  CALL core/ui.py:208   in roll_button
+  CALL core/ui.py:230   in roll_button
+  CALL core/ui.py:288   in roll_button
+
+[capture_state]  defs=1 calls=2
+  CALL cogs/gm.py:1389  in _finish_proceed_and_continue
+  CALL cogs/gm.py:1425  in _finish_proceed_and_continue
+  DEF  core/rewind.py:87    in capture_state
+
+[diff_state]  defs=1 calls=1
+  CALL cogs/gm.py:1426  in _finish_proceed_and_continue
+  DEF  core/rewind.py:103   in diff_state
+
+[record_delta]  defs=1 calls=3
+  CALL cogs/game.py:838   in _run_auto_compression
+  CALL cogs/game.py:1383  in compress_memory
+  CALL cogs/gm.py:1447  in _finish_proceed_and_continue
+  DEF  core/rewind.py:127   in record_delta
+
+[record_full_log]  defs=1 calls=1
+  CALL cogs/gm.py:1449  in _finish_proceed_and_continue
+  DEF  core/rewind.py:154   in record_full_log
+
+[deduct_ink]  defs=1 calls=3
+  CALL cogs/gm.py:1439  in _finish_proceed_and_continue
+  CALL cogs/session.py:360   in upload_cache
+  CALL cogs/system.py:435   in grant_ink
+  DEF  core/accounts.py:179   in deduct_ink
+
+[refresh_display]  defs=0 calls=6
+  CALL cogs/gm.py:578   in confirm
+  CALL cogs/gm.py:771   in callback
+  CALL cogs/gm.py:1461  in _finish_proceed_and_continue
+  CALL cogs/presence.py:75    in _check_expired
+  CALL cogs/session.py:456   in start_game
+  CALL cogs/session.py:571   in play_intro
+
+[call_with_retry]  defs=1 calls=17
+  CALL cogs/game.py:792   in _run_auto_compression
+  CALL cogs/game.py:1332  in compress_memory
+  CALL cogs/gm.py:1899  in _call_judgment
+  CALL cogs/gm.py:2052  in _call_gm_logic
+  CALL cogs/gm.py:2534  in _dispatch_narrate
+  CALL cogs/gm.py:2546  in _dispatch_narrate
+  CALL cogs/gm.py:2803  in interpret_cache_time
+  CALL cogs/gm.py:2875  in _generate_npc_detail
+  CALL cogs/gm.py:3000  in _resolve_irregular_npcs
+  CALL cogs/gm.py:3145  in _run_extraction
+  CALL cogs/gm.py:3371  in _verify_proceed_instruction
+  CALL cogs/gm.py:3495  in _simulate_narrative_directions
+  CALL cogs/gm.py:3953  in _plan_narrative
+  CALL cogs/media.py:101   in send_media
+  CALL core/profile_ai.py:92    in _call
+  DEF  core/resilience.py:56    in call_with_retry
+  CALL core/tts.py:108   in synthesize_tts_pcm
+  CALL core/utils.py:236   in generate_character_details
+
+[process_cache_deletion]  defs=1 calls=6
+  CALL cogs/game.py:435   in _reissue_cache
+  CALL cogs/system.py:216   in end_session
+  CALL cogs/system.py:220   in end_session
+  CALL cogs/system.py:276   in manage_cache
+  CALL cogs/system.py:330   in manage_cache
+  CALL cogs/system.py:343   in manage_cache
+  DEF  core/io.py:419   in process_cache_deletion
+
+[calculate_upload_cost]  defs=1 calls=9
+  CALL cogs/game.py:441   in _reissue_cache
+  CALL cogs/game.py:808   in _run_auto_compression
+  CALL cogs/game.py:1349  in compress_memory
+  CALL cogs/session.py:315   in upload_cache
+  CALL cogs/system.py:287   in manage_cache
+  DEF  core/cost.py:155   in calculate_upload_cost
+  CALL core/cost.py:193   in calculate_upload_cost_usd
+  CALL core/display.py:401   in session_close
+  CALL core/estimate.py:273   in estimate_session_open
+  CALL core/estimate.py:274   in estimate_session_open
+
+[calculate_storage_cost]  defs=1 calls=1
+  DEF  core/cost.py:442   in calculate_storage_cost
+  CALL core/io.py:441   in process_cache_deletion
+
+[accrue]  defs=1 calls=20
+  CALL cogs/character.py:1203  in generate_character_cmd
+  CALL cogs/game.py:442   in _reissue_cache
+  CALL cogs/game.py:530   in _execute_proceed
+  CALL cogs/game.py:723   in _execute_proceed
+  CALL cogs/game.py:810   in _run_auto_compression
+  CALL cogs/game.py:1072  in test_tts
+  CALL cogs/game.py:1351  in compress_memory
+  CALL cogs/gm.py:1920  in _call_judgment
+  CALL cogs/gm.py:2087  in _call_gm_logic
+  CALL cogs/gm.py:2575  in _dispatch_narrate
+  CALL cogs/gm.py:2893  in _generate_npc_detail
+  CALL cogs/gm.py:3022  in _resolve_irregular_npcs
+  CALL cogs/gm.py:3163  in _run_extraction
+  CALL cogs/gm.py:3393  in _verify_proceed_instruction
+  CALL cogs/gm.py:3518  in _simulate_narrative_directions
+  CALL cogs/gm.py:3981  in _plan_narrative
+  CALL cogs/media.py:191   in send_media
+  CALL cogs/session.py:320   in upload_cache
+  CALL cogs/system.py:288   in manage_cache
+  CALL core/cache.py:497   in restore_sessions_from_disk
+  DEF  core/cost.py:43    in accrue
+
+[apply_extraction]  defs=1 calls=1
+  CALL cogs/gm.py:3244  in _run_extraction
+  DEF  core/extraction.py:253   in apply_extraction
+
+[apply_choice]  defs=1 calls=1
+  CALL cogs/gm.py:2142  in _call_gm_logic
+  DEF  core/quest.py:296   in apply_choice
