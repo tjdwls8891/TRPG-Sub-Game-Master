@@ -214,6 +214,13 @@ class TRPGSession:
         self.gm_collected_actions = {}    # 이번 라운드에 수집된 행동 {char_name: text}
         self.gm_waiting_for = None        # 현재 발언을 기다리는 PC 이름 (None이면 대기 없음)
 
+        # ========== [WP-01 TurnTransaction 식별 셸 — 런타임 전용] ==========
+        # NOTE: 진행 중인 자동 논리 턴 시도의 불변 식별자/상태. core.turn_transaction이 소유한다.
+        #       SESSION_FIELDS에 등록하지 않으며 세션 JSON에 저장하지 않는다(AUD-051).
+        #       재시작/역직렬화 시 진행 중 트랜잭션은 항상 없음(None)이어야 한다.
+        self.active_turn_transaction = None   # TurnTransaction | None (활성 1개)
+        self.turn_attempt_counters = {}       # logical_turn -> 최신 attempt (런타임 전이 필드)
+
         self.expand_default_npcs()
 
     def expand_default_npcs(self, *, replace: bool = False):

@@ -59,7 +59,7 @@ async def test_d002b_start_round_precedes_extraction_completion(
         await release.wait()
         recorder.order.append("extraction_done")
 
-    async def _dispatch(session, instruction):
+    async def _dispatch(session, instruction, *, transaction_id=None):
         recorder.order.append("dispatch_proceed")
         asyncio.create_task(_blocked_extraction())
         await asyncio.sleep(0)      # 추출 태스크가 시작할 틈
@@ -115,7 +115,7 @@ async def test_d002c_no_next_round_before_commit(
         await release.wait()
         recorder.order.append("extraction_done")
 
-    async def _dispatch(session, instruction):
+    async def _dispatch(session, instruction, *, transaction_id=None):
         asyncio.create_task(_blocked_extraction())
         await asyncio.sleep(0)
         return {"ok": True}
@@ -170,7 +170,7 @@ async def test_d002d_delta_recorded_after_extraction_commit(
         await release.wait()
         recorder.order.append("extraction_done")
 
-    async def _dispatch(session, instruction):
+    async def _dispatch(session, instruction, *, transaction_id=None):
         asyncio.create_task(_blocked_extraction())
         await asyncio.sleep(0)
         return {"ok": True}
@@ -220,7 +220,7 @@ async def test_d002e_failed_attempt_does_not_charge_player(
     sess = session_auto_ready
     cog = _make_gm_cog(wired_bot)
 
-    async def _dispatch(session, instruction):
+    async def _dispatch(session, instruction, *, transaction_id=None):
         # 묘사는 성공하고 비용이 발생한다.
         session.total_cost = 30.0
         # 추출은 즉시 실패한다.

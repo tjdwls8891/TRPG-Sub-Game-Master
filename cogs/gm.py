@@ -826,7 +826,8 @@ class GMRollView(discord.ui.View):
     """
 
     def __init__(self, cog, session, roll_specs: list, player_message: str,
-                 prior_roll_results: list, target_uid: str | None):
+                 prior_roll_results: list, target_uid: str | None,
+                 transaction_id: str | None = None):
         super().__init__(timeout=300)
         self.cog = cog
         self.session = session
@@ -834,6 +835,9 @@ class GMRollView(discord.ui.View):
         self.player_message = player_message
         self.prior_roll_results = list(prior_roll_results)
         self.target_uid = target_uid
+        # WP-01: 원 오케스트레이션 스택은 버튼/타임아웃 재개 전에 이미 반환되었으므로,
+        # 논리 턴 시도의 불변 식별자를 View가 직접 들고 async UI 경계를 넘긴다.
+        self.transaction_id = transaction_id
         self._resolved = False
 
     @discord.ui.button(label="🎲 주사위 굴리기", style=discord.ButtonStyle.primary)
@@ -867,7 +871,9 @@ class GMRollView(discord.ui.View):
         new_results = await self.cog._execute_rolls(self.session, self.roll_specs, game_ch)
         combined = self.prior_roll_results + new_results
         asyncio.create_task(
-            self.cog._continue_with_roll_results(self.session, self.player_message, combined)
+            self.cog._continue_with_roll_results(
+                self.session, self.player_message, combined,
+                transaction_id=self.transaction_id)
         )
 
     async def on_timeout(self):
@@ -884,7 +890,9 @@ class GMRollView(discord.ui.View):
         new_results = await self.cog._execute_rolls(self.session, self.roll_specs, game_ch)
         combined = self.prior_roll_results + new_results
         asyncio.create_task(
-            self.cog._continue_with_roll_results(self.session, self.player_message, combined)
+            self.cog._continue_with_roll_results(
+                self.session, self.player_message, combined,
+                transaction_id=self.transaction_id)
         )
 
 
@@ -1348,14 +1356,22 @@ class GMCog(commands.Cog):
             await core.save_session_data(self.bot, session)
             return
 
-        await self._run_gm_logic_loop(session, player_message, master_ch)
+        # WP-01: 자동 턴 수렴 경계. 안전장치(활성/턴 한도/비용 한도)를 통과한 직후,
+        # 하나의 플레이어 선언을 하나의 논리 턴 시도에 대응시킨다. get_or_begin은
+        # ASK/NARRATE 재입력 시 같은 트랜잭션을 재사용한다(새 시도를 만들지 않는다).
+        tx = core.turn_transaction.get_or_begin(session, player_message)
+        print(f"{tx.log_prefix('PROCESS_ACTIONS')}")
+        await self._run_gm_logic_loop(
+            session, player_message, master_ch,
+            transaction_id=tx.transaction_id)
 
     # ─────────────────────────────────────────────────────────────
     # 지시층위 루프 본체
     # ─────────────────────────────────────────────────────────────
 
     async def _finish_proceed_and_continue(self, session, instruction, master_ch,
-                                           *, event_assessment=None):
+                                           *, event_assessment=None,
+                                           transaction_id: str | None = None):
         """
         강제/정상 PROCEED 공통 후처리. 여러 호출부에 중복되던 동일 블록을 단일화한다.
 
@@ -1399,10 +1415,18 @@ class GMCog(commands.Cog):
             except Exception as e:
                 print(f"[BGM] 재생 실패(진행에는 영향 없음): {e}")
 
-        proceed_ok = await self._dispatch_proceed(session, instruction)
+        proceed_ok = await self._dispatch_proceed(
+            session, instruction, transaction_id=transaction_id)
         if proceed_ok is None:
             # 묘사층위 실패 — 턴을 성립시키지 않는다.
             # 카운터·델타를 올리면 실패한 턴이 진행된 것으로 기록된다.
+            # WP-01: 이 시도는 시스템 실패로 종료 표기 후 활성 포인터를 비운다.
+            #        (청구/변이/롤백은 건드리지 않는다 — 식별자 정리만.)
+            core.turn_transaction.finalize(
+                session, transaction_id,
+                core.turn_transaction.TurnStatus.FAILED_SYSTEM,
+                failure_stage="NARRATION",
+                failure_code=core.turn_transaction.FailureCode.NARRATION_PROVIDER_FAILURE)
             await core.save_session_data(self.bot, session)
             if session.gm_active:
                 await self._start_round(session)
@@ -1454,6 +1478,14 @@ class GMCog(commands.Cog):
             except Exception as e:
                 print(f"[되감기] 델타 기록 실패(진행에는 영향 없음): {e}")
 
+        # WP-01: 턴이 정규 완료되었으므로 시도를 COMMITTED로 종료 표기하고 활성
+        #        포인터를 비운다. 다음 플레이어 선언의 _process_actions get_or_begin이
+        #        새 논리 턴 시도를 열게 된다. (커밋 파이프라인 이행은 WP-09 소관 —
+        #        여기서는 식별자 정리만 한다.)
+        core.turn_transaction.finalize(
+            session, transaction_id,
+            core.turn_transaction.TurnStatus.COMMITTED)
+
         await core.save_session_data(self.bot, session)
 
         # 디스플레이 갱신 — 턴 종료 계층 (기획서 갱신 시점 ②)
@@ -1465,7 +1497,8 @@ class GMCog(commands.Cog):
         if session.gm_active:
             await self._start_round(session)
 
-    async def _run_gm_logic_loop(self, session, player_message: str, master_ch):
+    async def _run_gm_logic_loop(self, session, player_message: str, master_ch,
+                                 *, transaction_id: str | None = None):
         """
         지시층위 ASK / ROLL / PROCEED 루프.
         PROCEED 완료 후 자동으로 _start_round()를 호출하여 다음 라운드(선제 행동 질문)를 시작.
@@ -1562,19 +1595,23 @@ class GMCog(commands.Cog):
             if game_ch:
                 async with game_ch.typing():
                     sim_result = await self._simulate_narrative_directions(
-                        session, player_message, master_ch)
+                        session, player_message, master_ch,
+                        transaction_id=transaction_id)
             else:
                 sim_result = await self._simulate_narrative_directions(
-                    session, player_message, master_ch)
+                    session, player_message, master_ch,
+                    transaction_id=transaction_id)
 
         # ── [판단층위] 캐시 미사용 — 진행 유형과 ASK 질문·ROLL 명세를 결정 ──
         if game_ch:
             async with game_ch.typing():
                 judgment = await self._call_judgment(
-                    session, player_message, roll_results, master_ch)
+                    session, player_message, roll_results, master_ch,
+                    transaction_id=transaction_id)
         else:
             judgment = await self._call_judgment(
-                session, player_message, roll_results, master_ch)
+                session, player_message, roll_results, master_ch,
+                transaction_id=transaction_id)
 
         if status_msg:
             await status_msg.done()
@@ -1595,11 +1632,13 @@ class GMCog(commands.Cog):
                     async with game_ch.typing():
                         decision = await self._call_gm_logic(
                             session, player_message, roll_results, master_ch,
-                            sim_result=current_sim, action=action)
+                            sim_result=current_sim, action=action,
+                            transaction_id=transaction_id)
                 else:
                     decision = await self._call_gm_logic(
                         session, player_message, roll_results, master_ch,
-                        sim_result=current_sim, action=action)
+                        sim_result=current_sim, action=action,
+                        transaction_id=transaction_id)
                 if not decision:
                     await m_send("⚠️ 지시층위 호출 실패. 이번 발언을 스킵합니다.")
                     return
@@ -1627,8 +1666,11 @@ class GMCog(commands.Cog):
                         f"⚙️ **[GM]** ASK 한도({MAX_CLARIFY_PER_MESSAGE}회) 초과 → 강제 PROCEED로 전환합니다."
                     )
                     forced_instr = await self._forced_proceed_instruction(
-                        session, player_message, roll_results, master_ch, sim_result)
-                    await self._finish_proceed_and_continue(session, forced_instr, master_ch)
+                        session, player_message, roll_results, master_ch, sim_result,
+                        transaction_id=transaction_id)
+                    await self._finish_proceed_and_continue(
+                        session, forced_instr, master_ch,
+                        transaction_id=transaction_id)
                     return
 
                 bridge = decision.get("bridge_message") or "어떻게 하시겠습니까?"
@@ -1640,6 +1682,8 @@ class GMCog(commands.Cog):
                 # ASK 브리지를 current_turn_logs에 기록 → 다음 지시층위 호출 시 맥락 유지
                 session.current_turn_logs.append(f"[진행자 (GM)]: {bridge}")
                 print(f"[GM/{session.session_id}] ASK -> '{bridge[:80]}'")
+                # WP-01: 플레이어 입력 대기(비종료). 재입력 시 같은 트랜잭션을 재사용한다.
+                core.turn_transaction.mark_waiting_for_player(session, transaction_id)
                 # 저장은 루프 종료 후 트레일링 save가 일괄 처리 (중복 제거)
                 break
 
@@ -1651,17 +1695,23 @@ class GMCog(commands.Cog):
                         f"⚙️ **[GM]** NARRATE 한도({MAX_NARRATE_PER_MESSAGE}회) 초과 → 강제 PROCEED로 전환합니다."
                     )
                     forced_instr = await self._forced_proceed_instruction(
-                        session, player_message, roll_results, master_ch, sim_result)
-                    await self._finish_proceed_and_continue(session, forced_instr, master_ch)
+                        session, player_message, roll_results, master_ch, sim_result,
+                        transaction_id=transaction_id)
+                    await self._finish_proceed_and_continue(
+                        session, forced_instr, master_ch,
+                        transaction_id=transaction_id)
                     return
 
                 narrate_instr = decision.get("narrate_instruction") or "현재 상황을 간략히 설명하십시오."
                 # NOTE: typing 컨텍스트는 _dispatch_narrate 내부 API 호출 블록에서만 활성화됨.
                 # 외부에서 typing()으로 감싸면 stream_text_to_channel 실행 시 typing이 살아있어
                 # Discord 상충으로 스트리밍이 멈추는 버그 발생 — 외부 typing 제거.
-                narrate_text = await self._dispatch_narrate(session, narrate_instr)
+                narrate_text = await self._dispatch_narrate(
+                    session, narrate_instr, transaction_id=transaction_id)
                 if narrate_text:
                     print(f"[GM/{session.session_id}] NARRATE #{session.gm_narrate_count} -> '{narrate_text[:60]}'")
+                # WP-01: 플레이어 입력 대기(비종료). 재입력 시 같은 트랜잭션을 재사용한다.
+                core.turn_transaction.mark_waiting_for_player(session, transaction_id)
                 # 저장은 루프 종료 후 트레일링 save가 일괄 처리 (중복 제거)
                 break  # 플레이어 응답 대기
 
@@ -1673,12 +1723,20 @@ class GMCog(commands.Cog):
                         "⚠️ GM이 ROLL을 선언했으나 굴림 항목이 비어 있어 PROCEED로 폴백합니다."
                     )
                     fallback_instr = await self._forced_proceed_instruction(
-                        session, player_message, roll_results, master_ch, sim_result)
-                    await self._finish_proceed_and_continue(session, fallback_instr, master_ch)
+                        session, player_message, roll_results, master_ch, sim_result,
+                        transaction_id=transaction_id)
+                    await self._finish_proceed_and_continue(
+                        session, fallback_instr, master_ch,
+                        transaction_id=transaction_id)
                     return
 
+                # WP-01: ROLL은 여기서 루프가 반환되고 버튼/타임아웃 콜백에서 재개된다.
+                #        불변 식별자를 View에 실어 async UI 경계를 넘긴다(WAITING_FOR_ROLL).
+                core.turn_transaction.mark_waiting_for_roll(session, transaction_id)
                 # 버튼 UI 전송 후 루프 종료 (계속 처리는 버튼 콜백 담당)
-                await self._dispatch_rolls(session, rolls, player_message, list(roll_results))
+                await self._dispatch_rolls(
+                    session, rolls, player_message, list(roll_results),
+                    transaction_id=transaction_id)
                 await core.save_session_data(self.bot, session)
                 return
 
@@ -1701,7 +1759,8 @@ class GMCog(commands.Cog):
                 # 서사 사건 평가는 event_assessment로 헬퍼에 전달되어 진행도 갱신·재계획에 사용된다.
                 await self._finish_proceed_and_continue(
                     session, instruction, master_ch,
-                    event_assessment=decision.get("event_assessment", "ongoing"))
+                    event_assessment=decision.get("event_assessment", "ongoing"),
+                    transaction_id=transaction_id)
                 return
 
             else:
@@ -1712,7 +1771,8 @@ class GMCog(commands.Cog):
             # 루프 한도 도달 → 강제 PROCEED
             await m_send(f"⚙️ GM 내부 루프 한도({MAX_ITERATIONS_PER_MESSAGE}) 도달 → 강제 PROCEED.")
             await self._finish_proceed_and_continue(
-                session, "현재 상황에서 자연스럽게 다음 묘사를 이어가십시오.", master_ch)
+                session, "현재 상황에서 자연스럽게 다음 묘사를 이어가십시오.", master_ch,
+                transaction_id=transaction_id)
             return
 
         # ASK/NARRATE는 break로 여기 도달 — 대기 상태를 한 번 저장한다.
@@ -1848,7 +1908,8 @@ class GMCog(commands.Cog):
 
     async def _forced_proceed_instruction(self, session, player_message: str,
                                           roll_results: list, master_ch,
-                                          sim_result: dict | None = None) -> str:
+                                          sim_result: dict | None = None,
+                                          *, transaction_id: str | None = None) -> str:
         """
         ASK/NARRATE 한도 초과 또는 ROLL 폴백으로 강제 PROCEED 전환할 때,
         지시층위를 호출해 묘사 지시문을 확보한다.
@@ -1860,13 +1921,14 @@ class GMCog(commands.Cog):
         fallback = "현재 상황에서 자연스럽게 다음 묘사를 이어가십시오."
         decision = await self._call_gm_logic(
             session, player_message, roll_results, master_ch,
-            sim_result=sim_result, action="PROCEED")
+            sim_result=sim_result, action="PROCEED",
+            transaction_id=transaction_id)
         if not decision:
             return fallback
         return _clean_proceed_instruction(decision.get("proceed_instruction") or fallback)
 
     async def _call_judgment(self, session, player_message: str, roll_results: list,
-                             master_ch) -> dict | None:
+                             master_ch, *, transaction_id: str | None = None) -> dict | None:
         """
         판단층위 호출 — 진행 유형(ASK/NARRATE/ROLL/PROCEED)을 결정한다.
 
@@ -1879,6 +1941,9 @@ class GMCog(commands.Cog):
         Returns:
             판단 결과 dict 또는 실패 시 None. 재시도는 이 함수 내부에서 처리한다.
         """
+        # WP-01: 현재 트랜잭션이면 JUDGING으로 표기(수동/인트로 경로는 no-op).
+        core.turn_transaction.mark_status(
+            session, transaction_id, core.turn_transaction.TurnStatus.JUDGING)
         user_prompt = _build_judgment_user_prompt(session, player_message, roll_results)
         core.write_log(session.session_id, "api", f"[판단층위 요청 - Payload]\n{user_prompt}")
 
@@ -1962,7 +2027,8 @@ class GMCog(commands.Cog):
 
     async def _call_gm_logic(self, session, player_message: str, roll_results: list,
                               master_ch, sim_result: dict | None = None,
-                              action: str = "PROCEED") -> dict | None:
+                              action: str = "PROCEED",
+                              *, transaction_id: str | None = None) -> dict | None:
         """
         지시층위 모델 호출. DEFAULT_MODEL 사용.
 
@@ -1980,6 +2046,9 @@ class GMCog(commands.Cog):
         Args:
             sim_result: 방안 6 서사 설계자 결과 (첫 번째 호출에만 주입, 이후 None)
         """
+        # WP-01: 현재 트랜잭션이면 INSTRUCTING으로 표기(수동/인트로 경로는 no-op).
+        core.turn_transaction.mark_status(
+            session, transaction_id, core.turn_transaction.TurnStatus.INSTRUCTING)
         user_prompt = _build_logic_user_prompt(session, player_message, roll_results,
                                                 sim_result=sim_result)
         # 판단층위가 확정한 진행 유형을 지시층위에 전달한다. 지시층위는 이 유형을 바꾸지 않는다.
@@ -2361,7 +2430,8 @@ class GMCog(commands.Cog):
 
         return results
 
-    async def _dispatch_rolls(self, session, rolls: list, player_message: str, prior_roll_results: list):
+    async def _dispatch_rolls(self, session, rolls: list, player_message: str, prior_roll_results: list,
+                              *, transaction_id: str | None = None):
         """ROLL 결정 시 플레이어에게 버튼 UI 전송."""
         master_ch = self.bot.get_channel(session.master_ch_id)
         game_ch = self.bot.get_channel(session.game_ch_id)
@@ -2399,6 +2469,7 @@ class GMCog(commands.Cog):
             player_message=player_message,
             prior_roll_results=prior_roll_results,
             target_uid=target_uid,
+            transaction_id=transaction_id,
         )
 
         roll_prompt_text = (
@@ -2418,7 +2489,8 @@ class GMCog(commands.Cog):
     # ROLL 결과 반영 계속 처리
     # ─────────────────────────────────────────────────────────────
 
-    async def _continue_with_roll_results(self, session, player_message: str, roll_results: list):
+    async def _continue_with_roll_results(self, session, player_message: str, roll_results: list,
+                                          *, transaction_id: str | None = None):
         """GMRollView 버튼 클릭 후 굴림 결과를 반영하여 지시층위 재호출."""
         master_ch = self.bot.get_channel(session.master_ch_id)
 
@@ -2431,6 +2503,13 @@ class GMCog(commands.Cog):
             if not session.gm_active:
                 return
 
+            # WP-01: stale 재개 가드. View는 async 경계 너머에서 재개되므로, 그 사이
+            #        새 시도가 생겼다면(플레이어 재요청 등) 낡은 ROLL 콜백은 옛 트랜잭션을
+            #        되살리지 않고 조용히 종료한다. ID가 없으면(레거시/수동) 통과시킨다.
+            if transaction_id is not None and not core.turn_transaction.is_current(session, transaction_id):
+                print(f"[TURN] stale roll continuation tx={str(transaction_id)[:8]} 무시(현재 트랜잭션 아님)")
+                return
+
             used_cost = session.total_cost - session.gm_cost_baseline
             if session.gm_cost_cap_krw is not None and used_cost >= session.gm_cost_cap_krw:
                 session.gm_active = False
@@ -2440,7 +2519,9 @@ class GMCog(commands.Cog):
                 await core.save_session_data(self.bot, session)
                 return
 
-            decision = await self._call_gm_logic(session, player_message, roll_results, master_ch)
+            decision = await self._call_gm_logic(
+                session, player_message, roll_results, master_ch,
+                transaction_id=transaction_id)
             if not decision:
                 await m_send("⚠️ GM 결정 호출 실패. 이번 발언 스킵.")
                 return
@@ -2467,13 +2548,15 @@ class GMCog(commands.Cog):
 
             await self._finish_proceed_and_continue(
                 session, instruction, master_ch,
-                event_assessment=decision.get("event_assessment", "ongoing"))
+                event_assessment=decision.get("event_assessment", "ongoing"),
+                transaction_id=transaction_id)
 
     # ─────────────────────────────────────────────────────────────
     # NARRATE 디스패치 (경량 캐시 기반 GM 응답)
     # ─────────────────────────────────────────────────────────────
 
-    async def _dispatch_narrate(self, session, narrate_instruction: str) -> str | None:
+    async def _dispatch_narrate(self, session, narrate_instruction: str,
+                                *, transaction_id: str | None = None) -> str | None:
         """
         캐시 기반 경량 LLM 호출로 짧은 GM 응답(NARRATE)을 생성하고 게임 채널에 스트리밍.
 
@@ -2488,6 +2571,9 @@ class GMCog(commands.Cog):
         Returns:
             str | None: 생성된 NARRATE 응답 텍스트 (스트리밍 완료 후). 실패 시 None.
         """
+        # WP-01: 현재 트랜잭션이면 NARRATING으로 표기(수동/인트로 경로는 no-op).
+        core.turn_transaction.mark_status(
+            session, transaction_id, core.turn_transaction.TurnStatus.NARRATING)
         master_ch = self.bot.get_channel(session.master_ch_id)
         game_ch = self.bot.get_channel(session.game_ch_id)
 
@@ -2629,7 +2715,8 @@ class GMCog(commands.Cog):
     # PROCEED 디스패치
     # ─────────────────────────────────────────────────────────────
 
-    async def _dispatch_proceed(self, session, instruction: str):
+    async def _dispatch_proceed(self, session, instruction: str,
+                                *, transaction_id: str | None = None):
         """기존 GameCog._execute_proceed를 호출하여 묘사 생성·연출.
 
         Returns:
@@ -2727,11 +2814,16 @@ class GMCog(commands.Cog):
         # 기존 _update_world_timeline을 흡수했다. 세계 타임라인 갱신은
         # _run_extraction 내부에서 core.to_world_timeline으로 처리된다.
         if ai_summary:
+            # WP-01: 묘사 완료·추출 착수 지점. 현재 트랜잭션이면 STREAMING_EXTRACTING 표기.
+            core.turn_transaction.mark_status(
+                session, transaction_id,
+                core.turn_transaction.TurnStatus.STREAMING_EXTRACTING)
             # master_ch를 넘겨야 추출 결과가 마스터 채널에 보고된다.
             # 넘기지 않으면 조용히 적용만 되고 무엇이 바뀌었는지 알 수 없다.
             _mch = self.bot.get_channel(getattr(session, "master_ch_id", 0))
             asyncio.create_task(
-                self._run_extraction(session, ai_summary, _mch))
+                self._run_extraction(session, ai_summary, _mch,
+                                     transaction_id=transaction_id))
 
         return result
 
@@ -3078,7 +3170,8 @@ class GMCog(commands.Cog):
             await master_ch.send("🎭 **[비정규 NPC 배정]** " + " · ".join(lines))
         return added
 
-    async def _run_extraction(self, session, ai_output_text: str, master_ch=None) -> dict | None:
+    async def _run_extraction(self, session, ai_output_text: str, master_ch=None,
+                              *, transaction_id: str | None = None) -> dict | None:
         """
         추출층위 — 묘사 출력물에서 공통·시나리오별 타겟 값을 추출한다.
 
@@ -3425,7 +3518,8 @@ class GMCog(commands.Cog):
     # ─────────────────────────────────────────────────────────────
 
     async def _simulate_narrative_directions(self, session, player_message: str,
-                                              master_ch) -> dict | None:
+                                              master_ch,
+                                              *, transaction_id: str | None = None) -> dict | None:
         """
         지시층위 호출 전 세계관 캐시를 활용하여 고차원 서사 방향성을 사전 시뮬레이션.
 

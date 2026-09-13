@@ -295,9 +295,10 @@ def test_c003_roll_view_holds_continuation_reference():
     assert "create_task" in body, (
         "ROLL 재개가 동기 호출이면 식별자 전파 경계가 달라집니다")
 
-    # v5.33.0 현재 View는 transaction_id를 갖지 않는다 — WP-01이 추가한다.
-    assert "transaction_id" not in body, (
-        "이미 transaction_id가 있습니다 — WP-01 전제를 재확인하십시오")
+    # WP-01: View는 이제 transaction_id를 들고 async UI 경계를 넘는다.
+    # (WP-00 시점에는 부재를 단언했고, WP-01이 이 경계 운반을 배선하면서 뒤집힌다.)
+    assert "transaction_id" in body, (
+        "GMRollView가 transaction_id를 운반하지 않습니다 — WP-01 식별자 전파가 끊겼습니다")
 
 
 def test_c003b_continuation_is_reached_after_loop_returns():

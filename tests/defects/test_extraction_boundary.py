@@ -78,7 +78,7 @@ async def test_d001_extraction_input_is_truncated_at_500(
 
     captured = {}
 
-    async def _capture(session, text, master_ch=None):
+    async def _capture(session, text, master_ch=None, *, transaction_id=None):
         captured["text"] = text
 
     monkeypatch.setattr(cog, "_run_extraction", _capture, raising=False)
@@ -106,7 +106,7 @@ async def test_d001b_late_fact_reaches_extraction(
 
     captured = {}
 
-    async def _capture(session, text, master_ch=None):
+    async def _capture(session, text, master_ch=None, *, transaction_id=None):
         captured["text"] = text
 
     monkeypatch.setattr(cog, "_run_extraction", _capture, raising=False)
