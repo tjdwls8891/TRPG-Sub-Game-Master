@@ -44,7 +44,7 @@ async def test_w01_roll_view_round_trip_preserves_single_id(
     sess = session_auto_ready
     cog = _make_gm_cog(wired_bot)
 
-    tx = core.turn_transaction.get_or_begin(sess)
+    tx = core.turn_transaction.get_or_begin_turn_transaction(sess)
     origin_id = tx.transaction_id
 
     # 실제 _dispatch_rolls가 View를 만들어 게임 채널에 전송한다.
@@ -86,7 +86,7 @@ async def test_w02_continue_forwards_id_to_finish(
     sess = session_auto_ready
     cog = _make_gm_cog(wired_bot)
 
-    tx = core.turn_transaction.get_or_begin(sess)
+    tx = core.turn_transaction.get_or_begin_turn_transaction(sess)
     core.turn_transaction.mark_waiting_for_roll(sess, tx.transaction_id)
 
     seen = {}
@@ -139,7 +139,7 @@ async def test_w03_process_actions_reentry_reuses_identity(
     assert seen_ids[0] is not None
     assert seen_ids[0] == seen_ids[1], "재진입이 새 트랜잭션을 만들었습니다"
 
-    active = core.turn_transaction.get_active(sess)
+    active = core.turn_transaction.get_active_transaction(sess)
     assert active is not None
     assert active.transaction_id == seen_ids[0]
     assert active.attempt == 1, "재진입이 시도를 올렸습니다"
@@ -155,7 +155,7 @@ async def test_w04_stale_roll_callback_does_not_resume(
     sess = session_auto_ready
     cog = _make_gm_cog(wired_bot)
 
-    old = core.turn_transaction.get_or_begin(sess)
+    old = core.turn_transaction.get_or_begin_turn_transaction(sess)
     core.turn_transaction.mark_waiting_for_roll(sess, old.transaction_id)
 
     # 플레이어 재요청 등으로 같은 논리 턴의 새 시도가 열려 활성이 교체된다.
@@ -175,6 +175,6 @@ async def test_w04_stale_roll_callback_does_not_resume(
         sess, "문을 연다", ["[근력] 판정: 15"], transaction_id=old.transaction_id)
 
     assert called["gm_logic"] is False, "stale 콜백이 지시층위를 재호출했습니다"
-    active = core.turn_transaction.get_active(sess)
+    active = core.turn_transaction.get_active_transaction(sess)
     assert active is not None and active.transaction_id == new.transaction_id, (
         "stale 콜백이 활성 트랜잭션을 바꿨습니다")

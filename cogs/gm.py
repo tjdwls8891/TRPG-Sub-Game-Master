@@ -1359,7 +1359,7 @@ class GMCog(commands.Cog):
         # WP-01: 자동 턴 수렴 경계. 안전장치(활성/턴 한도/비용 한도)를 통과한 직후,
         # 하나의 플레이어 선언을 하나의 논리 턴 시도에 대응시킨다. get_or_begin은
         # ASK/NARRATE 재입력 시 같은 트랜잭션을 재사용한다(새 시도를 만들지 않는다).
-        tx = core.turn_transaction.get_or_begin(session, player_message)
+        tx = core.turn_transaction.get_or_begin_turn_transaction(session, player_message)
         print(f"{tx.log_prefix('PROCESS_ACTIONS')}")
         await self._run_gm_logic_loop(
             session, player_message, master_ch,
@@ -1942,7 +1942,7 @@ class GMCog(commands.Cog):
             판단 결과 dict 또는 실패 시 None. 재시도는 이 함수 내부에서 처리한다.
         """
         # WP-01: 현재 트랜잭션이면 JUDGING으로 표기(수동/인트로 경로는 no-op).
-        core.turn_transaction.mark_status(
+        core.turn_transaction.mark_transaction_status(
             session, transaction_id, core.turn_transaction.TurnStatus.JUDGING)
         user_prompt = _build_judgment_user_prompt(session, player_message, roll_results)
         core.write_log(session.session_id, "api", f"[판단층위 요청 - Payload]\n{user_prompt}")
@@ -2047,7 +2047,7 @@ class GMCog(commands.Cog):
             sim_result: 방안 6 서사 설계자 결과 (첫 번째 호출에만 주입, 이후 None)
         """
         # WP-01: 현재 트랜잭션이면 INSTRUCTING으로 표기(수동/인트로 경로는 no-op).
-        core.turn_transaction.mark_status(
+        core.turn_transaction.mark_transaction_status(
             session, transaction_id, core.turn_transaction.TurnStatus.INSTRUCTING)
         user_prompt = _build_logic_user_prompt(session, player_message, roll_results,
                                                 sim_result=sim_result)
@@ -2506,7 +2506,7 @@ class GMCog(commands.Cog):
             # WP-01: stale 재개 가드. View는 async 경계 너머에서 재개되므로, 그 사이
             #        새 시도가 생겼다면(플레이어 재요청 등) 낡은 ROLL 콜백은 옛 트랜잭션을
             #        되살리지 않고 조용히 종료한다. ID가 없으면(레거시/수동) 통과시킨다.
-            if transaction_id is not None and not core.turn_transaction.is_current(session, transaction_id):
+            if transaction_id is not None and not core.turn_transaction.is_current_transaction(session, transaction_id):
                 print(f"[TURN] stale roll continuation tx={str(transaction_id)[:8]} 무시(현재 트랜잭션 아님)")
                 return
 
@@ -2572,7 +2572,7 @@ class GMCog(commands.Cog):
             str | None: 생성된 NARRATE 응답 텍스트 (스트리밍 완료 후). 실패 시 None.
         """
         # WP-01: 현재 트랜잭션이면 NARRATING으로 표기(수동/인트로 경로는 no-op).
-        core.turn_transaction.mark_status(
+        core.turn_transaction.mark_transaction_status(
             session, transaction_id, core.turn_transaction.TurnStatus.NARRATING)
         master_ch = self.bot.get_channel(session.master_ch_id)
         game_ch = self.bot.get_channel(session.game_ch_id)
@@ -2815,7 +2815,7 @@ class GMCog(commands.Cog):
         # _run_extraction 내부에서 core.to_world_timeline으로 처리된다.
         if ai_summary:
             # WP-01: 묘사 완료·추출 착수 지점. 현재 트랜잭션이면 STREAMING_EXTRACTING 표기.
-            core.turn_transaction.mark_status(
+            core.turn_transaction.mark_transaction_status(
                 session, transaction_id,
                 core.turn_transaction.TurnStatus.STREAMING_EXTRACTING)
             # master_ch를 넘겨야 추출 결과가 마스터 채널에 보고된다.
