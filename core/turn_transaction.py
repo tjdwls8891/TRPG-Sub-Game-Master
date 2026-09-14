@@ -8,9 +8,9 @@
 # 않는다. 재시작 시 진행 중 트랜잭션은 존재하지 않는다.
 #
 # ── Canonical API (WP01_SIGNATURE_CHANGE_MAP.md / WP01_CLAUDE_PATCH_DIRECTIVE.md 정본) ──
-#   begin_turn_transaction(session, player_declaration="")
+#   begin_turn_transaction(session, player_declaration: str)
 #   get_active_transaction(session)
-#   get_or_begin_turn_transaction(session, player_declaration="")
+#   get_or_begin_turn_transaction(session, player_declaration: str)
 #   is_current_transaction(session, transaction_id)
 #   require_current_transaction(session, transaction_id)
 #   mark_transaction_status(session, transaction_id, status, *, failure_stage, failure_code, failure_message)
@@ -72,6 +72,14 @@ class FailureCode(str, Enum):
 
 def is_terminal(status) -> bool:
     return status in _TERMINAL
+
+
+class TransactionNotCurrentError(RuntimeError):
+    """require_current_transaction: 주어진 ID가 현재 활성 트랜잭션이 아니거나 없음.
+
+    성공 경로가 반드시 현재 활성 트랜잭션을 확보해야 하는 코드에서 발생한다.
+    stale/missing을 비파괴적으로 검사하려면 is_current_transaction()을 쓴다.
+    """
 
 
 @dataclass
@@ -170,21 +178,24 @@ def is_current_transaction(session, transaction_id) -> bool:
     return active is not None and active.transaction_id == transaction_id
 
 
-def require_current_transaction(session, transaction_id) -> "TurnTransaction | None":
-    """현재 활성과 일치하면 그 트랜잭션을, 아니면 None을 반환한다(예외 없음).
+def require_current_transaction(session, transaction_id: str) -> "TurnTransaction":
+    """현재 활성 트랜잭션을 반환한다(canonical — 성공 경로에서 Optional 아님).
 
-    stale 비동기 콜백이 더 새로운 트랜잭션을 조작하지 못하게 하는 가드에 쓴다.
-    (현재 lifecycle 계약: 불일치 시 예외가 아니라 None을 돌려준다.)
+    transaction_id가 현재 활성 트랜잭션과 일치하면 그 트랜잭션을 반환한다.
+    stale/missing(불일치·없음·None)이면 TransactionNotCurrentError를 던진다.
+
+    비파괴적 검사가 필요한 경로(지연 콜백의 stale 판정 등)에서는 이 함수 대신
+    is_current_transaction() 또는 get_active_transaction()을 사용한다.
     """
-    if transaction_id is None:
-        return None
     active = get_active_transaction(session)
-    if active is not None and active.transaction_id == transaction_id:
+    if (transaction_id is not None and active is not None
+            and active.transaction_id == transaction_id):
         return active
-    return None
+    raise TransactionNotCurrentError(
+        f"현재 활성 트랜잭션이 아닙니다: transaction_id={transaction_id}")
 
 
-def begin_turn_transaction(session, player_declaration: str = "") -> TurnTransaction:
+def begin_turn_transaction(session, player_declaration: str) -> TurnTransaction:
     """새 논리 턴 시도를 연다. 비종료 활성 트랜잭션이 있으면 거부(감사 규율).
 
     보통의 자동 턴 진입은 get_or_begin_turn_transaction()을 쓴다. begin은 활성
@@ -199,7 +210,7 @@ def begin_turn_transaction(session, player_declaration: str = "") -> TurnTransac
                   player_declaration=player_declaration)
 
 
-def get_or_begin_turn_transaction(session, player_declaration: str = "") -> TurnTransaction:
+def get_or_begin_turn_transaction(session, player_declaration: str) -> TurnTransaction:
     """자동 턴 진입 헬퍼(_process_actions 정규 진입점).
 
     - 호환되는 비종료 활성 트랜잭션이 있으면 그대로 재사용(같은 ID·같은 시도).
@@ -227,10 +238,13 @@ def mark_transaction_status(session, transaction_id, status, *,
     transaction_id가 현재 활성이 아니면 아무것도 하지 않는다(no-op). 이로써 지연된
     stale 콜백이 더 새로운 트랜잭션의 상태를 덮어쓰지 못한다. transaction_id가
     None이면(수동/인트로 경로) 조용히 False를 반환한다.
+
+    NOTE: canonical require_current_transaction()은 stale/missing 시 예외를 던지므로,
+          비파괴 no-op을 위해 여기서는 is_current_transaction()으로 검사한다.
     """
-    active = require_current_transaction(session, transaction_id)
-    if active is None:
+    if not is_current_transaction(session, transaction_id):
         return False
+    active = get_active_transaction(session)
     active.status = status if isinstance(status, TurnStatus) else TurnStatus(status)
     if failure_stage is not None:
         active.failure_stage = failure_stage
@@ -298,9 +312,14 @@ def finalize(session, transaction_id, status, *,
     canonical mark_transaction_status + clear_active_transaction의 합성이다.
     현재 활성이 아니면 no-op. WP-01은 여기서 청구/변이/롤백을 하지 않는다.
     식별자 정리만 수행한다.
+
+    NOTE: canonical require_current_transaction()은 stale/missing 시 예외를 던지므로,
+          먼저 is_current_transaction()으로 비파괴 검사한 뒤(no-op 반환) canonical
+          require를 호출한다. require는 이 지점에서 반드시 성공한다(정합성 단언).
     """
-    if require_current_transaction(session, transaction_id) is None:
+    if not is_current_transaction(session, transaction_id):
         return False
+    require_current_transaction(session, transaction_id)  # canonical 정합성 단언(성공 보장)
     mark_transaction_status(session, transaction_id, status,
                             failure_stage=failure_stage, failure_code=failure_code,
                             failure_message=failure_message)

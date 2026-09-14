@@ -44,7 +44,7 @@ async def test_w01_roll_view_round_trip_preserves_single_id(
     sess = session_auto_ready
     cog = _make_gm_cog(wired_bot)
 
-    tx = core.turn_transaction.get_or_begin_turn_transaction(sess)
+    tx = core.turn_transaction.get_or_begin_turn_transaction(sess, "문을 연다")
     origin_id = tx.transaction_id
 
     # 실제 _dispatch_rolls가 View를 만들어 게임 채널에 전송한다.
@@ -86,7 +86,7 @@ async def test_w02_continue_forwards_id_to_finish(
     sess = session_auto_ready
     cog = _make_gm_cog(wired_bot)
 
-    tx = core.turn_transaction.get_or_begin_turn_transaction(sess)
+    tx = core.turn_transaction.get_or_begin_turn_transaction(sess, "문을 연다")
     core.turn_transaction.mark_waiting_for_roll(sess, tx.transaction_id)
 
     seen = {}
@@ -155,7 +155,7 @@ async def test_w04_stale_roll_callback_does_not_resume(
     sess = session_auto_ready
     cog = _make_gm_cog(wired_bot)
 
-    old = core.turn_transaction.get_or_begin_turn_transaction(sess)
+    old = core.turn_transaction.get_or_begin_turn_transaction(sess, "문을 연다")
     core.turn_transaction.mark_waiting_for_roll(sess, old.transaction_id)
 
     # 플레이어 재요청 등으로 같은 논리 턴의 새 시도가 열려 활성이 교체된다.
@@ -178,3 +178,30 @@ async def test_w04_stale_roll_callback_does_not_resume(
     active = core.turn_transaction.get_active_transaction(sess)
     assert active is not None and active.transaction_id == new.transaction_id, (
         "stale 콜백이 활성 트랜잭션을 바꿨습니다")
+
+
+# ── W-05 ─────────────────────────────────────────────────────
+
+def test_w05_require_current_is_non_optional(session_auto_ready):
+    """W-05 — require_current_transaction은 성공 시 트랜잭션을 반환하고,
+    stale/missing 시 TransactionNotCurrentError를 던진다(Optional 아님)."""
+    import core
+    tt = core.turn_transaction
+    sess = session_auto_ready
+
+    # missing — 활성 트랜잭션 없음 → 예외
+    with pytest.raises(tt.TransactionNotCurrentError):
+        tt.require_current_transaction(sess, "없는아이디")
+
+    tx = tt.get_or_begin_turn_transaction(sess, "선언")
+    # 성공 경로 — Optional이 아니라 트랜잭션 객체 자체를 반환
+    assert tt.require_current_transaction(sess, tx.transaction_id) is tx
+
+    # stale — supersede 후 옛 ID require → 예외
+    tt.begin_attempt(sess, logical_turn=tx.logical_turn)
+    with pytest.raises(tt.TransactionNotCurrentError):
+        tt.require_current_transaction(sess, tx.transaction_id)
+
+    # None — 명시적으로도 예외(성공 경로에서 Optional 반환 금지)
+    with pytest.raises(tt.TransactionNotCurrentError):
+        tt.require_current_transaction(sess, None)
