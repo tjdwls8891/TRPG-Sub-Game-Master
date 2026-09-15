@@ -53,9 +53,25 @@ def write_error_log(session_id: str, layer: str, exc: Exception, attempt: int):
         pass
 
 
+def _notify_attempt_observer(on_attempt_result, *, attempt, success,
+                             response, exception, operation_id):
+    """WP-02: provider attempt 관측 콜백을 안전하게 호출한다.
+
+    관측 실패가 레거시 provider 호출 동작을 절대 바꾸지 않도록 예외를 삼킨다
+    (shadow 모드 규정). billing/pricing 정책은 여기에 두지 않는다.
+    """
+    if on_attempt_result is None:
+        return
+    try:
+        on_attempt_result(attempt=attempt, success=success, response=response,
+                          exception=exception, operation_id=operation_id)
+    except Exception as obs_e:  # noqa: BLE001
+        print(f"[오류대응] attempt observer 실패(무시): {type(obs_e).__name__} - {obs_e}")
+
+
 async def call_with_retry(fn, *, layer: str, session_id: str = "",
                           retries: int = None, timeout: float = None,
-                          on_retry=None):
+                          on_retry=None, on_attempt_result=None, operation_id=None):
     """API 호출을 재시도·타임아웃 보호와 함께 실행한다.
 
     Args:
@@ -63,6 +79,11 @@ async def call_with_retry(fn, *, layer: str, session_id: str = "",
             (같은 코루틴 객체를 재사용하면 두 번째 await에서 실패한다)
         layer: 'judgment' | 'instruction' | 'narration' | 'extraction' 등
         on_retry: 재시도 직전 호출할 코루틴. 사용자 안내용.
+        on_attempt_result: (WP-02, 선택) provider attempt 1건이 끝날 때마다
+            attempt/success/response/exception/operation_id 를 받는 콜백.
+            성공·실패 모두에 대해 정확히 한 번 호출된다. 관측 전용이며,
+            메타데이터 없는 실패로 CostEvent 를 날조해서는 안 된다.
+        operation_id: (WP-02, 선택) 콜백에 그대로 전달되는 논리 오퍼레이션 식별자.
 
     Returns:
         (성공 여부, 결과 또는 None)
@@ -73,15 +94,24 @@ async def call_with_retry(fn, *, layer: str, session_id: str = "",
     for attempt in range(1, retries + 1):
         try:
             result = await asyncio.wait_for(fn(), timeout=timeout)
+            _notify_attempt_observer(
+                on_attempt_result, attempt=attempt, success=True,
+                response=result, exception=None, operation_id=operation_id)
             return True, result
         except asyncio.TimeoutError as e:
             # 타임아웃 시 wait_for가 태스크를 취소하므로,
             # 뒤늦게 도착하는 원 응답은 사용되지 않는다.
             print(f"[오류대응] {layer} 응답 지연({timeout:.0f}초) — 시도 {attempt}")
             write_error_log(session_id, layer, e, attempt)
+            _notify_attempt_observer(
+                on_attempt_result, attempt=attempt, success=False,
+                response=None, exception=e, operation_id=operation_id)
         except Exception as e:
             print(f"[오류대응] {layer} 실패 — {type(e).__name__} (시도 {attempt})")
             write_error_log(session_id, layer, e, attempt)
+            _notify_attempt_observer(
+                on_attempt_result, attempt=attempt, success=False,
+                response=None, exception=e, operation_id=operation_id)
 
         if attempt < retries and on_retry:
             try:

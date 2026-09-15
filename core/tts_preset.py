@@ -173,7 +173,11 @@ async def build(bot, *, voice: str = "", scenario_ids: list = None,
     total_cost = 0.0
 
     for i, (key, text) in enumerate(sorted(todo.items()), start=1):
-        pcm, cost, _in, _out = await synthesize_tts_pcm(bot, text, voice_name=v)
+        # WP-02: 운영자 프리셋 사전생성. session/transaction 없음.
+        from . import cost_ledger as _cl
+        _ctx = _cl.tts_context(bot, None, _cl.OP_TTS_PRESET_BUILD)
+        pcm, cost, _in, _out = await synthesize_tts_pcm(
+            bot, text, voice_name=v, cost_context=_ctx)
         total_cost += cost
         if not pcm:
             failed += 1

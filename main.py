@@ -52,6 +52,10 @@ class TRPGBot(commands.Bot):
 
         # 2. API 클라이언트 및 환경 텍스트 세팅
         self.genai_client = genai.Client(api_key=GEMINI_API_KEY)
+        # WP-02: append-only shadow CostLedger. provider 사용량을 관측만 하며
+        #        레거시 회계/청구/게임상태를 바꾸지 않는다. mutable session JSON과
+        #        분리된 별도 파일에 기록되어 rewind/rerender가 건드리지 못한다.
+        self.cost_ledger = core.cost_ledger.CostLedger()
         # SYSTEM_INSTRUCTION은 prompts.py로 이전됨 (코드와 함께 수정·리뷰가 용이하도록).
         # WARNING: 변경 시 활성 세션은 `!캐시 재발급` 필요 — 시스템 지시문은 Gemini 캐시에 함께 업로드됨.
         self.system_instruction = prompts.SYSTEM_INSTRUCTION

@@ -1957,6 +1957,12 @@ class GMCog(commands.Cog):
         )
 
         # 층위 자체 재시도 — 판단 실패가 지시층위 재시도로 번지지 않게 한다.
+        # WP-02: 외부 판정 재시도 전체가 하나의 논리 오퍼레이션. operation_id를
+        #        루프 밖에서 1회 생성하고 provider_attempt는 실제 호출마다 증가시킨다.
+        _cl_op = core.cost_ledger.begin_operation(
+            self.bot, core.cost_ledger.OP_TURN_JUDGMENT, session=session,
+            model=JUDGMENT_MODEL, actor_kind=core.cost_ledger.ACTOR_PLAYER,
+            billing_hint=core.cost_ledger.HINT_PLAYER_CANDIDATE)
         decision = None
         for attempt in range(JUDGMENT_MAX_RETRIES):
             # 타임아웃 보호 — 지연된 원 응답이 재시도 결과와 경합하지 않도록
@@ -1967,6 +1973,7 @@ class GMCog(commands.Cog):
                     model=JUDGMENT_MODEL, contents=contents, config=config,
                 ),
                 layer="judgment", session_id=session.session_id, retries=1,
+                on_attempt_result=_cl_op.on_attempt, operation_id=_cl_op.operation_id,
             )
             if not ok:
                 continue
@@ -1983,6 +1990,12 @@ class GMCog(commands.Cog):
                 )
                 cost = breakdown["total_krw"]
                 core.accrue(session, cost, breakdown["total_usd"])
+                # WP-02 shadow 관측 — 레거시 계산값 그대로 기록(shadow == legacy).
+                _cl_op.record(
+                    input_tokens=in_tokens, cached_input_tokens=cached_tokens,
+                    output_tokens=out_tokens, thought_tokens=thought_tokens,
+                    cost_usd=breakdown["total_usd"], cost_krw=cost,
+                    usage_source=core.cost_ledger.SOURCE_PROVIDER_METADATA)
                 core.write_cost_log(
                     session.session_id, f"{COST_LOG_PREFIX}판단층위 호출",
                     in_tokens, cached_tokens, out_tokens, cost, session.total_cost
@@ -2118,6 +2131,10 @@ class GMCog(commands.Cog):
                 )
 
             # 재시도·타임아웃 보호. 층위 호출은 모두 이 관문을 통과한다.
+            _cl_op = core.cost_ledger.begin_operation(
+                self.bot, core.cost_ledger.OP_TURN_INSTRUCTION, session=session,
+                model=core.DEFAULT_MODEL, actor_kind=core.cost_ledger.ACTOR_PLAYER,
+                billing_hint=core.cost_ledger.HINT_PLAYER_CANDIDATE)
             _ok, response = await core.call_with_retry(
                 lambda: asyncio.to_thread(
                     self.bot.genai_client.models.generate_content,
@@ -2126,6 +2143,7 @@ class GMCog(commands.Cog):
                     config=config,
                 ),
                 layer="instruction", session_id=session.session_id,
+                on_attempt_result=_cl_op.on_attempt, operation_id=_cl_op.operation_id,
             )
             if not _ok:
                 raise RuntimeError("AI 호출 실패")
@@ -2154,6 +2172,11 @@ class GMCog(commands.Cog):
             # 예측 대조 — 신선 입력(In - Cached)으로 문자→토큰 계수를 자동 보정한다.
             core.record_actual_input(session, "instruction", in_tokens - cached_tokens)
             core.accrue(session, cost)
+            _cl_op.record(
+                input_tokens=in_tokens, cached_input_tokens=cached_tokens,
+                output_tokens=out_tokens, thought_tokens=thought_tokens,
+                cost_usd=breakdown["total_usd"], cost_krw=cost,
+                usage_source=core.cost_ledger.SOURCE_PROVIDER_METADATA)
             core.write_cost_log(
                 session.session_id,
                 f"{COST_LOG_PREFIX}지시층위 호출",
@@ -2599,6 +2622,12 @@ class GMCog(commands.Cog):
         # DEFAULT_MODEL(gemini-3-flash-preview)은 thinking 모델이므로, max_output_tokens를
         # 지정하면 내부 thinking 토큰까지 한도에 포함되어 실제 텍스트 출력이 거의 없는
         # MAX_TOKENS 조기 종료가 발생한다. 출력 길이는 프롬프트의 "300자 이내" 지시로 제어한다.
+        # WP-02: game_ch/else 두 분기는 상호배타이며 동일 논리 오퍼레이션이다.
+        #        하나의 operation_id를 공유하고 양쪽 호출을 관측한다.
+        _cl_op = core.cost_ledger.begin_operation(
+            self.bot, core.cost_ledger.OP_TURN_LIGHT_NARRATE, session=session,
+            model=core.DEFAULT_MODEL, actor_kind=core.cost_ledger.ACTOR_PLAYER,
+            billing_hint=core.cost_ledger.HINT_PLAYER_CANDIDATE)
         try:
             if session.cache_name:
                 config = types.GenerateContentConfig(
@@ -2625,6 +2654,7 @@ class GMCog(commands.Cog):
                             config=config,
                         ),
                         layer="narration", session_id=session.session_id,
+                        on_attempt_result=_cl_op.on_attempt, operation_id=_cl_op.operation_id,
                     )
                     if not _ok:
                         raise RuntimeError("AI 호출 실패")
@@ -2637,6 +2667,7 @@ class GMCog(commands.Cog):
                         config=config,
                     ),
                     layer="narration", session_id=session.session_id,
+                    on_attempt_result=_cl_op.on_attempt, operation_id=_cl_op.operation_id,
                 )
                 if not _ok:
                     raise RuntimeError("AI 호출 실패")
@@ -2659,6 +2690,11 @@ class GMCog(commands.Cog):
             )
             cost = breakdown["total_krw"]
             core.accrue(session, cost, breakdown["total_usd"])
+            _cl_op.record(
+                input_tokens=in_tokens, cached_input_tokens=cached_tokens,
+                output_tokens=out_tokens, thought_tokens=thought_tokens,
+                cost_usd=breakdown["total_usd"], cost_krw=cost,
+                usage_source=core.cost_ledger.SOURCE_PROVIDER_METADATA)
             core.write_cost_log(
                 session.session_id,
                 f"{COST_LOG_PREFIX}NARRATE 경량 응답",
@@ -2892,12 +2928,18 @@ class GMCog(commands.Cog):
             role="user", parts=[types.Part.from_text(text=f"[플레이어 입력]\n{(text or '')[:200]}")]
         )]
 
+        _cl_op = core.cost_ledger.begin_operation(
+            self.bot, core.cost_ledger.OP_CACHE_TIME_INTERPRET, session=session,
+            model=core.DEFAULT_MODEL, actor_kind=core.cost_ledger.ACTOR_PLAYER,
+            billing_hint=core.cost_ledger.HINT_PLAYER_CANDIDATE,
+            copy_transaction=False)
         ok, response = await core.call_with_retry(
             lambda: asyncio.to_thread(
                 self.bot.genai_client.models.generate_content,
                 model=core.DEFAULT_MODEL, contents=contents, config=config,
             ),
             layer="media", session_id=session.session_id, retries=1,
+            on_attempt_result=_cl_op.on_attempt, operation_id=_cl_op.operation_id,
         )
         if not ok:
             return {"ok": False, "minutes": 0, "case": "unclear",
@@ -2907,13 +2949,19 @@ class GMCog(commands.Cog):
         try:
             meta = response.usage_metadata
             in_t, out_t, cached_t, _th = core.extract_token_usage(meta)
-            cost = core.calculate_text_gen_cost_breakdown(
+            _bd = core.calculate_text_gen_cost_breakdown(
                 core.DEFAULT_MODEL, input_tokens=in_t,
                 output_tokens=out_t, cached_read_tokens=cached_t,
-            )["total_krw"]
+            )
+            cost = _bd["total_krw"]
             session.interpret_cost_krw = (
                 float(getattr(session, "interpret_cost_krw", 0.0) or 0.0) + cost
             )
+            _cl_op.record(
+                input_tokens=in_t, cached_input_tokens=cached_t,
+                output_tokens=out_t, thought_tokens=_th,
+                cost_usd=_bd["total_usd"], cost_krw=cost,
+                usage_source=core.cost_ledger.SOURCE_PROVIDER_METADATA)
         except Exception as e:
             print(f"[시간해석] 비용 집계 실패: {e}")
 
@@ -2964,12 +3012,17 @@ class GMCog(commands.Cog):
         )
         contents = [types.Content(role="user", parts=[types.Part.from_text(text=user_prompt)])]
 
+        _cl_op = core.cost_ledger.begin_operation(
+            self.bot, core.cost_ledger.OP_TURN_NPC_PROFILE, session=session,
+            model=core.DEFAULT_MODEL, actor_kind=core.cost_ledger.ACTOR_PLAYER,
+            billing_hint=core.cost_ledger.HINT_PLAYER_CANDIDATE)
         ok, response = await core.call_with_retry(
             lambda: asyncio.to_thread(
                 self.bot.genai_client.models.generate_content,
                 model=core.DEFAULT_MODEL, contents=contents, config=config,
             ),
             layer="media", session_id=session.session_id, retries=1,
+            on_attempt_result=_cl_op.on_attempt, operation_id=_cl_op.operation_id,
         )
         if not ok:
             return False
@@ -2983,6 +3036,11 @@ class GMCog(commands.Cog):
             )
             cost = breakdown["total_krw"]
             core.accrue(session, cost, breakdown["total_usd"])
+            _cl_op.record(
+                input_tokens=in_t, cached_input_tokens=cached_t,
+                output_tokens=out_t, thought_tokens=thought_t,
+                cost_usd=breakdown["total_usd"], cost_krw=cost,
+                usage_source=core.cost_ledger.SOURCE_PROVIDER_METADATA)
             core.write_cost_log(
                 session.session_id, f"{COST_LOG_PREFIX}NPC 설정 생성",
                 in_t, cached_t, out_t, cost, session.total_cost
@@ -3088,6 +3146,10 @@ class GMCog(commands.Cog):
         )
         contents = [types.Content(role="user", parts=[types.Part.from_text(text=user_prompt)])]
 
+        _cl_op = core.cost_ledger.begin_operation(
+            self.bot, core.cost_ledger.OP_TURN_IRREGULAR_NPC, session=session,
+            model=core.DEFAULT_MODEL, actor_kind=core.cost_ledger.ACTOR_PLAYER,
+            billing_hint=core.cost_ledger.HINT_PLAYER_CANDIDATE)
         try:
             _ok, response = await core.call_with_retry(
                 lambda: asyncio.to_thread(
@@ -3095,6 +3157,7 @@ class GMCog(commands.Cog):
                     model=core.DEFAULT_MODEL, contents=contents, config=config,
                 ),
                 layer="media", session_id=session.session_id,
+                on_attempt_result=_cl_op.on_attempt, operation_id=_cl_op.operation_id,
             )
             if not _ok:
                 return 0
@@ -3112,6 +3175,11 @@ class GMCog(commands.Cog):
             )
             cost = breakdown["total_krw"]
             core.accrue(session, cost, breakdown["total_usd"])
+            _cl_op.record(
+                input_tokens=in_t, cached_input_tokens=cached_t,
+                output_tokens=out_t, thought_tokens=thought_t,
+                cost_usd=breakdown["total_usd"], cost_krw=cost,
+                usage_source=core.cost_ledger.SOURCE_PROVIDER_METADATA)
             core.write_cost_log(
                 session.session_id, f"{COST_LOG_PREFIX}비정규 NPC 배정",
                 in_t, cached_t, out_t, cost, session.total_cost
@@ -3234,6 +3302,11 @@ class GMCog(commands.Cog):
         )
 
         result = None
+        # WP-02: 외부 추출 재시도 전체가 하나의 논리 오퍼레이션(operation_id 공유).
+        _cl_op = core.cost_ledger.begin_operation(
+            self.bot, core.cost_ledger.OP_TURN_EXTRACTION, session=session,
+            model=EXTRACTION_MODEL, actor_kind=core.cost_ledger.ACTOR_PLAYER,
+            billing_hint=core.cost_ledger.HINT_PLAYER_CANDIDATE)
         for attempt in range(EXTRACTION_MAX_RETRIES):
             ok, response = await core.call_with_retry(
                 lambda: asyncio.to_thread(
@@ -3241,6 +3314,7 @@ class GMCog(commands.Cog):
                     model=EXTRACTION_MODEL, contents=contents, config=config,
                 ),
                 layer="extraction", session_id=session.session_id, retries=1,
+                on_attempt_result=_cl_op.on_attempt, operation_id=_cl_op.operation_id,
             )
             if not ok:
                 continue
@@ -3254,6 +3328,11 @@ class GMCog(commands.Cog):
                 )
                 cost = breakdown["total_krw"]
                 core.accrue(session, cost, breakdown["total_usd"])
+                _cl_op.record(
+                    input_tokens=in_tokens, cached_input_tokens=cached_tokens,
+                    output_tokens=out_tokens, thought_tokens=thought_tokens,
+                    cost_usd=breakdown["total_usd"], cost_krw=cost,
+                    usage_source=core.cost_ledger.SOURCE_PROVIDER_METADATA)
                 core.update_stats(session, "extraction", out_tokens, thought_tokens)
                 core.write_cost_log(
                     session.session_id, f"{COST_LOG_PREFIX}추출층위 호출",
@@ -3461,6 +3540,10 @@ class GMCog(commands.Cog):
                 response_schema=PROCEED_VERIFY_SCHEMA,
                 safety_settings=core.TRPG_SAFETY_SETTINGS,
             )
+            _cl_op = core.cost_ledger.begin_operation(
+                self.bot, core.cost_ledger.OP_TURN_INSTRUCTION_VALIDATION, session=session,
+                model=core.LOGIC_MODEL, actor_kind=core.cost_ledger.ACTOR_PLAYER,
+                billing_hint=core.cost_ledger.HINT_PLAYER_CANDIDATE)
             _ok, response = await core.call_with_retry(
                 lambda: asyncio.to_thread(
                     self.bot.genai_client.models.generate_content,
@@ -3469,6 +3552,7 @@ class GMCog(commands.Cog):
                     config=config,
                 ),
                 layer="instruction", session_id=session.session_id,
+                on_attempt_result=_cl_op.on_attempt, operation_id=_cl_op.operation_id,
             )
             if not _ok:
                 raise RuntimeError("AI 호출 실패")
@@ -3484,6 +3568,11 @@ class GMCog(commands.Cog):
                 core.LOGIC_MODEL, input_tokens=in_tokens, output_tokens=out_tokens)
             cost = breakdown["total_krw"]
             core.accrue(session, cost, breakdown["total_usd"])
+            _cl_op.record(
+                input_tokens=in_tokens, cached_input_tokens=_cached_tokens,
+                output_tokens=out_tokens, thought_tokens=thought_tokens,
+                cost_usd=breakdown["total_usd"], cost_krw=cost,
+                usage_source=core.cost_ledger.SOURCE_PROVIDER_METADATA)
             core.write_cost_log(session.session_id, f"{COST_LOG_PREFIX}PROCEED 자기 검증",
                                  in_tokens, 0, out_tokens, cost, session.total_cost)
         except Exception:
@@ -3586,6 +3675,10 @@ class GMCog(commands.Cog):
                 safety_settings=core.TRPG_SAFETY_SETTINGS,
             )
             # 재시도·타임아웃 보호. 층위 호출은 모두 이 관문을 통과한다.
+            _cl_op = core.cost_ledger.begin_operation(
+                self.bot, core.cost_ledger.OP_TURN_SIMULATION, session=session,
+                model=core.DEFAULT_MODEL, actor_kind=core.cost_ledger.ACTOR_PLAYER,
+                billing_hint=core.cost_ledger.HINT_PLAYER_CANDIDATE)
             _ok, response = await core.call_with_retry(
                 lambda: asyncio.to_thread(
                     self.bot.genai_client.models.generate_content,
@@ -3594,6 +3687,7 @@ class GMCog(commands.Cog):
                     config=config,
                 ),
                 layer="instruction", session_id=session.session_id,
+                on_attempt_result=_cl_op.on_attempt, operation_id=_cl_op.operation_id,
             )
             if not _ok:
                 raise RuntimeError("AI 호출 실패")
@@ -3610,6 +3704,11 @@ class GMCog(commands.Cog):
                 cached_read_tokens=cached_tokens)
             cost = breakdown["total_krw"]
             core.accrue(session, cost, breakdown["total_usd"])
+            _cl_op.record(
+                input_tokens=in_tokens, cached_input_tokens=cached_tokens,
+                output_tokens=out_tokens, thought_tokens=thought_tokens,
+                cost_usd=breakdown["total_usd"], cost_krw=cost,
+                usage_source=core.cost_ledger.SOURCE_PROVIDER_METADATA)
             core.write_cost_log(session.session_id, f"{COST_LOG_PREFIX}서사 방향성 시뮬레이션",
                                  in_tokens, cached_tokens, out_tokens, cost, session.total_cost)
             if not hasattr(session, "turn_cost_log"):
@@ -4044,6 +4143,10 @@ class GMCog(commands.Cog):
                 response_schema=NARRATIVE_PLAN_SCHEMA,
                 safety_settings=core.TRPG_SAFETY_SETTINGS,
             )
+            _cl_op = core.cost_ledger.begin_operation(
+                self.bot, core.cost_ledger.OP_TURN_NARRATIVE_PLANNING, session=session,
+                model=core.LOGIC_MODEL, actor_kind=core.cost_ledger.ACTOR_PLAYER,
+                billing_hint=core.cost_ledger.HINT_PLAYER_CANDIDATE)
             _ok, response = await core.call_with_retry(
                 lambda: asyncio.to_thread(
                     self.bot.genai_client.models.generate_content,
@@ -4052,6 +4155,7 @@ class GMCog(commands.Cog):
                     config=config,
                 ),
                 layer="instruction", session_id=session.session_id,
+                on_attempt_result=_cl_op.on_attempt, operation_id=_cl_op.operation_id,
             )
             if not _ok:
                 raise RuntimeError("AI 호출 실패")
@@ -4073,6 +4177,11 @@ class GMCog(commands.Cog):
             )
             cost = breakdown["total_krw"]
             core.accrue(session, cost, breakdown["total_usd"])
+            _cl_op.record(
+                input_tokens=in_tokens, cached_input_tokens=cached_tokens,
+                output_tokens=out_tokens, thought_tokens=thought_tokens,
+                cost_usd=breakdown["total_usd"], cost_krw=cost,
+                usage_source=core.cost_ledger.SOURCE_PROVIDER_METADATA)
             core.write_cost_log(
                 session.session_id,
                 f"{COST_LOG_PREFIX}서사 계획 수립",

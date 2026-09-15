@@ -71,12 +71,17 @@ def _to_mixer_pcm(pcm: bytes, src_rate: int) -> bytes:
     return pcm
 
 
-async def synthesize_tts_pcm(bot, text: str, voice_name: str = None):
+async def synthesize_tts_pcm(bot, text: str, voice_name: str = None, *,
+                             cost_context=None):
     """
     텍스트를 Gemini TTS로 합성해 (48kHz stereo PCM bytes, 비용KRW, in_tokens, out_tokens) 반환.
 
     실패(빈 텍스트·API 오류·오디오 없음) 시 (b'', 0.0, 0, 0). 게임 진행에는 영향 없음.
     비용은 호출 측에서 session.total_cost에 누적·로그한다(이 함수는 세션을 만지지 않음).
+
+    WP-02: cost_context(ProviderCostContext)를 받으면 SDK를 소유한 이 헬퍼가
+    provider attempt를 관측해 shadow CostEvent를 기록한다. 호출자가 operation
+    (TTS_RUNTIME/TTS_TEST/TTS_PRESET_BUILD)·session·transaction·actor/billing을 정한다.
     """
     cleaned = clean_text_for_tts(text)
     if not cleaned:
@@ -103,6 +108,15 @@ async def synthesize_tts_pcm(bot, text: str, voice_name: str = None):
         safety_settings=TRPG_SAFETY_SETTINGS,
     )
 
+    # WP-02: SDK를 소유한 이 헬퍼가 provider attempt 를 관측한다.
+    #        재시도가 있어도 성공한 attempt 번호를 정확히 남긴다.
+    _tts_attempt = {"n": 0}
+
+    def _count_attempt(**_kw):
+        _tts_attempt["n"] += 1
+
+    _op_id = (cost_context.ensure_operation_id()
+              if cost_context is not None else None)
     try:
         from .resilience import call_with_retry
         _ok, response = await call_with_retry(
@@ -113,6 +127,7 @@ async def synthesize_tts_pcm(bot, text: str, voice_name: str = None):
                 config=config,
             ),
             layer="media",
+            on_attempt_result=_count_attempt, operation_id=_op_id,
         )
         if not _ok:
             return (b"", 0.0, 0, 0)
@@ -134,6 +149,7 @@ async def synthesize_tts_pcm(bot, text: str, voice_name: str = None):
     # 비용 산출 (출력은 오디오 토큰 = candidates_token_count)
     cost = 0.0
     in_tokens = out_tokens = 0
+    _cost_usd = 0.0
     try:
         meta = response.usage_metadata
         in_tokens = getattr(meta, "prompt_token_count", 0) or 0
@@ -141,7 +157,20 @@ async def synthesize_tts_pcm(bot, text: str, voice_name: str = None):
         breakdown = calculate_text_gen_cost_breakdown(
             TTS_MODEL, input_tokens=in_tokens, output_tokens=out_tokens)
         cost = breakdown["total_krw"]
+        _cost_usd = breakdown["total_usd"]
     except Exception as e:  # noqa: BLE001
         print(f"[TTS] 비용 산출 실패(무시): {e}")
+
+    # WP-02: SDK를 소유한 이 헬퍼가 관측한다. 실패해도 레거시 동작 불변(best-effort).
+    if cost_context is not None:
+        try:
+            from . import cost_ledger
+            cost_ledger.record_context_event(
+                bot, cost_context, cost_usd=_cost_usd, cost_krw=cost,
+                usage_source=cost_ledger.SOURCE_PROVIDER_METADATA,
+                provider_attempt=max(1, _tts_attempt["n"]),
+                input_tokens=in_tokens, audio_output_tokens=out_tokens)
+        except Exception as _e:  # noqa: BLE001
+            print(f"[TTS] shadow 관측 실패(무시): {type(_e).__name__} - {_e}")
 
     return pcm48, cost, in_tokens, out_tokens

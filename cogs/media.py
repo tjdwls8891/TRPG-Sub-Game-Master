@@ -97,6 +97,10 @@ class MediaCog(commands.Cog):
             try:
                 print(f"[DEBUG] API 호출 시작: {filename_key}")
 
+                _cl_op = core.cost_ledger.begin_operation(
+                    self.bot, core.cost_ledger.OP_IMAGE_GENERATION, session=session,
+                    model=core.IMAGE_MODEL, actor_kind=core.cost_ledger.ACTOR_UNKNOWN,
+                    billing_hint=core.cost_ledger.HINT_UNKNOWN)
                 async with ctx.typing():
                     _ok, response = await core.call_with_retry(
                         lambda: asyncio.to_thread(
@@ -106,6 +110,7 @@ class MediaCog(commands.Cog):
                         ),
                         layer="media",
                         session_id=getattr(session, "session_id", ""),
+                        on_attempt_result=_cl_op.on_attempt, operation_id=_cl_op.operation_id,
                     )
                     if not _ok:
                         raise RuntimeError("이미지 생성 실패")
@@ -189,6 +194,17 @@ class MediaCog(commands.Cog):
                 )
                 turn_cost = cost_breakdown["total_krw"]
                 core.accrue(session, turn_cost, cost_breakdown["total_usd"])
+                # WP-02: 폴백 추정치는 provider 실측과 절대 섞지 않는다.
+                _usage_source = (
+                    core.cost_ledger.SOURCE_ESTIMATE
+                    if str(usage_source).startswith("fallback")
+                    else core.cost_ledger.SOURCE_PROVIDER_METADATA)
+                _cl_op.record(
+                    input_tokens=prompt_tokens, output_tokens=text_tokens,
+                    image_output_tokens=image_tokens,
+                    cost_usd=cost_breakdown["total_usd"], cost_krw=turn_cost,
+                    usage_source=_usage_source,
+                    extra_metadata={"legacy_usage_source": usage_source})
                 core.write_cost_log(
                     session.session_id, f"이미지 생성 ({filename_key})",
                     prompt_tokens, 0, image_tokens + text_tokens, turn_cost, session.total_cost

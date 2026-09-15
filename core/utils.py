@@ -233,6 +233,13 @@ async def generate_character_details(bot, scenario_data, char_type, char_name, i
     write_log(session_id, "api", f"[{char_type.upper()} 설정 생성 요청 - {char_name}]\n{prompt}")
 
     from .resilience import call_with_retry
+    from . import cost_ledger
+    from .cost import calculate_text_gen_cost_breakdown, extract_token_usage
+    _cl_op = cost_ledger.begin_operation(
+        bot, cost_ledger.OP_CHARACTER_DETAIL_GENERATION, session=None,
+        model=LOGIC_MODEL, actor_kind=cost_ledger.ACTOR_OWNER,
+        billing_hint=cost_ledger.HINT_OPERATOR, copy_transaction=False)
+    _cl_op.session_id = session_id or None
     _ok, response = await call_with_retry(
         lambda: asyncio.to_thread(
             bot.genai_client.models.generate_content,
@@ -241,9 +248,23 @@ async def generate_character_details(bot, scenario_data, char_type, char_name, i
             config=types.GenerateContentConfig(safety_settings=TRPG_SAFETY_SETTINGS),
         ),
         layer="instruction", session_id=session_id or "",
+        on_attempt_result=_cl_op.on_attempt, operation_id=_cl_op.operation_id,
     )
     if not _ok:
         raise RuntimeError("설정 생성 호출 실패")
+    # WP-02: SDK를 소유한 이 경계에서 grounded usage를 관측한다(회계는 호출자 담당).
+    try:
+        _m = response.usage_metadata
+        _in, _out, _cached, _th = extract_token_usage(_m)
+        _bd = calculate_text_gen_cost_breakdown(
+            LOGIC_MODEL, input_tokens=_in, output_tokens=_out,
+            cached_read_tokens=_cached)
+        _cl_op.record(
+            input_tokens=_in, cached_input_tokens=_cached, output_tokens=_out,
+            thought_tokens=_th, cost_usd=_bd["total_usd"], cost_krw=_bd["total_krw"],
+            usage_source=cost_ledger.SOURCE_PROVIDER_METADATA)
+    except Exception as _e:  # noqa: BLE001
+        print(f"[설정생성] shadow 관측 실패(무시): {type(_e).__name__} - {_e}")
     return response
 
 

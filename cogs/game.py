@@ -472,6 +472,13 @@ class GameCog(commands.Cog):
                 core.update_session_cache_state(session)
                 await core.save_session_data(self.bot, session)
 
+            # WP-02: 묘사 생성은 call_with_retry를 쓰지 않는 자체 캐시만료 재시도 경로다.
+            #        동일 operation_id를 유지하며 실제 호출마다 provider_attempt를 센다.
+            _narr_op = core.cost_ledger.begin_operation(
+                self.bot, core.cost_ledger.OP_TURN_NARRATION, session=session,
+                model=core.DEFAULT_MODEL, actor_kind=core.cost_ledger.ACTOR_PLAYER,
+                billing_hint=core.cost_ledger.HINT_PLAYER_CANDIDATE)
+
             async def generate_with_retry(retry_count=0):
                 try:
                     if session.cache_obj and session.cache_name:
@@ -482,6 +489,7 @@ class GameCog(commands.Cog):
                                                              temperature=0.7, safety_settings=core.TRPG_SAFETY_SETTINGS)
 
                     async with game_channel.typing():
+                        _narr_op.mark_attempt()  # WP-02: 실제 provider 호출 1회 계수
                         return await asyncio.to_thread(
                             self.bot.genai_client.models.generate_content,
                             model=core.DEFAULT_MODEL,
@@ -528,6 +536,11 @@ class GameCog(commands.Cog):
             )
             turn_cost = breakdown["total_krw"]
             core.accrue(session, turn_cost, breakdown["total_usd"])
+            _narr_op.record(
+                input_tokens=in_tokens, cached_input_tokens=cached_tokens,
+                output_tokens=out_tokens, thought_tokens=thought_tokens,
+                cost_usd=breakdown["total_usd"], cost_krw=turn_cost,
+                usage_source=core.cost_ledger.SOURCE_PROVIDER_METADATA)
             # 비용 예측 통계 — 묘사층위 출력은 변동이 가장 크므로 이동평균이 핵심이다.
             core.update_stats(session, "narration", out_tokens, thought_tokens)
 
@@ -789,6 +802,14 @@ class GameCog(commands.Cog):
 
             # 로우 플랜은 일정 횟수 이후 저비용 모델로 전환한다.
             comp_model = core.memory_plan.select_model(session)
+            # WP-02: 백그라운드 작업. 활성 트랜잭션이 후행 턴의 것일 수 있어
+            #        transaction 귀속은 생략하고 session 범위로만 관측한다.
+            _cl_op = core.cost_ledger.begin_operation(
+                self.bot, core.cost_ledger.OP_MEMORY_AUTO_COMPRESSION, session=session,
+                model=comp_model, actor_kind=core.cost_ledger.ACTOR_SYSTEM,
+                billing_hint=core.cost_ledger.HINT_PLAYER_CANDIDATE,
+                copy_transaction=False,
+                metadata={"note": "background; transaction attribution intentionally omitted"})
             _ok, summary_response = await core.call_with_retry(
                 lambda: asyncio.to_thread(
                     self.bot.genai_client.models.generate_content,
@@ -797,6 +818,7 @@ class GameCog(commands.Cog):
                     config=types.GenerateContentConfig(safety_settings=core.TRPG_SAFETY_SETTINGS),
                 ),
                 layer="compression", session_id=session.session_id,
+                on_attempt_result=_cl_op.on_attempt, operation_id=_cl_op.operation_id,
             )
             if not _ok:
                 raise RuntimeError("압축 호출 실패")
@@ -808,6 +830,13 @@ class GameCog(commands.Cog):
             turn_cost = core.calculate_upload_cost(comp_model, input_tokens=in_tokens,
                                                    output_tokens=out_tokens, cached_read_tokens=cached_tokens)
             core.accrue(session, turn_cost)
+            _cl_op.record(
+                input_tokens=in_tokens, cached_input_tokens=cached_tokens,
+                output_tokens=out_tokens, thought_tokens=thought_tokens,
+                cost_krw=turn_cost,
+                cost_usd=(turn_cost / core.EXCHANGE_RATE if core.EXCHANGE_RATE else 0.0),
+                model=comp_model,
+                usage_source=core.cost_ledger.SOURCE_PROVIDER_METADATA)
             core.write_cost_log(session.session_id, f"{cost_log_prefix}자동 기억 압축", in_tokens, cached_tokens, out_tokens,
                                 turn_cost, session.total_cost)
             print(f"[자동 기억 압축 비용] In:{in_tokens} Cached:{cached_tokens} Out:{out_tokens} | {core.format_cost(turn_cost)}")
@@ -866,7 +895,8 @@ class GameCog(commands.Cog):
             session.is_compressing = False
 
     async def _synthesize_and_enqueue(self, session, texts, voice_name=None,
-                                      *, force: bool = False) -> dict:
+                                      *, force: bool = False,
+                                      cost_scope: str = None) -> dict:
         """
         문단 텍스트를 순서대로 TTS 합성해 믹서 voice 큐에 적재한다. (회계는 호출 측 담당)
 
@@ -905,7 +935,10 @@ class GameCog(commands.Cog):
                         _v = core.irregular_npc.voice_for(session, parsed[0])
                 except Exception:
                     _v = None
-            pcm, cost, in_tok, out_tok = await core.synthesize_tts_pcm(self.bot, t, voice_name=_v)
+            _scope = cost_scope or core.cost_ledger.OP_TTS_RUNTIME
+            _ctx = core.cost_ledger.tts_context(self.bot, session, _scope)
+            pcm, cost, in_tok, out_tok = await core.synthesize_tts_pcm(
+                self.bot, t, voice_name=_v, cost_context=_ctx)
             if pcm:
                 mixer.enqueue_voice(core.PCMBytesAudioSource(pcm, volume=core.TTS_NARRATION_VOLUME))
                 enqueued += 1
@@ -918,7 +951,8 @@ class GameCog(commands.Cog):
                 "in": total_in, "out": total_out, "no_voice": False}
 
     async def _stream_paragraphs_synced(self, session, paragraphs, game_channel, master_ch,
-                                        top_imgs, mid_imgs, bottom_imgs, voice_name=None) -> dict:
+                                        top_imgs, mid_imgs, bottom_imgs, voice_name=None,
+                                        *, cost_scope: str = None) -> dict:
         """
         TTS 더빙 ON + 보이스 연결 시 사용하는 '음성-텍스트 동기' 출력 경로.
 
@@ -948,7 +982,10 @@ class GameCog(commands.Cog):
         async def _synth(spoken):
             if not spoken:
                 return (b"", 0.0, 0, 0)
-            return await core.synthesize_tts_pcm(self.bot, spoken, voice_name=voice_name)
+            _scope = cost_scope or core.cost_ledger.OP_TTS_RUNTIME
+            _ctx = core.cost_ledger.tts_context(self.bot, session, _scope)
+            return await core.synthesize_tts_pcm(
+                self.bot, spoken, voice_name=voice_name, cost_context=_ctx)
 
 
         total_cost = 0.0
@@ -1061,7 +1098,8 @@ class GameCog(commands.Cog):
 
         # 명시적으로 요청한 테스트이므로 tts_enabled와 무관하게 합성한다.
         dub = await self._synthesize_and_enqueue(
-            session, [spoken], voice_name=voice_name, force=True)
+            session, [spoken], voice_name=voice_name, force=True,
+            cost_scope=core.cost_ledger.OP_TTS_TEST)
         if dub.get("no_voice"):
             return await ctx.send(
                 "🔇 음성 채널에 연결돼 있지 않습니다. `!브금`/`!플리`로 입장 후 다시 시도하세요.")
@@ -1329,6 +1367,10 @@ class GameCog(commands.Cog):
         core.write_log(session.session_id, "api", f"[기억 압축 요청]\n{summary_prompt}")
 
         try:
+            _cl_op = core.cost_ledger.begin_operation(
+                self.bot, core.cost_ledger.OP_MEMORY_MANUAL_COMPRESSION, session=session,
+                model=core.LOGIC_MODEL, actor_kind=core.cost_ledger.ACTOR_OWNER,
+                billing_hint=core.cost_ledger.HINT_OPERATOR, copy_transaction=False)
             _ok, summary_response = await core.call_with_retry(
                 lambda: asyncio.to_thread(
                     self.bot.genai_client.models.generate_content,
@@ -1339,6 +1381,7 @@ class GameCog(commands.Cog):
                     ),
                 ),
                 layer="compression", session_id=session.session_id,
+                on_attempt_result=_cl_op.on_attempt, operation_id=_cl_op.operation_id,
             )
             if not _ok:
                 raise RuntimeError("압축 호출 실패")
@@ -1349,6 +1392,12 @@ class GameCog(commands.Cog):
             turn_cost = core.calculate_upload_cost(core.LOGIC_MODEL, input_tokens=in_tokens, output_tokens=out_tokens,
                                             cached_read_tokens=cached_tokens)
             core.accrue(session, turn_cost)
+            _cl_op.record(
+                input_tokens=in_tokens, cached_input_tokens=cached_tokens,
+                output_tokens=out_tokens, thought_tokens=thought_tokens,
+                cost_krw=turn_cost,
+                cost_usd=(turn_cost / core.EXCHANGE_RATE if core.EXCHANGE_RATE else 0.0),
+                usage_source=core.cost_ledger.SOURCE_PROVIDER_METADATA)
 
             core.write_cost_log(session.session_id, "수동 기억 압축", in_tokens, cached_tokens, out_tokens, turn_cost,
                                 session.total_cost)
