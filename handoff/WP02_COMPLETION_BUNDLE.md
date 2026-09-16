@@ -211,3 +211,22 @@ The nine strict xfails (cache accounting, extraction boundary, instruction side-
 
 **Roadmap / critical-path**
 - No critical-path change. After WP-02, stop for the program-wide checkpoint before strict persistence/CommitJournal, per MASTER_ROADMAP. Recommend the next tranche consume this bundle (Sections E/F/J) as the shadow baseline for the Settlement cutover.
+
+---
+
+## Addendum — ledger invariants (WP02-G1 pre-decision audit)
+
+Two internal ledger invariants were audited before final G1. Both are now satisfied; changes confined to `core/cost_ledger.py` (+ tests). No legacy billing/accrue/pricing computation changed.
+
+### 1. CostEvent pricing-basis retention (BILL-07)
+- **Finding:** events persisted `cost_usd`/`cost_krw`/`model` but not the pricing basis. Corrected (smallest change): every recorded event now carries immutable `metadata.pricing_basis`.
+- **Serialization:** injected centrally in `ProviderOperation.record` and `record_context_event` via `pricing_basis_for(model)` → `{pricing_version, exchange_rate, model, rates, rate_unit}`. `pricing_version` = `"pt-"+sha1(PRICING_1M + EXCHANGE_RATE)[:10]` (deterministic fingerprint; changes iff the rate table/exchange rate changes). `rates` = `PRICING_1M[model]` snapshot (USD/1M).
+- **Example line (real test JSONL):**
+  `{... "cost_usd": ..., "cost_krw": ..., "metadata": {"pricing_basis": {"pricing_version": "pt-5345b335f6", "exchange_rate": 1500.0, "model": "gemini-3-flash-preview", "rates": {"INPUT": 0.5, "OUTPUT": 3.0, "CACHE_READ": 0.05, "CACHE_STORAGE_PER_HOUR": 1.0}, "rate_unit": "USD_per_1M_tokens"}}}`
+- **Reproducibility:** stored `rates`+`exchange_rate` recompute `cost_usd`/`cost_krw` exactly (test `test_event_retains_reproducible_pricing_basis`). Future audit of a past event's basis is possible even if the live table later changes, because the basis is frozen into each JSONL line and versioned by `pricing_version`.
+
+### 2. Concurrent idempotency safety
+- **Finding:** each `CostLedger` instance had a private `threading.Lock` + `_keys` set, so two instances on the same path were not mutually exclusive → possible duplicate append. Corrected (smallest change): a process-wide per-path registry (`_registry_for(abspath)`) shares one lock + one dedup set across all instances of the same path. `check → append → dedup-update` runs as a single critical section under that shared lock. No DB / no new persistence framework.
+- **Guarantee:** two instances / concurrent writers on the same path writing the same `<operation_id>:attempt:<n>` key → exactly one appends; JSONL keeps exactly one line; reload still one. Test `test_concurrent_duplicate_write_appends_once` (two instances, shared lock asserted, barrier-synchronized threads).
+
+Post-audit suite: **113 passed, 9 xfailed** (compile/import OK).

@@ -18,6 +18,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import threading
@@ -76,6 +77,91 @@ OP_CHARACTER_DETAIL_GENERATION = "CHARACTER_DETAIL_GENERATION"
 PROVIDER_GOOGLE_GENAI = "google_genai"
 
 DEFAULT_LEDGER_PATH = os.path.join("data", "cost_ledger.jsonl")
+
+
+# ══════════════════════════════════════════════════════════════
+#  Pricing basis 보존 (BILL-07)
+#
+#  CostEvent 는 최종 cost_usd/cost_krw 뿐 아니라, 그 비용을 산정한
+#  가격 근거(가격표 버전 · 환율 · 모델 단가 스냅샷)를 함께 남겨야
+#  나중에 과거 이벤트의 비용을 재현·감사할 수 있다. 아래 스냅샷을
+#  기록 시점에 metadata["pricing_basis"] 로 immutable 하게 박아 넣는다.
+#  (레거시 회계/accrue/pricing 계산 자체는 건드리지 않는다.)
+# ══════════════════════════════════════════════════════════════
+
+_PRICING_BASIS_VERSION_CACHE: dict = {"v": None}
+
+
+def _pricing_tables():
+    """(EXCHANGE_RATE, PRICING_1M) 를 lazy import 한다(순환참조 회피)."""
+    from .constants import EXCHANGE_RATE, PRICING_1M
+    return EXCHANGE_RATE, PRICING_1M
+
+
+def pricing_basis_version() -> str:
+    """현재 가격표+환율의 immutable 식별자.
+
+    가격표(PRICING_1M) 또는 환율이 바뀌면 값이 바뀌는 결정적 지문.
+    별도의 명시적 버전 상수가 없으므로 이에 준하는 식별자로 사용한다.
+    """
+    if _PRICING_BASIS_VERSION_CACHE["v"] is None:
+        try:
+            rate, table = _pricing_tables()
+            blob = (json.dumps(table, sort_keys=True, ensure_ascii=False)
+                    + f"|exchange_rate={rate}")
+            digest = hashlib.sha1(blob.encode("utf-8")).hexdigest()[:10]
+            _PRICING_BASIS_VERSION_CACHE["v"] = f"pt-{digest}"
+        except Exception:  # noqa: BLE001
+            _PRICING_BASIS_VERSION_CACHE["v"] = "pt-unknown"
+    return _PRICING_BASIS_VERSION_CACHE["v"]
+
+
+def pricing_basis_for(model) -> dict:
+    """기록 시점의 immutable pricing basis 스냅샷.
+
+    반환:
+        {pricing_version, exchange_rate, model, rates, rate_unit}
+        rates 는 해당 모델의 USD/1M 단가 스냅샷(PRICING_1M[model]).
+        가격표에 없는 모델(예: 이미지)이면 rates=None 이나, version+환율로
+        버전 고정이 되어 재현 근거는 유지된다.
+    """
+    try:
+        rate, table = _pricing_tables()
+    except Exception:  # noqa: BLE001
+        return {"pricing_version": "pt-unknown", "exchange_rate": None,
+                "model": model, "rates": None, "rate_unit": "USD_per_1M_tokens"}
+    entry = table.get(model) if model else None
+    return {
+        "pricing_version": pricing_basis_version(),
+        "exchange_rate": rate,
+        "model": model,
+        "rates": dict(entry) if isinstance(entry, dict) else None,
+        "rate_unit": "USD_per_1M_tokens",
+    }
+
+
+# ══════════════════════════════════════════════════════════════
+#  Per-path 동기화 레지스트리 (동시 기록 멱등 안전)
+#
+#  같은 ledger 파일 경로를 가리키는 서로 다른 CostLedger 인스턴스가
+#  단일 프로세스 안에서 동시에 기록해도, check→append→dedup 갱신
+#  전체가 하나의 임계구역이 되도록 lock 과 dedup 키 집합을 경로 단위로
+#  공유한다. 그 결과 동일 idempotency_key 는 파일에 정확히 한 줄만 남는다.
+# ══════════════════════════════════════════════════════════════
+
+_LEDGER_REGISTRY: dict = {}
+_REGISTRY_GUARD = threading.Lock()
+
+
+def _registry_for(path: str) -> dict:
+    """정규화된 절대경로 기준으로 공유 {lock, keys, loaded} 엔트리를 반환."""
+    key = os.path.abspath(path)
+    with _REGISTRY_GUARD:
+        entry = _LEDGER_REGISTRY.get(key)
+        if entry is None:
+            entry = {"lock": threading.Lock(), "keys": set(), "loaded": False}
+            _LEDGER_REGISTRY[key] = entry
+        return entry
 
 
 # ══════════════════════════════════════════════════════════════
@@ -139,12 +225,19 @@ class CostLedger:
 
     def __init__(self, path: str = DEFAULT_LEDGER_PATH):
         self.path = path
-        self._keys: set[str] = set()
-        self._loaded = False
-        self._lock = threading.Lock()
+        # 같은 경로를 가리키는 모든 인스턴스가 lock/dedup 상태를 공유한다.
+        self._reg = _registry_for(path)
+
+    @property
+    def _lock(self):
+        return self._reg["lock"]
+
+    @property
+    def _keys(self) -> set:
+        return self._reg["keys"]
 
     def _load_keys_locked(self):
-        if self._loaded:
+        if self._reg["loaded"]:
             return
         try:
             if os.path.exists(self.path):
@@ -159,25 +252,28 @@ class CostLedger:
                             continue
                         k = obj.get("idempotency_key")
                         if k:
-                            self._keys.add(k)
+                            self._reg["keys"].add(k)
         except Exception as e:  # noqa: BLE001
             print(f"[CostLedger] 기존 원장 로드 실패(무시): {type(e).__name__} - {e}")
-        self._loaded = True
+        self._reg["loaded"] = True
 
     def has_idempotency_key(self, key: str) -> bool:
-        with self._lock:
+        with self._reg["lock"]:
             self._load_keys_locked()
-            return key in self._keys
+            return key in self._reg["keys"]
 
     def record_cost_event(self, event: CostEvent) -> bool:
         """새 이벤트를 append 한다. 중복 키면 False, 성공 시 True.
 
+        check→append→dedup 갱신 전체가 경로 단위 공유 lock 안의 단일
+        임계구역이므로, 동일 경로의 다른 인스턴스/스레드가 동시에 같은
+        키를 기록하려 해도 파일에는 정확히 한 줄만 남는다.
         관측 실패가 레거시 호출 동작을 바꾸지 않도록 예외는 삼킨다.
         """
         try:
-            with self._lock:
+            with self._reg["lock"]:
                 self._load_keys_locked()
-                if event.idempotency_key in self._keys:
+                if event.idempotency_key in self._reg["keys"]:
                     return False
                 directory = os.path.dirname(self.path)
                 if directory:
@@ -185,7 +281,7 @@ class CostLedger:
                 line = json.dumps(asdict(event), ensure_ascii=False)
                 with open(self.path, "a", encoding="utf-8") as f:
                     f.write(line + "\n")
-                self._keys.add(event.idempotency_key)
+                self._reg["keys"].add(event.idempotency_key)
             return True
         except Exception as e:  # noqa: BLE001
             print(f"[CostLedger] 기록 실패(무시): {type(e).__name__} - {e}")
@@ -354,16 +450,19 @@ class ProviderOperation:
         if self.ledger is None:
             return False
         pa = provider_attempt if provider_attempt is not None else self.current_attempt
+        _model = model or self.model
         md = dict(self.metadata)
         if extra_metadata:
             md.update(extra_metadata)
+        # BILL-07: 비용 산정 근거(가격표 버전·환율·모델 단가)를 함께 보존.
+        md["pricing_basis"] = pricing_basis_for(_model)
         event = CostEvent(
             event_id=uuid.uuid4().hex,
             idempotency_key=f"{self.operation_id}:attempt:{pa}",
             created_at=time.time(),
             provider=PROVIDER_GOOGLE_GENAI,
             operation=self.operation,
-            model=model or self.model,
+            model=_model,
             session_id=self.session_id,
             transaction_id=self.transaction_id,
             logical_turn=self.logical_turn,
@@ -454,6 +553,8 @@ def record_context_event(bot, ctx, *, cost_usd=0.0, cost_krw=0.0,
     md = dict(ctx.metadata)
     if extra_metadata:
         md.update(extra_metadata)
+    # BILL-07: 비용 산정 근거(가격표 버전·환율·모델 단가)를 함께 보존.
+    md["pricing_basis"] = pricing_basis_for(ctx.model)
     event = CostEvent(
         event_id=uuid.uuid4().hex,
         idempotency_key=f"{op_id}:attempt:{provider_attempt}",

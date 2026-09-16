@@ -441,3 +441,107 @@ def test_ledger_persistence_dedup_across_instances(tmp_path):
         lines = [ln for ln in f if ln.strip()]
     assert len(lines) == 1
     assert json.loads(lines[0])["event_id"] == "e1"
+
+
+# ── BILL-07: pricing basis 보존/재현 ──────────────────────────
+
+async def test_event_retains_reproducible_pricing_basis(tmp_path):
+    bot = _bot_with_ledger(tmp_path)
+    op = cl.begin_operation(bot, cl.OP_TURN_JUDGMENT, model=core.DEFAULT_MODEL)
+    op.mark_attempt()
+    bd = core.calculate_text_gen_cost_breakdown(
+        core.DEFAULT_MODEL, input_tokens=12345, output_tokens=678,
+        cached_read_tokens=234)
+    op.record(input_tokens=12345, cached_input_tokens=234, output_tokens=678,
+              cost_usd=bd["total_usd"], cost_krw=bd["total_krw"])
+
+    ev = bot.cost_ledger.list_cost_events()[0]
+    pb = ev["metadata"]["pricing_basis"]
+    assert pb["pricing_version"] and pb["pricing_version"] != "pt-unknown"
+    assert pb["exchange_rate"] == core.EXCHANGE_RATE
+    assert pb["rates"] is not None and "INPUT" in pb["rates"]
+    assert pb["rate_unit"] == "USD_per_1M_tokens"
+    # 저장된 basis 만으로 과거 비용을 재현할 수 있다.
+    r = pb["rates"]
+    repro_usd = ((max(0, 12345 - 234) / 1_000_000) * r["INPUT"]
+                 + (234 / 1_000_000) * r["CACHE_READ"]
+                 + (678 / 1_000_000) * r["OUTPUT"])
+    assert round(repro_usd, 10) == round(ev["cost_usd"], 10)
+    assert round(repro_usd * pb["exchange_rate"], 6) == round(ev["cost_krw"], 6)
+
+
+async def test_pricing_version_is_stable_and_changes_with_table():
+    v1 = cl.pricing_basis_version()
+    v2 = cl.pricing_basis_version()
+    assert v1 == v2 and v1.startswith("pt-")
+    import core.constants as const
+    orig = const.PRICING_1M
+    try:
+        const.PRICING_1M = {**orig, "___probe___": {"INPUT": 9.9}}
+        cl._PRICING_BASIS_VERSION_CACHE["v"] = None
+        v3 = cl.pricing_basis_version()
+    finally:
+        const.PRICING_1M = orig
+        cl._PRICING_BASIS_VERSION_CACHE["v"] = None
+    assert v3 != v1
+
+
+def test_tts_context_event_also_retains_pricing_basis(tmp_path, session_factory):
+    sess = session_factory()
+    bot = _bot_with_ledger(tmp_path)
+    ctx = cl.tts_context(bot, sess, cl.OP_TTS_RUNTIME)
+    cl.record_context_event(bot, ctx, cost_krw=1.0, cost_usd=0.001,
+                            audio_output_tokens=300)
+    ev = bot.cost_ledger.list_cost_events()[0]
+    assert "pricing_basis" in ev["metadata"]
+    assert ev["metadata"]["pricing_basis"]["exchange_rate"] == core.EXCHANGE_RATE
+
+
+# ── 동시 기록 멱등 안전(단일 프로세스, 동일 path 두 writer) ────
+
+def _uuid_hex():
+    import uuid
+    return uuid.uuid4().hex
+
+
+def test_concurrent_duplicate_write_appends_once(tmp_path):
+    import threading
+
+    path = str(tmp_path / "cost_ledger.jsonl")
+    led_a = cl.CostLedger(path)
+    led_b = cl.CostLedger(path)
+    assert led_a._lock is led_b._lock  # 동일 path → lock/dedup 공유
+
+    def _event():
+        return cl.CostEvent(
+            event_id=_uuid_hex(), idempotency_key="op:concurrent:attempt:1",
+            created_at=0.0, provider=cl.PROVIDER_GOOGLE_GENAI,
+            operation=cl.OP_TURN_JUDGMENT, model="m", session_id="s",
+            transaction_id=None, logical_turn=None, turn_attempt=None,
+            provider_attempt=1, actor_user_id=None, actor_kind=cl.ACTOR_PLAYER,
+            billing_hint=cl.HINT_PLAYER_CANDIDATE, cost_krw=1.0, cost_usd=0.001)
+
+    results = []
+    barrier = threading.Barrier(2)
+
+    def worker(led):
+        barrier.wait()
+        results.append(led.record_cost_event(_event()))
+
+    threads = [threading.Thread(target=worker, args=(led_a,)),
+               threading.Thread(target=worker, args=(led_b,))]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+
+    assert sorted(results) == [False, True]  # 정확히 하나만 성공
+    with open(path, encoding="utf-8") as f:
+        lines = [ln for ln in f if ln.strip()]
+    assert len(lines) == 1
+    assert json.loads(lines[0])["idempotency_key"] == "op:concurrent:attempt:1"
+    led_c = cl.CostLedger(path)
+    assert led_c.has_idempotency_key("op:concurrent:attempt:1") is True
+    assert led_c.record_cost_event(_event()) is False
+    with open(path, encoding="utf-8") as f:
+        assert len([ln for ln in f if ln.strip()]) == 1
