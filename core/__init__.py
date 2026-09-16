@@ -234,6 +234,8 @@ from .io import (
     load_scenario_from_file,
     get_available_scenarios,
     save_session_data,
+    save_session_data_strict,
+    SessionPersistenceError,
     process_cache_deletion,
     load_authorized_users,
     save_authorized_users,
@@ -343,7 +345,7 @@ __all__ = [
     # io
     "SCHEMA_VERSION", "migrate_session_data", "SESSION_FIELDS", "SESSION_RESET_FIELDS",
     "write_log", "write_cost_log", "load_scenario_from_file", "get_available_scenarios",
-    "save_session_data", "process_cache_deletion",
+    "save_session_data", "save_session_data_strict", "SessionPersistenceError", "process_cache_deletion",
     "load_authorized_users", "save_authorized_users", "AUTHORIZED_USERS_PATH",
     # cache
     "build_scenario_cache_text", "update_session_cache_state", "remaining_ttl", "is_cache_expired", "is_session_open", "restore_sessions_from_disk",

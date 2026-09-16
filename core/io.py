@@ -340,80 +340,147 @@ def get_available_scenarios() -> list:
     return out
 
 
+class SessionPersistenceError(RuntimeError):
+    """세션 영속화(strict) 실패를 호출자에게 명확히 알리는 좁은 예외.
+
+    원인 예외는 ``raise ... from`` 으로 ``__cause__`` 에 보존된다. 엄격 저장
+    경로 전용이며, 기존 tolerant ``save_session_data`` 는 이 예외를 던지지 않는다.
+    """
+
+
+def _get_session_io_lock(bot, session):
+    """세션별 asyncio.Lock 을 반환(없으면 생성). strict/tolerant 공통 락 규율."""
+    if session.session_id not in bot.session_io_locks:
+        bot.session_io_locks[session.session_id] = asyncio.Lock()
+    return bot.session_io_locks[session.session_id]
+
+
+def _serialize_session(session) -> dict:
+    """세션 → 표준 직렬화 dict. strict/tolerant 가 공유하는 단일 직렬화 규칙.
+
+    (SCHEMA_VERSION + 핵심 필드 + SESSION_FIELDS 레지스트리 + raw_logs 파트 변환)
+    두 저장 경로가 독립 구현을 갖지 않도록 직렬화는 여기 한 곳으로 모은다.
+    """
+    # ── raw_logs 직렬화 (파트 단위 안전 변환) ──
+    serialized_raw_logs = []
+    for content in session.raw_logs:
+        entry = _serialize_log_entry(content)
+        if entry is not None:
+            serialized_raw_logs.append(entry)
+
+    # ── 핵심 필드 (항상 존재, 직접 접근) ──
+    data: dict = {
+        "schema_version": SCHEMA_VERSION,
+        "session_id": session.session_id,
+        "game_ch_id": session.game_ch_id,
+        "master_ch_id": session.master_ch_id,
+        "scenario_id": session.scenario_id,
+        "cache_name": session.cache_name,
+        "players": session.players,
+        "npcs": session.npcs,
+        "resources": session.resources,
+        "statuses": session.statuses,
+        "compressed_memory": session.compressed_memory,
+        "raw_logs": serialized_raw_logs,
+        "current_turn_logs": session.current_turn_logs,
+        "uncompressed_logs": session.uncompressed_logs,
+        "turn_count": session.turn_count,
+    }
+
+    # ── 선택적 필드 — SESSION_FIELDS 레지스트리로 일괄 직렬화 ──
+    for field, default in SESSION_FIELDS.items():
+        data[field] = getattr(session, field, default)
+
+    return data
+
+
+def _atomic_write_session(session, data: dict) -> None:
+    """tmp → os.replace 원자적 쓰기. 실패 시 자신의 tmp 를 제거하고 예외를 전파.
+
+    - tmp 파일명을 호출별로 고유화한다(동시 저장이 같은 tmp 를 덮어써 data.json 이
+      손상되는 경합 방지).
+    - os.replace 는 원자적이므로 실패해도 기존 data.json(캐노니컬)은 훼손되지 않는다.
+    - 여기서는 예외를 삼키지 않는다 — strict/tolerant 래퍼가 실패 계약을 정한다.
+    """
+    session_dir = f"sessions/{session.session_id}"
+    final_path = f"{session_dir}/data.json"
+    tmp_path = f"{session_dir}/data.json.{os.getpid()}.{time.time_ns()}.tmp"
+    try:
+        with open(tmp_path, "w", encoding="utf-8") as f:
+            json.dump(data, f, ensure_ascii=False, indent=4)
+        os.replace(tmp_path, final_path)
+    except Exception:
+        # 실패로 남은 자신의 tmp 를 제거(캐노니컬 final 은 건드리지 않는다).
+        try:
+            if os.path.exists(tmp_path):
+                os.remove(tmp_path)
+        except OSError:
+            pass
+        raise
+
+
+def _sweep_leftover_tmp(session_id: str) -> None:
+    """세션 디렉터리에 남은 data.json.*.tmp 를 best-effort 로 정리."""
+    try:
+        session_dir = f"sessions/{session_id}"
+        for fn in os.listdir(session_dir):
+            if fn.startswith("data.json.") and fn.endswith(".tmp"):
+                try:
+                    os.remove(os.path.join(session_dir, fn))
+                except OSError:
+                    pass
+    except OSError:
+        pass
+
+
 async def save_session_data(bot, session: TRPGSession):
     """
-    진행 중인 세션 객체의 상태를 JSON 파일로 디스크에 직렬화하여 저장.
+    (tolerant) 진행 중인 세션 객체의 상태를 JSON 파일로 디스크에 직렬화하여 저장.
 
     안정성 보장:
     - raw_logs: _serialize_log_entry로 파트 단위 안전 변환 (비-텍스트 파트 무시)
     - 필드 누락 방지: SESSION_FIELDS 레지스트리로 getattr 일괄 처리
     - 원자적 쓰기: .tmp 임시 파일에 쓴 뒤 os.replace로 교체 (중간 크래시 시 이전 파일 보존)
     - 예외 격리: 저장 실패가 게임 로직을 중단시키지 않도록 외부 try/except로 감쌈
+
+    이 tolerant 계약(실패 흡수·경고 출력·반환값 없음)은 기존 호출자를 위해 이
+    패키지에서 그대로 유지된다. 명확한 실패 신호가 필요한 신규 경로는
+    save_session_data_strict 를 사용한다.
     """
-    if session.session_id not in bot.session_io_locks:
-        bot.session_io_locks[session.session_id] = asyncio.Lock()
-
-    async with bot.session_io_locks[session.session_id]:
+    async with _get_session_io_lock(bot, session):
         try:
-            # ── raw_logs 직렬화 (파트 단위 안전 변환) ──
-            serialized_raw_logs = []
-            for content in session.raw_logs:
-                entry = _serialize_log_entry(content)
-                if entry is not None:
-                    serialized_raw_logs.append(entry)
-
-            # ── 핵심 필드 (항상 존재, 직접 접근) ──
-            data: dict = {
-                "schema_version": SCHEMA_VERSION,
-                "session_id": session.session_id,
-                "game_ch_id": session.game_ch_id,
-                "master_ch_id": session.master_ch_id,
-                "scenario_id": session.scenario_id,
-                "cache_name": session.cache_name,
-                "players": session.players,
-                "npcs": session.npcs,
-                "resources": session.resources,
-                "statuses": session.statuses,
-                "compressed_memory": session.compressed_memory,
-                "raw_logs": serialized_raw_logs,
-                "current_turn_logs": session.current_turn_logs,
-                "uncompressed_logs": session.uncompressed_logs,
-                "turn_count": session.turn_count,
-            }
-
-            # ── 선택적 필드 — SESSION_FIELDS 레지스트리로 일괄 직렬화 ──
-            for field, default in SESSION_FIELDS.items():
-                data[field] = getattr(session, field, default)
-
-            # ── 원자적 쓰기: tmp → os.replace ──
-            # NOTE: tmp 파일명을 호출별로 고유화한다. 동시 저장(예: 백그라운드 기억 압축과
-            # 프로씨드가 각각 save_session_data 호출)이 같은 tmp를 덮어써 data.json이 손상되는
-            # 경합을 방지한다. os.replace는 원자적이므로 최종 파일은 항상 완전한 스냅샷이다.
-            session_dir = f"sessions/{session.session_id}"
-            final_path = f"{session_dir}/data.json"
-            tmp_path = f"{session_dir}/data.json.{os.getpid()}.{time.time_ns()}.tmp"
-
-            def write_file():
-                with open(tmp_path, "w", encoding="utf-8") as f:
-                    json.dump(data, f, ensure_ascii=False, indent=4)
-                os.replace(tmp_path, final_path)
-
-            await asyncio.to_thread(write_file)
-
+            data = _serialize_session(session)
+            await asyncio.to_thread(_atomic_write_session, session, data)
         except Exception as e:
             # NOTE: 저장 실패가 게임 진행을 중단시키면 안 되므로 예외를 흡수하고 경고만 출력.
             # 실패로 남은 고유 tmp 파일(data.json.*.tmp)들을 정리 시도.
             print(f"⚠️ [세션 저장 실패] {session.session_id}: {e}")
-            try:
-                session_dir = f"sessions/{session.session_id}"
-                for fn in os.listdir(session_dir):
-                    if fn.startswith("data.json.") and fn.endswith(".tmp"):
-                        try:
-                            os.remove(os.path.join(session_dir, fn))
-                        except OSError:
-                            pass
-            except OSError:
-                pass
+            _sweep_leftover_tmp(session.session_id)
+
+
+async def save_session_data_strict(bot, session: TRPGSession) -> None:
+    """
+    (strict) 세션 상태를 저장하되, 실패를 흡수하지 않고 명확히 알린다(AUD-042).
+
+    tolerant save_session_data 와 **동일한** 직렬화 규칙·세션별 락 규율·
+    tmp+원자적 replace 를 사용한다. 차이는 오직 실패 계약이다:
+      - 성공: 조용히 반환(None). (로그-후-성공반환 금지 — 성공은 예외 부재로만 신호)
+      - 실패: 남은 tmp 를 정리한 뒤 SessionPersistenceError 를 raise(원인 __cause__ 보존).
+
+    실패해도 기존 유효한 data.json 은 훼손되지 않는다(원자적 replace).
+    이 함수는 후속 CommitJournal 패키지가 사용할 프리미티브이며, 이 패키지에서는
+    기존 호출부에 배선하지 않는다.
+    """
+    async with _get_session_io_lock(bot, session):
+        try:
+            data = _serialize_session(session)
+            await asyncio.to_thread(_atomic_write_session, session, data)
+        except Exception as e:
+            # tolerant 와 동일하게 실패 시 tmp 를 정리하되, 삼키지 않고 명확히 전파.
+            _sweep_leftover_tmp(session.session_id)
+            raise SessionPersistenceError(
+                f"세션 저장 실패: {session.session_id}"
+            ) from e
 
 
 async def process_cache_deletion(bot, session) -> float:
