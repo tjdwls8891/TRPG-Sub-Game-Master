@@ -27,6 +27,25 @@ SIGNUP_BONUS_INK = 0
 _locks = {}
 
 
+# ══════════════════════════════════════════════════════════════
+#  strict 계정 영속화 예외 (WP-ACCOUNTING-PREREQ-01 / AUD-061)
+# ══════════════════════════════════════════════════════════════
+#  레거시 load_account/_write_account 는 실패를 흡수한다(읽기 실패→빈 계정,
+#  쓰기 실패→False). 미래 authoritative InkTransaction 은 모호한 영속화 경계를
+#  쓸 수 없으므로, strict 경로는 성공/명시적 실패만 신호한다.
+
+class AccountError(RuntimeError):
+    """strict 계정 계열 예외의 베이스."""
+
+
+class AccountPersistenceError(AccountError):
+    """strict 계정 읽기/직렬화/쓰기/flush/fsync/replace 실패(관측 가능)."""
+
+
+class AccountCorruptionError(AccountError):
+    """malformed JSON, 매핑 아님, 또는 user_id/경로 정체성 불일치."""
+
+
 def _now():
     return datetime.now(timezone.utc).isoformat()
 
@@ -91,6 +110,84 @@ def _write_account(account: dict) -> bool:
             except Exception:
                 pass
         return False
+
+
+# ══════════════════════════════════════════════════════════════
+#  strict 계정 프리미티브 (WP-ACCOUNTING-PREREQ-01)
+# ══════════════════════════════════════════════════════════════
+#  레거시 load_account/_write_account/register_account/add_ink/set_balance/
+#  deduct_ink 는 위에서 그대로 유지된다. 아래는 미래 authoritative
+#  InkTransaction 이 소비할 명시적 프리미티브다. 현재 어떤 프로덕션 금전
+#  호출자도 쓰지 않으며, 기존 per-user _lock_for 규율을 그대로 공유한다(§6.4).
+
+def load_account_strict(user_id) -> dict:
+    """계정을 strict 로 읽는다. 손상을 조용히 빈 계정으로 대체하지 않는다(§6.2).
+
+    - 파일 부재 → 미등록 빈 계정(기존 의미 유지).
+    - 읽기 실패 → AccountPersistenceError.
+    - malformed JSON / 매핑 아님 → AccountCorruptionError.
+    - 저장된 user_id 가 요청 경로와 상충 → AccountCorruptionError(조용히 사용 금지).
+    기본 필드 채움은 tolerant load 와 동일한 규칙을 쓴다.
+    """
+    path = _path(user_id)
+    if not os.path.exists(path):
+        return _blank_account(user_id)
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            raw = f.read()
+    except OSError as e:
+        raise AccountPersistenceError(f"계정 읽기 실패: {path}") from e
+    try:
+        data = json.loads(raw)
+    except Exception as e:
+        raise AccountCorruptionError(f"계정 JSON 손상: {path}") from e
+    if not isinstance(data, dict):
+        raise AccountCorruptionError(f"계정 레코드가 매핑이 아님: {path}")
+    stored_uid = data.get("user_id")
+    if stored_uid is not None and str(stored_uid) != str(user_id):
+        raise AccountCorruptionError(
+            f"계정 user_id 불일치: 요청={user_id!s} 저장={stored_uid!s}")
+    base = _blank_account(user_id)
+    base.update(data)
+    base["user_id"] = str(user_id)   # 경로 정체성을 신뢰(canonical)
+    return base
+
+
+def _write_account_strict(account: dict) -> None:
+    """계정을 strict 로 원자적 저장한다. 실패를 삼키지 않는다(§6.3).
+
+    같은 canonical 스키마 + temp 파일 + flush/fsync + os.replace. 직렬화/쓰기/
+    fsync/replace 실패는 AccountPersistenceError 로 올린다. 교체는 temp 가
+    내구화된 뒤에만 일어나므로, 실패 시 기존 유효 계정 파일이 보존된다. 임시
+    산출물은 기존 계약대로 정리한다. 성공 시 None, 거짓 성공은 없다.
+    """
+    os.makedirs(ACCOUNTS_DIR, exist_ok=True)
+    path = _path(account["user_id"])
+    tmp = path + ".tmp"
+    try:
+        try:
+            payload = json.dumps(account, ensure_ascii=False, indent=2)
+        except (TypeError, ValueError) as e:
+            raise AccountPersistenceError(
+                f"계정 직렬화 실패: {account.get('user_id')}") from e
+        try:
+            with open(tmp, "w", encoding="utf-8") as f:
+                f.write(payload)
+                f.flush()
+                os.fsync(f.fileno())             # replace 이전 내구성 경계
+        except OSError as e:
+            raise AccountPersistenceError(f"임시 계정 쓰기/fsync 실패: {tmp}") from e
+        try:
+            os.replace(tmp, path)                # 원자적 교체
+        except OSError as e:
+            raise AccountPersistenceError(f"계정 원자적 교체 실패: {path}") from e
+    finally:
+        # 실패 시 임시 산출물 정리(교체 성공 시 tmp 는 이미 없다).
+        if os.path.exists(tmp):
+            try:
+                os.remove(tmp)
+            except OSError:
+                pass
 
 
 def is_registered(user_id) -> bool:
