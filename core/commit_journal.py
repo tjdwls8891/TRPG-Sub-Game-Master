@@ -100,6 +100,17 @@ class CommitJournalCorruptionError(CommitJournalError):
     """
 
 
+class CommitJournalConflictError(CommitJournalError):
+    """같은 idempotency key 에 '상충하는' durable payload 가 도착했음을 알린다(AUD-060).
+
+    정상적인 idempotent replay(동일 key + 동등 payload)와 반드시 구분되어야 하는
+    명시적 비수용 신호다. key 존재만으로 조용히 성공(no-op)처리하면 서로 다른
+    내구 사실을 같은 것으로 오인하게 되므로, canonical payload 가 상충하면
+    append 하지 않고 이 예외를 던진다. 손상(파일 malformed)과도 구분되는
+    별개의 계약 위반이다.
+    """
+
+
 # ══════════════════════════════════════════════════════════════
 #  JournalEntry — 불변 이벤트 레코드 (§6.2)
 # ══════════════════════════════════════════════════════════════
@@ -212,6 +223,32 @@ class JournalEntry:
             metadata=dict(meta),
         )
 
+    def canonical_payload(self) -> dict:
+        """idempotent 동등성 판정용 정본 payload(AUD-060).
+
+        같은 idempotency key 로 도착한 두 엔트리가 '같은 내구 사실'인지 비교하는
+        기준이다. 정상 replay 마다 자연히 달라지는 휘발성 필드는 제외한다:
+        entry_id(매 생성 새 uuid), timestamp(벽시계), schema_version(포맷 버전).
+        나머지 의미 필드(정체성 + settlement_id/completed_steps/error_code/metadata)는
+        모두 포함하므로, 같은 key 인데 session/turn/payload 가 다르면 상충으로 잡힌다.
+        """
+        return {
+            "transaction_id": self.transaction_id,
+            "session_id": self.session_id,
+            "logical_turn": self.logical_turn,
+            "attempt": self.attempt,
+            "phase": self.phase.value,
+            "completed_steps": list(self.completed_steps),
+            "settlement_id": self.settlement_id,
+            "error_code": self.error_code,
+            "metadata": dict(self.metadata),
+        }
+
+    def canonical_fingerprint(self) -> str:
+        """canonical_payload 의 결정적 직렬화(중첩 dict 포함 키 정렬)."""
+        return json.dumps(self.canonical_payload(), sort_keys=True,
+                          ensure_ascii=False)
+
 
 # ══════════════════════════════════════════════════════════════
 #  정체성/경로 헬퍼
@@ -290,12 +327,16 @@ _REGISTRY_GUARD = threading.Lock()
 
 
 def _registry_for(path: str) -> dict:
-    """정규화된 절대경로 기준 공유 {lock, keys, loaded} 엔트리를 반환."""
+    """정규화된 절대경로 기준 공유 {lock, keys, loaded} 엔트리를 반환.
+
+    keys 는 idempotency_key → canonical_fingerprint 매핑이다(AUD-060). key 존재
+    여부만이 아니라 payload 동등/상충까지 판정하기 위해 fingerprint 를 함께 둔다.
+    """
     key = os.path.abspath(path)
     with _REGISTRY_GUARD:
         entry = _JOURNAL_REGISTRY.get(key)
         if entry is None:
-            entry = {"lock": threading.Lock(), "keys": set(), "loaded": False}
+            entry = {"lock": threading.Lock(), "keys": {}, "loaded": False}
             _JOURNAL_REGISTRY[key] = entry
         return entry
 
@@ -377,15 +418,24 @@ class CommitJournal:
         return out
 
     def _load_keys_locked(self) -> None:
-        """dedup 키 집합을 파일에서 1회 로드. 손상 시 raise(안전 우선).
+        """dedup key→fingerprint 맵을 파일에서 1회 로드. 손상/상충 시 raise(안전 우선).
 
         손상된 저널 위에서는 append 도 안전하지 않으므로 조용히 로드를 건너뛰지
-        않는다. 성공적으로 로드해야 loaded 플래그를 세운다.
+        않는다. append 가 상충을 막으므로 이 클래스가 쓴 저널은 같은 key 를 두 줄
+        가질 수 없다. 만약 디스크에 같은 key + 상충 payload 두 줄이 있다면(외부
+        조작 등) 이는 계약 위반이므로 CommitJournalConflictError 로 표면화한다.
+        성공적으로 로드해야 loaded 플래그를 세운다(AUD-060).
         """
         if self._reg["loaded"]:
             return
+        keys = self._reg["keys"]
         for e in self._read_all_locked():
-            self._reg["keys"].add(e.idempotency_key)
+            fp = e.canonical_fingerprint()
+            prev = keys.get(e.idempotency_key)
+            if prev is not None and prev != fp:
+                raise CommitJournalConflictError(
+                    f"디스크상 idempotency key 상충: {e.idempotency_key}")
+            keys[e.idempotency_key] = fp
         self._reg["loaded"] = True
 
     def _truncate_to(self, size: int) -> None:
@@ -409,18 +459,30 @@ class CommitJournal:
             return key in self._reg["keys"]
 
     def append_entry(self, entry: JournalEntry) -> bool:
-        """엔트리를 내구적으로 append 한다. 중복 키면 False, 신규 성공이면 True.
+        """엔트리를 내구적으로 append 한다. 신규 성공이면 True.
 
-        check→append→flush→fsync→dedup갱신 전체가 경로 단위 공유 lock 하의 단일
-        임계구역이다(§7.2). 내구성 경계(write→flush→fsync) 실패는 삼키지 않고
-        부분 기록을 롤백한 뒤 CommitJournalPersistenceError 로 올린다(§7.3).
-        성공은 예외 부재 + True 로만 신호한다(로그-후-성공 금지).
+        중복 key 판정은 key 존재 여부가 아니라 canonical payload 로 한다(AUD-060):
+          - 같은 key + 동등 payload  → append 없이 False (정상 idempotent replay)
+          - 같은 key + 상충 payload  → append 없이 CommitJournalConflictError
+        key 존재만으로 조용히 성공 처리하면 서로 다른 내구 사실을 같은 것으로
+        오인하므로, 반드시 fingerprint 를 비교한다. 이 의미론은 reload/새 객체
+        이후에도 파일 기반 fingerprint 로 동일하게 유지된다.
+
+        check→(동등/상충 판정)→append→flush→fsync→dedup갱신 전체가 경로 단위 공유
+        lock 하의 단일 임계구역이다(§7.2). 내구성 경계(write→flush→fsync) 실패는
+        삼키지 않고 부분 기록을 롤백한 뒤 CommitJournalPersistenceError 로
+        올린다(§7.3). 성공은 예외 부재 + True 로만 신호한다(로그-후-성공 금지).
         """
         key = entry.idempotency_key
+        fingerprint = entry.canonical_fingerprint()
         with self._reg["lock"]:
-            self._load_keys_locked()                 # 손상 시 여기서 raise
-            if key in self._reg["keys"]:
-                return False                         # 안정적 중복 억제(§7.1)
+            self._load_keys_locked()                 # 손상/상충 시 여기서 raise
+            existing = self._reg["keys"].get(key)
+            if existing is not None:
+                if existing == fingerprint:
+                    return False                     # 동등 payload → idempotent no-op
+                raise CommitJournalConflictError(    # 상충 payload → 명시적 거부
+                    f"idempotency key 상충(append 거부): {key}")
 
             directory = os.path.dirname(self.path)
             if directory:
@@ -439,7 +501,7 @@ class CommitJournal:
                 raise CommitJournalPersistenceError(
                     f"저널 append 실패: {self.path} key={key}") from e
 
-            self._reg["keys"].add(key)               # 내구 성공 후에만 등재
+            self._reg["keys"][key] = fingerprint     # 내구 성공 후에만 등재
             return True
 
     def list_entries(self, *, transaction_id: str | None = None,

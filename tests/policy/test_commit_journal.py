@@ -373,3 +373,60 @@ def test_22_journal_module_does_not_touch_legacy_billing():
     # (c) 필드는 존재하나 항상 None 허용이며 청구 로직이 없다.
     e = _entry("SESSION_PERSISTED")
     assert e.settlement_id is None
+
+
+# ══════════════════════════════════════════════════════════════
+#  AUD-060. payload 인지 idempotency (동등 no-op vs 상충 거부)
+# ══════════════════════════════════════════════════════════════
+
+def test_aud060_same_key_same_payload_is_idempotent_noop(tmp_path):
+    """같은 key + 동등 payload → append 없이 False(정상 replay)."""
+    j = cj.CommitJournal(_jpath(tmp_path))
+    e1 = _entry("PREPARED", completed_steps=["s1"], settlement_id="set-1",
+                metadata={"a": 1})
+    e2 = _entry("PREPARED", completed_steps=["s1"], settlement_id="set-1",
+                metadata={"a": 1})  # 다른 entry_id/timestamp, 동일 payload
+    assert e1.idempotency_key == e2.idempotency_key
+    assert j.append_entry(e1) is True
+    assert j.append_entry(e2) is False          # idempotent no-op
+    assert sum(1 for _ in open(_jpath(tmp_path))) == 1
+
+
+def test_aud060_same_key_conflicting_payload_is_rejected(tmp_path):
+    """같은 key + 상충 payload → 명시적 CommitJournalConflictError, append 없음."""
+    path = _jpath(tmp_path)
+    j = cj.CommitJournal(path)
+    base = _entry("PREPARED", settlement_id="set-A")
+    assert j.append_entry(base) is True
+
+    for conflicting in (
+        _entry("PREPARED", settlement_id="set-B"),          # settlement_id 상충
+        _entry("PREPARED", completed_steps=["x"]),          # completed_steps 상충
+        _entry("PREPARED", error_code="E-1"),               # error_code 상충
+        _entry("PREPARED", metadata={"k": "v"}),            # metadata 상충
+        _entry("PREPARED", settlement_id="set-A", sid="other"),  # session_id 상충
+    ):
+        assert conflicting.idempotency_key == base.idempotency_key
+        with pytest.raises(cj.CommitJournalConflictError):
+            j.append_entry(conflicting)
+
+    # 상충 시도는 모두 파일을 바꾸지 않는다(원본 1줄 유지).
+    assert sum(1 for _ in open(path)) == 1
+    entries = j.list_entries()
+    assert len(entries) == 1 and entries[0].settlement_id == "set-A"
+
+
+def test_aud060_semantics_survive_reload(tmp_path):
+    """reload/새 객체 이후에도 동등=no-op, 상충=거부 의미론이 파일 기반으로 유지."""
+    path = _jpath(tmp_path)
+    cj.CommitJournal(path).append_entry(_entry("PREPARED", settlement_id="set-A"))
+
+    # 프로세스 재시작 모사: 인메모리 상태 폐기 → 파일에서 fingerprint 재구성.
+    cj._JOURNAL_REGISTRY.clear()
+    j2 = cj.CommitJournal(path)
+    # 동등 payload → no-op
+    assert j2.append_entry(_entry("PREPARED", settlement_id="set-A")) is False
+    # 상충 payload → 거부
+    with pytest.raises(cj.CommitJournalConflictError):
+        j2.append_entry(_entry("PREPARED", settlement_id="set-Z"))
+    assert sum(1 for _ in open(path)) == 1
