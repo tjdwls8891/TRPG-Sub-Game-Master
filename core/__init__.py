@@ -205,6 +205,7 @@ from .display import build_embed, build_view, DisplayView, refresh as refresh_di
 from .models import TRPGSession
 from . import turn_transaction
 from . import cost_ledger  # WP-02: append-only shadow CostLedger
+from . import commit_journal  # WP-JOURNAL-01: durable commit journal foundation
 from .cost import (
     extract_token_usage,
     format_cost,
