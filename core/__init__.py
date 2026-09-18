@@ -206,6 +206,8 @@ from .models import TRPGSession
 from . import turn_transaction
 from . import cost_ledger  # WP-02: append-only shadow CostLedger
 from . import commit_journal  # WP-JOURNAL-01: durable commit journal foundation
+from . import settlement  # WP-SETTLEMENT-01: immutable TurnSettlement + durable store
+from . import ink_transactions  # WP-SETTLEMENT-01: exactly-once InkTransaction executor
 from .cost import (
     extract_token_usage,
     format_cost,

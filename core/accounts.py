@@ -72,6 +72,10 @@ def _blank_account(user_id) -> dict:
         "ink_balance": 0,
         "total_charged_ink": 0,
         "total_spent_ink": 0,
+        # WP-SETTLEMENT-01: 멱등 InkTransaction 적용 마커(§18). 잔액과 '같은 원자적
+        # 계정 파일 교체'로 함께 내구화되어, 크래시 후 재적용 이중 차감을 막는다.
+        # 레거시 계정은 로드 시 이 기본값으로 채워진다(하위 호환).
+        "applied_ink_transactions": {},
     }
 
 
@@ -188,6 +192,108 @@ def _write_account_strict(account: dict) -> None:
                 os.remove(tmp)
             except OSError:
                 pass
+
+
+# ══════════════════════════════════════════════════════════════
+#  멱등 InkTransaction 계정 적용 프리미티브 (WP-SETTLEMENT-01 / 핸드오프 §17~§22)
+# ══════════════════════════════════════════════════════════════
+#  authoritative InkTransaction executor(core/ink_transactions.py)가 소비하는
+#  '계정측' 원자 연산이다. 계정 파일·스키마·per-user 락은 계정 모듈 소관이므로,
+#  잔액 변이 + 누적 필드 + applied 마커를 '하나의 strict 원자 교체'로 함께
+#  내구화하는 책임을 여기에 둔다. 예외 계열 결합을 피하려고, 잔액 부족/마커 상충은
+#  raise 대신 status 로 신호한다(I/O·손상만 Account* 예외). 어떤 프로덕션 금전
+#  호출자도 아직 쓰지 않는다.
+
+APPLY_NEW = "APPLIED_NEW"           # 신규 적용(잔액+마커 내구화됨)
+APPLY_ALREADY = "ALREADY_APPLIED"   # 동일 fingerprint 마커 존재 — 무변이
+APPLY_CONFLICT = "CONFLICT"         # 동일 ink_tx_id + 상충 fingerprint(무변이)
+APPLY_INSUFFICIENT = "INSUFFICIENT" # overdraft 불허 + 잔액 부족(무변이)
+
+
+async def get_applied_ink_marker(user_id, ink_tx_id: str):
+    """계정에 durable 하게 남은 applied 마커를 strict 로 읽는다(없으면 None).
+
+    executor 의 복구 라우팅(§20)이 '계정이 이미 적용했는가'를 판정하는 근거다.
+    """
+    async with _lock_for(user_id):
+        acc = load_account_strict(user_id)
+        applied = acc.get("applied_ink_transactions") or {}
+        marker = applied.get(str(ink_tx_id))
+        return dict(marker) if isinstance(marker, dict) else None
+
+
+async def apply_ink_charge_strict(user_id, *, ink_tx_id: str, fingerprint: str,
+                                  settlement_id: str, nominal_charge_ink: int,
+                                  allow_overdraft: bool = True) -> dict:
+    """하나의 CHARGE 를 계정에 '정확히 한 번' 원자 적용한다(§17).
+
+    순서: per-user 락 획득 → strict 로드 → applied 마커 검사 → 신규면 불변 결과
+    계산 → 잔액 변이 + 누적 필드 + 마커를 '같은 strict 원자 교체'로 함께 기록.
+    그 마커가 크래시 후 재적용(이중 차감)을 막는 단일 근거다(별도 ledger 에만
+    의존하지 않는다, §18).
+
+    overdraft 규약은 레거시 deduct_ink 와 동일하다: allow_overdraft 이면 잔액이
+    1 미만이 되는 경우 결과 잔액을 1 로 맞추고 초과분은 운영자 부담으로 노출한다.
+    allow_overdraft 불허 + nominal>잔액이면 무변이로 INSUFFICIENT 를 돌려준다.
+
+    Returns:
+        {"status": APPLY_*, "marker": {...}}  (INSUFFICIENT 는 marker 없이 balance_before)
+    """
+    nominal = int(nominal_charge_ink)
+    if nominal < 0:
+        raise AccountError(f"nominal_charge_ink 는 음수일 수 없다: {nominal}")
+    key = str(ink_tx_id)
+
+    async with _lock_for(user_id):
+        acc = load_account_strict(user_id)
+        applied = acc.get("applied_ink_transactions")
+        if not isinstance(applied, dict):
+            applied = {}
+
+        existing = applied.get(key)
+        if isinstance(existing, dict):
+            if existing.get("fingerprint") == fingerprint:
+                return {"status": APPLY_ALREADY, "marker": dict(existing)}
+            # 마커를 조용히 덮어쓰지 않는다(§18).
+            return {"status": APPLY_CONFLICT, "marker": dict(existing)}
+
+        balance_before = int(acc.get("ink_balance", 0))
+
+        # 잔액 부족 + overdraft 불허 → 무변이 명시적 신호(§22).
+        if nominal > balance_before and not allow_overdraft:
+            return {"status": APPLY_INSUFFICIENT, "balance_before": balance_before}
+
+        # 레거시 deduct_ink 와 동일한 floor 규약(§21).
+        remaining = balance_before - nominal
+        overdraft = remaining < 1
+        if overdraft:
+            remaining = 1
+        balance_after = remaining
+        actual_reduction = balance_before - balance_after
+        operator_subsidy = nominal - actual_reduction
+        applied_balance_delta = balance_after - balance_before
+
+        marker = {
+            "fingerprint": fingerprint,
+            "settlement_id": str(settlement_id),
+            "nominal_charge_ink": nominal,
+            "balance_before": balance_before,
+            "balance_after": balance_after,
+            "applied_balance_delta": applied_balance_delta,
+            "overdraft": bool(overdraft),
+            "operator_subsidy_ink": int(operator_subsidy),
+        }
+
+        # 잔액 + 레거시 호환 누적 필드 + 마커를 '한 번의 원자 교체'로 함께 기록.
+        acc["ink_balance"] = balance_after
+        # total_spent_ink 는 레거시 deduct_ink 와 같이 nominal 기준으로 누적한다
+        # (호환 필드). 실제 잔액 변화는 마커의 applied_balance_delta 로 별도 노출.
+        acc["total_spent_ink"] = int(acc.get("total_spent_ink", 0)) + nominal
+        applied[key] = marker
+        acc["applied_ink_transactions"] = applied
+
+        _write_account_strict(acc)   # 실패 시 AccountPersistenceError — 무변이 보존
+        return {"status": APPLY_NEW, "marker": dict(marker)}
 
 
 def is_registered(user_id) -> bool:

@@ -162,7 +162,12 @@ def test_29_legacy_billing_callers_unchanged_and_no_strict_cutover():
                 if not fn.endswith(".py"):
                     continue
                 rel = os.path.relpath(os.path.join(dirpath, fn), REPO_ROOT).replace("\\", "/")
-                if rel in ("core/accounts.py", "core/cost_ledger.py"):
+                # 정의 파일 + WP-SETTLEMENT-01 이 인가한 재무 foundation 정의 모듈 제외.
+                # settlement 빌더는 strict exact-ID 리더를 '설계상' 소비한다(핸드오프
+                # §8/§40). 이는 라이브 청구 cutover 가 아니며 cogs/ 호출자는 0 이다
+                # (별도 caller-scan 테스트가 이를 직접 증명한다).
+                if rel in ("core/accounts.py", "core/cost_ledger.py",
+                           "core/settlement.py", "core/ink_transactions.py"):
                     continue                        # 정의 파일 제외
                 text = source_of(rel)
                 for sym in strict_syms:
