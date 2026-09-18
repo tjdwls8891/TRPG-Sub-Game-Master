@@ -191,6 +191,25 @@ class CostEventNotFoundError(CostLedgerError):
     """strict exact-ID 조회에서 요청한 event_id 를 찾지 못함."""
 
 
+@dataclass(frozen=True)
+class StrictAppendResult:
+    """strict append 결과(AUD-063).
+
+    하나의 idempotency_key 는 하나의 canonical durable CostEvent identity 를
+    소유한다. 호출자(미래 TurnSettlement)는 replay 여부와 무관하게 실제로 원장에
+    남은 canonical event_id 를 알 수 있어야 한다.
+
+    - created=True  → 이번 호출이 새 durable 라인을 기록했다.
+    - created=False → 동등 payload replay 라 append 하지 않았다.
+    - event_id      → 두 경우 모두 '원장에 실재하는' canonical event_id.
+                      replay 에서는 최초 durable event 의 event_id(=A)를 돌려주며,
+                      호출자가 넘긴 새 envelope event_id(=B)가 아니다.
+    """
+    created: bool
+    event_id: str
+    idempotency_key: str
+
+
 # canonical payload = 재생성되는 envelope 필드를 제외한 durable 사실 전체.
 # 정상 replay 마다 자연히 달라지는 event_id/created_at 은 동등성 비교에서 뺀다.
 # 나머지(provider/operation/model/session/transaction/turn/attempt/actor/
@@ -421,44 +440,57 @@ class CostLedger:
                     raise CostLedgerCorruptionError(
                         f"{self.path}:{lineno} JSON 파싱 실패") from e
                 rows.append(_validate_cost_row_strict(obj, f"{self.path}:{lineno}"))
+        self._assert_strict_identity(rows)
         return rows
 
-    def record_cost_event_strict(self, event: CostEvent) -> bool:
-        """CostEvent 를 내구적으로 append 한다. 신규 성공이면 True.
+    @staticmethod
+    def _assert_strict_identity(rows: list[dict]) -> None:
+        """1 idempotency_key = 1 durable identity 불변식(AUD-063).
 
-        payload 인지 idempotency(§5.3): 같은 idempotency_key +
-          - 동등 canonical payload → append 없이 False (idempotent no-op)
+        같은 event_id 가 둘 이상, 또는 같은 idempotency_key 가 둘 이상 durable
+        라인으로 존재하면 payload 동등 여부와 무관하게 손상/상충으로 거부한다.
+        strict-only 로 기록된 원장은 key 당 정확히 한 줄이므로, 이 위반은 외부
+        조작/shadow 혼입을 뜻하며 Settlement 입력으로 삼을 수 없다.
+        """
+        seen_ids: set[str] = set()
+        seen_keys: set[str] = set()
+        for o in rows:
+            eid = o["event_id"]
+            key = o["idempotency_key"]
+            if eid in seen_ids:
+                raise CostLedgerConflictError(f"중복 event_id(원장 손상): {eid}")
+            seen_ids.add(eid)
+            if key in seen_keys:
+                raise CostLedgerConflictError(
+                    f"중복 idempotency_key(1 key=1 identity 위반): {key}")
+            seen_keys.add(key)
+
+    def record_cost_event_strict(self, event: CostEvent) -> StrictAppendResult:
+        """CostEvent 를 내구적으로 append 하고 canonical identity 를 돌려준다.
+
+        payload 인지 idempotency(§5.3) + identity 회수(AUD-063). 같은 idempotency_key +
+          - 동등 canonical payload → append 없이 StrictAppendResult(created=False,
+            event_id=<최초 durable event_id A>) 반환(호출자가 넘긴 새 event_id B 아님)
           - 상충 canonical payload → CostLedgerConflictError, append 없음
-        디스크상 중복 event_id 또는 같은 key 상충 payload 를 발견하면 손상/상충으로
-        간주해 append 하지 않는다. 내구성 경계(write→flush→fsync) 실패는 삼키지 않고
-        부분 기록을 롤백한 뒤 CostLedgerPersistenceError 로 올린다(§5.2). 성공은
-        예외 부재 + True 로만 신호한다. shadow record_cost_event 와 달리 실패에
-        False 를 반환하지 않는다(§9).
+        디스크상 중복 event_id / 중복 idempotency_key 는 _read_all_strict_locked 가
+        손상/상충으로 거부하므로, key 당 정확히 하나의 durable identity 만 존재한다.
+        내구성 경계(write→flush→fsync) 실패는 삼키지 않고 부분 기록을 롤백한 뒤
+        CostLedgerPersistenceError 로 올린다(§5.2). 성공은 예외 부재 +
+        created=True 로만 신호한다. shadow record_cost_event 와 달리 실패에
+        거짓 성공을 반환하지 않는다(§9).
         """
         key = event.idempotency_key
         incoming = asdict(event)
         fingerprint = _cost_fingerprint(incoming)
         with self._reg["lock"]:
-            rows = self._read_all_strict_locked()   # 손상/열기 실패 시 raise
-            by_key: dict[str, str] = {}
-            seen_ids: set[str] = set()
-            for o in rows:
-                oid = o["event_id"]
-                if oid in seen_ids:
-                    raise CostLedgerConflictError(f"중복 event_id(원장 손상): {oid}")
-                seen_ids.add(oid)
-                k = o["idempotency_key"]
-                ofp = _cost_fingerprint(o)
-                prev = by_key.get(k)
-                if prev is not None and prev != ofp:
-                    raise CostLedgerConflictError(f"디스크상 idempotency_key 상충: {k}")
-                by_key[k] = ofp
-
-            existing = by_key.get(key)
-            if existing is not None:
-                if existing == fingerprint:
-                    return False                     # 동등 → idempotent no-op
-                raise CostLedgerConflictError(       # 상충 → 명시적 거부
+            rows = self._read_all_strict_locked()   # 손상/중복 identity/열기 실패 시 raise
+            for o in rows:                          # key 당 최대 1줄(불변식 보장)
+                if o["idempotency_key"] != key:
+                    continue
+                if _cost_fingerprint(o) == fingerprint:
+                    # 동등 replay → append 없이 canonical persisted event_id(A) 반환
+                    return StrictAppendResult(False, o["event_id"], key)
+                raise CostLedgerConflictError(      # 상충 → 명시적 거부
                     f"idempotency_key 상충(strict append 거부): {key}")
 
             directory = os.path.dirname(self.path)
@@ -479,7 +511,7 @@ class CostLedger:
             # shadow dedup 캐시 일관성: tolerant 경로가 같은 키를 중복 기록하지
             # 않도록 성공 후 공유 키 집합에도 등재한다.
             self._reg["keys"].add(key)
-            return True
+            return StrictAppendResult(True, event.event_id, key)
 
     def list_cost_events_strict(self, *, session_id=None,
                                 transaction_id=None) -> list[dict]:

@@ -54,7 +54,8 @@ def _clean_registry():
 
 def test_1_strict_append_writes_reloadable_event(tmp_path):
     led = _ledger(tmp_path)
-    assert led.record_cost_event_strict(_ev()) is True
+    r = led.record_cost_event_strict(_ev())
+    assert r.created is True and r.event_id == "e1"
     cl._LEDGER_REGISTRY.clear()
     rows = _ledger(tmp_path).list_cost_events_strict()
     assert len(rows) == 1
@@ -75,16 +76,16 @@ def test_2_strict_append_performs_flush_fsync(tmp_path, monkeypatch):
 
 def test_3_same_key_same_payload_is_noop(tmp_path):
     led = _ledger(tmp_path)
-    assert led.record_cost_event_strict(_ev(event_id="e1", created_at=1.0)) is True
+    assert led.record_cost_event_strict(_ev(event_id="e1", created_at=1.0)).created is True
     # 다른 envelope(event_id/created_at), 같은 canonical payload → no-op
-    assert led.record_cost_event_strict(_ev(event_id="e2", created_at=2.0)) is False
+    assert led.record_cost_event_strict(_ev(event_id="e2", created_at=2.0)).created is False
     assert len(_lines(str(tmp_path / "ledger.jsonl"))) == 1
 
 
 def test_4_same_key_conflicting_payload_is_rejected(tmp_path):
     path = str(tmp_path / "ledger.jsonl")
     led = _ledger(tmp_path)
-    assert led.record_cost_event_strict(_ev(cost_krw=1.0)) is True
+    assert led.record_cost_event_strict(_ev(cost_krw=1.0)).created is True
     for conflicting in (_ev(event_id="c1", cost_krw=999.0),
                         _ev(event_id="c2", session_id="other"),
                         _ev(event_id="c3", provider_attempt=2),
@@ -100,7 +101,7 @@ def test_5_idempotency_survives_reload(tmp_path):
     _ledger(tmp_path).record_cost_event_strict(_ev(cost_krw=1.0))
     cl._LEDGER_REGISTRY.clear()                       # 프로세스 재시작 모사
     led2 = _ledger(tmp_path)
-    assert led2.record_cost_event_strict(_ev(event_id="e9", cost_krw=1.0)) is False
+    assert led2.record_cost_event_strict(_ev(event_id="e9", cost_krw=1.0)).created is False
     with pytest.raises(cl.CostLedgerConflictError):
         led2.record_cost_event_strict(_ev(event_id="e9", cost_krw=2.0))
     assert len(_lines(path)) == 1
@@ -116,7 +117,7 @@ def test_6_concurrent_equivalent_replay_one_durable_event(tmp_path):
 
     def worker(name, led):
         barrier.wait()
-        results[name] = led.record_cost_event_strict(_ev(event_id=name, cost_krw=1.0))
+        results[name] = led.record_cost_event_strict(_ev(event_id=name, cost_krw=1.0)).created
 
     t1 = threading.Thread(target=worker, args=("A", a))
     t2 = threading.Thread(target=worker, args=("B", b))
@@ -153,7 +154,7 @@ def test_8_fsync_failure_is_observable(tmp_path, monkeypatch):
 def test_9_failed_append_leaves_no_malformed_line(tmp_path, monkeypatch):
     path = str(tmp_path / "ledger.jsonl")
     led = _ledger(tmp_path)
-    assert led.record_cost_event_strict(_ev(event_id="e1", key="op:x:attempt:1")) is True
+    assert led.record_cost_event_strict(_ev(event_id="e1", key="op:x:attempt:1")).created is True
     monkeypatch.setattr(os, "fsync", lambda fd: (_ for _ in ()).throw(OSError("boom")))
     with pytest.raises(cl.CostLedgerPersistenceError):
         led.record_cost_event_strict(_ev(event_id="e2", key="op:x:attempt:2"))
@@ -251,3 +252,64 @@ def test_16_tolerant_reader_skips_malformed_but_strict_raises(tmp_path):
     # strict: 같은 파일에서 손상을 표면화.
     with pytest.raises(cl.CostLedgerCorruptionError):
         led.list_cost_events_strict()
+
+
+# ══════════════════════════════════════════════════════════════
+#  AUD-063. canonical persisted identity 회수 (1 key = 1 identity)
+# ══════════════════════════════════════════════════════════════
+
+def test_aud063_first_append_returns_canonical_id(tmp_path):
+    led = _ledger(tmp_path)
+    r = led.record_cost_event_strict(_ev(event_id="A", key="op:x:attempt:1"))
+    assert r.created is True
+    assert r.event_id == "A"
+    assert r.idempotency_key == "op:x:attempt:1"
+
+
+def test_aud063_replay_returns_original_id_without_append(tmp_path):
+    path = str(tmp_path / "ledger.jsonl")
+    led = _ledger(tmp_path)
+    led.record_cost_event_strict(_ev(event_id="A", key="op:x:attempt:1", cost_krw=5.0))
+    # 새 envelope event_id=B, 동일 canonical payload
+    r = led.record_cost_event_strict(_ev(event_id="B", key="op:x:attempt:1", cost_krw=5.0))
+    assert r.created is False
+    assert r.event_id == "A"                 # 최초 canonical id 를 회수(B 아님)
+    assert len(_lines(path)) == 1
+    assert json.loads(_lines(path)[0])["event_id"] == "A"
+
+
+def test_aud063_identity_survives_reload_and_exact_id_lookup(tmp_path):
+    led = _ledger(tmp_path)
+    led.record_cost_event_strict(_ev(event_id="A", key="op:x:attempt:1", cost_krw=5.0))
+    cl._LEDGER_REGISTRY.clear()              # 프로세스 재시작 모사
+    led2 = _ledger(tmp_path)
+    r = led2.record_cost_event_strict(_ev(event_id="B", key="op:x:attempt:1", cost_krw=5.0))
+    assert r.created is False and r.event_id == "A"
+    # replay 가 돌려준 canonical id 로 exact-ID lookup 이 정상 동작
+    got = led2.get_cost_events_by_ids_strict([r.event_id])
+    assert [o["event_id"] for o in got] == ["A"]
+
+
+def test_aud063_two_durable_lines_same_key_rejected(tmp_path):
+    # payload 는 같아도 서로 다른 event_id 로 durable 라인이 둘 → 1 key=1 identity 위반
+    path = str(tmp_path / "ledger.jsonl")
+    row = {"event_id": "A", "idempotency_key": "op:x:attempt:1",
+           "provider": "P", "cost_krw": 1.0}
+    with open(path, "w", encoding="utf-8") as f:
+        f.write(json.dumps(row) + "\n")
+        f.write(json.dumps(dict(row, event_id="B")) + "\n")   # 같은 key, 다른 event_id
+    led = _ledger(tmp_path)
+    with pytest.raises(cl.CostLedgerConflictError):
+        led.list_cost_events_strict()
+    cl._LEDGER_REGISTRY.clear()
+    with pytest.raises(cl.CostLedgerConflictError):
+        led.get_cost_events_by_ids_strict(["A"])
+
+
+def test_aud063_conflicting_payload_still_rejected(tmp_path):
+    led = _ledger(tmp_path)
+    r = led.record_cost_event_strict(_ev(event_id="A", key="op:x:attempt:1", cost_krw=1.0))
+    assert r.created is True and r.event_id == "A"
+    with pytest.raises(cl.CostLedgerConflictError):
+        led.record_cost_event_strict(_ev(event_id="B", key="op:x:attempt:1", cost_krw=999.0))
+    assert len(_lines(str(tmp_path / "ledger.jsonl"))) == 1
