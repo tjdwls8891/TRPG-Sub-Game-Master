@@ -2788,7 +2788,8 @@ class GMCog(commands.Cog):
             "지나간 장면에 인물의 행동·대사를 소급 삽입하지 말 것."
         )
         result = await game_cog._execute_proceed(
-            session, exec_instruction, master_guild=None, cost_log_prefix=COST_LOG_PREFIX
+            session, exec_instruction, master_guild=None, cost_log_prefix=COST_LOG_PREFIX,
+            transaction_id=transaction_id,
         )
 
         # PROCEED 완료 후 AI 출력 요약 (최대 500자)

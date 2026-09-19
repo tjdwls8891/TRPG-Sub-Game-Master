@@ -186,6 +186,22 @@ async def clear_status_message(msg):
         pass
 
 
+async def clear_messages(messages):
+    """transaction-owned bot 출력 메시지들을 멱등적으로 삭제한다(WP-A 정리 기반).
+
+    이미 삭제됐거나 외부에서 사라진 메시지에 다시 호출해도 안전하다(예외 흡수).
+    부분 전달 실패 후 caller가 이미 생성된 메시지를 좁게 정리할 때 쓴다.
+    WP-A에서는 정상 성공 경로에 자동 삭제를 배선하지 않는다(그것은 WP-E rerender/rewind).
+    """
+    for m in list(messages or []):
+        if m is None:
+            continue
+        try:
+            await m.delete()
+        except Exception:
+            pass
+
+
 # ========== [인물 대사 마커 처리] ==========
 # NOTE: AI가 출력한 `@대사:이름|본문` 마커를 감지하여 인물 헤더+말풍선 형식으로 변환.
 #       마커 외 다른 텍스트가 섞이면 일반 묘사로 처리되도록 엄격 매칭.
@@ -383,9 +399,15 @@ async def send_streamed(bot, channel, text: str, **kwargs):
 
 
 async def stream_text_to_channel(bot, channel, text: str, words_per_tick: int = 30, tick_interval: float = 1.5,
-                                  quote_prefix: bool = True, total_duration: float | None = None):
+                                  quote_prefix: bool = True, total_duration: float | None = None,
+                                  collector: list | None = None):
     """
     디스코드 채널에 텍스트를 문단과 단어 단위로 쪼개어 타이핑 치듯 스트리밍 연출.
+
+    WP-A(출력 소유권): collector가 주어지면 문단마다 생성한 메시지를 '전송 직후 즉시'
+        collector에 등록한다. 이후 문단 전송이 예외로 중단되어도 이미 생성된 메시지
+        핸들이 caller에게 보존된다(부분 전달 ID 보존). 반환값으로도 생성 메시지 목록을
+        돌려주나, 기존 caller는 반환값을 무시하므로 하위호환이다.
 
     NOTE: 한 번에 방대한 텍스트가 출력되는 것을 막아 TRPG 특유의 시각적 긴장감을 조성하고,
     디스코드 API의 메시지 전송 제한(Rate Limit)을 우회하기 위한 비동기 sleep 로직 적용.
@@ -406,6 +428,7 @@ async def stream_text_to_channel(bot, channel, text: str, words_per_tick: int = 
     session = bot.active_sessions.get(channel.id)
     paragraphs = text.split('\n\n')
 
+    created: list = []
     for paragraph in paragraphs:
         if not paragraph.strip():
             continue
@@ -436,6 +459,10 @@ async def stream_text_to_channel(bot, channel, text: str, words_per_tick: int = 
         first_chunk = words[:wpt]
         display_text += " ".join(first_chunk) + " "
         current_message = await channel.send(display_text + "✍️")
+        # WP-A: 전송 직후 즉시 등록 — 이후 문단 전송이 실패해도 이 ID는 회수 가능하다.
+        created.append(current_message)
+        if collector is not None:
+            collector.append(current_message)
 
         # 두 번째 청크부터는 기존과 동일하게 sleep 후 edit로 이어 붙인다.
         for i in range(wpt, len(words), wpt):
@@ -456,3 +483,5 @@ async def stream_text_to_channel(bot, channel, text: str, words_per_tick: int = 
 
         if session:
             write_log(session.session_id, "game_chat", f"[GM]: {final_text}")
+
+    return created

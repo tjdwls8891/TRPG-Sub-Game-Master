@@ -8,6 +8,9 @@ from google.genai.errors import APIError
 
 # 코어 유틸리티 모듈 임포트
 import core
+from core.narration_result import (
+    NarrationResult, DeliveryResult, NarrationDeliveryError,
+)
 
 
 # ========== [메인 게임 엔진 모듈(Game Cog)] ==========
@@ -233,7 +236,7 @@ class GameCog(commands.Cog):
         await self._execute_proceed(session, instruction, master_guild=ctx.guild)
 
     async def _execute_proceed(self, session, instruction: str = "", *, master_guild=None,
-                                cost_log_prefix: str = "") -> dict:
+                                cost_log_prefix: str = "", transaction_id: str | None = None) -> dict:
         """
         !진행 본체 — 명령 진입점과 GM(GMCog)가 공유하는 코어 로직.
 
@@ -409,193 +412,17 @@ class GameCog(commands.Cog):
             # 묘사는 가장 오래 걸린다. 문구를 갈아 끼워 멈춘 것처럼 보이지 않게 한다.
             status_msg = await core.WaitingStatus.begin(game_channel, "narration")
 
-            prompt = core.PromptBuilder.build_prompt(session, clean_instruction)
-
-            # NOTE: Gemini API는 contents가 role="user"로 시작해야 한다.
-            # 구형 세션은 raw_logs[0]이 role="model"(start message)일 수 있으므로,
-            # model-first인 경우 앞에 dummy user 턴을 삽입해 올바른 대화 구조를 보장한다.
-            _raw = list(session.raw_logs)
-            if _raw and _raw[0].role == "model":
-                _raw.insert(0, types.Content(role="user", parts=[types.Part.from_text(text="[세션 시작]")]))
-            current_contents = _raw + [
-                types.Content(role="user", parts=[types.Part.from_text(text=prompt)])
-            ]
-
-            payload_dump = ""
-            for content in current_contents:
-                payload_dump += f"[{content.role.upper()}]\n{content.parts[0].text}\n\n"
-            core.write_log(session.session_id, "api", f"[메인 턴 묘사 요청 - 최종 Payload]\n{payload_dump}")
-
-            async def _reissue_cache(reason_label: str):
-                """룰북 캐시를 (재)발급하고 세션 캐시 상태를 동기화한다.
-
-                캐시 만료 에러 복구와 캐시 부재 선제 발급(방안③)이 공유하는 단일 경로.
-                호출 측이 예외를 흡수해 캐시 없이도 턴이 진행될 수 있게 한다.
-                """
-                storage_cost = await core.process_cache_deletion(self.bot, session)
-                caching_text, cache_tokens, base_text = await core.build_scenario_cache_text(
-                    self.bot, core.DEFAULT_MODEL, session.scenario_data,
-                    getattr(session, "cache_note", ""), session.session_id, session=session
-                )
-
-                upload_cost = core.calculate_upload_cost(core.DEFAULT_MODEL, input_tokens=cache_tokens)
-                core.accrue(session, upload_cost, upload_cost / core.EXCHANGE_RATE)
-                session.cache_created_at = time.time()
-                session.cache_expired_notified = False
-                session.cache_tokens = cache_tokens
-
-                core.write_cost_log(session.session_id, f"{cost_log_prefix}{reason_label}", cache_tokens, 0, 0, upload_cost,
-                                    session.total_cost)
-
-                _cache_embed = core.build_cache_cost_embed(
-                    reason_label, storage_cost, upload_cost, session.total_cost
-                )
-                print(f"[{reason_label}] storage={core.format_cost(storage_cost)} upload={core.format_cost(upload_cost)} total={core.format_cost(session.total_cost)}")
-                await m_send(embed=_cache_embed)
-
-                new_cache = await asyncio.to_thread(
-                    self.bot.genai_client.caches.create,
-                    model=core.DEFAULT_MODEL,
-                    config=types.CreateCachedContentConfig(
-                        system_instruction=self.bot.system_instruction,
-                        contents=[
-                            types.Content(role="user", parts=[types.Part.from_text(text=caching_text)])],
-                        # 남은 유지 시간을 이어간다. 매번 6시간을 새로 주면
-                        # 결제한 것보다 오래 살아 비용이 어긋난다.
-                        ttl=f"{core.remaining_ttl(session)}s",
-                    )
-                )
-                session.cache_obj = new_cache
-                session.cache_name = new_cache.name
-                session.cache_model = core.DEFAULT_MODEL
-                session.cache_text = base_text
-                core.update_session_cache_state(session)
-                await core.save_session_data(self.bot, session)
-
-            # WP-02: 묘사 생성은 call_with_retry를 쓰지 않는 자체 캐시만료 재시도 경로다.
-            #        동일 operation_id를 유지하며 실제 호출마다 provider_attempt를 센다.
-            _narr_op = core.cost_ledger.begin_operation(
-                self.bot, core.cost_ledger.OP_TURN_NARRATION, session=session,
-                model=core.DEFAULT_MODEL, actor_kind=core.cost_ledger.ACTOR_PLAYER,
-                billing_hint=core.cost_ledger.HINT_PLAYER_CANDIDATE)
-
-            async def generate_with_retry(retry_count=0):
-                try:
-                    if session.cache_obj and session.cache_name:
-                        config = types.GenerateContentConfig(cached_content=session.cache_name, temperature=0.7,
-                                                             safety_settings=core.TRPG_SAFETY_SETTINGS)
-                    else:
-                        config = types.GenerateContentConfig(system_instruction=self.bot.system_instruction,
-                                                             temperature=0.7, safety_settings=core.TRPG_SAFETY_SETTINGS)
-
-                    async with game_channel.typing():
-                        _narr_op.mark_attempt()  # WP-02: 실제 provider 호출 1회 계수
-                        return await asyncio.to_thread(
-                            self.bot.genai_client.models.generate_content,
-                            model=core.DEFAULT_MODEL,
-                            contents=current_contents,
-                            config=config
-                        )
-                # NOTE: 이 경로는 call_with_retry를 쓰지 않는다. 캐시 만료를
-                #       감지해 재발급 후 재시도하는 자체 복구 로직이 있으며,
-                #       바깥에서 한 번 더 감싸면 재발급이 두 번 일어난다.
-                except APIError as e:
-                    if retry_count == 0 and ("cache" in str(e).lower() or e.code in [400, 404]):
-                        await m_send("🔄 **[시스템 알림]** 장기 기억 캐시가 만료되어 자동으로 재발급을 진행합니다. 턴 묘사는 이어서 출력됩니다...")
-                        await _reissue_cache("캐시 자동 재발급 (진행 중)")
-                        return await generate_with_retry(retry_count=1)
-                    else:
-                        raise e
-
-            # 방안③: 캐시가 없으면(명시적 !캐시 삭제 후 재개, 복구 직후 등) 에러를 기다리지
-            # 않고 선제 발급한다. 캐시 부재 시 cacheless 분기는 system_instruction(GM 페르소나)만
-            # 넘겨 시나리오 룰북 전체(세계관·NPC·스탯·금지)가 프롬프트에서 누락되므로, 비용뿐 아니라
-            # 서사 품질이 붕괴한다. 발급 실패 시에는 기존처럼 캐시 없이 그레이스풀 진행.
-            if not (session.cache_obj and session.cache_name):
-                try:
-                    await m_send("🔄 **[시스템 알림]** 활성 캐시가 없어 룰북 캐시를 선제 발급합니다. (명시적 삭제 후 재개 등)")
-                    await _reissue_cache("캐시 선제 재발급 (캐시 부재)")
-                except Exception as e:
-                    await m_send(f"⚠️ 캐시 선제 발급 실패 — 이번 턴은 캐시 없이 진행합니다: {e}")
-
-            response = await generate_with_retry()
-
-            meta = response.usage_metadata
-            in_tokens, out_tokens, cached_tokens, thought_tokens = core.extract_token_usage(meta)
-            # NOTE: 비용 예측 모델 산정을 위한 실측 로그 — 사고 토큰이 출력의 몇 %를 차지하는지 수집.
-            _visible = out_tokens - thought_tokens
-            _ratio = (thought_tokens / out_tokens * 100) if out_tokens else 0.0
-            print(f"[TOKENS] NARRATE in={in_tokens} cached={cached_tokens} "
-                  f"out={out_tokens} (visible={_visible} thinking={thought_tokens}, {_ratio:.1f}%)")
-
-            breakdown = core.calculate_text_gen_cost_breakdown(
-                core.DEFAULT_MODEL,
-                input_tokens=in_tokens,
-                output_tokens=out_tokens,
-                cached_read_tokens=cached_tokens,
+            # === 묘사 생성 (provider + 검증 + 후처리) — canonical/전달 부작용 없음 ===
+            narr = await self._generate_narration(
+                session, clean_instruction,
+                cost_log_prefix=cost_log_prefix, master_ch=master_ch,
+                game_channel=game_channel, m_send=m_send,
+                top_imgs=top_imgs, mid_imgs=mid_imgs, bottom_imgs=bottom_imgs,
             )
-            turn_cost = breakdown["total_krw"]
-            core.accrue(session, turn_cost, breakdown["total_usd"])
-            _narr_op.record(
-                input_tokens=in_tokens, cached_input_tokens=cached_tokens,
-                output_tokens=out_tokens, thought_tokens=thought_tokens,
-                cost_usd=breakdown["total_usd"], cost_krw=turn_cost,
-                usage_source=core.cost_ledger.SOURCE_PROVIDER_METADATA)
-            # 비용 예측 통계 — 묘사층위 출력은 변동이 가장 크므로 이동평균이 핵심이다.
-            core.update_stats(session, "narration", out_tokens, thought_tokens)
+            full_ai_response = narr.text
 
-            # 문자→토큰 계수 보정. 지시층위만 기록하면 보정이 편향된다.
-            # 묘사층위 프롬프트가 가장 크므로 이쪽 실측이 더 중요하다.
-            _cal = core.record_actual_input(
-                session, "narration", in_tokens - cached_tokens)
-            if _cal:
-                print(f"[CALIB] narration 예측 {_cal['predicted']} "
-                      f"실측 {_cal['actual']} 오차 {_cal['error_pct']:+.1f}% "
-                      f"계수 {_cal['calib']:.3f}")
-
-            label_prefix = "(GM) " if cost_log_prefix else ""
-            core.write_cost_log(session.session_id, f"{cost_log_prefix}턴 진행 생성", in_tokens, cached_tokens, out_tokens, turn_cost,
-                                session.total_cost)
-
-            print(f"\n[{label_prefix}턴 진행 비용] session={session.session_id} In={in_tokens:,} Cached={cached_tokens:,} Out={out_tokens:,} cost={core.format_cost(turn_cost)}")  # in/out/cached already guarded above
-
-            # PROCEED 비용을 turn_cost_log에 적립한다.
-            # NOTE: 턴 비용 보고 임베드는 더빙 합성 완료 후(아래)에 송출하여 TTS 비용까지 합산한다.
-            proceed_label = f"{'(GM) ' if cost_log_prefix else ''}묘사층위(PROCEED)"
-            if not hasattr(session, "turn_cost_log"):
-                session.turn_cost_log = []
-            session.turn_cost_log.append({
-                "label": proceed_label, "cost": turn_cost,
-                "in": in_tokens, "cached": cached_tokens, "out": out_tokens,
-                "manifest": list(getattr(session, "last_proceed_manifest", [])),
-            })
-
-            full_ai_response = response.text
-
-            if not full_ai_response:
-                finish_reason = response.candidates[0].finish_reason if response.candidates else "Unknown"
-                raise ValueError(
-                    f"AI가 텍스트를 반환하지 않았습니다. (구글 API 강제 차단 혹은 모델 에러. 사유: {finish_reason})\n지시사항의 수위를 조절하거나 `!재생성`을 이용해 턴을 취소해 주십시오.")
-
-            # PC 자율성 보호: AI가 NPC가 아닌 '플레이어 이름'으로 대사를 출력한 경우,
-            # 로그 저장·파싱·스트리밍에 들어가기 전 문자열 단계에서 해당 발화 문단을 제거한다.
-            pc_names = {p.get("name") for p in session.players.values() if p.get("name")}
-            npc_names = set(session.npcs.keys())
-            full_ai_response, _removed_pc_lines = core.strip_unauthorized_pc_dialogue(
-                full_ai_response, pc_names, npc_names)
-            if _removed_pc_lines:
-                _uniq = ", ".join(dict.fromkeys(_removed_pc_lines))
-                await m_send(f"🛡️ PC 자율성 보호: AI가 생성한 플레이어 대사({_uniq})를 출력 전 제거했습니다.")
-
-            # 방어적 태그 스트립: 상태 변경은 지시문(instruction) 태그로 이미 적용되므로,
-            # AI가 묘사 응답에 남긴 자:/태: 태그(에코 등)는 여기서 제거한다.
-            # (제거하지 않으면 출력에 태그가 누출되고, 코드블럭 뒤에 붙으면 코드블럭 인식이 깨진다.)
-            # NOTE: 이미지 태그(상|중|하:)는 세미콜론이 없어 '내상:중상' 등 서술·코드블럭을 오매칭할 수
-            #       있으므로 응답 스트립 대상에서 제외한다(자:/태:는 세미콜론 필수라 오매칭 위험 없음).
-            full_ai_response = re.sub(res_pattern, '', full_ai_response)
-            full_ai_response = re.sub(status_pattern, '', full_ai_response)
-            full_ai_response = re.sub(r'[ \t]{2,}', ' ', full_ai_response).strip()
-
+            # === canonical 턴 확정 로그/카운터 (셸 소유 — 기존 timing/순서 보존) ===
+            #     자동 caller(_dispatch_proceed)는 raw_logs 증가를 성공 신호로 쓰므로 여기서 유지한다.
             turn_history_text = "\n".join(session.current_turn_logs) + f"\n[GM 지시]: {clean_instruction}"
             session.raw_logs.append(types.Content(role="user", parts=[types.Part.from_text(text=turn_history_text)]))
             session.raw_logs.append(types.Content(role="model", parts=[types.Part.from_text(text=full_ai_response)]))
@@ -609,40 +436,340 @@ class GameCog(commands.Cog):
             if len(session.raw_logs) > 20:
                 session.raw_logs = session.raw_logs[-20:]
 
-            code_block_match = re.search(r'(.*)(```.*?```)\s*$', full_ai_response, re.DOTALL)
-            if code_block_match:
-                narrative_text = code_block_match.group(1).strip()
-                code_block_text = code_block_match.group(2).strip()
-            else:
-                narrative_text = full_ai_response.strip()
-                code_block_text = ""
-
-            paragraphs = [p.strip() for p in narrative_text.split('\n\n') if p.strip()]
-            # #3: 같은 화자의 연속 대사를 하나로 통합 (이미지 중복 출력 방지)
-            paragraphs = core.merge_consecutive_dialogues(paragraphs)
-
-            # 플레이어 이름과 동일한 인물의 발화 문단 제거 (출력 단계 차단).
-            # 위 문자열 strip은 'NPC가 아닌' PC 대사만 걸러내지만, 여기서는 출력 직전 파싱 기준으로
-            # 화자 이름이 플레이어 이름과 일치하면 NPC 겸용 여부와 무관하게 해당 발화 문단을 제거한다.
-            # (paragraphs는 이후 TTS·스트리밍·이미지 송출의 공통 입력이므로 한곳에서 차단된다.)
-            _pc_speaker_dropped = []
-            _kept_paras = []
-            for _p in paragraphs:
-                _d = core.parse_dialogue_paragraph(_p)
-                if _d and _d[0] in pc_names:
-                    _pc_speaker_dropped.append(_d[0])
-                    continue
-                _kept_paras.append(_p)
-            paragraphs = _kept_paras
-            if _pc_speaker_dropped:
-                _uniq_pc = ", ".join(dict.fromkeys(_pc_speaker_dropped))
-                await m_send(f"🛡️ 플레이어 이름({_uniq_pc})으로 된 발화 문단을 출력에서 제거했습니다.")
-
-            # 출력(타이핑 연출) 시작 직전 대기 안내 메시지 제거
+            # 출력(타이핑 연출) 시작 직전 대기 안내 메시지 제거 (기존 순서 보존)
+            _transient_ids = []
+            if status_msg is not None and getattr(status_msg, "message", None) is not None:
+                _transient_ids.append(status_msg.message.id)
             if status_msg:
                 await status_msg.done()
             status_msg = None
 
+            # === Discord 전달 (스트리밍·이미지·TTS·비용 임베드) ===
+            delivery = await self._deliver_narration(
+                session, narr,
+                game_channel=game_channel, master_ch=master_ch, m_send=m_send,
+                cost_log_prefix=cost_log_prefix, transient_ids=_transient_ids,
+            )
+
+            # WP-A 출력 소유권: 현재 attempt에 bot-authored 출력 ID를 귀속(runtime 식별/정리용).
+            #   durable canonical history 아님(WP-D/E). transaction_id=None(intro/manual)은 생략.
+            #   비파괴적 current 확인만 하며 신규 트랜잭션을 만들지 않는다(자동 생성 사이트 아님).
+            if transaction_id and core.turn_transaction.is_current_transaction(session, transaction_id):
+                _tx = core.turn_transaction.get_active_transaction(session)
+                if _tx is not None:
+                    _tx.canonical_message_ids.extend(delivery.canonical_message_ids)
+                    _tx.transient_message_ids.extend(delivery.transient_message_ids)
+
+            await core.save_session_data(self.bot, session)
+
+        except Exception as e:
+            # WP-A: 전달 부분 실패 시 이미 생성된 출력 ID를 현재 attempt에 귀속(잃지 않게).
+            #   비파괴적 current 확인만 하며 신규 트랜잭션을 만들지 않는다. intro/manual(None)은 생략.
+            if (isinstance(e, NarrationDeliveryError) and transaction_id
+                    and core.turn_transaction.is_current_transaction(session, transaction_id)):
+                _tx = core.turn_transaction.get_active_transaction(session)
+                if _tx is not None:
+                    _tx.canonical_message_ids.extend(e.canonical_message_ids)
+                    _tx.transient_message_ids.extend(e.transient_message_ids)
+            if status_msg:
+                await status_msg.done()
+            await m_send(f"⚠️ 시스템 오류가 발생했습니다: {str(e)}")
+            session.is_processing = False
+            try:
+                if master_guild:
+                    await game_channel.set_permissions(master_guild.default_role, send_messages=True)
+            except Exception:
+                pass
+            return {"ok": False, "ai_text": "", "error": str(e)}
+
+        session.is_processing = False
+        try:
+            if master_guild:
+                await game_channel.set_permissions(master_guild.default_role, send_messages=True)
+        except Exception as e:
+            print(f"⚠️ 자동 채팅 해제 실패: {e}")
+
+        return {"ok": True, "ai_text": full_ai_response, "error": None}
+
+    async def _generate_narration(self, session, clean_instruction, *, cost_log_prefix: str = "",
+                                   master_ch=None, game_channel=None, m_send=None,
+                                   top_imgs=None, mid_imgs=None, bottom_imgs=None) -> NarrationResult:
+        """묘사 provider 호출 + 응답 검증 + PC자율성/파싱 후처리 → NarrationResult.
+
+        단독 호출 시 정상 턴 확정 부작용을 수행하지 않는다: canonical raw/uncompressed 로그
+        append, turn_count 증가, 상태/자원 변이, Settlement/InkTransaction, 청구, 다음 라운드
+        unlock, canonical save, 스트리밍(게임 채널 전달) 중 어느 것도 하지 않는다. provider
+        요청 계측(CostEvent)·비용 적립·보정 통계·마스터 채널 진단 안내만 provider 경계와 함께
+        수행하며, narration CostEvent는 정확히 한 번(_narr_op) 등록된다. 응답이 비면
+        ValueError를 던져 호출 shell의 기존 예외 경로로 동일하게 처리되게 한다.
+        """
+        top_imgs = list(top_imgs or [])
+        mid_imgs = list(mid_imgs or [])
+        bottom_imgs = list(bottom_imgs or [])
+        if m_send is None:
+            async def m_send(content=None, **kw):
+                if master_ch:
+                    return await master_ch.send(content, **kw)
+                return None
+
+        # 응답 방어적 태그 스트립용 패턴(instruction 파싱과 동일 규약). 셸의 instruction
+        # 파싱 블록과 값이 같아야 하며, 여기서는 응답 스트립에만 쓴다.
+        _TAG_END = r'[^\s.,!?;:]'
+        res_pattern    = r'자:(' + _TAG_END + r'+);(' + _TAG_END + r'+);([-+]?\d+)'
+        status_pattern = r'태:(' + _TAG_END + r'+);(-?' + _TAG_END + r'+)'
+
+        prompt = core.PromptBuilder.build_prompt(session, clean_instruction)
+
+        # NOTE: Gemini API는 contents가 role="user"로 시작해야 한다.
+        # 구형 세션은 raw_logs[0]이 role="model"(start message)일 수 있으므로,
+        # model-first인 경우 앞에 dummy user 턴을 삽입해 올바른 대화 구조를 보장한다.
+        _raw = list(session.raw_logs)
+        if _raw and _raw[0].role == "model":
+            _raw.insert(0, types.Content(role="user", parts=[types.Part.from_text(text="[세션 시작]")]))
+        current_contents = _raw + [
+            types.Content(role="user", parts=[types.Part.from_text(text=prompt)])
+        ]
+
+        payload_dump = ""
+        for content in current_contents:
+            payload_dump += f"[{content.role.upper()}]\n{content.parts[0].text}\n\n"
+        core.write_log(session.session_id, "api", f"[메인 턴 묘사 요청 - 최종 Payload]\n{payload_dump}")
+
+        async def _reissue_cache(reason_label: str):
+            """룰북 캐시를 (재)발급하고 세션 캐시 상태를 동기화한다.
+
+            캐시 만료 에러 복구와 캐시 부재 선제 발급(방안③)이 공유하는 단일 경로.
+            호출 측이 예외를 흡수해 캐시 없이도 턴이 진행될 수 있게 한다.
+            """
+            storage_cost = await core.process_cache_deletion(self.bot, session)
+            caching_text, cache_tokens, base_text = await core.build_scenario_cache_text(
+                self.bot, core.DEFAULT_MODEL, session.scenario_data,
+                getattr(session, "cache_note", ""), session.session_id, session=session
+            )
+
+            upload_cost = core.calculate_upload_cost(core.DEFAULT_MODEL, input_tokens=cache_tokens)
+            core.accrue(session, upload_cost, upload_cost / core.EXCHANGE_RATE)
+            session.cache_created_at = time.time()
+            session.cache_expired_notified = False
+            session.cache_tokens = cache_tokens
+
+            core.write_cost_log(session.session_id, f"{cost_log_prefix}{reason_label}", cache_tokens, 0, 0, upload_cost,
+                                session.total_cost)
+
+            _cache_embed = core.build_cache_cost_embed(
+                reason_label, storage_cost, upload_cost, session.total_cost
+            )
+            print(f"[{reason_label}] storage={core.format_cost(storage_cost)} upload={core.format_cost(upload_cost)} total={core.format_cost(session.total_cost)}")
+            await m_send(embed=_cache_embed)
+
+            new_cache = await asyncio.to_thread(
+                self.bot.genai_client.caches.create,
+                model=core.DEFAULT_MODEL,
+                config=types.CreateCachedContentConfig(
+                    system_instruction=self.bot.system_instruction,
+                    contents=[
+                        types.Content(role="user", parts=[types.Part.from_text(text=caching_text)])],
+                    # 남은 유지 시간을 이어간다. 매번 6시간을 새로 주면
+                    # 결제한 것보다 오래 살아 비용이 어긋난다.
+                    ttl=f"{core.remaining_ttl(session)}s",
+                )
+            )
+            session.cache_obj = new_cache
+            session.cache_name = new_cache.name
+            session.cache_model = core.DEFAULT_MODEL
+            session.cache_text = base_text
+            core.update_session_cache_state(session)
+            await core.save_session_data(self.bot, session)
+
+        # WP-02: 묘사 생성은 call_with_retry를 쓰지 않는 자체 캐시만료 재시도 경로다.
+        #        동일 operation_id를 유지하며 실제 호출마다 provider_attempt를 센다.
+        _narr_op = core.cost_ledger.begin_operation(
+            self.bot, core.cost_ledger.OP_TURN_NARRATION, session=session,
+            model=core.DEFAULT_MODEL, actor_kind=core.cost_ledger.ACTOR_PLAYER,
+            billing_hint=core.cost_ledger.HINT_PLAYER_CANDIDATE)
+
+        async def generate_with_retry(retry_count=0):
+            try:
+                if session.cache_obj and session.cache_name:
+                    config = types.GenerateContentConfig(cached_content=session.cache_name, temperature=0.7,
+                                                         safety_settings=core.TRPG_SAFETY_SETTINGS)
+                else:
+                    config = types.GenerateContentConfig(system_instruction=self.bot.system_instruction,
+                                                         temperature=0.7, safety_settings=core.TRPG_SAFETY_SETTINGS)
+
+                async with game_channel.typing():
+                    _narr_op.mark_attempt()  # WP-02: 실제 provider 호출 1회 계수
+                    return await asyncio.to_thread(
+                        self.bot.genai_client.models.generate_content,
+                        model=core.DEFAULT_MODEL,
+                        contents=current_contents,
+                        config=config
+                    )
+            # NOTE: 이 경로는 call_with_retry를 쓰지 않는다. 캐시 만료를
+            #       감지해 재발급 후 재시도하는 자체 복구 로직이 있으며,
+            #       바깥에서 한 번 더 감싸면 재발급이 두 번 일어난다.
+            except APIError as e:
+                if retry_count == 0 and ("cache" in str(e).lower() or e.code in [400, 404]):
+                    await m_send("🔄 **[시스템 알림]** 장기 기억 캐시가 만료되어 자동으로 재발급을 진행합니다. 턴 묘사는 이어서 출력됩니다...")
+                    await _reissue_cache("캐시 자동 재발급 (진행 중)")
+                    return await generate_with_retry(retry_count=1)
+                else:
+                    raise e
+
+        # 방안③: 캐시가 없으면(명시적 !캐시 삭제 후 재개, 복구 직후 등) 에러를 기다리지
+        # 않고 선제 발급한다. 캐시 부재 시 cacheless 분기는 system_instruction(GM 페르소나)만
+        # 넘겨 시나리오 룰북 전체(세계관·NPC·스탯·금지)가 프롬프트에서 누락되므로, 비용뿐 아니라
+        # 서사 품질이 붕괴한다. 발급 실패 시에는 기존처럼 캐시 없이 그레이스풀 진행.
+        if not (session.cache_obj and session.cache_name):
+            try:
+                await m_send("🔄 **[시스템 알림]** 활성 캐시가 없어 룰북 캐시를 선제 발급합니다. (명시적 삭제 후 재개 등)")
+                await _reissue_cache("캐시 선제 재발급 (캐시 부재)")
+            except Exception as e:
+                await m_send(f"⚠️ 캐시 선제 발급 실패 — 이번 턴은 캐시 없이 진행합니다: {e}")
+
+        response = await generate_with_retry()
+
+        meta = response.usage_metadata
+        in_tokens, out_tokens, cached_tokens, thought_tokens = core.extract_token_usage(meta)
+        # NOTE: 비용 예측 모델 산정을 위한 실측 로그 — 사고 토큰이 출력의 몇 %를 차지하는지 수집.
+        _visible = out_tokens - thought_tokens
+        _ratio = (thought_tokens / out_tokens * 100) if out_tokens else 0.0
+        print(f"[TOKENS] NARRATE in={in_tokens} cached={cached_tokens} "
+              f"out={out_tokens} (visible={_visible} thinking={thought_tokens}, {_ratio:.1f}%)")
+
+        breakdown = core.calculate_text_gen_cost_breakdown(
+            core.DEFAULT_MODEL,
+            input_tokens=in_tokens,
+            output_tokens=out_tokens,
+            cached_read_tokens=cached_tokens,
+        )
+        turn_cost = breakdown["total_krw"]
+        core.accrue(session, turn_cost, breakdown["total_usd"])
+        _narr_op.record(
+            input_tokens=in_tokens, cached_input_tokens=cached_tokens,
+            output_tokens=out_tokens, thought_tokens=thought_tokens,
+            cost_usd=breakdown["total_usd"], cost_krw=turn_cost,
+            usage_source=core.cost_ledger.SOURCE_PROVIDER_METADATA)
+        # 비용 예측 통계 — 묘사층위 출력은 변동이 가장 크므로 이동평균이 핵심이다.
+        core.update_stats(session, "narration", out_tokens, thought_tokens)
+
+        # 문자→토큰 계수 보정. 지시층위만 기록하면 보정이 편향된다.
+        # 묘사층위 프롬프트가 가장 크므로 이쪽 실측이 더 중요하다.
+        _cal = core.record_actual_input(
+            session, "narration", in_tokens - cached_tokens)
+        if _cal:
+            print(f"[CALIB] narration 예측 {_cal['predicted']} "
+                  f"실측 {_cal['actual']} 오차 {_cal['error_pct']:+.1f}% "
+                  f"계수 {_cal['calib']:.3f}")
+
+        label_prefix = "(GM) " if cost_log_prefix else ""
+        core.write_cost_log(session.session_id, f"{cost_log_prefix}턴 진행 생성", in_tokens, cached_tokens, out_tokens, turn_cost,
+                            session.total_cost)
+
+        print(f"\n[{label_prefix}턴 진행 비용] session={session.session_id} In={in_tokens:,} Cached={cached_tokens:,} Out={out_tokens:,} cost={core.format_cost(turn_cost)}")  # in/out/cached already guarded above
+
+        # PROCEED 비용을 turn_cost_log에 적립한다.
+        # NOTE: 턴 비용 보고 임베드는 더빙 합성 완료 후(아래)에 송출하여 TTS 비용까지 합산한다.
+        proceed_label = f"{'(GM) ' if cost_log_prefix else ''}묘사층위(PROCEED)"
+        if not hasattr(session, "turn_cost_log"):
+            session.turn_cost_log = []
+        session.turn_cost_log.append({
+            "label": proceed_label, "cost": turn_cost,
+            "in": in_tokens, "cached": cached_tokens, "out": out_tokens,
+            "manifest": list(getattr(session, "last_proceed_manifest", [])),
+        })
+
+        full_ai_response = response.text
+
+        if not full_ai_response:
+            finish_reason = response.candidates[0].finish_reason if response.candidates else "Unknown"
+            raise ValueError(
+                f"AI가 텍스트를 반환하지 않았습니다. (구글 API 강제 차단 혹은 모델 에러. 사유: {finish_reason})\n지시사항의 수위를 조절하거나 `!재생성`을 이용해 턴을 취소해 주십시오.")
+
+        # PC 자율성 보호: AI가 NPC가 아닌 '플레이어 이름'으로 대사를 출력한 경우,
+        # 로그 저장·파싱·스트리밍에 들어가기 전 문자열 단계에서 해당 발화 문단을 제거한다.
+        pc_names = {p.get("name") for p in session.players.values() if p.get("name")}
+        npc_names = set(session.npcs.keys())
+        full_ai_response, _removed_pc_lines = core.strip_unauthorized_pc_dialogue(
+            full_ai_response, pc_names, npc_names)
+        if _removed_pc_lines:
+            _uniq = ", ".join(dict.fromkeys(_removed_pc_lines))
+            await m_send(f"🛡️ PC 자율성 보호: AI가 생성한 플레이어 대사({_uniq})를 출력 전 제거했습니다.")
+
+        # 방어적 태그 스트립: 상태 변경은 지시문(instruction) 태그로 이미 적용되므로,
+        # AI가 묘사 응답에 남긴 자:/태: 태그(에코 등)는 여기서 제거한다.
+        # (제거하지 않으면 출력에 태그가 누출되고, 코드블럭 뒤에 붙으면 코드블럭 인식이 깨진다.)
+        # NOTE: 이미지 태그(상|중|하:)는 세미콜론이 없어 '내상:중상' 등 서술·코드블럭을 오매칭할 수
+        #       있으므로 응답 스트립 대상에서 제외한다(자:/태:는 세미콜론 필수라 오매칭 위험 없음).
+        full_ai_response = re.sub(res_pattern, '', full_ai_response)
+        full_ai_response = re.sub(status_pattern, '', full_ai_response)
+        full_ai_response = re.sub(r'[ \t]{2,}', ' ', full_ai_response).strip()
+
+        code_block_match = re.search(r'(.*)(```.*?```)\s*$', full_ai_response, re.DOTALL)
+        if code_block_match:
+            narrative_text = code_block_match.group(1).strip()
+            code_block_text = code_block_match.group(2).strip()
+        else:
+            narrative_text = full_ai_response.strip()
+            code_block_text = ""
+
+        paragraphs = [p.strip() for p in narrative_text.split('\n\n') if p.strip()]
+        # #3: 같은 화자의 연속 대사를 하나로 통합 (이미지 중복 출력 방지)
+        paragraphs = core.merge_consecutive_dialogues(paragraphs)
+
+        # 플레이어 이름과 동일한 인물의 발화 문단 제거 (출력 단계 차단).
+        # 위 문자열 strip은 'NPC가 아닌' PC 대사만 걸러내지만, 여기서는 출력 직전 파싱 기준으로
+        # 화자 이름이 플레이어 이름과 일치하면 NPC 겸용 여부와 무관하게 해당 발화 문단을 제거한다.
+        # (paragraphs는 이후 TTS·스트리밍·이미지 송출의 공통 입력이므로 한곳에서 차단된다.)
+        _pc_speaker_dropped = []
+        _kept_paras = []
+        for _p in paragraphs:
+            _d = core.parse_dialogue_paragraph(_p)
+            if _d and _d[0] in pc_names:
+                _pc_speaker_dropped.append(_d[0])
+                continue
+            _kept_paras.append(_p)
+        paragraphs = _kept_paras
+        if _pc_speaker_dropped:
+            _uniq_pc = ", ".join(dict.fromkeys(_pc_speaker_dropped))
+            await m_send(f"🛡️ 플레이어 이름({_uniq_pc})으로 된 발화 문단을 출력에서 제거했습니다.")
+
+        return NarrationResult(
+            text=full_ai_response,
+            narrative_text=narrative_text,
+            code_block_text=code_block_text,
+            paragraphs=tuple(paragraphs),
+            top_images=tuple(top_imgs),
+            mid_images=tuple(mid_imgs),
+            bottom_images=tuple(bottom_imgs),
+        )
+
+    async def _deliver_narration(self, session, narr: NarrationResult, *, game_channel=None,
+                                  master_ch=None, m_send=None, cost_log_prefix: str = "",
+                                  transient_ids=None) -> DeliveryResult:
+        """NarrationResult를 Discord 게임 채널에 전달한다(스트리밍·대사포맷·이미지·TTS·코드블럭·
+        비용 임베드). 생성한 bot-authored 묘사 메시지 ID를 즉시 수집(collector)하여
+        DeliveryResult로 보고한다. 부분 전달 실패에서도 이미 생성된 ID는 보존되며, 실패 시
+        NarrationDeliveryError에 그 ID들을 실어 던진다. canonical 상태/청구/다음 라운드 권한을
+        소유하지 않는다(그 timing은 셸/후속 WP 소관).
+        """
+        if m_send is None:
+            async def m_send(content=None, **kw):
+                if master_ch:
+                    return await master_ch.send(content, **kw)
+                return None
+
+        paragraphs = list(narr.paragraphs)
+        narrative_text = narr.narrative_text
+        code_block_text = narr.code_block_text
+        top_imgs = list(narr.top_images)
+        mid_imgs = list(narr.mid_images)
+        bottom_imgs = list(narr.bottom_images)
+
+        collector: list = []          # 스트리밍 메시지를 전송 직후 즉시 등록(부분 전달 안전)
+        transient_ids = list(transient_ids or [])
+
+        try:
             # TTS 더빙(실험): 수동 !진행에서 토글 ON + 보이스 연결 시 '음성-텍스트 동기' 경로 사용.
             # (문단별 음성 길이에 텍스트 스트리밍 속도를 맞춤.) GM(cost_log_prefix)·미연결 제외.
             # dub: 더빙 합성 누적 결과 dict (비용·경고 처리는 출력 완료 후 일원화).
@@ -672,7 +799,7 @@ class GameCog(commands.Cog):
                 # 음성-텍스트 동기 출력 (이미지 송출 포함). 합성·적재·스트리밍을 한 곳에서 처리.
                 dub = await self._stream_paragraphs_synced(
                     session, paragraphs, game_channel, master_ch,
-                    top_imgs, mid_imgs, bottom_imgs
+                    top_imgs, mid_imgs, bottom_imgs, collector=collector
                 )
             else:
                 # 비동기(또는 TTS off) 경로. 토글 ON이지만 보이스 미연결이면 no_voice 경고용으로 합성 시도.
@@ -696,10 +823,10 @@ class GameCog(commands.Cog):
                         formatted = core.format_dialogue_block(speaker, content)
                         await core.stream_text_to_channel(self.bot, game_channel, formatted,
                                                           words_per_tick=15, tick_interval=1.5,
-                                                          quote_prefix=False)
+                                                          quote_prefix=False, collector=collector)
                     else:
                         await core.stream_text_to_channel(self.bot, game_channel, paragraph,
-                                                          words_per_tick=15, tick_interval=1.5)
+                                                          words_per_tick=15, tick_interval=1.5, collector=collector)
 
                     if i == 0:
                         for kw in top_imgs:
@@ -724,7 +851,8 @@ class GameCog(commands.Cog):
                         dub = None
 
             if code_block_text:
-                await game_channel.send(code_block_text)
+                _cb_msg = await game_channel.send(code_block_text)
+                collector.append(_cb_msg)
 
             # TTS 더빙 비용·경고 일원 처리 (동기/비동기 공통)
             if dub:
@@ -751,31 +879,19 @@ class GameCog(commands.Cog):
 
             await m_send(f"✅ 묘사 연출 완료 (현재 {session.turn_count}턴 경과). 다음 턴 대기 중...")
 
-            # NOTE: 자동 기억 압축은 이 지점(턴 종료 직후)이 아니라, 다음 5N+1 프로씨드 '시작 시점'에
-            # 백그라운드로 개시된다(_execute_proceed 도입부 + _run_auto_compression). 5N 턴 !재생성 허용을 위함.
+        except Exception as _e:
+            # 부분 전달 실패 — 이미 생성된 ID를 실어 던진다(caller가 잃지 않게).
+            raise NarrationDeliveryError(
+                str(_e),
+                canonical_message_ids=tuple(getattr(m, "id", None) for m in collector if m is not None),
+                transient_message_ids=tuple(transient_ids),
+            ) from _e
 
-            await core.save_session_data(self.bot, session)
-
-        except Exception as e:
-            if status_msg:
-                await status_msg.done()
-            await m_send(f"⚠️ 시스템 오류가 발생했습니다: {str(e)}")
-            session.is_processing = False
-            try:
-                if master_guild:
-                    await game_channel.set_permissions(master_guild.default_role, send_messages=True)
-            except Exception:
-                pass
-            return {"ok": False, "ai_text": "", "error": str(e)}
-
-        session.is_processing = False
-        try:
-            if master_guild:
-                await game_channel.set_permissions(master_guild.default_role, send_messages=True)
-        except Exception as e:
-            print(f"⚠️ 자동 채팅 해제 실패: {e}")
-
-        return {"ok": True, "ai_text": full_ai_response, "error": None}
+        return DeliveryResult(
+            ok=True,
+            canonical_message_ids=tuple(getattr(m, "id", None) for m in collector if m is not None),
+            transient_message_ids=tuple(transient_ids),
+        )
 
     async def _run_auto_compression(self, session, logs_to_compress: list, cost_log_prefix: str = ""):
         """
@@ -952,7 +1068,7 @@ class GameCog(commands.Cog):
 
     async def _stream_paragraphs_synced(self, session, paragraphs, game_channel, master_ch,
                                         top_imgs, mid_imgs, bottom_imgs, voice_name=None,
-                                        *, cost_scope: str = None) -> dict:
+                                        *, cost_scope: str = None, collector: list = None) -> dict:
         """
         TTS 더빙 ON + 보이스 연결 시 사용하는 '음성-텍스트 동기' 출력 경로.
 
@@ -1022,6 +1138,7 @@ class GameCog(commands.Cog):
             await core.stream_text_to_channel(
                 self.bot, game_channel, display,
                 quote_prefix=not is_dialogue, total_duration=duration,
+                collector=collector,
             )
 
             if i == 0:
