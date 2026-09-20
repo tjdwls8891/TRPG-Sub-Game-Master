@@ -459,6 +459,7 @@ class GameCog(commands.Cog):
                 if _tx is not None:
                     _tx.canonical_message_ids.extend(delivery.canonical_message_ids)
                     _tx.transient_message_ids.extend(delivery.transient_message_ids)
+                    _tx.media_message_ids.extend(delivery.media_message_ids)
 
             await core.save_session_data(self.bot, session)
 
@@ -471,6 +472,7 @@ class GameCog(commands.Cog):
                 if _tx is not None:
                     _tx.canonical_message_ids.extend(e.canonical_message_ids)
                     _tx.transient_message_ids.extend(e.transient_message_ids)
+                    _tx.media_message_ids.extend(e.media_message_ids)
             if status_msg:
                 await status_msg.done()
             await m_send(f"⚠️ 시스템 오류가 발생했습니다: {str(e)}")
@@ -767,6 +769,7 @@ class GameCog(commands.Cog):
         bottom_imgs = list(narr.bottom_images)
 
         collector: list = []          # 스트리밍 메시지를 전송 직후 즉시 등록(부분 전달 안전)
+        media_collector: list = []    # 이미지/화자 이미지 메시지를 전송 직후 즉시 등록(부분 전달 안전)
         transient_ids = list(transient_ids or [])
 
         try:
@@ -794,12 +797,12 @@ class GameCog(commands.Cog):
 
             if not paragraphs:
                 for kw in top_imgs + mid_imgs + bottom_imgs:
-                    await core.send_image_by_keyword(game_channel, master_ch, session, kw)
+                    await core.send_image_by_keyword(game_channel, master_ch, session, kw, collector=media_collector)
             elif dub_active:
                 # 음성-텍스트 동기 출력 (이미지 송출 포함). 합성·적재·스트리밍을 한 곳에서 처리.
                 dub = await self._stream_paragraphs_synced(
                     session, paragraphs, game_channel, master_ch,
-                    top_imgs, mid_imgs, bottom_imgs, collector=collector
+                    top_imgs, mid_imgs, bottom_imgs, collector=collector, media_collector=media_collector
                 )
             else:
                 # 비동기(또는 TTS off) 경로. 토글 ON이지만 보이스 미연결이면 no_voice 경고용으로 합성 시도.
@@ -819,7 +822,7 @@ class GameCog(commands.Cog):
                     dialogue = core.parse_dialogue_paragraph(paragraph)
                     if dialogue:
                         speaker, content = dialogue
-                        await core.maybe_send_speaker_image(game_channel, session, speaker)
+                        await core.maybe_send_speaker_image(game_channel, session, speaker, collector=media_collector)
                         formatted = core.format_dialogue_block(speaker, content)
                         await core.stream_text_to_channel(self.bot, game_channel, formatted,
                                                           words_per_tick=15, tick_interval=1.5,
@@ -830,17 +833,17 @@ class GameCog(commands.Cog):
 
                     if i == 0:
                         for kw in top_imgs:
-                            await core.send_image_by_keyword(game_channel, master_ch, session, kw)
+                            await core.send_image_by_keyword(game_channel, master_ch, session, kw, collector=media_collector)
 
                     for kw in list(mid_imgs):
                         if kw in paragraph:
-                            await core.send_image_by_keyword(game_channel, master_ch, session, kw)
+                            await core.send_image_by_keyword(game_channel, master_ch, session, kw, collector=media_collector)
                             mid_imgs.remove(kw)
 
                 for kw in mid_imgs:
-                    await core.send_image_by_keyword(game_channel, master_ch, session, kw)
+                    await core.send_image_by_keyword(game_channel, master_ch, session, kw, collector=media_collector)
                 for kw in bottom_imgs:
-                    await core.send_image_by_keyword(game_channel, master_ch, session, kw)
+                    await core.send_image_by_keyword(game_channel, master_ch, session, kw, collector=media_collector)
 
                 # 백그라운드 더빙 합성 완료 대기 (음성 재생은 믹서 큐에서 계속 진행됨)
                 if dub_task is not None:
@@ -885,12 +888,14 @@ class GameCog(commands.Cog):
                 str(_e),
                 canonical_message_ids=tuple(getattr(m, "id", None) for m in collector if m is not None),
                 transient_message_ids=tuple(transient_ids),
+                media_message_ids=tuple(getattr(m, "id", None) for m in media_collector if m is not None),
             ) from _e
 
         return DeliveryResult(
             ok=True,
             canonical_message_ids=tuple(getattr(m, "id", None) for m in collector if m is not None),
             transient_message_ids=tuple(transient_ids),
+            media_message_ids=tuple(getattr(m, "id", None) for m in media_collector if m is not None),
         )
 
     async def _run_auto_compression(self, session, logs_to_compress: list, cost_log_prefix: str = ""):
@@ -1068,7 +1073,8 @@ class GameCog(commands.Cog):
 
     async def _stream_paragraphs_synced(self, session, paragraphs, game_channel, master_ch,
                                         top_imgs, mid_imgs, bottom_imgs, voice_name=None,
-                                        *, cost_scope: str = None, collector: list = None) -> dict:
+                                        *, cost_scope: str = None, collector: list = None,
+                                        media_collector: list = None) -> dict:
         """
         TTS 더빙 ON + 보이스 연결 시 사용하는 '음성-텍스트 동기' 출력 경로.
 
@@ -1133,7 +1139,7 @@ class GameCog(commands.Cog):
                 duration = len(pcm) / float(core.TTS_PCM_BYTES_PER_SEC)
 
             if is_dialogue:
-                await core.maybe_send_speaker_image(game_channel, session, speaker)
+                await core.maybe_send_speaker_image(game_channel, session, speaker, collector=media_collector)
 
             await core.stream_text_to_channel(
                 self.bot, game_channel, display,
@@ -1143,11 +1149,11 @@ class GameCog(commands.Cog):
 
             if i == 0:
                 for kw in top_imgs:
-                    await core.send_image_by_keyword(game_channel, master_ch, session, kw)
+                    await core.send_image_by_keyword(game_channel, master_ch, session, kw, collector=media_collector)
 
             for kw in list(mid_imgs):
                 if kw in raw:
-                    await core.send_image_by_keyword(game_channel, master_ch, session, kw)
+                    await core.send_image_by_keyword(game_channel, master_ch, session, kw, collector=media_collector)
                     mid_imgs.remove(kw)
 
             # 다음 문단 합성 결과 수령
@@ -1157,9 +1163,9 @@ class GameCog(commands.Cog):
                 pcm, cost, in_tok, out_tok = (b"", 0.0, 0, 0)
 
         for kw in mid_imgs:
-            await core.send_image_by_keyword(game_channel, master_ch, session, kw)
+            await core.send_image_by_keyword(game_channel, master_ch, session, kw, collector=media_collector)
         for kw in bottom_imgs:
-            await core.send_image_by_keyword(game_channel, master_ch, session, kw)
+            await core.send_image_by_keyword(game_channel, master_ch, session, kw, collector=media_collector)
 
         return {"enqueued": enqueued, "total": len(items), "cost": total_cost,
                 "usd": total_cost / core.EXCHANGE_RATE if core.EXCHANGE_RATE else 0.0,

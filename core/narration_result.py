@@ -53,8 +53,8 @@ class DeliveryResult:
         ok                   — 전달이 예외 없이 끝났는가.
         canonical_message_ids— 이번 전달이 만든 bot-authored 묘사 메시지 ID들(생성 순서).
         transient_message_ids— 대기/진행 안내 등 일시 메시지 ID들(WaitingStatus 등).
-        media_message_ids    — 이미지/미디어 메시지 ID들. WP-A에서는 수집하지 않으며(미디어
-                               헬퍼 미개조, 전체 lifecycle은 WP-F), 인터페이스 완결성 위해 유지.
+        media_message_ids    — narration-연계 이미지/미디어/파일 메시지 ID들(생성 순서). 게임 채널에
+                               실제 생성된 것만 담는다. 마스터 채널 진단/비용 안내는 소유 대상이 아니다.
         delivery_error       — 실패 시 사유(정상 시 None).
     """
 
@@ -74,7 +74,9 @@ class NarrationDeliveryError(Exception):
     """
 
     def __init__(self, message: str = "", *,
-                 canonical_message_ids=(), transient_message_ids=()):
+                 canonical_message_ids=(), transient_message_ids=(),
+                 media_message_ids=()):
         super().__init__(message)
         self.canonical_message_ids = tuple(canonical_message_ids)
         self.transient_message_ids = tuple(transient_message_ids)
+        self.media_message_ids = tuple(media_message_ids)

@@ -7,18 +7,23 @@ import discord
 from .audio_mixer import ensure_mixer, get_mixer
 
 
-async def send_image_by_keyword(game_channel, master_ctx, session, keyword):
+async def send_image_by_keyword(game_channel, master_ctx, session, keyword, collector=None):
     """
     시나리오 데이터에 지정된 키워드와 파일 매핑을 참조하여 이미지를 게임 채널에 전송.
 
     NOTE: 경로 해킹(Path Traversal) 방지를 위해 절대경로 하드코딩 대신
     JSON 매핑 인덱스를 이용한 유효성 검증 수행.
 
+    WP-A(출력 소유권): collector가 주어지면 게임 채널에 실제 생성한 이미지 메시지를 전송
+        직후 즉시 등록한다(부분 전달 안전). 생성 메시지(또는 없으면 None)를 반환하나, 기존
+        caller는 반환값을 무시하므로 하위호환이다. 마스터 채널 경고는 소유 대상이 아니다.
+
     Args:
         game_channel (discord.TextChannel): 이미지를 전송할 디스코드 게임 채널 객체
         master_ctx (commands.Context): 오류 메시지를 전송할 디스코드 마스터 컨텍스트 객체
         session (TRPGSession): 대상 세션 객체
         keyword (str): 출력할 이미지의 트리거 키워드
+        collector (list | None): 생성한 게임 채널 메시지를 즉시 등록할 수집기(선택)
     """
     media_keywords = session.scenario_data.get("media_keywords", {})
     media_dir = f"media/{session.scenario_id}"
@@ -27,9 +32,13 @@ async def send_image_by_keyword(game_channel, master_ctx, session, keyword):
         # media_keywords에 명시적으로 등록된 파일명 사용
         filepath = os.path.join(media_dir, media_keywords[keyword])
         if os.path.exists(filepath):
-            await game_channel.send(file=discord.File(filepath))
+            _m = await game_channel.send(file=discord.File(filepath))
+            if collector is not None:
+                collector.append(_m)
+            return _m
         else:
             await master_ctx.send(f"⚠️ [이미지 경고] 설정된 파일이 경로에 없습니다: `{filepath}`")
+            return None
     else:
         # 장소 이미지 — places 시스템이 흡수했다(지시 확정).
         # 명시된 이미지가 없으면 상위 항목 중 가장 하위의 것을 쓴다.
@@ -51,11 +60,16 @@ async def send_image_by_keyword(game_channel, master_ctx, session, keyword):
         if fname:
             filepath = os.path.join(media_dir, fname)
             if os.path.exists(filepath):
-                await game_channel.send(file=discord.File(filepath))
+                _m = await game_channel.send(file=discord.File(filepath))
+                if collector is not None:
+                    collector.append(_m)
+                return _m
             else:
                 await master_ctx.send(f"⚠️ [장소 이미지 경고] 파일이 없습니다: `{filepath}`")
+                return None
         else:
             await master_ctx.send(f"⚠️ [이미지 경고] 등록되지 않은 키워드입니다: `{keyword}`")
+            return None
 
 
 class PlaylistManager:

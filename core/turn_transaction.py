@@ -114,6 +114,9 @@ class TurnTransaction:
     pending_effects: dict = field(default_factory=dict)
     transient_message_ids: list = field(default_factory=list)
     canonical_message_ids: list = field(default_factory=list)
+    # WP-A: narration-associated media/image/file 출력의 runtime attempt 소유권.
+    #   canonical narration 텍스트와 구분해 둔다(정리/회수용 runtime 식별이며 durable history 아님).
+    media_message_ids: list = field(default_factory=list)
 
     # ASK/NARRATE 재입력의 진단 보존용. 최초 선언은 덮어쓰지 않는다.
     interaction_inputs: list = field(default_factory=list)

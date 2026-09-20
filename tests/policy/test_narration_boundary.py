@@ -454,3 +454,150 @@ async def test_delivery_does_not_advance_canonical_state(
     assert after["total_ink_spent"] == before["total_ink_spent"]
     assert after["resources"] == before["resources"]
     assert after["statuses"] == before["statuses"]
+
+
+# ══════════════════════════════════════════════════════════════
+# 미디어 출력 소유권 (GPT 게이트 패치 — 이미지/미디어도 회수 가능해야 함)
+# ══════════════════════════════════════════════════════════════
+
+import os
+
+
+def _install_media(session, keyword="폭포", filename="pic.png"):
+    """게임 채널 이미지가 실제로 생성되도록 미디어 키워드+파일을 준비한다(격리 cwd)."""
+    md = session.scenario_data.setdefault("media_keywords", {})
+    md[keyword] = filename
+    d = f"media/{session.scenario_id}"
+    os.makedirs(d, exist_ok=True)
+    with open(os.path.join(d, filename), "wb") as f:
+        f.write(b"\x89PNG\r\n")   # 존재만 하면 된다
+    return keyword
+
+
+def _narr_img(paragraphs, top=(), mid=(), bottom=()):
+    return NarrationResult(
+        text="\n\n".join(paragraphs),
+        narrative_text="\n\n".join(paragraphs),
+        code_block_text="",
+        paragraphs=tuple(paragraphs),
+        top_images=tuple(top), mid_images=tuple(mid), bottom_images=tuple(bottom))
+
+
+async def test_m1_media_ids_preserved_in_delivery_result(
+        wired_bot, session_auto_ready, game_channel, master_channel):
+    """M1 — 이미지 지시가 실제 메시지를 만들면 그 ID가 DeliveryResult.media_message_ids에 실린다."""
+    session_auto_ready.turn_cost_log = []
+    kw = _install_media(session_auto_ready)
+    cog = GameCog(wired_bot)
+    narr = _narr_img(["문단 하나."], top=[kw])
+
+    delivery = await cog._deliver_narration(
+        session_auto_ready, narr, game_channel=game_channel, master_ch=master_channel,
+        m_send=_mk(session_auto_ready, wired_bot, master_channel),
+        cost_log_prefix="[AUTO] ", transient_ids=[])
+
+    assert delivery.ok
+    assert len(delivery.media_message_ids) == 1, delivery.media_message_ids
+    # 보고된 미디어 ID가 실제 게임 채널에 전송된 파일 메시지다.
+    file_msgs = {m.id for m in game_channel.sent if m.files}
+    assert set(delivery.media_message_ids) <= file_msgs
+
+
+async def test_m2_automatic_media_output_attached_to_attempt(
+        wired_bot, session_auto_ready, game_channel, master_channel):
+    """M2 — 자동 경로: 생성된 이미지/텍스트 출력이 현재 attempt에 귀속되고 새 tx는 안 생긴다."""
+    _cached(session_auto_ready)
+    session_auto_ready.is_started = True
+    master_channel.guild = None
+    kw = _install_media(session_auto_ready)
+    wired_bot.genai_client.models._provider.outcomes = [
+        FakeGenAIResponse("자동 묘사 문단.", usage=_usage())]
+    cog = GameCog(wired_bot)
+
+    tx = core.turn_transaction.begin_turn_transaction(session_auto_ready, "선언")
+    result = await cog._execute_proceed(
+        session_auto_ready, f"상:{kw} 진행하라", cost_log_prefix="[AUTO] ",
+        transaction_id=tx.transaction_id)
+
+    assert result["ok"] is True
+    assert len(tx.canonical_message_ids) >= 1, "텍스트 출력이 귀속되지 않았다"
+    assert len(tx.media_message_ids) >= 1, "이미지 출력이 귀속되지 않았다"
+    assert core.turn_transaction.get_active_transaction(session_auto_ready) is tx
+
+
+async def test_m3_intro_manual_media_creates_no_transaction(
+        wired_bot, session_auto_ready, game_channel, master_channel):
+    """M3 — intro/manual(transaction_id=None): 이미지가 생겨도 자동 TurnTransaction을 만들지 않는다."""
+    _cached(session_auto_ready)
+    session_auto_ready.is_started = True
+    master_channel.guild = None
+    kw = _install_media(session_auto_ready)
+    wired_bot.genai_client.models._provider.outcomes = [
+        FakeGenAIResponse("인트로 묘사.", usage=_usage())]
+    cog = GameCog(wired_bot)
+
+    result = await cog._execute_proceed(session_auto_ready, f"상:{kw} 진행")
+    assert result["ok"] is True
+    # 이미지 파일 메시지가 실제 생성됐다.
+    assert any(m.files for m in game_channel.sent)
+    # 그럼에도 자동 트랜잭션은 생기지 않는다.
+    assert core.turn_transaction.get_active_transaction(session_auto_ready) is None
+
+
+async def test_m4_partial_text_and_media_preserved_on_failure(
+        wired_bot, session_auto_ready, game_channel, master_channel):
+    """M4 — 텍스트+미디어 일부 성공 후 후속 send 실패 시, 이미 생성된 모든 소유 대상 ID가 보존된다."""
+    session_auto_ready.turn_cost_log = []
+    kw = _install_media(session_auto_ready)
+    cog = GameCog(wired_bot)
+    # p1 stream(send#1), 상: 이미지(send#2), p2 stream(send#3), p3 stream(send#4)
+    narr = _narr_img(["문단1", "문단2", "문단3"], top=[kw])
+
+    orig_send = game_channel.send
+    state = {"n": 0}
+
+    async def failing_send(content=None, **kw2):
+        state["n"] += 1
+        if state["n"] == 4:              # p3 스트리밍에서 실패
+            raise RuntimeError("send #4 boom")
+        return await orig_send(content, **kw2)
+    game_channel.send = failing_send
+
+    with pytest.raises(NarrationDeliveryError) as ei:
+        await cog._deliver_narration(
+            session_auto_ready, narr, game_channel=game_channel, master_ch=master_channel,
+            m_send=_mk(session_auto_ready, wired_bot, master_channel),
+            cost_log_prefix="[AUTO] ", transient_ids=[])
+    err = ei.value
+    # 텍스트 2개(p1,p2)와 미디어 1개(폭포)가 보존된다.
+    assert len(err.canonical_message_ids) == 2, err.canonical_message_ids
+    assert len(err.media_message_ids) == 1, err.media_message_ids
+
+    # 모든 소유 대상 ID를 좁게(멱등) 정리할 수 있다.
+    game_channel.send = orig_send
+    owned_ids = set(err.canonical_message_ids) | set(err.media_message_ids)
+    owned = [m for m in game_channel.sent if m.id in owned_ids]
+    assert len(owned) == 3
+    await core.clear_messages(owned)
+    await core.clear_messages(owned)   # 두 번째 — 멱등
+    assert all(m.deleted for m in owned)
+
+
+async def test_m5_media_cleanup_idempotent(wired_bot, session_auto_ready, game_channel, master_channel):
+    """M5 — 미디어 메시지 정리도 두 번 호출/이미 삭제 상황에서 안전하다."""
+    session_auto_ready.turn_cost_log = []
+    kw = _install_media(session_auto_ready)
+    cog = GameCog(wired_bot)
+    narr = _narr_img(["문단."], top=[kw])
+
+    delivery = await cog._deliver_narration(
+        session_auto_ready, narr, game_channel=game_channel, master_ch=master_channel,
+        m_send=_mk(session_auto_ready, wired_bot, master_channel),
+        cost_log_prefix="[AUTO] ", transient_ids=[])
+
+    media_msgs = [m for m in game_channel.sent if m.id in set(delivery.media_message_ids)]
+    for m in media_msgs:
+        m.raise_on_second_delete = True
+    await core.clear_messages(media_msgs)
+    await core.clear_messages(media_msgs)   # 예외 없이 통과해야 한다
+    assert all(m.deleted for m in media_msgs)

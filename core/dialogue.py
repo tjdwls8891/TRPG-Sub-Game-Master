@@ -318,7 +318,7 @@ def merge_consecutive_dialogues(paragraphs: list[str]) -> list[str]:
     return merged
 
 
-async def maybe_send_speaker_image(channel, session, speaker: str) -> bool:
+async def maybe_send_speaker_image(channel, session, speaker: str, collector=None) -> bool:
     """
     미디어 키워드 목록에 인물 이름과 일치하는 항목이 있으면 이미지를 전송.
 
@@ -327,6 +327,9 @@ async def maybe_send_speaker_image(channel, session, speaker: str) -> bool:
         2) media/{scenario_id}/{speaker}.png 파일 직접 존재 검사
 
     실패 시 조용히 False 반환 (대사 출력은 이어서 진행).
+
+    WP-A(출력 소유권): collector가 주어지면 실제 생성한 화자 이미지 메시지를 전송 직후 즉시
+        등록한다. 반환값은 기존대로 bool(전송 성공 여부)이라 기존 caller는 영향받지 않는다.
     """
     if not speaker:
         return False
@@ -351,7 +354,9 @@ async def maybe_send_speaker_image(channel, session, speaker: str) -> bool:
             alt = None
         if alt:
             try:
-                await channel.send(file=discord.File(alt))
+                _m = await channel.send(file=discord.File(alt))
+                if collector is not None:
+                    collector.append(_m)
                 return True
             except Exception:
                 return False
@@ -362,7 +367,9 @@ async def maybe_send_speaker_image(channel, session, speaker: str) -> bool:
         return False
 
     try:
-        await channel.send(file=discord.File(filepath))
+        _m = await channel.send(file=discord.File(filepath))
+        if collector is not None:
+            collector.append(_m)
         # 같은 턴에 추출층위가 다시 내보내지 않도록 기록한다.
         seen = list(getattr(session, "_images_this_turn", None) or [])
         if speaker not in seen:
