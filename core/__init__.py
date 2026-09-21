@@ -204,6 +204,7 @@ from . import irregular_npc
 from .display import build_embed, build_view, DisplayView, refresh as refresh_display
 from .models import TRPGSession
 from . import turn_transaction
+from . import turn_preparation
 from . import cost_ledger  # WP-02: append-only shadow CostLedger
 from . import commit_journal  # WP-JOURNAL-01: durable commit journal foundation
 from . import settlement  # WP-SETTLEMENT-01: immutable TurnSettlement + durable store
