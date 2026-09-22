@@ -30,46 +30,8 @@ from . import quest as _quest
 from . import turn_transaction as _tx
 
 
-# ── quest_state 읽기 전용 투영 뷰 ────────────────────────────────
-class _QuestProjectionView:
-    """quest_state만 복제본으로 대체하고, 그 외 읽기는 실제 세션에 위임하는 뷰.
-
-    기존 core.quest 함수(apply_choice/set_intended_case/start_quest 등)를 복제본
-    위에서 그대로 재사용하기 위한 얇은 프록시다. canonical session.quest_state를
-    변경하지 않으며(§14 금지된 mutate-then-undo 아님), quest_state 외의 canonical
-    필드 쓰기는 거부해 투영이 읽기 전용임을 강제한다.
-    """
-
-    def __init__(self, session, quest_state):
-        # __setattr__ 우회 — 내부 슬롯 직접 설정.
-        self.__dict__["_session"] = session
-        self.__dict__["quest_state"] = quest_state
-
-    def __getattr__(self, name):
-        # __dict__에 없을 때만 호출된다 → 실제 세션으로 위임(읽기).
-        return getattr(self.__dict__["_session"], name)
-
-    def __setattr__(self, name, value):
-        if name == "quest_state":
-            self.__dict__["quest_state"] = value
-            return
-        raise AttributeError(
-            f"quest 투영 뷰는 canonical 필드에 쓸 수 없습니다(읽기 전용): {name}")
-
-
-def _clone_quest_state(session) -> dict:
-    """현재 canonical quest_state의 정규화된 깊은 복제본을 만든다.
-
-    core.quest.get_state의 초기화 규약(active/cleared/known_secrets/occurrences)을
-    복제본에 적용하되 canonical은 건드리지 않는다.
-    """
-    st = getattr(session, "quest_state", None)
-    st = copy.deepcopy(st) if isinstance(st, dict) else {}
-    st.setdefault("active", None)
-    st.setdefault("cleared", [])
-    st.setdefault("known_secrets", [])
-    st.setdefault("occurrences", {})
-    return st
+# quest_state 투영 뷰·복제는 core.quest가 소유한다(순환 임포트 회피):
+#   _quest.projection_view(session, quest_state), _quest.clone_state(session).
 
 
 # ── info_ledger 순수 병합 ────────────────────────────────────────
@@ -185,8 +147,8 @@ def _stage_quest(session, decision, pending: PendingInstructionEffects) -> None:
       · cogs.gm._apply_quest_choice — narrative_mode 가드 + 시나리오 random 선정.
     canonical quest_state는 건드리지 않고 복제본 위 투영 뷰에서 기존 함수를 재사용한다.
     """
-    proj = _clone_quest_state(session)
-    view = _QuestProjectionView(session, proj)
+    proj = _quest.clone_state(session)
+    view = _quest.projection_view(session, proj)
 
     changed = False
 
@@ -258,7 +220,23 @@ def stage_instruction_effects(session, decision, *, transaction_id=None) -> Pend
         _stage_info_ledger(session, decision or {}, pending)
     except Exception as e:
         pending.diagnostics["info_error"] = str(e)
+    # 활성 트랜잭션에 최신 스테이징 상태를 얹는다(소유권 조기 고정용 슬롯).
+    # 같은 논리 턴의 후속 프롬프트(투영)와 묘사 성공 후 적용이 이 값을 읽는다.
+    if active is not None:
+        active.instruction_result = pending
     return pending
+
+
+def pending_for(session) -> "PendingInstructionEffects | None":
+    """세션의 활성 트랜잭션에 스테이징된 지시효과(없으면 None)."""
+    tx = _tx.get_active_transaction(session)
+    p = getattr(tx, "instruction_result", None) if tx is not None else None
+    return p if isinstance(p, PendingInstructionEffects) else None
+
+
+def projected_quest_state(session):
+    """활성 트랜잭션의 스테이징을 반영한 quest_state 투영(없으면 canonical)."""
+    return project_quest_state(session, pending_for(session))
 
 
 def project_quest_state(session, pending: PendingInstructionEffects | None):
@@ -283,7 +261,7 @@ def apply_instruction_effects(session, pending: PendingInstructionEffects | None
         {"applied": bool, "quest_action": str, "quest_active_name": str,
          "info_changed": bool, "narrative_progress": bool}
     """
-    result = {"applied": False, "quest_action": "none",
+    result = {"applied": False, "quest_action": "none", "quest_reason": "",
               "quest_active_name": "", "info_changed": False,
               "narrative_progress": False}
     if pending is None or pending.applied or not pending.has_state_effect():
@@ -294,6 +272,7 @@ def apply_instruction_effects(session, pending: PendingInstructionEffects | None
     if pending.projected_quest_state is not None:
         session.quest_state = pending.projected_quest_state
         result["quest_action"] = pending.quest_action
+        result["quest_reason"] = pending.quest_reason
         result["quest_active_name"] = pending.quest_active_name
 
     if pending.info_ledger is not None:

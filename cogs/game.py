@@ -520,7 +520,15 @@ class GameCog(commands.Cog):
         res_pattern    = r'자:(' + _TAG_END + r'+);(' + _TAG_END + r'+);([-+]?\d+)'
         status_pattern = r'태:(' + _TAG_END + r'+);(-?' + _TAG_END + r'+)'
 
-        prompt = core.PromptBuilder.build_prompt(session, clean_instruction)
+        # WP-B: 스테이징된 지시효과(퀘스트 선택/전환)를 묘사 프롬프트에 반영한다.
+        #   canonical quest_state는 묘사 성립 후에만 갱신되므로, 여기서는 투영으로
+        #   pre-apply 시점과 등가한 quest 맥락을 읽는다(투영 없으면 canonical).
+        _pending = core.turn_preparation.pending_for(session)
+        _quest_proj = (_pending.projected_quest_state
+                       if _pending is not None
+                       and _pending.projected_quest_state is not None else None)
+        prompt = core.PromptBuilder.build_prompt(
+            session, clean_instruction, quest_projection=_quest_proj)
 
         # NOTE: Gemini API는 contents가 role="user"로 시작해야 한다.
         # 구형 세션은 raw_logs[0]이 role="model"(start message)일 수 있으므로,

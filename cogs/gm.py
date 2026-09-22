@@ -513,7 +513,9 @@ def _build_logic_user_prompt(session, player_message: str, roll_results: list,
     # 모델의 선택을 검증한다. 이 호출이 없으면 후보가 비어 아무것도 열리지 않는다.
     quest_block = ""
     try:
-        _qb = core.quest.build_quest_block(session)
+        _qb = core.quest.build_quest_block(
+            session,
+            quest_state=core.turn_preparation.projected_quest_state(session))
         if _qb:
             quest_block = "\n" + _qb
             manifest.append("퀘스트")
@@ -1432,6 +1434,22 @@ class GMCog(commands.Cog):
                 await self._start_round(session)
             return
 
+        # WP-B: 묘사가 성립했다 — 스테이징된 지시효과(quest/intended_case/info_ledger)를
+        #   단일 호환 적용 경계에서 canonical에 반영한다(묘사 실패 경로는 위에서 이미
+        #   return되어 적용되지 않는다 → AUD-024 누출 차단). 안내 메시지도 이 시점에 낸다.
+        try:
+            _applied = core.turn_preparation.apply_instruction_effects(
+                session, core.turn_preparation.pending_for(session))
+            if (master_ch and _applied["applied"]
+                    and _applied["quest_action"] in ("start", "switch")
+                    and _applied["quest_active_name"]):
+                verb = "전환" if _applied["quest_action"] == "switch" else "선정"
+                await master_ch.send(
+                    f"📜 **[퀘스트 {verb}]** {_applied['quest_active_name']}\n"
+                    f"> {_applied['quest_reason']}")
+        except Exception as e:
+            print(f"[WP-B] 지시효과 적용 실패(진행에는 영향 없음): {e}")
+
         if event_assessment is not None:
             await self._update_narrative_progress(session, event_assessment, master_ch)
 
@@ -1645,9 +1663,12 @@ class GMCog(commands.Cog):
                 # 판단층위 산출물과 병합 — 이후 분기는 기존 구조를 그대로 사용한다.
                 decision = {**judgment, **decision, "action": action}
 
-                # 퀘스트 선택 — 지시층위가 고른 것을 실제로 연다.
-                # 이 연결이 없으면 후보만 주입되고 아무것도 시작되지 않는다.
-                await self._apply_quest_choice(session, decision, m_send)
+                # WP-B: 지시효과(quest choice/intended_case/info_access)를
+                #   canonical 변경 없이 트랜잭션에 스테이징한다(단일 owner 통합).
+                #   묘사가 성립한 뒤 _finish_proceed_and_continue가 단일 호환 적용
+                #   경계에서만 canonical에 반영한다. 여기서는 아무 상태도 안 바뀐다.
+                core.turn_preparation.stage_instruction_effects(
+                    session, decision, transaction_id=transaction_id)
             else:
                 decision = dict(judgment)
 
@@ -2217,111 +2238,16 @@ class GMCog(commands.Cog):
             f"[자동 지시층위 결정]\n{json.dumps(decision, ensure_ascii=False, indent=2)}"
         )
 
-        # 지시층위가 지정한 진전 방향을 보관한다(진전 자체는 추출 수치가 결정).
-        try:
-            if decision.get("quest_case"):
-                key = core.quest.set_intended_case(session, decision["quest_case"])
-                if key:
-                    print(f"[GM/{session.session_id}] 퀘스트 진전 방향: {key}")
-        except Exception as e:
-            print(f"[퀘스트] 케이스 지정 실패: {e}")
-
-        # ── 퀘스트 선택 반영 ──
-        # 코드가 검증한다: 선택 불가 상황의 값, 제시하지 않은 id는 무시된다.
-        try:
-            picked = decision.get("quest_choice")
-            if picked:
-                res = core.quest.apply_choice(session, picked)
-                if res["applied"]:
-                    active = core.quest.get_state(session)["active"]
-                    print(f"[GM/{session.session_id}] 퀘스트 {res['action']}: {active['name']}")
-                    if master_ch:
-                        verb = "전환" if res["action"] == "switch" else "선정"
-                        await master_ch.send(
-                            f"📜 **[퀘스트 {verb}]** {active['name']}\n"
-                            f"> {res['reason']}")
-        except Exception as e:
-            print(f"[퀘스트] 선택 반영 실패(진행에는 영향 없음): {e}")
-
-        # 정보 인지 원장 갱신 (지속형): info_access 델타를 session.info_ledger에 누적 병합.
-        self._update_info_ledger(session, decision)
+        # WP-B: 지시층위 효과(quest_case/quest_choice/info_access)는 여기서 직접
+        #       canonical에 적용하지 않는다. 호출부 루프가 이 decision을 스테이징
+        #       (canonical 미변경)하고, 묘사가 성립한 뒤 단일 호환 적용 경계에서만
+        #       반영한다. AUD-024(묘사 실패 시 지시효과 누출) 차단 +
+        #       AUD-005(중복 quest 적용 경로) 단일 owner 통합.
         return decision
 
-    def _update_info_ledger(self, session, decision: dict):
-        """
-        지시층위의 info_access(new_secrets/new_leaks) 델타를 session.info_ledger에 누적 병합한다.
-        - new_secrets: 원장에 없는 신규 비밀만 추가 (중복·드리프트 방지)
-        - new_leaks: 기존 항목 leaks에 근거(how)와 함께 기록하고 known_by 확장(suspected_by에서 이동)
-        - 스코핑: 최대 MAX_LEDGER_ITEMS 항목만 유지 (오래된 것부터 제거)
-        갱신은 in-memory. 저장은 호출부 루프의 save_session_data에 위임. 실패해도 진행에 영향 없음.
-        """
-        MAX_LEDGER_ITEMS = 12
-        try:
-            ia = decision.get("info_access") or {}
-            if not isinstance(ia, dict):
-                return
-            ledger = getattr(session, "info_ledger", None)
-            if not isinstance(ledger, list):
-                ledger = []
-                session.info_ledger = ledger
-            turn = session.turn_count + 1
-
-            def _norm(s):
-                return re.sub(r"\s+", "", (s or "")).lower()
-
-            def _find(info):
-                ni = _norm(info)
-                if not ni:
-                    return None
-                for it in ledger:
-                    ei = _norm(it.get("info", ""))
-                    if ei and (ni == ei or ni in ei or ei in ni):
-                        return it
-                return None
-
-            # ── 신규 비밀 ──
-            for sec in (ia.get("new_secrets") or []):
-                if not isinstance(sec, dict):
-                    continue
-                info = (sec.get("info") or "").strip()
-                if not info or _find(info):
-                    continue  # 이미 원장에 있으면 스킵(중복 주입·드리프트 방지)
-                ledger.append({
-                    "info": info,
-                    "known_by": list(dict.fromkeys(sec.get("known_by") or [])),
-                    "suspected_by": list(dict.fromkeys(sec.get("suspected_by") or [])),
-                    "origin": (sec.get("origin") or "").strip(),
-                    "leaks": [],
-                    "turn_added": turn,
-                })
-
-            # ── 신규 유출 ──
-            for lk in (ia.get("new_leaks") or []):
-                if not isinstance(lk, dict):
-                    continue
-                info = (lk.get("info") or "").strip()
-                to = (lk.get("to") or "").strip()
-                how = (lk.get("how") or "").strip()
-                if not info or not to:
-                    continue
-                item = _find(info)
-                if item is None:
-                    if not how:  # 근거 없는 유출은 무시(날조 방어)
-                        continue
-                    item = {"info": info, "known_by": [], "suspected_by": [],
-                            "origin": "", "leaks": [], "turn_added": turn}
-                    ledger.append(item)
-                if to not in item["known_by"]:
-                    item["known_by"].append(to)
-                if to in item.get("suspected_by", []):
-                    item["suspected_by"] = [x for x in item["suspected_by"] if x != to]
-                item.setdefault("leaks", []).append(f"턴{turn}: {to} — {how}" if how else f"턴{turn}: {to}")
-
-            # ── 스코핑: 최대 항목 수 유지 ──
-            if len(ledger) > MAX_LEDGER_ITEMS:
-                del ledger[:len(ledger) - MAX_LEDGER_ITEMS]
-        except Exception as e:
-            print(f"[GM] info_ledger 갱신 실패: {e}")
+    # WP-B: 기존 _update_info_ledger(지시층위 info_access 직접 병합)는
+    #   core.turn_preparation._merge_info_ledger(순수 병합) + 스테이징으로 대체됨.
+    #   canonical info_ledger는 묘사 성립 후 단일 호환 적용 경계에서만 갱신된다.
 
     # ─────────────────────────────────────────────────────────────
     # ROLL 실행 및 버튼 디스패치
@@ -3884,47 +3810,10 @@ class GMCog(commands.Cog):
     # 서사 계획 내부 함수
     # ─────────────────────────────────────────────────────────────
 
-    async def _apply_quest_choice(self, session, decision, m_send):
-        """지시층위가 고른 퀘스트를 연다.
-
-        기획 규정 — 필터링한 후보 중에서 랜덤 택일하거나 지시층위가 선택.
-        시나리오가 quest_select를 'random'으로 두면 코드가 무작위로 고른다.
-        """
-        if getattr(session, "narrative_mode", "quest") != "quest":
-            return   # 풀자유 세션은 서사설계자가 주도한다
-
-        state = core.quest.get_state(session)
-        if state.get("active"):
-            return   # 진행 중이면 새로 열지 않는다
-
-        offered = list(getattr(session, "_quest_offered", []) or [])
-        if not offered:
-            return
-
-        mode = (session.scenario_data or {}).get("quest_select") or "logic"
-        if mode == "random":
-            import random as _r
-            qid = _r.choice(offered)
-            reason = "무작위 선정"
-        else:
-            qc = decision.get("quest_choice") or {}
-            qid = (qc.get("id") or "").strip()
-            reason = qc.get("reason") or ""
-            if qid and qid not in offered:
-                print(f"[퀘스트] 제시하지 않은 id 무시: {qid}")
-                qid = ""
-
-        if not qid:
-            return
-
-        quest = core.quest._find_quest(session, qid)
-        if not quest:
-            return
-        try:
-            opened = core.quest.start_quest(session, quest)
-            await m_send(f"📜 **[퀘스트 시작]** {opened['name']}\n> {reason[:150]}")
-        except Exception as e:
-            print(f"[퀘스트] 시작 실패({qid}): {e}")
+    # WP-B: 기존 _apply_quest_choice(중복 quest 적용 경로, AUD-005)는
+    #   core.turn_preparation.stage_instruction_effects의 통합 스테이징으로 대체됨.
+    #   narrative_mode 가드·random 선정·offered 검증은 그 안에서 apply_choice와
+    #   함께 단일 owner로 수행되고, canonical은 묘사 성립 후에만 갱신된다.
 
     async def _init_narrative_and_start(self, session):
         """

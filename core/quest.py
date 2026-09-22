@@ -10,6 +10,7 @@
 # [중복 차단은 이름으로만]
 #   같은 사건에 다른 이면정보를 가진 버전을 여럿 두되, 중복 발생 차단은
 #   name 기준이다(기획 규정). 버전이 달라도 같은 이름이면 반복되지 않는다.
+import copy
 import json
 import os
 import random
@@ -66,6 +67,54 @@ def get_state(session) -> dict:
     st.setdefault("known_secrets", [])
     st.setdefault("occurrences", {})
     return st
+
+
+# ── WP-B: quest_state 투영(projection) ──────────────────────────
+# 스테이징된 지시효과를 canonical 변경 없이 읽기 위한 도구.
+# _find_quest/choice_context/filter_available 등 다수 함수가 get_state(session)로
+# quest_state를 재조회하므로, 함수별 파라미터 확산 대신 작은 투영 뷰로 승격한다.
+_PROJECTION_FORWARD_WRITES = frozenset({"_quest_offered"})
+
+
+class _ProjectionView:
+    """quest_state만 주어진 복제본으로 대체하고 그 외 읽기는 실제 세션에 위임.
+
+    · quest_state 읽기/쓰기 → 복제본(canonical 미변경).
+    · _quest_offered 등 트랜잭션 로컬 scratch 쓰기 → 실제 세션에 위임(무해).
+    · 그 외 canonical 필드 쓰기 → 거부(투영은 canonical에 대해 읽기 전용).
+    """
+
+    def __init__(self, session, quest_state):
+        self.__dict__["_session"] = session
+        self.__dict__["quest_state"] = quest_state
+
+    def __getattr__(self, name):
+        return getattr(self.__dict__["_session"], name)
+
+    def __setattr__(self, name, value):
+        if name == "quest_state":
+            self.__dict__["quest_state"] = value
+        elif name in _PROJECTION_FORWARD_WRITES:
+            setattr(self.__dict__["_session"], name, value)
+        else:
+            raise AttributeError(
+                f"quest 투영은 canonical 필드에 쓸 수 없습니다(읽기 전용): {name}")
+
+
+def clone_state(session) -> dict:
+    """현재 quest_state의 정규화된 깊은 복제본(canonical 미변경)."""
+    st = getattr(session, "quest_state", None)
+    st = copy.deepcopy(st) if isinstance(st, dict) else {}
+    st.setdefault("active", None)
+    st.setdefault("cleared", [])
+    st.setdefault("known_secrets", [])
+    st.setdefault("occurrences", {})
+    return st
+
+
+def projection_view(session, quest_state):
+    """quest_state 복제본을 감싼 읽기 전용 투영 뷰를 만든다."""
+    return _ProjectionView(session, quest_state)
 
 
 def _passes_filter(session, quest: dict, state: dict) -> bool:
@@ -344,7 +393,7 @@ def apply_choice(session, choice: dict) -> dict:
             "reason": (choice or {}).get("reason") or ""}
 
 
-def build_quest_block(session) -> str:
+def build_quest_block(session, *, quest_state=None) -> str:
     """지시층위에 주입할 퀘스트 블록 — 상황에 따라 다르게 조립한다.
 
     A(진행 중)  활성 퀘스트 가이드만. 선택지를 주지 않는다.
@@ -352,7 +401,12 @@ def build_quest_block(session) -> str:
     C(전환 가능) 활성 가이드 + 후보 목록 + 유지/전환 판단 요구
 
     제시한 id는 session._quest_offered에 남겨 코드 측 검증에 쓴다.
+
+    WP-B: quest_state가 주어지면(스테이징 투영) 그 복제본을 기준으로 블록을 만든다.
+    canonical quest_state는 변경하지 않는다. _quest_offered 갱신은 그대로 유효하다.
     """
+    if quest_state is not None:
+        session = projection_view(session, quest_state)
     state = get_state(session)
     active = state.get("active")
     ctx = choice_context(session)

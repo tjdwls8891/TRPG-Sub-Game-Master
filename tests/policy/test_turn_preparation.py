@@ -162,3 +162,47 @@ def test_intended_case_staged_not_canonical(session_with_quest):
 
     tp.apply_instruction_effects(sess, pending)
     assert core.quest.get_state(sess)["active"]["intended_case"] == "c1"
+
+
+# ── 투영 등가성 characterization (디렉터 조건) ────────────────────
+def test_projected_quest_block_equivalent_to_applied_block(
+        monkeypatch, session_with_quest):
+    """build_quest_block(투영) == 실제 적용 후 build_quest_block.
+
+    묘사 프롬프트가 pre-apply 시점에 보던 quest 의미를, canonical 변경 없이
+    투영만으로 등가하게 볼 수 있어야 한다(§17 조건).
+    """
+    import core
+    sess = session_with_quest
+    _selectable(sess)
+    _install_quest(monkeypatch, sess.scenario_id, QUEST_NEW)
+
+    pending = tp.stage_instruction_effects(
+        sess, {"quest_choice": {"id": "q_new", "reason": "r"}})
+
+    # 투영 기준 블록(canonical 미변경).
+    projected_block = core.quest.build_quest_block(
+        sess, quest_state=pending.projected_quest_state)
+    assert core.quest.get_state(sess)["active"] is None  # 여전히 미적용
+
+    # 실제 적용 후 블록.
+    tp.apply_instruction_effects(sess, pending)
+    applied_block = core.quest.build_quest_block(sess)
+
+    assert projected_block == applied_block, (
+        "투영 quest 블록이 실제 적용 후 블록과 다릅니다")
+
+
+def test_build_quest_block_projection_does_not_mutate_canonical(
+        monkeypatch, session_with_quest):
+    """build_quest_block에 투영을 넘겨도 canonical quest_state는 불변."""
+    import core
+    sess = session_with_quest
+    _selectable(sess)
+    _install_quest(monkeypatch, sess.scenario_id, QUEST_NEW)
+    pending = tp.stage_instruction_effects(
+        sess, {"quest_choice": {"id": "q_new", "reason": "r"}})
+
+    before = copy.deepcopy(core.capture_state(sess))
+    core.quest.build_quest_block(sess, quest_state=pending.projected_quest_state)
+    assert core.capture_state(sess) == before

@@ -21,9 +21,12 @@ class PromptBuilder:
           resources / statuses는 플레이어(add_player_block)에만 적용된다.
     """
 
-    def __init__(self, session: TRPGSession, gm_instruction: str):
+    def __init__(self, session: TRPGSession, gm_instruction: str,
+                 *, quest_projection=None):
         self.session = session
         self.gm_instruction = gm_instruction
+        # WP-B: 스테이징된 quest 효과를 반영한 읽기 전용 투영(없으면 None → canonical).
+        self.quest_projection = quest_projection
         self.blocks = ["[현재 게임 상태]\n"]
         # 입력에 실제 주입된 온디맨드 정보 목록 (비용 보고용). 각 add_* 블록이 실제 주입 시 append.
         self.manifest = []
@@ -236,7 +239,7 @@ class PromptBuilder:
         """
         try:
             from .quest import build_quest_block
-            block = build_quest_block(self.session)
+            block = build_quest_block(self.session, quest_state=self.quest_projection)
             if block:
                 self.blocks.append(block)
                 self.manifest.append("퀘스트")
@@ -282,14 +285,17 @@ class PromptBuilder:
         return "".join(self.blocks)
 
     @classmethod
-    def build_prompt(cls, session, gm_instruction: str) -> str:
+    def build_prompt(cls, session, gm_instruction: str, *, quest_projection=None) -> str:
         """
         내부 블록 조립을 순차적으로 실행하여 완성된 문자열을 즉시 반환하는 파사드(Facade) 메서드.
 
         조립 과정에서 실제 주입된 온디맨드 정보 목록을 `session.last_proceed_manifest`에 기록한다
         (비용 보고 임베드용, 비영속 임시값).
+
+        WP-B: quest_projection이 주어지면 퀘스트 블록을 그 투영(스테이징 반영, canonical
+        미변경) 기준으로 만든다. None이면 canonical get_state로 조립한다.
         """
-        builder = (cls(session, gm_instruction)
+        builder = (cls(session, gm_instruction, quest_projection=quest_projection)
                    .add_memory_block()
                    .add_note_block()
                    .add_player_block()
