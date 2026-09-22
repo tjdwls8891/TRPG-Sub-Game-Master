@@ -50,7 +50,7 @@ class _StubGameCog:
     async def _execute_proceed(self, session, instruction, **kwargs):
         self.calls.append((session, instruction, kwargs))
         session.raw_logs.append(_FakeContent("model", self.narration))
-        return {"ok": True}
+        return {"ok": True, "ai_text": self.narration}
 
 
 LATE_FACT = "임성진이 물통을 비우고 배낭에 넣었다."
@@ -63,11 +63,11 @@ def _long_narration() -> str:
     return filler + LATE_FACT
 
 
-async def test_d001_extraction_input_is_truncated_at_500(
+async def test_d001_extraction_receives_full_narration(
         monkeypatch, wired_bot, session_auto_ready, master_channel):
-    """현재 동작 — 추출층위가 받는 텍스트가 500자에서 잘린다.
+    """WP-B(AUD-011) — 추출층위가 500자 요약이 아니라 완결된 전체 묘사를 받는다.
 
-    이것은 특성화다. 바람직한 동작은 아래 xfail 테스트가 기술한다.
+    (기존 500자 절단 특성화를 수정 동작으로 전환 — §36.)
     """
     sess = session_auto_ready
     cog = _make_gm_cog(wired_bot)
@@ -78,7 +78,8 @@ async def test_d001_extraction_input_is_truncated_at_500(
 
     captured = {}
 
-    async def _capture(session, text, master_ch=None, *, transaction_id=None):
+    async def _capture(session, text, master_ch=None, *,
+                       transaction_id=None, logical_turn=None, attempt=None):
         captured["text"] = text
 
     monkeypatch.setattr(cog, "_run_extraction", _capture, raising=False)
@@ -88,16 +89,14 @@ async def test_d001_extraction_input_is_truncated_at_500(
     await asyncio.sleep(0)
 
     assert "text" in captured, "추출층위가 호출되지 않았습니다"
-    assert len(captured["text"]) <= 504, (
-        f"현재 구현은 500자 + 말줄임으로 잘라야 합니다 (실제 {len(captured['text'])})")
-    assert captured["text"].endswith("...")
+    assert captured["text"] == narration, "추출층위가 전체 묘사를 받지 못했습니다"
+    assert len(captured["text"]) > 504, "여전히 짧게 잘린 텍스트가 전달됩니다"
+    assert not captured["text"].endswith("..."), "요약(말줄임)이 전달되었습니다"
 
 
-@pytest.mark.xfail(strict=True,
-                   reason="AUD-011 추출층위가 묘사 전문을 받지 못한다")
 async def test_d001b_late_fact_reaches_extraction(
         monkeypatch, wired_bot, session_auto_ready, master_channel):
-    """바람직한 동작 — 500자 이후의 사실도 추출 대상이어야 한다."""
+    """WP-B(AUD-011) — 500자 이후의 사실도 추출 대상이 된다(전문 전달)."""
     sess = session_auto_ready
     cog = _make_gm_cog(wired_bot)
     narration = _long_narration()
@@ -106,7 +105,8 @@ async def test_d001b_late_fact_reaches_extraction(
 
     captured = {}
 
-    async def _capture(session, text, master_ch=None, *, transaction_id=None):
+    async def _capture(session, text, master_ch=None, *,
+                       transaction_id=None, logical_turn=None, attempt=None):
         captured["text"] = text
 
     monkeypatch.setattr(cog, "_run_extraction", _capture, raising=False)
@@ -118,8 +118,12 @@ async def test_d001b_late_fact_reaches_extraction(
         "500자 이후의 자원 변화가 추출층위에 전달되지 않았습니다")
 
 
-def test_d001c_truncation_constant_is_still_500():
-    """절단 상수가 바뀌면 이 결함의 성격도 바뀐다 — 값을 고정한다."""
+def test_d001c_extraction_dispatch_passes_full_narration():
+    """구조 특성화 — 디스패치가 추출에 전체 묘사(ai_text)를 넘긴다.
+
+    ai_summary[:500]은 표시·이력·진행도 요약용으로 남아 있을 수 있으나, 추출 입력은
+    _execute_proceed 결과의 ai_text(전체 묘사)여야 한다(AUD-011 수정).
+    """
     import ast
 
     src = source_of("cogs/gm.py")
@@ -128,5 +132,8 @@ def test_d001c_truncation_constant_is_still_500():
               if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))
               and n.name == "_dispatch_proceed")
     body = "\n".join(src.splitlines()[fn.lineno - 1:fn.end_lineno])
-    assert "[:500]" in body, (
-        "절단 지점이 사라졌거나 값이 바뀌었습니다 — AUD-011 상태를 재확인하십시오")
+    # 추출 입력이 전체 묘사(ai_text)에서 온다.
+    assert "ai_text" in body, "디스패치가 더 이상 전체 묘사를 참조하지 않습니다"
+    # 추출 호출이 500자 요약을 직접 넘기지 않는다.
+    assert "_run_extraction(session, ai_summary" not in body, (
+        "추출 호출이 여전히 500자 요약을 넘깁니다 — AUD-011 상태 재확인")

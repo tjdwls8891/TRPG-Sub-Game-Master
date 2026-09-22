@@ -280,7 +280,7 @@ def apply_instruction_effects(session, pending: PendingInstructionEffects | None
         result["info_changed"] = True
 
     if pending.narrative_progress is not None:
-        _apply_narrative_progress(session, pending.narrative_progress)
+        apply_narrative_progress(session, pending.narrative_progress)
         result["narrative_progress"] = True
 
     pending.applied = True
@@ -288,7 +288,7 @@ def apply_instruction_effects(session, pending: PendingInstructionEffects | None
     return result
 
 
-def _apply_narrative_progress(session, progress_text: str) -> bool:
+def apply_narrative_progress(session, progress_text: str) -> bool:
     """narrative_plan.current_event.progress 갱신의 단일 owner.
 
     canonical narrative_plan은 persisted·rewind-tracked·future-read 상태이므로,
@@ -299,3 +299,162 @@ def _apply_narrative_progress(session, progress_text: str) -> bool:
         plan["current_event"]["progress"] = (progress_text or "")[:150]
         return True
     return False
+
+
+# ══════════════════════════════════════════════════════════════════
+#  추출 결과 스테이징(result-only) + 검증 변이 계획 + stale guard
+# ══════════════════════════════════════════════════════════════════
+from dataclasses import field as _field  # noqa: E402
+
+
+@dataclass
+class ExtractionMutationPlan:
+    """추출 결과에서 파생된, 검증·정규화된 변이 계획.
+
+    · result: 파싱된 추출 결과(원본, result-only 생산물).
+    · entries: 정규화·검증된 후보 변이 항목(도메인/타깃/연산). 검사·dedup·conflict용.
+    · conflicts: 상호 모순 항목 진단.
+    실제 canonical 반영은 단일 호환 적용 경계(_run_extraction 내 표시된 구획)에서
+    기존 도메인 mutator를 재사용해 수행한다(WP-D가 대체할 임시 경계).
+    """
+    transaction_id: str | None = None
+    logical_turn: int | None = None
+    attempt: int | None = None
+    result: dict = _field(default_factory=dict)
+    entries: list = _field(default_factory=list)
+    conflicts: list = _field(default_factory=list)
+    diagnostics: dict = _field(default_factory=dict)
+    applied: bool = False
+    rejected_stale: bool = False
+
+
+def extraction_is_stale(session, *, logical_turn, attempt) -> bool:
+    """추출의 (logical_turn, attempt)보다 더 새로운 논리 시도가 활성화됐으면 True.
+
+    §26/§38 — 늦게 도착한 추출이 더 새로운 논리 턴/시도에 기록되는 것을 막는다.
+    커밋 후 새 턴이 아직 없으면(active=None) stale이 아니다(정상 적용 대상).
+    """
+    tx = _tx.get_active_transaction(session)
+    if tx is None or logical_turn is None:
+        return False
+    try:
+        return ((int(tx.logical_turn), int(tx.attempt))
+                > (int(logical_turn), int(attempt or 0)))
+    except Exception:
+        return False
+
+
+def _valid_char_names(session) -> set:
+    valid = set()
+    try:
+        valid |= {p.get("name") for p in (getattr(session, "players", {}) or {}).values()
+                  if p.get("name")}
+        valid |= set((getattr(session, "npcs", {}) or {}).keys())
+    except Exception:
+        pass
+    return valid
+
+
+def _valid_status_names(session):
+    try:
+        from .utils import get_merged_status_effects
+        eff = get_merged_status_effects(getattr(session, "scenario_data", {}) or {})
+        if isinstance(eff, dict):
+            return set(eff.keys())
+        if isinstance(eff, list):
+            return {e.get("name") for e in eff if isinstance(e, dict) and e.get("name")}
+    except Exception:
+        pass
+    return None
+
+
+def build_extraction_plan(session, result, *, transaction_id=None,
+                          logical_turn=None, attempt=None) -> ExtractionMutationPlan:
+    """추출 결과를 canonical 변경 없이 검증·정규화된 변이 계획으로 만든다(result-only).
+
+    도메인별 후보를 정규화하고, 등록 캐릭터·병합 상태이상 목록으로 1차 검증하며,
+    동치 중복을 제거하고 상호 모순(같은 타깃·상태의 부여/해제 동시 등)을 진단한다.
+    실제 임계 비교·적용은 단일 호환 적용 경계의 기존 mutator가 수행한다(권위 검증 보존).
+    """
+    plan = ExtractionMutationPlan(
+        transaction_id=transaction_id, logical_turn=logical_turn,
+        attempt=attempt, result=result if isinstance(result, dict) else {})
+    r = plan.result
+    valid_chars = _valid_char_names(session)
+    valid_status = _valid_status_names(session)
+    seen = set()
+
+    def _add(domain, target, op, payload):
+        key = (domain, target, op, repr(payload))
+        if key in seen:               # 동치 중복 제거(T-B17)
+            return
+        seen.add(key)
+        plan.entries.append({"domain": domain, "target": target,
+                             "op": op, "payload": payload})
+
+    # 위치(장소 이동) — 이름만 정규화(해상도/방문은 적용부가 처리).
+    loc = (r.get("location") or {}).get("name") if isinstance(r.get("location"), dict) else None
+    if loc:
+        _add("location", loc, "move", {})
+
+    # 상태이상 후보(점수는 적용부가 임계 비교) — 등록 캐릭터·병합 상태이상만.
+    status_targets = {}
+    for e in (r.get("status_scores") or []):
+        if not isinstance(e, dict):
+            continue
+        t, s = e.get("target"), e.get("status")
+        if not t or not s:
+            continue
+        if valid_chars and t not in valid_chars:
+            plan.diagnostics.setdefault("dropped_status", []).append(f"{t};{s}")
+            continue
+        if valid_status is not None and s not in valid_status:
+            plan.diagnostics.setdefault("dropped_status", []).append(f"{t};{s}")
+            continue
+        _add("status", t, "score", {"status": s, "score": e.get("score")})
+        status_targets.setdefault((t, s), []).append(e.get("score"))
+
+    # 소지품 증감 후보 — 등록 캐릭터만.
+    for e in (r.get("item_changes") or []):
+        if not isinstance(e, dict):
+            continue
+        t = e.get("target")
+        if not t or (valid_chars and t not in valid_chars):
+            continue
+        _add("item", t, "delta",
+             {"item": e.get("item"), "delta": e.get("delta")})
+
+    # 만난 NPC.
+    for n in (r.get("npcs_met") or []):
+        if isinstance(n, str) and n:
+            _add("npc_met", n, "meet", {})
+
+    # 동행 합류/이탈.
+    comp = r.get("companions") or {}
+    if isinstance(comp, dict):
+        for n in (comp.get("joined") or []):
+            if isinstance(n, str) and n:
+                _add("companion", n, "join", {})
+        for n in (comp.get("left") or []):
+            if isinstance(n, str) and n:
+                _add("companion", n, "leave", {})
+
+    # 퀘스트 진전 의도(진전 여부·완료는 적용부가 판정).
+    qp = r.get("quest_progress")
+    if qp:
+        _add("quest", "active", "progress", {"quest_progress": qp})
+
+    # 이면정보 인지 점수(임계 비교는 적용부).
+    if "secret_awareness" in r:
+        _add("secret", "active", "awareness", {"score": r.get("secret_awareness")})
+
+    # 상호 모순 진단: 같은 (타깃, 동행) join & leave 동시.
+    joined = {e["target"] for e in plan.entries
+              if e["domain"] == "companion" and e["op"] == "join"}
+    left = {e["target"] for e in plan.entries
+            if e["domain"] == "companion" and e["op"] == "leave"}
+    for t in (joined & left):
+        plan.conflicts.append({"domain": "companion", "target": t,
+                               "reason": "join_and_leave"})
+
+    return plan

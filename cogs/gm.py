@@ -2769,9 +2769,11 @@ class GMCog(commands.Cog):
             session.gm_proceed_history = session.gm_proceed_history[-5:]
 
         # [방안 2] narrative_plan.current_event.progress 자동 갱신
-        # ai_summary 앞 150자를 현재 진행 상황 한줄 메모로 덮어씀.
-        if ai_summary and getattr(session, "narrative_plan", {}).get("current_event"):
-            session.narrative_plan["current_event"]["progress"] = ai_summary[:150]
+        # WP-B: narrative_plan은 canonical(persisted·rewind-tracked·future-read)이므로,
+        #   AI-파생 진행도 갱신도 단일 owner 경계(apply_narrative_progress)를 통한다.
+        #   이 지점은 이미 묘사 성립(ai_summary 존재) 이후다.
+        if ai_summary:
+            core.turn_preparation.apply_narrative_progress(session, ai_summary)
 
         # ── 추출층위 (묘사 스트리밍과 동시 실행) ──
         # 기존 _update_world_timeline을 흡수했다. 세계 타임라인 갱신은
@@ -2784,9 +2786,17 @@ class GMCog(commands.Cog):
             # master_ch를 넘겨야 추출 결과가 마스터 채널에 보고된다.
             # 넘기지 않으면 조용히 적용만 되고 무엇이 바뀌었는지 알 수 없다.
             _mch = self.bot.get_channel(getattr(session, "master_ch_id", 0))
+            # AUD-011: 추출에 500자 요약이 아니라 완결된 전체 묘사를 넘긴다.
+            _full_narration = (result or {}).get("ai_text") or ai_summary
+            # §38: 비동기 추출에 트랜잭션 정체성(logical_turn/attempt)을 복사해
+            #      적용 직전 stale guard에 쓴다.
+            _tx_obj = core.turn_transaction.get_active_transaction(session)
             asyncio.create_task(
-                self._run_extraction(session, ai_summary, _mch,
-                                     transaction_id=transaction_id))
+                self._run_extraction(
+                    session, _full_narration, _mch,
+                    transaction_id=transaction_id,
+                    logical_turn=getattr(_tx_obj, "logical_turn", None),
+                    attempt=getattr(_tx_obj, "attempt", None)))
 
         return result
 
@@ -3166,7 +3176,9 @@ class GMCog(commands.Cog):
         return added
 
     async def _run_extraction(self, session, ai_output_text: str, master_ch=None,
-                              *, transaction_id: str | None = None) -> dict | None:
+                              *, transaction_id: str | None = None,
+                              logical_turn: int | None = None,
+                              attempt: int | None = None) -> dict | None:
         """
         추출층위 — 묘사 출력물에서 공통·시나리오별 타겟 값을 추출한다.
 
@@ -3295,6 +3307,46 @@ class GMCog(commands.Cog):
             if master_ch:
                 await master_ch.send("⚠️ 추출층위 실패 — 다음 턴 차단됨. 재시도 버튼 배치.")
             return None
+
+        # ══════════════════════════════════════════════════════════════
+        #  ▼▼▼ WP-B 단일 호환 적용 경계 (pre-WP-D COMPATIBILITY BOUNDARY) ▼▼▼
+        #  이 구획이 추출 결과를 canonical에 반영하는 유일한 지점이다.
+        #  · 위쪽(provider 호출 + 파싱)은 result-only 생산: canonical 미변경.
+        #  · 아래 mutator들(to_world_timeline/places/apply_companions/apply_extraction/
+        #    advance_quest/check_secret_awareness 등)은 재작성하지 않고 그대로 재사용한다.
+        #  · WP-D가 이 경계를 barrier·commit 뒤로 이동/치환한다. 여기는 authoritative
+        #    commit이 아니다.
+        #  적용 전 두 가지를 보장한다:
+        #    (1) stale guard(§26/§38): 추출의 (logical_turn, attempt)보다 더 새로운
+        #        논리 시도가 활성화됐으면 canonical을 건드리지 않고 진단만 남긴다.
+        #    (2) idempotency(T-B21): 같은 트랜잭션 결과의 이중 적용을 막는다.
+        # ══════════════════════════════════════════════════════════════
+        plan = core.turn_preparation.build_extraction_plan(
+            session, result, transaction_id=transaction_id,
+            logical_turn=logical_turn, attempt=attempt)
+
+        if core.turn_preparation.extraction_is_stale(
+                session, logical_turn=logical_turn, attempt=attempt):
+            plan.rejected_stale = True
+            print(f"[추출/{session.session_id}] stale 결과 거부 — 더 새로운 논리 시도 활성 "
+                  f"(tx={transaction_id}, lt={logical_turn}, at={attempt})")
+            core.write_log(
+                session.session_id, "api",
+                f"[추출층위 stale 거부]\n{json.dumps(result, ensure_ascii=False, indent=2)}")
+            if master_ch:
+                await master_ch.send("⏭️ **[추출층위]** 더 새로운 턴이 시작되어 이전 턴 추출 결과를 적용하지 않았습니다.")
+            return None
+
+        _applied_ids = getattr(session, "_extraction_applied_tx", None)
+        if _applied_ids is None:
+            _applied_ids = session._extraction_applied_tx = []
+        if transaction_id and transaction_id in _applied_ids:
+            print(f"[추출/{session.session_id}] 이미 적용된 트랜잭션 — 이중 적용 방지 (tx={transaction_id})")
+            return result
+        if transaction_id:
+            _applied_ids.append(transaction_id)
+            if len(_applied_ids) > 16:
+                del _applied_ids[:-16]
 
         # 성공 — 세계 타임라인 흡수 갱신 (기존 _update_world_timeline 대체)
         # 시간선 정량화 — 일/24시간 단위 정수 필드를 함께 보관한다.
@@ -3438,6 +3490,12 @@ class GMCog(commands.Cog):
                          for i in applied["items"][:6]]
                 report += f"\n> 소지품 반영: {', '.join(shown)}"
             await master_ch.send(report)
+
+        # plan이 감지한 상호 모순(예: 동일 인물 동행 합류·이탈 동시)을 진단으로 남긴다.
+        if plan.conflicts:
+            print(f"[추출/{session.session_id}] 계획 충돌 진단: {plan.conflicts}")
+        plan.applied = True
+        # ▲▲▲ WP-B 단일 호환 적용 경계 끝 (COMPATIBILITY BOUNDARY END) ▲▲▲
         return result
 
     async def _verify_proceed_instruction(self, session, instruction: str,
