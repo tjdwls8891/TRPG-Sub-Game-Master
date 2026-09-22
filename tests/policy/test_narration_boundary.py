@@ -414,24 +414,60 @@ async def test_ta17_compression_trigger_preserved(
     assert scheduled["called"], "압축 트리거가 사라졌다"
 
 
-async def test_legacy_tag_mutation_preserved_not_blocked(
+async def test_b06_legacy_resource_tag_no_longer_mutates_shared_path(
         wired_bot, session_auto_ready, game_channel, master_channel):
-    """directive B / P-A15 — 셸의 레거시 자:/태: 직접 변이는 WP-A에서 보존된다(차단은 WP-B).
+    """T-B06 — 레거시 자: 태그의 직접 resource 변이 권위가 공유 경로에서 사라졌다.
 
-    일부만 제거하면 mutation timing이 의도치 않게 바뀌므로, WP-A는 정확히 기존대로 1회 적용한다.
+    자동/수동 어느 경로로 들어와도 자: 태그는 canonical resources를 바꾸지 않는다.
+    (WP-A는 이 변이를 보존했고, WP-B가 차단한다 — §36 특성화 갱신.)
     """
     _cached(session_auto_ready)
     session_auto_ready.is_started = True
     master_channel.guild = None
+    cog = GameCog(wired_bot)
+
+    # 수동 경로(cost_log_prefix 없음).
     session_auto_ready.resources = {}
     wired_bot.genai_client.models._provider.outcomes = [
         FakeGenAIResponse("묘사.", usage=_usage())]
+    await cog._execute_proceed(session_auto_ready, "자:테스터;물;+5 진행하라")
+    assert session_auto_ready.resources.get("테스터", {}).get("물") is None, (
+        "수동 경로에서 자: 태그가 여전히 resource를 변이시킨다")
+
+    # 자동 경로(cost_log_prefix="[AUTO] ").
+    session_auto_ready.resources = {}
+    wired_bot.genai_client.models._provider.outcomes = [
+        FakeGenAIResponse("묘사.", usage=_usage())]
+    await cog._execute_proceed(
+        session_auto_ready, "자:테스터;물;+5 진행하라", cost_log_prefix="[AUTO] ")
+    assert session_auto_ready.resources.get("테스터", {}).get("물") is None, (
+        "자동 경로에서 자: 태그가 여전히 resource를 변이시킨다")
+
+
+async def test_b07_legacy_status_tag_no_longer_mutates_shared_path(
+        wired_bot, session_auto_ready, game_channel, master_channel):
+    """T-B07 — 레거시 태: 태그의 직접 status 변이 권위가 공유 경로에서 사라졌다."""
+    _cached(session_auto_ready)
+    session_auto_ready.is_started = True
+    master_channel.guild = None
     cog = GameCog(wired_bot)
 
-    await cog._execute_proceed(session_auto_ready, "자:테스터;물;+5 진행하라")
+    # 수동 경로.
+    session_auto_ready.statuses = {}
+    wired_bot.genai_client.models._provider.outcomes = [
+        FakeGenAIResponse("묘사.", usage=_usage())]
+    await cog._execute_proceed(session_auto_ready, "태:테스터;부상 진행하라")
+    assert "부상" not in session_auto_ready.statuses.get("테스터", []), (
+        "수동 경로에서 태: 태그가 여전히 status를 변이시킨다")
 
-    # 레거시 직접 변이가 그대로 적용된다(제거/차단되지 않음, 이중 적용도 아님).
-    assert session_auto_ready.resources.get("테스터", {}).get("물") == 5
+    # 자동 경로.
+    session_auto_ready.statuses = {}
+    wired_bot.genai_client.models._provider.outcomes = [
+        FakeGenAIResponse("묘사.", usage=_usage())]
+    await cog._execute_proceed(
+        session_auto_ready, "태:테스터;부상 진행하라", cost_log_prefix="[AUTO] ")
+    assert "부상" not in session_auto_ready.statuses.get("테스터", []), (
+        "자동 경로에서 태: 태그가 여전히 status를 변이시킨다")
 
 
 async def test_delivery_does_not_advance_canonical_state(

@@ -336,52 +336,14 @@ class GameCog(commands.Cog):
                     elif pos == '하':
                         bottom_imgs.append(kw)
 
-            res_tags = [(c.replace('_', ' '), i.replace('_', ' '), a)
-                        for c, i, a in re.findall(res_pattern, instruction)]
-
-            # 유효한 캐릭터 이름 집합 (자:/태: 태그 검증용)
-            valid_char_names = set(p["name"] for p in session.players.values() if p.get("name")) | set(session.npcs.keys())
-
-            for char_name, item_name, amount_str in res_tags:
-                if char_name not in valid_char_names:
-                    print(f"[태그 무시] 자:{char_name};{item_name} — 등록되지 않은 캐릭터 이름")
-                    continue
-                amount = int(amount_str)
-                if char_name not in session.resources:
-                    session.resources[char_name] = {}
-                new_val = session.resources[char_name].get(item_name, 0) + amount
-                # 보유량이 0 이하가 되면 목록에서 삭제
-                if new_val <= 0:
-                    session.resources[char_name].pop(item_name, None)
-                else:
-                    session.resources[char_name][item_name] = new_val
-
-            status_tags = [(c.replace('_', ' '), s.replace('_', ' '))
-                           for c, s in re.findall(status_pattern, instruction)]
-
-            # GM에서는 유효한 상태이상 이름만 허용
-            valid_status_names = None
-            if cost_log_prefix:
-                valid_status_names = set(core.get_merged_status_effects(session.scenario_data).keys())
-
-            for char_name, status_text in status_tags:
-                if char_name not in valid_char_names:
-                    print(f"[태그 무시] 태:{char_name};{status_text} — 등록되지 않은 캐릭터 이름")
-                    continue
-                actual_status = status_text.lstrip("-")
-                if valid_status_names is not None and actual_status not in valid_status_names:
-                    print(f"[태그 무시] 태:{char_name};{status_text} — 유효하지 않은 상태이상 이름 (목록에 없음)")
-                    continue
-                if char_name not in session.statuses:
-                    session.statuses[char_name] = []
-
-                if status_text.startswith("-"):
-                    target_status = status_text[1:]
-                    if target_status in session.statuses[char_name]:
-                        session.statuses[char_name].remove(target_status)
-                else:
-                    if status_text not in session.statuses[char_name]:
-                        session.statuses[char_name].append(status_text)
+            # ── WP-B: 레거시 자:/태: 태그의 직접 상태 변이 권위 제거 (AUD-001) ──
+            #   공유 AI-결과 처리 경로(_execute_proceed)에서 자:/태: 태그로 canonical
+            #   resources/statuses를 직접 바꾸던 두 루프를 제거한다. 자동 턴이든 수동
+            #   !진행이든 이 태그는 더 이상 상태 권위가 아니다(중복 권위 제거).
+            #   상태 변경 권위는 추출층위 + 코드 검증(core.extraction.apply_extraction,
+            #   merged-status validation 포함)으로 단일화된다.
+            #   태그 자체는 아래 방어적 strip으로 clean_instruction/묘사 출력에서 제거되어
+            #   노출되지 않는다(파싱/strip 보존). 태그는 묘사용 투영에도 반영하지 않는다.
 
             clean_instruction = re.sub(img_pattern, '', instruction)
             clean_instruction = re.sub(res_pattern, '', clean_instruction)
