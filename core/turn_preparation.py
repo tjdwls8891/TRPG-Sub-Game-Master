@@ -309,21 +309,40 @@ from dataclasses import field as _field  # noqa: E402
 
 @dataclass
 class ExtractionMutationPlan:
-    """추출 결과에서 파생된, 검증·정규화된 변이 계획.
+    """추출 결과에서 파생된, 검증·정규화된 변이 계획 — **적용의 유일한 권위**.
 
-    · result: 파싱된 추출 결과(원본, result-only 생산물).
-    · entries: 정규화·검증된 후보 변이 항목(도메인/타깃/연산). 검사·dedup·conflict용.
-    · conflicts: 상호 모순 항목 진단.
-    실제 canonical 반영은 단일 호환 적용 경계(_run_extraction 내 표시된 구획)에서
-    기존 도메인 mutator를 재사용해 수행한다(WP-D가 대체할 임시 경계).
+    provider 결과(raw)는 이 계획을 빌드하는 입력일 뿐이며, 빌드 이후에는 어떤
+    canonical mutator의 입력도 되지 않는다. 호환 적용부는 아래 정규화된 typed
+    필드(및 이를 반영한 entries)만 소비한다.
+
+    · result: 파싱된 추출 결과(증거 스냅샷용; mutator 입력 아님).
+    · entries: 정규화된 accepted 항목(검사·dedup·conflict 표시용, typed 필드와 일치).
+    · conflicts: 상호 모순 진단(적용부는 모순 항목을 적용하지 않음).
+    · dropped: 검증에서 탈락한 후보(적용부에 도달 불가).
     """
     transaction_id: str | None = None
     logical_turn: int | None = None
     attempt: int | None = None
     result: dict = _field(default_factory=dict)
+    # ── 정규화된 도메인 DTO (적용 권위) ──
+    status_apply: list = _field(default_factory=list)     # [{target,status,score}]
+    status_clear: list = _field(default_factory=list)
+    item_deltas: list = _field(default_factory=list)      # [{target,item,delta}]
+    npcs_met: list = _field(default_factory=list)
+    companions_joined: list = _field(default_factory=list)
+    companions_left: list = _field(default_factory=list)
+    world_new_tl: dict | None = None
+    location_before: str | None = None
+    location_after: str | None = None
+    location_moved: bool = False
+    quest_progress: dict = _field(default_factory=dict)   # 정규화된 좁은 DTO
+    secret_awareness: object = None
+    situation: dict = _field(default_factory=dict)
+    # ── 검사/진단 ──
     entries: list = _field(default_factory=list)
     conflicts: list = _field(default_factory=list)
     diagnostics: dict = _field(default_factory=dict)
+    dropped: list = _field(default_factory=list)
     applied: bool = False
     rejected_stale: bool = False
 
@@ -372,89 +391,83 @@ def build_extraction_plan(session, result, *, transaction_id=None,
                           logical_turn=None, attempt=None) -> ExtractionMutationPlan:
     """추출 결과를 canonical 변경 없이 검증·정규화된 변이 계획으로 만든다(result-only).
 
-    도메인별 후보를 정규화하고, 등록 캐릭터·병합 상태이상 목록으로 1차 검증하며,
-    동치 중복을 제거하고 상호 모순(같은 타깃·상태의 부여/해제 동시 등)을 진단한다.
-    실제 임계 비교·적용은 단일 호환 적용 경계의 기존 mutator가 수행한다(권위 검증 보존).
+    도메인별 순수 정규화기(core.extraction.normalize_*)로 등록 캐릭터·병합 상태이상
+    검증, 임계 판정, 동치 중복 제거, 상호 모순 처리를 마친 accepted DTO를 계획의
+    typed 필드에 담는다. 이 계획이 이후 적용의 **유일한 권위**이며, raw result는
+    빌드 이후 어떤 mutator의 입력도 되지 않는다.
     """
+    from . import extraction as _ex
+
+    r = result if isinstance(result, dict) else {}
     plan = ExtractionMutationPlan(
         transaction_id=transaction_id, logical_turn=logical_turn,
-        attempt=attempt, result=result if isinstance(result, dict) else {})
-    r = plan.result
-    valid_chars = _valid_char_names(session)
-    valid_status = _valid_status_names(session)
-    seen = set()
+        attempt=attempt, result=r)
 
-    def _add(domain, target, op, payload):
-        key = (domain, target, op, repr(payload))
-        if key in seen:               # 동치 중복 제거(T-B17)
-            return
-        seen.add(key)
-        plan.entries.append({"domain": domain, "target": target,
-                             "op": op, "payload": payload})
+    # 상태이상/소지품/만난 NPC — 검증·임계·dedup(순수).
+    si = _ex.normalize_status_item_effects(session, r)
+    plan.status_apply = si["status_apply"]
+    plan.status_clear = si["status_clear"]
+    plan.item_deltas = si["item_deltas"]
+    plan.npcs_met = list(si["npcs"])
+    if si.get("dropped"):
+        plan.dropped.extend(si["dropped"])
+        plan.diagnostics["dropped_status_item"] = list(si["dropped"])
 
-    # 위치(장소 이동) — 이름만 정규화(해상도/방문은 적용부가 처리).
-    loc = (r.get("location") or {}).get("name") if isinstance(r.get("location"), dict) else None
-    if loc:
-        _add("location", loc, "move", {})
-
-    # 상태이상 후보(점수는 적용부가 임계 비교) — 등록 캐릭터·병합 상태이상만.
-    status_targets = {}
-    for e in (r.get("status_scores") or []):
-        if not isinstance(e, dict):
-            continue
-        t, s = e.get("target"), e.get("status")
-        if not t or not s:
-            continue
-        if valid_chars and t not in valid_chars:
-            plan.diagnostics.setdefault("dropped_status", []).append(f"{t};{s}")
-            continue
-        if valid_status is not None and s not in valid_status:
-            plan.diagnostics.setdefault("dropped_status", []).append(f"{t};{s}")
-            continue
-        _add("status", t, "score", {"status": s, "score": e.get("score")})
-        status_targets.setdefault((t, s), []).append(e.get("score"))
-
-    # 소지품 증감 후보 — 등록 캐릭터만.
-    for e in (r.get("item_changes") or []):
-        if not isinstance(e, dict):
-            continue
-        t = e.get("target")
-        if not t or (valid_chars and t not in valid_chars):
-            continue
-        _add("item", t, "delta",
-             {"item": e.get("item"), "delta": e.get("delta")})
-
-    # 만난 NPC.
-    for n in (r.get("npcs_met") or []):
-        if isinstance(n, str) and n:
-            _add("npc_met", n, "meet", {})
-
-    # 동행 합류/이탈.
-    comp = r.get("companions") or {}
-    if isinstance(comp, dict):
-        for n in (comp.get("joined") or []):
-            if isinstance(n, str) and n:
-                _add("companion", n, "join", {})
-        for n in (comp.get("left") or []):
-            if isinstance(n, str) and n:
-                _add("companion", n, "leave", {})
-
-    # 퀘스트 진전 의도(진전 여부·완료는 적용부가 판정).
-    qp = r.get("quest_progress")
-    if qp:
-        _add("quest", "active", "progress", {"quest_progress": qp})
-
-    # 이면정보 인지 점수(임계 비교는 적용부).
-    if "secret_awareness" in r:
-        _add("secret", "active", "awareness", {"score": r.get("secret_awareness")})
-
-    # 상호 모순 진단: 같은 (타깃, 동행) join & leave 동시.
-    joined = {e["target"] for e in plan.entries
-              if e["domain"] == "companion" and e["op"] == "join"}
-    left = {e["target"] for e in plan.entries
-            if e["domain"] == "companion" and e["op"] == "leave"}
-    for t in (joined & left):
+    # 동행 — dedup + join&leave 모순 이름 양쪽 제외(순수).
+    comp = _ex.normalize_companions(session, r)
+    plan.companions_joined = comp["joined"]
+    plan.companions_left = comp["left"]
+    # 만난 NPC는 status_item.npcs 와 companions.npcs_met를 합집합으로 유지.
+    for n in comp["npcs_met"]:
+        if n not in plan.npcs_met:
+            plan.npcs_met.append(n)
+    for t in comp["conflicts"]:
         plan.conflicts.append({"domain": "companion", "target": t,
                                "reason": "join_and_leave"})
+
+    # 세계 타임라인/장소 — to_world_timeline + resolve + hops(순수).
+    prev_tl = getattr(session, "world_timeline", {}) or {}
+    loc = _ex.normalize_location(session, r, prev_tl)
+    plan.world_new_tl = loc["new_tl"]
+    plan.location_before = loc["before"]
+    plan.location_after = loc["after"]
+    plan.location_moved = loc["moved"]
+
+    # 퀘스트 진전(좁은 정규화 DTO) — 진전/완료 판정은 적용부의 advance_quest.
+    qp = r.get("quest_progress")
+    plan.quest_progress = qp if isinstance(qp, dict) else ({} if qp is None else {"value": qp})
+
+    # 이면정보 인지 점수.
+    plan.secret_awareness = r.get("secret_awareness")
+
+    # 상황(BGM).
+    sit = r.get("situation")
+    plan.situation = sit if isinstance(sit, dict) else {}
+
+    # ── entries: typed 필드를 그대로 반영(검사·dedup·T-B17 표시용, 적용 권위와 일치) ──
+    for e in plan.status_apply:
+        plan.entries.append({"domain": "status", "target": e["target"],
+                             "op": "apply", "payload": {"status": e["status"]}})
+    for e in plan.status_clear:
+        plan.entries.append({"domain": "status", "target": e["target"],
+                             "op": "clear", "payload": {"status": e["status"]}})
+    for e in plan.item_deltas:
+        plan.entries.append({"domain": "item", "target": e["target"],
+                             "op": "delta", "payload": {"item": e["item"], "delta": e["delta"]}})
+    for n in plan.npcs_met:
+        plan.entries.append({"domain": "npc_met", "target": n, "op": "meet", "payload": {}})
+    for n in plan.companions_joined:
+        plan.entries.append({"domain": "companion", "target": n, "op": "join", "payload": {}})
+    for n in plan.companions_left:
+        plan.entries.append({"domain": "companion", "target": n, "op": "leave", "payload": {}})
+    if plan.location_after:
+        plan.entries.append({"domain": "location", "target": plan.location_after,
+                             "op": "move", "payload": {"moved": plan.location_moved}})
+    if plan.quest_progress:
+        plan.entries.append({"domain": "quest", "target": "active",
+                             "op": "progress", "payload": {}})
+    if plan.secret_awareness is not None:
+        plan.entries.append({"domain": "secret", "target": "active",
+                             "op": "awareness", "payload": {}})
 
     return plan

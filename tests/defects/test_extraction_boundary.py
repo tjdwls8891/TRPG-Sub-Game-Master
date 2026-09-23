@@ -57,10 +57,10 @@ LATE_FACT = "임성진이 물통을 비우고 배낭에 넣었다."
 
 
 def _long_narration() -> str:
-    """500자 경계 뒤에 사실이 오는 묘사."""
-    filler = "바람이 분다. " * 100          # 넉넉히 500자 초과
-    assert len(filler) > 500
-    return filler + LATE_FACT
+    """마커(LATE_FACT)를 char 3500 훨씬 뒤(4000자 초과 지점)에 두는 긴 묘사."""
+    filler = "바람이 분다. " * 600          # 4000자 초과
+    assert len(filler) > 4000
+    return filler + LATE_FACT               # 마커 위치 > 3500
 
 
 async def test_d001_extraction_receives_full_narration(
@@ -116,6 +116,41 @@ async def test_d001b_late_fact_reaches_extraction(
 
     assert LATE_FACT in captured.get("text", ""), (
         "500자 이후의 자원 변화가 추출층위에 전달되지 않았습니다")
+
+
+async def test_d001d_full_narration_reaches_provider_prompt(
+        monkeypatch, wired_bot, session_auto_ready, master_channel):
+    """provider 호출 직전 실제 프롬프트에 3500자 이후 마커가 절단 없이 들어간다.
+
+    _run_extraction 내부에 [:3000]/[:1500]/요약-only/꼬리 드롭이 없음을 실증한다.
+    """
+    from types import SimpleNamespace
+
+    import core
+
+    sess = session_auto_ready
+    cog = _make_gm_cog(wired_bot)
+    narration = _long_narration()
+    assert len(narration) > 4000
+    assert narration.index(LATE_FACT) > 3500
+
+    captured = {}
+
+    def _fake_generate(*args, **kwargs):
+        captured["contents"] = kwargs.get("contents")
+        return SimpleNamespace(text='{"situation": {}}', usage_metadata=None)
+
+    monkeypatch.setattr(cog.bot.genai_client.models, "generate_content",
+                        _fake_generate, raising=False)
+
+    await cog._run_extraction(sess, narration, master_channel,
+                              transaction_id=None, logical_turn=None, attempt=None)
+
+    contents = captured.get("contents")
+    assert contents, "추출 provider가 호출되지 않았습니다"
+    prompt_text = contents[0].parts[0].text
+    assert LATE_FACT in prompt_text, "3500자 이후 마커가 추출 프롬프트에서 잘렸습니다"
+    assert narration in prompt_text, "전체 묘사가 추출 프롬프트에 온전히 들어가지 않았습니다(꼬리 드롭)"
 
 
 def test_d001c_extraction_dispatch_passes_full_narration():

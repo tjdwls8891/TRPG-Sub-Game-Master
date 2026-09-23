@@ -2718,13 +2718,16 @@ class GMCog(commands.Cog):
             transaction_id=transaction_id,
         )
 
-        # PROCEED 완료 후 AI 출력 요약 (최대 500자)
+        # PROCEED 완료 후 AI 출력 요약 (표시·이력용, 최대 500자)
+        # + 전체 원문(_full_model_text): 추출 증거 폴백은 요약이 아니라 전문을 쓴다.
         ai_summary = ""
+        _full_model_text = ""
         new_entries = session.raw_logs[prev_raw_count:]
         for content in reversed(new_entries):
             if getattr(content, "role", None) == "model":
                 try:
                     text = content.parts[0].text
+                    _full_model_text = text or ""
                     ai_summary = text[:500] + ("..." if len(text) > 500 else "")
                 except Exception:
                     pass
@@ -2787,7 +2790,7 @@ class GMCog(commands.Cog):
             # 넘기지 않으면 조용히 적용만 되고 무엇이 바뀌었는지 알 수 없다.
             _mch = self.bot.get_channel(getattr(session, "master_ch_id", 0))
             # AUD-011: 추출에 500자 요약이 아니라 완결된 전체 묘사를 넘긴다.
-            _full_narration = (result or {}).get("ai_text") or ai_summary
+            _full_narration = (result or {}).get("ai_text") or _full_model_text or ai_summary
             # §38: 비동기 추출에 트랜잭션 정체성(logical_turn/attempt)을 복사해
             #      적용 직전 stale guard에 쓴다.
             _tx_obj = core.turn_transaction.get_active_transaction(session)
@@ -3068,7 +3071,7 @@ class GMCog(commands.Cog):
         ]
 
         user_prompt = (
-            f"[이번 묘사문]\n{(text or '')[:1500]}\n\n"
+            f"[이번 묘사문]\n{text or ''}\n\n"
             f"[배정 대상 인물]\n" + "\n".join(f"- {n}" for n in names) + "\n\n"
             f"[이미지 후보 목록]\n" + ", ".join(pool) + "\n\n"
             f"[이전 배정 기록]\n" + ("\n".join(prev_lines) if prev_lines else "(없음)")
@@ -3175,6 +3178,154 @@ class GMCog(commands.Cog):
             await master_ch.send("🎭 **[비정규 NPC 배정]** " + " · ".join(lines))
         return added
 
+    async def _apply_extraction_plan(self, session, plan, master_ch=None) -> dict:
+        """LegacyCompatibilityApplier — 추출 변이 계획(정규화 typed 필드)만 적용한다.
+
+        raw provider result는 이 함수에 **입력되지 않으며** 어떤 canonical mutator의
+        입력도 되지 않는다. 검증 탈락·dedup·conflict로 계획에서 빠진 후보는 여기에
+        도달할 수 없다(되살아남 불가). 기존 도메인 helper는 재사용하되 입력은 계획에서
+        파생한 정규화 DTO(또는 좁은 구조)뿐이다. plan.result는 증거 스냅샷·로그용일 뿐
+        mutator 입력이 아니다.
+        """
+        # ── 세계 타임라인 / 장소(정규화된 이름으로만) ──
+        if plan.location_after:
+            try:
+                if core.places.mark_visited(session, plan.location_after):
+                    print(f"[장소] 첫 방문: {plan.location_after}")
+                if plan.location_moved:
+                    gone = core.release_resident_companions(session, plan.location_after)
+                    if gone and master_ch:
+                        await master_ch.send(
+                            f"👋 **[동행]** {', '.join(gone)}이(가) 자리에 남았습니다.")
+            except Exception as e:
+                print(f"[장소] 적용 실패: {e}")
+        if plan.world_new_tl is not None:
+            session.world_timeline = core.quantify(session, plan.world_new_tl)
+
+        # 증거 스냅샷(참조·로그용) + 추출 차단 해제.
+        session.last_extraction = plan.result
+        session.extraction_pending = False
+        session.extraction_retry_ctx = {}
+
+        # ── 동행 (정규화 DTO만) ──
+        try:
+            comp = core.apply_normalized_companions(session, {
+                "joined": plan.companions_joined,
+                "left": plan.companions_left,
+                "npcs_met": plan.npcs_met})
+            if comp["joined"] and master_ch:
+                await master_ch.send(f"🤝 **[동행]** {', '.join(comp['joined'])} 합류")
+            if comp["left"] and master_ch:
+                await master_ch.send(f"👋 **[동행]** {', '.join(comp['left'])} 이탈")
+        except Exception as e:
+            print(f"[동행] 갱신 실패: {e}")
+
+        # ── 상태이상 / 소지품 (정규화 DTO만; 임계·검증은 이미 계획 빌드에서 끝남) ──
+        applied = core.apply_normalized_status_item(session, {
+            "status_apply": plan.status_apply,
+            "status_clear": plan.status_clear,
+            "item_deltas": plan.item_deltas,
+            "npcs": plan.npcs_met})
+
+        # ── 퀘스트 진전 / 이면정보 / 메인 해금 / 엔딩 (좁은 정규화 입력만) ──
+        moved = None
+        try:
+            if core.quest.check_secret_awareness(
+                    session, {"secret_awareness": plan.secret_awareness}):
+                print(f"[GM/{session.session_id}] 이면정보 인지됨")
+                if master_ch:
+                    await master_ch.send("🔓 **[퀘스트]** 플레이어가 숨겨진 사실을 알아챘습니다.")
+
+            try:
+                mains = core.quest.check_main_unlock(session)
+                if mains and not getattr(session, "main_unlocked_notified", False):
+                    session.main_unlocked_notified = True
+                    if master_ch:
+                        await master_ch.send(
+                            f"🗝️ **[퀘스트]** 메인라인 조건 충족 — "
+                            f"{', '.join(q['name'] for q in mains)}")
+            except Exception as e:
+                print(f"[퀘스트] 메인 해금 확인 실패: {e}")
+
+            moved = core.quest.advance_quest(
+                session, {"quest_progress": plan.quest_progress})
+            if moved and moved.get("moved"):
+                outcome = moved.get("outcome")
+                print(f"[GM/{session.session_id}] 퀘스트 진전 → {moved['node']}"
+                      + (f" (완료: {outcome})" if outcome else ""))
+                if outcome and master_ch:
+                    await master_ch.send(f"📜 **[퀘스트]** 완료 — {outcome}")
+                if moved.get("granted"):
+                    g = moved["granted"]
+                    if g.get("faction"):
+                        print(f"[GM/{session.session_id}] 소속 획득: {g['faction']}")
+                        game_ch2 = self.bot.get_channel(session.game_ch_id)
+                        if game_ch2:
+                            await game_ch2.send(
+                                f"🏛️ **{g['faction']}**의 일원이 되었습니다.")
+                if core.quest.is_ending(outcome):
+                    session.pending_ending = outcome
+                    game_ch = self.bot.get_channel(session.game_ch_id)
+                    if game_ch:
+                        await game_ch.send(
+                            f"🎬 **세션 엔딩에 도달했습니다.**\n"
+                            f"> 결말: {outcome}\n\n"
+                            + core.quest.format_plans(),
+                            view=InfinityPlanView(self.bot, session),
+                        )
+        except Exception as e:
+            print(f"[퀘스트] 진전 실패(진행에는 영향 없음): {e}")
+        if applied["applied"] or applied["cleared"]:
+            print(f"[GM/{session.session_id}] 상태 적용: "
+                  f"부여={applied['applied']} 해제={applied['cleared']}")
+
+        # ── BGM (정규화 situation) ──
+        try:
+            track = core.select_bgm(session, plan.situation or {})
+            if track:
+                session.pending_bgm = track
+                print(f"[GM/{session.session_id}] BGM 전환 예정: {track}")
+        except Exception as e:
+            print(f"[BGM] 선택 실패(진행에는 영향 없음): {e}")
+
+        # ── 통계 ──
+        try:
+            for uid in (session.players or {}):
+                await core.stats.bump(
+                    uid, turns=1,
+                    status_applied=len(applied["applied"]),
+                    status_cleared=len(applied["cleared"]))
+                await core.stats.add_npcs(uid, applied["npcs"])
+        except Exception as e:
+            print(f"[통계] 누적 실패(진행에는 영향 없음): {e}")
+
+        # 로그(증거) + 계획 충돌 진단.
+        core.write_log(
+            session.session_id, "api",
+            f"[추출층위 결과]\n{json.dumps(plan.result, ensure_ascii=False, indent=2)}")
+        if plan.conflicts:
+            print(f"[추출/{session.session_id}] 계획 충돌 진단(적용 제외): {plan.conflicts}")
+
+        # 마스터 보고 — 계획·적용 결과에서 구성(raw result는 mutator에 안 들어감).
+        if master_ch:
+            loc = (plan.world_new_tl or {}).get("current_location") or "미확인"
+            report = f"🔎 **[추출층위]** 위치={loc}"
+            if applied["applied"]:
+                report += f"\n> 상태 부여: {', '.join(applied['applied'])}"
+            if applied["cleared"]:
+                report += f"\n> 상태 해제: {', '.join(applied['cleared'])}"
+            if applied.get("items"):
+                shown = [f"{i['target']} {i['item']} "
+                         f"{'+' if i['delta'] > 0 else ''}{i['delta']} (→{i['after']})"
+                         for i in applied["items"][:6]]
+                report += f"\n> 소지품 반영: {', '.join(shown)}"
+            if plan.companions_joined:
+                report += f"\n> 동행 합류: {', '.join(plan.companions_joined)}"
+            await master_ch.send(report)
+
+        plan.applied = True
+        return {"applied": applied, "moved": moved}
+
     async def _run_extraction(self, session, ai_output_text: str, master_ch=None,
                               *, transaction_id: str | None = None,
                               logical_turn: int | None = None,
@@ -3219,11 +3370,14 @@ class GMCog(commands.Cog):
         # 매번 없는 상태이상을 만들고 인물 아닌 것을 npcs_met에 넣는다.
         limit_block = core.build_extraction_limits(session)
 
+        # WP-B(AUD-011): 추출 증거에는 완결된 전체 묘사가 들어가야 한다.
+        #   추출 모델(Gemini)의 컨텍스트 한도는 묘사 길이(수천 자)를 크게 상회하므로
+        #   청킹 없이 전문을 전달한다. 요약·앞부분 절단·꼬리 드롭을 하지 않는다.
         user_prompt = (
             "[추출 항목]\n" + "\n".join(f"- {t}" for t in targets) + "\n"
             + limit_block + secret_block + "\n"
             f"[직전까지의 세계 상태]\n{prev_summary}\n\n"
-            f"[이번 묘사문]\n{ai_output_text[:3000]}"
+            f"[이번 묘사문]\n{ai_output_text}"
         )
         core.write_log(session.session_id, "api", f"[추출층위 요청 - Payload]\n{user_prompt}")
 
@@ -3295,7 +3449,7 @@ class GMCog(commands.Cog):
         if not result:
             # 재시도 실패 → 다음 턴 차단 + 재시도 버튼
             session.extraction_pending = True
-            session.extraction_retry_ctx = {"text": ai_output_text[:3000]}
+            session.extraction_retry_ctx = {"text": ai_output_text}
             await core.save_session_data(self.bot, session)
             game_ch = self.bot.get_channel(session.game_ch_id)
             if game_ch:
@@ -3312,8 +3466,13 @@ class GMCog(commands.Cog):
         #  ▼▼▼ WP-B 단일 호환 적용 경계 (pre-WP-D COMPATIBILITY BOUNDARY) ▼▼▼
         #  이 구획이 추출 결과를 canonical에 반영하는 유일한 지점이다.
         #  · 위쪽(provider 호출 + 파싱)은 result-only 생산: canonical 미변경.
-        #  · 아래 mutator들(to_world_timeline/places/apply_companions/apply_extraction/
-        #    advance_quest/check_secret_awareness 등)은 재작성하지 않고 그대로 재사용한다.
+        #  · build_extraction_plan이 raw result를 검증·정규화·dedup·모순처리해
+        #    ExtractionMutationPlan(적용의 유일 권위)을 만든다. 이후 raw result는
+        #    어떤 canonical mutator의 입력도 되지 않는다.
+        #  · 적용은 _apply_extraction_plan(LegacyCompatibilityApplier)이 계획의
+        #    정규화 typed 필드(또는 좁은 파생 DTO)만 소비해 수행한다. 기존 도메인
+        #    helper(apply_normalized_*/advance_quest/check_secret_awareness/select_bgm/
+        #    places)는 재사용하되 입력은 정규화 데이터뿐이다.
         #  · WP-D가 이 경계를 barrier·commit 뒤로 이동/치환한다. 여기는 authoritative
         #    commit이 아니다.
         #  적용 전 두 가지를 보장한다:
@@ -3348,153 +3507,10 @@ class GMCog(commands.Cog):
             if len(_applied_ids) > 16:
                 del _applied_ids[:-16]
 
-        # 성공 — 세계 타임라인 흡수 갱신 (기존 _update_world_timeline 대체)
-        # 시간선 정량화 — 일/24시간 단위 정수 필드를 함께 보관한다.
-        new_tl = core.to_world_timeline(result, prev_tl)
-
-        # 장소 이동 처리 — 방문 기록과 이동 소요 시간을 반영한다.
-        try:
-            pl = core.places.load_places(session.scenario_data)
-            if pl:
-                before = core.places.resolve(pl, prev_tl.get("current_location") or "")
-                after = core.places.resolve(pl, new_tl.get("current_location") or "")
-                if after:
-                    new_tl["current_location"] = after
-                    if core.places.mark_visited(session, after):
-                        print(f"[장소] 첫 방문: {after}")
-                    # 장소를 옮기면 그곳 상주 NPC는 동행에서 자동 해제한다.
-                    if before and before != after:
-                        gone = core.release_resident_companions(session, after)
-                        if gone and master_ch:
-                            await master_ch.send(
-                                f"👋 **[동행]** {', '.join(gone)}이(가) 자리에 남았습니다.")
-                    # 이동 소요를 시간선에 반영한다(지시 확정).
-                    if before and before != after:
-                        hops = core.places.hops_between(session, before, after)
-                        if hops:
-                            new_tl["travel_hops"] = hops
-        except Exception as e:
-            print(f"[장소] 이동 처리 실패: {e}")
-
-        session.world_timeline = core.quantify(session, new_tl)
-        session.last_extraction = result
-        session.extraction_pending = False
-        session.extraction_retry_ctx = {}
-
-        # 동행 갱신 — 만난 인물과 함께 가는 인물을 분리 관리한다.
-        try:
-            comp = core.apply_companions(session, result)
-            if comp["joined"] and master_ch:
-                await master_ch.send(f"🤝 **[동행]** {', '.join(comp['joined'])} 합류")
-            if comp["left"] and master_ch:
-                await master_ch.send(f"👋 **[동행]** {', '.join(comp['left'])} 이탈")
-        except Exception as e:
-            print(f"[동행] 갱신 실패: {e}")
-
-        # 수치 판단 적용 — 임계값 비교는 코드가 전담한다(모델은 기준을 모른다).
-        applied = core.apply_extraction(session, result)
-
-        # 퀘스트 케이스 진전 — quest_progress의 두 번째 소비처.
-        # 이탈이 크면 진전시키지 않고 재계획 트리거로 넘긴다.
-        try:
-            # 이면정보 인지 판정 — 임계 비교는 코드가 한다.
-            if core.quest.check_secret_awareness(session, result):
-                print(f"[GM/{session.session_id}] 이면정보 인지됨")
-                if master_ch:
-                    await master_ch.send("🔓 **[퀘스트]** 플레이어가 숨겨진 사실을 알아챘습니다.")
-
-            # 메인라인 해금 확인 — 조건을 갓 충족했으면 알린다.
-            try:
-                mains = core.quest.check_main_unlock(session)
-                if mains and not getattr(session, "main_unlocked_notified", False):
-                    session.main_unlocked_notified = True
-                    if master_ch:
-                        await master_ch.send(
-                            f"🗝️ **[퀘스트]** 메인라인 조건 충족 — "
-                            f"{', '.join(q['name'] for q in mains)}")
-            except Exception as e:
-                print(f"[퀘스트] 메인 해금 확인 실패: {e}")
-
-            moved = core.quest.advance_quest(session, result)
-            if moved and moved.get("moved"):
-                outcome = moved.get("outcome")
-                print(f"[GM/{session.session_id}] 퀘스트 진전 → {moved['node']}"
-                      + (f" (완료: {outcome})" if outcome else ""))
-                if outcome and master_ch:
-                    await master_ch.send(f"📜 **[퀘스트]** 완료 — {outcome}")
-                # 소속 획득 등 클리어 보상 반영
-                if moved.get("granted"):
-                    g = moved["granted"]
-                    if g.get("faction"):
-                        print(f"[GM/{session.session_id}] 소속 획득: {g['faction']}")
-                        game_ch2 = self.bot.get_channel(session.game_ch_id)
-                        if game_ch2:
-                            await game_ch2.send(
-                                f"🏛️ **{g['faction']}**의 일원이 되었습니다.")
-                # 메인라인 엔딩 — 세션 엔딩을 호출한다(기획 규정).
-                if core.quest.is_ending(outcome):
-                    session.pending_ending = outcome
-                    game_ch = self.bot.get_channel(session.game_ch_id)
-                    if game_ch:
-                        await game_ch.send(
-                            f"🎬 **세션 엔딩에 도달했습니다.**\n"
-                            f"> 결말: {outcome}\n\n"
-                            + core.quest.format_plans(),
-                            view=InfinityPlanView(self.bot, session),
-                        )
-        except Exception as e:
-            print(f"[퀘스트] 진전 실패(진행에는 영향 없음): {e}")
-        if applied["applied"] or applied["cleared"]:
-            print(
-                f"[GM/{session.session_id}] 상태 적용: "
-                f"부여={applied['applied']} 해제={applied['cleared']}"
-            )
-
-        # ── BGM 자동 전환 (설계문서 6) ──
-        # 추출층위의 situation을 소비한다. 상황이 그대로면 select_bgm이 None을
-        # 반환하므로 재생이 유지된다(기획 규정).
-        try:
-            track = core.select_bgm(session, result.get("situation") or {})
-            if track:
-                session.pending_bgm = track
-                print(f"[GM/{session.session_id}] BGM 전환 예정: {track}")
-        except Exception as e:
-            print(f"[BGM] 선택 실패(진행에는 영향 없음): {e}")
-
-        # ── 통계 누적 (설계문서 6) ──
-        # 되감기를 해도 통계는 되돌리지 않는다. 실제로 발생한 플레이의 기록이다.
-        try:
-            for uid in (session.players or {}):
-                await core.stats.bump(
-                    uid, turns=1,
-                    status_applied=len(applied["applied"]),
-                    status_cleared=len(applied["cleared"]),
-                )
-                await core.stats.add_npcs(uid, applied["npcs"])
-        except Exception as e:
-            print(f"[통계] 누적 실패(진행에는 영향 없음): {e}")
-
-        core.write_log(
-            session.session_id, "api",
-            f"[추출층위 결과]\n{json.dumps(result, ensure_ascii=False, indent=2)}"
-        )
-        if master_ch:
-            report = f"🔎 **[추출층위]** {core.summarize_for_report(result)}"
-            if applied["applied"]:
-                report += f"\n> 상태 부여: {', '.join(applied['applied'])}"
-            if applied["cleared"]:
-                report += f"\n> 상태 해제: {', '.join(applied['cleared'])}"
-            if applied.get("items"):
-                shown = [f"{i['target']} {i['item']} "
-                         f"{'+' if i['delta'] > 0 else ''}{i['delta']} (→{i['after']})"
-                         for i in applied["items"][:6]]
-                report += f"\n> 소지품 반영: {', '.join(shown)}"
-            await master_ch.send(report)
-
-        # plan이 감지한 상호 모순(예: 동일 인물 동행 합류·이탈 동시)을 진단으로 남긴다.
-        if plan.conflicts:
-            print(f"[추출/{session.session_id}] 계획 충돌 진단: {plan.conflicts}")
-        plan.applied = True
+        # 성공 — 계획(정규화 typed 필드)만을 권위로 canonical에 적용한다.
+        #   raw result는 여기서 어떤 mutator의 입력도 되지 않는다(계획이 유일 권위).
+        #   검증 탈락·dedup·conflict로 계획에서 빠진 후보는 적용부에 도달할 수 없다.
+        await self._apply_extraction_plan(session, plan, master_ch)
         # ▲▲▲ WP-B 단일 호환 적용 경계 끝 (COMPATIBILITY BOUNDARY END) ▲▲▲
         return result
 

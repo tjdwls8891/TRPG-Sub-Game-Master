@@ -250,6 +250,229 @@ def to_world_timeline(result: dict, existing: dict | None = None) -> dict:
     return tl
 
 
+def _valid_char_set(session) -> set:
+    valid = set()
+    try:
+        valid |= {p.get("name") for p in (session.players or {}).values() if p.get("name")}
+        valid |= set((session.npcs or {}).keys())
+    except Exception:
+        pass
+    return valid
+
+
+def _valid_status_set(session):
+    try:
+        from .utils import get_merged_status_effects
+        eff = get_merged_status_effects(session.scenario_data or {})
+        if isinstance(eff, dict):
+            return set(eff.keys())
+        if isinstance(eff, list):
+            return {e.get("name") for e in eff if isinstance(e, dict) and e.get("name")}
+    except Exception:
+        pass
+    return None
+
+
+def normalize_status_item_effects(session, result: dict) -> dict:
+    """status_scores/item_changes를 검증·임계비교해 accepted DTO로 정규화한다.
+
+    **순수 함수** — 세션을 변경하지 않는다. 등록 캐릭터·병합 상태이상으로 걸러내고,
+    임계값으로 부여/해제를 판정하며, 동치 후보(같은 (target,status,결정) / 같은
+    (target,item,delta))는 하나로 접는다. 버려진 후보는 dropped에 기록한다.
+
+    Returns:
+        {"status_apply":[{target,status,score}], "status_clear":[...],
+         "item_deltas":[{target,item,delta}], "npcs":[...], "dropped":[...]}
+    """
+    th = get_thresholds(session)
+    valid = _valid_char_set(session)
+    valid_status = _valid_status_set(session)
+
+    status_apply, status_clear, item_deltas, dropped = [], [], [], []
+    seen_status, seen_item = set(), set()
+
+    for entry in (result.get("status_scores") or []):
+        if not isinstance(entry, dict):
+            continue
+        target, status = entry.get("target"), entry.get("status")
+        try:
+            score = int(entry.get("score", 0))
+        except (TypeError, ValueError):
+            continue
+        if not target or not status:
+            continue
+        if valid and target not in valid:
+            dropped.append(f"{target};{status}(무효 캐릭터)")
+            continue
+        if valid_status is not None and status not in valid_status:
+            dropped.append(f"{target};{status}(무효 상태)")
+            continue
+        if score >= th["status_apply"]:
+            key = (target, status, "apply")
+            if key not in seen_status:
+                seen_status.add(key)
+                status_apply.append({"target": target, "status": status, "score": score})
+        elif score <= th["status_clear"]:
+            key = (target, status, "clear")
+            if key not in seen_status:
+                seen_status.add(key)
+                status_clear.append({"target": target, "status": status, "score": score})
+        # 중립 점수(임계 사이)는 상태 변화 없음 — 후보에서 제외.
+
+    for entry in (result.get("item_changes") or []):
+        if not isinstance(entry, dict):
+            continue
+        target = entry.get("target")
+        name = (entry.get("item") or "").strip()
+        if not name or (valid and target not in valid):
+            if name:
+                dropped.append(f"{target};{name}(무효 캐릭터)")
+            continue
+        try:
+            delta = int(entry.get("delta", 0))
+        except (TypeError, ValueError):
+            continue
+        if delta == 0:
+            continue
+        key = (target, name, delta)          # 동치 아이템 후보 dedup
+        if key in seen_item:
+            continue
+        seen_item.add(key)
+        item_deltas.append({"target": target, "item": name, "delta": delta})
+
+    npcs = []
+    seen_npc = set()
+    for n in (result.get("npcs_met") or []):
+        if isinstance(n, str) and n and n not in seen_npc:
+            seen_npc.add(n)
+            npcs.append(n)
+
+    return {"status_apply": status_apply, "status_clear": status_clear,
+            "item_deltas": item_deltas, "npcs": npcs, "dropped": dropped}
+
+
+def apply_normalized_status_item(session, eff: dict) -> dict:
+    """정규화된 상태·소지품 효과를 canonical에 적용한다(raw result 미참조).
+
+    입력은 normalize_status_item_effects의 accepted DTO뿐이다. 여기서 다시 파싱·
+    검증하지 않으며, 버려진 후보는 이 함수에 도달할 수 없다.
+    """
+    applied, cleared, items = [], [], []
+
+    for e in (eff.get("status_apply") or []):
+        current = session.statuses.setdefault(e["target"], [])
+        if e["status"] not in current:
+            current.append(e["status"])
+            applied.append(f'{e["target"]};{e["status"]}({e.get("score")})')
+    for e in (eff.get("status_clear") or []):
+        current = session.statuses.setdefault(e["target"], [])
+        if e["status"] in current:
+            current.remove(e["status"])
+            cleared.append(f'{e["target"]};{e["status"]}({e.get("score")})')
+
+    resources = dict(getattr(session, "resources", {}) or {})
+    for e in (eff.get("item_deltas") or []):
+        bag = dict(resources.get(e["target"]) or {})
+        before = int(bag.get(e["item"], 0) or 0)
+        after = max(0, before + int(e["delta"]))
+        if after == 0:
+            bag.pop(e["item"], None)
+        else:
+            bag[e["item"]] = after
+        resources[e["target"]] = bag
+        items.append({"target": e["target"], "item": e["item"],
+                      "delta": after - before, "after": after})
+    if items:
+        session.resources = resources
+
+    return {"applied": applied, "cleared": cleared,
+            "npcs": list(eff.get("npcs") or []), "items": items}
+
+
+def normalize_location(session, result: dict, prev_tl: dict) -> dict:
+    """세계 타임라인·장소 이동을 정규화한다(순수 — 세션 미변경).
+
+    to_world_timeline로 새 타임라인을 만들고, 장소를 해상도(resolve)해 이동 여부와
+    이동 소요(travel_hops)까지 계산해 new_tl에 담는다. mark_visited/동행 해제 같은
+    변이는 하지 않는다(적용부가 정규화된 이름으로 수행).
+
+    Returns:
+        {"new_tl": {...}, "before": str|None, "after": str|None, "moved": bool}
+    """
+    new_tl = to_world_timeline(result, prev_tl or {})
+    before = after = None
+    moved = False
+    try:
+        from . import places as _places
+        pl = _places.load_places(getattr(session, "scenario_data", {}) or {})
+        if pl:
+            before = _places.resolve(pl, (prev_tl or {}).get("current_location") or "")
+            after = _places.resolve(pl, new_tl.get("current_location") or "")
+            if after:
+                new_tl["current_location"] = after
+                if before and before != after:
+                    moved = True
+                    hops = _places.hops_between(session, before, after)
+                    if hops:
+                        new_tl["travel_hops"] = hops
+    except Exception as e:
+        print(f"[장소] 정규화 실패: {e}")
+    return {"new_tl": new_tl, "before": before, "after": after, "moved": moved}
+
+
+def normalize_companions(session, result: dict) -> dict:
+    """companions/npcs_met를 정규화한다(순수). join&leave 모순 이름은 양쪽에서 제외.
+
+    Returns:
+        {"joined":[...], "left":[...], "npcs_met":[...], "conflicts":[...]}
+    """
+    comp = result.get("companions") or {}
+    joined = [n for n in (comp.get("joined") or []) if isinstance(n, str) and n]
+    left = [n for n in (comp.get("left") or []) if isinstance(n, str) and n]
+    npcs_met = [n for n in (result.get("npcs_met") or []) if isinstance(n, str) and n]
+
+    # dedup
+    joined = list(dict.fromkeys(joined))
+    left = list(dict.fromkeys(left))
+    npcs_met = list(dict.fromkeys(npcs_met))
+
+    # 모순: 같은 이름이 합류·이탈 동시 → 애매한 last-write-wins 금지, 양쪽에서 제외.
+    conflicts = sorted(set(joined) & set(left))
+    if conflicts:
+        cset = set(conflicts)
+        joined = [n for n in joined if n not in cset]
+        left = [n for n in left if n not in cset]
+    return {"joined": joined, "left": left, "npcs_met": npcs_met,
+            "conflicts": conflicts}
+
+
+def apply_normalized_companions(session, norm: dict) -> dict:
+    """정규화된 동행 효과를 적용한다(raw result 미참조)."""
+    current = list(getattr(session, "companions", []) or [])
+    met = list(getattr(session, "met_npcs", []) or [])
+
+    for name in (norm.get("npcs_met") or []):
+        if name not in met:
+            met.append(name)
+
+    joined = []
+    for name in (norm.get("joined") or []):
+        if name not in current:
+            current.append(name)
+            joined.append(name)
+            if name not in met:
+                met.append(name)
+    left = []
+    for name in (norm.get("left") or []):
+        if name in current:
+            current.remove(name)
+            left.append(name)
+
+    session.companions = current
+    session.met_npcs = met
+    return {"joined": joined, "left": left}
+
+
 def apply_extraction(session, result: dict) -> dict:
     """추출 수치를 임계값과 대조해 세션 상태에 적용한다.
 
@@ -270,96 +493,11 @@ def apply_extraction(session, result: dict) -> dict:
     Returns:
         {"applied": [...], "cleared": [...], "npcs": [...], "items": [...]}
     """
-    th = get_thresholds(session)
-    applied, cleared = [], []
-
-    # 유효 캐릭터명 — 등록된 PC·NPC만 허용 (일반 명사 차단)
-    valid = set()
-    try:
-        valid |= {p.get("name") for p in (session.players or {}).values() if p.get("name")}
-        valid |= set((session.npcs or {}).keys())
-    except Exception:
-        pass
-
-    # 유효 상태이상 이름 — 시나리오에 목록이 있으면 그 안으로 제한
-    valid_status = None
-    try:
-        # 공통 상태이상도 유효 목록에 넣는다. 시나리오 것만 보면
-        # data/common_status_effects.json의 항목이 항상 걸러진다.
-        from .utils import get_merged_status_effects
-        eff = get_merged_status_effects(session.scenario_data or {})
-        if isinstance(eff, dict):
-            valid_status = set(eff.keys())
-        elif isinstance(eff, list):
-            valid_status = {e.get("name") for e in eff if isinstance(e, dict) and e.get("name")}
-    except Exception:
-        pass
-
-    for entry in (result.get("status_scores") or []):
-        if not isinstance(entry, dict):
-            continue
-        target = entry.get("target")
-        status = entry.get("status")
-        try:
-            score = int(entry.get("score", 0))
-        except (TypeError, ValueError):
-            continue
-        if not target or not status:
-            continue
-        if valid and target not in valid:
-            print(f"[추출 무시] {target};{status} — 등록되지 않은 캐릭터 이름")
-            continue
-        if valid_status is not None and status not in valid_status:
-            print(f"[추출 무시] {target};{status} — 유효 상태이상 목록에 없음")
-            continue
-
-        current = session.statuses.setdefault(target, [])
-        if score >= th["status_apply"]:
-            if status not in current:
-                current.append(status)
-                applied.append(f"{target};{status}({score})")
-        elif score <= th["status_clear"]:
-            if status in current:
-                current.remove(status)
-                cleared.append(f"{target};{status}({score})")
-
-    # 만난 NPC — 중복 없이 누적
-    npcs = [n for n in (result.get("npcs_met") or []) if isinstance(n, str) and n]
-
-    # ── 소지품 증감 ──
-    # 대상은 상태이상과 같은 기준으로 검증한다. 없는 캐릭터에게 물건을
-    # 주면 자원 원장이 어긋난다.
-    items = []
-    resources = dict(getattr(session, "resources", {}) or {})
-    for entry in (result.get("item_changes") or []):
-        if not isinstance(entry, dict):
-            continue
-        target = entry.get("target")
-        name = (entry.get("item") or "").strip()
-        if not name or (valid and target not in valid):
-            continue
-        try:
-            delta = int(entry.get("delta", 0))
-        except (TypeError, ValueError):
-            continue
-        if delta == 0:
-            continue
-
-        bag = dict(resources.get(target) or {})
-        before = int(bag.get(name, 0) or 0)
-        after = max(0, before + delta)
-        if after == 0:
-            bag.pop(name, None)
-        else:
-            bag[name] = after
-        resources[target] = bag
-        items.append({"target": target, "item": name,
-                      "delta": after - before, "after": after})
-
-    if items:
-        session.resources = resources
-
-    return {"applied": applied, "cleared": cleared, "npcs": npcs, "items": items}
+    # WP-B: 검증·정규화(순수)와 적용(변이)을 분리했다. 이 함수는 둘을 이어 붙인
+    #   하위호환 래퍼다. 계획-권위 경로는 normalize_status_item_effects의 DTO를
+    #   직접 apply_normalized_status_item으로 넘긴다(raw result 재해석 없음).
+    return apply_normalized_status_item(
+        session, normalize_status_item_effects(session, result))
 
 
 def apply_companions(session, data: dict) -> dict:
@@ -374,32 +512,8 @@ def apply_companions(session, data: dict) -> dict:
     Returns:
         {"joined": [...], "left": [...]}
     """
-    comp = data.get("companions") or {}
-    current = list(getattr(session, "companions", []) or [])
-    met = list(getattr(session, "met_npcs", []) or [])
-
-    # 만난 기록은 누적된다. 동행 여부와 무관하다.
-    for name in (data.get("npcs_met") or []):
-        if isinstance(name, str) and name and name not in met:
-            met.append(name)
-
-    joined = []
-    for name in (comp.get("joined") or []):
-        if isinstance(name, str) and name and name not in current:
-            current.append(name)
-            joined.append(name)
-            if name not in met:
-                met.append(name)
-
-    left = []
-    for name in (comp.get("left") or []):
-        if name in current:
-            current.remove(name)
-            left.append(name)
-
-    session.companions = current
-    session.met_npcs = met
-    return {"joined": joined, "left": left}
+    # WP-B: 하위호환 래퍼 — 정규화(모순 이름 제외 포함) 후 적용.
+    return apply_normalized_companions(session, normalize_companions(session, data))
 
 
 def release_resident_companions(session, new_location: str) -> list:

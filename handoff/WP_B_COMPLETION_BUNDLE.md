@@ -127,7 +127,8 @@ targeted 대표 실행: `test_turn_preparation`(정책), `test_extraction_stagin
 - `_dispatch_proceed`: `_full_narration = (result or {}).get("ai_text") or ai_summary` → `_run_extraction(session, _full_narration, ...)`.
 - 구조 특성화 `test_d001c`: `_dispatch_proceed` 본문에 `ai_text` 존재 + `_run_extraction(session, ai_summary` 부재.
 - 행위 `test_d001`/`test_d001b`: 500자 경계 뒤 사실(LATE_FACT)이 추출 입력에 도달(전체 == narration).
-- (내부 `ai_output_text[:3000]`은 추출 프롬프트 크기 제어로 **보존** — 500자 요약 절단(AUD-011)과 별개의 통제이며, 일반 묘사 길이를 포괄. 아래 findings에 명시.)
+- **[게이트 패치] 내부 `ai_output_text[:3000]` 절단 제거** — 추출 provider input에 완결 전체 묘사 전문 전달. 별도 op `_resolve_irregular_npcs`의 `[:1500]`도 전문으로 상향(묘사 증거 uniform). `_full_narration` 폴백을 500자 요약이 아닌 원문(`_full_model_text`)으로 강화(요약-only 경로 제거).
+- **실증 `test_d001d_full_narration_reaches_provider_prompt`**: 묘사>4000자, 마커를 char 3500 뒤에 배치 → provider 호출 직전 실제 `contents`(프롬프트)를 캡처해 마커·전문 포함 검증. `_run_extraction` 내부 truncation 0건(§39 스캔). ⇒ AUD-011 **RESOLVED_IN_CODE**.
 
 ## 10. 변이-계획/검증 증거
 - `build_extraction_plan`: 등록 캐릭터·merged-status 목록으로 1차 검증(무효 status/캐릭터 drop → diagnostics), 동치 중복 제거(seen set, T-B17), 상호 모순(동행 join&leave) conflict 진단.
@@ -155,7 +156,7 @@ targeted 대표 실행: `test_turn_preparation`(정책), `test_extraction_stagin
 4. 자동턴 AI 효과가 staged/plan 경유 — 지시=stage/apply, 추출=plan+guarded, progress=단일 owner, 자:태:=중립화.
 5. 호환 적용 사이트 **열거·최소**(위 §8: 3개).
 6. 두 번째 quest-choice 자동 owner **없음** — `_apply_quest_choice` def 0건. (gm.py:1853 `start_quest`는 `!퀘스트 열기` **운영자 명령**, 별개 제품 의미 — P-B10.)
-7. raw 모델 추출 result가 경계 **밖** 불투명 mutator로 전달 **안 됨** — apply_extraction/apply_companions/advance_quest 호출 전부 3312–3498 내부.
+7. raw 모델 추출 result가 canonical mutator에 **전혀 전달 안 됨**(게이트 패치) — `_run_extraction` 내 raw `result` 소비처는 (1)`parse_extraction` 산출 (2)`build_extraction_plan` 입력 (3)stale 로그 (4)`return`뿐. 적용부 `_apply_extraction_plan`의 모든 mutator는 계획 파생 정규화 DTO(또는 좁은 `{quest_progress}`/`{secret_awareness}`)만 소비. 구 mutator(apply_extraction/apply_companions/to_world_timeline)는 호출부 0(하위호환 래퍼로만 존치). 상세 §21.
 8. prompt/scenario/data 파일 **무수정** — diff에 .json/scenario/data/prompt-text 없음.
 
 ## 15. 금지 범위 스캔 (§P / S10) — WP-C/D/E/F/G cutover 없음
@@ -171,7 +172,7 @@ targeted 대표 실행: `test_turn_preparation`(정책), `test_extraction_stagin
 |---|---|---|
 | AUD-001 (자:/태: 이중 상태권위) | **닫힘** | 직접변이 제거, 권위 추출+코드검증 단일화. T-B06/07 |
 | AUD-005 (중복 quest-choice owner) | **닫힘** | `_apply_quest_choice` 제거, 단일 스테이징 owner |
-| AUD-011 (추출 입력 500자 절단) | **닫힘** | 전체 묘사 전달. test_d001/b/c |
+| AUD-011 (추출 입력 절단) | **RESOLVED_IN_CODE** | 전체 묘사가 provider 프롬프트에 도달(절단 제거). test_d001/b/c/**d**(실제 contents 캡처) |
 | AUD-024 (묘사 실패 시 지시효과 누출) | **닫힘** | 스테이징+성립후 단일경계 적용. test_d003c/d |
 | AUD-014 (merged-status 검증) | **보존(유지)** | extraction.py 285–312 검증 그대로. P-B08 |
 | AUD-012 / AUD-019 (커밋 배리어·실패청구) | **열림 — WP-C/D** | test_d002c/d/e xfail 유지 |
@@ -181,8 +182,7 @@ targeted 대표 실행: `test_turn_preparation`(정책), `test_extraction_stagin
 
 ## 17. 새 findings / blocker
 - **blocker 없음.** handoff BLOCK 조건 미발생.
-- 관찰: `_run_extraction` 내부 `ai_output_text[:3000]`은 추출 **프롬프트 크기 통제**로 보존. AUD-011의 500자 요약 절단(추출이 묘사 대부분을 못 보던 문제)과 별개이며, WP-D에서 barrier/commit 재배치 시 함께 재검토 대상으로 남긴다.
-- 관찰: 추출 적용부는 기존 도메인 mutator를 **재사용**(재작성 아님, 디렉터 지시). rule-7 취지는 “검증된 계획 존재 + 단일 표시 경계”로 충족하되, mutator 입력의 완전 정규화 위임은 WP-D 소관으로 남긴다.
+- **게이트 패치(WIRED_NOT_VERIFIED → 해소)**: 아래 §21 참조. Blocker 1(추출 절단 제거)·Blocker 2(계획을 적용의 유일 권위로) 모두 코드 반영·테스트 완료. 이전 판본의 `[:3000] 보존`·`정규화 위임은 WP-D` 관찰은 **철회**됨 — 정규화 위임을 WP-B 내에서 완결했다.
 
 ---
 
@@ -223,3 +223,62 @@ targeted 대표 실행: `test_turn_preparation`(정책), `test_extraction_stagin
 - WP-B 구현·증거 완료. **WP-C는 착수하지 않았다.**
 - 다음 절차(별도 실행): `commit → push → local == remote → clean status`.
 - 이후 **독립 GPT 게이트 PASS 전까지 WP-C(barrier/READY_TO_COMMIT) 및 상위 WP는 미승인 상태로 정지.**
+
+---
+
+## 21. 게이트 패치 (WIRED_NOT_VERIFIED → 해소)
+
+독립 GPT 게이트가 **WIRED_NOT_VERIFIED / PATCH REQUIRED**로 두 blocker를 지정했다(동일 브랜치, WP-C 금지). 아래로 해소했다.
+
+### Blocker 1 — 추출 입력 절단 제거 (완결 전체 묘사 전달)
+- `_run_extraction` 추출 프롬프트 `ai_output_text[:3000]` → **전문**. 재시도 컨텍스트 `extraction_retry_ctx["text"]`도 전문(재추출도 전체 증거).
+- `_dispatch_proceed`: `_full_model_text`(원문) 캡처 추가, `_full_narration = ai_text or _full_model_text or ai_summary` — 500자 요약-only 폴백 제거.
+- 별도 AI op `_resolve_irregular_npcs`(NPC 이미지배정, game.py:764 호출)의 `[:1500]`도 전문으로 상향 — 묘사 증거 uniform, "동등한 silent truncation" 제거.
+- provider(Gemini) 컨텍스트 한도 ≫ 묘사 길이(수천 자) → 청킹 불필요, 전문 전달(코드 주석 명시).
+- **테스트**: `test_d001d_full_narration_reaches_provider_prompt` — 묘사>4000자·마커 char 3500 뒤 → provider 호출 직전 실제 `contents` 캡처 → 마커·전문 포함 검증. 기존 d001/d001b/d001c 유지. (`tests/defects/test_extraction_boundary.py` 4 passed)
+- **스캔**: `_run_extraction`/`_resolve_irregular_npcs` truncation 0건.
+
+### Blocker 2 — ExtractionMutationPlan을 적용의 유일한 권위로
+요구 파이프라인: `raw result → parse → 코드 검증 → 정규화 accepted 효과 → ExtractionMutationPlan → LegacyCompatibilityApplier → 계획 항목만 적용`.
+
+구현:
+- **순수 정규화기/적용기 분리**(`core/extraction.py`): `normalize_status_item_effects`(검증+임계+dedup, 무변이) / `apply_normalized_status_item`; `normalize_companions`(dedup + join&leave 모순 양쪽 제외) / `apply_normalized_companions`; `normalize_location`(to_world_timeline+resolve+hops, 무변이). 구 `apply_extraction`/`apply_companions`는 **하위호환 래퍼**(normalize→apply)로 전환 — 기존 동작·테스트 보존.
+- **계획 = 권위**(`core/turn_preparation.py`): `ExtractionMutationPlan`에 typed 필드(status_apply/clear, item_deltas, npcs_met, companions_joined/left, world_new_tl, location_before/after/moved, quest_progress, secret_awareness, situation, conflicts, dropped). `build_extraction_plan`이 정규화기로 typed 필드를 채우고 entries는 typed 필드를 반영(적용 권위와 일치).
+- **LegacyCompatibilityApplier**(`cogs/gm.py` `_apply_extraction_plan`): 계획의 정규화 typed 필드(또는 좁은 `{quest_progress}`/`{secret_awareness}`)만 소비. `_run_extraction` 적용 블록(구 raw-result mutator 호출부)을 `await self._apply_extraction_plan(session, plan, master_ch)` 한 줄로 대체. raw result는 빌드 이후 어떤 mutator의 입력도 아님(스냅샷 `last_extraction`·로그로만 존치, mutator 입력 아님).
+
+원칙 대응: (1)raw result plan 이후 mutator 입력 금지 ✓ (2)applier는 정규화 DTO만 ✓ (3)rejected 부활 불가 ✓ (4)dedup/conflict 버린 후보 재등장 불가 ✓ (5)code-derived(main unlock)도 경계 내 ✓ (6)old helper 재사용하되 입력 정규화 ✓ (7)parse+validate+mutate 결합을 분리(normalize↔apply) ✓ (8)WP-D로 미루지 않음 ✓.
+
+#### 도메인 소유권 맵 (raw candidate → validator/normalizer → plan entry → compatibility consumer → final mutator)
+| 도메인 | raw 후보(schema) | validator/normalizer(순수) | plan 필드 | applier 소비 | 최종 변이 |
+|---|---|---|---|---|---|
+| 상태이상 | status_scores | normalize_status_item_effects(검증+임계+dedup) | status_apply/clear | apply_normalized_status_item | session.statuses |
+| 소지품 | item_changes | 〃(dedup by (t,item,delta)) | item_deltas | 〃 | session.resources |
+| 만난 NPC | npcs_met | normalize_status_item/companions(dedup) | npcs_met | apply_normalized_companions | session.met_npcs |
+| 동행 | companions.joined/left | normalize_companions(dedup+모순 제외) | companions_joined/left | apply_normalized_companions | session.companions |
+| 세계 타임라인/장소 | location, datetime | normalize_location(to_world_timeline+resolve+hops) | world_new_tl, location_* | mark_visited/release/quantify | world_timeline, visited, companions |
+| 퀘스트 진전 | quest_progress | build_plan(좁은 정규화) | quest_progress | advance_quest({quest_progress}) | quest 상태·grants·pending_ending |
+| 이면정보 | secret_awareness | build_plan | secret_awareness | check_secret_awareness({secret_awareness}) | secret_known |
+| BGM | situation | build_plan | situation | select_bgm(plan.situation) | pending_bgm |
+| 메인 해금 | (code-derived) | — | — | check_main_unlock(session) | main_unlocked_notified |
+
+경계 밖(추출-result-plan 아님, 명시): **irregular NPC 등록**은 별도 AI op `_resolve_irregular_npcs`(자체 provider 호출·파싱·register; 추출 result 스키마에 필드 없음) — `_plan_narrative`(§41)와 동류. **`narrative_plan.progress`**는 단일 owner `apply_narrative_progress`(gm.py 라이브 + turn_preparation 스테이징 → 공개 함수 291) 경유, canonical(영속+미래 GM read) 분류.
+
+#### 부정 테스트 (계획=권위 증명) — `tests/policy/test_plan_authority.py` 4 passed
+- **A** rejected 부활 불가: 무효 캐릭터/상태/아이템 → 계획 status_apply/item_deltas 빈 값 + dropped 기록 → 적용 후 canonical 무변화.
+- **B** 동치 중복 이중적용 불가: 물+5 두 번 → 계획 item_deltas 1건 → 적용 물=+5(≠+10).
+- **C** 모순 비-last-write-wins: 동행 join&leave 동일 이름 → 계획 joined/left 양쪽 제외 + conflict → 적용 후 동행·**met_npcs 모두 흔적 없음**(합류 부수효과 없음).
+- **D** 계획-only 적용: 계획 빌드 후 `plan.result={}`·raw 폐기 → `_apply_extraction_plan(plan)`만으로 물/상태/동행/만난NPC/장소이동 전부 반영(raw 없이 계획이 유일 권위).
+
+### 재게이트 스캔
+- **raw-result-to-mutator**: `_run_extraction` raw `result` 소비처 = parse 산출/plan 입력/stale 로그/return뿐. 적용부 모든 mutator는 계획 파생. (§14-7)
+- **post-change 변이**: `_apply_extraction_plan` 모든 canonical write가 `plan.*` 파생 확인. `parse_extraction` 순수(canonical write 0).
+- **금지 범위**: READY_TO_COMMIT 전이 0(상수 정의만), CommitJournal 인스턴스화 0, cogs 내 settlement/ink live 호출 0, settlement/ink/turn_transaction/accounts **무수정**.
+- **회귀**: 316 passed / 6 xfailed(WP-C/D/E/F 소관 유지) / XPASS 0. 컴파일·임포트 OK.
+
+### 변경/추가 파일(게이트 패치)
+- `cogs/gm.py`(추출 절단 제거, `_full_model_text`, `_apply_extraction_plan` 신규, 적용 블록 대체)
+- `core/extraction.py`(정규화기/적용기 신규, 구 mutator 위임 래퍼화)
+- `core/turn_preparation.py`(ExtractionMutationPlan typed 필드, build_extraction_plan 재작성)
+- `core/__init__.py`(정규화기/적용기 export)
+- `tests/defects/test_extraction_boundary.py`(_long_narration>4000, test_d001d 추가)
+- `tests/policy/test_plan_authority.py`(신규, A/B/C/D)
