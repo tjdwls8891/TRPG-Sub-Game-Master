@@ -212,7 +212,7 @@ targeted 대표 실행: `test_turn_preparation`(정책), `test_extraction_stagin
 - S4 전체 추출 입력: `cogs/gm.py` `_dispatch_proceed` `_full_narration`.
 - S5 result-only 경계: `cogs/gm.py` `_run_extraction` 3312 경계 위 파싱 반환.
 - S6 검증/계획: `core/turn_preparation.py` `build_extraction_plan`.
-- S7 파생 효과: 동함수 `_add(domain,...)` entries.
+- S7 파생 효과: 동함수 `_add(domain,...)` entries. **[3차 패치] 비정규 NPC 경로**: producer `_resolve_irregular_npcs`/`_generate_npc_detail`(result-only) → normalizer `build_irregular_npc_plan`/`normalize_npc_detail` → 계획 `IrregularNpcMutationPlan`/정규화 후보 → 단일 소비부 `_apply_irregular_npc_plan`/`_apply_npc_promotion` → mutator `irregular_npc.register`/`promote`(정규화 입력만).
 - S8 stale guard: `extraction_is_stale` + 3324~ 경계 가드.
 - S9 quest 단일 owner: `stage_instruction_effects`/`apply_instruction_effects`, `_apply_quest_choice` 제거.
 - S10 하드스톱 스캔: §15 결과.
@@ -282,3 +282,51 @@ targeted 대표 실행: `test_turn_preparation`(정책), `test_extraction_stagin
 - `core/__init__.py`(정규화기/적용기 export)
 - `tests/defects/test_extraction_boundary.py`(_long_narration>4000, test_d001d 추가)
 - `tests/policy/test_plan_authority.py`(신규, A/B/C/D)
+
+---
+
+## 22. 게이트 패치 3차 (WIRED_NOT_VERIFIED — irregular NPC omission)
+
+3차 게이트가 **_resolve_irregular_npcs 경로 누락**을 지정했다(동일 브랜치, WP-C 금지). 이전 두 blocker(전체 묘사, 추출 plan-authority)는 인정·불변 보존.
+
+### Scope 판정 — A(gameplay canonical mutation) 확정
+실제 source로 다음을 확인:
+1. **자동 턴 orchestration 호출** — `cogs/game.py:764`에서 묘사 스트리밍 '전' `await gm_cog._resolve_irregular_npcs(session, narrative_text, master_ch)`.
+2. **provider 결과가 등록/승격 대상·속성 결정** — `_resolve_irregular_npcs`의 model `data.npcs[].{image_key,gender,age}` → register 입력; `_generate_npc_detail`의 model `data.{details,role,attitude,birth_year}` → promote 입력.
+3. **canonical 변경** — `register`/`note_appearance`/`mark_detailed` → `session.irregular_npcs`; `promote` → `session.npcs`(+등록부 제거). (core/irregular_npc.py:140/164/189/207/208)
+4. **이후 read** — 등록부는 프롬프트(동일인 유지)·목소리/이미지 조회로, 승격된 `session.npcs`는 정규 델타 주입(프롬프트)으로 읽힘.
+⇒ 판정 A. "extraction schema에 없음"만으로 제외 불가.
+
+### 패치 — result-only + normalized plan/candidate 경계
+- **미디어 배정**(`_resolve_irregular_npcs`): provider+parse는 result-only. `build_irregular_npc_plan(session, data, names, valid_pool, use_image, text, turn, tx…)`이 검증(이름은 코드 파생 후보 `names` 안, image_key는 유효 풀 안 else "", gender/age str만)·dedup해 `IrregularNpcMutationPlan.registrations` 생성. stale guard 후 `_apply_irregular_npc_plan`이 계획 항목만 `register`에 입력.
+- **승격**(`_generate_npc_detail`): provider+parse는 result-only. `normalize_npc_detail(data, fallback_name)`이 정규화 후보(`{final_name, details}`) 생성. stale guard 후 `_apply_npc_promotion`이 정규화 `details`만 `mark_detailed`/`promote`에 입력.
+- **단일 호환 소비부**: 등록=`_apply_irregular_npc_plan`, 승격=`_apply_npc_promotion`. 각 canonical effect가 명시적 단일 지점, 정규화 입력만.
+- **register/promote helper 재사용**(전면 재작성 아님) — 입력만 정규화된 계획/후보.
+- **stale**: 두 provider-boundary op 모두 호출 '전' `get_active_transaction`으로 (logical_turn, attempt) 고정, 적용 직전 `extraction_is_stale`로 더 새로운 논리 시도 활성 시 등록/승격 금지.
+- **idempotency**: `register`(이미 있으면 기존 반환)·`promote`(등록부에서 pop, 재호출 시 False)·`mark_detailed`·`note_appearance`(같은 턴 dedup) 자연 멱등 — 동일 계획 2회 적용 시 canonical effect 1회.
+
+### post-edit 소유권 맵 (irregular NPC)
+| 단계 | 미디어 배정 | 승격 |
+|---|---|---|
+| producer(result-only) | `_resolve_irregular_npcs` provider+`json.loads` | `_generate_npc_detail` provider+`json.loads` |
+| validator/normalizer | `build_irregular_npc_plan`(이름 allowlist·pool·dedup) | `normalize_npc_detail`(필드 정규화) |
+| plan representation | `IrregularNpcMutationPlan.registrations` | 정규화 후보 `{final_name, details}` |
+| compatibility consumer | `_apply_irregular_npc_plan`(단일) | `_apply_npc_promotion`(단일) |
+| canonical mutator | `irregular_npc.register`(+note_appearance) | `irregular_npc.mark_detailed`/`promote`(+rename) |
+| stale guard | `extraction_is_stale`(op 시작 시 tx 고정) | 동일 |
+| idempotency | register 멱등 | promote/mark_detailed 멱등 |
+
+### 테스트 — `tests/policy/test_irregular_npc_plan.py` 6 passed
+I-B01 producer purity(plan/normalize build → irregular_npcs·npcs 무변경) / I-B02 valid applies once(register 1회) / I-B03 invalid rejected(후보 밖 이름 → registrations 빈값 → 무변경) / I-B04 stale rejected(provider 반환 직전 더 새로운 tx 활성 → 무변경) / I-B05 duplicate idempotent(동일 계획 2회 → 항목 1개·속성 불변) / I-B06 existing semantics(정상 배정 + 3회 등장 승격 → session.npcs 편입).
+
+### 스캔
+- **raw-payload-to-mutator(irregular NPC)**: raw `data`/`item` 소비처는 parse 산출 + `build_irregular_npc_plan`/`normalize_npc_detail` 입력뿐. `register`=`reg[*]`(plan), `promote`=`norm["details"]`, rename=`norm["final_name"]` — raw payload 0.
+- **complete mutation scan**: `session.irregular_npcs`/`session.npcs` write는 irregular_npc helper(정규화 입력) + `_apply_npc_promotion` rename(정규화 final_name)뿐.
+- **금지 범위**: READY_TO_COMMIT 전이 0, CommitJournal 0, settlement/ink/turn_transaction/accounts 무수정.
+- **회귀**: 322 passed / 6 xfailed(WP-C/D/E/F) / XPASS 0. 컴파일·임포트 OK.
+- **이전 blocker 불변**: 전체-묘사 추출·추출 plan-authority 코드/테스트 미변경(전체 회귀에 포함되어 통과).
+
+### 변경/추가 파일(3차 패치)
+- `cogs/gm.py`(`_resolve_irregular_npcs` result-only+plan+stale, `_apply_irregular_npc_plan` 신규; `_generate_npc_detail` result-only+normalize+stale, `_apply_npc_promotion` 신규; op 시작 tx 캡처 2곳)
+- `core/turn_preparation.py`(`IrregularNpcMutationPlan`, `build_irregular_npc_plan`, `normalize_npc_detail`)
+- `tests/policy/test_irregular_npc_plan.py`(신규, I-B01~I-B06)

@@ -471,3 +471,98 @@ def build_extraction_plan(session, result, *, transaction_id=None,
                              "op": "awareness", "payload": {}})
 
     return plan
+
+
+# ══════════════════════════════════════════════════════════════════════
+#  비정규 NPC 경로 — 미디어 배정(register) / 승격(promote) 변이 계획
+#  두 오퍼레이션 모두 provider-boundary를 가지며 canonical NPC 상태
+#  (session.irregular_npcs / session.npcs)를 변경한다. raw 모델 payload가
+#  register/promote에 직접 들어가지 않도록, result-only 생산 → 검증·정규화 →
+#  이 계획/후보 → stale guard → 단일 호환 적용부(register/promote 1회) 순서로
+#  소비한다.
+# ══════════════════════════════════════════════════════════════════════
+
+@dataclass
+class IrregularNpcMutationPlan:
+    """비정규 NPC 미디어 배정의 검증·정규화된 등록 계획 — 적용의 유일 권위.
+
+    · result: raw 미디어 배정 payload(증거 스냅샷; mutator 입력 아님).
+    · registrations: 검증·정규화된 등록 항목([{name,image_key,gender,age,context,turn}]).
+      이름은 코드 파생 후보(names) 안에 있어야 하고, image_key는 유효 풀 안이어야 한다.
+    · rejected: 후보 목록 밖 등 탈락 항목(적용부에 도달 불가).
+    """
+    transaction_id: str | None = None
+    logical_turn: int | None = None
+    attempt: int | None = None
+    result: dict = _field(default_factory=dict)
+    registrations: list = _field(default_factory=list)
+    rejected: list = _field(default_factory=list)
+    diagnostics: dict = _field(default_factory=dict)
+    applied: bool = False
+    rejected_stale: bool = False
+
+
+def build_irregular_npc_plan(session, data, *, names, valid_pool, use_image,
+                             text, turn, transaction_id=None, logical_turn=None,
+                             attempt=None) -> IrregularNpcMutationPlan:
+    """비정규 NPC 미디어 배정 raw 결과를 검증·정규화한 등록 계획으로 만든다(무변이).
+
+    · 이름은 코드가 뽑은 후보 목록(names) 안에 있어야 한다(모델이 새 인물을 못 만듦).
+    · image_key는 유효 이미지 풀 안이어야 하며(이미지 off면 버림), 그 외엔 "".
+    · gender/age는 문자열만 통과(그 외 None → register가 기본값 적용).
+    · 동일 이름 후보는 하나로 접는다(dedup).
+    """
+    allow = set(names or [])
+    pool = set(valid_pool or [])
+    plan = IrregularNpcMutationPlan(
+        transaction_id=transaction_id, logical_turn=logical_turn, attempt=attempt,
+        result=data if isinstance(data, dict) else {})
+    seen = set()
+    for item in ((data or {}).get("npcs") or []):
+        if not isinstance(item, dict):
+            continue
+        name = (item.get("name") or "").strip()
+        if not name or name not in allow:
+            if name:
+                plan.rejected.append(f"{name}(후보 목록 밖)")
+            continue
+        if name in seen:                       # 동치 후보 dedup
+            continue
+        seen.add(name)
+        key = (item.get("image_key") or "").strip()
+        if not use_image or key not in pool:
+            key = ""                           # 이미지 off이거나 풀 밖 값은 버린다
+        gender = item.get("gender") if isinstance(item.get("gender"), str) else None
+        age = item.get("age") if isinstance(item.get("age"), str) else None
+        plan.registrations.append({
+            "name": name, "image_key": key, "gender": gender, "age": age,
+            "context": (text or "")[:120], "turn": turn,
+        })
+    if plan.rejected:
+        plan.diagnostics["rejected"] = list(plan.rejected)
+    return plan
+
+
+def normalize_npc_detail(data, *, fallback_name) -> dict:
+    """비정규 NPC 승격 세부설정 raw 결과를 정규화한다(무변이).
+
+    raw payload가 promote에 직접 들어가지 않도록, 승격에 필요한 정규화된 필드만
+    추린다. 고유명이 확정되면 final_name으로 넘긴다.
+
+    Returns:
+        {"final_name": str, "details": {"details","role","attitude"[,"birth_year"]}}
+    """
+    d = data if isinstance(data, dict) else {}
+    final_name = ((d.get("name") or fallback_name) or "").strip() or fallback_name
+    details = {
+        "details": d.get("details") or "",
+        "role": d.get("role") or "미상",
+        "attitude": d.get("attitude") or "중립",
+    }
+    try:
+        by = int(d.get("birth_year") or 0)
+        if by > 0:
+            details["birth_year"] = by
+    except (TypeError, ValueError):
+        pass
+    return {"final_name": final_name, "details": details}

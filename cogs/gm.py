@@ -2931,6 +2931,9 @@ class GMCog(commands.Cog):
         if not entry:
             return False
 
+        # §38: provider-boundary 승격 오퍼레이션의 논리 시도 정체성을 호출 '전'에 고정.
+        _tx_obj = core.turn_transaction.get_active_transaction(session)
+
         year = core.current_year(session)
         user_prompt = (
             f"[대상 인물]\n{name}\n\n"
@@ -3000,19 +3003,26 @@ class GMCog(commands.Cog):
             print("[NPC설정] 응답 파싱 실패")
             return False
 
-        final_name = (data.get("name") or name).strip() or name
-        details = {
-            "details": data.get("details") or "",
-            "role": data.get("role") or "미상",
-            "attitude": data.get("attitude") or "중립",
-        }
-        # birth_year는 0이면 미상. 나이는 코드가 계산하므로 값만 보관한다.
-        try:
-            by = int(data.get("birth_year") or 0)
-            if by > 0:
-                details["birth_year"] = by
-        except (TypeError, ValueError):
-            pass
+        # result-only: raw payload를 promote에 직접 넣지 않고 정규화 후보로 만든다.
+        norm = core.turn_preparation.normalize_npc_detail(data, fallback_name=name)
+
+        # stale guard(§38): 이 승격 결과보다 더 새로운 논리 시도가 활성화됐으면 승격 금지.
+        if core.turn_preparation.extraction_is_stale(
+                session, logical_turn=getattr(_tx_obj, "logical_turn", None),
+                attempt=getattr(_tx_obj, "attempt", None)):
+            print(f"[NPC설정/{session.session_id}] stale 결과 거부 — 승격 보류")
+            return False
+
+        return await self._apply_npc_promotion(session, name, norm, master_ch)
+
+    async def _apply_npc_promotion(self, session, name, norm, master_ch=None) -> bool:
+        """LegacyCompatibilityApplier(NPC 승격) — 정규화된 세부설정만 소비한다.
+
+        raw 모델 payload는 이 함수에 입력되지 않는다. mark_detailed/promote는 정규화된
+        details만 받는다. promote는 멱등(이미 승격돼 등록부에 없으면 False)하다.
+        """
+        details = norm["details"]
+        final_name = norm["final_name"]
 
         core.irregular_npc.mark_detailed(session, name)
         promoted = core.irregular_npc.promote(session, name, details)
@@ -3033,7 +3043,7 @@ class GMCog(commands.Cog):
                 f"{details['role']} · {details['attitude']}\n"
                 f"> {details['details'][:200]}"
             )
-        return True
+        return promoted
 
     async def _resolve_irregular_npcs(self, session, text: str, master_ch=None) -> int:
         """
@@ -3057,6 +3067,10 @@ class GMCog(commands.Cog):
         names = core.irregular_npc.extract_candidate_names(text, session)
         if not names:
             return 0
+
+        # §38: provider-boundary 오퍼레이션의 논리 시도 정체성을 호출 '전'에 고정해
+        #      적용 직전 stale guard에 쓴다(더 새로운 턴이 시작되면 등록/승격 금지).
+        _tx_obj = core.turn_transaction.get_active_transaction(session)
 
         pool = core.irregular_npc.irregular_image_pool(session)
         if not pool:
@@ -3139,26 +3153,48 @@ class GMCog(commands.Cog):
             print("[비정규NPC] 응답 파싱 실패")
             return 0
 
+        # ══════════════════════════════════════════════════════════════
+        #  비정규 NPC 미디어 배정 — 계획-권위 적용 경계
+        #  위쪽(provider 호출 + 파싱)은 result-only: canonical 미변경.
+        #  raw payload는 build_irregular_npc_plan에서 검증·정규화된 등록 계획으로만
+        #  소비되고, 이후 어떤 canonical mutator(register)의 입력도 되지 않는다.
+        # ══════════════════════════════════════════════════════════════
         valid_pool = set(core.irregular_npc.irregular_image_pool(session))
+        plan = core.turn_preparation.build_irregular_npc_plan(
+            session, data, names=names, valid_pool=valid_pool, use_image=use_image,
+            text=text, turn=getattr(session, "turn_count", 0),
+            transaction_id=getattr(_tx_obj, "transaction_id", None),
+            logical_turn=getattr(_tx_obj, "logical_turn", None),
+            attempt=getattr(_tx_obj, "attempt", None))
+
+        # stale guard(§26/§38): 이 결과의 논리 시도보다 더 새로운 시도가 활성화됐으면
+        # canonical NPC 등록/승격을 하지 않는다.
+        if core.turn_preparation.extraction_is_stale(
+                session, logical_turn=getattr(_tx_obj, "logical_turn", None),
+                attempt=getattr(_tx_obj, "attempt", None)):
+            plan.rejected_stale = True
+            print(f"[비정규NPC/{session.session_id}] stale 결과 거부 — 더 새로운 논리 시도 활성")
+            return 0
+
+        return await self._apply_irregular_npc_plan(session, plan, text, master_ch)
+
+    async def _apply_irregular_npc_plan(self, session, plan, text, master_ch=None) -> int:
+        """LegacyCompatibilityApplier(비정규 NPC 등록) — 계획의 정규화 항목만 적용한다.
+
+        raw 모델 payload는 이 함수에 입력되지 않는다. register는 계획의 정규화된
+        등록 항목만 소비하며 멱등(이미 있으면 기존 항목 반환)하다. 등장 누적·승격
+        판정은 코드 파생(이름이 묘사에 등장)이며, 승격 세부설정 생성은 별도 provider
+        오퍼레이션(_generate_npc_detail)이 자체 정규화 경계를 거친다.
+        """
         added = 0
-        for item in (data.get("npcs") or []):
-            if not isinstance(item, dict):
-                continue
-            name = (item.get("name") or "").strip()
-            if not name or name not in names:
-                continue  # 목록 밖 인물 무시
-            key = (item.get("image_key") or "").strip()
-            if not use_image or key not in valid_pool:
-                key = ""  # 후보 밖 값이거나 이미지 오프면 버린다
+        for reg in plan.registrations:
             core.irregular_npc.register(
-                session, name, image_key=key,
-                gender=item.get("gender"), age=item.get("age"),
-                context=(text or "")[:120],
-                turn=getattr(session, "turn_count", 0),
-            )
+                session, reg["name"], image_key=reg["image_key"],
+                gender=reg["gender"], age=reg["age"],
+                context=reg["context"], turn=reg["turn"])
             added += 1
 
-        # 등장 누적 및 승격 판정 — 비중이 생긴 인물의 설정을 생성한다.
+        # 등장 누적 및 승격 판정 — 비중이 생긴 인물의 설정을 생성한다(코드 파생).
         try:
             turn = getattr(session, "turn_count", 0)
             for name in list(core.irregular_npc.get_registry(session).keys()):
@@ -3172,10 +3208,12 @@ class GMCog(commands.Cog):
 
         if added and master_ch:
             reg = core.irregular_npc.get_registry(session)
+            names = [r["name"] for r in plan.registrations]
             lines = [f"{n} — {reg[n]['gender']}/{reg[n]['age']}"
                      f"{', ' + reg[n]['image_key'] if reg[n].get('image_key') else ''}"
                      for n in names if n in reg]
             await master_ch.send("🎭 **[비정규 NPC 배정]** " + " · ".join(lines))
+        plan.applied = True
         return added
 
     async def _apply_extraction_plan(self, session, plan, master_ch=None) -> dict:
