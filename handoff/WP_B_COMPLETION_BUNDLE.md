@@ -3,17 +3,118 @@
 > 독립 GPT 게이트 검토용 증거 묶음. 비밀(토큰)은 포함하지 않는다.
 > 이 패키지는 **AI-파생 자동턴 gameplay 변이**에 스테이징/계획 경계를 세우는 것에 한정된다.
 > 권위적 commit·barrier·정산 배선(WP-C/D 이상)은 착수하지 않았다.
+>
+> **읽는 법:** §0이 **현재 상태의 정본**이다. §1 이후는 구현·게이트 라운드별 **HISTORICAL** 기록이며,
+> 현재 상태와 다른 주장에는 `HISTORICAL / SUPERSEDED` 표시와 대체 근거를 달았다. 두 곳이 다르면 §0이 우선한다.
 
 ---
+
+## 0. 현재 상태 (CANONICAL — 이 절이 정본)
+
+### 0.1 식별 / Git
+| 항목 | 값 |
+|---|---|
+| Package | WP-B (Transactional State Preparation) |
+| Branch | `claude/wp-b-transactional-state-preparation` |
+| Start SHA (WP-A tip) | `a488f421a85028589556033be93d749bb0bfc081` |
+| **Final code snapshot** | **`4fb8577939878ccd1ca8d426058015c8768c2971`** |
+| 코드 이후 커밋 | 문서 전용(completion/evidence 정합화). 최종 branch tip SHA는 closure 보고에서 별도 제시(이 문서는 자기 자신의 커밋 SHA를 담을 수 없음). `4fb8577..tip` 변경은 `handoff/` 문서뿐. |
+| 게이트 | 독립 GPT 게이트 — 코드 구현 **PASS**(4fb8577 기준). 공식 VERIFIED checkpoint는 이 문서 정합화 후 디렉터 확정. |
+
+### 0.2 회귀 (final code snapshot 4fb8577 기준)
+- Baseline(start SHA): `291 passed, 9 xfailed`
+- **Final: `339 passed, 6 xfailed, 0 XPASS`** (failed 0 / error 0). 컴파일·임포트 OK.
+- xfail 9→6: 의도한 결함 수정으로 3건 통과 전환(`test_d003c`, `test_d003d` = AUD-024 / `test_d001b` = AUD-011).
+- 남은 6 xfail은 상위 WP 소관: `test_d002c/d/e`(AUD-012/019, WP-C/D) · `test_d004c`(AUD-020)·`test_d005d`(AUD-029) WP-E · `test_d006e`(AUD-034/035, WP-F).
+
+### 0.3 Findings (최종)
+| AUD | 상태 | 근거 |
+|---|---|---|
+| AUD-001 자:/태: 이중 상태권위 | **RESOLVED_IN_CODE** | `_execute_proceed`의 resources/statuses 직접 변이 루프 제거(방어적 strip 보존). T-B06/07 |
+| AUD-005 중복 quest-choice owner | **RESOLVED_IN_CODE** | `_apply_quest_choice` 제거, `stage_instruction_effects`→`apply_instruction_effects` 단일 owner |
+| AUD-011 추출 입력 절단 | **RESOLVED_IN_CODE** | 완결 전체 묘사가 추출 provider 프롬프트에 도달(`[:500]`/`[:3000]` 제거, 요약 폴백 제거). `test_d001/b/c/d`(provider `contents` 캡처) |
+| AUD-024 묘사 실패 시 지시효과 누출 | **RESOLVED_IN_CODE** | 지시효과 스테이징 + 묘사 성립 후 단일 적용. `test_d003c/d/c2` |
+| **AUD-065** 자동 서사 재계획이 provider 결과를 canonical `session.narrative_plan`에 직접 적용 | **RESOLVED_IN_CODE** | result-only producer · 정규화 `NarrativePlanMutationPlan` · 스케줄 시점 원인 tx 정체성 · stale 거부 · operation-level 멱등 · 정규화 호환 적용 · provider CostEvent 보존 · 자동/setup/manual scope 분리. N-B01~09(§23) |
+| AUD-014 merged-status 검증 | **preserved** | `get_merged_status_effects` 기반 유효 상태 검증 의미 유지. 위치만 이동: 시작 시 `apply_extraction` 본문(extraction.py 285–312) → 최종 `_valid_status_set`(extraction.py 263–) 을 `normalize_status_item_effects`(289)가 사용. P-B08 |
+| AUD-019 추출 stale | 부분 완화(WP-B 범위) | stale 거부 추가. 커밋 배리어·실패청구 완전 해결은 WP-C/D |
+| AUD-012 / AUD-019 커밋 배리어·실패청구 | 열림 — WP-C/D | xfail 유지 |
+| AUD-020 / AUD-029 되감기·제공자 이력 | 열림 — WP-E | xfail 유지 |
+| AUD-034 / AUD-035 캐시 단일 정산점 | 열림 — WP-F | xfail 유지 |
+
+### 0.4 최종 소유권 맵 (자동 턴 AI-파생 canonical 변이, final code snapshot)
+원칙: provider/parser는 canonical을 바꾸지 않는다 → 코드 검증·정규화 → 계획/후보 → (stale·멱등) → 명시적 단일 호환 소비부 → canonical mutator(정규화 입력만).
+
+| 도메인 | producer (result-only) | validator / normalizer | plan / 후보 | stale · 멱등 | 호환 소비부 | canonical mutator |
+|---|---|---|---|---|---|---|
+| 지시 quest-choice · intended_case · info_ledger | `_call_gm_logic`(gm.py 2063–2247, decision 반환) | `stage_instruction_effects`(tp 203–227: narrative_mode·offered·random, `_merge_info_ledger` 순수) | `PendingInstructionEffects`(트랜잭션-로컬) + quest 투영 | 트랜잭션 귀속, 묘사 실패 시 미적용 | `apply_instruction_effects`(tp 254–288; 호출 gm.py 1442, 묘사 성립 후) | `quest.apply_choice`/`set_intended_case`/병합 결과 |
+| 자:/태: 태그 | — | — | — | — | **없음(권위 제거)** | 없음 |
+| narrative progress (`current_event.progress`) | 묘사 결과 | `apply_narrative_progress`(tp 291–301: current_event 가드·150자) | — | 묘사 성립 이후 지점 | 동일(호출 gm.py 2780) | `narrative_plan.current_event.progress` |
+| 추출: 상태이상 · 소지품 · 만난 NPC · 동행 · 위치/세계 타임라인 · 퀘스트 진전 · 이면정보 · BGM (+코드 파생 메인 해금) | `_run_extraction`(gm.py 3368–3554) provider+`parse_extraction` | `build_extraction_plan`(tp 403–486) → `normalize_status_item_effects`·`normalize_companions`·`normalize_location`(검증·임계·dedup·모순 제외) | `ExtractionMutationPlan`(typed 필드, tp 311–347) | `extraction_is_stale`(→`superseded_by_newer_attempt`) · `_extraction_applied_tx` | `_apply_extraction_plan`(gm.py 3220–3366) | `apply_normalized_status_item`·`apply_normalized_companions`·places/`quantify`·`advance_quest({quest_progress})`·`check_secret_awareness({secret_awareness})`·`check_main_unlock`·`select_bgm(plan.situation)` |
+| irregular NPC 등록(미디어 배정) | `_resolve_irregular_npcs`(gm.py 3049–3180) | `build_irregular_npc_plan`(tp 518–556: 코드 파생 후보 allowlist·유효 이미지 풀·dedup) | `IrregularNpcMutationPlan`(tp 499–515) | 호출 전 tx 고정 + stale · `register` 멱등 | `_apply_irregular_npc_plan`(gm.py 3182–3218) | `irregular_npc.register`(`reg[*]`만), `note_appearance` |
+| irregular NPC 승격 | `_generate_npc_detail`(gm.py 2923–3017) | `normalize_npc_detail`(tp 559–581) | 정규화 후보 `{final_name, details}` | 호출 전 tx 고정 + stale · `promote` 멱등 | `_apply_npc_promotion`(gm.py 3019–3047) | `mark_detailed`/`promote`(`norm["details"]`만) + rename(`final_name`) |
+| **자동 서사 재계획(AUD-065)** | `_generate_narrative_plan_candidate`(gm.py 4182–4397) | `build_narrative_plan`/`normalize_narrative_plan`(tp 625–680: 스키마 구조 검증·리더 필드만·provider metadata 폐기) | `NarrativePlanMutationPlan`(tp 605–622) | 스케줄 시점 원인 tx 복사(`_update_narrative_progress` gm.py 3941–4031) + `superseded_by_newer_attempt` · `narrative_replan_key`(tp 683–695) | `_auto_replan_narrative`(gm.py 4059–4098) → `_apply_narrative_plan`(gm.py 4100–4180) | `session.narrative_plan` = 정규화 사본 + 코드 소유 `plan_version`/`last_planned_turn` → `save_session_data` |
+
+**automatic narrative replanning = WP-B staged/normalized path** (위 표 마지막 행). setup(`_init_narrative_and_start`)·manual(`!자동 재계획`)은 `_plan_narrative`(gm.py 4033–4057)로 기존 제품 의미를 유지하며 자동 TurnTransaction 의미를 요구하지 않는다(같은 producer·normalizer·소비부 공유).
+
+### 0.5 호환 적용 지점 (열거·최소, final)
+자동턴 AI-파생 canonical 적용은 **다음 여섯 소비부에서만** 일어난다. 모두 authoritative commit이 아니며 WP-C/D가 barrier·commit 뒤로 이동/치환한다.
+1. `apply_instruction_effects` — 지시효과
+2. `apply_narrative_progress` — `current_event.progress`
+3. `_apply_extraction_plan` — 추출 효과
+4. `_apply_irregular_npc_plan` — irregular NPC 등록
+5. `_apply_npc_promotion` — irregular NPC 승격
+6. `_apply_narrative_plan` — 서사 계획 교체(자동 경로는 `_auto_replan_narrative`의 stale·멱등 통과 후)
+
+공통 stale 판정: `superseded_by_newer_attempt`(기존 `extraction_is_stale` 본체를 일반 이름으로 옮김; `extraction_is_stale`는 동일 동작 위임).
+
+### 0.6 범위 밖으로 확정된 AI-결과 쓰기 (최종 AST 인벤토리 결론, §23)
+계획/정규화 경계를 거치지 않는 자동 턴 AI-derived canonical write는 **없음**. 남은 AI 결과 기반 쓰기는 모두 패킷상 WP-B 범위 밖:
+- 서사 이력 `raw_logs`/`current_turn_logs`(패킷 §29, WP-B 레거시 유지 — WP-A 출력 소유)
+- 압축/캐시 `compressed_memory` 등(패킷 §28, WP-F)
+- setup/admin: `!설정생성`(`generate_character_details`), 캐릭터 생성 UI(`profile_ai`), 세션 유지시간 해석(`interpret_cache_time`, 캐시·billing legacy)
+- restore/load: 디스크 세션 복구·되감기
+- 운영자 명령: `!퀘스트 열기`(`start_quest`, P-B10)
+
+### 0.7 커밋 이력 (start → final code snapshot)
+| SHA | 내용 |
+|---|---|
+| `b583f310a4f8488aaf6575dfd4f127ba77b4cf72` | b3: 스테이징 모델(PendingInstructionEffects·quest projection·단일 applier) |
+| `3c43a4230ae63b76ebd2627636cb85bbc562a910` | b4/b5: 지시 스테이징 배선 + quest projection; AUD-024 xfail 전환 |
+| `967263e280a69870db718d2e665562abd26f4cc9` | b6: 자:/태: 직접 변이 권위 제거(AUD-001) |
+| `2c5d62c9c386ce99f37a6919dc5034d000107f6e` | b7–b12: 추출 result-only + 검증 계획 + stale + 멱등 경계 |
+| `feec269d79fdca88d000b1400510f402fb32b636` | 완료 번들 초판 |
+| `1699687d88149a16f03e27a10dd09689c25f0540` | 게이트 패치 1: 전체 묘사 추출 + plan-only 적용 권위 |
+| `39f6b09166170c7a6a8ce0e6778b92cc24f3f22d` | 게이트 패치 2: irregular NPC result-only + 정규화 계획 |
+| **`4fb8577939878ccd1ca8d426058015c8768c2971`** | 게이트 패치 3: 자동 서사 재계획 스테이징(AUD-065) — **final code snapshot** |
+
+### 0.8 누적 변경 파일 (start → 4fb8577)
+- production: `cogs/game.py`, `cogs/gm.py`, `core/__init__.py`, `core/extraction.py`, `core/prompt.py`, `core/quest.py`, `core/turn_preparation.py`(신규)
+- tests: `tests/defects/test_extraction_boundary.py`, `tests/defects/test_instruction_side_effects.py`, `tests/policy/test_narration_boundary.py`, 신규 `test_turn_preparation.py`·`test_extraction_staging.py`·`test_plan_authority.py`·`test_irregular_npc_plan.py`·`test_narrative_replan_plan.py`
+- docs: `handoff/WP_B_COMPLETION_BUNDLE.md`
+- 무변경 확인: `core/turn_transaction.py`, settlement/ink/accounts/commit_journal, rewind/cache/io, prompts/scenarios/data.
+
+### 0.9 하드 스톱
+- WP-B 코드 구현 완료, 게이트 코드 PASS. **WP-C(barrier/READY_TO_COMMIT) 및 상위 WP는 착수하지 않았다.**
+- 공식 VERIFIED checkpoint 확정 전까지 정지.
+
+---
+
+# HISTORICAL RECORD (§1–§23)
+
+> 아래는 1차 구현(§1–§20)과 게이트 라운드별 패치(§21–§23)의 **당시 기록**이다. 시행착오를 보존하기 위해 삭제하지 않았다.
+> 현재 상태와 다른 주장에는 `HISTORICAL / SUPERSEDED` 표시를 달았다. **현재 상태는 §0을 따른다.**
+> 게이트 라운드 대응: §21 = 게이트 1회차 blocker 2건(코드 `1699687`) · §22 = irregular NPC omission(`39f6b09`) · §23 = AUD-065(`4fb8577`).
 
 ## 1. 패키지 식별 / Git identity
 - Package: **WP-B (Transactional State Preparation)**
 - Branch: `claude/wp-b-transactional-state-preparation`
 - Start SHA (WP-A tip): `a488f421a85028589556033be93d749bb0bfc081`
-- Final SHA: `2c5d62c9c386ce99f37a6919dc5034d000107f6e`
-- Push / local == remote / `git status --short`: **§20에서 push 후 기재** (아래 최종 절차에서 확정).
+- ~~Final SHA: `2c5d62c9c386ce99f37a6919dc5034d000107f6e`~~ — **HISTORICAL / SUPERSEDED**: 1차 구현 시점 tip. 최종 코드 스냅샷은 §0.1 `4fb8577939878ccd1ca8d426058015c8768c2971`.
+- ~~Push / local == remote / `git status --short`: §20에서 push 후 기재~~ — **HISTORICAL / SUPERSEDED**: push·local==remote·clean은 매 라운드 완료됨. 최종 closure 증거는 §0.1 및 closure 보고.
 
 ### 중간 커밋
+> **HISTORICAL / SUPERSEDED**: 1차 구현 커밋만 기재. 전체 이력(게이트 패치 포함)은 §0.7.
+
 | SHA | 내용 |
 |---|---|
 | `b583f31` | b3: core/turn_preparation.py 스테이징 모델(PendingInstructionEffects, info_ledger 순수병합, 통합 quest-choice, 단일 idempotent applier) + policy 테스트 |
@@ -25,7 +126,7 @@
 
 ## 2. 기준/최종 회귀 (Baseline / final)
 - **Baseline (start SHA, WP-A tip):** `291 passed, 9 xfailed`
-- **Final full suite:** `311 passed, 6 xfailed` (failed 0 / error 0 / skipped 0 / **XPASS 0**)
+- ~~Final full suite: `311 passed, 6 xfailed`~~ — **HISTORICAL / SUPERSEDED**: 1차 구현 시점 수치. 최종(4fb8577)은 §0.2 **`339 passed, 6 xfailed, 0 XPASS`**.
 - xfail 순증: 없음. **xfail 3건 전환(9→6)** — 의도한 결함이 수정되어 통과로 전환:
   - `test_d003c` (AUD-024 지시효과 누출) → 스테이징 모델로 통과
   - `test_d003d` (AUD-024 info_ledger 누출) → 통과
@@ -41,6 +142,8 @@ targeted 대표 실행: `test_turn_preparation`(정책), `test_extraction_stagin
 ---
 
 ## 3. 변경 파일 (사유 1줄)
+> **HISTORICAL / SUPERSEDED**: 1차 구현 시점 목록. 이후 `core/extraction.py`, `test_plan_authority.py`, `test_irregular_npc_plan.py`, `test_narrative_replan_plan.py` 등이 추가됨 — 누적 목록은 §0.8.
+
 | 파일 | 사유 |
 |---|---|
 | `core/turn_preparation.py` (신규) | 트랜잭션-로컬 스테이징/검증 모델: 지시효과 스테이징·단일 applier·quest projection·info_ledger 순수병합·추출 검증계획(ExtractionMutationPlan)·stale guard·narrative progress 단일 owner |
@@ -58,6 +161,8 @@ targeted 대표 실행: `test_turn_preparation`(정책), `test_extraction_stagin
 ---
 
 ## 4. 편집 전 변이 인벤토리 (§8)
+> **HISTORICAL / SUPERSEDED**: 이 인벤토리에는 두 가지 오류가 있었고 게이트에서 교정됐다. (1) irregular NPC 등록·승격이 **누락**됨 → §22에서 스테이징. (2) 자동 `_plan_narrative`를 'WP-B 경계 밖'으로 **잘못 분류** → §23(AUD-065)에서 스테이징. 또한 추출 행의 '경계 내부로 감쌈·mutator 재사용'은 §21의 plan-only 적용 권위로 대체됨. 최종 맵은 §0.4.
+
 > 자동턴 AI-파생 변이만 스테이징 대상. 수동/운영자/설정/표시/회계는 스테이징하지 않음.
 
 | 변이/기록 지점 | 도메인/필드 | 스코프 | 당시 타이밍 | 당시 owner | AI-파생? | WP-B 조치 | 대상 owner |
@@ -77,11 +182,13 @@ targeted 대표 실행: `test_turn_preparation`(정책), `test_extraction_stagin
 | `_run_extraction` advance_quest/check_secret/check_main_unlock/pending_ending | quest/secret/ending | 자동 gameplay | 추출 후 | 추출 소비부 | 예 | 경계 내부 | 동일 |
 | `_run_extraction` select_bgm→pending_bgm | pending_bgm | 자동 gameplay | 추출 후 | 추출 소비부 | 예 | 경계 내부 | 동일 |
 | `!퀘스트 열기`(`start_quest`, gm.py:1853) | quest active | **운영자/admin** | 명령 | 운영자 명령 | 아니오 | **스테이징 안 함(스코프 분리)** | 유지 |
-| `_plan_narrative` 재수립(3994/4006/4220) | narrative_plan 전체 | planning AI operation | 별도 오퍼레이션 | 서사설계 | 예(별도) | **WP-B 경계 밖(§41 유지)** | 유지 |
+| `_plan_narrative` 재수립(3994/4006/4220) | narrative_plan 전체 | planning AI operation | 별도 오퍼레이션 | 서사설계 | 예(별도) | ~~WP-B 경계 밖(§41 유지)~~ **HISTORICAL / SUPERSEDED** → 자동 경로 = WP-B 스테이징(AUD-065, §23) · setup/manual = 범위 밖 유지 | `_auto_replan_narrative`→`_apply_narrative_plan` |
 
 ---
 
 ## 5. 편집 후 소유권 맵 (도메인별)
+> **HISTORICAL / SUPERSEDED**: 1차 구현 시점 맵(plan-only 권위·irregular NPC·AUD-065 이전). 추출 행의 'mutator 재사용(raw 입력)'은 §21에서 정규화 DTO 소비로 대체됨. **최종 맵은 §0.4.**
+
 | 도메인 | producer | staged 표현 | validator | 호환 consumer | canonical mutator | stale guard |
 |---|---|---|---|---|---|---|
 | 지시 quest-choice | `_call_gm_logic`(decision 반환) | `PendingInstructionEffects.quest_choice` | `stage_instruction_effects`(narrative_mode/offered/random) | `apply_instruction_effects` (gm.py:1441, 묘사성립 후) | `core.quest.apply_choice`(단일) | 해당 트랜잭션 pending에 귀속(트랜잭션-로컬) |
@@ -94,6 +201,8 @@ targeted 대표 실행: `test_turn_preparation`(정책), `test_extraction_stagin
 ---
 
 ## 6. 스테이징/결과 인터페이스
+> **HISTORICAL / SUPERSEDED**: `ExtractionMutationPlan`은 §21에서 typed 정규화 필드로 확장됨. 이후 `IrregularNpcMutationPlan`(§22), `NarrativePlanMutationPlan`·`superseded_by_newer_attempt`(§23) 추가. 최종은 §0.4.
+
 - `PendingInstructionEffects` — quest_choice / intended_case / info_ledger_merge / projected_quest_state / narrative_progress. 트랜잭션-로컬(`TurnTransaction.instruction_result` 슬롯에 귀속).
 - `stage_instruction_effects(session, decision, *, transaction_id)` → canonical 무변경, pending 반환.
 - `apply_instruction_effects(session, pending)` → 묘사 성립 후 1회 idempotent 적용; `{applied, quest_action, quest_active_name, quest_reason}` 반환.
@@ -115,7 +224,9 @@ targeted 대표 실행: `test_turn_preparation`(정책), `test_extraction_stagin
 ---
 
 ## 8. 호환 적용 경계 (열거·최소)
-자동턴 AI-파생 canonical 적용 지점은 **정확히 다음뿐**:
+> **HISTORICAL / SUPERSEDED**: 아래 '3개'와 줄번호(3312–3498)는 1차 구현 시점. 최종 호환 적용 지점은 **§0.5의 6개**.
+
+자동턴 AI-파생 canonical 적용 지점은 **(당시) 정확히 다음뿐**:
 1. **지시효과**: `apply_instruction_effects` — gm.py:1441 (`_finish_proceed_and_continue`, 묘사 성립 직후; 실패 경로는 그 이전 return).
 2. **narrative progress**: `apply_narrative_progress` — `_dispatch_proceed`(묘사 성립 후 ai_summary 존재 시).
 3. **추출효과**: gm.py **3312–3498** `▼▼▼ WP-B 단일 호환 적용 경계 ▼▼▼ … ▲▲▲ 끝 ▲▲▲` — 내부에서만 추출 mutator 호출(경계 밖 호출 0건, §14 스캔).
@@ -124,7 +235,7 @@ targeted 대표 실행: `test_turn_preparation`(정책), `test_extraction_stagin
 ---
 
 ## 9. 전체-묘사 추출 증거 (AUD-011)
-- `_dispatch_proceed`: `_full_narration = (result or {}).get("ai_text") or ai_summary` → `_run_extraction(session, _full_narration, ...)`.
+- ~~`_dispatch_proceed`: `_full_narration = (result or {}).get("ai_text") or ai_summary`~~ — **HISTORICAL / SUPERSEDED**: 요약 폴백 제거, 최종은 `... or _full_model_text or ai_summary`(아래 게이트 패치 항목).
 - 구조 특성화 `test_d001c`: `_dispatch_proceed` 본문에 `ai_text` 존재 + `_run_extraction(session, ai_summary` 부재.
 - 행위 `test_d001`/`test_d001b`: 500자 경계 뒤 사실(LATE_FACT)이 추출 입력에 도달(전체 == narration).
 - **[게이트 패치] 내부 `ai_output_text[:3000]` 절단 제거** — 추출 provider input에 완결 전체 묘사 전문 전달. 별도 op `_resolve_irregular_npcs`의 `[:1500]`도 전문으로 상향(묘사 증거 uniform). `_full_narration` 폴백을 500자 요약이 아닌 원문(`_full_model_text`)으로 강화(요약-only 경로 제거).
@@ -133,10 +244,11 @@ targeted 대표 실행: `test_turn_preparation`(정책), `test_extraction_stagin
 ## 10. 변이-계획/검증 증거
 - `build_extraction_plan`: 등록 캐릭터·merged-status 목록으로 1차 검증(무효 status/캐릭터 drop → diagnostics), 동치 중복 제거(seen set, T-B17), 상호 모순(동행 join&leave) conflict 진단.
 - `test_b17_equivalent_effects_deduped`(npc_met/companion 중복 1건화), `test_b17b_join_and_leave_conflict_flagged`.
-- 임계 비교(status_apply 등)·소지품 정산은 기존 mutator가 경계 내부에서 수행(권위 검증 보존, P-B08).
+- ~~임계 비교·소지품 정산은 기존 mutator가 경계 내부에서 수행~~ — **HISTORICAL / SUPERSEDED**: §21에서 순수 정규화기(`normalize_status_item_effects` 등)가 계획 빌드 단계에서 수행, 적용부는 정규화 DTO만 소비.
 
 ## 11. 파생 효과 증거
 - plan entries 도메인 실제 존재: `location(move)`, `status(score)`, `item(delta)`, `npc_met(meet)`, `companion(join/leave)`, `quest(progress)`, `secret(awareness)`.
+  - **HISTORICAL / SUPERSEDED**: §21 이후 entries는 typed 필드를 반영(`status apply/clear`, `item delta`, `npc_met`, `companion join/leave`, `location move`, `quest progress`, `secret awareness`). irregular NPC·서사 재계획 파생 효과는 §22·§23.
 
 ## 12. 호환 applier + stale/idempotent 증거
 - `extraction_is_stale`: active=None(커밋 후 새 턴 없음)→False(정상 적용), active의 (logical_turn,attempt)가 추출보다 큼→True(거부). `test_b19_extraction_is_stale_decision`.
@@ -150,6 +262,8 @@ targeted 대표 실행: `test_turn_preparation`(정책), `test_extraction_stagin
 - 묘사 실패 행위: `test_d003c`/`test_d003d` — 스테이징 후 `_dispatch_proceed`가 None(실패) 반환 시 canonical(quest active/info_ledger) **무변화**; `test_d003c2` — 성립 시 적용.
 
 ## 14. 호출/변이 스캔 (§39 8-증명, 전부 PASS)
+> **HISTORICAL / SUPERSEDED**(부분): 3·5번의 줄번호와 '3개'는 1차 구현 시점. 4번 목록에는 이후 irregular NPC(§22)·자동 서사 재계획(§23)이 추가됨. 최종 스캔은 §23, 최종 적용 지점은 §0.5.
+
 1. instruction producer가 quest/info canonical mutator 직접호출 **안 함** — `_call_gm_logic`에 apply_choice/start_quest/_update_info_ledger/_apply_quest_choice/merge 부재.
 2. 자:/태: 파서가 resources/statuses 직접변이 **안 함** — `_execute_proceed`에 session.resources[char]/session.statuses[char]/res_tags/status_tags 부재.
 3. 추출 producer/parse 구역(3168–3311)에 gameplay 필드 쓰기 **없음**(통제 플래그·비용만).
@@ -168,21 +282,23 @@ targeted 대표 실행: `test_turn_preparation`(정책), `test_extraction_stagin
 ---
 
 ## 16. Findings 상태
+> **HISTORICAL / SUPERSEDED**: 라운드 진행 중 표. **최종 findings는 §0.3**(AUD-001/005/011/024/065 = RESOLVED_IN_CODE, AUD-014 = preserved).
+
 | AUD | 상태 | 근거 |
 |---|---|---|
 | AUD-001 (자:/태: 이중 상태권위) | **닫힘** | 직접변이 제거, 권위 추출+코드검증 단일화. T-B06/07 |
 | AUD-005 (중복 quest-choice owner) | **닫힘** | `_apply_quest_choice` 제거, 단일 스테이징 owner |
 | AUD-011 (추출 입력 절단) | **RESOLVED_IN_CODE** | 전체 묘사가 provider 프롬프트에 도달(절단 제거). test_d001/b/c/**d**(실제 contents 캡처) |
 | AUD-024 (묘사 실패 시 지시효과 누출) | **닫힘** | 스테이징+성립후 단일경계 적용. test_d003c/d |
-| AUD-014 (merged-status 검증) | **보존(유지)** | extraction.py 285–312 검증 그대로. P-B08 |
+| AUD-014 (merged-status 검증) | **보존(유지)** | extraction.py 285–312 검증 그대로. P-B08 — **HISTORICAL / SUPERSEDED**(위치): 최종은 `_valid_status_set`→`normalize_status_item_effects`로 이동, 의미 동일(§0.3) |
 | AUD-012 / AUD-019 (커밋 배리어·실패청구) | **열림 — WP-C/D** | test_d002c/d/e xfail 유지 |
 | AUD-020 / AUD-029 (되감기·제공자 이력) | **열림 — WP-E** | test_d004c/d005d xfail 유지 |
 | AUD-034 / AUD-035 (캐시 단일 정산점) | **열림 — WP-F** | test_d006e xfail 유지 |
 | AUD-019(추출 stale 부분완화) | **부분** | stale 거부 추가(§26 명시대로 완전해결 아님) |
-| AUD-065 (자동 서사 재계획이 provider 결과를 canonical `session.narrative_plan`에 직접 적용) | **RESOLVED_IN_CODE 후보** | result-only 후보 + 정규화 + 스케줄 시점 tx 정체성 + stale/멱등 + 단일 호환 소비부. N-B01~09(§23) |
+| AUD-065 (자동 서사 재계획이 provider 결과를 canonical `session.narrative_plan`에 직접 적용) | ~~RESOLVED_IN_CODE 후보~~ → **RESOLVED_IN_CODE** (게이트 PASS, §0.3) | result-only 후보 + 정규화 + 스케줄 시점 tx 정체성 + stale/멱등 + 단일 호환 소비부. N-B01~09(§23) |
 
 ## 17. 새 findings / blocker
-- **blocker 없음.** handoff BLOCK 조건 미발생.
+- ~~blocker 없음.~~ — **HISTORICAL / SUPERSEDED**: 이후 독립 게이트가 세 라운드에 걸쳐 blocker를 지정했다(추출 절단·plan-only 권위 / irregular NPC 누락 / AUD-065). 모두 해소, 코드 PASS(§0).
 - **게이트 패치(WIRED_NOT_VERIFIED → 해소)**: 아래 §21 참조. Blocker 1(추출 절단 제거)·Blocker 2(계획을 적용의 유일 권위로) 모두 코드 반영·테스트 완료. 이전 판본의 `[:3000] 보존`·`정규화 위임은 WP-D` 관찰은 **철회**됨 — 정규화 위임을 WP-B 내에서 완결했다.
 
 ---
@@ -191,7 +307,7 @@ targeted 대표 실행: `test_turn_preparation`(정책), `test_extraction_stagin
 - **P-B01/02** TurnTransaction 정체성·ROLL stale guard: turn_transaction.py 무변경, 연속성 테스트 green.
 - **P-B03/04/05** 묘사 생성·전달·PC 자율성 경계: game.py 생성/전달 분리·검증 보존, test_narration_boundary green.
 - **P-B06/07** provider CostEvents·retry: 비용/재시도 로직 무변경, 추출 재시도는 같은 attempt(§27). T-B20 의미 보존.
-- **P-B08** merged status 검증: extraction.py 285–312 보존.
+- **P-B08** merged status 검증: extraction.py 285–312 보존. — **HISTORICAL / SUPERSEDED**(위치): 최종 `_valid_status_set`(263–) 경유, 의미 동일.
 - **P-B09** 추출 증거 권위(전체 묘사=사실, 목록=유효성): 전체 묘사 전달 + 목록 검증 유지.
 - **P-B10** 수동/admin 분리: `!퀘스트 열기` 미스테이징(§8/§14.6).
 - **P-B11/12** prompt/scenario 무변경: diff 확인.
@@ -207,6 +323,8 @@ targeted 대표 실행: `test_turn_preparation`(정책), `test_extraction_stagin
 ---
 
 ## 19. 게이트용 소스 발췌 색인 (§45 S1–S10)
+> **HISTORICAL / SUPERSEDED**(줄번호): 아래 줄번호(3312·3324 등)는 당시 기준. 최종 실제 코드 발췌는 별도 제출물 `WP_B_S1_S10_SOURCE_EXCERPTS.md`(4fb8577 기준, `git show`로 추출)를 따른다.
+
 - S1 지시 producer 순수: `cogs/gm.py` `_call_gm_logic` → `return decision`(직접 canonical 없음).
 - S2 스테이징 projection: `core/quest.py` `projection_view`/`_ProjectionView` + `build_quest_block(..., quest_state=)`.
 - S3 태그 권위 제거: `cogs/game.py` `_execute_proceed` 중립화 주석 + 루프 부재.
@@ -223,8 +341,8 @@ targeted 대표 실행: `test_turn_preparation`(정책), `test_extraction_stagin
 
 ## 20. 하드 스톱
 - WP-B 구현·증거 완료. **WP-C는 착수하지 않았다.**
-- 다음 절차(별도 실행): `commit → push → local == remote → clean status`.
-- 이후 **독립 GPT 게이트 PASS 전까지 WP-C(barrier/READY_TO_COMMIT) 및 상위 WP는 미승인 상태로 정지.**
+- ~~다음 절차(별도 실행): commit → push → local == remote → clean status.~~ — **HISTORICAL / SUPERSEDED**: 완료됨(§0.1).
+- 이후 **독립 GPT 게이트 PASS 전까지 WP-C(barrier/READY_TO_COMMIT) 및 상위 WP는 미승인 상태로 정지.** — **HISTORICAL / SUPERSEDED**: 게이트 코드 PASS 완료. WP-C는 여전히 미착수(§0.9).
 
 ---
 
@@ -251,6 +369,8 @@ targeted 대표 실행: `test_turn_preparation`(정책), `test_extraction_stagin
 원칙 대응: (1)raw result plan 이후 mutator 입력 금지 ✓ (2)applier는 정규화 DTO만 ✓ (3)rejected 부활 불가 ✓ (4)dedup/conflict 버린 후보 재등장 불가 ✓ (5)code-derived(main unlock)도 경계 내 ✓ (6)old helper 재사용하되 입력 정규화 ✓ (7)parse+validate+mutate 결합을 분리(normalize↔apply) ✓ (8)WP-D로 미루지 않음 ✓.
 
 #### 도메인 소유권 맵 (raw candidate → validator/normalizer → plan entry → compatibility consumer → final mutator)
+> **HISTORICAL / SUPERSEDED**(범위): 추출 도메인 한정 맵. irregular NPC·자동 서사 재계획을 포함한 **최종 전체 맵은 §0.4.**
+
 | 도메인 | raw 후보(schema) | validator/normalizer(순수) | plan 필드 | applier 소비 | 최종 변이 |
 |---|---|---|---|---|---|
 | 상태이상 | status_scores | normalize_status_item_effects(검증+임계+dedup) | status_apply/clear | apply_normalized_status_item | session.statuses |
@@ -263,7 +383,7 @@ targeted 대표 실행: `test_turn_preparation`(정책), `test_extraction_stagin
 | BGM | situation | build_plan | situation | select_bgm(plan.situation) | pending_bgm |
 | 메인 해금 | (code-derived) | — | — | check_main_unlock(session) | main_unlocked_notified |
 
-경계 밖(추출-result-plan 아님, 명시): **irregular NPC 등록**은 별도 AI op `_resolve_irregular_npcs`(자체 provider 호출·파싱·register; 추출 result 스키마에 필드 없음) — `_plan_narrative`(§41)와 동류. **`narrative_plan.progress`**는 단일 owner `apply_narrative_progress`(gm.py 라이브 + turn_preparation 스테이징 → 공개 함수 291) 경유, canonical(영속+미래 GM read) 분류.
+~~경계 밖(추출-result-plan 아님, 명시): irregular NPC 등록은 별도 AI op `_resolve_irregular_npcs` — `_plan_narrative`(§41)와 동류.~~ — **HISTORICAL / SUPERSEDED**: 'extraction schema에 없는 별도 AI op'라는 이유의 제외는 **잘못된 분류**였다(패킷 canonical 목록에 `irregular_npcs created by the turn` 명시). irregular NPC는 §22, 자동 `_plan_narrative`는 §23(AUD-065)에서 WP-B 스테이징됨. **`narrative_plan.progress`**는 단일 owner `apply_narrative_progress`(gm.py 라이브 + turn_preparation 스테이징 → 공개 함수 291) 경유, canonical(영속+미래 GM read) 분류.
 
 #### 부정 테스트 (계획=권위 증명) — `tests/policy/test_plan_authority.py` 4 passed
 - **A** rejected 부활 불가: 무효 캐릭터/상태/아이템 → 계획 status_apply/item_deltas 빈 값 + dropped 기록 → 적용 후 canonical 무변화.
@@ -275,7 +395,7 @@ targeted 대표 실행: `test_turn_preparation`(정책), `test_extraction_stagin
 - **raw-result-to-mutator**: `_run_extraction` raw `result` 소비처 = parse 산출/plan 입력/stale 로그/return뿐. 적용부 모든 mutator는 계획 파생. (§14-7)
 - **post-change 변이**: `_apply_extraction_plan` 모든 canonical write가 `plan.*` 파생 확인. `parse_extraction` 순수(canonical write 0).
 - **금지 범위**: READY_TO_COMMIT 전이 0(상수 정의만), CommitJournal 인스턴스화 0, cogs 내 settlement/ink live 호출 0, settlement/ink/turn_transaction/accounts **무수정**.
-- **회귀**: 316 passed / 6 xfailed(WP-C/D/E/F 소관 유지) / XPASS 0. 컴파일·임포트 OK.
+- **회귀(당시 라운드)**: 316 passed / 6 xfailed / XPASS 0. — 최종은 §0.2.
 
 ### 변경/추가 파일(게이트 패치)
 - `cogs/gm.py`(추출 절단 제거, `_full_model_text`, `_apply_extraction_plan` 신규, 적용 블록 대체)
@@ -318,14 +438,16 @@ targeted 대표 실행: `test_turn_preparation`(정책), `test_extraction_stagin
 | stale guard | `extraction_is_stale`(op 시작 시 tx 고정) | 동일 |
 | idempotency | register 멱등 | promote/mark_detailed 멱등 |
 
-### 테스트 — `tests/policy/test_irregular_npc_plan.py` 6 passed
+### 테스트 — `tests/policy/test_irregular_npc_plan.py` 6 passed (당시)
+> **HISTORICAL / SUPERSEDED**: 이 판본의 **I-B04는 잘못된 이유로 통과**했다(provider 대기 중 이중 begin 예외 → 호출 실패로 0 반환, stale 판정 미실행). 구현 무변경으로 테스트를 교정(2모드 + stale 판정 스파이)하고 승격 stale **I-B04c**를 추가 → 8 passed. 상세 §23 '테스트 교정 공개'.
+
 I-B01 producer purity(plan/normalize build → irregular_npcs·npcs 무변경) / I-B02 valid applies once(register 1회) / I-B03 invalid rejected(후보 밖 이름 → registrations 빈값 → 무변경) / I-B04 stale rejected(provider 반환 직전 더 새로운 tx 활성 → 무변경) / I-B05 duplicate idempotent(동일 계획 2회 → 항목 1개·속성 불변) / I-B06 existing semantics(정상 배정 + 3회 등장 승격 → session.npcs 편입).
 
 ### 스캔
 - **raw-payload-to-mutator(irregular NPC)**: raw `data`/`item` 소비처는 parse 산출 + `build_irregular_npc_plan`/`normalize_npc_detail` 입력뿐. `register`=`reg[*]`(plan), `promote`=`norm["details"]`, rename=`norm["final_name"]` — raw payload 0.
 - **complete mutation scan**: `session.irregular_npcs`/`session.npcs` write는 irregular_npc helper(정규화 입력) + `_apply_npc_promotion` rename(정규화 final_name)뿐.
 - **금지 범위**: READY_TO_COMMIT 전이 0, CommitJournal 0, settlement/ink/turn_transaction/accounts 무수정.
-- **회귀**: 322 passed / 6 xfailed(WP-C/D/E/F) / XPASS 0. 컴파일·임포트 OK.
+- **회귀(당시 라운드)**: 322 passed / 6 xfailed / XPASS 0. — 최종은 §0.2.
 - **이전 blocker 불변**: 전체-묘사 추출·추출 plan-authority 코드/테스트 미변경(전체 회귀에 포함되어 통과).
 
 ### 변경/추가 파일(3차 패치)
@@ -339,7 +461,7 @@ I-B01 producer purity(plan/normalize build → irregular_npcs·npcs 무변경) /
 
 게이트가 부록 B(자체 발견)의 판정 A를 승인했다. 이전 승인 패치(지시 스테이징·퀘스트 투영·중복 owner 제거·자:/태: 권위 제거·전체 묘사 추출·추출 plan-authority·추출 stale/멱등·irregular NPC 스테이징·WP-A 출력 소유·비동기 추출 비-join·billing/rewind/cache/prompt/scenario 비변경)는 **구현 무변경**.
 
-**AUD-065** — automatic narrative replanning directly applied provider result to canonical `session.narrative_plan`. → **RESOLVED_IN_CODE 후보**.
+**AUD-065** — automatic narrative replanning directly applied provider result to canonical `session.narrative_plan`. → ~~RESOLVED_IN_CODE 후보~~ **RESOLVED_IN_CODE** (게이트 코드 PASS; §0.3).
 
 ### 범위 — 세 scope 분리
 | scope | 진입점 | 소비부 | TurnTransaction 의미 |
