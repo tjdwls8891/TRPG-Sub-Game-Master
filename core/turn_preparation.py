@@ -352,6 +352,19 @@ def extraction_is_stale(session, *, logical_turn, attempt) -> bool:
 
     §26/§38 — 늦게 도착한 추출이 더 새로운 논리 턴/시도에 기록되는 것을 막는다.
     커밋 후 새 턴이 아직 없으면(active=None) stale이 아니다(정상 적용 대상).
+    판정 본체는 비동기 provider 결과 공통 판정(superseded_by_newer_attempt)이다.
+    """
+    return superseded_by_newer_attempt(
+        session, logical_turn=logical_turn, attempt=attempt)
+
+
+def superseded_by_newer_attempt(session, *, logical_turn, attempt) -> bool:
+    """캡처된 (logical_turn, attempt)보다 더 새로운 논리 시도가 활성이면 True.
+
+    비동기 provider 결과(추출·비정규 NPC·자동 서사 재계획) 공통 stale 판정.
+    결과를 만든 원인 시도의 정체성은 **스케줄/호출 시점에 복사**해 두어야 하며,
+    적용 직전에 현재 활성 시도와 비교한다. 활성 시도가 없으면(active=None)
+    stale이 아니다.
     """
     tx = _tx.get_active_transaction(session)
     if tx is None or logical_turn is None:
@@ -566,3 +579,117 @@ def normalize_npc_detail(data, *, fallback_name) -> dict:
     except (TypeError, ValueError):
         pass
     return {"final_name": final_name, "details": details}
+
+
+# ══════════════════════════════════════════════════════════════════════
+#  자동 서사 재계획 — narrative_plan 교체 변이 계획 (AUD-065)
+#  provider가 만든 서사 계획 raw JSON이 곧바로 session.narrative_plan이 되지
+#  않도록, 구조 검증·정규화된 후보(NarrativePlanMutationPlan)를 만든다.
+#  plan_version / last_planned_turn은 코드 소유 metadata이므로 provider 값은
+#  폐기하고, 호환 적용 직전에 코드가 부여한다.
+#  (narrative_plan.current_event.progress 갱신은 apply_narrative_progress가
+#   계속 단일 owner다 — 이 계획은 '전체 계획 교체' 경로만 다룬다.)
+# ══════════════════════════════════════════════════════════════════════
+
+# 현재 제품 스키마(NARRATIVE_PLAN_SCHEMA)와 실제 리더가 읽는 필드.
+_NARRATIVE_OBJECT_FIELDS = {
+    "mid_plan": ("title", "overview", "milestones", "end_condition"),
+    "current_event": ("title", "summary", "resolution_direction", "progress"),
+    "next_event": ("title", "summary", "trigger"),
+}
+_NARRATIVE_REQUIRED = ("mid_plan", "current_event", "next_event")
+_NARRATIVE_CODE_OWNED = ("plan_version", "last_planned_turn")
+
+
+@dataclass
+class NarrativePlanMutationPlan:
+    """서사 계획 교체의 검증·정규화된 후보 — 적용의 유일 권위.
+
+    · normalized: 구조 검증을 통과한 계획(스키마 필드만). 코드 소유 metadata 없음.
+    · rejected: 구조 탈락 사유(있으면 normalized=None, 적용부 도달 불가).
+    · trigger_reason / full_replan: 재계획 사유·모드(멱등 키 구성 요소).
+    · transaction_id / logical_turn / attempt: 원인 시도 정체성(스케줄 시점 복사).
+    """
+    trigger_reason: str = ""
+    full_replan: bool = True
+    transaction_id: str | None = None
+    logical_turn: int | None = None
+    attempt: int | None = None
+    normalized: dict | None = None
+    rejected: list = _field(default_factory=list)
+    diagnostics: dict = _field(default_factory=dict)
+    applied: bool = False
+    rejected_stale: bool = False
+
+
+def normalize_narrative_plan(raw) -> tuple:
+    """provider 서사 계획 raw dict를 구조 검증·정규화한다(순수 — 세션 미참조).
+
+    · 최상위가 dict가 아니거나 필수 객체(mid_plan/current_event/next_event)가
+      dict가 아니면 거부한다.
+    · 각 객체는 스키마 필드만 통과시킨다. 문자열 필드는 str일 때만, milestones는
+      list일 때 문자열 항목만 남긴다. 형이 틀린 필드는 버린다(리더 기본값 유지).
+    · planner_notes는 str일 때만. 그 밖의 최상위 키(코드 소유 metadata 포함)는 버린다.
+
+    Returns:
+        (normalized: dict | None, reasons: list[str], dropped: list[str])
+    """
+    if not isinstance(raw, dict):
+        return None, ["not_object"], []
+    reasons = [f"missing_or_invalid:{k}" for k in _NARRATIVE_REQUIRED
+               if not isinstance(raw.get(k), dict)]
+    if reasons:
+        return None, reasons, []
+
+    out, dropped = {}, []
+    for key, fields in _NARRATIVE_OBJECT_FIELDS.items():
+        src = raw.get(key) or {}
+        obj = {}
+        for f in fields:
+            if f not in src:
+                continue
+            v = src[f]
+            if f == "milestones":
+                if isinstance(v, list):
+                    obj[f] = [m for m in v if isinstance(m, str)]
+                else:
+                    dropped.append(f"{key}.{f}")
+            elif isinstance(v, str):
+                obj[f] = v
+            else:
+                dropped.append(f"{key}.{f}")
+        out[key] = obj
+    if isinstance(raw.get("planner_notes"), str):
+        out["planner_notes"] = raw["planner_notes"]
+    for k in raw:
+        if k not in _NARRATIVE_OBJECT_FIELDS and k != "planner_notes":
+            dropped.append(k)   # 코드 소유 metadata·미지 키는 provider 권위가 아니다
+    return out, [], dropped
+
+
+def build_narrative_plan(raw, *, trigger_reason, full_replan, transaction_id=None,
+                         logical_turn=None, attempt=None) -> NarrativePlanMutationPlan:
+    """raw 서사 계획 → 검증·정규화된 NarrativePlanMutationPlan(무변이)."""
+    normalized, reasons, dropped = normalize_narrative_plan(raw)
+    plan = NarrativePlanMutationPlan(
+        trigger_reason=trigger_reason, full_replan=bool(full_replan),
+        transaction_id=transaction_id, logical_turn=logical_turn, attempt=attempt,
+        normalized=normalized, rejected=list(reasons))
+    if dropped:
+        plan.diagnostics["dropped"] = dropped
+    return plan
+
+
+def narrative_replan_key(plan: NarrativePlanMutationPlan) -> str | None:
+    """자동 재계획 변이의 안정 정체성 — (원인 시도, 사유, 모드).
+
+    같은 원인 시도에서 같은 사유·모드로 만든 재계획은 하나의 논리 변이다.
+    원인 시도 정체성이 없으면 None(멱등 판정 불가 — 자동 경로에선 발생하지 않음).
+    """
+    if plan.transaction_id:
+        origin = f"tx:{plan.transaction_id}"
+    elif plan.logical_turn is not None:
+        origin = f"lt:{plan.logical_turn}:{plan.attempt or 0}"
+    else:
+        return None
+    return f"{origin}|{plan.trigger_reason}|{'full' if plan.full_replan else 'moment'}"

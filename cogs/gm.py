@@ -1,6 +1,7 @@
 import os
 import re
 import json
+import copy
 import random
 import asyncio
 import discord
@@ -3953,6 +3954,16 @@ class GMCog(commands.Cog):
         if not plan:
             return
 
+        # AUD-065: 자동 재계획의 원인 시도 정체성을 **스케줄 시점에 복사**한다.
+        #   태스크 안에서 활성 tx를 새로 조회하면 그 사이 열린 다음 시도를 자기
+        #   정체성으로 오인할 수 있으므로, 여기서 고정해 인자로 넘긴다.
+        _tx = core.turn_transaction.get_active_transaction(session)
+        _origin = {
+            "transaction_id": getattr(_tx, "transaction_id", None),
+            "logical_turn": getattr(_tx, "logical_turn", None),
+            "attempt": getattr(_tx, "attempt", None),
+        }
+
         # completed/deviated → 즉시 재계획
         if event_assessment == "completed":
             # 순간 계획만 재수립 — mid_plan 유지
@@ -3961,7 +3972,8 @@ class GMCog(commands.Cog):
                     f"📖 **[서사 계획]** 순간 사건 완료 감지\n"
                     f"> 중규모 계획을 유지하며 다음 순간 계획을 수립합니다..."
                 )
-            asyncio.create_task(self._plan_narrative(session, "completed", full_replan=False))
+            asyncio.create_task(self._auto_replan_narrative(
+                session, "completed", full_replan=False, **_origin))
         elif event_assessment == "deviated":
             # mid_plan 포함 전부 재수립
             if master_ch:
@@ -3969,7 +3981,8 @@ class GMCog(commands.Cog):
                     f"📖 **[서사 계획]** 경로 이탈 감지\n"
                     f"> 중규모 계획 포함 전체 재수립합니다..."
                 )
-            asyncio.create_task(self._plan_narrative(session, "deviated", full_replan=True))
+            asyncio.create_task(self._auto_replan_narrative(
+                session, "deviated", full_replan=True, **_origin))
         elif event_assessment == "resolving" and master_ch:
             await master_ch.send(
                 f"📖 **[서사 계획]** 현재 순간 사건이 마무리 단계에 진입했습니다 (resolving)."
@@ -3999,8 +4012,9 @@ class GMCog(commands.Cog):
                     f"→ 중규모 계획 포함 전체 재수립합니다."
                 )
             asyncio.create_task(
-                self._plan_narrative(session, "deviated", full_replan=True,
-                                     context_note=f"추출 이탈 수치 {deviation}")
+                self._auto_replan_narrative(session, "deviated", full_replan=True,
+                                            context_note=f"추출 이탈 수치 {deviation}",
+                                            **_origin)
             )
         elif advance >= th["quest_advance"]:
             plan["last_planned_turn"] = session.turn_count
@@ -4011,24 +4025,180 @@ class GMCog(commands.Cog):
                     f"→ 순간 계획을 재수립합니다."
                 )
             asyncio.create_task(
-                self._plan_narrative(session, "completed", full_replan=False,
-                                     context_note=f"추출 진행 수치 {advance}")
+                self._auto_replan_narrative(session, "completed", full_replan=False,
+                                            context_note=f"추출 진행 수치 {advance}",
+                                            **_origin)
             )
 
     async def _plan_narrative(self, session, trigger_reason: str = "init",
-                               context_note: str = "", full_replan: bool = True) -> bool:
+                              context_note: str = "", full_replan: bool = True) -> bool:
         """
-        LOGIC_MODEL을 호출하여 서사 계획을 수립하거나 갱신한다.
+        서사 계획 수립 — **setup(init)·수동/운영자(manual) 경로 전용** consumer.
+
+        세션 시작(_init_narrative_and_start)과 `!자동 재계획`(replan_narrative)이
+        부른다. 자동 턴 TurnTransaction 의미(원인 시도·stale·멱등)를 요구하지 않으며
+        기존 제품 의미(성공 시 버전 증가·저장·보고, 실패 시 기존 계획 유지)를 보존한다.
+        자동 턴 재계획은 _auto_replan_narrative를 쓴다(AUD-065).
 
         Args:
             session: TRPGSession
-            trigger_reason: "init" | "completed" | "deviated" | "manual"
+            trigger_reason: "init" | "manual"
             context_note: GM이 추가한 메모 (재계획 시 계획 수립 프롬프트에 포함)
             full_replan: True이면 mid_plan 포함 전부 재수립.
-                         False이면(completed) mid_plan을 유지하고 순간 계획만 갱신.
+                         False이면 mid_plan을 유지하고 순간 계획만 갱신.
 
         Returns:
             bool: 성공 여부
+        """
+        candidate = await self._generate_narrative_plan_candidate(
+            session, trigger_reason, context_note=context_note, full_replan=full_replan)
+        if candidate is None:
+            return False
+        return await self._apply_narrative_plan(session, candidate)
+
+    async def _auto_replan_narrative(self, session, trigger_reason: str, *,
+                                     full_replan: bool, context_note: str = "",
+                                     transaction_id=None, logical_turn=None,
+                                     attempt=None) -> bool:
+        """자동 턴 서사 재계획(AUD-065) — create_task로 비동기 실행된다.
+
+        원인 시도 정체성(transaction_id/logical_turn/attempt)은 **스케줄 시점에
+        복사된 값**을 인자로 받는다(태스크 안에서 활성 tx를 새로 조회하지 않는다).
+          provider → 정규화 후보 → stale guard → 멱등 guard → 호환 적용.
+        stale/중복 후보는 session에 적용·저장되지 않는다.
+        """
+        candidate = await self._generate_narrative_plan_candidate(
+            session, trigger_reason, context_note=context_note, full_replan=full_replan,
+            transaction_id=transaction_id, logical_turn=logical_turn, attempt=attempt)
+        if candidate is None:
+            return False
+
+        # stale guard(§26/§38): 이 재계획을 일으킨 시도보다 더 새로운 시도가 활성이면 폐기.
+        if core.turn_preparation.superseded_by_newer_attempt(
+                session, logical_turn=logical_turn, attempt=attempt):
+            candidate.rejected_stale = True
+            print(f"[서사설계/{session.session_id}] stale 재계획 폐기 — 더 새로운 논리 시도 활성 "
+                  f"(원인 turn={logical_turn}, attempt={attempt})")
+            return False
+
+        # 멱등 guard: 같은 (원인 시도, 사유, 모드) 재계획은 canonical에 한 번만 적용.
+        #   검사와 기록 사이에 await가 없으므로 중복 태스크가 동시에 도착해도 한 번만 통과.
+        key = core.turn_preparation.narrative_replan_key(candidate)
+        applied_keys = getattr(session, "_narrative_replan_applied", None)
+        if applied_keys is None:
+            applied_keys = session._narrative_replan_applied = []
+        if key and key in applied_keys:
+            print(f"[서사설계/{session.session_id}] 이미 적용된 재계획 — 중복 적용 방지 ({key})")
+            return False
+        if key:
+            applied_keys.append(key)
+            if len(applied_keys) > 16:
+                del applied_keys[:-16]
+
+        return await self._apply_narrative_plan(session, candidate)
+
+    async def _apply_narrative_plan(self, session, candidate) -> bool:
+        """LegacyCompatibilityApplier(서사 계획 교체) — 정규화 후보만 canonical에 적용한다.
+
+        raw provider payload는 입력되지 않는다(candidate.normalized만 소비).
+        코드 소유 metadata(plan_version, last_planned_turn)는 여기서 코드가 부여한다.
+        기존 영속 의미(save_session_data)를 유지하며 authoritative commit(WP-D)으로
+        옮기지 않는다.
+        """
+        master_ch = self.bot.get_channel(session.master_ch_id)
+        trigger_reason = candidate.trigger_reason
+
+        # ── 버전·타임스탬프 기록(코드 소유) ──
+        plan = copy.deepcopy(candidate.normalized)
+        plan["plan_version"]      = (session.narrative_plan or {}).get("plan_version", 0) + 1
+        plan["last_planned_turn"] = session.turn_count
+        session.narrative_plan    = plan
+        await core.save_session_data(self.bot, session)
+        candidate.applied = True
+
+        # ── 마스터 채널 보고 (embed) ──
+        current = plan.get("current_event", {})
+        next_ev = plan.get("next_event", {})
+        trigger_label_map = {
+            "init":      "초기 계획 수립",
+            "completed": "사건 완료 → 순간 계획 갱신",
+            "deviated":  "이탈 감지 → 전체 재수립",
+            "manual":    "수동 재계획",
+        }
+        trigger_label = trigger_label_map.get(trigger_reason, "계획 갱신")
+
+        if master_ch:
+            embed = discord.Embed(
+                title=f"📖 서사 계획 갱신 — {trigger_label}",
+                color=0x5865F2,
+            )
+            embed.set_footer(text=f"v{plan['plan_version']}  |  턴 {session.turn_count}")
+
+            mid = plan.get("mid_plan", {})
+            if mid:
+                milestones = mid.get("milestones", [])
+                ms_str = "\n".join([f"  {i+1}. {m}" for i, m in enumerate(milestones)]) if milestones else "(없음)"
+                m_val = (
+                    f"**전체 흐름**: {mid.get('overview', '-')}\n"
+                    f"**이정표**:\n{ms_str}\n"
+                    f"**완료 조건**: {mid.get('end_condition', '-')}"
+                )
+                embed.add_field(
+                    name=f"🗺️ 중규모 진행 방향: {mid.get('title', '?')}",
+                    value=m_val[:1020],
+                    inline=False,
+                )
+
+            c_val = (
+                f"**상황**: {current.get('summary', '-')}\n"
+                f"**마무리 방향**: {current.get('resolution_direction', '-')}"
+            )
+            embed.add_field(
+                name=f"📌 현재 순간 사건: {current.get('title', '?')}",
+                value=c_val[:1020],
+                inline=False,
+            )
+
+            n_val = (
+                f"**개요**: {next_ev.get('summary', '-')}\n"
+                f"**시작 조건**: {next_ev.get('trigger', '-')}"
+            )
+            embed.add_field(
+                name=f"⏭️ 다음 순간 사건: {next_ev.get('title', '?')}",
+                value=n_val[:1020],
+                inline=False,
+            )
+
+            planner_notes = plan.get("planner_notes", "")
+            if planner_notes:
+                embed.add_field(name="📝 설계 메모", value=planner_notes[:1020], inline=False)
+
+            await master_ch.send(embed=embed)
+
+        core.write_log(session.session_id, "api",
+                       f"[서사 계획 결과 ({trigger_label})]\n{json.dumps(plan, ensure_ascii=False, indent=2)}")
+        return True
+
+    async def _generate_narrative_plan_candidate(self, session, trigger_reason: str,
+                                                 *, context_note: str = "",
+                                                 full_replan: bool = True,
+                                                 transaction_id=None, logical_turn=None,
+                                                 attempt=None):
+        """
+        LOGIC_MODEL을 호출해 서사 계획 **후보**를 만든다 — result-only producer.
+
+        session.narrative_plan을 변경하지 않는다. provider 호출·재시도·비용 관측/정산
+        (CostLedger operation, accrue, turn_cost_log)은 기존 의미 그대로 수행하고,
+        raw JSON은 core.turn_preparation.build_narrative_plan으로 구조 검증·정규화된
+        NarrativePlanMutationPlan으로만 반환한다.
+
+        Args:
+            trigger_reason: "init" | "completed" | "deviated" | "manual"
+            full_replan: True이면 mid_plan 포함 전부 재수립, False이면 순간 계획만 갱신.
+            transaction_id/logical_turn/attempt: 자동 경로의 원인 시도 정체성(후보에 부착).
+
+        Returns:
+            NarrativePlanMutationPlan | None (퀘스트 모드·호출 실패·파싱 실패·구조 불량)
         """
         master_ch = self.bot.get_channel(session.master_ch_id)
 
@@ -4038,7 +4208,7 @@ class GMCog(commands.Cog):
         # 서사설계자는 풀자유 세션과 인피니티 플랜에서 쓴다.
         if getattr(session, "narrative_mode", "quest") != "free":
             print(f"[서사설계] 퀘스트 모드 — 계획 수립 생략")
-            return False
+            return None
 
         # ── 시나리오 정보 ──
         story_guide = session.scenario_data.get("story_guide", "")
@@ -4165,7 +4335,7 @@ class GMCog(commands.Cog):
             print(f"[GM] 서사 계획 호출 실패: {type(e).__name__} - {e}")
             if master_ch:
                 await master_ch.send(f"⚠️ 서사 계획 수립 실패: {type(e).__name__}")
-            return False
+            return None
 
         # ── 비용 정산 ──
         try:
@@ -4213,76 +4383,18 @@ class GMCog(commands.Cog):
                 print(f"[GM] 서사 계획 JSON 파싱 실패: {e}\n원문: {raw_text[:400]}")
                 if master_ch:
                     await master_ch.send("⚠️ 서사 계획 JSON 파싱 실패. 기존 계획을 유지합니다.")
-                return False
+                return None
 
-        # ── 버전·타임스탬프 기록 ──
-        plan["plan_version"]      = session.narrative_plan.get("plan_version", 0) + 1
-        plan["last_planned_turn"] = session.turn_count
-        session.narrative_plan    = plan
-        await core.save_session_data(self.bot, session)
-
-        # ── 마스터 채널 보고 (embed) ──
-        current = plan.get("current_event", {})
-        next_ev = plan.get("next_event", {})
-        trigger_label_map = {
-            "init":      "초기 계획 수립",
-            "completed": "사건 완료 → 순간 계획 갱신",
-            "deviated":  "이탈 감지 → 전체 재수립",
-            "manual":    "수동 재계획",
-        }
-        trigger_label = trigger_label_map.get(trigger_reason, "계획 갱신")
-
-        if master_ch:
-            embed = discord.Embed(
-                title=f"📖 서사 계획 갱신 — {trigger_label}",
-                color=0x5865F2,
-            )
-            embed.set_footer(text=f"v{plan['plan_version']}  |  턴 {session.turn_count}")
-
-            mid = plan.get("mid_plan", {})
-            if mid:
-                milestones = mid.get("milestones", [])
-                ms_str = "\n".join([f"  {i+1}. {m}" for i, m in enumerate(milestones)]) if milestones else "(없음)"
-                m_val = (
-                    f"**전체 흐름**: {mid.get('overview', '-')}\n"
-                    f"**이정표**:\n{ms_str}\n"
-                    f"**완료 조건**: {mid.get('end_condition', '-')}"
-                )
-                embed.add_field(
-                    name=f"🗺️ 중규모 진행 방향: {mid.get('title', '?')}",
-                    value=m_val[:1020],
-                    inline=False,
-                )
-
-            c_val = (
-                f"**상황**: {current.get('summary', '-')}\n"
-                f"**마무리 방향**: {current.get('resolution_direction', '-')}"
-            )
-            embed.add_field(
-                name=f"📌 현재 순간 사건: {current.get('title', '?')}",
-                value=c_val[:1020],
-                inline=False,
-            )
-
-            n_val = (
-                f"**개요**: {next_ev.get('summary', '-')}\n"
-                f"**시작 조건**: {next_ev.get('trigger', '-')}"
-            )
-            embed.add_field(
-                name=f"⏭️ 다음 순간 사건: {next_ev.get('title', '?')}",
-                value=n_val[:1020],
-                inline=False,
-            )
-
-            planner_notes = plan.get("planner_notes", "")
-            if planner_notes:
-                embed.add_field(name="📝 설계 메모", value=planner_notes[:1020], inline=False)
-
-            await master_ch.send(embed=embed)
-
-        core.write_log(session.session_id, "api",
-                       f"[서사 계획 결과 ({trigger_label})]\n{json.dumps(plan, ensure_ascii=False, indent=2)}")
-        return True
+        # ── 구조 검증·정규화 → 후보(result-only; canonical 미변경) ──
+        candidate = core.turn_preparation.build_narrative_plan(
+            plan, trigger_reason=trigger_reason, full_replan=full_replan,
+            transaction_id=transaction_id, logical_turn=logical_turn, attempt=attempt)
+        if candidate.normalized is None:
+            print(f"[GM] 서사 계획 구조 불량: {candidate.rejected}")
+            if master_ch:
+                await master_ch.send("⚠️ 서사 계획 구조가 올바르지 않습니다. 기존 계획을 유지합니다.")
+            return None
+        return candidate
 
 
 async def setup(bot):

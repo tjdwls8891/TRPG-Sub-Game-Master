@@ -107,24 +107,83 @@ async def test_ib03_invalid_candidate_no_mutation(
 
 
 # ── I-B04 stale result rejected ──────────────────────────────────
+#   (3차 게이트 후 교정) 이전 판본은 provider 대기 중 begin_turn_transaction을 다시
+#   호출해 '비종료 활성 트랜잭션' 예외가 났고, 호출 실패 처리로 0이 반환되어
+#   stale 판정 없이 통과했다. 실제 흐름대로 더 새로운 시도를 열고, stale 판정이
+#   실제로 호출되어 True였음을 함께 단언한다.
+@pytest.mark.parametrize("mode", ["attempt", "turn"])
 async def test_ib04_stale_result_no_mutation(
-        monkeypatch, wired_bot, session_auto_ready, master_channel):
+        monkeypatch, wired_bot, session_auto_ready, master_channel, mode):
     sess = session_auto_ready
     cog = _make_gm_cog(wired_bot)
     sess.irregular_npcs = {}
     sess.npcs = {}
     _with_pool(sess, ["face_a"])
-    core.turn_transaction.begin_turn_transaction(sess, "이번 턴")   # logical_turn=8
+    tt = core.turn_transaction
+    tt.begin_turn_transaction(sess, "이번 턴")                  # 원인 시도 (8,1)
     media = {"npcs": [{"name": "백가", "image_key": "face_a",
                        "gender": "남", "age": "청년"}]}
 
+    stale_calls = []
+    real_stale = tp.extraction_is_stale
+
+    def _spy(session, **kw):
+        r = real_stale(session, **kw)
+        stale_calls.append(r)
+        return r
+
+    monkeypatch.setattr(tp, "extraction_is_stale", _spy)
+
     def _supersede():
-        core.turn_transaction.begin_turn_transaction(sess, "다음 턴")  # logical_turn=9
+        active = tt.get_active_transaction(sess)
+        if mode == "attempt":                                   # (8,1)→(8,2)
+            tt.begin_attempt(sess, logical_turn=active.logical_turn)
+        else:                                                   # (8,1)→(9,1)
+            tt.finalize(sess, active.transaction_id, tt.TurnStatus.COMMITTED)
+            sess.turn_count += 1
+            tt.begin_turn_transaction(sess, "다음 턴")
 
     out = await _drive_resolve(monkeypatch, cog, sess, master_channel, DIALOG, media,
                                before_return=_supersede)
+    assert stale_calls == [True], "stale 판정이 실행되지 않았거나 stale로 판정되지 않았습니다"
     assert out == 0, "stale 결과가 거부되지 않았습니다"
     assert sess.irregular_npcs == {}, "stale 결과가 canonical NPC를 변경했습니다"
+
+
+async def test_ib04c_stale_promotion_no_mutation(
+        monkeypatch, wired_bot, session_auto_ready, master_channel):
+    """승격 provider 대기 중 더 새로운 시도가 열리면 promote하지 않는다."""
+    sess = session_auto_ready
+    cog = _make_gm_cog(wired_bot)
+    sess.irregular_npcs = {}
+    sess.npcs = {}
+    core.irregular_npc.register(sess, "백가", image_key="", gender="남", age="청년",
+                                context=DIALOG, turn=5)
+    tt = core.turn_transaction
+    tt.begin_turn_transaction(sess, "이번 턴")
+
+    stale_calls = []
+    real_stale = tp.extraction_is_stale
+
+    def _spy(session, **kw):
+        r = real_stale(session, **kw)
+        stale_calls.append(r)
+        return r
+
+    monkeypatch.setattr(tp, "extraction_is_stale", _spy)
+    detail = {"name": "백가", "details": "떠돌이 상인", "role": "상인", "attitude": "우호"}
+
+    async def _fake_cwr(fn, **kw):
+        active = tt.get_active_transaction(sess)
+        tt.begin_attempt(sess, logical_turn=active.logical_turn)   # 더 새로운 시도
+        return True, SimpleNamespace(text=json.dumps(detail), usage_metadata=None)
+
+    monkeypatch.setattr(core, "call_with_retry", _fake_cwr, raising=True)
+    ok = await cog._generate_npc_detail(sess, "백가", DIALOG, master_channel)
+    assert stale_calls == [True], "승격 stale 판정이 실행되지 않았습니다"
+    assert ok is False
+    assert "백가" not in sess.npcs, "stale 승격 결과가 session.npcs에 적용됐습니다"
+    assert "백가" in sess.irregular_npcs, "stale 승격이 등록부를 변경했습니다"
 
 
 # ── I-B05 duplicate application idempotent ───────────────────────

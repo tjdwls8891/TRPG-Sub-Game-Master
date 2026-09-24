@@ -179,6 +179,7 @@ targeted 대표 실행: `test_turn_preparation`(정책), `test_extraction_stagin
 | AUD-020 / AUD-029 (되감기·제공자 이력) | **열림 — WP-E** | test_d004c/d005d xfail 유지 |
 | AUD-034 / AUD-035 (캐시 단일 정산점) | **열림 — WP-F** | test_d006e xfail 유지 |
 | AUD-019(추출 stale 부분완화) | **부분** | stale 거부 추가(§26 명시대로 완전해결 아님) |
+| AUD-065 (자동 서사 재계획이 provider 결과를 canonical `session.narrative_plan`에 직접 적용) | **RESOLVED_IN_CODE 후보** | result-only 후보 + 정규화 + 스케줄 시점 tx 정체성 + stale/멱등 + 단일 호환 소비부. N-B01~09(§23) |
 
 ## 17. 새 findings / blocker
 - **blocker 없음.** handoff BLOCK 조건 미발생.
@@ -213,6 +214,7 @@ targeted 대표 실행: `test_turn_preparation`(정책), `test_extraction_stagin
 - S5 result-only 경계: `cogs/gm.py` `_run_extraction` 3312 경계 위 파싱 반환.
 - S6 검증/계획: `core/turn_preparation.py` `build_extraction_plan`.
 - S7 파생 효과: 동함수 `_add(domain,...)` entries. **[3차 패치] 비정규 NPC 경로**: producer `_resolve_irregular_npcs`/`_generate_npc_detail`(result-only) → normalizer `build_irregular_npc_plan`/`normalize_npc_detail` → 계획 `IrregularNpcMutationPlan`/정규화 후보 → 단일 소비부 `_apply_irregular_npc_plan`/`_apply_npc_promotion` → mutator `irregular_npc.register`/`promote`(정규화 입력만).
+  **[4차 패치] 자동 서사 재계획(AUD-065)**: scheduling `_update_narrative_progress`(원인 tx 정체성 복사) → producer `_generate_narrative_plan_candidate`(result-only) → normalizer `build_narrative_plan`/`normalize_narrative_plan` → 후보 `NarrativePlanMutationPlan` → stale `superseded_by_newer_attempt` + 멱등 `narrative_replan_key` → 단일 소비부 `_apply_narrative_plan` → `session.narrative_plan`(정규화 후보 + 코드 소유 metadata).
 - S8 stale guard: `extraction_is_stale` + 3324~ 경계 가드.
 - S9 quest 단일 owner: `stage_instruction_effects`/`apply_instruction_effects`, `_apply_quest_choice` 제거.
 - S10 하드스톱 스캔: §15 결과.
@@ -330,3 +332,100 @@ I-B01 producer purity(plan/normalize build → irregular_npcs·npcs 무변경) /
 - `cogs/gm.py`(`_resolve_irregular_npcs` result-only+plan+stale, `_apply_irregular_npc_plan` 신규; `_generate_npc_detail` result-only+normalize+stale, `_apply_npc_promotion` 신규; op 시작 tx 캡처 2곳)
 - `core/turn_preparation.py`(`IrregularNpcMutationPlan`, `build_irregular_npc_plan`, `normalize_npc_detail`)
 - `tests/policy/test_irregular_npc_plan.py`(신규, I-B01~I-B06)
+
+---
+
+## 23. 게이트 패치 4차 — AUD-065 자동 서사 재계획 (WIRED_NOT_VERIFIED — final omission)
+
+게이트가 부록 B(자체 발견)의 판정 A를 승인했다. 이전 승인 패치(지시 스테이징·퀘스트 투영·중복 owner 제거·자:/태: 권위 제거·전체 묘사 추출·추출 plan-authority·추출 stale/멱등·irregular NPC 스테이징·WP-A 출력 소유·비동기 추출 비-join·billing/rewind/cache/prompt/scenario 비변경)는 **구현 무변경**.
+
+**AUD-065** — automatic narrative replanning directly applied provider result to canonical `session.narrative_plan`. → **RESOLVED_IN_CODE 후보**.
+
+### 범위 — 세 scope 분리
+| scope | 진입점 | 소비부 | TurnTransaction 의미 |
+|---|---|---|---|
+| A. 자동 턴 재계획 | `_finish_proceed_and_continue` → `_update_narrative_progress` → `create_task(_auto_replan_narrative)` (completed/deviated, 추출 수치 advance/deviation 4곳) | `_auto_replan_narrative` → `_apply_narrative_plan` | 원인 tx 정체성·stale·멱등 **적용** |
+| B. 세션 초기화(setup) | `_init_narrative_and_start` → `_plan_narrative("init")` | `_plan_narrative` → `_apply_narrative_plan` | 요구하지 않음(기존 의미) |
+| C. 운영자 수동 재계획 | `!자동 재계획`(`replan_narrative`) → `_plan_narrative("manual")` | 〃 | 요구하지 않음(기존 의미) |
+
+### 구조
+- **producer(result-only)** `_generate_narrative_plan_candidate`: 프롬프트 구성·provider 호출·재시도·비용 관측/정산(`begin_operation(OP_TURN_NARRATIVE_PLANNING)`/`accrue`/`_cl_op.record`/`turn_cost_log`)은 **기존 코드 그대로 이동**. `session.narrative_plan` 쓰기 0. 파싱 결과는 `build_narrative_plan`으로 후보화해 반환(실패·구조불량·퀘스트 모드 → None).
+- **validator/normalizer** `normalize_narrative_plan`(core/turn_preparation.py, 순수): 최상위 dict + 필수 객체(`mid_plan`/`current_event`/`next_event`)가 dict가 아니면 거부. 객체별로 현행 스키마·리더 필드만 통과(`mid_plan{title,overview,milestones[str],end_condition}`, `current_event{title,summary,resolution_direction,progress}`, `next_event{title,summary,trigger}`, `planner_notes`). 형이 틀린 필드는 버림(리더 기본값 유지). **provider가 보낸 `plan_version`/`last_planned_turn` 등 코드 소유·미지 키는 폐기**. 모델 출력 의미는 재설계하지 않음.
+- **plan representation** `NarrativePlanMutationPlan`(normalized, rejected, trigger_reason, full_replan, transaction_id/logical_turn/attempt).
+- **compatibility consumer** `_apply_narrative_plan`: `copy.deepcopy(candidate.normalized)`에 코드 소유 metadata(`plan_version = 이전+1`, `last_planned_turn = turn_count`)를 부여해 `session.narrative_plan`에 적용 → 기존대로 `save_session_data` → embed 보고·로그. raw payload 입력 없음. authoritative commit(WP-D)으로 옮기지 않음.
+- **stale guard**: `_update_narrative_progress` 진입 시 활성 tx의 `(transaction_id, logical_turn, attempt)`를 **스케줄 시점에 복사**해 `create_task` 인자로 전달(태스크 안에서 활성 tx 재조회 없음). 적용 직전 `superseded_by_newer_attempt`로 더 새로운 시도(같은 턴 재시도 또는 다음 턴) 활성 시 폐기 — session에 적용·저장되지 않음.
+  - `superseded_by_newer_attempt`는 기존 `extraction_is_stale` 본체를 **일반 이름으로 옮긴 것**이며, `extraction_is_stale`는 동일 동작의 위임으로 남겼다(추출·irregular NPC 호출부·테스트 무변경). 추출 전용 이름을 서사 경로에 오용하지 않기 위함.
+- **idempotency**: 안정 키 `narrative_replan_key` = `tx:<transaction_id>` (없으면 `lt:<logical_turn>:<attempt>`) + `|<trigger_reason>|<full|moment>`. `session._narrative_replan_applied`(scratch, 최근 16개, 추출 멱등과 같은 방식). 검사와 기록 사이에 await가 없어 **동시 중복 태스크도 한 번만 통과**. Python 객체 `applied` 플래그에 의존하지 않음.
+- **persistence**: 적용 성공 시에만 기존 `save_session_data`. stale·중복·구조불량 후보는 적용·저장되지 않음. CommitJournal/strict commit 미도입.
+- **narrative progress 분리**: `narrative_plan.current_event.progress` 갱신은 기존 단일 owner `apply_narrative_progress` 유지(무변경). 이번 패치는 전체 계획 교체 경로만.
+- **비동기 유지**: 자동 재계획은 여전히 `create_task`(비-join). barrier/timing은 WP-C.
+
+### post-edit 소유권 맵 (AUD-065)
+| 단계 | 자동(A) | setup/manual(B/C) |
+|---|---|---|
+| scheduling / 원인 정체성 | `_update_narrative_progress`: 활성 tx 정체성 복사 → `create_task(_auto_replan_narrative(..., **_origin))` | 해당 없음(직접 await) |
+| producer (result-only) | `_generate_narrative_plan_candidate` | 동일 |
+| validator/normalizer | `build_narrative_plan` / `normalize_narrative_plan` | 동일 |
+| plan representation | `NarrativePlanMutationPlan` | 동일 |
+| stale guard | `superseded_by_newer_attempt(origin)` | 없음(기존 의미) |
+| idempotency | `narrative_replan_key` + `_narrative_replan_applied` | 없음(기존 의미: 호출마다 버전 증가) |
+| compatibility consumer | `_apply_narrative_plan` | 동일 |
+| canonical mutator | `session.narrative_plan = normalized+code metadata` → `save_session_data` | 동일 |
+
+### 테스트 — `tests/policy/test_narrative_replan_plan.py` 15 passed
+N-B01 producer purity(후보 생성 후 narrative_plan 무변경, provider metadata 폐기) / N-B02 valid 자동 적용 + `plan_version=이전+1`·`last_planned_turn=turn_count`(provider 값 무시) / N-B03 구조 불량 3종 + 파싱 불가 → 무변경 / **N-B04** stale(같은 턴 재시도·다음 턴 2모드; stale 판정 스파이로 **실제 True 판정** + provider 첫 시도 성공 단언) / **N-B04b** 스케줄 시점 정체성(태스크 실행 전 다음 턴이 열려도 원인 tx 정체성 전달, 자동 경로가 `_plan_narrative`를 부르지 않음) / N-B05 동일 정체성 2회 → 1회 적용·버전 1회 증가 / N-B05b 동시 중복 태스크 → 1회 / N-B06 setup(`_init_narrative_and_start`, tx 없음, stale 판정 미호출) / N-B07 manual(`!자동 재계획`, 새 시도 활성 중에도 적용, stale 판정 미호출, 운영자 메모 프롬프트 반영) / N-B08 후속 GM 프롬프트(`_build_logic_user_prompt`)가 적용된 계획을 읽음 / N-B09 실제 `call_with_retry`+격리 CostLedger: 재시도 성공 시 `TURN_NARRATIVE_PLANNING` 이벤트 1건(provider_attempt=2), stale 폐기 재계획도 실제 호출이므로 관측 정확히 1건 추가.
+
+### 테스트 교정 공개 (irregular NPC I-B04)
+AUD-065 stale 테스트를 만들다 **3차 게이트에서 승인된 I-B04가 잘못된 이유로 통과**하고 있었음을 발견했다. provider 대기 중 `begin_turn_transaction`을 다시 호출해 '비종료 활성 트랜잭션' 예외가 났고, `_resolve_irregular_npcs`의 호출 실패 처리로 0이 반환되어 **stale 판정이 한 번도 실행되지 않았다**(스파이 계측: `stale_calls = []`).
+- **구현은 무변경**. 테스트만 실제 흐름(`begin_attempt` 또는 `finalize`→다음 턴 `begin`)으로 교정하고 stale 판정이 실제로 True였음을 단언(2모드) → 통과. irregular NPC stale 가드는 이제 실증됨.
+- 승격 경로 stale 전용 테스트가 없었으므로 **I-B04c** 추가(승격 provider 대기 중 새 시도 → promote 안 됨) → 통과.
+- 전 스위트 계측(대조군으로 계측 유효성 확인): 조용히 삼켜진 이중 begin **0건** — 다른 stale 테스트(추출 b19b 등)는 올바른 이유로 통과.
+
+### 사후 스캔 (AST 기반)
+**`session.narrative_plan` 쓰기 분류**
+| 위치 | 함수 | 분류 |
+|---|---|---|
+| cogs/gm.py `_apply_narrative_plan` | 정규화 후보 + 코드 metadata 적용 | **automatic validated compatibility apply** (+ setup/manual 공용 소비부) |
+| cogs/gm.py `_update_narrative_progress` ×2 | 기존 계획 dict에 `last_planned_turn = turn_count` 스탬프 후 재대입 | 자동 경로의 **코드 파생 트리거 스탬프**(provider payload 아님, 무변경 보존; 리더는 표시용 운영자 명령 `show_narrative_plan`뿐) |
+| core/turn_preparation.py `apply_narrative_progress` | `current_event.progress` 갱신 | 기존 단일 owner(승인, 무변경) |
+| core/models.py `__init__` | `{}` 초기화 | setup(초기화) |
+| core/cache.py 복구 루프(io.py 기본값 레지스트리) / core/rewind.py 되감기 | 저장본·스냅샷 복원 | restore/load |
+
+**자동 provider-result direct assignment = 0.**
+
+- **callers**: `_plan_narrative` ← `replan_narrative`(manual), `_init_narrative_and_start`(setup) / `_auto_replan_narrative` ← `_update_narrative_progress` ×4(자동).
+- **readers**: `_build_logic_user_prompt`(GM 프롬프트), `auto_start`(버전 표시), `show_narrative_plan`(운영자 표시), `_update_narrative_progress`(재계획 트리거), `_init_narrative_and_start`(존재 확인), `_generate_narrative_plan_candidate`(completed 시 기존 mid_plan 참조), `_apply_narrative_plan`(버전), `apply_narrative_progress`, io.py/rewind.py 레지스트리.
+- **narrative-planning provider calls**: `OP_TURN_NARRATIVE_PLANNING`은 `_generate_narrative_plan_candidate` 1곳뿐.
+
+### 전체 AI-provider 변이 인벤토리 최종 재스캔 (AST: 직접 session 쓰기 + provider 결과 변수의 흐름)
+| 함수 | 직접 session 쓰기 | provider 결과 흐름 | 분류 |
+|---|---|---|---|
+| game.py `generate_with_retry` | — | — | 묘사 헬퍼(WP-A 출력 소유) |
+| game.py `_run_auto_compression` / `compress_memory` | compressed_memory 등 | 압축 세그먼트 | 압축/캐시 = **WP-F**(패킷 §28) |
+| gm.py `_call_judgment` | turn_cost_log | 반환 → 결정 병합 → 스테이징 | 비용 로그만; 판정 결과는 S1 스테이징 경유 |
+| gm.py `_call_gm_logic` | cache_read_tokens, turn_cost_log | 반환 → `stage_instruction_effects` | S1/S9 스테이징 |
+| gm.py `_simulate_narrative_directions` | turn_cost_log | 반환 → 지시 프롬프트 입력 | canonical 쓰기 없음 |
+| gm.py `_verify_proceed_instruction` | — | 반환 | canonical 쓰기 없음 |
+| gm.py `_dispatch_narrate` | current_turn_logs, turn_cost_log | 묘사 텍스트 → current_turn_logs | 서사 이력 = **WP-B 레거시 유지**(패킷 §29) |
+| gm.py `interpret_cache_time` | interpret_cost_krw | `resolve_minutes` → 반환(캐시 유지시간) | 운영/캐시(WP-F) + billing legacy |
+| gm.py `_generate_npc_detail` | turn_cost_log | `normalize_npc_detail` | S7-c 스테이징 |
+| gm.py `_resolve_irregular_npcs` | turn_cost_log | `build_irregular_npc_plan` | S7-b 스테이징 |
+| gm.py `_run_extraction` | 통제 플래그·turn_cost_log | `build_extraction_plan` | S5~S8 plan-authority |
+| gm.py `_generate_narrative_plan_candidate` | turn_cost_log | `build_narrative_plan` | **AUD-065 스테이징** |
+| media.py `send_media` / tts.py `synthesize_tts_pcm` | — | — | 출력 전용 |
+| profile_ai.py `_call` | — | — | 캐릭터 생성 UI(`profile_runner`) = profile setup(패킷 §8) |
+| utils.py `generate_character_details` | — | — | `!설정생성` 운영자 명령 = admin/setup(패킷 §8) |
+
+(이전 정규식 인벤토리는 `session.raw_logs[-6:]` 같은 **읽기**를 쓰기로 잘못 표시했다 — `_plan_narrative`·`_simulate_narrative_directions`의 raw_logs는 읽기다. 이번 표는 AST로 대입·증강대입·변이 메서드만 집계했다.)
+
+**결론: 자동 턴의 AI-derived canonical write 중 계획/정규화 경계를 거치지 않는 경로는 더 이상 발견되지 않았다.** 남은 AI 결과 기반 쓰기는 패킷이 WP-B 범위 밖으로 명시한 서사 이력(§29)과 압축/캐시(§28), 그리고 setup/admin 경로뿐이다.
+
+### 금지 범위 / 회귀
+- READY_TO_COMMIT 전이 0(범위제외 주석만), CommitJournal 0, cogs settlement/ink live 0, 추출·재계획 join 0(`resilience.wait_for`는 기존 호출별 타임아웃), 기준 대비 turn_transaction/settlement/ink/accounts/commit_journal/rewind/cache/io/prompts/scenarios **무변경**.
+- 회귀: **339 passed / 6 xfailed(WP-C/D/E/F) / XPASS 0**. 컴파일·임포트 OK.
+
+### 변경/추가 파일(4차 패치)
+- `cogs/gm.py` — `_plan_narrative`를 setup/manual consumer로, `_auto_replan_narrative`(자동)·`_apply_narrative_plan`(단일 소비부)·`_generate_narrative_plan_candidate`(producer) 분리; `_update_narrative_progress` 스케줄 시점 정체성 복사·자동 소비부 연결; `import copy`.
+- `core/turn_preparation.py` — `superseded_by_newer_attempt`(일반 stale 판정, `extraction_is_stale` 위임), `NarrativePlanMutationPlan`, `normalize_narrative_plan`, `build_narrative_plan`, `narrative_replan_key`.
+- `tests/policy/test_narrative_replan_plan.py`(신규, N-B01~09 = 15 케이스).
+- `tests/policy/test_irregular_npc_plan.py`(I-B04 교정 2모드, I-B04c 추가 — 테스트만).
