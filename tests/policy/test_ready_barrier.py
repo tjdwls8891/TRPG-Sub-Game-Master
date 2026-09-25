@@ -859,3 +859,33 @@ async def test_tc28_intro_manual_execute_proceed_has_no_barrier(rig):
     assert tt.get_active_transaction(s) is None
     assert r.prov.started.get("extraction") is None
     assert s.is_processing is False
+
+
+# ══════════════════════════════════════════════════════════════
+# 재시도 버튼 라우팅 — 표식 컨텍스트는 같은 tx 준비 owner로 재개
+# ══════════════════════════════════════════════════════════════
+
+async def test_retry_button_resumes_same_transaction(rig, monkeypatch):
+    """추출 재시도 버튼(persistent view)이 새 자동 턴이 아니라 같은 시도를 재개한다."""
+    import cogs.gm as gm_mod
+    from tests.fakes.discord_fakes import FakeInteraction
+
+    r = rig
+    s = r.sess
+    r.prov.routes["extraction"] = [RuntimeError("실패")]
+    tx = await _run_turn(r)
+    assert s.extraction_retry_ctx.get("mode") == "wp_c_preparation"
+    assert s.extraction_retry_ctx.get("transaction_id") == tx.transaction_id
+
+    async def _noop(*a, **k):
+        return None
+    monkeypatch.setattr(core.display, "close_notice", _noop)
+    btn_msg = [m for m in r.gch.sent if getattr(m, "view", None) is not None][-1]
+    r.prov.routes["extraction"] = [_json({"situation": {}})]
+    view = gm_mod.ExtractionRetryView(r.bot)
+    inter = FakeInteraction(channel=r.gch, message=btn_msg)
+    await view.retry.callback(inter)
+
+    assert tx.status == tt.TurnStatus.COMMITTED and tx.preparation.ready_proof is not None
+    assert tt.get_active_transaction(s) is None
+    assert s.extraction_pending is False and r.rec["start_round"] == 1
