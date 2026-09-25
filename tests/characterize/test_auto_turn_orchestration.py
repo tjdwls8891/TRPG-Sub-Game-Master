@@ -33,21 +33,27 @@ async def test_c001_finish_proceed_current_order(
         monkeypatch, wired_bot, session_auto_ready, recorder, master_channel):
     """C-001 — 정상 PROCEED 후처리의 현재 호출 순서를 고정한다.
 
-    WP-09 커밋 파이프라인 이행 시 이 테스트는 의도적으로 바뀐다.
+    WP-C에서 의도적으로 바뀌었다: 디스패치(확정 묘사·동시 준비 발사·전달) →
+    준비 작업 합류 → READY_TO_COMMIT → legacy continuation(델타·청구) → 저장 →
+    디스플레이 → 다음 라운드. READY 이전에는 어떤 카운터·델타·청구도 없다.
     """
     import core
-    import cogs.gm as gm_mod
+    from tests.fakes.barrier_fakes import begin_tx, make_prepared_dispatch
 
     sess = session_auto_ready
     cog = _make_gm_cog(wired_bot)
+    tx = begin_tx(sess)
 
     monkeypatch.setattr(cog, "_dispatch_proceed",
-                        recorder.make("dispatch_proceed", result="묘사 결과"),
-                        raising=False)
-    monkeypatch.setattr(cog, "_update_narrative_progress",
-                        recorder.make("narrative_progress"), raising=False)
+                        make_prepared_dispatch(order=recorder.order), raising=False)
     monkeypatch.setattr(cog, "_start_round",
                         recorder.make("start_round"), raising=False)
+    _orig_ready = core.turn_preparation.transition_to_ready
+
+    def _ready(session, prep):
+        recorder.order.append("ready_to_commit")
+        return _orig_ready(session, prep)
+    monkeypatch.setattr(core.turn_preparation, "transition_to_ready", _ready)
 
     monkeypatch.setattr(core, "capture_state",
                         recorder.make_sync("capture_state", result=lambda: {}),
@@ -70,39 +76,42 @@ async def test_c001_finish_proceed_current_order(
                         raising=False)
     monkeypatch.setattr(core.stats, "bump", recorder.make("stats_bump"),
                         raising=False)
-    monkeypatch.setattr(gm_mod.GMCog, "_dispatch_proceed",
-                        cog._dispatch_proceed, raising=False)
 
     await cog._finish_proceed_and_continue(
-        sess, "지시문", master_channel, event_assessment="진행됨")
+        sess, "지시문", master_channel, event_assessment="진행됨",
+        transaction_id=tx.transaction_id)
 
     order = recorder.order
     # 현재 관측되는 순서 — 이 목록 자체가 특성화 대상이다.
-    assert "dispatch_proceed" in order
-    assert order.index("dispatch_proceed") < order.index("narrative_progress")
-    assert order.index("narrative_progress") < order.index("record_delta")
+    assert order.index("dispatch_proceed") < order.index("extraction_done")
+    assert order.index("extraction_done") < order.index("ready_to_commit")
+    assert order.index("delivery_done") < order.index("ready_to_commit")
+    assert order.index("ready_to_commit") < order.index("deduct_ink")
     assert order.index("deduct_ink") < order.index("record_delta")
     assert order.index("record_delta") < order.index("save_session")
     assert order.index("save_session") < order.index("refresh_display")
     assert order.index("refresh_display") < order.index("start_round")
 
-    # 카운터는 dispatch 성공 후에만 오른다.
+    # 카운터는 READY 이후 legacy continuation에서만 오른다.
     assert sess.gm_turns_done == 1
+    assert sess.turn_count == 8
     assert sess.gm_clarify_count == 0
     assert sess.gm_narrate_count == 0
+    assert sess.is_processing is False
 
 
 async def test_c001b_failed_dispatch_does_not_count_turn(
         monkeypatch, wired_bot, session_auto_ready, recorder, master_channel):
-    """특성화 — 묘사 실패(None)면 턴을 성립시키지 않는다.
+    """특성화 — 묘사 실패(확정 묘사 없음)면 턴을 성립시키지 않는다.
 
-    v5.33.0은 이 경우 카운터·델타를 올리지 않고 저장 후 다음 라운드로 간다.
-    다만 지시층위가 이미 남긴 부작용은 되돌리지 않는다(D-003 참조).
+    카운터·델타·청구 없이 FAILED_SYSTEM으로 종료하고 저장 후 다음 라운드로 간다.
     """
     import core
+    from tests.fakes.barrier_fakes import begin_tx
 
     sess = session_auto_ready
     cog = _make_gm_cog(wired_bot)
+    tx = begin_tx(sess)
 
     monkeypatch.setattr(cog, "_dispatch_proceed",
                         recorder.make("dispatch_proceed", result=None),
@@ -119,14 +128,18 @@ async def test_c001b_failed_dispatch_does_not_count_turn(
                         recorder.make("deduct_ink"), raising=False)
 
     await cog._finish_proceed_and_continue(
-        sess, "지시문", master_channel, event_assessment="진행됨")
+        sess, "지시문", master_channel, event_assessment="진행됨",
+        transaction_id=tx.transaction_id)
 
     assert sess.gm_turns_done == 0
+    assert sess.turn_count == 7
     assert "record_delta" not in recorder.order
     assert "deduct_ink" not in recorder.order
     assert "narrative_progress" not in recorder.order
     assert "save_session" in recorder.order
     assert "start_round" in recorder.order
+    assert tx.status == core.turn_transaction.TurnStatus.FAILED_SYSTEM
+    assert tx.preparation.frozen_cost_event_ids == ()
 
 
 # ──────────────────────────────────────────────────────────

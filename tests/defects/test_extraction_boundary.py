@@ -48,9 +48,21 @@ class _StubGameCog:
         self.calls = []
 
     async def _execute_proceed(self, session, instruction, **kwargs):
+        """WP-C 계약 재현: 확정 묘사를 준비 객체에 싣고 on_finalized 훅을 부른다.
+
+        (정본 raw_logs는 건드리지 않는다 — 로그 적용은 READY 이후.)
+        """
+        from core.narration_result import NarrationResult
         self.calls.append((session, instruction, kwargs))
-        session.raw_logs.append(_FakeContent("model", self.narration))
-        return {"ok": True, "ai_text": self.narration}
+        narr = NarrationResult(text=self.narration, narrative_text=self.narration,
+                               code_block_text="", paragraphs=())
+        prep = kwargs.get("preparation")
+        if prep is not None:
+            prep.narration = narr
+            hook = kwargs.get("on_finalized")
+            if hook is not None:
+                await hook(narr)
+        return {"ok": True, "ai_text": self.narration, "finalized": True}
 
 
 LATE_FACT = "임성진이 물통을 비우고 배낭에 넣었다."
@@ -79,14 +91,17 @@ async def test_d001_extraction_receives_full_narration(
     captured = {}
 
     async def _capture(session, text, master_ch=None, *,
-                       transaction_id=None, logical_turn=None, attempt=None):
+                       transaction_id=None, logical_turn=None, attempt=None,
+                       preparation=None):
         captured["text"] = text
 
     monkeypatch.setattr(cog, "_run_extraction", _capture, raising=False)
 
-    await cog._dispatch_proceed(sess, "지시문")
-    # 추출은 create_task로 돈다. 태스크가 실행될 틈을 준다.
-    await asyncio.sleep(0)
+    import core
+    tx = core.turn_transaction.get_or_begin_turn_transaction(sess, "선언")
+    await cog._dispatch_proceed(sess, "지시문", transaction_id=tx.transaction_id)
+    # WP-C: 추출은 등록 준비 작업이다 — 배리어처럼 합류한다.
+    await tx.preparation.join()
 
     assert "text" in captured, "추출층위가 호출되지 않았습니다"
     assert captured["text"] == narration, "추출층위가 전체 묘사를 받지 못했습니다"
@@ -106,13 +121,16 @@ async def test_d001b_late_fact_reaches_extraction(
     captured = {}
 
     async def _capture(session, text, master_ch=None, *,
-                       transaction_id=None, logical_turn=None, attempt=None):
+                       transaction_id=None, logical_turn=None, attempt=None,
+                       preparation=None):
         captured["text"] = text
 
     monkeypatch.setattr(cog, "_run_extraction", _capture, raising=False)
 
-    await cog._dispatch_proceed(sess, "지시문")
-    await asyncio.sleep(0)
+    import core
+    tx = core.turn_transaction.get_or_begin_turn_transaction(sess, "선언")
+    await cog._dispatch_proceed(sess, "지시문", transaction_id=tx.transaction_id)
+    await tx.preparation.join()
 
     assert LATE_FACT in captured.get("text", ""), (
         "500자 이후의 자원 변화가 추출층위에 전달되지 않았습니다")
@@ -154,10 +172,10 @@ async def test_d001d_full_narration_reaches_provider_prompt(
 
 
 def test_d001c_extraction_dispatch_passes_full_narration():
-    """구조 특성화 — 디스패치가 추출에 전체 묘사(ai_text)를 넘긴다.
+    """구조 특성화 — 추출 발사가 전달과 같은 확정 묘사 전문(narr.text)을 넘긴다.
 
     ai_summary[:500]은 표시·이력·진행도 요약용으로 남아 있을 수 있으나, 추출 입력은
-    _execute_proceed 결과의 ai_text(전체 묘사)여야 한다(AUD-011 수정).
+    확정 묘사 전문이어야 한다(AUD-011 수정 보존, WP-C S1 — 재생성 없음).
     """
     import ast
 
@@ -165,10 +183,11 @@ def test_d001c_extraction_dispatch_passes_full_narration():
     tree = ast.parse(src)
     fn = next(n for n in ast.walk(tree)
               if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))
-              and n.name == "_dispatch_proceed")
+              and n.name == "_launch_concurrent_preparation")
     body = "\n".join(src.splitlines()[fn.lineno - 1:fn.end_lineno])
-    # 추출 입력이 전체 묘사(ai_text)에서 온다.
-    assert "ai_text" in body, "디스패치가 더 이상 전체 묘사를 참조하지 않습니다"
-    # 추출 호출이 500자 요약을 직접 넘기지 않는다.
-    assert "_run_extraction(session, ai_summary" not in body, (
-        "추출 호출이 여전히 500자 요약을 넘깁니다 — AUD-011 상태 재확인")
+    # 추출 입력이 확정 묘사 전문(narr.text)에서 온다.
+    assert "_prepare_extraction(session, prep, narr.text" in body, (
+        "추출 발사가 확정 묘사 전문을 넘기지 않습니다")
+    # 추출 호출이 500자 요약을 넘기지 않는다.
+    assert "ai_summary" not in body, (
+        "추출 발사가 요약을 참조합니다 — AUD-011 상태 재확인")

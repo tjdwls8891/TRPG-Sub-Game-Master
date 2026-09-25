@@ -693,3 +693,585 @@ def narrative_replan_key(plan: NarrativePlanMutationPlan) -> str | None:
     else:
         return None
     return f"{origin}|{plan.trigger_reason}|{'full' if plan.full_replan else 'moment'}"
+
+
+# ══════════════════════════════════════════════════════════════════════
+#  WP-C — 트랜잭션 소유 동시 준비(Concurrent Preparation) + READY_TO_COMMIT 배리어
+#
+#  확정 묘사(finalized narration) 이후 전달/스트리밍·추출·비정규 NPC·자동 재계획 등
+#  필수 준비 작업을 동시에 돌리고, 모든 필수 작업과 비용 멤버십이 닫힌 뒤에만
+#  READY_TO_COMMIT에 도달한다.
+#
+#  READY_TO_COMMIT은 authoritative commit이 아니다:
+#    · CommitJournal / TurnSettlement / InkTransaction / strict save 와 무관(WP-D).
+#    · 이 모듈은 런타임 전용 준비 상태와 증명만 소유한다. durable 영속 없음.
+#  READY 이후의 호환 적용(legacy continuation)은 cogs.gm이 소유하며 WP-D가 치환한다.
+# ══════════════════════════════════════════════════════════════════════
+import asyncio as _asyncio
+import hashlib as _hashlib
+import json as _json
+
+
+class BarrierViolationError(RuntimeError):
+    """봉인(seal)/비용 동결 이후 필수 턴 작업·비용 오퍼레이션을 등록하려 했다.
+
+    조용히 무시하지 않는다(§14/§25). 이 예외가 나면 provider 호출 자체가 시작되지
+    않으므로 동결 이후 새 멤버 CostEvent가 생기지 않는다.
+    """
+
+
+# ── 작업 scope (§9) ──
+SCOPE_AUTOMATIC_TURN = "AUTOMATIC_TURN"
+SCOPE_TURN_DERIVED_OPTIONAL = "TURN_DERIVED_OPTIONAL"
+SCOPE_SESSION_BACKGROUND = "SESSION_BACKGROUND"
+SCOPE_FREE_FEATURE = "FREE_FEATURE"
+SCOPE_MANUAL_GAMEPLAY = "MANUAL_GAMEPLAY"
+SCOPE_ADMIN_OPERATOR = "ADMIN_OPERATOR"
+SCOPE_SETUP = "SETUP"
+SCOPE_GLOBAL = "GLOBAL"
+
+# ── 작업 종류 ──
+TASK_DELIVERY = "NARRATION_DELIVERY"
+TASK_EXTRACTION = "EXTRACTION"
+TASK_IRREGULAR_NPC = "IRREGULAR_NPC_RESOLUTION"
+TASK_NPC_PROMOTION = "NPC_PROMOTION_DETAIL"
+TASK_NARRATIVE_REPLAN = "NARRATIVE_REPLAN"
+
+# ── 작업 상태 ──
+TASK_RUNNING = "RUNNING"
+TASK_SUCCEEDED = "SUCCEEDED"
+TASK_FAILED = "FAILED"
+TASK_CANCELLED = "CANCELLED"
+_TASK_TERMINAL = frozenset({TASK_SUCCEEDED, TASK_FAILED, TASK_CANCELLED})
+
+# ── 레지스트리/비용 멤버십 상태 (§14/§24) ──
+REGISTRY_OPEN = "OPEN"
+REGISTRY_CLOSING = "CLOSING"
+REGISTRY_CLOSED = "CLOSED"
+COST_OPEN = "OPEN"
+COST_CLOSED = "CLOSED"
+
+# ── 준비 단계 ──
+PREP_COLLECTING = "COLLECTING"          # 판단/지시/ROLL 등 묘사 이전(비용 claim만)
+PREP_PREPARING = "PREPARING"            # 확정 묘사 이후 동시 준비 진행
+PREP_READY = "READY"                    # READY_TO_COMMIT 도달(증명 보유)
+PREP_CONTINUED = "CONTINUED"            # READY 이후 legacy continuation 완료
+PREP_RETRY_PENDING = "RETRY_PENDING"    # 필수 준비 실패 — 같은 tx로 재시도 대기
+PREP_FAILED = "FAILED"                  # 사전 READY 시스템 실패(종료)
+
+
+@dataclass
+class PreparationTaskRecord:
+    """등록된 준비 작업 1건. 축(axis)은 서로 독립이다(§9)."""
+    name: str
+    kind: str
+    transaction_id: str | None
+    logical_turn: int | None
+    attempt: int | None
+    scope: str = SCOPE_AUTOMATIC_TURN
+    blocks_preparation_ready: bool = True      # READY 전 terminal 필수
+    required_success: bool = False             # 실패 시 READY 불가
+    blocks_cost_closure: bool = True           # 비용 동결 전 terminal 필수
+    required_player_output: bool = False
+    may_spawn_required_child_work: bool = False
+    turn_cost_membership: bool = True
+    parent: str | None = None
+    state: str = TASK_RUNNING
+    result: object = None
+    error: str | None = None
+    task: object = field(default=None, repr=False, compare=False)
+
+    @property
+    def terminal(self) -> bool:
+        return self.state in _TASK_TERMINAL
+
+
+@dataclass(frozen=True)
+class ReadyProof:
+    """READY_TO_COMMIT 전이 시점에 캡처되는 불변 증명(§26/§27)."""
+    transaction_id: str
+    logical_turn: int
+    attempt: int
+    task_states: tuple
+    frozen_cost_event_ids: tuple
+    canonical_baseline_fingerprint: dict
+    canonical_ready_fingerprint: dict
+    canonical_unchanged: bool
+    changed_domains: tuple
+    delivered_message_ids: tuple
+    extraction_entries: int
+
+
+# 되감기/커밋 소유 정본 도메인(§27). 백그라운드 압축 도메인(compressed_memory,
+# uncompressed_logs 앞부분 삭제)과 운영 집계(total_cost 등)는 의도적으로 제외한다.
+CANONICAL_DOMAINS = (
+    "quest_state", "info_ledger", "resources", "statuses", "world_timeline",
+    "visited_places", "companions", "met_npcs", "irregular_npcs", "npcs",
+    "narrative_plan", "pending_ending", "last_extraction", "players",
+    "stat_fail_counts", "turn_count", "gm_turns_done", "last_recorded_turn",
+    "gm_proceed_history",
+)
+
+
+def _domain_digest(value) -> str:
+    try:
+        blob = _json.dumps(value, sort_keys=True, ensure_ascii=False, default=repr)
+    except Exception:
+        blob = repr(value)
+    return _hashlib.sha1(blob.encode("utf-8")).hexdigest()[:16]
+
+
+def canonical_fingerprint(session) -> dict:
+    """리뷰된 커밋 소유 도메인의 지문(전체 Session 깊은 비교가 아님)."""
+    fp = {d: _domain_digest(getattr(session, d, None)) for d in CANONICAL_DOMAINS}
+    # quest_state는 리더(get_state)가 빈 dict를 기본 형태로 지연 정규화한다 —
+    # 의미 변화가 아니므로 정규화된 형태로 비교한다.
+    fp["quest_state"] = _domain_digest(_quest.clone_state(session))
+    raw = getattr(session, "raw_logs", None) or []
+    fp["raw_logs"] = f"{len(raw)}:{id(raw[-1]) if raw else 0}"
+    return fp
+
+
+class PreparationView:
+    """정본을 바꾸지 않는 읽기 전용 투영 뷰(WP-B quest 투영의 일반화).
+
+    · overrides의 키는 뷰 로컬 값으로 읽기/쓰기(정본 미변경).
+    · forward_writes의 키는 실제 세션에 쓴다(운영 필드 전용 — 예: manifest).
+    · 그 밖의 쓰기는 거부한다(투영 경로에서 정본 쓰기 탐지).
+    """
+
+    def __init__(self, session, overrides=None, forward_writes=()):
+        self.__dict__["_session"] = session
+        self.__dict__["_overrides"] = dict(overrides or {})
+        self.__dict__["_forward"] = frozenset(forward_writes or ())
+
+    def __getattr__(self, name):
+        ov = self.__dict__["_overrides"]
+        if name in ov:
+            return ov[name]
+        return getattr(self.__dict__["_session"], name)
+
+    def __setattr__(self, name, value):
+        if name in self.__dict__["_overrides"]:
+            self.__dict__["_overrides"][name] = value
+        elif name in self.__dict__["_forward"]:
+            setattr(self.__dict__["_session"], name, value)
+        else:
+            raise AttributeError(
+                f"준비 투영은 정본 필드에 쓸 수 없습니다(읽기 전용): {name}")
+
+
+class TurnPreparation:
+    """하나의 자동 논리 턴 시도가 소유하는 런타임 준비/배리어 상태(§13).
+
+    TurnTransaction.preparation 에만 매달리며 정확한 (transaction_id, logical_turn,
+    attempt)를 복사해 둔다. 다른 시도의 결과는 이 객체에 붙을 수 없다.
+    """
+
+    def __init__(self, tx, *, baseline=None):
+        self.transaction_id = tx.transaction_id
+        self.logical_turn = tx.logical_turn
+        self.attempt = tx.attempt
+        self.phase = PREP_COLLECTING
+        self.registry_state = REGISTRY_OPEN
+        self.cost_membership = COST_OPEN
+        self.frozen_cost_event_ids = None
+        self.tasks: dict = {}
+        self.cost_operations: list = []
+        self.violations: list = []
+        self.baseline_fingerprint = dict(baseline or {})
+        # ── 스테이징 결과 ──
+        self.event_assessment = None
+        self.narration = None               # NarrationResult(확정 묘사)
+        self.staged_log = None              # dict: raw_entries/uncompressed_entries/consumed/turn_no
+        self.proceed_history_entry = None   # gm_proceed_history 스테이징
+        self.narrative_progress = None      # current_event.progress 텍스트
+        self.narrative_marker = False       # last_planned_turn 마커 스테이징
+        self.replan_candidate = None        # NarrativePlanMutationPlan
+        self.extraction_plan = None         # ExtractionMutationPlan
+        self.extraction_text = None
+        self.irregular_plan = None          # IrregularNpcMutationPlan
+        self.irregular_text = None
+        self.promotions: dict = {}          # name -> normalized detail
+        self.growth_players = None          # ROLL 성장 투영(players 복제)
+        self.growth_fail_counts = None      # ROLL 성장 투영(stat_fail_counts 복제)
+        self.growth_events: list = []       # [(uid, stat, new_value)]
+        self.delivery = None                # DeliveryResult
+        self.delivery_error = None
+        self.failure_code = None
+        self.failure_stage = None
+        self.ready_proof = None
+        self.processing_held = False        # 자동 턴 owner가 is_processing 해제 책임 보유
+
+    # ── 정체성 ──
+    def identity(self) -> tuple:
+        return (self.transaction_id, self.logical_turn, self.attempt)
+
+    def matches(self, tx) -> bool:
+        return (tx is not None and tx.transaction_id == self.transaction_id
+                and tx.logical_turn == self.logical_turn and tx.attempt == self.attempt)
+
+    # ── 작업 레지스트리 (§14) ──
+    def register_task(self, name, kind, *, coro=None, **axes) -> PreparationTaskRecord:
+        """필수 턴 작업을 등록한다. 봉인 이후 등록은 배리어 위반(예외)."""
+        if self.registry_state != REGISTRY_OPEN:
+            if coro is not None:
+                coro.close()
+            self.violations.append(f"late_task:{name}")
+            raise BarrierViolationError(
+                f"레지스트리 봉인 이후 필수 작업 등록 시도: {name} (tx={self.transaction_id})")
+        if name in self.tasks and not self.tasks[name].terminal:
+            if coro is not None:
+                coro.close()
+            raise BarrierViolationError(f"같은 이름의 작업이 이미 실행 중: {name}")
+        rec = PreparationTaskRecord(
+            name=name, kind=kind, transaction_id=self.transaction_id,
+            logical_turn=self.logical_turn, attempt=self.attempt, **axes)
+        self.tasks[name] = rec
+        if coro is not None:
+            rec.task = _asyncio.ensure_future(self._run(rec, coro))
+        return rec
+
+    async def _run(self, rec, coro):
+        try:
+            rec.result = await coro
+            if rec.state == TASK_RUNNING:
+                rec.state = TASK_SUCCEEDED
+        except _asyncio.CancelledError:
+            rec.state = TASK_CANCELLED
+            rec.error = "cancelled"
+        except Exception as e:  # 작업 실패는 기록만(분류에 따라 READY 판단)
+            rec.state = TASK_FAILED
+            rec.error = f"{type(e).__name__}: {e}"
+            print(f"[WP-C/{self.transaction_id[:8]}] 준비 작업 실패 {rec.name}: {rec.error}")
+        return rec.result
+
+    def mark_task(self, name, state, *, result=None, error=None) -> None:
+        rec = self.tasks.get(name)
+        if rec is None:
+            return
+        rec.state = state
+        if result is not None:
+            rec.result = result
+        if error is not None:
+            rec.error = error
+
+    def task_future(self, name):
+        rec = self.tasks.get(name)
+        return rec.task if rec is not None else None
+
+    def running_tasks(self) -> list:
+        return [r for r in self.tasks.values() if not r.terminal]
+
+    async def join(self) -> None:
+        """등록된 모든 작업이 terminal이 될 때까지 기다린다.
+
+        부모 작업이 실행 중 자식 작업을 등록하면 다음 반복에서 함께 기다린다
+        (부모가 terminal이 된 뒤에도 자식 등록이 선행되므로 누락이 없다).
+        """
+        while True:
+            pending = [r.task for r in self.tasks.values()
+                       if not r.terminal and r.task is not None]
+            if not pending:
+                break
+            await _asyncio.wait(pending)
+        for r in self.tasks.values():
+            if not r.terminal:     # task 없이 인라인 관리되는 기록이 비종결로 남음
+                self.violations.append(f"unterminated:{r.name}")
+
+    def seal(self) -> None:
+        """레지스트리 봉인: OPEN → CLOSING → CLOSED. 이후 등록은 위반."""
+        self.registry_state = REGISTRY_CLOSING
+        if any((not r.terminal) for r in self.tasks.values()):
+            self.violations.append("seal_with_running_task")
+        self.registry_state = REGISTRY_CLOSED
+
+    def reopen_for_retry(self) -> None:
+        """사전 READY 필수 준비 실패 후 같은 tx로의 재시도(비용 멤버십은 OPEN 유지)."""
+        if self.cost_membership == COST_CLOSED:
+            raise BarrierViolationError("비용 멤버십 동결 이후 재시도 불가")
+        self.registry_state = REGISTRY_OPEN
+        self.phase = PREP_PREPARING
+
+    # ── 비용 멤버십 (§23~§25) ──
+    def claim_cost_operation(self, op) -> bool:
+        """자동 턴 provider 오퍼레이션을 이 시도의 비용 멤버로 명시 등록한다."""
+        if self.cost_membership == COST_CLOSED:
+            self.violations.append(f"late_cost_op:{getattr(op, 'operation', '?')}")
+            raise BarrierViolationError(
+                f"비용 멤버십 동결 이후 필수 provider 오퍼레이션 시작 시도: "
+                f"{getattr(op, 'operation', '?')} (tx={self.transaction_id})")
+        if getattr(op, "transaction_id", None) != self.transaction_id:
+            # 귀속 불일치 — 멤버로 들이지 않는다(추정 금지). 진단은 남긴다.
+            self.violations.append(
+                f"attribution_mismatch:{getattr(op, 'operation', '?')}")
+            return False
+        if op not in self.cost_operations:
+            self.cost_operations.append(op)
+        return True
+
+    def close_cost_membership(self) -> tuple:
+        """비용 관련 작업이 모두 terminal일 때만 정확한 event_id 튜플을 동결한다."""
+        if self.cost_membership == COST_CLOSED:
+            return self.frozen_cost_event_ids
+        open_cost = [r.name for r in self.tasks.values()
+                     if r.blocks_cost_closure and not r.terminal]
+        if open_cost:
+            raise BarrierViolationError(f"비용 관련 작업 미종결: {open_cost}")
+        if self.registry_state != REGISTRY_CLOSED:
+            raise BarrierViolationError("레지스트리 봉인 전 비용 동결 불가")
+        ids = []
+        for op in self.cost_operations:
+            for eid in getattr(op, "event_ids", ()) or ():
+                if eid not in ids:
+                    ids.append(eid)
+        self.frozen_cost_event_ids = tuple(ids)
+        self.cost_membership = COST_CLOSED
+        return self.frozen_cost_event_ids
+
+    # ── 적용 전 여부(턴 소유 정본 효과) ──
+    def turn_effects_unapplied(self, tx) -> list:
+        """이미 정본에 적용된 스테이징 효과 목록(비어 있어야 READY 가능)."""
+        applied = []
+        pending = getattr(tx, "instruction_result", None)
+        if isinstance(pending, PendingInstructionEffects) and pending.applied:
+            applied.append("instruction_effects")
+        for nm in ("extraction_plan", "irregular_plan", "replan_candidate"):
+            obj = getattr(self, nm)
+            if obj is not None and getattr(obj, "applied", False):
+                applied.append(nm)
+        if isinstance(self.staged_log, dict) and self.staged_log.get("applied"):
+            applied.append("staged_log")
+        return applied
+
+
+# ── 세션/트랜잭션 접근 헬퍼 ──
+def get_preparation(session, transaction_id=None):
+    """활성 트랜잭션의 준비 객체(없거나 id 불일치면 None)."""
+    tx = _tx.get_active_transaction(session)
+    if tx is None:
+        return None
+    if transaction_id is not None and tx.transaction_id != transaction_id:
+        return None
+    prep = getattr(tx, "preparation", None)
+    return prep if isinstance(prep, TurnPreparation) else None
+
+
+def ensure_preparation(session, transaction_id):
+    """현재 활성 트랜잭션이 transaction_id이면 준비 객체를 (없으면 만들어) 반환.
+
+    새 트랜잭션을 만들지 않는다(PF-18). stale/None이면 None.
+    """
+    if transaction_id is None:
+        return None
+    tx = _tx.get_active_transaction(session)
+    if tx is None or tx.transaction_id != transaction_id:
+        return None
+    prep = getattr(tx, "preparation", None)
+    if not isinstance(prep, TurnPreparation):
+        prep = TurnPreparation(tx, baseline=canonical_fingerprint(session))
+        tx.preparation = prep
+    return prep
+
+
+def claim_cost_operation(session, transaction_id, op) -> bool:
+    """자동 경로 provider 오퍼레이션 claim. transaction_id가 없으면(수동/인트로) no-op.
+
+    stale(현재 활성 시도가 아님)이면 멤버로 들이지 않는다. 동결 이후면 예외.
+    """
+    if transaction_id is None or op is None:
+        return False
+    prep = ensure_preparation(session, transaction_id)
+    if prep is None:
+        return False
+    return prep.claim_cost_operation(op)
+
+
+# ── 비정규 NPC 스테이징 투영(읽기 전용) ──
+def staged_irregular_entry(session, name):
+    """활성 준비 객체의 스테이징 등록에서 name 항목(정본에 없을 때만)."""
+    prep = get_preparation(session)
+    plan = getattr(prep, "irregular_plan", None) if prep is not None else None
+    if plan is None or getattr(plan, "applied", False):
+        return None
+    for reg in getattr(plan, "registrations", ()) or ():
+        if reg.get("name") == name:
+            from .irregular_npc import pick_voice, DEFAULT_GENDER, DEFAULT_AGE
+            return {
+                "image_key": reg.get("image_key") or "",
+                "voice": pick_voice(reg.get("gender"), reg.get("age")),
+                "gender": reg.get("gender") or DEFAULT_GENDER,
+                "age": reg.get("age") or DEFAULT_AGE,
+                "context": reg.get("context") or "",
+                "first_turn": reg.get("turn", 0),
+            }
+    return None
+
+
+def projected_irregular_registry(session, prep) -> dict:
+    """정본 등록부 + 스테이징 등록(register 의미: 기존 항목 유지) − 스테이징 승격."""
+    from . import irregular_npc as _irr
+    reg = copy.deepcopy(_irr.get_registry(session))
+    plan = getattr(prep, "irregular_plan", None)
+    if plan is not None:
+        for r in plan.registrations:
+            if r["name"] not in reg:
+                reg[r["name"]] = staged_irregular_entry(session, r["name"]) or {}
+    for name in (getattr(prep, "promotions", {}) or {}):
+        reg.pop(name, None)
+    return reg
+
+
+def projected_npcs(session, prep) -> dict:
+    """정본 npcs + 스테이징 승격(promote 의미 재현, 고유명 개명 포함)."""
+    from . import irregular_npc as _irr
+    npcs = dict(getattr(session, "npcs", {}) or {})
+    base_reg = _irr.get_registry(session)
+    for name, norm in (getattr(prep, "promotions", {}) or {}).items():
+        entry = base_reg.get(name) or staged_irregular_entry(session, name) or {}
+        merged = dict(norm["details"] or {})
+        merged.setdefault("voice", entry.get("voice"))
+        merged.setdefault("image_key", entry.get("image_key"))
+        npcs[norm.get("final_name") or name] = merged
+    return npcs
+
+
+# ── ROLL 성장 스테이징 투영 ──
+def growth_projection(session, prep) -> PreparationView:
+    """ROLL 성장 판정이 정본 대신 스테이징 복제본을 변경하도록 하는 뷰."""
+    if prep.growth_players is None:
+        prep.growth_players = copy.deepcopy(getattr(session, "players", {}) or {})
+    if prep.growth_fail_counts is None:
+        fc = getattr(session, "stat_fail_counts", None)
+        prep.growth_fail_counts = copy.deepcopy(fc) if isinstance(fc, dict) else {}
+    view = PreparationView(session, overrides={
+        "players": prep.growth_players,
+        "stat_fail_counts": prep.growth_fail_counts,
+    })
+    return view
+
+
+def projected_players(session):
+    """활성 준비 객체에 ROLL 성장 투영이 있으면 그 players, 없으면 정본."""
+    prep = get_preparation(session)
+    if prep is not None and prep.growth_players is not None:
+        return prep.growth_players
+    return getattr(session, "players", {}) or {}
+
+
+# ── READY 술어 / 전이 (단일 owner, §26) ──
+def evaluate_ready(session, prep) -> list:
+    """READY_TO_COMMIT 조건을 검사하고 미충족 사유 목록을 반환한다(비면 충족)."""
+    reasons = []
+    tx = _tx.get_active_transaction(session)
+    # 정체성
+    if tx is None or not prep.matches(tx):
+        reasons.append("identity:not_current")
+    elif _tx.is_terminal(tx.status) or tx.status == _tx.TurnStatus.READY_TO_COMMIT:
+        reasons.append(f"identity:status_{tx.status.value}")
+    if getattr(tx, "preparation", None) is not prep:
+        reasons.append("identity:preparation_not_owned")
+    # 서사
+    if prep.narration is None or not getattr(prep.narration, "text", ""):
+        reasons.append("narrative:no_finalized_narration")
+    if not isinstance(prep.staged_log, dict):
+        reasons.append("narrative:log_not_staged")
+    # 출력
+    if prep.delivery is None or not getattr(prep.delivery, "ok", False):
+        reasons.append("output:narration_not_delivered")
+    # 상태 준비
+    if prep.extraction_plan is None:
+        reasons.append("state:no_extraction_plan")
+    elif getattr(prep.extraction_plan, "rejected_stale", False):
+        reasons.append("state:extraction_stale")
+    for r in prep.tasks.values():
+        if r.blocks_preparation_ready and not r.terminal:
+            reasons.append(f"task:running:{r.name}")
+        if r.required_success and r.state != TASK_SUCCEEDED:
+            reasons.append(f"task:failed:{r.name}")
+        if (r.transaction_id, r.logical_turn, r.attempt) != prep.identity():
+            reasons.append(f"task:foreign_identity:{r.name}")
+    if tx is not None:
+        applied = prep.turn_effects_unapplied(tx)
+        if applied:
+            reasons.append("state:effects_already_applied:" + ",".join(applied))
+    # 작업 종결
+    if prep.registry_state != REGISTRY_CLOSED:
+        reasons.append("tasks:registry_not_closed")
+    # 비용
+    if prep.cost_membership != COST_CLOSED or prep.frozen_cost_event_ids is None:
+        reasons.append("cost:membership_not_closed")
+    if prep.violations:
+        reasons.append("violations:" + ",".join(prep.violations))
+    return reasons
+
+
+def transition_to_ready(session, prep):
+    """유일한 READY_TO_COMMIT 전이 경로. 증명 객체 없이 상태만 바꾸지 않는다.
+
+    Returns: (ReadyProof | None, reasons)
+    """
+    reasons = evaluate_ready(session, prep)
+    if reasons:
+        return None, reasons
+    ready_fp = canonical_fingerprint(session)
+    base = prep.baseline_fingerprint or {}
+    changed = tuple(sorted(k for k in ready_fp if base.get(k) != ready_fp.get(k)))
+    delivered = tuple(getattr(prep.delivery, "canonical_message_ids", ()) or ())
+    proof = ReadyProof(
+        transaction_id=prep.transaction_id, logical_turn=prep.logical_turn,
+        attempt=prep.attempt,
+        task_states=tuple((r.name, r.kind, r.state) for r in prep.tasks.values()),
+        frozen_cost_event_ids=tuple(prep.frozen_cost_event_ids),
+        canonical_baseline_fingerprint=dict(base),
+        canonical_ready_fingerprint=ready_fp,
+        canonical_unchanged=not changed, changed_domains=changed,
+        delivered_message_ids=delivered,
+        extraction_entries=len(getattr(prep.extraction_plan, "entries", ()) or ()),
+    )
+    if changed:
+        # 관리자/수동 scope 쓰기(예: !증감)는 정당할 수 있으므로 차단하지 않고 증거로 남긴다.
+        print(f"[WP-C/{prep.transaction_id[:8]}] READY 시점 정본 도메인 변화 감지: {changed}")
+    _tx.mark_transaction_status(session, prep.transaction_id,
+                                _tx.TurnStatus.READY_TO_COMMIT)
+    prep.ready_proof = proof
+    prep.phase = PREP_READY
+    return proof, []
+
+
+# ── READY 이후 legacy continuation용 스테이징 적용 헬퍼 ──
+def apply_staged_narration_log(session, staged: dict) -> bool:
+    """스테이징된 묘사 로그/카운터를 적용한다(READY 이후 전용, 멱등).
+
+    기존 _execute_proceed의 순서·의미를 그대로 재현한다:
+    raw_logs×2 → uncompressed×2 → 소비한 current_turn_logs 제거 → turn_count+1 → 20개 캡.
+    """
+    if not isinstance(staged, dict) or staged.get("applied"):
+        return False
+    session.raw_logs.extend(staged["raw_entries"])
+    session.uncompressed_logs.extend(staged["uncompressed_entries"])
+    n = int(staged.get("consumed_turn_logs") or 0)
+    if n:
+        del session.current_turn_logs[:n]
+    session.turn_count += 1
+    if len(session.raw_logs) > 20:
+        session.raw_logs = session.raw_logs[-20:]
+    staged["applied"] = True
+    return True
+
+
+def apply_staged_growth(session, prep) -> bool:
+    """스테이징된 ROLL 성장(profile +N, stat_fail_counts)을 정본에 적용(READY 이후)."""
+    if prep.growth_fail_counts is None and not prep.growth_events:
+        return False
+    for uid, stat, new_value in prep.growth_events:
+        player = (getattr(session, "players", {}) or {}).get(uid)
+        profile = player.get("profile") if isinstance(player, dict) else None
+        if isinstance(profile, dict) and stat in profile:
+            profile[stat] = new_value
+    if prep.growth_fail_counts is not None:
+        session.stat_fail_counts = copy.deepcopy(prep.growth_fail_counts)
+    prep.growth_events = []
+    prep.growth_fail_counts = None
+    prep.growth_players = None
+    return True

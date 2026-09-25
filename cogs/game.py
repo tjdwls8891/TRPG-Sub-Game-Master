@@ -13,6 +13,14 @@ from core.narration_result import (
 )
 
 
+async def _asyncio_shield_wait(fut):
+    """등록된 준비 작업의 완료만 기다린다(전달 쪽 취소가 작업을 취소하지 않게 shield)."""
+    try:
+        await asyncio.shield(fut)
+    except Exception:
+        pass
+
+
 # ========== [메인 게임 엔진 모듈(Game Cog)] ==========
 class GameCog(commands.Cog):
     """
@@ -236,7 +244,8 @@ class GameCog(commands.Cog):
         await self._execute_proceed(session, instruction, master_guild=ctx.guild)
 
     async def _execute_proceed(self, session, instruction: str = "", *, master_guild=None,
-                                cost_log_prefix: str = "", transaction_id: str | None = None) -> dict:
+                                cost_log_prefix: str = "", transaction_id: str | None = None,
+                                preparation=None, on_finalized=None) -> dict:
         """
         !진행 본체 — 명령 진입점과 GM(GMCog)가 공유하는 코어 로직.
 
@@ -248,9 +257,15 @@ class GameCog(commands.Cog):
             instruction (str): GM 지시사항 (이미지/자원/상태 태그 포함 가능)
             master_guild: 게임 채널 채팅 권한 토글용 guild (None이면 마스터 채널에서 추출)
             cost_log_prefix (str): cost_log.txt 라벨에 부착할 접두사 (예: "[AUTO] ")
+            preparation: WP-C 자동 턴 준비 객체(core.turn_preparation.TurnPreparation).
+                자동 caller(_dispatch_proceed)만 넘긴다. 주어지면
+                  · canonical 로그/카운터를 적용하지 않고 스테이징한다(READY 이후 적용),
+                  · 확정 묘사 직후 on_finalized(narr)로 동시 준비 작업을 발사한다,
+                  · is_processing/채널 잠금 해제를 owner(배리어 이후)에게 넘긴다.
+                None(인트로·수동)이면 기존 동작 그대로다(자동 READY 의미 미상속).
 
         Returns:
-            dict: {"ok": bool, "ai_text": str, "error": str|None}
+            dict: {"ok": bool, "ai_text": str, "error": str|None, "finalized": bool}
         """
         master_ch = self.bot.get_channel(session.master_ch_id)
         game_channel = self.bot.get_channel(session.game_ch_id)
@@ -276,6 +291,8 @@ class GameCog(commands.Cog):
             master_guild = master_ch.guild
 
         session.is_processing = True
+        if preparation is not None:
+            preparation.processing_held = True   # WP-C: 해제는 배리어 이후 owner 책임
         full_ai_response = ""
         status_msg = None   # 게임 채널 대기 안내 메시지 핸들 (출력 시작 직전 삭제)
 
@@ -380,23 +397,46 @@ class GameCog(commands.Cog):
                 cost_log_prefix=cost_log_prefix, master_ch=master_ch,
                 game_channel=game_channel, m_send=m_send,
                 top_imgs=top_imgs, mid_imgs=mid_imgs, bottom_imgs=bottom_imgs,
+                transaction_id=transaction_id,
             )
             full_ai_response = narr.text
 
-            # === canonical 턴 확정 로그/카운터 (셸 소유 — 기존 timing/순서 보존) ===
-            #     자동 caller(_dispatch_proceed)는 raw_logs 증가를 성공 신호로 쓰므로 여기서 유지한다.
+            # === canonical 턴 확정 로그/카운터 ===
             turn_history_text = "\n".join(session.current_turn_logs) + f"\n[GM 지시]: {clean_instruction}"
-            session.raw_logs.append(types.Content(role="user", parts=[types.Part.from_text(text=turn_history_text)]))
-            session.raw_logs.append(types.Content(role="model", parts=[types.Part.from_text(text=full_ai_response)]))
-
-            session.uncompressed_logs.append(f"[플레이어 및 GM]: {turn_history_text}")
-            session.uncompressed_logs.append(f"[GM 묘사]: {full_ai_response}")
-
-            session.current_turn_logs.clear()
-            session.turn_count += 1
-
-            if len(session.raw_logs) > 20:
-                session.raw_logs = session.raw_logs[-20:]
+            _raw_entries = [
+                types.Content(role="user", parts=[types.Part.from_text(text=turn_history_text)]),
+                types.Content(role="model", parts=[types.Part.from_text(text=full_ai_response)]),
+            ]
+            _unc_entries = [f"[플레이어 및 GM]: {turn_history_text}",
+                            f"[GM 묘사]: {full_ai_response}"]
+            if preparation is not None:
+                # WP-C: 자동 턴은 로그/카운터를 READY 이후 legacy continuation에서 적용한다.
+                #   소비한 current_turn_logs 개수만 기록해, 대기 중 추가된 입력 로그는 보존한다.
+                preparation.narration = narr
+                preparation.staged_log = {
+                    "raw_entries": _raw_entries,
+                    "uncompressed_entries": _unc_entries,
+                    "consumed_turn_logs": len(session.current_turn_logs),
+                    "turn_no": int(session.turn_count) + 1,
+                    "applied": False,
+                }
+                display_turn = int(session.turn_count) + 1
+                # 확정 묘사가 고정된 직후 — 동시 준비 작업(비정규 NPC·추출·재계획) 발사.
+                if on_finalized is not None:
+                    await on_finalized(narr)
+                preparation.register_task(
+                    "delivery", core.turn_preparation.TASK_DELIVERY,
+                    required_success=True, required_player_output=True,
+                    blocks_cost_closure=False, turn_cost_membership=False)
+            else:
+                # 인트로·수동: 기존 timing/순서 그대로 즉시 적용.
+                session.raw_logs.extend(_raw_entries)
+                session.uncompressed_logs.extend(_unc_entries)
+                session.current_turn_logs.clear()
+                session.turn_count += 1
+                if len(session.raw_logs) > 20:
+                    session.raw_logs = session.raw_logs[-20:]
+                display_turn = session.turn_count
 
             # 출력(타이핑 연출) 시작 직전 대기 안내 메시지 제거 (기존 순서 보존)
             _transient_ids = []
@@ -411,7 +451,12 @@ class GameCog(commands.Cog):
                 session, narr,
                 game_channel=game_channel, master_ch=master_ch, m_send=m_send,
                 cost_log_prefix=cost_log_prefix, transient_ids=_transient_ids,
+                preparation=preparation, turn_no=display_turn,
             )
+            if preparation is not None:
+                preparation.delivery = delivery
+                preparation.mark_task("delivery", core.turn_preparation.TASK_SUCCEEDED,
+                                      result=delivery)
 
             # WP-A 출력 소유권: 현재 attempt에 bot-authored 출력 ID를 귀속(runtime 식별/정리용).
             #   durable canonical history 아님(WP-D/E). transaction_id=None(intro/manual)은 생략.
@@ -435,16 +480,28 @@ class GameCog(commands.Cog):
                     _tx.canonical_message_ids.extend(e.canonical_message_ids)
                     _tx.transient_message_ids.extend(e.transient_message_ids)
                     _tx.media_message_ids.extend(e.media_message_ids)
+            if preparation is not None and preparation.narration is not None:
+                # WP-C: 확정 묘사 이후 전달 실패 — READY 불가 사유로 기록(부분 출력 ID 보존).
+                preparation.delivery_error = e
+                if "delivery" in preparation.tasks:
+                    preparation.mark_task("delivery", core.turn_preparation.TASK_FAILED,
+                                          error=f"{type(e).__name__}: {e}")
             if status_msg:
                 await status_msg.done()
             await m_send(f"⚠️ 시스템 오류가 발생했습니다: {str(e)}")
-            session.is_processing = False
-            try:
-                if master_guild:
-                    await game_channel.set_permissions(master_guild.default_role, send_messages=True)
-            except Exception:
-                pass
-            return {"ok": False, "ai_text": "", "error": str(e)}
+            if preparation is None:
+                session.is_processing = False
+                try:
+                    if master_guild:
+                        await game_channel.set_permissions(master_guild.default_role, send_messages=True)
+                except Exception:
+                    pass
+            return {"ok": False, "ai_text": "", "error": str(e),
+                    "finalized": bool(preparation is not None and preparation.narration is not None)}
+
+        if preparation is not None:
+            # WP-C: 처리 잠금/채널 해제는 배리어·legacy continuation 이후 owner가 수행한다.
+            return {"ok": True, "ai_text": full_ai_response, "error": None, "finalized": True}
 
         session.is_processing = False
         try:
@@ -453,11 +510,25 @@ class GameCog(commands.Cog):
         except Exception as e:
             print(f"⚠️ 자동 채팅 해제 실패: {e}")
 
-        return {"ok": True, "ai_text": full_ai_response, "error": None}
+        return {"ok": True, "ai_text": full_ai_response, "error": None, "finalized": True}
+
+    async def release_turn_processing(self, session, *, master_guild=None) -> None:
+        """WP-C: 자동 턴 owner가 배리어/continuation 이후 처리 잠금과 채팅 잠금을 해제한다."""
+        session.is_processing = False
+        game_channel = self.bot.get_channel(session.game_ch_id)
+        if master_guild is None:
+            master_ch = self.bot.get_channel(session.master_ch_id)
+            master_guild = getattr(master_ch, "guild", None) if master_ch else None
+        try:
+            if master_guild and game_channel:
+                await game_channel.set_permissions(master_guild.default_role, send_messages=True)
+        except Exception as e:
+            print(f"⚠️ 자동 채팅 해제 실패: {e}")
 
     async def _generate_narration(self, session, clean_instruction, *, cost_log_prefix: str = "",
                                    master_ch=None, game_channel=None, m_send=None,
-                                   top_imgs=None, mid_imgs=None, bottom_imgs=None) -> NarrationResult:
+                                   top_imgs=None, mid_imgs=None, bottom_imgs=None,
+                                   transaction_id: str | None = None) -> NarrationResult:
         """묘사 provider 호출 + 응답 검증 + PC자율성/파싱 후처리 → NarrationResult.
 
         단독 호출 시 정상 턴 확정 부작용을 수행하지 않는다: canonical raw/uncompressed 로그
@@ -489,8 +560,17 @@ class GameCog(commands.Cog):
         _quest_proj = (_pending.projected_quest_state
                        if _pending is not None
                        and _pending.projected_quest_state is not None else None)
+        # WP-C: 같은 턴 ROLL 성장이 스테이징돼 있으면 PC 스탯을 투영으로 읽는다(정본 미변경).
+        _prompt_session = session
+        _prep = core.turn_preparation.get_preparation(session, transaction_id)
+        if _prep is not None and _prep.growth_players is not None:
+            _prompt_session = core.turn_preparation.PreparationView(
+                session, overrides={"players": _prep.growth_players},
+                # 기존 리더가 하는 운영/스크래치 쓰기(quest 지연 정규화·_quest_offered·
+                # manifest)는 실제 세션으로 그대로 전달한다 — players만 투영.
+                forward_writes=("last_proceed_manifest", "quest_state", "_quest_offered"))
         prompt = core.PromptBuilder.build_prompt(
-            session, clean_instruction, quest_projection=_quest_proj)
+            _prompt_session, clean_instruction, quest_projection=_quest_proj)
 
         # NOTE: Gemini API는 contents가 role="user"로 시작해야 한다.
         # 구형 세션은 raw_logs[0]이 role="model"(start message)일 수 있으므로,
@@ -559,6 +639,8 @@ class GameCog(commands.Cog):
             self.bot, core.cost_ledger.OP_TURN_NARRATION, session=session,
             model=core.DEFAULT_MODEL, actor_kind=core.cost_ledger.ACTOR_PLAYER,
             billing_hint=core.cost_ledger.HINT_PLAYER_CANDIDATE)
+        # WP-C: 자동 턴 비용 멤버 claim(수동/인트로는 transaction_id=None → no-op).
+        core.turn_preparation.claim_cost_operation(session, transaction_id, _narr_op)
 
         async def generate_with_retry(retry_count=0):
             try:
@@ -718,7 +800,8 @@ class GameCog(commands.Cog):
 
     async def _deliver_narration(self, session, narr: NarrationResult, *, game_channel=None,
                                   master_ch=None, m_send=None, cost_log_prefix: str = "",
-                                  transient_ids=None) -> DeliveryResult:
+                                  transient_ids=None, preparation=None,
+                                  turn_no=None) -> DeliveryResult:
         """NarrationResult를 Discord 게임 채널에 전달한다(스트리밍·대사포맷·이미지·TTS·코드블럭·
         비용 임베드). 생성한 bot-authored 묘사 메시지 ID를 즉시 수집(collector)하여
         DeliveryResult로 보고한다. 부분 전달 실패에서도 이미 생성된 ID는 보존되며, 실패 시
@@ -759,9 +842,16 @@ class GameCog(commands.Cog):
             # 동기 더빙 경로와 일반 스트리밍 경로 양쪽의 상류 지점이다.
             # 이미지·TTS가 모두 꺼져 있으면 내부에서 호출 자체를 생략한다.
             try:
-                gm_cog = self.bot.get_cog("GMCog")
-                if gm_cog and paragraphs:
-                    await gm_cog._resolve_irregular_npcs(session, narrative_text, master_ch)
+                if preparation is not None:
+                    # WP-C: 자동 턴 — 배정은 확정 묘사 직후 발사된 등록 준비 작업이다.
+                    #   스트리밍 전에 그 결과(스테이징 계획)만 기다린다. 정본 등록은 READY 이후.
+                    _irr = preparation.task_future("irregular_npc")
+                    if _irr is not None:
+                        await _asyncio_shield_wait(_irr)
+                else:
+                    gm_cog = self.bot.get_cog("GMCog")
+                    if gm_cog and paragraphs:
+                        await gm_cog._resolve_irregular_npcs(session, narrative_text, master_ch)
             except Exception as e:
                 print(f"[비정규NPC] 배정 실패(진행에는 영향 없음): {e}")
 
@@ -842,15 +932,16 @@ class GameCog(commands.Cog):
                          "in": dub["in"], "cached": 0, "out": dub["out"]})
 
             # 턴 비용 보고 임베드 송출 (PROCEED + 지시층위 등 누적 + TTS 더빙 합산)
+            _turn_no = session.turn_count if turn_no is None else turn_no
             _turn_embed = core.build_turn_cost_embed(
-                session.turn_count, session.turn_cost_log, session.total_cost,
+                _turn_no, session.turn_cost_log, session.total_cost,
                 total_ink=int(getattr(session, "total_ink_spent", 0) or 0),
                 total_usd=float(getattr(session, "total_usd", 0.0) or 0.0),
                 free_krw=float(getattr(session, "profile_ai_cost_krw", 0.0) or 0.0))
             session.turn_cost_log.clear()
             await m_send(embed=_turn_embed)
 
-            await m_send(f"✅ 묘사 연출 완료 (현재 {session.turn_count}턴 경과). 다음 턴 대기 중...")
+            await m_send(f"✅ 묘사 연출 완료 (현재 {_turn_no}턴 경과). 다음 턴 대기 중...")
 
         except Exception as _e:
             # 부분 전달 실패 — 이미 생성된 ID를 실어 던진다(caller가 잃지 않게).

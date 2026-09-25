@@ -209,6 +209,20 @@ def promote(session, name: str, details: dict) -> bool:
     return True
 
 
+def _staged_entry(session, name: str):
+    """WP-C: 활성 자동 턴 준비 객체에 스테이징된(아직 정본 미적용) 등록 항목.
+
+    읽기 전용 투영이다 — 스트리밍 중 화자 이미지/목소리가 이번 턴 배정을
+    반영하되, 정본 등록부(session.irregular_npcs)는 READY 이후에만 바뀐다.
+    쓰기 함수(register/note_appearance/promote)는 이 투영을 보지 않는다.
+    """
+    try:
+        from .turn_preparation import staged_irregular_entry
+        return staged_irregular_entry(session, name)
+    except Exception:
+        return None
+
+
 def voice_for(session, name: str) -> str | None:
     """해당 인물의 목소리. 정규 NPC는 npcs의 voice 항목을 본다."""
     npcs = getattr(session, "npcs", {}) or {}
@@ -216,13 +230,13 @@ def voice_for(session, name: str) -> str | None:
         v = npcs[name].get("voice")
         if v:
             return v
-    entry = get_registry(session).get(name)
+    entry = get_registry(session).get(name) or _staged_entry(session, name)
     return entry.get("voice") if entry else None
 
 
 def image_path_for(session, name: str) -> str | None:
     """해당 인물에게 배정된 이미지 파일 경로. 없으면 None."""
-    entry = get_registry(session).get(name)
+    entry = get_registry(session).get(name) or _staged_entry(session, name)
     if not entry or not entry.get("image_key"):
         return None
     path = os.path.join(f"media/{getattr(session, 'scenario_id', '')}",

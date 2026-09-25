@@ -34,9 +34,14 @@ def test_d004_snapshot_is_carried_not_retaken(session_auto_ready):
               if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))
               and n.name == "_finish_proceed_and_continue")
     body = "\n".join(src.splitlines()[fn.lineno - 1:fn.end_lineno])
+    # WP-C: 델타 기록은 READY 이후 legacy continuation으로 이동했다(구현 불변).
+    cont = next(n for n in ast.walk(tree)
+                if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))
+                and n.name == "_post_ready_legacy_continuation")
+    cont_body = "\n".join(src.splitlines()[cont.lineno - 1:cont.end_lineno])
 
     assert "_rewind_snapshot" in body
-    assert "session._rewind_snapshot = state_after" in body, (
+    assert "session._rewind_snapshot = state_after" in cont_body, (
         "스냅샷 이월 방식이 바뀌었습니다 — AUD-020 성격을 재확인하십시오")
 
 

@@ -151,9 +151,17 @@ async def test_d003c2_successful_narration_applies_staged_quest(
         transaction_id=tx.transaction_id)
     assert core.quest.get_state(sess)["active"] is None  # 적용 전
 
-    monkeypatch.setattr(cog, "_dispatch_proceed",
-                        recorder.make("dispatch_proceed", result="ok"),
-                        raising=False)
+    # WP-C: 묘사 성립 + 필수 준비(추출) 완료 → READY 이후에만 적용된다.
+    from tests.fakes.barrier_fakes import make_prepared_dispatch
+    _disp = make_prepared_dispatch()
+    seen_at_ready = {}
+    _orig_ready = core.turn_preparation.transition_to_ready
+
+    def _ready(session, prep):
+        seen_at_ready["active"] = core.quest.get_state(session)["active"]
+        return _orig_ready(session, prep)
+    monkeypatch.setattr(core.turn_preparation, "transition_to_ready", _ready)
+    monkeypatch.setattr(cog, "_dispatch_proceed", _disp, raising=False)
     monkeypatch.setattr(core, "save_session_data",
                         recorder.make("save_session"), raising=False)
     monkeypatch.setattr(core, "refresh_display",
@@ -162,6 +170,8 @@ async def test_d003c2_successful_narration_applies_staged_quest(
     await cog._finish_proceed_and_continue(
         sess, "지시문", master_channel, transaction_id=tx.transaction_id)
 
+    assert seen_at_ready.get("active", "missing") is None, (
+        "READY 이전에 스테이징 퀘스트가 정본에 적용되었습니다")
     assert core.quest.get_state(sess)["active"] is not None, (
         "묘사가 성립했는데 스테이징 퀘스트가 적용되지 않았습니다")
     assert core.quest.get_state(sess)["active"]["id"] == "q_new"

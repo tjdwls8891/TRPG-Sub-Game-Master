@@ -221,7 +221,8 @@ def _build_logic_user_prompt(session, player_message: str, roll_results: list,
 
     # PC 프로필 요약 (스탯명만)
     pc_profile_summary = ""
-    for uid, p in session.players.items():
+    # WP-C: 같은 턴 ROLL 성장이 스테이징돼 있으면 투영(정본 미변경)을 읽는다.
+    for uid, p in core.turn_preparation.projected_players(session).items():
         if p.get("name") == target_char:
             stats = ", ".join([f"{k}:{v}" for k, v in p.get("profile", {}).items() if isinstance(v, (int, str))])
             pc_profile_summary = stats
@@ -558,6 +559,20 @@ def _build_logic_user_prompt(session, player_message: str, roll_results: list,
 위 컨텍스트를 분석하여 다음 단일 action(ASK / NARRATE / ROLL / PROCEED)을 결정하고 JSON 스키마에 맞춰 응답하십시오."""
 
 
+# ── WP-C 배리어 결과 ──
+_OUTCOME_READY = "READY"
+_OUTCOME_NO_NARRATION = "NO_NARRATION"
+_OUTCOME_DELIVERY_FAILED = "DELIVERY_FAILED"
+_OUTCOME_EXTRACTION_FAILED = "EXTRACTION_FAILED"
+_OUTCOME_NOT_READY = "NOT_READY"
+_OUTCOME_SUPERSEDED = "SUPERSEDED"      # 더 새로운 시도가 현재 — 이 시도는 흐름을 소유하지 않음
+# 다음 라운드를 여는 결과(추출 실패 재시도 대기는 열지 않는다).
+_OUTCOMES_RESTART_ROUND = frozenset({
+    _OUTCOME_READY, _OUTCOME_NO_NARRATION, _OUTCOME_DELIVERY_FAILED, _OUTCOME_NOT_READY})
+# 추출 재시도 컨텍스트 표식 — 이 표식이 있으면 같은 tx 준비 owner로 재개한다.
+_RETRY_MODE_PREPARATION = "wp_c_preparation"
+
+
 # ========== [GM 주사위 버튼 View] ==========
 class RewindConfirmView(discord.ui.View):
     """되감기 실행 확인 — 되돌리기 불가·환불 불가를 고지한 뒤 실행한다."""
@@ -803,14 +818,30 @@ class ExtractionRetryView(discord.ui.View):
             return
 
         await interaction.response.defer()
-        ctx_text = (getattr(session, "extraction_retry_ctx", {}) or {}).get("text", "")
+        _ctx = getattr(session, "extraction_retry_ctx", {}) or {}
+        cog = self.bot.get_cog("GMCog")
+        if _ctx.get("mode") == _RETRY_MODE_PREPARATION:
+            # WP-C: 같은 논리 시도·같은 준비 owner로 재개한다(새 자동 턴을 열지 않는다).
+            outcome = await cog._retry_prepared_extraction(session)
+            if outcome == "ready":
+                await core.display.close_notice(
+                    interaction, "✅ 턴 정보 정리가 완료되었습니다. 계속 진행하십시오.")
+                try:
+                    await interaction.message.delete()
+                except Exception:
+                    pass
+            elif outcome == "released":
+                await interaction.followup.send(
+                    "진행 중이던 턴 준비 상태가 없어(재시작 등) 차단만 해제했습니다.",
+                    ephemeral=True)
+            return
+        ctx_text = _ctx.get("text", "")
         if not ctx_text:
             session.extraction_pending = False
             await core.save_session_data(self.bot, session)
             await interaction.followup.send("재시도할 원본이 없어 차단만 해제했습니다.", ephemeral=True)
             return
 
-        cog = self.bot.get_cog("GMCog")
         master_ch = self.bot.get_channel(session.master_ch_id) if getattr(session, "master_ch_id", None) else None
         result = await cog._run_extraction(session, ctx_text, master_ch)
         if result:
@@ -871,7 +902,8 @@ class GMRollView(discord.ui.View):
     async def _process_roll(self, game_ch):
         # 효과음이 결과보다 선행하도록 1.5초 하한 부여 (인게임 주사위와 리듬 통일)
         await asyncio.sleep(1.5)
-        new_results = await self.cog._execute_rolls(self.session, self.roll_specs, game_ch)
+        new_results = await self.cog._execute_rolls(
+            self.session, self.roll_specs, game_ch, transaction_id=self.transaction_id)
         combined = self.prior_roll_results + new_results
         asyncio.create_task(
             self.cog._continue_with_roll_results(
@@ -890,7 +922,8 @@ class GMRollView(discord.ui.View):
                 "⚠️ **[GM]** 판정 버튼 시간 초과(5분). 주사위를 자동으로 굴립니다."
             )
         game_ch = self.cog.bot.get_channel(self.session.game_ch_id)
-        new_results = await self.cog._execute_rolls(self.session, self.roll_specs, game_ch)
+        new_results = await self.cog._execute_rolls(
+            self.session, self.roll_specs, game_ch, transaction_id=self.transaction_id)
         combined = self.prior_roll_results + new_results
         asyncio.create_task(
             self.cog._continue_with_roll_results(
@@ -1359,6 +1392,20 @@ class GMCog(commands.Cog):
             await core.save_session_data(self.bot, session)
             return
 
+        # WP-C: 현재 시도가 확정 묘사 이후 준비/READY/재시도 대기 중이면 새 선언을
+        #   받지 않는다 — 다음 자동 논리 턴은 READY 배리어(와 legacy continuation) 이후에만.
+        _active = core.turn_transaction.get_active_transaction(session)
+        _aprep = getattr(_active, "preparation", None) if _active is not None else None
+        if _aprep is not None and getattr(_aprep, "phase", None) in (
+                core.turn_preparation.PREP_PREPARING,
+                core.turn_preparation.PREP_READY,
+                core.turn_preparation.PREP_RETRY_PENDING):
+            print(f"[WP-C/{session.session_id}] 준비 중인 시도가 있어 새 선언 차단 "
+                  f"(phase={_aprep.phase})")
+            if master_ch:
+                await master_ch.send("⏸️ 이전 턴 준비가 끝나지 않아 새 선언을 처리하지 않습니다.")
+            return
+
         # WP-01: 자동 턴 수렴 경계. 안전장치(활성/턴 한도/비용 한도)를 통과한 직후,
         # 하나의 플레이어 선언을 하나의 논리 턴 시도에 대응시킨다. get_or_begin은
         # ASK/NARRATE 재입력 시 같은 트랜잭션을 재사용한다(새 시도를 만들지 않는다).
@@ -1376,17 +1423,20 @@ class GMCog(commands.Cog):
                                            *, event_assessment=None,
                                            transaction_id: str | None = None):
         """
-        강제/정상 PROCEED 공통 후처리. 여러 호출부에 중복되던 동일 블록을 단일화한다.
+        강제/정상 PROCEED 공통 owner — WP-C 트랜잭션 배리어 소유자.
 
           1) 턴 한도 도달 시 자동 모드 정지 + 마스터 채널 알림
-          2) _dispatch_proceed로 묘사 생성
-          3) event_assessment가 주어지면(정상 PROCEED 계열) 서사 진행도 갱신
-          4) 카운터·사이드 노트 초기화 + turns_done 증가
-          5) 세션 저장 후, 여전히 활성이면 다음 라운드(선제 행동 질문) 시작
+          2) _dispatch_proceed: 묘사 생성 → 확정 묘사 직후 동시 준비(비정규 NPC·추출·
+             자동 재계획) 발사 → 전달/스트리밍(준비 작업과 겹침)
+          3) 모든 등록 준비 작업 합류 → 레지스트리 봉인 → 비용 멤버십 동결
+             → 단일 READY_TO_COMMIT 전이(증명 캡처, 턴 소유 정본은 아직 미적용)
+          4) READY 이후에만 legacy compatibility continuation(적용·카운터·델타·기존 청구)
+          5) 처리 잠금 해제 → 디스플레이 → 다음 라운드
+        사전 READY 실패(생성/전달/추출/검증)는 정본 전진·성공 턴 청구 없이 처리된다.
 
         Args:
             event_assessment: PROCEED 계열에서 지시층위가 평가한 사건 상태.
-                None이면 서사 진행도 갱신을 건너뛴다(강제 PROCEED 폴백 경로).
+                None이면 서사 진행도/재계획 판정을 건너뛴다(강제 PROCEED 폴백 경로).
         """
         if session.gm_turn_cap is not None and (session.gm_turns_done + 1) >= session.gm_turn_cap:
             session.gm_active = False
@@ -1398,17 +1448,17 @@ class GMCog(commands.Cog):
 
         # 되감기 델타 기준점.
         # NOTE: 턴마다 새로 스냅샷을 뜨면, 델타 계산과 다음 스냅샷 사이에 일어난
-        #       변화(백그라운드 추출층위의 world_timeline·statuses 갱신 등)가
-        #       어느 델타에도 잡히지 않고 영구 유실된다.
+        #       변화가 어느 델타에도 잡히지 않고 영구 유실된다.
         #       따라서 '마지막으로 기록한 시점의 스냅샷'을 세션에 들고 다니며
-        #       그것과 비교한다. 늦게 도착한 변화는 다음 턴 델타에 귀속되지만
-        #       유실되지는 않는다.
+        #       그것과 비교한다. (WP-C: 이번 턴 추출/재계획은 READY 이후 델타 기록 '전'에
+        #       적용되므로 이번 턴 델타에 귀속된다. rewind 구현 자체는 변경하지 않는다.)
         state_before = getattr(session, "_rewind_snapshot", None)
         if state_before is None:
             state_before = core.capture_state(session)
         cost_before = getattr(session, "total_cost", 0.0)
 
         # 대기 중인 BGM 재생 — 기획 규정상 온 직후가 아니라 다음 스트리밍 시작 시점이다.
+        #   (이전 턴에 확정된 pending_bgm의 소비 — 이번 턴 소유 정본 변경이 아니다.)
         pending = getattr(session, "pending_bgm", None)
         if pending and core.is_enabled(session, "bgm"):
             try:
@@ -1418,29 +1468,313 @@ class GMCog(commands.Cog):
             except Exception as e:
                 print(f"[BGM] 재생 실패(진행에는 영향 없음): {e}")
 
-        proceed_ok = await self._dispatch_proceed(
-            session, instruction, transaction_id=transaction_id)
-        if proceed_ok is None:
-            # 묘사층위 실패 — 턴을 성립시키지 않는다.
-            # 카운터·델타를 올리면 실패한 턴이 진행된 것으로 기록된다.
-            # WP-01: 이 시도는 시스템 실패로 종료 표기 후 활성 포인터를 비운다.
-            #        (청구/변이/롤백은 건드리지 않는다 — 식별자 정리만.)
-            core.turn_transaction.finalize(
-                session, transaction_id,
-                core.turn_transaction.TurnStatus.FAILED_SYSTEM,
-                failure_stage="NARRATION",
-                failure_code=core.turn_transaction.FailureCode.NARRATION_PROVIDER_FAILURE)
+        # WP-C: 트랜잭션 소유 준비 객체 — 새 트랜잭션을 만들지 않는다(PF-18).
+        prep = core.turn_preparation.ensure_preparation(session, transaction_id)
+        if prep is None:
+            print(f"[WP-C/{session.session_id}] 현재 자동 트랜잭션이 아님 — 배리어 owner 불가(tx={transaction_id})")
+            if master_ch:
+                await master_ch.send("⚠️ 현재 자동 턴 시도가 아니어서 이번 진행을 중단합니다.")
+            return
+        prep.phase = core.turn_preparation.PREP_PREPARING
+        prep.event_assessment = event_assessment
+
+        outcome = None
+        try:
+            try:
+                await self._dispatch_proceed(
+                    session, instruction, transaction_id=transaction_id, preparation=prep)
+                outcome = await self._join_and_ready(session, prep)
+            except Exception as e:
+                # 사전 READY 예기치 못한 예외 — 준비 작업을 합류시키고 실패로 처리한다.
+                print(f"[WP-C/{prep.transaction_id[:8]}] 준비 중 예외: {type(e).__name__}: {e}")
+                prep.violations.append(f"exception:{type(e).__name__}")
+                outcome = await self._join_after_exception(session, prep)
+            if outcome == _OUTCOME_READY:
+                try:
+                    await self._post_ready_legacy_continuation(
+                        session, prep, master_ch,
+                        state_before=state_before, cost_before=cost_before)
+                except Exception as e:
+                    # READY 이후 legacy continuation 도중 예외 — crash-safe 아님(WP-D 복구 소관).
+                    #   활성 포인터가 남아 세션이 잠기지 않도록 식별자만 정리한다.
+                    print(f"[WP-C/{prep.transaction_id[:8]}] READY 이후 continuation 예외: "
+                          f"{type(e).__name__}: {e}")
+                    prep.failure_stage = "POST_READY_CONTINUATION"
+                    core.turn_transaction.finalize(
+                        session, prep.transaction_id,
+                        core.turn_transaction.TurnStatus.FAILED_SYSTEM,
+                        failure_stage="POST_READY_CONTINUATION",
+                        failure_code=core.turn_transaction.FailureCode.COMMIT_VALIDATION_FAILURE,
+                        failure_message=f"{type(e).__name__}: {e}")
+            else:
+                await self._handle_preparation_failure(session, prep, outcome, master_ch)
+        finally:
+            await self._release_turn_processing(session, prep)
+
+        if outcome == _OUTCOME_READY:
+            # 디스플레이 갱신 — 턴 종료 계층 (기획서 갱신 시점 ②)
+            try:
+                await core.refresh_display(self.bot, session, reason="turn_end")
+            except Exception as e:
+                print(f"[디스플레이] 턴 종료 갱신 실패: {e}")
+
+        if outcome in _OUTCOMES_RESTART_ROUND and session.gm_active:
+            await self._start_round(session)
+
+    # ─────────────────────────────────────────────────────────────
+    # WP-C — 동시 준비 / READY_TO_COMMIT 배리어 / legacy continuation
+    # ─────────────────────────────────────────────────────────────
+
+    async def _release_turn_processing(self, session, prep) -> None:
+        """자동 턴이 보유한 처리 잠금·채팅 잠금을 배리어/continuation 이후 해제한다."""
+        if prep is None or not getattr(prep, "processing_held", False):
+            return
+        prep.processing_held = False
+        game_cog = None
+        try:
+            game_cog = self.bot.get_cog("GameCog")
+        except Exception:
+            game_cog = None
+        if game_cog is not None and hasattr(game_cog, "release_turn_processing"):
+            await game_cog.release_turn_processing(session)
+        else:
+            session.is_processing = False
+
+    async def _launch_concurrent_preparation(self, session, prep, narr, master_ch) -> None:
+        """확정 묘사가 고정된 직후 — 동시 준비 작업을 등록·발사한다(S1).
+
+        같은 확정 묘사 페이로드가 전달·추출·비정규 NPC 분석에 들어간다(재생성 없음).
+          · 비정규 NPC 배정: 스트리밍 전에 전달이 결과(스테이징)만 기다린다. 승격 세부
+            생성은 자식 작업으로 등록된다(부모 종결 전 등록).
+          · 추출: 비정규 NPC 준비(자식 포함)를 기다린 뒤 투영 입력으로 시작 — 스트리밍과 겹친다.
+          · 자동 재계획: 트리거되면 등록 작업으로 스트리밍·추출과 겹친다.
+        """
+        core.turn_transaction.mark_transaction_status(
+            session, prep.transaction_id,
+            core.turn_transaction.TurnStatus.STREAMING_EXTRACTING)
+        _mch = self.bot.get_channel(getattr(session, "master_ch_id", 0))
+        TP = core.turn_preparation
+        if narr.paragraphs:
+            prep.register_task(
+                "irregular_npc", TP.TASK_IRREGULAR_NPC,
+                coro=self._resolve_irregular_npcs(
+                    session, narr.narrative_text, _mch, preparation=prep),
+                may_spawn_required_child_work=True)
+        prep.extraction_text = narr.text
+        prep.register_task(
+            "extraction", TP.TASK_EXTRACTION,
+            coro=self._prepare_extraction(session, prep, narr.text, _mch),
+            required_success=True)
+        if prep.event_assessment is not None:
+            await self._update_narrative_progress(
+                session, prep.event_assessment, master_ch, preparation=prep)
+
+    async def _prepare_extraction(self, session, prep, text, master_ch):
+        """추출 준비 작업(result-only). 비정규 NPC 준비(승격 자식 포함) 완료 후 시작한다.
+
+        기존 흐름에서 추출은 비정규 등록·승격 이후에 돌았으므로, 같은 입력 의미(등록/승격
+        NPC 목록·지시효과 quest 투영)를 투영 뷰로 보존한다. 계획은 준비 객체에만 저장된다.
+        """
+        TP = core.turn_preparation
+        irr = prep.task_future("irregular_npc")
+        if irr is not None:
+            await asyncio.wait([irr])
+        while True:
+            kids = [r.task for r in prep.tasks.values()
+                    if r.kind == TP.TASK_NPC_PROMOTION and r.task is not None and not r.terminal]
+            if not kids:
+                break
+            await asyncio.wait(kids)
+        plan = await self._run_extraction(
+            session, text, master_ch,
+            transaction_id=prep.transaction_id, logical_turn=prep.logical_turn,
+            attempt=prep.attempt, preparation=prep)
+        if plan is None:
+            raise RuntimeError("추출층위 실패(재시도 소진) 또는 stale")
+        return plan
+
+    async def _join_after_exception(self, session, prep) -> str:
+        try:
+            await prep.join()
+        except Exception:
+            pass
+        prep.seal()
+        try:
+            prep.close_cost_membership()
+        except Exception as e:
+            prep.violations.append(f"cost_close:{e}")
+        if not prep.matches(core.turn_transaction.get_active_transaction(session)):
+            return _OUTCOME_SUPERSEDED
+        return _OUTCOME_NOT_READY if prep.narration is not None else _OUTCOME_NO_NARRATION
+
+    async def _join_and_ready(self, session, prep) -> str:
+        """모든 준비 작업을 합류시키고 배리어 결과를 판정한다(S6/S7)."""
+        TP = core.turn_preparation
+        await prep.join()
+        prep.seal()
+        if not prep.matches(core.turn_transaction.get_active_transaction(session)):
+            # 더 새로운 시도가 현재 — 결과는 어떤 배리어도 만족하지 못하며 흐름을 소유하지 않는다.
+            try:
+                prep.close_cost_membership()
+            except TP.BarrierViolationError as e:
+                prep.violations.append(f"cost_close:{e}")
+            return _OUTCOME_SUPERSEDED
+        if prep.narration is None:
+            outcome = _OUTCOME_NO_NARRATION
+        elif prep.delivery is None or not getattr(prep.delivery, "ok", False):
+            outcome = _OUTCOME_DELIVERY_FAILED
+        else:
+            ext = prep.tasks.get("extraction")
+            if (ext is None or ext.state != TP.TASK_SUCCEEDED
+                    or prep.extraction_plan is None
+                    or getattr(prep.extraction_plan, "rejected_stale", False)):
+                outcome = _OUTCOME_EXTRACTION_FAILED
+            else:
+                try:
+                    prep.close_cost_membership()
+                except TP.BarrierViolationError as e:
+                    prep.violations.append(f"cost_close:{e}")
+                proof, reasons = TP.transition_to_ready(session, prep)
+                if proof is not None:
+                    print(f"[WP-C/{prep.transaction_id[:8]}] READY_TO_COMMIT "
+                          f"logical={prep.logical_turn} attempt={prep.attempt} "
+                          f"cost_events={len(proof.frozen_cost_event_ids)} "
+                          f"canonical_unchanged={proof.canonical_unchanged}")
+                    return _OUTCOME_READY
+                print(f"[WP-C/{prep.transaction_id[:8]}] READY 불가: {reasons}")
+                prep.failure_stage = "READY_PREDICATE"
+                outcome = _OUTCOME_NOT_READY
+        if outcome != _OUTCOME_EXTRACTION_FAILED:
+            # 종료 실패 — 비용 멤버십을 동결해 둔다(FAILED_SYSTEM은 청구 0, 사실은 보존).
+            try:
+                prep.close_cost_membership()
+            except TP.BarrierViolationError as e:
+                prep.violations.append(f"cost_close:{e}")
+        return outcome
+
+    async def _handle_preparation_failure(self, session, prep, outcome, master_ch) -> None:
+        """사전 READY 실패 처리 — 정본 전진·성공 턴 청구 없음(S10)."""
+        TP = core.turn_preparation
+        TT = core.turn_transaction
+        tid = prep.transaction_id
+        if outcome == _OUTCOME_SUPERSEDED:
+            # 정본·세션 차단 상태를 건드리지 않는다(현재 시도가 흐름을 소유).
+            prep.phase = TP.PREP_FAILED
+            prep.failure_stage = "SUPERSEDED"
+            print(f"[WP-C/{tid[:8]}] 대체된 시도의 준비 결과 폐기")
+            return
+        if outcome == _OUTCOME_EXTRACTION_FAILED:
+            # 재시도 가능 상태 — 같은 논리 시도를 유지한다(새 자동 턴을 열지 않음).
+            prep.phase = TP.PREP_RETRY_PENDING
+            prep.failure_stage = "EXTRACTION"
+            TT.mark_transaction_status(
+                session, tid, TT.TurnStatus.STREAMING_EXTRACTING,
+                failure_stage="EXTRACTION",
+                failure_code=TT.FailureCode.EXTRACTION_PROVIDER_FAILURE)
+            session.extraction_pending = True
+            session.extraction_retry_ctx = {
+                "text": prep.extraction_text or "", "transaction_id": tid,
+                "mode": _RETRY_MODE_PREPARATION}
             await core.save_session_data(self.bot, session)
-            if session.gm_active:
-                await self._start_round(session)
+            game_ch = self.bot.get_channel(session.game_ch_id)
+            if game_ch:
+                await game_ch.send(
+                    "⚠️ 턴 정보 정리 중 문제가 발생했습니다.\n"
+                    "아래 버튼으로 다시 시도해 주십시오. 완료 전까지 다음 턴은 진행되지 않습니다.",
+                    view=ExtractionRetryView(self.bot),
+                )
+            if master_ch:
+                await master_ch.send(
+                    "⚠️ 추출층위 실패 — 턴 미확정(READY 미도달), 다음 턴 차단. 재시도 버튼 배치.")
             return
 
-        # WP-B: 묘사가 성립했다 — 스테이징된 지시효과(quest/intended_case/info_ledger)를
-        #   단일 호환 적용 경계에서 canonical에 반영한다(묘사 실패 경로는 위에서 이미
-        #   return되어 적용되지 않는다 → AUD-024 누출 차단). 안내 메시지도 이 시점에 낸다.
+        prep.phase = TP.PREP_FAILED
+        if outcome == _OUTCOME_DELIVERY_FAILED:
+            prep.failure_stage = "DELIVERY"
+            await self._cleanup_failed_delivery(session, prep)
+            game_ch = self.bot.get_channel(session.game_ch_id)
+            if game_ch:
+                await core.send_streamed(self.bot, game_ch, core.build_failed_turn_notice(""))
+            if master_ch:
+                await master_ch.send("⚠️ 묘사 전달 실패 — 턴을 취소하고 선언 질문으로 되돌립니다.")
+            session.current_turn_logs = []
+            session.gm_side_note = ""
+            TT.finalize(session, tid, TT.TurnStatus.FAILED_SYSTEM,
+                        failure_stage="DELIVERY",
+                        failure_code=TT.FailureCode.MESSAGE_DELIVERY_FAILURE)
+        elif outcome == _OUTCOME_NO_NARRATION:
+            prep.failure_stage = "NARRATION"
+            TT.finalize(session, tid, TT.TurnStatus.FAILED_SYSTEM,
+                        failure_stage="NARRATION",
+                        failure_code=TT.FailureCode.NARRATION_PROVIDER_FAILURE)
+        else:
+            if master_ch:
+                await master_ch.send("⚠️ 턴 준비 검증 실패 — 턴을 확정하지 않습니다.")
+            TT.finalize(session, tid, TT.TurnStatus.FAILED_SYSTEM,
+                        failure_stage="READY_PREDICATE",
+                        failure_code=TT.FailureCode.COMMIT_VALIDATION_FAILURE)
+        await core.save_session_data(self.bot, session)
+
+    async def _cleanup_failed_delivery(self, session, prep) -> None:
+        """부분 전달 실패 — 이미 생성된 bot 출력을 멱등 정리한다(ID는 tx에 보존)."""
+        err = prep.delivery_error
+        ids = list(getattr(err, "canonical_message_ids", ()) or ()) + \
+            list(getattr(err, "media_message_ids", ()) or ())
+        game_ch = self.bot.get_channel(session.game_ch_id)
+        if not ids or game_ch is None:
+            return
+        msgs = []
+        for mid in ids:
+            if mid is None:
+                continue
+            try:
+                msgs.append(await game_ch.fetch_message(mid))
+            except Exception:
+                continue
+        await core.clear_messages(msgs)
+
+    async def _post_ready_legacy_continuation(self, session, prep, master_ch, *,
+                                              state_before, cost_before) -> None:
+        """
+        ▼▼▼ LEGACY POST-READY CONTINUATION (pre-WP-D) ▼▼▼
+        READY_TO_COMMIT 증명이 캡처된 '이후'에만 스테이징 효과를 정본에 적용하고 기존
+        카운터·되감기 델타·legacy 청구·WP-01 finalize를 수행한다(S11).
+        이것은 authoritative commit이 아니다 — CommitJournal/Settlement/InkTransaction
+        호출 없음, crash-safe 아님. WP-D가 이 경계를 CommitCoordinator로 치환한다.
+        적용 순서(현행 의미 보존 + D2 결정):
+          로그/카운터 → ROLL 성장 → 비정규 NPC 등록·승격 → 진행 이력 → progress →
+          지시효과 → 재계획 마커 → 추출 → 자동 재계획 → 카운터 → 델타·청구 → finalize → 저장
+        """
+        TP = core.turn_preparation
+        tid = prep.transaction_id
+        assert prep.ready_proof is not None, "READY 증명 없이 continuation 불가"
+
+        TP.apply_staged_narration_log(session, prep.staged_log)
+        TP.apply_staged_growth(session, prep)
+
+        if prep.irregular_plan is not None and not prep.irregular_plan.applied:
+            try:
+                await self._apply_irregular_npc_plan(
+                    session, prep.irregular_plan, prep.irregular_text,
+                    self.bot.get_channel(getattr(session, "master_ch_id", 0)),
+                    staged_promotions=prep.promotions)
+            except Exception as e:
+                print(f"[비정규NPC] 적용 실패(진행에는 영향 없음): {e}")
+
+        if prep.proceed_history_entry is not None:
+            if not hasattr(session, "gm_proceed_history"):
+                session.gm_proceed_history = []
+            entry = dict(prep.proceed_history_entry)
+            entry["turn_num"] = session.turn_count
+            session.gm_proceed_history.append(entry)
+            if len(session.gm_proceed_history) > 5:
+                session.gm_proceed_history = session.gm_proceed_history[-5:]
+
+        if prep.narrative_progress:
+            TP.apply_narrative_progress(session, prep.narrative_progress)
+
         try:
-            _applied = core.turn_preparation.apply_instruction_effects(
-                session, core.turn_preparation.pending_for(session))
+            _applied = TP.apply_instruction_effects(session, TP.pending_for(session))
             if (master_ch and _applied["applied"]
                     and _applied["quest_action"] in ("start", "switch")
                     and _applied["quest_active_name"]):
@@ -1451,17 +1785,28 @@ class GMCog(commands.Cog):
         except Exception as e:
             print(f"[WP-B] 지시효과 적용 실패(진행에는 영향 없음): {e}")
 
-        if event_assessment is not None:
-            await self._update_narrative_progress(session, event_assessment, master_ch)
+        if prep.narrative_marker:
+            _plan = getattr(session, "narrative_plan", None)
+            if isinstance(_plan, dict) and _plan:
+                _plan["last_planned_turn"] = session.turn_count
+                session.narrative_plan = _plan
+
+        await self._apply_prepared_extraction(session, prep)
+
+        if prep.replan_candidate is not None:
+            try:
+                await self._commit_replan_candidate(
+                    session, prep.replan_candidate,
+                    logical_turn=prep.logical_turn, attempt=prep.attempt)
+            except Exception as e:
+                print(f"[서사설계] 재계획 적용 실패(기존 계획 유지): {e}")
 
         session.gm_clarify_count = 0
         session.gm_narrate_count = 0
         session.gm_turns_done += 1
         session.gm_side_note = ""
 
-        # ── 되감기 기록 (4.6.0) ──
-        # NOTE: 추출층위가 백그라운드로 도는 중이라 그 결과는 이 델타에 반영되지
-        #       않을 수 있다. 추출 결과는 다음 턴 델타에서 잡힌다.
+        # ── 되감기 기록 (4.6.0) ── (WP-C: 이번 턴 준비 효과가 모두 적용된 뒤 기록)
         turn_no = session.gm_turns_done
         if turn_no > getattr(session, "last_recorded_turn", 0):
             try:
@@ -1470,12 +1815,10 @@ class GMCog(commands.Cog):
                 turn_cost = getattr(session, "total_cost", 0.0) - cost_before
                 session.last_turn_cost = turn_cost   # 디스플레이 '직전 턴 금액'
 
-                # 실제 잉크 차감. 예상 최대를 넘겨 음수가 되면 1잉크로 맞춘다.
-                # 초과분은 운영자가 부담한다(기획 규정).
+                # 실제 잉크 차감(legacy 청구 권위 — WP-D가 Settlement로 치환).
+                # 예상 최대를 넘겨 음수가 되면 1잉크로 맞춘다. 초과분은 운영자가 부담한다.
                 try:
                     ink = core.cost_to_ink(turn_cost)
-                    # 실제 차감액을 누적한다. 원 단위 총합을 나중에 변환하면
-                    # 매 턴 올림한 것과 어긋나 결제액과 맞지 않는다.
                     session.total_ink_spent = int(
                         getattr(session, "total_ink_spent", 0) or 0) + ink
                     for _uid in (session.players or {}):
@@ -1497,24 +1840,82 @@ class GMCog(commands.Cog):
             except Exception as e:
                 print(f"[되감기] 델타 기록 실패(진행에는 영향 없음): {e}")
 
-        # WP-01: 턴이 정규 완료되었으므로 시도를 COMMITTED로 종료 표기하고 활성
-        #        포인터를 비운다. 다음 플레이어 선언의 _process_actions get_or_begin이
-        #        새 논리 턴 시도를 열게 된다. (커밋 파이프라인 이행은 WP-09 소관 —
-        #        여기서는 식별자 정리만 한다.)
+        # WP-01 과도기 메타데이터: 시도를 COMMITTED로 종료 표기하고 활성 포인터를 비운다.
+        #   READY 배리어 자체는 COMMITTED를 설정하지 않는다 — 이것은 legacy continuation의
+        #   기존 식별자 정리이며 durable commit 의미가 아니다(WP-D가 치환).
         core.turn_transaction.finalize(
-            session, transaction_id,
-            core.turn_transaction.TurnStatus.COMMITTED)
+            session, tid, core.turn_transaction.TurnStatus.COMMITTED)
+        prep.phase = TP.PREP_CONTINUED
 
         await core.save_session_data(self.bot, session)
+        # ▲▲▲ LEGACY POST-READY CONTINUATION END ▲▲▲
 
-        # 디스플레이 갱신 — 턴 종료 계층 (기획서 갱신 시점 ②)
-        try:
-            await core.refresh_display(self.bot, session, reason="turn_end")
-        except Exception as e:
-            print(f"[디스플레이] 턴 종료 갱신 실패: {e}")
+    async def _apply_prepared_extraction(self, session, prep) -> None:
+        """READY 이후 추출 계획 호환 적용(멱등). 계획(정규화 typed 필드)만이 권위다."""
+        plan = prep.extraction_plan
+        if plan is None or plan.applied:
+            return
+        tid = prep.transaction_id
+        _applied_ids = getattr(session, "_extraction_applied_tx", None)
+        if _applied_ids is None:
+            _applied_ids = session._extraction_applied_tx = []
+        if tid in _applied_ids:
+            print(f"[추출/{session.session_id}] 이미 적용된 트랜잭션 — 이중 적용 방지 (tx={tid})")
+            return
+        _applied_ids.append(tid)
+        if len(_applied_ids) > 16:
+            del _applied_ids[:-16]
+        _mch = self.bot.get_channel(getattr(session, "master_ch_id", 0))
+        await self._apply_extraction_plan(session, plan, _mch)
 
-        if session.gm_active:
-            await self._start_round(session)
+    async def _retry_prepared_extraction(self, session) -> str:
+        """추출 재시도 — 같은 논리 시도·같은 준비 owner로 재개한다(새 자동 턴 아님).
+
+        Returns: "ready" | "failed" | "released"
+        """
+        TP = core.turn_preparation
+        ctx = getattr(session, "extraction_retry_ctx", {}) or {}
+        master_ch = self.bot.get_channel(session.master_ch_id)
+        async with self._lock_for(session):
+            prep = TP.get_preparation(session, ctx.get("transaction_id"))
+            if prep is None or prep.phase != TP.PREP_RETRY_PENDING:
+                # 런타임 준비 상태 소실(재시작 등) — 미확정 묘사에 추출을 적용하지 않고 차단만 해제.
+                session.extraction_pending = False
+                session.extraction_retry_ctx = {}
+                await core.save_session_data(self.bot, session)
+                return "released"
+            session.is_processing = True
+            prep.processing_held = True
+            outcome = None
+            tx = core.turn_transaction.get_active_transaction(session)
+            state_before = getattr(session, "_rewind_snapshot", None)
+            if state_before is None:
+                state_before = core.capture_state(session)
+            cost_before = getattr(session, "total_cost", 0.0)
+            try:
+                prep.reopen_for_retry()
+                _mch = self.bot.get_channel(getattr(session, "master_ch_id", 0))
+                prep.register_task(
+                    "extraction", TP.TASK_EXTRACTION,
+                    coro=self._prepare_extraction(session, prep, prep.extraction_text or ctx.get("text", ""), _mch),
+                    required_success=True)
+                outcome = await self._join_and_ready(session, prep)
+                if outcome == _OUTCOME_READY:
+                    await self._post_ready_legacy_continuation(
+                        session, prep, master_ch,
+                        state_before=state_before, cost_before=cost_before)
+                else:
+                    await self._handle_preparation_failure(session, prep, outcome, master_ch)
+            finally:
+                await self._release_turn_processing(session, prep)
+            if outcome == _OUTCOME_READY:
+                try:
+                    await core.refresh_display(self.bot, session, reason="turn_end")
+                except Exception as e:
+                    print(f"[디스플레이] 턴 종료 갱신 실패: {e}")
+            if outcome in _OUTCOMES_RESTART_ROUND and session.gm_active:
+                await self._start_round(session)
+            return "ready" if outcome == _OUTCOME_READY else "failed"
 
     async def _run_gm_logic_loop(self, session, player_message: str, master_ch,
                                  *, transaction_id: str | None = None):
@@ -1985,6 +2386,8 @@ class GMCog(commands.Cog):
             self.bot, core.cost_ledger.OP_TURN_JUDGMENT, session=session,
             model=JUDGMENT_MODEL, actor_kind=core.cost_ledger.ACTOR_PLAYER,
             billing_hint=core.cost_ledger.HINT_PLAYER_CANDIDATE)
+        # WP-C: 자동 턴 비용 멤버 claim(transaction_id=None인 수동 호출은 no-op).
+        core.turn_preparation.claim_cost_operation(session, transaction_id, _cl_op)
         decision = None
         for attempt in range(JUDGMENT_MAX_RETRIES):
             # 타임아웃 보호 — 지연된 원 응답이 재시도 결과와 경합하지 않도록
@@ -2157,6 +2560,8 @@ class GMCog(commands.Cog):
                 self.bot, core.cost_ledger.OP_TURN_INSTRUCTION, session=session,
                 model=core.DEFAULT_MODEL, actor_kind=core.cost_ledger.ACTOR_PLAYER,
                 billing_hint=core.cost_ledger.HINT_PLAYER_CANDIDATE)
+            # WP-C: 자동 턴 비용 멤버 claim(transaction_id=None인 수동 호출은 no-op).
+            core.turn_preparation.claim_cost_operation(session, transaction_id, _cl_op)
             _ok, response = await core.call_with_retry(
                 lambda: asyncio.to_thread(
                     self.bot.genai_client.models.generate_content,
@@ -2254,10 +2659,31 @@ class GMCog(commands.Cog):
     # ROLL 실행 및 버튼 디스패치
     # ─────────────────────────────────────────────────────────────
 
-    async def _execute_rolls(self, session, rolls: list, game_ch) -> list[str]:
-        """rolls 목록을 굴리고 결과를 게임·마스터 채널에 선언."""
+    async def _execute_rolls(self, session, rolls: list, game_ch,
+                             *, transaction_id: str | None = None) -> list[str]:
+        """rolls 목록을 굴리고 결과를 게임·마스터 채널에 선언.
+
+        WP-C: 주사위 판정 결과 자체는 플레이어에게 공개된 판정 입력 사실로 그대로
+        보존한다. 그러나 그 결과가 유발하는 성장 mutation(players.profile +1,
+        stat_fail_counts)은 턴 소유 정본 변경이므로 트랜잭션 준비 객체에 스테이징하고
+        READY 이후 legacy continuation에서만 적용한다. 같은 tx의 후속 ROLL은 스테이징
+        투영을 읽는다. 사전 READY 실패 시 성장은 폐기된다.
+        """
         master_ch = self.bot.get_channel(session.master_ch_id)
         results: list[str] = []
+        _prep = None
+        roll_session = session
+        if transaction_id is not None:
+            _prep = core.turn_preparation.ensure_preparation(session, transaction_id)
+            if _prep is not None:
+                roll_session = core.turn_preparation.growth_projection(session, _prep)
+            else:
+                # stale 재개 — 정본을 절대 바꾸지 않는 일회용 투영(성장 폐기).
+                roll_session = core.turn_preparation.PreparationView(session, overrides={
+                    "players": copy.deepcopy(getattr(session, "players", {}) or {}),
+                    "stat_fail_counts": copy.deepcopy(
+                        getattr(session, "stat_fail_counts", None) or {}),
+                })
 
         for r in rolls:
             char_name = r.get("char_name") or session.gm_target_char or "?"
@@ -2266,9 +2692,9 @@ class GMCog(commands.Cog):
             weight = int(r.get("weight") or 0)
 
             stat_value = None
-            uid = core.get_uid_by_char_name(session, char_name)
+            uid = core.get_uid_by_char_name(roll_session, char_name)
             if uid:
-                profile = session.players.get(uid, {}).get("profile", {})
+                profile = roll_session.players.get(uid, {}).get("profile", {})
                 if stat_name in profile:
                     try:
                         stat_value = int(profile[stat_name])
@@ -2346,7 +2772,7 @@ class GMCog(commands.Cog):
             if stat_value is not None and stat_name:
                 try:
                     outcome = core.process_roll_outcome(
-                        session, char_name, stat_name,
+                        roll_session, char_name, stat_name,
                         failed=not is_success, sides=sides,
                     )
                     growth = outcome["growth"]
@@ -2357,6 +2783,9 @@ class GMCog(commands.Cog):
                         if master_ch:
                             await master_ch.send(g_line)
                         if growth.get("grew"):
+                            if _prep is not None and uid:
+                                _prep.growth_events.append(
+                                    (uid, stat_name, growth["new_value"]))
                             results.append(
                                 f"- {char_name} {stat_name} 성장: "
                                 f"{growth['new_value']}로 상승"
@@ -2396,7 +2825,8 @@ class GMCog(commands.Cog):
             stat_value = None
             uid = core.get_uid_by_char_name(session, char_name)
             if uid:
-                profile = session.players.get(uid, {}).get("profile", {})
+                profile = core.turn_preparation.projected_players(session).get(
+                    uid, {}).get("profile", {})
                 if stat_name in profile:
                     try:
                         stat_value = int(profile[stat_name])
@@ -2555,6 +2985,8 @@ class GMCog(commands.Cog):
             self.bot, core.cost_ledger.OP_TURN_LIGHT_NARRATE, session=session,
             model=core.DEFAULT_MODEL, actor_kind=core.cost_ledger.ACTOR_PLAYER,
             billing_hint=core.cost_ledger.HINT_PLAYER_CANDIDATE)
+        # WP-C: 자동 턴 비용 멤버 claim(transaction_id=None인 수동 호출은 no-op).
+        core.turn_preparation.claim_cost_operation(session, transaction_id, _cl_op)
         try:
             if session.cache_name:
                 config = types.GenerateContentConfig(
@@ -2679,14 +3111,20 @@ class GMCog(commands.Cog):
     # ─────────────────────────────────────────────────────────────
 
     async def _dispatch_proceed(self, session, instruction: str,
-                                *, transaction_id: str | None = None):
-        """기존 GameCog._execute_proceed를 호출하여 묘사 생성·연출.
+                                *, transaction_id: str | None = None,
+                                preparation=None):
+        """GameCog._execute_proceed를 호출하여 묘사 생성·연출(자동 경로 전용).
+
+        WP-C: 확정 묘사 직후 on_finalized 훅이 동시 준비 작업을 발사하고, 전달은 그와
+        겹쳐 진행된다. 이 함수는 어떤 턴 소유 정본도 적용하지 않는다 — 진행 이력·
+        progress·로그/카운터는 준비 객체에 스테이징되고 READY 이후에 적용된다.
+        추출은 여기서 await하지 않는다(배리어 owner가 합류).
 
         Returns:
-            성공 시 결과 dict, 실패 시 None.
-            None은 '턴이 성립하지 않았음'을 뜻하며 호출부가 카운터 증가를
-            건너뛰는 신호가 된다.
+            성공 시 결과 dict, 묘사 생성 실패 시 None.
         """
+        if preparation is None:
+            preparation = core.turn_preparation.ensure_preparation(session, transaction_id)
         game_cog = self.bot.get_cog("GameCog")
         if not game_cog:
             master_ch = self.bot.get_channel(session.master_ch_id)
@@ -2703,42 +3141,31 @@ class GMCog(commands.Cog):
                 await master_ch.send(f"> {instruction[i:i + CHUNK]}")
 
         # NOTE: PROCEED 직전에 이번 턴 컨텍스트(NARRATE/ASK/ROLL 중간 기록)와 지시사항을 스냅샷.
-        # _execute_proceed 내부에서 current_turn_logs가 초기화되므로 반드시 먼저 캡처해야 함.
         context_snapshot = list(session.current_turn_logs)
-        prev_raw_count = len(session.raw_logs)
 
         # ③ 턴 연속성 강화(엔진 병행): 묘사 AI가 직전 턴을 되감지 않도록 지시에 연속성 directive 부착.
-        # (원본 instruction은 위에서 이미 표시·아래 이력 저장에 사용하므로, 실행용으로만 증강.)
         exec_instruction = instruction + (
             "\n\n[연속성 지시] 직전 턴이 끝난 시점의 시간·공간·상태에서 곧바로 이어서 묘사할 것. "
             "이미 완료되었거나 서술된 행동·장면 전환·이동을 되풀이하거나 시간을 되감지 말고, "
             "지나간 장면에 인물의 행동·대사를 소급 삽입하지 말 것."
         )
+
+        async def _on_finalized(narr):
+            if preparation is not None:
+                await self._launch_concurrent_preparation(session, preparation, narr, master_ch)
+
         result = await game_cog._execute_proceed(
             session, exec_instruction, master_guild=None, cost_log_prefix=COST_LOG_PREFIX,
-            transaction_id=transaction_id,
+            transaction_id=transaction_id, preparation=preparation,
+            on_finalized=_on_finalized,
         )
 
-        # PROCEED 완료 후 AI 출력 요약 (표시·이력용, 최대 500자)
-        # + 전체 원문(_full_model_text): 추출 증거 폴백은 요약이 아니라 전문을 쓴다.
-        ai_summary = ""
-        _full_model_text = ""
-        new_entries = session.raw_logs[prev_raw_count:]
-        for content in reversed(new_entries):
-            if getattr(content, "role", None) == "model":
-                try:
-                    text = content.parts[0].text
-                    _full_model_text = text or ""
-                    ai_summary = text[:500] + ("..." if len(text) > 500 else "")
-                except Exception:
-                    pass
-                break
-
         # ── 묘사층위 실패 감지 (설계문서 6) ──
-        # 새 model 응답이 전혀 없으면 묘사가 생성되지 않은 것이다.
-        # 판단·지시·추출과 달리 묘사는 플레이어에게 직접 노출되는 산출물이므로,
-        # 실패 시 턴을 취소하고 선언 질문으로 재시작한다(기획 규정).
-        if not ai_summary:
+        # 확정 묘사가 없으면 묘사가 생성되지 않은 것이다. 묘사는 플레이어에게 직접
+        # 노출되는 산출물이므로 실패 시 턴을 취소하고 선언 질문으로 재시작한다(기획 규정).
+        narr = getattr(preparation, "narration", None) if preparation is not None else None
+        full_text = getattr(narr, "text", "") or ""
+        if not full_text:
             print(f"[GM/{session.session_id}] 묘사층위 실패 — 턴 취소")
             core.write_error_log(session.session_id, "narration",
                                  RuntimeError("묘사 출력 없음"), 1)
@@ -2760,48 +3187,17 @@ class GMCog(commands.Cog):
             session.gm_side_note = ""
             return None
 
-        # 이력 누적 (최근 5개 유지)
-        if not hasattr(session, "gm_proceed_history"):
-            session.gm_proceed_history = []
-        session.gm_proceed_history.append({
-            "turn_num": session.turn_count,
+        # PROCEED 완료 후 AI 출력 요약 (표시·이력용, 최대 500자). 추출은 전문을 쓴다(AUD-011).
+        ai_summary = full_text[:500] + ("..." if len(full_text) > 500 else "")
+
+        # 이력 누적(최근 5개) · [방안 2] narrative_plan.current_event.progress 갱신
+        #   — WP-C: 둘 다 턴 소유 서사 상태이므로 스테이징하고 READY 이후 적용한다.
+        preparation.proceed_history_entry = {
             "instruction": instruction,
             "context": context_snapshot,
             "ai_summary": ai_summary,
-        })
-        if len(session.gm_proceed_history) > 5:
-            session.gm_proceed_history = session.gm_proceed_history[-5:]
-
-        # [방안 2] narrative_plan.current_event.progress 자동 갱신
-        # WP-B: narrative_plan은 canonical(persisted·rewind-tracked·future-read)이므로,
-        #   AI-파생 진행도 갱신도 단일 owner 경계(apply_narrative_progress)를 통한다.
-        #   이 지점은 이미 묘사 성립(ai_summary 존재) 이후다.
-        if ai_summary:
-            core.turn_preparation.apply_narrative_progress(session, ai_summary)
-
-        # ── 추출층위 (묘사 스트리밍과 동시 실행) ──
-        # 기존 _update_world_timeline을 흡수했다. 세계 타임라인 갱신은
-        # _run_extraction 내부에서 core.to_world_timeline으로 처리된다.
-        if ai_summary:
-            # WP-01: 묘사 완료·추출 착수 지점. 현재 트랜잭션이면 STREAMING_EXTRACTING 표기.
-            core.turn_transaction.mark_transaction_status(
-                session, transaction_id,
-                core.turn_transaction.TurnStatus.STREAMING_EXTRACTING)
-            # master_ch를 넘겨야 추출 결과가 마스터 채널에 보고된다.
-            # 넘기지 않으면 조용히 적용만 되고 무엇이 바뀌었는지 알 수 없다.
-            _mch = self.bot.get_channel(getattr(session, "master_ch_id", 0))
-            # AUD-011: 추출에 500자 요약이 아니라 완결된 전체 묘사를 넘긴다.
-            _full_narration = (result or {}).get("ai_text") or _full_model_text or ai_summary
-            # §38: 비동기 추출에 트랜잭션 정체성(logical_turn/attempt)을 복사해
-            #      적용 직전 stale guard에 쓴다.
-            _tx_obj = core.turn_transaction.get_active_transaction(session)
-            asyncio.create_task(
-                self._run_extraction(
-                    session, _full_narration, _mch,
-                    transaction_id=transaction_id,
-                    logical_turn=getattr(_tx_obj, "logical_turn", None),
-                    attempt=getattr(_tx_obj, "attempt", None)))
-
+        }
+        preparation.narrative_progress = ai_summary
         return result
 
 
@@ -2921,14 +3317,20 @@ class GMCog(commands.Cog):
         return resolved
 
     async def _generate_npc_detail(self, session, name: str, recent_text: str,
-                                   master_ch=None) -> bool:
+                                   master_ch=None, *, preparation=None,
+                                   entry: dict | None = None) -> bool:
         """
         비정규 NPC 세부 설정 생성 — 비중이 생기거나 이름이 부여되면 1회 호출.
 
         생성 후 session.npcs로 승격되어 정규 델타 주입 대상이 된다.
         목소리와 이미지는 배정 당시의 것을 유지한다.
+
+        WP-C: preparation이 주어지면(자동 턴 자식 준비 작업) 정규화 결과를
+        preparation.promotions에 스테이징만 하고 정본 승격은 READY 이후에 한다.
+        entry는 이번 턴 등장 누적이 반영된 투영 항목이다.
         """
-        entry = core.irregular_npc.get_registry(session).get(name)
+        if entry is None:
+            entry = core.irregular_npc.get_registry(session).get(name)
         if not entry:
             return False
 
@@ -2960,6 +3362,8 @@ class GMCog(commands.Cog):
             self.bot, core.cost_ledger.OP_TURN_NPC_PROFILE, session=session,
             model=core.DEFAULT_MODEL, actor_kind=core.cost_ledger.ACTOR_PLAYER,
             billing_hint=core.cost_ledger.HINT_PLAYER_CANDIDATE)
+        if preparation is not None:
+            preparation.claim_cost_operation(_cl_op)
         ok, response = await core.call_with_retry(
             lambda: asyncio.to_thread(
                 self.bot.genai_client.models.generate_content,
@@ -3014,6 +3418,10 @@ class GMCog(commands.Cog):
             print(f"[NPC설정/{session.session_id}] stale 결과 거부 — 승격 보류")
             return False
 
+        if preparation is not None:
+            # WP-C: 스테이징만 — 정본 승격(mark_detailed/promote/개명)은 READY 이후.
+            preparation.promotions[name] = norm
+            return True
         return await self._apply_npc_promotion(session, name, norm, master_ch)
 
     async def _apply_npc_promotion(self, session, name, norm, master_ch=None) -> bool:
@@ -3046,7 +3454,8 @@ class GMCog(commands.Cog):
             )
         return promoted
 
-    async def _resolve_irregular_npcs(self, session, text: str, master_ch=None) -> int:
+    async def _resolve_irregular_npcs(self, session, text: str, master_ch=None,
+                                      *, preparation=None) -> int:
         """
         비정규 NPC 미디어 배정 — 묘사 스트리밍 '전'에 호출된다(기획 규정).
 
@@ -3057,8 +3466,13 @@ class GMCog(commands.Cog):
         [동일인 유지]
         이전 배정 기록을 함께 전달해 같은 인물의 미디어가 세션 내내 유지되게 한다.
 
+        WP-C: preparation이 주어지면(자동 턴 준비 작업) 검증된 등록 계획을
+        preparation.irregular_plan에 스테이징하고 승격 세부 생성을 자식 작업으로
+        등록한다. 정본(irregular_npcs/npcs)은 READY 이후에만 바뀐다. 스트리밍 중 화자
+        이미지는 core.irregular_npc의 읽기 전용 투영으로 이번 배정을 반영한다.
+
         Returns:
-            새로 배정된 인물 수
+            새로 배정된(또는 스테이징된) 인물 수
         """
         use_image = core.is_enabled(session, "image")
         use_tts = core.is_enabled(session, "tts")
@@ -3105,6 +3519,8 @@ class GMCog(commands.Cog):
             self.bot, core.cost_ledger.OP_TURN_IRREGULAR_NPC, session=session,
             model=core.DEFAULT_MODEL, actor_kind=core.cost_ledger.ACTOR_PLAYER,
             billing_hint=core.cost_ledger.HINT_PLAYER_CANDIDATE)
+        if preparation is not None:
+            preparation.claim_cost_operation(_cl_op)
         try:
             _ok, response = await core.call_with_retry(
                 lambda: asyncio.to_thread(
@@ -3163,7 +3579,10 @@ class GMCog(commands.Cog):
         valid_pool = set(core.irregular_npc.irregular_image_pool(session))
         plan = core.turn_preparation.build_irregular_npc_plan(
             session, data, names=names, valid_pool=valid_pool, use_image=use_image,
-            text=text, turn=getattr(session, "turn_count", 0),
+            text=text,
+            turn=(preparation.staged_log["turn_no"]
+                  if preparation is not None and isinstance(preparation.staged_log, dict)
+                  else getattr(session, "turn_count", 0)),
             transaction_id=getattr(_tx_obj, "transaction_id", None),
             logical_turn=getattr(_tx_obj, "logical_turn", None),
             attempt=getattr(_tx_obj, "attempt", None))
@@ -3177,9 +3596,53 @@ class GMCog(commands.Cog):
             print(f"[비정규NPC/{session.session_id}] stale 결과 거부 — 더 새로운 논리 시도 활성")
             return 0
 
+        if preparation is not None:
+            preparation.irregular_plan = plan
+            preparation.irregular_text = text
+            self._stage_npc_promotions(session, preparation, plan, text, master_ch)
+            return len(plan.registrations)
         return await self._apply_irregular_npc_plan(session, plan, text, master_ch)
 
-    async def _apply_irregular_npc_plan(self, session, plan, text, master_ch=None) -> int:
+    def _stage_npc_promotions(self, session, prep, plan, text, master_ch=None) -> list:
+        """WP-C: 승격 판정을 투영으로 재현하고 세부 생성을 자식 준비 작업으로 등록한다.
+
+        기존 _apply_irregular_npc_plan의 순서(등록 → 등장 누적 → should_promote → 세부
+        생성)를 정본 변경 없이 투영 등록부에서 계산한다. 자식은 부모(배정) 작업이
+        끝나기 전에 등록되므로 배리어 합류가 누락하지 않는다.
+        """
+        TP = core.turn_preparation
+        IRR = core.irregular_npc
+        turn = plan.registrations[0]["turn"] if plan.registrations else (
+            prep.staged_log["turn_no"] if isinstance(prep.staged_log, dict)
+            else getattr(session, "turn_count", 0))
+        reg = copy.deepcopy(IRR.get_registry(session))
+        for r in plan.registrations:
+            if r["name"] not in reg:
+                reg[r["name"]] = TP.staged_irregular_entry(session, r["name"]) or {}
+        launched = []
+        for name in list(reg.keys()):
+            if name not in (text or ""):
+                continue
+            entry = reg[name]
+            seen = list(entry.get("seen_turns") or [])
+            if turn not in seen:
+                seen.append(turn)
+                entry["seen_turns"] = seen[-20:]
+                entry["appearances"] = len(seen)
+            if entry.get("detailed"):
+                continue
+            if entry.get("appearances", 0) < IRR.PROMOTE_APPEARANCES:
+                continue
+            prep.register_task(
+                f"npc_promotion:{name}", TP.TASK_NPC_PROMOTION,
+                coro=self._generate_npc_detail(
+                    session, name, text, master_ch, preparation=prep, entry=dict(entry)),
+                parent="irregular_npc")
+            launched.append(name)
+        return launched
+
+    async def _apply_irregular_npc_plan(self, session, plan, text, master_ch=None,
+                                        *, staged_promotions=None) -> int:
         """LegacyCompatibilityApplier(비정규 NPC 등록) — 계획의 정규화 항목만 적용한다.
 
         raw 모델 payload는 이 함수에 입력되지 않는다. register는 계획의 정규화된
@@ -3202,7 +3665,12 @@ class GMCog(commands.Cog):
                 if name not in (text or ""):
                     continue
                 core.irregular_npc.note_appearance(session, name, turn)
-                if core.irregular_npc.should_promote(session, name):
+                if staged_promotions is not None:
+                    # WP-C READY 이후: 사전 READY에 준비된 승격만 적용(provider 호출 없음).
+                    if name in staged_promotions:
+                        await self._apply_npc_promotion(
+                            session, name, staged_promotions[name], master_ch)
+                elif core.irregular_npc.should_promote(session, name):
                     await self._generate_npc_detail(session, name, text, master_ch)
         except Exception as e:
             print(f"[NPC설정] 승격 판정 실패(진행에는 영향 없음): {e}")
@@ -3368,7 +3836,8 @@ class GMCog(commands.Cog):
     async def _run_extraction(self, session, ai_output_text: str, master_ch=None,
                               *, transaction_id: str | None = None,
                               logical_turn: int | None = None,
-                              attempt: int | None = None) -> dict | None:
+                              attempt: int | None = None,
+                              preparation=None):
         """
         추출층위 — 묘사 출력물에서 공통·시나리오별 타겟 값을 추출한다.
 
@@ -3379,8 +3848,26 @@ class GMCog(commands.Cog):
         게임 채널에 재시도 버튼을 배치한다.
 
         [캐시 미사용] 출력물 판독에 룰북이 불필요하므로 캐시를 읽지 않는다.
+
+        [WP-C 준비 모드] preparation이 주어지면(자동 턴 등록 준비 작업) result-only로
+        동작한다: 검증·정규화된 ExtractionMutationPlan을 preparation.extraction_plan에
+        저장해 반환하고, 정본 적용·extraction_pending/UI는 하지 않는다(배리어 owner 소관).
+        프롬프트·계획 입력은 기존 흐름과 같은 의미(지시효과 quest 투영, 이번 턴 비정규
+        등록/승격 NPC)를 읽기 전용 투영 뷰로 본다. preparation=None이면 기존 동작.
         """
-        targets = core.build_extraction_targets(session)
+        view = session
+        if preparation is not None:
+            _pend = core.turn_preparation.pending_for(session)
+            _qproj = (_pend.projected_quest_state
+                      if _pend is not None and _pend.projected_quest_state is not None
+                      else copy.deepcopy(getattr(session, "quest_state", None)))
+            view = core.turn_preparation.PreparationView(session, overrides={
+                "quest_state": _qproj,
+                "irregular_npcs": core.turn_preparation.projected_irregular_registry(
+                    session, preparation),
+                "npcs": core.turn_preparation.projected_npcs(session, preparation),
+            })
+        targets = core.build_extraction_targets(view)
         prev_tl = getattr(session, "world_timeline", {}) or {}
         prev_summary = (
             f"위치={prev_tl.get('current_location', '미확인')}, "
@@ -3392,10 +3879,10 @@ class GMCog(commands.Cog):
         # 이면정보 본문(truth)은 넣지 않는다 — 추출층위가 알면 판정이 오염된다.
         secret_block = ""
         try:
-            st = core.quest.get_state(session)
+            st = core.quest.get_state(view)
             active = st.get("active")
             if active and not active.get("secret_known"):
-                q = core.quest._find_quest(session, active["id"])
+                q = core.quest._find_quest(view, active["id"])
                 conds = ((q or {}).get("hidden") or {}).get("reveal_conditions") or []
                 if conds:
                     secret_block = (
@@ -3407,7 +3894,7 @@ class GMCog(commands.Cog):
 
         # 유효 목록을 주입한다. 코드가 걸러내기는 하지만, 목록을 주지 않으면
         # 매번 없는 상태이상을 만들고 인물 아닌 것을 npcs_met에 넣는다.
-        limit_block = core.build_extraction_limits(session)
+        limit_block = core.build_extraction_limits(view)
 
         # WP-B(AUD-011): 추출 증거에는 완결된 전체 묘사가 들어가야 한다.
         #   추출 모델(Gemini)의 컨텍스트 한도는 묘사 길이(수천 자)를 크게 상회하므로
@@ -3439,7 +3926,11 @@ class GMCog(commands.Cog):
             self.bot, core.cost_ledger.OP_TURN_EXTRACTION, session=session,
             model=EXTRACTION_MODEL, actor_kind=core.cost_ledger.ACTOR_PLAYER,
             billing_hint=core.cost_ledger.HINT_PLAYER_CANDIDATE)
-        for attempt in range(EXTRACTION_MAX_RETRIES):
+        if preparation is not None:
+            preparation.claim_cost_operation(_cl_op)
+        # WP-C(F1): 재시도 루프 변수가 트랜잭션 attempt 매개변수를 가리던 결함 수정.
+        #   (기존: for attempt in ... → stale 판정·계획 정체성이 루프 인덱스로 오염)
+        for _try in range(EXTRACTION_MAX_RETRIES):
             ok, response = await core.call_with_retry(
                 lambda: asyncio.to_thread(
                     self.bot.genai_client.models.generate_content,
@@ -3483,7 +3974,11 @@ class GMCog(commands.Cog):
             result = core.parse_extraction(response.text or "")
             if result:
                 break
-            print(f"[GM] 추출층위 응답 파싱 실패(시도 {attempt + 1})")
+            print(f"[GM] 추출층위 응답 파싱 실패(시도 {_try + 1})")
+
+        if not result and preparation is not None:
+            # WP-C: 실패 처리(재시도 UI·차단)는 배리어 owner가 담당한다.
+            return None
 
         if not result:
             # 재시도 실패 → 다음 턴 차단 + 재시도 버튼
@@ -3520,8 +4015,23 @@ class GMCog(commands.Cog):
         #    (2) idempotency(T-B21): 같은 트랜잭션 결과의 이중 적용을 막는다.
         # ══════════════════════════════════════════════════════════════
         plan = core.turn_preparation.build_extraction_plan(
-            session, result, transaction_id=transaction_id,
+            view, result, transaction_id=transaction_id,
             logical_turn=logical_turn, attempt=attempt)
+
+        if preparation is not None:
+            # WP-C 준비 모드: 계획만 스테이징(정본 미적용). stale이면 현재 배리어를 만족 못함.
+            if (not preparation.matches(core.turn_transaction.get_active_transaction(session))
+                    or core.turn_preparation.extraction_is_stale(
+                        session, logical_turn=logical_turn, attempt=attempt)):
+                plan.rejected_stale = True
+                print(f"[추출/{session.session_id}] stale 준비 결과 — 배리어 미충족 "
+                      f"(tx={transaction_id}, lt={logical_turn}, at={attempt})")
+                return None
+            core.write_log(
+                session.session_id, "api",
+                f"[추출층위 결과(준비·미적용)]\n{json.dumps(result, ensure_ascii=False, indent=2)}")
+            preparation.extraction_plan = plan
+            return plan
 
         if core.turn_preparation.extraction_is_stale(
                 session, logical_turn=logical_turn, attempt=attempt):
@@ -3719,6 +4229,8 @@ class GMCog(commands.Cog):
                 self.bot, core.cost_ledger.OP_TURN_SIMULATION, session=session,
                 model=core.DEFAULT_MODEL, actor_kind=core.cost_ledger.ACTOR_PLAYER,
                 billing_hint=core.cost_ledger.HINT_PLAYER_CANDIDATE)
+            # WP-C: 자동 턴 비용 멤버 claim(transaction_id=None인 수동 호출은 no-op).
+            core.turn_preparation.claim_cost_operation(session, transaction_id, _cl_op)
             _ok, response = await core.call_with_retry(
                 lambda: asyncio.to_thread(
                     self.bot.genai_client.models.generate_content,
@@ -3938,9 +4450,10 @@ class GMCog(commands.Cog):
             await self._plan_narrative(session, "init")
         await self._start_round(session)
 
-    async def _update_narrative_progress(self, session, event_assessment: str, master_ch):
+    async def _update_narrative_progress(self, session, event_assessment: str, master_ch,
+                                         *, preparation=None):
         """
-        PROCEED 완료 후 호출. 서사 재계획 트리거를 판정한다.
+        PROCEED 확정 묘사 직후(READY 이전) 호출. 서사 재계획 트리거를 판정한다.
 
         [재계획 판정 — 수치 기반]
         기존의 '3턴 주기 강제 재계획'은 삭제되었다. 서사 상태와 무관하게
@@ -3949,21 +4462,17 @@ class GMCog(commands.Cog):
             deviation >= quest_deviated  → 전체 재수립 (mid_plan 포함)
             advance   >= quest_advance   → 순간 계획만 재수립
         지시층위의 event_assessment는 보조 신호로 유지한다(수치가 없을 때의 폴백).
+
+        WP-C: 트리거된 자동 재계획은 이 턴의 필수 준비 작업(다음 GM 프롬프트가 계획에
+        의존)으로 등록되어 READY 전에 합류한다. 후보·last_planned_turn 마커는 준비 객체에
+        스테이징되고 READY 이후에만 정본 narrative_plan에 적용된다.
+        수치 판정은 기존과 같이 정본 last_extraction(직전 확정 턴 추출)을 읽는다.
         """
         plan = getattr(session, "narrative_plan", {})
-        if not plan:
+        if not plan or preparation is None:
             return
 
-        # AUD-065: 자동 재계획의 원인 시도 정체성을 **스케줄 시점에 복사**한다.
-        #   태스크 안에서 활성 tx를 새로 조회하면 그 사이 열린 다음 시도를 자기
-        #   정체성으로 오인할 수 있으므로, 여기서 고정해 인자로 넘긴다.
-        _tx = core.turn_transaction.get_active_transaction(session)
-        _origin = {
-            "transaction_id": getattr(_tx, "transaction_id", None),
-            "logical_turn": getattr(_tx, "logical_turn", None),
-            "attempt": getattr(_tx, "attempt", None),
-        }
-
+        trigger = None      # (reason, full_replan, context_note)
         # completed/deviated → 즉시 재계획
         if event_assessment == "completed":
             # 순간 계획만 재수립 — mid_plan 유지
@@ -3972,8 +4481,7 @@ class GMCog(commands.Cog):
                     f"📖 **[서사 계획]** 순간 사건 완료 감지\n"
                     f"> 중규모 계획을 유지하며 다음 순간 계획을 수립합니다..."
                 )
-            asyncio.create_task(self._auto_replan_narrative(
-                session, "completed", full_replan=False, **_origin))
+            trigger = ("completed", False, "")
         elif event_assessment == "deviated":
             # mid_plan 포함 전부 재수립
             if master_ch:
@@ -3981,54 +4489,64 @@ class GMCog(commands.Cog):
                     f"📖 **[서사 계획]** 경로 이탈 감지\n"
                     f"> 중규모 계획 포함 전체 재수립합니다..."
                 )
-            asyncio.create_task(self._auto_replan_narrative(
-                session, "deviated", full_replan=True, **_origin))
+            trigger = ("deviated", True, "")
         elif event_assessment == "resolving" and master_ch:
             await master_ch.send(
                 f"📖 **[서사 계획]** 현재 순간 사건이 마무리 단계에 진입했습니다 (resolving)."
             )
 
         # ── 수치 기반 재계획 판정 (설계문서 3) ──
-        # 추출층위가 산출한 quest_progress를 임계값과 대조한다.
         # event_assessment로 이미 트리거된 경우는 중복을 피한다.
-        if event_assessment in ("completed", "deviated"):
-            return
+        if event_assessment not in ("completed", "deviated"):
+            ex = getattr(session, "last_extraction", {}) or {}
+            qp = ex.get("quest_progress") or {}
+            try:
+                advance = int(qp.get("advance", 0))
+                deviation = int(qp.get("deviation", 0))
+            except (TypeError, ValueError):
+                return
+            th = core.get_thresholds(session)
+            if deviation >= th["quest_deviated"]:
+                preparation.narrative_marker = True     # last_planned_turn 마커(스테이징)
+                if master_ch:
+                    await master_ch.send(
+                        f"📖 **[서사 계획]** 이탈 수치 {deviation} (임계 {th['quest_deviated']}) "
+                        f"→ 중규모 계획 포함 전체 재수립합니다."
+                    )
+                trigger = ("deviated", True, f"추출 이탈 수치 {deviation}")
+            elif advance >= th["quest_advance"]:
+                preparation.narrative_marker = True
+                if master_ch:
+                    await master_ch.send(
+                        f"📖 **[서사 계획]** 진행 수치 {advance} (임계 {th['quest_advance']}) "
+                        f"→ 순간 계획을 재수립합니다."
+                    )
+                trigger = ("completed", False, f"추출 진행 수치 {advance}")
 
-        ex = getattr(session, "last_extraction", {}) or {}
-        qp = ex.get("quest_progress") or {}
-        try:
-            advance = int(qp.get("advance", 0))
-            deviation = int(qp.get("deviation", 0))
-        except (TypeError, ValueError):
-            return
+        if trigger is not None:
+            reason, full, note = trigger
+            preparation.register_task(
+                "narrative_replan", core.turn_preparation.TASK_NARRATIVE_REPLAN,
+                coro=self._prepare_auto_replan(
+                    session, preparation, reason, full_replan=full, context_note=note))
 
-        th = core.get_thresholds(session)
-        if deviation >= th["quest_deviated"]:
-            plan["last_planned_turn"] = session.turn_count
-            session.narrative_plan = plan
-            if master_ch:
-                await master_ch.send(
-                    f"📖 **[서사 계획]** 이탈 수치 {deviation} (임계 {th['quest_deviated']}) "
-                    f"→ 중규모 계획 포함 전체 재수립합니다."
-                )
-            asyncio.create_task(
-                self._auto_replan_narrative(session, "deviated", full_replan=True,
-                                            context_note=f"추출 이탈 수치 {deviation}",
-                                            **_origin)
-            )
-        elif advance >= th["quest_advance"]:
-            plan["last_planned_turn"] = session.turn_count
-            session.narrative_plan = plan
-            if master_ch:
-                await master_ch.send(
-                    f"📖 **[서사 계획]** 진행 수치 {advance} (임계 {th['quest_advance']}) "
-                    f"→ 순간 계획을 재수립합니다."
-                )
-            asyncio.create_task(
-                self._auto_replan_narrative(session, "completed", full_replan=False,
-                                            context_note=f"추출 진행 수치 {advance}",
-                                            **_origin)
-            )
+    async def _prepare_auto_replan(self, session, prep, trigger_reason, *,
+                                   full_replan: bool, context_note: str = ""):
+        """WP-C 자동 재계획 준비 작업 — 후보 생성(result-only) + stale 검사 → 스테이징."""
+        candidate = await self._generate_narrative_plan_candidate(
+            session, trigger_reason, context_note=context_note, full_replan=full_replan,
+            transaction_id=prep.transaction_id, logical_turn=prep.logical_turn,
+            attempt=prep.attempt, preparation=prep)
+        if candidate is None:
+            return None
+        if (not prep.matches(core.turn_transaction.get_active_transaction(session))
+                or core.turn_preparation.superseded_by_newer_attempt(
+                    session, logical_turn=prep.logical_turn, attempt=prep.attempt)):
+            candidate.rejected_stale = True
+            print(f"[서사설계/{session.session_id}] stale 재계획 준비 폐기")
+            return None
+        prep.replan_candidate = candidate
+        return candidate
 
     async def _plan_narrative(self, session, trigger_reason: str = "init",
                               context_note: str = "", full_replan: bool = True) -> bool:
@@ -4060,19 +4578,24 @@ class GMCog(commands.Cog):
                                      full_replan: bool, context_note: str = "",
                                      transaction_id=None, logical_turn=None,
                                      attempt=None) -> bool:
-        """자동 턴 서사 재계획(AUD-065) — create_task로 비동기 실행된다.
+        """자동 턴 서사 재계획(AUD-065) 비준비 경로 — 원인 정체성은 스케줄 시점 복사값.
 
-        원인 시도 정체성(transaction_id/logical_turn/attempt)은 **스케줄 시점에
-        복사된 값**을 인자로 받는다(태스크 안에서 활성 tx를 새로 조회하지 않는다).
           provider → 정규화 후보 → stale guard → 멱등 guard → 호환 적용.
-        stale/중복 후보는 session에 적용·저장되지 않는다.
+        WP-C 자동 턴은 _update_narrative_progress가 준비 작업(_prepare_auto_replan)으로
+        돌리고 READY 이후 _commit_replan_candidate로 적용한다. 이 함수는 그 적용 규칙
+        (stale/멱등)을 공유하는 비준비 호환 경로로 남는다.
         """
         candidate = await self._generate_narrative_plan_candidate(
             session, trigger_reason, context_note=context_note, full_replan=full_replan,
             transaction_id=transaction_id, logical_turn=logical_turn, attempt=attempt)
         if candidate is None:
             return False
+        return await self._commit_replan_candidate(
+            session, candidate, logical_turn=logical_turn, attempt=attempt)
 
+    async def _commit_replan_candidate(self, session, candidate, *,
+                                       logical_turn=None, attempt=None) -> bool:
+        """정규화 재계획 후보를 stale/멱등 검사 후 호환 적용한다(단일 적용 규칙)."""
         # stale guard(§26/§38): 이 재계획을 일으킨 시도보다 더 새로운 시도가 활성이면 폐기.
         if core.turn_preparation.superseded_by_newer_attempt(
                 session, logical_turn=logical_turn, attempt=attempt):
@@ -4183,9 +4706,13 @@ class GMCog(commands.Cog):
                                                  *, context_note: str = "",
                                                  full_replan: bool = True,
                                                  transaction_id=None, logical_turn=None,
-                                                 attempt=None):
+                                                 attempt=None, preparation=None):
         """
         LOGIC_MODEL을 호출해 서사 계획 **후보**를 만든다 — result-only producer.
+
+        WP-C: preparation이 주어지면(자동 턴 READY 이전) 프롬프트는 기존 흐름과 같은
+        입력 의미를 투영으로 읽는다 — 이번 턴 스테이징 로그를 포함한 최근 raw_logs와
+        스테이징된 진행 턴 번호. 정본은 읽기만 한다.
 
         session.narrative_plan을 변경하지 않는다. provider 호출·재시도·비용 관측/정산
         (CostLedger operation, accrue, turn_cost_log)은 기존 의미 그대로 수행하고,
@@ -4216,7 +4743,13 @@ class GMCog(commands.Cog):
 
         # ── 최근 게임 로그 (턴 개수 6개 유지, 각 턴은 온전 원문) ──
         recent_log_lines = []
-        for content in session.raw_logs[-6:]:
+        _raw_src = list(session.raw_logs)
+        _turn_no = session.turn_count
+        if preparation is not None and isinstance(preparation.staged_log, dict) \
+                and not preparation.staged_log.get("applied"):
+            _raw_src = (_raw_src + list(preparation.staged_log["raw_entries"]))[-20:]
+            _turn_no = preparation.staged_log["turn_no"]
+        for content in _raw_src[-6:]:
             try:
                 text    = content.parts[0].text
                 role    = content.role.upper()
@@ -4294,7 +4827,7 @@ class GMCog(commands.Cog):
             f"세계관: {worldview[:600] if worldview else '(없음)'}\n"
             f"스토리 가이드: {story_guide[:1200] if story_guide else '(없음)'}\n\n"
             f"[현재 게임 상황]\n"
-            f"진행 턴: {session.turn_count}\n"
+            f"진행 턴: {_turn_no}\n"
             f"PC 상태:\n{pc_info}\n"
             f"압축 기억:\n{memory_str[:1000]}\n\n"
             f"[최근 게임 로그]\n{recent_logs_str}\n"
@@ -4319,6 +4852,8 @@ class GMCog(commands.Cog):
                 self.bot, core.cost_ledger.OP_TURN_NARRATIVE_PLANNING, session=session,
                 model=core.LOGIC_MODEL, actor_kind=core.cost_ledger.ACTOR_PLAYER,
                 billing_hint=core.cost_ledger.HINT_PLAYER_CANDIDATE)
+            if preparation is not None:
+                preparation.claim_cost_operation(_cl_op)
             _ok, response = await core.call_with_retry(
                 lambda: asyncio.to_thread(
                     self.bot.genai_client.models.generate_content,

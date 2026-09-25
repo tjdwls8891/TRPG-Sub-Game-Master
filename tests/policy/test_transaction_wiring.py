@@ -58,7 +58,9 @@ async def test_w01_roll_view_round_trip_preserves_single_id(
     # 버튼 콜백 경로(_process_roll)가 같은 ID를 재개 함수로 넘기는지 확인한다.
     forwarded = {}
 
-    async def _fake_execute_rolls(session, rolls, game_ch):
+    async def _fake_execute_rolls(session, rolls, game_ch, *, transaction_id=None):
+        # WP-C: 성장 스테이징을 위해 굴림 실행에도 같은 ID가 전달된다.
+        forwarded["rolls_transaction_id"] = transaction_id
         return ["[근력] 판정: 15 (성공)"]
 
     async def _rec_continue(session, player_message, roll_results, *,
@@ -74,6 +76,7 @@ async def test_w01_roll_view_round_trip_preserves_single_id(
 
     assert forwarded.get("transaction_id") == origin_id, (
         "View 재개가 원 트랜잭션 ID를 전달하지 않았습니다")
+    assert forwarded.get("rolls_transaction_id") == origin_id
 
 
 # ── W-02 ─────────────────────────────────────────────────────

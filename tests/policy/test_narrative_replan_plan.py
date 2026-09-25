@@ -187,31 +187,40 @@ async def test_nb04_stale_replan_discarded(monkeypatch, provider, wired_bot,
 
 async def test_nb04b_identity_captured_at_schedule_time(
         monkeypatch, wired_bot, session_auto_ready, master_channel):
+    """WP-C — 자동 재계획은 원인 시도의 준비 객체에 등록되는 필수 준비 작업이다.
+
+    정체성은 스케줄(등록) 시점의 준비 객체 정체성으로 고정되며, 이후 더 새로운
+    시도가 열려도 바뀌지 않는다. setup/manual 소비부(_plan_narrative)는 부르지 않는다.
+    """
     sess = _free(session_auto_ready)
     cog = _cog(wired_bot)
     tx_n = core.turn_transaction.begin_turn_transaction(sess, "턴 N")
+    prep = tp.ensure_preparation(sess, tx_n.transaction_id)
     seen = []
 
-    async def _rec(session, reason, **kw):
-        seen.append((reason, kw))
-        return True
+    async def _rec(session, p, reason, **kw):
+        seen.append((reason, kw, p.identity()))
+        return None
 
     async def _forbidden(*a, **k):
         raise AssertionError("자동 경로가 setup/manual 소비부(_plan_narrative)를 불렀습니다")
 
-    monkeypatch.setattr(cog, "_auto_replan_narrative", _rec, raising=False)
+    monkeypatch.setattr(cog, "_prepare_auto_replan", _rec, raising=False)
     monkeypatch.setattr(cog, "_plan_narrative", _forbidden, raising=False)
 
-    await cog._update_narrative_progress(sess, "deviated", master_channel)
+    await cog._update_narrative_progress(sess, "deviated", master_channel,
+                                         preparation=prep)
+    assert "narrative_replan" in prep.tasks, "재계획이 준비 작업으로 등록되지 않았습니다"
     _supersede(sess, "turn")                        # 태스크 실행 전 다음 턴 시작
-    await asyncio.sleep(0)
-    await asyncio.sleep(0)
+    await prep.join()
 
     assert len(seen) == 1
-    reason, kw = seen[0]
+    reason, kw, ident = seen[0]
     assert reason == "deviated" and kw["full_replan"] is True
-    assert kw["transaction_id"] == tx_n.transaction_id, "태스크가 원인 tx가 아닌 정체성을 받았습니다"
-    assert kw["logical_turn"] == tx_n.logical_turn and kw["attempt"] == tx_n.attempt
+    assert ident == (tx_n.transaction_id, tx_n.logical_turn, tx_n.attempt), (
+        "재계획 작업이 원인 tx가 아닌 정체성을 받았습니다")
+    rec = prep.tasks["narrative_replan"]
+    assert (rec.transaction_id, rec.logical_turn, rec.attempt) == ident
 
 
 # ── N-B05 duplicate apply idempotent ─────────────────────────────

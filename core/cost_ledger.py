@@ -644,6 +644,10 @@ class ProviderOperation:
         self.metadata = dict(metadata or {})
         self._attempt = 0
         self.last_success = None
+        # WP-C: 이 오퍼레이션이 원장에 실제로 append한 CostEvent의 event_id(기록 순서).
+        #   관측 권위는 바꾸지 않는다 — record()가 이미 만든 id를 버리지 않고 보존할 뿐이며,
+        #   트랜잭션 배리어가 시간창/비용값 추정 없이 정확한 멤버십을 동결하는 데 쓴다.
+        self.event_ids: list = []
 
         sid, tid, lt, ta = (
             _attr_from_session(session) if session is not None else (None, None, None, None)
@@ -718,10 +722,13 @@ class ProviderOperation:
             metadata=md,
         )
         try:
-            return self.ledger.record_cost_event(event)
+            created = self.ledger.record_cost_event(event)
         except Exception as e:  # noqa: BLE001
             print(f"[CostLedger] record 실패(무시): {type(e).__name__} - {e}")
             return False
+        if created:
+            self.event_ids.append(event.event_id)
+        return created
 
 
 def begin_operation(bot, operation, *, session=None, model=None,

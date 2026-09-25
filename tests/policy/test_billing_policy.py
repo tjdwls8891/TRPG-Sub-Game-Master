@@ -155,9 +155,10 @@ def test_p003b_cost_events_are_frozen():
 # ── 현행 구현과의 대조 ──────────────────────────────────────
 
 def test_p001_current_implementation_charges_on_narration_failure():
-    """대조 — v5.33.0은 묘사 실패 시 차감을 건너뛴다(부분 충족).
+    """대조 — 현행(WP-C) 구현은 사전 READY 실패 경로에서 차감을 호출하지 않는다.
 
-    다만 묘사 성공 후 추출 실패는 이미 차감이 끝난 뒤다(D-002e 참조).
+    legacy 차감은 READY 이후 continuation 안에만 있고, 실패 처리부에는 없다.
+    (Settlement 기반 청구 권위 전환·FAILED_SYSTEM 청구 0의 권위화는 WP-D.)
     """
     import ast
 
@@ -165,14 +166,17 @@ def test_p001_current_implementation_charges_on_narration_failure():
 
     src = source_of("cogs/gm.py")
     tree = ast.parse(src)
-    fn = next(n for n in ast.walk(tree)
-              if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))
-              and n.name == "_finish_proceed_and_continue")
-    body = "\n".join(src.splitlines()[fn.lineno - 1:fn.end_lineno])
 
-    assert "proceed_ok is None" in body, (
-        "묘사 실패 분기가 사라졌습니다 — 청구 정책 상태를 재확인하십시오")
-    # 실패 분기에서 차감이 일어나지 않는지 — 분기 안쪽만 본다.
-    idx = body.index("proceed_ok is None")
-    fail_branch = body[idx:idx + 400]
-    assert "deduct_ink" not in fail_branch
+    def body_of(name):
+        fn = next(n for n in ast.walk(tree)
+                  if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))
+                  and n.name == name)
+        return "\n".join(src.splitlines()[fn.lineno - 1:fn.end_lineno])
+
+    owner = body_of("_finish_proceed_and_continue")
+    assert "_OUTCOME_READY" in owner and "_handle_preparation_failure" in owner, (
+        "READY/실패 분기가 사라졌습니다 — 청구 정책 상태를 재확인하십시오")
+    assert "deduct_ink" not in owner
+    assert "deduct_ink" not in body_of("_handle_preparation_failure")
+    assert "deduct_ink" not in body_of("_join_and_ready")
+    assert "deduct_ink" in body_of("_post_ready_legacy_continuation")

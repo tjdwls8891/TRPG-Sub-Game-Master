@@ -121,6 +121,10 @@ class TurnTransaction:
     # ASK/NARRATE 재입력의 진단 보존용. 최초 선언은 덮어쓰지 않는다.
     interaction_inputs: list = field(default_factory=list)
 
+    # WP-C: 트랜잭션 소유 준비/배리어 상태(core.turn_preparation.TurnPreparation).
+    #   런타임 전용 — 세션 JSON에 저장되지 않으며 durable commit 권위가 아니다(WP-D).
+    preparation: object | None = None
+
     @property
     def short_id(self) -> str:
         return self.transaction_id[:8]

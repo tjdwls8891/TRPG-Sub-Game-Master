@@ -112,6 +112,7 @@ def test_c004e_run_extraction_callers():
     """
     sites = _callsites("_run_extraction")
     owners = {owner for _, _, owner in sites}
-    # v5.33.0 — 자동 묘사 후처리와 추출 재시도 버튼 두 곳.
-    assert "_dispatch_proceed" in owners, "자동 추출 경로가 사라졌습니다"
-    assert len(owners) >= 1
+    # WP-C — 자동 경로는 등록 준비 작업(_prepare_extraction)이 부르고,
+    #   레거시 비준비 호출은 추출 재시도 버튼(구 표식 컨텍스트)에만 남는다.
+    assert owners == {"_prepare_extraction", "retry"}, (
+        f"추출 호출부가 바뀌었습니다: {sorted(owners)}")
