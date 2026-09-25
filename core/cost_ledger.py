@@ -648,6 +648,10 @@ class ProviderOperation:
         #   관측 권위는 바꾸지 않는다 — record()가 이미 만든 id를 버리지 않고 보존할 뿐이며,
         #   트랜잭션 배리어가 시간창/비용값 추정 없이 정확한 멤버십을 동결하는 데 쓴다.
         self.event_ids: list = []
+        # WP-C(B-C4): 래퍼 타임아웃 뒤에도 진행 중인 실제 provider 호출(asyncio future).
+        #   비어 있지 않으면 이 오퍼레이션은 아직 cost-relevant work가 terminal이 아니다.
+        self.inflight: set = set()
+        self.late_events: list = []
 
         sid, tid, lt, ta = (
             _attr_from_session(session) if session is not None else (None, None, None, None)
@@ -676,6 +680,55 @@ class ProviderOperation:
     @property
     def current_attempt(self) -> int:
         return self._attempt or 1
+
+    def has_inflight(self) -> bool:
+        return any(not f.done() for f in self.inflight)
+
+    def track_inflight(self, future, *, attempt=None, operation_id=None) -> None:
+        """WP-C(B-C4): 논리 타임아웃된 provider attempt를 실제 종료까지 추적한다.
+
+        · 게임 결과로는 쓰지 않는다(래퍼는 이미 실패/재시도로 진행).
+        · 종료 시 응답에 provider usage 메타데이터가 있으면 그 사실을 CostEvent로 기록한다
+          (같은 provider 호출은 이 attempt 번호로 한 번만 — 날조 없음, 예외/무메타면 기록 없음).
+        """
+        pa = self._attempt or 1          # 방금 실패로 계수된 이 provider attempt 번호
+        self.inflight.add(future)
+
+        def _done(fut, _pa=pa):
+            self.inflight.discard(fut)
+            try:
+                if fut.cancelled() or fut.exception() is not None:
+                    return
+                self._record_late(fut.result(), _pa)
+            except Exception as e:  # noqa: BLE001
+                print(f"[CostLedger] 늦은 attempt 관측 실패(무시): {type(e).__name__} - {e}")
+
+        future.add_done_callback(_done)
+
+    def _record_late(self, response, provider_attempt) -> bool:
+        meta = getattr(response, "usage_metadata", None)
+        if meta is None:
+            return False                 # usage 없음 → 사실 없음(날조 금지)
+        from .cost import calculate_text_gen_cost_breakdown, extract_token_usage
+        in_t, out_t, cached_t, thought_t = extract_token_usage(meta)
+        cost_usd = cost_krw = 0.0
+        try:
+            bd = calculate_text_gen_cost_breakdown(
+                self.model, input_tokens=in_t, output_tokens=out_t,
+                cached_read_tokens=cached_t)
+            cost_usd, cost_krw = bd["total_usd"], bd["total_krw"]
+        except Exception:
+            pass
+        ok = self.record(
+            cost_usd=cost_usd, cost_krw=cost_krw,
+            usage_source=SOURCE_PROVIDER_METADATA, provider_attempt=provider_attempt,
+            input_tokens=in_t, cached_input_tokens=cached_t, output_tokens=out_t,
+            thought_tokens=thought_t,
+            extra_metadata={"late_after_wrapper_timeout": True,
+                            "gameplay_result_discarded": True})
+        if ok:
+            self.late_events.append(provider_attempt)
+        return ok
 
     def record(self, *, cost_usd=0.0, cost_krw=0.0,
                usage_source=SOURCE_PROVIDER_METADATA, provider_attempt=None,

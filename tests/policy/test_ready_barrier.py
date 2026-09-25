@@ -889,3 +889,324 @@ async def test_retry_button_resumes_same_transaction(rig, monkeypatch):
     assert tx.status == tt.TurnStatus.COMMITTED and tx.preparation.ready_proof is not None
     assert tt.get_active_transaction(s) is None
     assert s.extraction_pending is False and r.rec["start_round"] == 1
+
+
+# ══════════════════════════════════════════════════════════════
+# GPT 게이트 패치 (2026-09-25) — B-C1 ~ B-C4
+# ══════════════════════════════════════════════════════════════
+
+def _capture_ready_reasons(monkeypatch):
+    seen = []
+    orig = tp.evaluate_ready
+
+    def _ev(session, prep):
+        r = orig(session, prep)
+        seen.append(list(r))
+        return r
+    monkeypatch.setattr(tp, "evaluate_ready", _ev)
+    return seen
+
+
+# ── B-C1 — 정본 변화는 READY를 막는다 ─────────────────────────
+
+@pytest.mark.parametrize("tamper,domain", [
+    (lambda s: s.resources.setdefault("테스터", {}).update({"물통": 99}), "resources"),
+    (lambda s: setattr(s, "quest_state", {"active": {"id": "q_x", "name": "외부", "node": "root"},
+                                          "cleared": [], "known_secrets": [],
+                                          "occurrences": {}}), "quest_state"),
+    (lambda s: setattr(s, "narrative_plan", {"current_event": {"title": "외부 변조"}}),
+     "narrative_plan"),
+])
+async def test_bc1_canonical_change_during_preparation_blocks_ready(
+        rig, monkeypatch, tamper, domain):
+    """B-C1 — 준비 중 커밋 소유 정본이 바뀌면(관리자/수동 쓰기 포함) READY 거부."""
+    r = rig
+    s = r.sess
+    s.resources = {"테스터": {"물통": 2}}
+    reasons = _capture_ready_reasons(monkeypatch)
+    ext_gate = threading.Event()
+    r.prov.gates["extraction"] = ext_gate
+    tx = tt.get_or_begin_turn_transaction(s, "선언")
+    owner = asyncio.create_task(_run_turn(r, tx=tx))
+    await _until(lambda: r.prov.started.get("extraction", 0) >= 1)
+    tamper(s)                                   # 외부 정본 쓰기
+    ext_gate.set()
+    await owner
+    assert "ready" not in r.ev["order"], "정본 변화가 있는데 READY에 도달했습니다"
+    assert any(f"state:canonical_changed:" in x and domain in x
+               for rs in reasons for x in rs), reasons
+    assert tx.preparation.ready_proof is None
+    assert tx.status == tt.TurnStatus.FAILED_SYSTEM
+    assert tx.failure_code == tt.FailureCode.COMMIT_VALIDATION_FAILURE.value
+    assert r.rec["deduct"] == [] and s.turn_count == 7
+
+
+async def test_bc1_normal_path_canonical_unchanged_and_ready(rig):
+    r = rig
+    tx = await _run_turn(r)
+    proof = tx.preparation.ready_proof
+    assert proof is not None and proof.canonical_unchanged is True
+    assert proof.changed_domains == () and "ready" in r.ev["order"]
+
+
+# ── B-C2 — post-ROLL / forced-PROCEED 지시효과 스테이징 ─────────
+
+def _quest_rig(r, monkeypatch):
+    from tests.defects.test_instruction_side_effects import QUEST_NEW, _install_quest
+    s = r.sess
+    s.quest_state = {"active": None, "cleared": [], "known_secrets": [], "occurrences": {}}
+    s._quest_offered = ["q_new"]
+    _install_quest(monkeypatch, s.scenario_id, QUEST_NEW)
+    return s
+
+
+def _secret(name):
+    return {"new_secrets": [{"info": name, "known_by": ["테스터"]}]}
+
+
+async def test_bc2_post_roll_decision_staged_composed_and_applied_once(rig, monkeypatch):
+    """B-C2 — 굴림 후 지시 결정의 효과가 스테이징(이전 스테이징과 합성)되고
+    READY 전 정본 불변, READY 후 정확히 한 번 적용된다."""
+    r = rig
+    s = _quest_rig(r, monkeypatch)
+    tx = tt.get_or_begin_turn_transaction(s, "문을 부순다")
+    # 같은 tx의 이전 결정(NARRATE 반복 등) — 퀘스트 선택 + 비밀 A
+    tp.stage_instruction_effects(
+        s, {"quest_choice": {"id": "q_new", "reason": "앞선 결정"}, "info_access": _secret("비밀 A")},
+        transaction_id=tx.transaction_id)
+
+    async def _logic(session, *a, **k):
+        return {"action": "PROCEED", "proceed_instruction": "문이 부서진다",
+                "reasoning": "r", "info_access": _secret("비밀 B")}
+    monkeypatch.setattr(r.gm, "_call_gm_logic", _logic)
+    applied = []
+    orig_apply = tp.apply_instruction_effects
+
+    def _apply(session, pending):
+        res = orig_apply(session, pending)
+        applied.append(res["applied"])
+        return res
+    monkeypatch.setattr(tp, "apply_instruction_effects", _apply)
+
+    await r.gm._continue_with_roll_results(s, "문을 부순다", ["- 굴림"],
+                                           transaction_id=tx.transaction_id)
+
+    snap = r.rec["ready_snapshots"][0]["canon"]
+    assert snap["info_ledger"] == [] and snap["quest_state"]["active"] is None
+    infos = {i["info"] for i in s.info_ledger}
+    assert {"비밀 A", "비밀 B"} <= infos, "합성 중 앞선 효과가 유실되었습니다"
+    assert s.quest_state["active"]["id"] == "q_new", "앞선 퀘스트 선택이 덮어쓰기로 유실되었습니다"
+    assert applied == [True], "지시효과가 정확히 한 번 적용되지 않았습니다"
+    assert tx.instruction_result.applied is True
+
+
+async def test_bc2_forced_proceed_decision_staged_and_applied_after_ready(rig, monkeypatch):
+    r = rig
+    s = _quest_rig(r, monkeypatch)
+    tx = tt.get_or_begin_turn_transaction(s, "선언")
+
+    async def _logic(session, *a, **k):
+        return {"action": "PROCEED", "proceed_instruction": "강제 진행",
+                "quest_choice": {"id": "q_new", "reason": "강제"},
+                "info_access": _secret("강제 비밀")}
+    monkeypatch.setattr(r.gm, "_call_gm_logic", _logic)
+    instr = await r.gm._forced_proceed_instruction(
+        s, "선언", [], r.master, transaction_id=tx.transaction_id)
+    assert tx.instruction_result is not None and tx.instruction_result.info_ledger
+    assert s.info_ledger == [] and s.quest_state["active"] is None
+    await r.gm._finish_proceed_and_continue(s, instr, r.master,
+                                            transaction_id=tx.transaction_id)
+    snap = r.rec["ready_snapshots"][0]["canon"]
+    assert snap["info_ledger"] == []
+    assert any(i["info"] == "강제 비밀" for i in s.info_ledger)
+    assert s.quest_state["active"]["id"] == "q_new"
+
+
+async def test_bc2_staged_decision_discarded_on_pre_ready_failure(rig, monkeypatch):
+    r = rig
+    s = _quest_rig(r, monkeypatch)
+    tx = tt.get_or_begin_turn_transaction(s, "선언")
+
+    async def _logic(session, *a, **k):
+        return {"action": "PROCEED", "proceed_instruction": "진행",
+                "quest_choice": {"id": "q_new", "reason": "r"}, "info_access": _secret("X")}
+    monkeypatch.setattr(r.gm, "_call_gm_logic", _logic)
+    r.prov.routes["narration"] = [RuntimeError("생성 실패")]
+    await r.gm._continue_with_roll_results(s, "선언", ["- 굴림"],
+                                           transaction_id=tx.transaction_id)
+    assert tx.status == tt.TurnStatus.FAILED_SYSTEM
+    assert s.info_ledger == [] and s.quest_state["active"] is None
+    assert tx.instruction_result.applied is False
+
+
+def test_bc2_composition_rule_unit(session_with_quest, monkeypatch):
+    """합성 규칙 고정: 후행 결정이 무변경이면 앞선 quest/info/안내가 유지된다."""
+    from tests.defects.test_instruction_side_effects import QUEST_NEW, _install_quest
+    s = session_with_quest
+    s.quest_state["active"] = None
+    s._quest_offered = ["q_new"]
+    _install_quest(monkeypatch, s.scenario_id, QUEST_NEW)
+    tx = tt.begin_turn_transaction(s, "d")
+    p1 = tp.stage_instruction_effects(
+        s, {"quest_choice": {"id": "q_new", "reason": "1"}, "info_access": _secret("A")},
+        transaction_id=tx.transaction_id)
+    p2 = tp.stage_instruction_effects(s, {"info_access": _secret("B")},
+                                      transaction_id=tx.transaction_id)
+    assert tx.instruction_result is p2 and p1 is not p2
+    assert p2.projected_quest_state["active"]["id"] == "q_new"
+    assert p2.quest_action == "start" and p2.quest_active_name
+    assert [i["info"] for i in p2.info_ledger] == ["A", "B"]
+    assert s.quest_state["active"] is None and s.info_ledger == []
+
+
+# ── B-C3 — 수치 재계획은 이번 턴 추출 계획이 권위 ─────────────
+
+def _free_plan(s):
+    s.narrative_mode = "free"
+    s.narrative_plan = {"current_event": {"title": "이전"}, "next_event": {},
+                        "mid_plan": {}, "plan_version": 3, "last_planned_turn": 2}
+
+
+def _planner_ok(r):
+    r.prov.routes["planner"] = [_json({
+        "mid_plan": {"title": "m", "overview": "o", "milestones": ["a"], "end_condition": "e"},
+        "current_event": {"title": "수치 재계획", "summary": "s", "resolution_direction": "r",
+                          "progress": ""},
+        "next_event": {"title": "n", "summary": "s", "trigger": "t"}})]
+
+
+async def test_bc3_current_plan_value_is_trigger_authority(rig):
+    """직전 last_extraction은 낮고 이번 계획이 임계 이상 → 같은 턴 재계획(1턴 지연 없음)."""
+    r = rig
+    s = r.sess
+    _free_plan(s)
+    _planner_ok(r)
+    s.last_extraction = {"quest_progress": {"advance": 0, "deviation": 0}}
+    r.prov.routes["extraction"] = [_json({"quest_progress": {"advance": 90, "deviation": 0}})]
+    tx = await _run_turn(r, event_assessment="ongoing")
+    prep = tx.preparation
+    assert prep.tasks["narrative_replan"].parent == "extraction"
+    assert r.rec["ready_snapshots"][0]["canon"]["narrative_plan"]["current_event"]["title"] == "이전"
+    assert s.narrative_plan["current_event"]["title"] == "수치 재계획"
+    assert s.narrative_plan["last_planned_turn"] == s.turn_count
+    ops = [e["operation"] for e in _events(r, tx) if e["event_id"] in prep.frozen_cost_event_ids]
+    assert "TURN_NARRATIVE_PLANNING" in ops
+
+
+async def test_bc3_stale_prior_extraction_does_not_trigger(rig):
+    """직전 last_extraction이 임계 이상이어도 이번 계획이 낮으면 재계획하지 않는다."""
+    r = rig
+    s = r.sess
+    _free_plan(s)
+    _planner_ok(r)
+    s.last_extraction = {"quest_progress": {"advance": 95, "deviation": 95}}
+    r.prov.routes["extraction"] = [_json({"quest_progress": {"advance": 0, "deviation": 0}})]
+    tx = await _run_turn(r, event_assessment="ongoing")
+    assert "narrative_replan" not in tx.preparation.tasks
+    assert r.prov.started.get("planner") is None
+    assert s.narrative_plan["current_event"]["title"] == "이전"
+
+
+async def test_bc3_event_assessment_precedence_dedupes(rig):
+    """event_assessment(completed) 트리거가 있으면 수치 판정은 생략 — 턴당 재계획 1건."""
+    r = rig
+    s = r.sess
+    _free_plan(s)
+    _planner_ok(r)
+    r.prov.routes["extraction"] = [_json({"quest_progress": {"advance": 99, "deviation": 99}})]
+    tx = await _run_turn(r, event_assessment="completed")
+    assert r.prov.started.get("planner") == 1
+    assert tx.preparation.tasks["narrative_replan"].parent is None   # 사건 트리거 소유
+    assert tx.preparation.narrative_marker is False
+
+
+# ── B-C4 — 래퍼 타임아웃 뒤에도 실제 provider 호출은 종료까지 추적 ─────
+
+def _slow_first_extraction(r, first_gate, *, late_raises=False):
+    calls = {"n": 0}
+
+    def _route(kwargs):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            assert first_gate.wait(10)
+            if late_raises:
+                raise RuntimeError("늦게 실패(usage 없음)")
+            return _json({"situation": {}}, p=777, c=77)
+        return _json({"situation": {}})
+    r.prov.routes["extraction"] = _route
+    return calls
+
+
+async def test_bc4_inflight_provider_call_blocks_closure_and_is_observed(rig, monkeypatch):
+    r = rig
+    monkeypatch.setitem(core.resilience.DEFAULT_TIMEOUTS, "extraction", 0.1)
+    gate = threading.Event()
+    _slow_first_extraction(r, gate)
+    tx = tt.get_or_begin_turn_transaction(r.sess, "선언")
+    owner = asyncio.create_task(_run_turn(r, tx=tx))
+    try:
+        await _until(lambda: r.prov.started.get("extraction", 0) >= 2)   # 래퍼 타임아웃 → 재시도 성공
+        await asyncio.sleep(0.1)
+        prep = tx.preparation
+        assert prep.tasks["extraction"].terminal, "논리 추출 작업은 이미 끝났어야 합니다"
+        assert prep.inflight_provider_calls(), "살아 있는 underlying 호출이 추적되지 않습니다"
+        assert "ready" not in r.ev["order"] and not owner.done()
+        with pytest.raises(tp.BarrierViolationError):
+            prep.close_cost_membership()
+    finally:
+        gate.set()
+    await owner
+    prep = tx.preparation
+    assert "ready" in r.ev["order"]
+    ext = [e for e in _events(r, tx) if e["operation"] == "TURN_EXTRACTION"]
+    late = [e for e in ext if e["metadata"].get("late_after_wrapper_timeout")]
+    assert len(ext) == 2 and len(late) == 1
+    assert late[0]["provider_attempt"] == 1 and late[0]["input_tokens"] == 777
+    assert {e["event_id"] for e in ext} <= set(prep.frozen_cost_event_ids)
+
+
+async def test_bc4_late_failure_without_usage_is_not_fabricated(rig, monkeypatch):
+    r = rig
+    monkeypatch.setitem(core.resilience.DEFAULT_TIMEOUTS, "extraction", 0.1)
+    gate = threading.Event()
+    _slow_first_extraction(r, gate, late_raises=True)
+    tx = tt.get_or_begin_turn_transaction(r.sess, "선언")
+    owner = asyncio.create_task(_run_turn(r, tx=tx))
+    try:
+        await _until(lambda: r.prov.started.get("extraction", 0) >= 2)
+        await asyncio.sleep(0.1)
+        assert "ready" not in r.ev["order"]
+    finally:
+        gate.set()
+    await owner
+    ext = [e for e in _events(r, tx) if e["operation"] == "TURN_EXTRACTION"]
+    assert len(ext) == 1 and ext[0]["provider_attempt"] == 2, "사용량 없는 늦은 실패를 날조했습니다"
+    assert "ready" in r.ev["order"]
+
+
+async def test_bc4_call_with_retry_tracks_timed_out_call_unit():
+    """단위 — 래퍼 타임아웃이 underlying 호출을 잊지 않고 관측자에게 넘긴다."""
+    op = core.cost_ledger.ProviderOperation(None, operation="TURN_EXTRACTION", model="m")
+    gate = threading.Event()
+
+    def _blocking():
+        gate.wait(5)
+        return FakeGenAIResponse("x", usage=None)
+    ok, res = await core.call_with_retry(
+        lambda: asyncio.to_thread(_blocking), layer="extraction", timeout=0.05,
+        retries=1, on_attempt_result=op.on_attempt, operation_id=op.operation_id)
+    assert ok is False and res is None
+    assert op.has_inflight()
+    gate.set()
+    await _until(lambda: not op.has_inflight())
+    assert op.event_ids == []            # usage 없음 → 날조 없음
+
+
+def test_bc4_automatic_configs_carry_network_timeout():
+    """liveness 상한 — 자동 경로 provider 설정은 per-request 네트워크 타임아웃을 싣는다."""
+    from tests.conftest import source_of
+    src = source_of("cogs/gm.py")
+    assert src.count("http_options=core.resilience.provider_http_options(") >= 10
+    opt = core.resilience.provider_http_options("extraction")
+    assert opt.timeout == int((core.resilience.get_timeout("extraction")
+                               + core.resilience.NETWORK_TIMEOUT_GRACE) * 1000)

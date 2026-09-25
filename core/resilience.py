@@ -53,6 +53,44 @@ def write_error_log(session_id: str, layer: str, exc: Exception, attempt: int):
         pass
 
 
+# WP-C(B-C4): 논리 래퍼 타임아웃 이후에도 살아 있는 실제 provider 호출의 네트워크 상한.
+#   래퍼 타임아웃(재시도 판단용)보다 넉넉히 길게 두어 게임 흐름 의미는 바꾸지 않되,
+#   SDK 기본값(요청 타임아웃 없음 = 무기한)으로 스레드가 영원히 남지 않게 한다.
+NETWORK_TIMEOUT_GRACE = 30.0
+
+
+def network_timeout_seconds(layer: str) -> float:
+    """층위별 실제 provider 요청(네트워크) 타임아웃 상한(초)."""
+    return get_timeout(layer) + NETWORK_TIMEOUT_GRACE
+
+
+def provider_http_options(layer: str):
+    """GenerateContentConfig.http_options 에 넣을 per-request 네트워크 타임아웃.
+
+    HttpOptions.timeout 단위는 밀리초다(SDK 규약). 래퍼가 타임아웃으로 결과를
+    버린 뒤에도 underlying 요청은 이 상한 안에서 반드시 terminal이 된다.
+    """
+    from google.genai import types as _types
+    return _types.HttpOptions(timeout=int(network_timeout_seconds(layer) * 1000))
+
+
+def _track_inflight(on_attempt_result, task, *, attempt, operation_id):
+    """WP-C(B-C4): 타임아웃 후에도 진행 중인 provider 호출을 관측자에게 넘긴다.
+
+    관측자가 ProviderOperation(track_inflight 보유)이면 그 호출을 cost-relevant
+    in-flight attempt로 추적한다 — 실제 종료 전에는 비용 멤버십이 닫히지 않고,
+    늦게 도착한 실제 usage는 CostEvent로 관측된다(게임 결과로는 쓰지 않는다).
+    """
+    owner = getattr(on_attempt_result, "__self__", None)
+    tracker = getattr(owner, "track_inflight", None)
+    if tracker is None:
+        return
+    try:
+        tracker(task, attempt=attempt, operation_id=operation_id)
+    except Exception as e:  # noqa: BLE001
+        print(f"[오류대응] in-flight 추적 실패(무시): {type(e).__name__} - {e}")
+
+
 def _notify_attempt_observer(on_attempt_result, *, attempt, success,
                              response, exception, operation_id):
     """WP-02: provider attempt 관측 콜백을 안전하게 호출한다.
@@ -92,8 +130,13 @@ async def call_with_retry(fn, *, layer: str, session_id: str = "",
     timeout = get_timeout(layer) if timeout is None else timeout
 
     for attempt in range(1, retries + 1):
+        # WP-C(B-C4): 실제 provider 호출을 별도 태스크로 두고 shield로 기다린다.
+        #   타임아웃 시 래퍼만 포기하고(원 응답은 게임에 쓰지 않음 — 기존 규정 유지),
+        #   underlying 호출은 잊지 않고 관측자에게 in-flight로 넘겨 종료까지 추적한다.
+        #   (기존 wait_for(fn()) 취소는 to_thread 스레드를 멈추지 못해 비용 사실이 유실됐다.)
+        task = asyncio.ensure_future(fn())
         try:
-            result = await asyncio.wait_for(fn(), timeout=timeout)
+            result = await asyncio.wait_for(asyncio.shield(task), timeout=timeout)
             _notify_attempt_observer(
                 on_attempt_result, attempt=attempt, success=True,
                 response=result, exception=None, operation_id=operation_id)
@@ -106,6 +149,17 @@ async def call_with_retry(fn, *, layer: str, session_id: str = "",
             _notify_attempt_observer(
                 on_attempt_result, attempt=attempt, success=False,
                 response=None, exception=e, operation_id=operation_id)
+            if not task.done():
+                _track_inflight(on_attempt_result, task, attempt=attempt,
+                                operation_id=operation_id)
+            else:
+                _consume(task)
+        except asyncio.CancelledError:
+            # 호출자 취소 — underlying 호출도 추적 대상으로 넘긴 뒤 취소를 전파한다.
+            if not task.done():
+                _track_inflight(on_attempt_result, task, attempt=attempt,
+                                operation_id=operation_id)
+            raise
         except Exception as e:
             print(f"[오류대응] {layer} 실패 — {type(e).__name__} (시도 {attempt})")
             write_error_log(session_id, layer, e, attempt)
@@ -120,6 +174,14 @@ async def call_with_retry(fn, *, layer: str, session_id: str = "",
                 pass
 
     return False, None
+
+
+def _consume(task):
+    """완료된 태스크의 예외를 소비해 'never retrieved' 경고를 막는다."""
+    try:
+        task.exception()
+    except BaseException:
+        pass
 
 
 def build_failed_turn_notice(player_message: str) -> str:

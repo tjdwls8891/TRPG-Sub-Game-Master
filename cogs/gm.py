@@ -1564,7 +1564,7 @@ class GMCog(commands.Cog):
         prep.register_task(
             "extraction", TP.TASK_EXTRACTION,
             coro=self._prepare_extraction(session, prep, narr.text, _mch),
-            required_success=True)
+            required_success=True, may_spawn_required_child_work=True)
         if prep.event_assessment is not None:
             await self._update_narrative_progress(
                 session, prep.event_assessment, master_ch, preparation=prep)
@@ -1591,7 +1591,53 @@ class GMCog(commands.Cog):
             attempt=prep.attempt, preparation=prep)
         if plan is None:
             raise RuntimeError("추출층위 실패(재시도 소진) 또는 stale")
+        # B-C3: 이번 턴 계획의 quest_progress로 수치 재계획을 판정 — 자식 작업 등록은
+        #   이 추출 작업이 terminal이 되기 전에 끝나므로 배리어 합류가 누락하지 않는다.
+        await self._evaluate_numeric_replan(session, prep, plan, master_ch)
         return plan
+
+    async def _evaluate_numeric_replan(self, session, prep, plan, master_ch) -> str | None:
+        """WP-C(B-C3) — 이번 트랜잭션 추출 계획의 수치로 자동 재계획을 트리거한다.
+
+        · 권위: plan.quest_progress(advance/deviation). 정본 last_extraction(직전 턴)은 보지 않는다.
+        · precedence/dedupe: event_assessment가 completed/deviated면 이미 사건 트리거가
+          등록됐으므로 생략(턴당 1건). event_assessment=None(강제 PROCEED)이면 기존과 같이
+          재계획 판정 자체를 하지 않는다. narrative_replan이 이미 등록돼 있어도 생략.
+        · 결과 후보는 스테이징되고 READY 이후에만 적용된다.
+        """
+        ea = prep.event_assessment
+        if ea is None or ea in ("completed", "deviated"):
+            return None
+        if "narrative_replan" in prep.tasks:
+            return None
+        if not getattr(session, "narrative_plan", None):
+            return None
+        qp = getattr(plan, "quest_progress", None) or {}
+        try:
+            advance = int(qp.get("advance", 0))
+            deviation = int(qp.get("deviation", 0))
+        except (TypeError, ValueError, AttributeError):
+            return None
+        th = core.get_thresholds(session)
+        if deviation >= th["quest_deviated"]:
+            reason, full, note = "deviated", True, f"추출 이탈 수치 {deviation}"
+            msg = (f"📖 **[서사 계획]** 이탈 수치 {deviation} (임계 {th['quest_deviated']}) "
+                   f"→ 중규모 계획 포함 전체 재수립합니다.")
+        elif advance >= th["quest_advance"]:
+            reason, full, note = "completed", False, f"추출 진행 수치 {advance}"
+            msg = (f"📖 **[서사 계획]** 진행 수치 {advance} (임계 {th['quest_advance']}) "
+                   f"→ 순간 계획을 재수립합니다.")
+        else:
+            return None
+        prep.narrative_marker = True            # last_planned_turn 마커(스테이징)
+        prep.register_task(
+            "narrative_replan", core.turn_preparation.TASK_NARRATIVE_REPLAN,
+            coro=self._prepare_auto_replan(
+                session, prep, reason, full_replan=full, context_note=note),
+            parent="extraction")
+        if master_ch:
+            await master_ch.send(msg)
+        return reason
 
     async def _join_after_exception(self, session, prep) -> str:
         try:
@@ -1898,7 +1944,7 @@ class GMCog(commands.Cog):
                 prep.register_task(
                     "extraction", TP.TASK_EXTRACTION,
                     coro=self._prepare_extraction(session, prep, prep.extraction_text or ctx.get("text", ""), _mch),
-                    required_success=True)
+                    required_success=True, may_spawn_required_child_work=True)
                 outcome = await self._join_and_ready(session, prep)
                 if outcome == _OUTCOME_READY:
                     await self._post_ready_legacy_continuation(
@@ -2348,6 +2394,11 @@ class GMCog(commands.Cog):
             transaction_id=transaction_id)
         if not decision:
             return fallback
+        # WP-C(B-C2): 강제 PROCEED 결정의 지시효과(quest_choice/intended_case/info_access)도
+        #   기존 단일 owner로 스테이징한다(유실 금지). 정본 적용은 READY 이후에만.
+        if transaction_id is not None:
+            core.turn_preparation.stage_instruction_effects(
+                session, {**decision, "action": "PROCEED"}, transaction_id=transaction_id)
         return _clean_proceed_instruction(decision.get("proceed_instruction") or fallback)
 
     async def _call_judgment(self, session, player_message: str, roll_results: list,
@@ -2372,6 +2423,7 @@ class GMCog(commands.Cog):
 
         contents = [types.Content(role="user", parts=[types.Part.from_text(text=user_prompt)])]
         config = types.GenerateContentConfig(
+            http_options=core.resilience.provider_http_options("judgment"),  # WP-C B-C4
             system_instruction=JUDGMENT_SYSTEM_INSTRUCTION,
             temperature=0.4,
             response_mime_type="application/json",
@@ -2536,6 +2588,7 @@ class GMCog(commands.Cog):
                                   parts=[types.Part.from_text(text=user_prompt)]),
                 ]
                 config = types.GenerateContentConfig(
+                    http_options=core.resilience.provider_http_options("instruction"),  # WP-C B-C4
                     cached_content=cache_name,
                     temperature=0.4,
                     response_mime_type="application/json",
@@ -2548,6 +2601,7 @@ class GMCog(commands.Cog):
                     types.Content(role="user", parts=[types.Part.from_text(text=user_prompt)])
                 ]
                 config = types.GenerateContentConfig(
+                    http_options=core.resilience.provider_http_options("instruction"),  # WP-C B-C4
                     system_instruction=GM_LOGIC_SYSTEM_INSTRUCTION,
                     temperature=0.4,
                     response_mime_type="application/json",
@@ -2908,6 +2962,10 @@ class GMCog(commands.Cog):
 
             action = decision.get("action", "PROCEED").upper()
             reasoning = decision.get("reasoning", "")
+            # WP-C(B-C2): 굴림 후 지시층위 결정의 지시효과를 기존 단일 owner로 스테이징한다
+            #   (유실 금지). 정본 적용은 READY 이후 legacy continuation에서만.
+            core.turn_preparation.stage_instruction_effects(
+                session, {**decision, "action": action}, transaction_id=transaction_id)
             action_labels = {
                 "ASK":     "🟡 ASK (명확화 요청)",
                 "ROLL":    "🎲 ROLL (주사위 판정)",
@@ -2990,12 +3048,14 @@ class GMCog(commands.Cog):
         try:
             if session.cache_name:
                 config = types.GenerateContentConfig(
+                    http_options=core.resilience.provider_http_options("narration"),  # WP-C B-C4
                     cached_content=session.cache_name,
                     temperature=0.65,
                     safety_settings=core.TRPG_SAFETY_SETTINGS,
                 )
             else:
                 config = types.GenerateContentConfig(
+                    http_options=core.resilience.provider_http_options("narration"),  # WP-C B-C4
                     system_instruction=self.bot.system_instruction,
                     temperature=0.65,
                     safety_settings=core.TRPG_SAFETY_SETTINGS,
@@ -3350,6 +3410,7 @@ class GMCog(commands.Cog):
         )
 
         config = types.GenerateContentConfig(
+            http_options=core.resilience.provider_http_options("media"),  # WP-C B-C4
             system_instruction=NPC_DETAIL_SYSTEM_INSTRUCTION,
             temperature=0.5,
             response_mime_type="application/json",
@@ -3507,6 +3568,7 @@ class GMCog(commands.Cog):
         )
 
         config = types.GenerateContentConfig(
+            http_options=core.resilience.provider_http_options("media"),  # WP-C B-C4
             system_instruction=IRREGULAR_NPC_SYSTEM_INSTRUCTION,
             temperature=0.3,
             response_mime_type="application/json",
@@ -3909,6 +3971,7 @@ class GMCog(commands.Cog):
 
         contents = [types.Content(role="user", parts=[types.Part.from_text(text=user_prompt)])]
         config = types.GenerateContentConfig(
+            http_options=core.resilience.provider_http_options("extraction"),  # WP-C B-C4
             system_instruction=EXTRACTION_SYSTEM_INSTRUCTION,
             temperature=0.2,
             response_mime_type="application/json",
@@ -4218,6 +4281,7 @@ class GMCog(commands.Cog):
                               parts=[types.Part.from_text(text=user_prompt)]),
             ]
             config = types.GenerateContentConfig(
+                http_options=core.resilience.provider_http_options("instruction"),  # WP-C B-C4
                 cached_content=cache_name,
                 temperature=0.3,
                 response_mime_type="application/json",
@@ -4466,7 +4530,9 @@ class GMCog(commands.Cog):
         WP-C: 트리거된 자동 재계획은 이 턴의 필수 준비 작업(다음 GM 프롬프트가 계획에
         의존)으로 등록되어 READY 전에 합류한다. 후보·last_planned_turn 마커는 준비 객체에
         스테이징되고 READY 이후에만 정본 narrative_plan에 적용된다.
-        수치 판정은 기존과 같이 정본 last_extraction(직전 확정 턴 추출)을 읽는다.
+        수치(advance/deviation) 판정은 이번 트랜잭션의 추출 계획(ExtractionMutationPlan.
+        quest_progress)이 권위다 — _prepare_extraction이 계획 생성 직후
+        _evaluate_numeric_replan으로 자식 준비 작업을 등록한다(B-C3).
         """
         plan = getattr(session, "narrative_plan", {})
         if not plan or preparation is None:
@@ -4495,34 +4561,10 @@ class GMCog(commands.Cog):
                 f"📖 **[서사 계획]** 현재 순간 사건이 마무리 단계에 진입했습니다 (resolving)."
             )
 
-        # ── 수치 기반 재계획 판정 (설계문서 3) ──
-        # event_assessment로 이미 트리거된 경우는 중복을 피한다.
-        if event_assessment not in ("completed", "deviated"):
-            ex = getattr(session, "last_extraction", {}) or {}
-            qp = ex.get("quest_progress") or {}
-            try:
-                advance = int(qp.get("advance", 0))
-                deviation = int(qp.get("deviation", 0))
-            except (TypeError, ValueError):
-                return
-            th = core.get_thresholds(session)
-            if deviation >= th["quest_deviated"]:
-                preparation.narrative_marker = True     # last_planned_turn 마커(스테이징)
-                if master_ch:
-                    await master_ch.send(
-                        f"📖 **[서사 계획]** 이탈 수치 {deviation} (임계 {th['quest_deviated']}) "
-                        f"→ 중규모 계획 포함 전체 재수립합니다."
-                    )
-                trigger = ("deviated", True, f"추출 이탈 수치 {deviation}")
-            elif advance >= th["quest_advance"]:
-                preparation.narrative_marker = True
-                if master_ch:
-                    await master_ch.send(
-                        f"📖 **[서사 계획]** 진행 수치 {advance} (임계 {th['quest_advance']}) "
-                        f"→ 순간 계획을 재수립합니다."
-                    )
-                trigger = ("completed", False, f"추출 진행 수치 {advance}")
-
+        # ── 수치 기반 재계획 판정(설계문서 3)은 WP-C(B-C3)부터 이번 턴 추출 계획이
+        #    나온 뒤 _evaluate_numeric_replan이 수행한다(직전 턴 last_extraction 사용 금지).
+        #    precedence: event_assessment(completed/deviated) 트리거가 있으면 수치 판정은
+        #    생략한다(턴당 재계획 1건 — 기존 중복 회피 규칙 유지).
         if trigger is not None:
             reason, full, note = trigger
             preparation.register_task(
@@ -4842,6 +4884,7 @@ class GMCog(commands.Cog):
 
         try:
             config = types.GenerateContentConfig(
+                http_options=core.resilience.provider_http_options("instruction"),  # WP-C B-C4
                 system_instruction=NARRATIVE_PLANNER_SYSTEM_INSTRUCTION,
                 temperature=0.5,
                 response_mime_type="application/json",

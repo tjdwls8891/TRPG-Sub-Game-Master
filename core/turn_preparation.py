@@ -139,7 +139,8 @@ class PendingInstructionEffects:
                 or self.narrative_progress is not None)
 
 
-def _stage_quest(session, decision, pending: PendingInstructionEffects) -> None:
+def _stage_quest(session, decision, pending: PendingInstructionEffects,
+                 base_state=None) -> None:
     """quest choice(통합 단일 owner) + intended_case를 quest_state 복제본에 계산한다.
 
     기존 두 경로를 통합한다:
@@ -147,10 +148,12 @@ def _stage_quest(session, decision, pending: PendingInstructionEffects) -> None:
       · cogs.gm._apply_quest_choice — narrative_mode 가드 + 시나리오 random 선정.
     canonical quest_state는 건드리지 않고 복제본 위 투영 뷰에서 기존 함수를 재사용한다.
     """
-    proj = _quest.clone_state(session)
+    # WP-C(B-C2): 같은 tx의 이전 스테이징 투영이 있으면 그 위에 순차 합성한다
+    #   (덮어쓰기로 앞선 결정의 효과를 잃지 않는다 — 결정을 순서대로 적용한 결과와 등가).
+    proj = copy.deepcopy(base_state) if base_state is not None else _quest.clone_state(session)
     view = _quest.projection_view(session, proj)
 
-    changed = False
+    changed = base_state is not None
 
     # 풀자유(free) 세션은 서사설계자가 주도한다 — quest 선택 스테이징 안 함.
     if getattr(session, "narrative_mode", "quest") == "quest":
@@ -184,12 +187,18 @@ def _stage_quest(session, decision, pending: PendingInstructionEffects) -> None:
         pending.projected_quest_state = view.quest_state
 
 
-def _stage_info_ledger(session, decision, pending: PendingInstructionEffects) -> None:
-    """info_access 델타를 info_ledger 복제본에 병합해 스테이징한다."""
+def _stage_info_ledger(session, decision, pending: PendingInstructionEffects,
+                       base_ledger=None) -> None:
+    """info_access 델타를 info_ledger 복제본에 병합해 스테이징한다.
+
+    WP-C(B-C2): base_ledger(같은 tx의 이전 스테이징)가 있으면 그 위에 합성한다.
+    """
+    if base_ledger is not None:
+        pending.info_ledger = copy.deepcopy(base_ledger)
     ia = decision.get("info_access") or {}
     if not isinstance(ia, dict) or not ia:
         return
-    base = getattr(session, "info_ledger", None)
+    base = base_ledger if base_ledger is not None else getattr(session, "info_ledger", None)
     if not isinstance(base, list):
         base = []
     ledger = copy.deepcopy(base)
@@ -212,14 +221,35 @@ def stage_instruction_effects(session, decision, *, transaction_id=None) -> Pend
         logical_turn=getattr(active, "logical_turn", None),
         attempt=getattr(active, "attempt", None),
     )
+    # WP-C(B-C2) 합성 규칙: 같은 활성 시도에 아직 적용되지 않은 이전 스테이징이 있으면
+    #   그 투영(quest_state/info_ledger)을 기준으로 이번 결정을 순차 합성한다.
+    #   · quest: 이전 투영 위에서 apply_choice/intended_case(후행 결정이 우선, 무변경이면 유지)
+    #   · info_ledger: 이전 병합본 위에 이번 델타 병합
+    #   · 안내 메시지(quest_action/reason/name): 이번 결정이 적용되면 이번 것, 아니면 이전 것
+    prev = getattr(active, "instruction_result", None) if active is not None else None
+    if not (isinstance(prev, PendingInstructionEffects) and not prev.applied
+            and (prev.logical_turn, prev.attempt) == (pending.logical_turn, pending.attempt)):
+        prev = None
     try:
-        _stage_quest(session, decision or {}, pending)
+        _stage_quest(session, decision or {}, pending,
+                     base_state=(prev.projected_quest_state if prev is not None else None))
     except Exception as e:  # 스테이징 실패는 canonical을 오염시키지 않는다.
         pending.diagnostics["quest_error"] = str(e)
     try:
-        _stage_info_ledger(session, decision or {}, pending)
+        _stage_info_ledger(session, decision or {}, pending,
+                           base_ledger=(prev.info_ledger if prev is not None else None))
     except Exception as e:
         pending.diagnostics["info_error"] = str(e)
+    if prev is not None:
+        if (pending.quest_action not in ("start", "switch")
+                and prev.quest_action in ("start", "switch")):
+            pending.quest_action = prev.quest_action
+            pending.quest_reason = prev.quest_reason
+            pending.quest_active_name = prev.quest_active_name
+        if pending.narrative_progress is None:
+            pending.narrative_progress = prev.narrative_progress
+        pending.diagnostics = {**prev.diagnostics, **pending.diagnostics,
+                               "composed_with_previous": True}
     # 활성 트랜잭션에 최신 스테이징 상태를 얹는다(소유권 조기 고정용 슬롯).
     # 같은 논리 턴의 후속 프롬프트(투영)와 묘사 성공 후 적용이 이 값을 읽는다.
     if active is not None:
@@ -972,12 +1002,23 @@ class TurnPreparation:
         while True:
             pending = [r.task for r in self.tasks.values()
                        if not r.terminal and r.task is not None]
+            # B-C4: 논리 타임아웃 뒤에도 살아 있는 claim된 provider 호출도 기다린다.
+            pending += self.inflight_provider_calls()
             if not pending:
                 break
             await _asyncio.wait(pending)
         for r in self.tasks.values():
             if not r.terminal:     # task 없이 인라인 관리되는 기록이 비종결로 남음
                 self.violations.append(f"unterminated:{r.name}")
+
+    def inflight_provider_calls(self) -> list:
+        """claim된 오퍼레이션 중 아직 terminal이 아닌 실제 provider 호출(future)."""
+        out = []
+        for op in self.cost_operations:
+            for f in list(getattr(op, "inflight", ()) or ()):
+                if not f.done():
+                    out.append(f)
+        return out
 
     def seal(self) -> None:
         """레지스트리 봉인: OPEN → CLOSING → CLOSED. 이후 등록은 위반."""
@@ -1018,6 +1059,11 @@ class TurnPreparation:
                      if r.blocks_cost_closure and not r.terminal]
         if open_cost:
             raise BarrierViolationError(f"비용 관련 작업 미종결: {open_cost}")
+        live = self.inflight_provider_calls()
+        if live:
+            # B-C4: 래퍼 타임아웃으로 논리 작업은 끝났어도 실제 호출이 살아 있으면 동결 금지.
+            raise BarrierViolationError(
+                f"진행 중인 provider 호출 {len(live)}건 — 비용 멤버십 동결 불가")
         if self.registry_state != REGISTRY_CLOSED:
             raise BarrierViolationError("레지스트리 봉인 전 비용 동결 불가")
         ids = []
@@ -1198,6 +1244,16 @@ def evaluate_ready(session, prep) -> list:
     # 작업 종결
     if prep.registry_state != REGISTRY_CLOSED:
         reasons.append("tasks:registry_not_closed")
+    if prep.inflight_provider_calls():
+        reasons.append("cost:provider_call_in_flight")
+    # 정본(B-C1): 리뷰된 커밋 소유 도메인이 기준선과 다르면 READY 불가 —
+    #   외부(관리자/수동 포함) 쓰기로 이 시도의 기준선은 더 이상 안정적이지 않다.
+    if prep.baseline_fingerprint:
+        _now = canonical_fingerprint(session)
+        _changed = sorted(k for k in _now
+                          if prep.baseline_fingerprint.get(k) != _now.get(k))
+        if _changed:
+            reasons.append("state:canonical_changed:" + ",".join(_changed))
     # 비용
     if prep.cost_membership != COST_CLOSED or prep.frozen_cost_event_ids is None:
         reasons.append("cost:membership_not_closed")
@@ -1229,9 +1285,7 @@ def transition_to_ready(session, prep):
         delivered_message_ids=delivered,
         extraction_entries=len(getattr(prep.extraction_plan, "entries", ()) or ()),
     )
-    if changed:
-        # 관리자/수동 scope 쓰기(예: !증감)는 정당할 수 있으므로 차단하지 않고 증거로 남긴다.
-        print(f"[WP-C/{prep.transaction_id[:8]}] READY 시점 정본 도메인 변화 감지: {changed}")
+    assert not changed, "evaluate_ready가 정본 변화를 거부했어야 함"   # B-C1 방어
     _tx.mark_transaction_status(session, prep.transaction_id,
                                 _tx.TurnStatus.READY_TO_COMMIT)
     prep.ready_proof = proof

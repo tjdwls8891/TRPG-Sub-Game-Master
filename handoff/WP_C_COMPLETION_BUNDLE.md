@@ -1,7 +1,7 @@
 # WP-C COMPLETION BUNDLE — Concurrent Preparation & READY_TO_COMMIT Barrier
 
 ## 0. Canonical current status
-- **WP-C: WIRED_NOT_VERIFIED**. Independent GPT gate is pending. This is not a VERIFIED checkpoint.
+- **WP-C: WIRED_NOT_VERIFIED.** Gate 1 returned *PATCH REQUIRED* (B-C1..B-C4). All four blockers are patched on the same local branch (see **§22 Gate patch 1**). Independent GPT gate is pending again.
 - **WP-D: NOT_STARTED.** Nothing from WP-D is wired live:
   - no CommitJournal production wiring;
   - no TurnSettlement or InkTransaction live cutover;
@@ -43,7 +43,8 @@
 | Run | Result |
 |---|---|
 | Baseline at start SHA | `339 passed, 6 xfailed, 0 failed, 0 XPASS` |
-| Final full suite | `368 passed, 3 xfailed, 0 failed, 0 XPASS, 0 skipped` (371 = 345 + 26 new) |
+| Final full suite (gate patch 1) | `383 passed, 3 xfailed, 0 failed, 0 XPASS, 0 skipped` (386 = 345 + 26 WP-C + 15 blocker tests) |
+| Pre-gate full suite | `368 passed, 3 xfailed` |
 | Targeted (`test_ready_barrier.py` + `test_turn_commit_races.py`) | `31 passed` |
 | Remaining strict xfails | d006e (AUD-034/035), d004c (AUD-020), d005d (AUD-029). All unrelated to WP-C and unchanged. |
 | XPASS | 0. The three resolved WP-C xfails were converted with evidence (§16). |
@@ -319,7 +320,7 @@ player declaration → tx (_process_actions) → [judgment/sim/instruction/ROLL:
   - narrative_plan, pending_ending, last_extraction;
   - players, stat_fail_counts;
   - turn_count, gm_turns_done, last_recorded_turn, gm_proceed_history, raw_logs.
-- A domain change caused by a legitimate admin write is logged as evidence and does not block.
+- **(Gate patch B-C1)** Any difference from the baseline in a reviewed domain, including admin/manual writes, makes the predicate fail with `state:canonical_changed:<domains>`. READY is refused, the turn becomes FAILED_SYSTEM / COMMIT_VALIDATION_FAILURE, and there is no charge. The predicate also refuses `cost:provider_call_in_flight` (B-C4).
 
 ## 13. Failure disposition
 | Case | READY | Canonical | Charge | Next round | tx |
@@ -393,11 +394,12 @@ This is labelled **LEGACY POST-READY CONTINUATION (pre-WP-D)**. It is not author
 | **New — ROLL growth canonical writer** | **RESOLVED_IN_CODE in WP-C (B1)** | Found by the WP-C fresh mutation inventory: `growth.process_roll_outcome` wrote `players.profile` and `stat_fail_counts` before READY. Now staged, projected and applied after READY; discarded on pre-READY failure (B1 tests). |
 | **New F1 — extraction `attempt` shadowing** | **RESOLVED_IN_CODE** | `for attempt in range(...)` shadowed the tx attempt used by the stale check and plan identity. Renamed to `_try`. |
 | New F2 — `m_send` undefined in the overdraft branch | OPEN, reported → WP-D | Legacy billing: a NameError is swallowed and the remaining players' deduction is skipped. Preserved verbatim; billing authority is WP-D. |
-| New F3 — post-ROLL / forced-PROCEED instruction not staged | OPEN, reported | `_continue_with_roll_results` and `_forced_proceed_instruction` never call `stage_instruction_effects`, so quest_choice etc. from those decisions is dropped (possible WP-B-era behavior loss). Not changed. |
-| New F4 — manual commands copy the active tx into CostEvents | OPEN, reported | Excluded from membership by explicit claim; the attribution fix is later. |
-| New F5 — `call_with_retry` timeout leaves the provider thread running | OPEN residual | Possible billed usage with no event; not observable by the barrier. |
-| New F6 — replan numeric trigger reads the prior turn's `last_extraction` | OPEN, needs intent | Current behavior preserved. |
+| New F3 — post-ROLL / forced-PROCEED instruction not staged | **RESOLVED_IN_CODE (gate patch B-C2)** | Both callers now stage through the existing owner. Staging within the same tx composes onto the previous unapplied projection, so nothing is lost to overwrite (§22). |
+| New F4 — manual commands copy the active tx into CostEvents | OPEN (not a gate blocker) | Frozen membership uses explicit claims, so it is not contaminated. **WP-D follow-through:** TurnSettlement must use the frozen ID tuple (`prep.frozen_cost_event_ids`) as the authoritative membership, never a ledger query by `transaction_id`. |
+| New F5 — `call_with_retry` timeout leaves the provider thread running | **RESOLVED_IN_CODE (gate patch B-C4)** | Timed-out underlying calls are tracked until terminal. Closure and READY are refused while any is alive. Late real usage is observed as a CostEvent. A per-request network timeout bounds liveness (§22). |
+| New F6 — replan numeric trigger reads the prior turn's `last_extraction` | **RESOLVED_IN_CODE (gate patch B-C3)** | The automatic numeric trigger now uses this transaction's `ExtractionMutationPlan.quest_progress` (§22). |
 | Residual — quest `min_stat` filters | note | Read canonical profile; a same-turn staged growth becomes visible to quest filters on the next turn. |
+| New F2 — `m_send` undefined in the overdraft branch | OPEN → WP-D (the gate confirmed it as an inherited finding) | Unchanged. |
 | Residual — rewind button during RETRY_PENDING | note | `is_processing` is released while waiting for a retry, so rewind is possible then (same as before). Rewind authority → WP-E. |
 | Residual — restart during RETRY_PENDING | note | The runtime preparation is lost; the retry only releases the block. Durable recovery → WP-D. |
 | Pre-existing — `verify_docs` core module count 45 ≠ 52 | note | Present at the start SHA; out of scope. |
@@ -1312,3 +1314,204 @@ The final SHA, the push result, local==remote equality and the literal `git stat
 
 ## 21. Hard stop
 WP-D was **not** started. The work stops here for the independent GPT gate. No merge.
+
+---
+
+## 22. Gate patch 1 (2026-09-25) — B-C1 … B-C4
+
+**Gate verdict:** WIRED_NOT_VERIFIED — PATCH REQUIRED.
+
+**Preserved:** all approved WP-C implementation, unchanged. That is:
+- overlap;
+- the registry;
+- dynamic child join;
+- exact-ID membership;
+- the single READY transition;
+- WP-B plan authority;
+- B1 and D2;
+- the d002 conversions;
+- the same-tx retry;
+- intro/manual isolation;
+- no WP-D wiring.
+
+The 26 earlier WP-C tests all still pass.
+
+Patch file scope (diff vs `2882f20`):
+- `cogs/gm.py`
+- `core/cost_ledger.py`
+- `core/resilience.py` (new to scope — required for B-C4)
+- `core/turn_preparation.py`
+- `tests/policy/test_ready_barrier.py` (+15 tests)
+- this bundle
+
+### B-C1 — canonical change blocks READY
+- `evaluate_ready` is the only predicate used by the only transition. It now recomputes the reviewed-domain fingerprint and refuses READY with `state:canonical_changed:<domains>` on any difference.
+- `transition_to_ready` also asserts `not changed` as a defensive check.
+- There is no admin/manual exemption.
+- Tests:
+  - `test_bc1_canonical_change_during_preparation_blocks_ready`, parametrized over resources, quest_state and narrative_plan tampering during preparation. Each case gives: no READY, the reason recorded, FAILED_SYSTEM / COMMIT_VALIDATION_FAILURE, no charge, and no counter advance.
+  - `test_bc1_normal_path_canonical_unchanged_and_ready`.
+
+### B-C2 — post-ROLL / forced-PROCEED instruction effects
+- **Characterized flow.** `stage_instruction_effects` previously **replaced** `tx.instruction_result` on every call. That already happened in the main loop (for example a NARRATE decision followed by a PROCEED decision in the same tx), so earlier effects were lost.
+- **Fixed composition semantics.** When the same active attempt has an unapplied previous staging, the new decision is staged **on top of the previous projection**:
+  - quest: `apply_choice` / `intended_case` run on the previous projected `quest_state`. A later decision wins; an unchanged one preserves the earlier result.
+  - info ledger: the new delta is merged onto the previous merged ledger.
+  - notice: the start/switch notice is kept unless the new decision itself starts or switches.
+  - The result equals applying the decisions in order. No new owner is introduced.
+- **Callers.**
+  - `_continue_with_roll_results` now calls `stage_instruction_effects(session, {**decision, "action": action}, transaction_id)`.
+  - `_forced_proceed_instruction` does the same with action PROCEED.
+- Both then follow the existing path: projected read → READY → `apply_instruction_effects`, exactly once.
+- Tests:
+  - `test_bc2_post_roll_decision_staged_composed_and_applied_once`: canonical is unchanged at READY; after READY both earlier and new effects are present and applied exactly once.
+  - `test_bc2_forced_proceed_decision_staged_and_applied_after_ready`.
+  - `test_bc2_staged_decision_discarded_on_pre_ready_failure`.
+  - `test_bc2_composition_rule_unit`: nothing lost to overwrite.
+
+### B-C3 — numeric replan uses the current extraction plan
+- **Topology:** extraction task → current `ExtractionMutationPlan` → `_evaluate_numeric_replan` → register the `narrative_replan` child (parent=`extraction`, registered before the parent is terminal) → dynamic join → READY. Delivery overlap is unchanged.
+- **Authority:** `plan.quest_progress.advance/deviation`. Canonical `last_extraction` is no longer read for triggers (scan 8).
+- **Precedence / dedupe:**
+  - An `event_assessment` of completed or deviated registers the replan at finalized narration, and the numeric check is skipped.
+  - At most one replan per turn: the check is skipped if `narrative_replan` is already registered.
+  - `event_assessment=None` (forced PROCEED) triggers no replan, the same as before.
+- The resulting candidate and the `last_planned_turn` marker stay staged until READY.
+- The planner CostEvent is a frozen member.
+- Tests:
+  - `test_bc3_current_plan_value_is_trigger_authority`: previous turn low, this plan high → replan in the same turn, staged until READY, cost member.
+  - `test_bc3_stale_prior_extraction_does_not_trigger`: previous turn high, this plan low → no replan (no one-turn-late behavior).
+  - `test_bc3_event_assessment_precedence_dedupes`.
+
+### B-C4 — timed-out provider calls are tracked until terminal
+**Source finding.**
+- `call_with_retry` used `asyncio.wait_for(fn())`. On timeout it cancelled the awaiting task, but the `asyncio.to_thread` worker thread kept running the SDK call.
+- The genai client is built with no `http_options`, so the SDK request timeout is None (unbounded).
+- The late result and any real usage were silently lost, and closure could happen while the call was alive.
+
+**Fix — option 2 (correctness) plus option 1 (liveness bound):**
+
+1. **`core/resilience.call_with_retry`**
+   - Starts the provider coroutine as a task and waits on `asyncio.shield(task)`.
+   - On wrapper timeout (or caller cancellation) the logical attempt fails and retries exactly as before; the gameplay never uses the late result.
+   - The **underlying task is not forgotten**: it is handed to the observer's `track_inflight` (when the observer is a `ProviderOperation`).
+2. **`ProviderOperation.track_inflight` / `_record_late`**
+   - Keeps the live future in `op.inflight`.
+   - When the future completes with provider `usage_metadata`, one CostEvent is recorded for that provider attempt number:
+     - `metadata.late_after_wrapper_timeout=True`;
+     - priced with the existing text-gen breakdown;
+     - no legacy `accrue`.
+   - An exception or missing usage records nothing, so nothing is fabricated.
+3. **Barrier**
+   - `TurnPreparation.join` also waits on `inflight_provider_calls()` of the claimed operations.
+   - `close_cost_membership` raises while any is alive.
+   - `evaluate_ready` refuses `cost:provider_call_in_flight`.
+   - The sequence "wrapper timeout → to_thread forgotten → task terminal → cost CLOSED" is now impossible.
+4. **Liveness bound (network level)**
+   - Every automatic-path provider config sets `http_options=provider_http_options(layer)`, which is the per-request SDK `HttpOptions.timeout` (ms).
+   - The bound is the wrapper timeout plus a 30 s grace. This applies to judgment, instruction ×2, light narrate ×2, irregular NPC, NPC detail, extraction, simulation and planner.
+   - The underlying request therefore becomes terminal at the network level, and the barrier join is bounded.
+   - Narration itself has no wrapper timeout and is awaited to completion, so it is terminal by construction.
+
+Tests:
+- `test_bc4_inflight_provider_call_blocks_closure_and_is_observed`:
+  - the underlying extraction thread is really blocked on a `threading.Event`;
+  - the wrapper times out, and the retry succeeds;
+  - the logical task is terminal while the in-flight call is tracked;
+  - there is no READY and closure raises;
+  - after release: READY, and the late event (provider_attempt 1, observed usage) plus the retry event (attempt 2) are both in the frozen IDs.
+- `test_bc4_late_failure_without_usage_is_not_fabricated`.
+- `test_bc4_call_with_retry_tracks_timed_out_call_unit`.
+- `test_bc4_automatic_configs_carry_network_timeout`.
+
+Note: `call_with_retry` is shared, so manual and background callers also stop losing late usage now. Their operations are still never claimed into turn membership.
+
+### Re-verification
+| # | Check | Result |
+|---|---|---|
+| 1 | Blocker targeted tests | 15 passed |
+| 2 | Earlier WP-C ready-barrier tests | 26 passed |
+| 3 | WP-B preservation tests (`test_turn_preparation`, `test_extraction_staging`, `test_irregular_npc_plan`, `test_narrative_replan_plan`, `test_plan_authority`, D-003) | all pass (inside the full run) |
+| 4 | Full regression | `383 passed, 3 xfailed, 0 failed, 0 XPASS, 0 skipped` |
+| 5 | compileall / `import main` (dummy key) | PASS |
+| 6–10 | Scans | listed below |
+
+**6–10 scans (literal output):**
+```text
+== 6 provider-call/thread terminality: wrapper + trackers
+core/resilience.py:67:def provider_http_options(layer: str):
+core/resilience.py:77:def _track_inflight(on_attempt_result, task, *, attempt, operation_id):
+core/resilience.py:139:            result = await asyncio.wait_for(asyncio.shield(task), timeout=timeout)
+core/resilience.py:153:                _track_inflight(on_attempt_result, task, attempt=attempt,
+core/resilience.py:160:                _track_inflight(on_attempt_result, task, attempt=attempt,
+core/cost_ledger.py:687:    def track_inflight(self, future, *, attempt=None, operation_id=None) -> None:
+core/turn_preparation.py:1006:            pending += self.inflight_provider_calls()
+core/turn_preparation.py:1062:        live = self.inflight_provider_calls()
+core/turn_preparation.py:1247:    if prep.inflight_provider_calls():
+core/turn_preparation.py:1248:        reasons.append("cost:provider_call_in_flight")
+cogs/gm.py:2426:            http_options=core.resilience.provider_http_options("judgment"),  # WP-C B-C4
+cogs/gm.py:2591:                    http_options=core.resilience.provider_http_options("instruction"),  # WP-C B-C4
+cogs/gm.py:2604:                    http_options=core.resilience.provider_http_options("instruction"),  # WP-C B-C4
+cogs/gm.py:3051:                    http_options=core.resilience.provider_http_options("narration"),  # WP-C B-C4
+cogs/gm.py:3058:                    http_options=core.resilience.provider_http_options("narration"),  # WP-C B-C4
+cogs/gm.py:3413:            http_options=core.resilience.provider_http_options("media"),  # WP-C B-C4
+cogs/gm.py:3571:            http_options=core.resilience.provider_http_options("media"),  # WP-C B-C4
+cogs/gm.py:3974:            http_options=core.resilience.provider_http_options("extraction"),  # WP-C B-C4
+cogs/gm.py:4284:                http_options=core.resilience.provider_http_options("instruction"),  # WP-C B-C4
+cogs/gm.py:4887:                http_options=core.resilience.provider_http_options("instruction"),  # WP-C B-C4
+== 6b remaining raw wait_for on provider calls (expect none in automatic path)
+core/resilience.py:136:        #   (기존 wait_for(fn()) 취소는 to_thread 스레드를 멈추지 못해 비용 사실이 유실됐다.)
+core/resilience.py:139:            result = await asyncio.wait_for(asyncio.shield(task), timeout=timeout)
+== 7 automatic instruction-decision callers → staging
+cogs/game.py:377:                        decision = await gm_cog._call_gm_logic(session, "", [], master_ch)
+cogs/gm.py:2099:                        decision = await self._call_gm_logic(
+cogs/gm.py:2104:                    decision = await self._call_gm_logic(
+cogs/gm.py:2118:                core.turn_preparation.stage_instruction_effects(
+cogs/gm.py:2391:        decision = await self._call_gm_logic(
+cogs/gm.py:2400:            core.turn_preparation.stage_instruction_effects(
+cogs/gm.py:2956:            decision = await self._call_gm_logic(
+cogs/gm.py:2967:            core.turn_preparation.stage_instruction_effects(
+== 8 replan trigger sources
+1594:        # B-C3: 이번 턴 계획의 quest_progress로 수치 재계획을 판정 — 자식 작업 등록은
+1596:        await self._evaluate_numeric_replan(session, prep, plan, master_ch)
+1599:    async def _evaluate_numeric_replan(self, session, prep, plan, master_ch) -> str | None:
+1602:        · 권위: plan.quest_progress(advance/deviation). 정본 last_extraction(직전 턴)은 보지 않는다.
+1611:        if "narrative_replan" in prep.tasks:
+1615:        qp = getattr(plan, "quest_progress", None) or {}
+1634:            "narrative_replan", core.turn_preparation.TASK_NARRATIVE_REPLAN,
+3775:        session.last_extraction = plan.result
+3820:                session, {"quest_progress": plan.quest_progress})
+4525:        대신 추출층위가 산출한 quest_progress 수치를 임계값과 대조해 판정한다.
+4534:        quest_progress)이 권위다 — _prepare_extraction이 계획 생성 직후
+4535:        _evaluate_numeric_replan으로 자식 준비 작업을 등록한다(B-C3).
+4565:        #    나온 뒤 _evaluate_numeric_replan이 수행한다(직전 턴 last_extraction 사용 금지).
+4571:                "narrative_replan", core.turn_preparation.TASK_NARRATIVE_REPLAN,
+== 9 READY predicate canonical check
+1256:            reasons.append("state:canonical_changed:" + ",".join(_changed))
+1288:    assert not changed, "evaluate_ready가 정본 변화를 거부했어야 함"   # B-C1 방어
+== 10 forbidden scope
+(none)
+(end)
+== changed vs 2882f20
+ cogs/gm.py                         | 105 ++++++++----
+ core/cost_ledger.py                |  53 ++++++
+ core/resilience.py                 |  64 +++++++-
+ core/turn_preparation.py           |  76 +++++++--
+ tests/policy/test_ready_barrier.py | 321 +++++++++++++++++++++++++++++++++++++
+ 5 files changed, 576 insertions(+), 43 deletions(-)
+```
+
+How to read these scans:
+- **Scan 6b.** The only `wait_for` left is the shielded one.
+- **Scan 7.** Every automatic `_call_gm_logic` decision is followed by staging:
+  - the main loop (2118);
+  - forced PROCEED (2400);
+  - post-ROLL (2967).
+  - game.py:377 is manual `!진행`, which is MANUAL scope and has no transaction.
+- **Scan 8.** The remaining `last_extraction` / `quest_progress` references are:
+  - the post-READY apply;
+  - the quest advance;
+  - docstrings.
+- **Scan 10.** There are no WP-D callers, and no prompt, scenario, rewind, cache or accounting file changed.
+
+The final git state (new local SHA, clean status, push attempt and incremental bundle) is reported in the final Claude message. WP-D is **not** started.
