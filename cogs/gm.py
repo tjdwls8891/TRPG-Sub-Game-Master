@@ -1460,11 +1460,13 @@ class GMCog(commands.Cog):
         # 대기 중인 BGM 재생 — 기획 규정상 온 직후가 아니라 다음 스트리밍 시작 시점이다.
         #   (이전 턴에 확정된 pending_bgm의 소비 — 이번 턴 소유 정본 변경이 아니다.)
         pending = getattr(session, "pending_bgm", None)
+        _bgm_consumed = False
         if pending and core.is_enabled(session, "bgm"):
             try:
                 media_cog = self.bot.get_cog("MediaCog")
                 if media_cog and await media_cog.start_bgm(session, pending):
                     session.pending_bgm = None
+                    _bgm_consumed = True
             except Exception as e:
                 print(f"[BGM] 재생 실패(진행에는 영향 없음): {e}")
 
@@ -1475,6 +1477,13 @@ class GMCog(commands.Cog):
             if master_ch:
                 await master_ch.send("⚠️ 현재 자동 턴 시도가 아니어서 이번 진행을 중단합니다.")
             return
+        if _bgm_consumed:
+            # B-C6: 이전 턴에 확정된 pending_bgm을 이번 스트리밍 시작에 소비한 정당한 운영
+            #   쓰기(묘사·준비 이전). 이후 이 턴의 추출이 새 pending_bgm을 스테이징하므로
+            #   기준선을 소비 직후로 재설정하고 사유를 남긴다.
+            prep.rebaseline(session, "pending_bgm",
+                            "prior-turn committed pending_bgm consumed at stream start "
+                            "(before finalized narration)")
         prep.phase = core.turn_preparation.PREP_PREPARING
         prep.event_assessment = event_assessment
 

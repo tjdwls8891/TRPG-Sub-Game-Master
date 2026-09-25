@@ -84,6 +84,11 @@ def _track_inflight(on_attempt_result, task, *, attempt, operation_id):
     owner = getattr(on_attempt_result, "__self__", None)
     tracker = getattr(owner, "track_inflight", None)
     if tracker is None:
+        # 관측자 없음(비계측 호출) — 예외 미회수 경고만 막는다.
+        if task.done():
+            _consume(task)
+        else:
+            task.add_done_callback(_consume)
         return
     try:
         tracker(task, attempt=attempt, operation_id=operation_id)
@@ -149,16 +154,14 @@ async def call_with_retry(fn, *, layer: str, session_id: str = "",
             _notify_attempt_observer(
                 on_attempt_result, attempt=attempt, success=False,
                 response=None, exception=e, operation_id=operation_id)
-            if not task.done():
-                _track_inflight(on_attempt_result, task, attempt=attempt,
-                                operation_id=operation_id)
-            else:
-                _consume(task)
+            # B-C5: task.done() 여부와 무관하게 늦은 관측 경계로 넘긴다.
+            #   (TimeoutError 결정 직후 provider가 완료되는 경계 race에서도 usage 유실 없음)
+            _track_inflight(on_attempt_result, task, attempt=attempt,
+                            operation_id=operation_id)
         except asyncio.CancelledError:
-            # 호출자 취소 — underlying 호출도 추적 대상으로 넘긴 뒤 취소를 전파한다.
-            if not task.done():
-                _track_inflight(on_attempt_result, task, attempt=attempt,
-                                operation_id=operation_id)
+            # 호출자 취소 — underlying 호출도(완료 여부 무관) 관측 경계로 넘긴 뒤 취소를 전파한다.
+            _track_inflight(on_attempt_result, task, attempt=attempt,
+                            operation_id=operation_id)
             raise
         except Exception as e:
             print(f"[오류대응] {layer} 실패 — {type(e).__name__} (시도 {attempt})")

@@ -417,6 +417,8 @@ class GameCog(commands.Cog):
                     "raw_entries": _raw_entries,
                     "uncompressed_entries": _unc_entries,
                     "consumed_turn_logs": len(session.current_turn_logs),
+                    "consumed_digest": core.turn_preparation.list_digest(
+                        session.current_turn_logs),
                     "turn_no": int(session.turn_count) + 1,
                     "applied": False,
                 }

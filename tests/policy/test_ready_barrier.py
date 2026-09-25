@@ -1210,3 +1210,213 @@ def test_bc4_automatic_configs_carry_network_timeout():
     opt = core.resilience.provider_http_options("extraction")
     assert opt.timeout == int((core.resilience.get_timeout("extraction")
                                + core.resilience.NETWORK_TIMEOUT_GRACE) * 1000)
+
+
+# ══════════════════════════════════════════════════════════════
+# GPT 재게이트 패치 (2026-09-25) — B-C5 / B-C6
+# ══════════════════════════════════════════════════════════════
+
+class _BoundaryAsyncio:
+    """core.resilience 의 asyncio 대역 — 첫 wait_for 호출만 '타임아웃 결정 직후
+    provider 완료' 경계를 재현한다(대기 중 provider가 끝나게 둔 뒤 TimeoutError)."""
+
+    def __init__(self, target_calls=1):
+        self.n = 0
+        self.target = target_calls
+
+    def __getattr__(self, name):
+        return getattr(asyncio, name)
+
+    async def wait_for(self, aw, timeout):
+        self.n += 1
+        if self.n <= self.target:
+            await asyncio.sleep(0.05)       # 이 사이 underlying provider 태스크가 완료됨
+            aw.cancel()                     # shield 래퍼만 취소(내부 태스크는 그대로)
+            raise asyncio.TimeoutError()
+        return await asyncio.wait_for(aw, timeout)
+
+
+async def test_bc5_timeout_boundary_success_is_observed_and_frozen(rig, monkeypatch):
+    """B-C5 — TimeoutError 핸들러 진입 시 task.done()==True 인 경계에서도
+    늦은 usage가 정확히 1건 CostEvent가 되고 동결 멤버십에 포함된다."""
+    r = rig
+    done_at_handler = []
+    orig_track = core.resilience._track_inflight
+
+    def _spy(obs, task, **kw):
+        done_at_handler.append(task.done())
+        return orig_track(obs, task, **kw)
+    monkeypatch.setattr(core.resilience, "_track_inflight", _spy)
+    monkeypatch.setattr(core.resilience, "asyncio", _BoundaryAsyncio(target_calls=1))
+    calls = {"n": 0}
+
+    def _route(kwargs):
+        calls["n"] += 1
+        return _json({"situation": {}}, p=555 if calls["n"] == 1 else 800, c=55)
+    r.prov.routes["extraction"] = _route
+
+    tx = await _run_turn(r)
+    assert done_at_handler == [True], "경계 조건(핸들러 진입 시 done)이 재현되지 않았습니다"
+    prep = tx.preparation
+    ext = [e for e in _events(r, tx) if e["operation"] == "TURN_EXTRACTION"]
+    late = [e for e in ext if e["metadata"].get("late_after_wrapper_timeout")]
+    assert len(late) == 1 and late[0]["input_tokens"] == 555 and late[0]["provider_attempt"] == 1
+    assert len(ext) == 2, "중복 CostEvent 또는 누락"
+    assert len({e["idempotency_key"] for e in ext}) == 2
+    assert {e["event_id"] for e in ext} <= set(prep.frozen_cost_event_ids)
+    assert "ready" in r.ev["order"]
+
+
+async def test_bc5_already_done_future_observed_synchronously(tmp_path):
+    """이미 done인 future를 tracker에 직접 넘겨도 반환 전에 관측이 끝난다(중복 없음)."""
+    ledger = CostLedger(str(tmp_path / "l.jsonl"))
+    op = core.cost_ledger.ProviderOperation(ledger, operation="TURN_EXTRACTION",
+                                            model=core.DEFAULT_MODEL)
+    op.mark_attempt()
+    fut = asyncio.get_running_loop().create_future()
+    fut.set_result(FakeGenAIResponse("x", usage=_usage(321, 12)))
+    op.track_inflight(fut)
+    assert len(op.event_ids) == 1 and not op.has_inflight()   # 반환 시점에 이미 기록
+    op.track_inflight(fut)                                     # 같은 attempt 재전달
+    await asyncio.sleep(0)
+    assert len(op.event_ids) == 1, "중복 CostEvent"
+    rows = ledger.list_cost_events()
+    assert len(rows) == 1 and rows[0]["input_tokens"] == 321
+
+    op2 = core.cost_ledger.ProviderOperation(ledger, operation="TURN_EXTRACTION",
+                                             model=core.DEFAULT_MODEL)
+    op2.mark_attempt()
+    bad = asyncio.get_running_loop().create_future()
+    bad.set_exception(RuntimeError("late failure"))
+    op2.track_inflight(bad)
+    assert op2.event_ids == [] and not op2.has_inflight()     # 날조 없음
+    nousage = asyncio.get_running_loop().create_future()
+    nousage.set_result(FakeGenAIResponse("x", usage=None))
+    op2.mark_attempt()
+    op2.track_inflight(nousage)
+    assert op2.event_ids == []
+
+
+async def test_bc5_callback_gap_keeps_membership_open(session_auto_ready, tmp_path):
+    """provider future done ~ 늦은 관측 콜백 실행 사이 틈에서도 멤버십이 닫히지 않는다."""
+    s = session_auto_ready
+    tx = tt.begin_turn_transaction(s, "선언")
+    prep = tp.ensure_preparation(s, tx.transaction_id)
+    ledger = CostLedger(str(tmp_path / "g.jsonl"))
+
+    class _Bot:
+        cost_ledger = ledger
+    op = core.cost_ledger.begin_operation(_Bot, "TURN_EXTRACTION", session=s,
+                                          model=core.DEFAULT_MODEL)
+    prep.claim_cost_operation(op)
+    op.mark_attempt()
+    fut = asyncio.get_running_loop().create_future()
+    op.track_inflight(fut)
+    prep.seal()
+    fut.set_result(FakeGenAIResponse("x", usage=_usage(111, 11)))
+    # 콜백은 아직 실행되지 않았다(다음 루프 반복) — provider future는 done.
+    assert fut.done() and op.has_inflight()
+    with pytest.raises(tp.BarrierViolationError):
+        prep.close_cost_membership()
+    await prep.join()                      # 관측 완료 토큰까지 기다린다
+    frozen = prep.close_cost_membership()
+    assert len(frozen) == 1 and frozen[0] == op.event_ids[0]
+
+
+# ── B-C6 — 필드 커버리지 음성/양성 테스트 ─────────────────────
+
+def _append_full_log(s):
+    os.makedirs(f"sessions/{s.session_id}", exist_ok=True)
+    with open(f"sessions/{s.session_id}/full_logs.jsonl", "a", encoding="utf-8") as f:
+        f.write('{"turn": 1}\n')
+
+
+def _mutate_raw_in_place(s):
+    s.raw_logs[0].parts[0].text = "변조된 과거 로그"
+
+
+@pytest.mark.parametrize("tamper,reason", [
+    (lambda s: setattr(s, "player_faction", "외부 세력"), "player_faction"),
+    (lambda s: setattr(s, "main_unlocked_notified", True), "main_unlocked_notified"),
+    (lambda s: setattr(s, "pending_bgm", "tense.mp3"), "pending_bgm"),
+    (lambda s: setattr(s, "last_bgm_situation", "전투"), "last_bgm_situation"),
+    (lambda s: setattr(s, "start_day_number", 42), "start_day_number"),
+    (lambda s: setattr(s, "total_ink_spent", 999), "total_ink_spent"),
+    (lambda s: setattr(s, "last_turn_cost", 12.0), "last_turn_cost"),
+    (lambda s: setattr(s, "_rewind_snapshot", {"x": 1}), "_rewind_snapshot"),
+    (_mutate_raw_in_place, "raw_logs"),
+    (_append_full_log, "full_logs_file"),
+    (lambda s: s.uncompressed_logs.append("[외부] 추가 로그"), "uncompressed_logs_changed"),
+    (lambda s: s.current_turn_logs.__setitem__(0, "[변조된 선언]"), "turn_input_log_changed"),
+])
+async def test_bc6_turn_owned_field_change_blocks_ready(rig, monkeypatch, tamper, reason):
+    """B-C6 — 전수 대조로 추가/강화된 각 필드의 준비 중 변경이 READY를 막는다."""
+    from google.genai import types as gtypes
+    r = rig
+    s = r.sess
+    s.raw_logs = [gtypes.Content(role="model", parts=[gtypes.Part.from_text(text="과거 로그")])]
+    s.uncompressed_logs = ["[과거] a", "[과거] b"]
+    s.current_turn_logs = ["[테스터]: 선언"]
+    reasons = _capture_ready_reasons(monkeypatch)
+    real_dispatch = r.gm._dispatch_proceed
+    ext_gate = threading.Event()
+    r.prov.gates["extraction"] = ext_gate
+    tx = tt.get_or_begin_turn_transaction(s, "선언")
+    owner = asyncio.create_task(_run_turn(r, tx=tx))
+    await _until(lambda: r.prov.started.get("extraction", 0) >= 1)
+    tamper(s)
+    ext_gate.set()
+    await owner
+    assert "ready" not in r.ev["order"], f"{reason} 변경에도 READY 도달"
+    assert any(reason in x for rs in reasons for x in rs), reasons
+    assert tx.status == tt.TurnStatus.FAILED_SYSTEM and r.rec["deduct"] == []
+
+
+async def test_bc6_background_compression_prefix_delete_is_allowed(rig):
+    """배경 압축의 uncompressed_logs 앞부분 삭제는 턴 소유 변화가 아니다(접미 불변식)."""
+    r = rig
+    s = r.sess
+    s.uncompressed_logs = ["[과거] a", "[과거] b", "[과거] c"]
+    ext_gate = threading.Event()
+    r.prov.gates["extraction"] = ext_gate
+    owner = asyncio.create_task(_run_turn(r))
+    await _until(lambda: r.prov.started.get("extraction", 0) >= 1)
+    del s.uncompressed_logs[:2]                 # 압축 완료 시점의 앞부분 삭제
+    ext_gate.set()
+    tx = await owner
+    assert "ready" in r.ev["order"]
+    assert s.uncompressed_logs[0] == "[과거] c" and len(s.uncompressed_logs) == 3
+
+
+async def test_bc6_prior_turn_pending_bgm_consumption_is_rebaselined(rig, monkeypatch):
+    """이전 턴 확정 pending_bgm의 스트림 시작 소비는 사유 기록과 함께 기준선 재설정."""
+    r = rig
+    s = r.sess
+
+    class _Media:
+        async def start_bgm(self, session, track):
+            return True
+    r.bot.add_cog_stub("MediaCog", _Media())
+    monkeypatch.setattr(core, "is_enabled", lambda sess, key: True if key == "bgm"
+                        else False)
+    tx = tt.get_or_begin_turn_transaction(s, "선언")
+    tp.ensure_preparation(s, tx.transaction_id)        # 기준선이 소비 이전에 잡힌 상황
+    s.pending_bgm = "prior.mp3"
+    tx.preparation.baseline_fingerprint = tp.canonical_fingerprint(s)
+    await _run_turn(r, tx=tx)
+    assert "ready" in r.ev["order"] and s.pending_bgm is None
+    notes = tx.preparation.rebaseline_notes
+    assert notes and notes[0]["domain"] == "pending_bgm" and "prior-turn" in notes[0]["reason"]
+
+
+def test_bc6_raw_logs_digest_detects_in_place_change():
+    from google.genai import types as gtypes
+
+    class S:
+        pass
+    s = S()
+    c = gtypes.Content(role="model", parts=[gtypes.Part.from_text(text="원문")])
+    s.raw_logs = [c]
+    before = tp._raw_logs_digest(s.raw_logs)
+    c.parts[0].text = "변조"
+    assert tp._raw_logs_digest(s.raw_logs) != before

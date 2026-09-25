@@ -1,7 +1,7 @@
 # WP-C COMPLETION BUNDLE — Concurrent Preparation & READY_TO_COMMIT Barrier
 
 ## 0. Canonical current status
-- **WP-C: WIRED_NOT_VERIFIED.** Gate 1 returned *PATCH REQUIRED* (B-C1..B-C4). All four blockers are patched on the same local branch (see **§22 Gate patch 1**). Independent GPT gate is pending again.
+- **WP-C: WIRED_NOT_VERIFIED.** Gate 1 returned *PATCH REQUIRED* (B-C1..B-C4), fixed in §22. Re-gate returned *PATCH REQUIRED* (B-C5, B-C6), fixed in **§23 Gate patch 2**. Independent GPT gate is pending again.
 - **WP-D: NOT_STARTED.** Nothing from WP-D is wired live:
   - no CommitJournal production wiring;
   - no TurnSettlement or InkTransaction live cutover;
@@ -1515,3 +1515,166 @@ How to read these scans:
 - **Scan 10.** There are no WP-D callers, and no prompt, scenario, rewind, cache or accounting file changed.
 
 The final git state (new local SHA, clean status, push attempt and incremental bundle) is reported in the final Claude message. WP-D is **not** started.
+
+---
+
+## 23. Gate patch 2 (2026-09-25) — B-C5 / B-C6
+
+**Re-gate verdict:** PATCH REQUIRED. B-C1..B-C3 and the long-running in-flight structure of B-C4 are approved and preserved unchanged.
+
+**Patch file scope** (diff vs `b44c157`):
+- `core/resilience.py`
+- `core/cost_ledger.py`
+- `core/turn_preparation.py`
+- `cogs/gm.py` (pending_bgm rebaseline)
+- `cogs/game.py` (consumed-prefix digest)
+- `tests/policy/test_ready_barrier.py` (+18 tests)
+- this bundle
+
+### B-C5 — late-usage loss at the timeout boundary
+**Race (from `b44c157`):**
+1. `wait_for(shield(task))` decides TimeoutError.
+2. The provider task completes.
+3. In the handler `task.done()` is now True.
+4. The code took the `_consume(task)` path, so the usage was never observed.
+
+Separately, `add_done_callback` alone leaves a window where the provider future is done but the observation callback has not yet run. In that window, a barrier checking `not future.done()` could close too early.
+
+**Fix:**
+- **`call_with_retry`:** timeout and cancellation branches **always** call `_track_inflight`, regardless of `task.done()`. There is no `_consume` bypass on the observed path. `_consume` remains only when the observer has no tracker, i.e. uninstrumented calls.
+- **`ProviderOperation.track_inflight`:**
+  - An already-done future is observed **synchronously**: the CostEvent is recorded before the call returns.
+  - Otherwise an **observation-completion token** is stored in `op.inflight`. It is resolved only *after* `_observe_late` finishes recording.
+  - `_late_observed` guarantees exactly one observation per provider attempt; the ledger idempotency key guards as well.
+  - An exception, a cancellation or missing usage records nothing.
+- **Barrier:** `inflight_provider_calls()` / `join` / `close_cost_membership` / `evaluate_ready` all use the observation tokens, not the provider future.
+
+**Invariant now holds:** wrapper timed out → result is never used for gameplay → the attempt is observed exactly once → real usage becomes a CostEvent → the observation is complete → only then can membership close.
+
+**Tests:**
+- `test_bc5_timeout_boundary_success_is_observed_and_frozen`:
+  - replaces `core.resilience.asyncio` so the first `wait_for` lets the provider finish before raising TimeoutError;
+  - asserts that `task.done()==True` inside the handler;
+  - exactly one late event (input 555, attempt 1);
+  - two extraction events in total, with no duplicate idempotency key;
+  - both are in the frozen IDs;
+  - READY is reached.
+- `test_bc5_already_done_future_observed_synchronously`:
+  - observed before return;
+  - handing the same future over again → no duplicate;
+  - exception or no-usage → no event.
+- `test_bc5_callback_gap_keeps_membership_open`: the future is done but the callback is pending → `has_inflight` stays True and closure raises; after join, the frozen set is exactly the late event.
+- **Mutation evidence:** running the three B-C5 tests against the `b44c157` versions of `resilience.py` and `cost_ledger.py` gives **3 failed**. With the current code: pass.
+
+### B-C6 — canonical coverage: field-by-field matrix
+Classification legend:
+- **FP** = fingerprinted domain (READY is refused on change, `state:canonical_changed:<d>`);
+- **INV** = separate invariant;
+- **STG** = staged, applied only after READY;
+- **RB** = baseline reset after a legitimate operational write, with the reason recorded;
+- **EXC** = background/operational exclusion, with the reason.
+
+| Field (from the pre-edit inventory) | Pre-READY writer(s) at start SHA | WP-C disposition | Classification |
+|---|---|---|---|
+| quest_state | instruction apply, extraction quest advance | STG | FP (shape-normalized) |
+| info_ledger | instruction apply | STG | FP |
+| resources / statuses | extraction apply | STG | FP |
+| world_timeline / visited_places | extraction apply | STG | FP |
+| start_day_number | timeline.quantify inside extraction apply | STG | FP (new) |
+| companions / met_npcs | extraction apply | STG | FP |
+| irregular_npcs / npcs | irregular register/promote during delivery | STG (+ read-only image/voice overlay) | FP |
+| narrative_plan | progress, marker, replan | STG | FP |
+| pending_ending | extraction apply | STG | FP |
+| **pending_bgm** | (a) extraction apply sets it; (b) `_finish…` consumes the **prior-turn committed** value when BGM starts | (a) STG; (b) legitimate pre-preparation operational consumption | FP + **RB** — when consumption happens, `prep.rebaseline(session, "pending_bgm", "prior-turn committed pending_bgm consumed at stream start (before finalized narration)")` runs right after consumption and before finalized narration; the note is kept in `prep.rebaseline_notes` |
+| last_bgm_situation | select_bgm in extraction apply | STG | FP (new) |
+| **player_faction** | quest grants in extraction apply | STG | FP (new) |
+| **main_unlocked_notified** | extraction apply | STG | FP (new) |
+| last_extraction | extraction apply | STG | FP |
+| players (profile) / stat_fail_counts | ROLL growth | STG (B1) | FP |
+| turn_count / gm_turns_done / last_recorded_turn | `_execute_proceed`, continuation | STG / continuation | FP |
+| gm_proceed_history | `_dispatch_proceed` | STG | FP |
+| **raw_logs** | `_execute_proceed` append + 20 cap | STG | FP — **strengthened** from `len + id(last)` to a stable content digest of every entry (role + all part texts), so in-place edits are caught |
+| **uncompressed_logs** | turn append (`_execute_proceed`); background compression deletes a prefix | STG (turn append) | **INV** — the current list must be an identity-suffix of the baseline list (compression may only delete from the front; any append or in-place replacement → `state:uncompressed_logs_changed`) |
+| **current_turn_logs** | turn input log (declarations, master relay); legacy `.clear()` | STG (consumed prefix count + `consumed_digest`) | **INV** — the consumed prefix must be unchanged at READY (`state:turn_input_log_changed`). Entries appended later are input for the next turn and are preserved. |
+| total_ink_spent / last_turn_cost | legacy billing in the continuation | continuation only | FP (new) |
+| _rewind_snapshot | continuation (delta carry-forward) | continuation only | FP (new) |
+| **full_logs.jsonl** (file) | `record_full_log` in the continuation | continuation only | FP (new, file size) |
+| rewind_log.jsonl (file) | continuation **and** background compression (`record_delta` on the first-compression branch) | – | EXC — the background compression writer makes the file state non-turn-owned. Rewind authority → WP-E. |
+| compressed_memory / last_compressed_turn / compression_count / last_compression_settle | background compression, cache reissue (`compressed_memory=""`) | – | EXC (SESSION_BACKGROUND / cache infrastructure) |
+| total_cost / total_usd / turn_cost_log | `accrue` at every provider boundary | – | EXC (append-only operational aggregates; WP-D Settlement) |
+| extraction_pending / extraction_retry_ctx | failure gate / retry | – | EXC (operational gate; it must differ during the retry READY) |
+| gm_clarify_count / gm_narrate_count / gm_pending_players / gm_waiting_for / gm_side_note | round state during declaration collection | – | EXC (operational round state) |
+| cache_* / last_turn_anchor_id / last_estimate / compression_prepaid_krw / is_processing | operational | – | EXC |
+| _extraction_applied_tx / _narrative_replan_applied / _quest_offered / last_proceed_manifest | runtime idempotency / scratch | – | EXC (runtime scratch) |
+| accounts/*.json, stats/*.json | continuation (billing / stats) | continuation only | EXC (outside the session; WP-D) |
+
+**Tests:**
+- `test_bc6_turn_owned_field_change_blocks_ready`, parametrized ×12 over `player_faction`, `main_unlocked_notified`, `pending_bgm`, `last_bgm_situation`, `start_day_number`, `total_ink_spent`, `last_turn_cost`, `_rewind_snapshot`, a raw_logs **in-place** edit, a `full_logs` file append, an `uncompressed_logs` append, and a `current_turn_logs` consumed-prefix change. In every case: no READY, the specific reason is recorded, FAILED_SYSTEM, no charge.
+- Positive: `test_bc6_background_compression_prefix_delete_is_allowed`, `test_bc6_prior_turn_pending_bgm_consumption_is_rebaselined` (READY reached, and the rebaseline note is recorded), `test_bc6_raw_logs_digest_detects_in_place_change`.
+- **Mutation note:** running the B-C6 tests against the `b44c157` `turn_preparation.py` fails all 15. That result is not clean evidence on its own, because the new `game.py` also calls the new `list_digest`. The 12 negative cases are negative by construction: tamper → expect refusal.
+
+### Re-verification
+| Check | Result |
+|---|---|
+| B-C5 boundary-race tests | 3 passed (3 failed on the old code) |
+| B-C6 field-coverage tests (negative + positive) | 15 passed |
+| Earlier 41 WP-C / gate tests | pass |
+| WP-B preservation | pass (in the full run) |
+| Full regression | `401 passed, 3 xfailed, 0 failed, 0 XPASS, 0 skipped` (404 = 386 + 18) |
+| compileall / `import main` | PASS |
+| Exact CostEvent freeze / READY coverage / forbidden-scope scans | below |
+
+```text
+== CostEvent freeze: late-observation boundary (no _consume bypass on timeout/cancel)
+core/resilience.py:77:def _track_inflight(on_attempt_result, task, *, attempt, operation_id):
+core/resilience.py:89:            _consume(task)
+core/resilience.py:159:            _track_inflight(on_attempt_result, task, attempt=attempt,
+core/resilience.py:163:            _track_inflight(on_attempt_result, task, attempt=attempt,
+core/resilience.py:182:def _consume(task):
+core/cost_ledger.py:685:    def has_inflight(self) -> bool:
+core/cost_ledger.py:689:    def track_inflight(self, future, *, attempt=None, operation_id=None) -> None:
+core/cost_ledger.py:701:        if future.done():
+core/cost_ledger.py:712:                    _token.set_result(True)
+core/cost_ledger.py:716:    def _observe_late(self, fut, provider_attempt) -> None:
+== freeze consumers
+1055:            pending += self.inflight_provider_calls()
+1107:    def close_cost_membership(self) -> tuple:
+1115:        live = self.inflight_provider_calls()
+1127:        self.frozen_cost_event_ids = tuple(ids)
+1310:    if prep.inflight_provider_calls():
+== READY canonical coverage
+core/turn_preparation.py:837:CANONICAL_DOMAINS = (
+core/turn_preparation.py:844:    "player_faction",           # 퀘스트 grants(추출 적용)
+core/turn_preparation.py:845:    "main_unlocked_notified",   # 메인 해금 안내 플래그(추출 적용)
+core/turn_preparation.py:846:    "pending_bgm",              # 추출 적용이 설정 / 이전 턴 확정분 소비는 rebaseline(아래)
+core/turn_preparation.py:847:    "last_bgm_situation",       # select_bgm(추출 적용)
+core/turn_preparation.py:848:    "start_day_number",         # timeline.quantify(추출 적용)
+core/turn_preparation.py:849:    "total_ink_spent",          # legacy 청구 집계(continuation)
+core/turn_preparation.py:850:    "last_turn_cost",           # legacy 청구 집계(continuation)
+core/turn_preparation.py:851:    "_rewind_snapshot",         # 되감기 델타 기준 스냅샷(continuation)
+core/turn_preparation.py:890:def _full_logs_file_state(session) -> str:
+core/turn_preparation.py:907:    fp["raw_logs"] = _raw_logs_digest(getattr(session, "raw_logs", None))
+core/turn_preparation.py:908:    fp["full_logs_file"] = _full_logs_file_state(session)
+core/turn_preparation.py:1131:    def rebaseline(self, session, domain: str, reason: str) -> None:
+core/turn_preparation.py:1319:            reasons.append("state:canonical_changed:" + ",".join(_changed))
+core/turn_preparation.py:1326:            reasons.append("state:uncompressed_logs_changed")
+core/turn_preparation.py:1334:            reasons.append("state:turn_input_log_changed")
+cogs/gm.py:1455:        state_before = getattr(session, "_rewind_snapshot", None)
+cogs/gm.py:1462:        pending = getattr(session, "pending_bgm", None)
+cogs/gm.py:1484:            prep.rebaseline(session, "pending_bgm",
+cogs/gm.py:1878:                        getattr(session, "total_ink_spent", 0) or 0) + ink
+cogs/gm.py:1946:            state_before = getattr(session, "_rewind_snapshot", None)
+cogs/gm.py:3819:                if mains and not getattr(session, "main_unlocked_notified", False):
+== forbidden WP-D scope
+(none)
+(end)
+== diff vs b44c157
+ cogs/game.py                       |   2 +
+ cogs/gm.py                         |   9 ++
+ core/cost_ledger.py                |  50 ++++++---
+ core/resilience.py                 |  21 ++--
+ core/turn_preparation.py           |  84 ++++++++++++++-
+ tests/policy/test_ready_barrier.py | 210 +++++++++++++++++++++++++++++++++++++
+ 6 files changed, 349 insertions(+), 27 deletions(-)
+```
+WP-D is **not** started. The final local SHA, the push attempt, the bundles and the source archive are reported in the final Claude message.

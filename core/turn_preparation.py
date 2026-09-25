@@ -840,7 +840,23 @@ CANONICAL_DOMAINS = (
     "narrative_plan", "pending_ending", "last_extraction", "players",
     "stat_fail_counts", "turn_count", "gm_turns_done", "last_recorded_turn",
     "gm_proceed_history",
+    # B-C6 — 전수 대조로 추가된 턴 소유 필드(모두 READY 이후 legacy continuation만 씀)
+    "player_faction",           # 퀘스트 grants(추출 적용)
+    "main_unlocked_notified",   # 메인 해금 안내 플래그(추출 적용)
+    "pending_bgm",              # 추출 적용이 설정 / 이전 턴 확정분 소비는 rebaseline(아래)
+    "last_bgm_situation",       # select_bgm(추출 적용)
+    "start_day_number",         # timeline.quantify(추출 적용)
+    "total_ink_spent",          # legacy 청구 집계(continuation)
+    "last_turn_cost",           # legacy 청구 집계(continuation)
+    "_rewind_snapshot",         # 되감기 델타 기준 스냅샷(continuation)
 )
+# 명시적 제외(배경/운영) — 근거는 completion bundle §23 필드 커버리지 매트릭스:
+#   compressed_memory / last_compressed_turn / compression_count / last_compression_settle
+#   (SESSION_BACKGROUND 압축), total_cost / total_usd / turn_cost_log (append-only 운영 집계),
+#   extraction_pending / extraction_retry_ctx (운영 게이트), gm_clarify_count /
+#   gm_narrate_count / gm_* 라운드 상태 (운영 카운터), cache_* (인프라),
+#   rewind_log.jsonl 파일 (백그라운드 압축도 기록).
+#   uncompressed_logs / current_turn_logs 는 지문 대신 별도 불변식으로 검사한다.
 
 
 def _domain_digest(value) -> str:
@@ -851,14 +867,45 @@ def _domain_digest(value) -> str:
     return _hashlib.sha1(blob.encode("utf-8")).hexdigest()[:16]
 
 
+def list_digest(items) -> str:
+    """문자열 리스트의 안정적 내용 digest."""
+    return _domain_digest([str(x) for x in (items or [])])
+
+
+def _raw_logs_digest(raw) -> str:
+    """raw_logs(types.Content 목록)의 안정적 내용 digest — role + 모든 part 텍스트.
+
+    (B-C6) 길이·마지막 객체 id만 보면 in-place 내용 변경을 놓치므로 전 내용을 본다.
+    """
+    rows = []
+    for c in (raw or []):
+        role = getattr(c, "role", None)
+        texts = []
+        for part in (getattr(c, "parts", None) or []):
+            texts.append(str(getattr(part, "text", "") or ""))
+        rows.append([role, texts])
+    return _domain_digest(rows)
+
+
+def _full_logs_file_state(session) -> str:
+    """sessions/{id}/full_logs.jsonl 크기(턴 로그 영속 기록 — continuation만 append)."""
+    try:
+        import os as _os
+        from .rewind import FULL_LOGS
+        path = _os.path.join("sessions", str(getattr(session, "session_id", "")), FULL_LOGS)
+        return str(_os.path.getsize(path)) if _os.path.exists(path) else "absent"
+    except Exception:
+        return "unknown"
+
+
 def canonical_fingerprint(session) -> dict:
     """리뷰된 커밋 소유 도메인의 지문(전체 Session 깊은 비교가 아님)."""
     fp = {d: _domain_digest(getattr(session, d, None)) for d in CANONICAL_DOMAINS}
     # quest_state는 리더(get_state)가 빈 dict를 기본 형태로 지연 정규화한다 —
     # 의미 변화가 아니므로 정규화된 형태로 비교한다.
     fp["quest_state"] = _domain_digest(_quest.clone_state(session))
-    raw = getattr(session, "raw_logs", None) or []
-    fp["raw_logs"] = f"{len(raw)}:{id(raw[-1]) if raw else 0}"
+    fp["raw_logs"] = _raw_logs_digest(getattr(session, "raw_logs", None))
+    fp["full_logs_file"] = _full_logs_file_state(session)
     return fp
 
 
@@ -910,6 +957,8 @@ class TurnPreparation:
         self.cost_operations: list = []
         self.violations: list = []
         self.baseline_fingerprint = dict(baseline or {})
+        self.baseline_uncompressed_ids = None   # B-C6: uncompressed_logs 접미 불변식 기준
+        self.rebaseline_notes: list = []        # 정당한 운영 쓰기의 기준선 재설정 기록
         # ── 스테이징 결과 ──
         self.event_assessment = None
         self.narration = None               # NarrationResult(확정 묘사)
@@ -1012,7 +1061,11 @@ class TurnPreparation:
                 self.violations.append(f"unterminated:{r.name}")
 
     def inflight_provider_calls(self) -> list:
-        """claim된 오퍼레이션 중 아직 terminal이 아닌 실제 provider 호출(future)."""
+        """claim된 오퍼레이션 중 늦은 관측이 아직 끝나지 않은 provider attempt의 완료 토큰.
+
+        (B-C5) provider future 자체가 아니라 '관측 완료' 토큰이다 — 실제 usage가 CostEvent로
+        기록된 뒤에야 토큰이 완료되므로, 그 전에는 합류·동결·READY가 모두 불가하다.
+        """
         out = []
         for op in self.cost_operations:
             for f in list(getattr(op, "inflight", ()) or ()):
@@ -1075,6 +1128,14 @@ class TurnPreparation:
         self.cost_membership = COST_CLOSED
         return self.frozen_cost_event_ids
 
+    def rebaseline(self, session, domain: str, reason: str) -> None:
+        """정당한 사전 준비 운영 쓰기(예: 이전 턴 확정 pending_bgm 소비) 이후 해당 도메인의
+        기준선을 재설정한다. 이유와 시점을 기록한다(무기록 완화 금지)."""
+        self.baseline_fingerprint[domain] = canonical_fingerprint(session)[domain]
+        import time as _time
+        self.rebaseline_notes.append({"domain": domain, "reason": reason,
+                                      "phase": self.phase, "at": _time.time()})
+
     # ── 적용 전 여부(턴 소유 정본 효과) ──
     def turn_effects_unapplied(self, tx) -> list:
         """이미 정본에 적용된 스테이징 효과 목록(비어 있어야 READY 가능)."""
@@ -1116,6 +1177,8 @@ def ensure_preparation(session, transaction_id):
     prep = getattr(tx, "preparation", None)
     if not isinstance(prep, TurnPreparation):
         prep = TurnPreparation(tx, baseline=canonical_fingerprint(session))
+        prep.baseline_uncompressed_ids = tuple(
+            id(x) for x in (getattr(session, "uncompressed_logs", None) or []))
         tx.preparation = prep
     return prep
 
@@ -1254,6 +1317,21 @@ def evaluate_ready(session, prep) -> list:
                           if prep.baseline_fingerprint.get(k) != _now.get(k))
         if _changed:
             reasons.append("state:canonical_changed:" + ",".join(_changed))
+    # B-C6: uncompressed_logs — 백그라운드 압축은 앞부분만 지울 수 있고(접미 유지),
+    #   턴 로그 append는 READY 이후에만 있다 → 현재 목록은 기준선의 (동일 객체) 접미여야 한다.
+    if prep.baseline_uncompressed_ids is not None:
+        cur = tuple(id(x) for x in (getattr(session, "uncompressed_logs", None) or []))
+        base = prep.baseline_uncompressed_ids
+        if len(cur) > len(base) or cur != base[len(base) - len(cur):]:
+            reasons.append("state:uncompressed_logs_changed")
+    # B-C6: current_turn_logs — 이번 턴이 소비(스테이징)한 선언 로그 접두부는 READY 이후
+    #   삭제될 대상이므로 그 사이 내용이 바뀌면 안 된다(뒤쪽 추가 입력은 보존 대상).
+    staged = prep.staged_log
+    if isinstance(staged, dict) and "consumed_digest" in staged and not staged.get("applied"):
+        n = int(staged.get("consumed_turn_logs") or 0)
+        if list_digest((getattr(session, "current_turn_logs", None) or [])[:n]) \
+                != staged["consumed_digest"]:
+            reasons.append("state:turn_input_log_changed")
     # 비용
     if prep.cost_membership != COST_CLOSED or prep.frozen_cost_event_ids is None:
         reasons.append("cost:membership_not_closed")

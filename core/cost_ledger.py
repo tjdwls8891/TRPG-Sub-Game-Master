@@ -650,8 +650,9 @@ class ProviderOperation:
         self.event_ids: list = []
         # WP-C(B-C4): 래퍼 타임아웃 뒤에도 진행 중인 실제 provider 호출(asyncio future).
         #   비어 있지 않으면 이 오퍼레이션은 아직 cost-relevant work가 terminal이 아니다.
-        self.inflight: set = set()
+        self.inflight: set = set()          # 늦은 관측 완료 토큰(B-C5)
         self.late_events: list = []
+        self._late_observed: set = set()
 
         sid, tid, lt, ta = (
             _attr_from_session(session) if session is not None else (None, None, None, None)
@@ -682,28 +683,47 @@ class ProviderOperation:
         return self._attempt or 1
 
     def has_inflight(self) -> bool:
-        return any(not f.done() for f in self.inflight)
+        """늦은 관측이 아직 완료되지 않은 provider attempt가 있는가(B-C5: 관측 토큰 기준)."""
+        return any(not t.done() for t in self.inflight)
 
     def track_inflight(self, future, *, attempt=None, operation_id=None) -> None:
-        """WP-C(B-C4): 논리 타임아웃된 provider attempt를 실제 종료까지 추적한다.
+        """WP-C(B-C4/B-C5): 래퍼가 포기(타임아웃/취소)한 provider attempt의 늦은 관측 경계.
 
-        · 게임 결과로는 쓰지 않는다(래퍼는 이미 실패/재시도로 진행).
-        · 종료 시 응답에 provider usage 메타데이터가 있으면 그 사실을 CostEvent로 기록한다
-          (같은 provider 호출은 이 attempt 번호로 한 번만 — 날조 없음, 예외/무메타면 기록 없음).
+        불변식:
+          래퍼 타임아웃 → provider 결과는 게임에 절대 쓰지 않음 → 그 attempt는 정확히 한 번
+          관측됨 → 실제 usage가 있으면 CostEvent → **그 관측이 끝난 뒤에만** 멤버십 종료 가능.
+        · future가 이미 done이면 이 호출 안에서 동기적으로 관측을 끝내고 반환한다.
+        · 아직이면 관측 완료 토큰(future)을 inflight에 넣고, provider 완료 콜백이 관측을
+          마친 **다음에** 토큰을 완료한다 — provider future done과 관측 완료 사이 틈에서
+          배리어가 닫히지 않는다(배리어는 provider future가 아니라 토큰을 기다린다).
         """
         pa = self._attempt or 1          # 방금 실패로 계수된 이 provider attempt 번호
-        self.inflight.add(future)
+        if future.done():
+            self._observe_late(future, pa)
+            return
+        token = future.get_loop().create_future()
+        self.inflight.add(token)
 
-        def _done(fut, _pa=pa):
-            self.inflight.discard(fut)
+        def _done(fut, _pa=pa, _token=token):
             try:
-                if fut.cancelled() or fut.exception() is not None:
-                    return
-                self._record_late(fut.result(), _pa)
-            except Exception as e:  # noqa: BLE001
-                print(f"[CostLedger] 늦은 attempt 관측 실패(무시): {type(e).__name__} - {e}")
+                self._observe_late(fut, _pa)
+            finally:
+                if not _token.done():
+                    _token.set_result(True)
 
         future.add_done_callback(_done)
+
+    def _observe_late(self, fut, provider_attempt) -> None:
+        """늦은 attempt 1건 관측(정확히 한 번). 예외·취소·무메타면 기록하지 않는다."""
+        if provider_attempt in self._late_observed:
+            return
+        self._late_observed.add(provider_attempt)
+        try:
+            if fut.cancelled() or fut.exception() is not None:
+                return
+            self._record_late(fut.result(), provider_attempt)
+        except Exception as e:  # noqa: BLE001
+            print(f"[CostLedger] 늦은 attempt 관측 실패(무시): {type(e).__name__} - {e}")
 
     def _record_late(self, response, provider_attempt) -> bool:
         meta = getattr(response, "usage_metadata", None)
