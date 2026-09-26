@@ -935,13 +935,17 @@ class GameCog(commands.Cog):
 
             # 턴 비용 보고 임베드 송출 (PROCEED + 지시층위 등 누적 + TTS 더빙 합산)
             _turn_no = session.turn_count if turn_no is None else turn_no
-            _turn_embed = core.build_turn_cost_embed(
-                _turn_no, session.turn_cost_log, session.total_cost,
-                total_ink=int(getattr(session, "total_ink_spent", 0) or 0),
-                total_usd=float(getattr(session, "total_usd", 0.0) or 0.0),
-                free_krw=float(getattr(session, "profile_ai_cost_krw", 0.0) or 0.0))
-            session.turn_cost_log.clear()
-            await m_send(embed=_turn_embed)
+            if preparation is None:
+                # 인트로·수동 — 기존 의미 그대로.
+                _turn_embed = core.build_turn_cost_embed(
+                    _turn_no, session.turn_cost_log, session.total_cost,
+                    total_ink=int(getattr(session, "total_ink_spent", 0) or 0),
+                    total_usd=float(getattr(session, "total_usd", 0.0) or 0.0),
+                    free_krw=float(getattr(session, "profile_ai_cost_krw", 0.0) or 0.0))
+                session.turn_cost_log.clear()
+                await m_send(embed=_turn_embed)
+            # WP-D: 자동 턴의 비용 보고는 결과(Settlement) 확정 이후 CommitCoordinator
+            #   경로(GMCog)가 Settlement 값으로 송출한다 — READY 이전 독자 환산 금지.
 
             await m_send(f"✅ 묘사 연출 완료 (현재 {_turn_no}턴 경과). 다음 턴 대기 중...")
 

@@ -65,10 +65,11 @@ def build_embed(session) -> discord.Embed:
     # 매 턴 올림하므로 변환값과 결제액이 어긋난다.
     spent = int(getattr(session, "total_ink_spent", 0) or 0)
     est = getattr(session, "last_estimate", {}) or {}
-    last = getattr(session, "last_turn_cost", 0.0) or 0.0
+    # WP-D: 직전 턴 잉크는 Settlement.charge_ink_per_user 미러(last_turn_ink) — 재환산 금지.
+    last_ink = int(getattr(session, "last_turn_ink", 0) or 0)
     cost_lines = [f"총 {spent:,}잉크"]
-    if last:
-        cost_lines.append(f"직전 턴 {cost_to_ink(last)}잉크")
+    if last_ink:
+        cost_lines.append(f"직전 턴 {last_ink}잉크")
     if est:
         cost_lines.append(f"다음 턴 {est.get('min_ink', 0)}~{est.get('max_ink', 0)}잉크")
         # 기획 규정 — TTS는 합산하지 않고 구분해 표기한다.

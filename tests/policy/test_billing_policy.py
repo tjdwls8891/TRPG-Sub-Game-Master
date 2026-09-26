@@ -155,10 +155,8 @@ def test_p003b_cost_events_are_frozen():
 # ── 현행 구현과의 대조 ──────────────────────────────────────
 
 def test_p001_current_implementation_charges_on_narration_failure():
-    """대조 — 현행(WP-C) 구현은 사전 READY 실패 경로에서 차감을 호출하지 않는다.
-
-    legacy 차감은 READY 이후 continuation 안에만 있고, 실패 처리부에는 없다.
-    (Settlement 기반 청구 권위 전환·FAILED_SYSTEM 청구 0의 권위화는 WP-D.)
+    """대조 — 현행(WP-D) 구현: 사전 READY 실패 경로는 차감하지 않고 FAILED_SYSTEM
+    Settlement(청구 0)로 종결하며, 성공 청구는 CommitCoordinator만 한다.
     """
     import ast
 
@@ -179,4 +177,8 @@ def test_p001_current_implementation_charges_on_narration_failure():
     assert "deduct_ink" not in owner
     assert "deduct_ink" not in body_of("_handle_preparation_failure")
     assert "deduct_ink" not in body_of("_join_and_ready")
-    assert "deduct_ink" in body_of("_post_ready_legacy_continuation")
+    # WP-D: legacy continuation 제거 — 성공 청구는 CommitCoordinator(Settlement) 권위,
+    #   사전 READY 실패는 FAILED_SYSTEM Settlement(청구 0)로 종결한다.
+    assert "deduct_ink" not in src and "_post_ready_legacy_continuation" not in src
+    assert "_settle_failed_turn" in body_of("_handle_preparation_failure")
+    assert "_commit_ready_turn" in owner

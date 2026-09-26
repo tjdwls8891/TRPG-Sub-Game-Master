@@ -785,7 +785,8 @@ COST_CLOSED = "CLOSED"
 PREP_COLLECTING = "COLLECTING"          # 판단/지시/ROLL 등 묘사 이전(비용 claim만)
 PREP_PREPARING = "PREPARING"            # 확정 묘사 이후 동시 준비 진행
 PREP_READY = "READY"                    # READY_TO_COMMIT 도달(증명 보유)
-PREP_CONTINUED = "CONTINUED"            # READY 이후 legacy continuation 완료
+PREP_CONTINUED = "CONTINUED"            # READY 이후 authoritative commit 완료(durable COMMITTED)
+PREP_COMMITTING = "COMMITTING"          # WP-D: CommitCoordinator 진행 중(새 선언 차단)
 PREP_RETRY_PENDING = "RETRY_PENDING"    # 필수 준비 실패 — 같은 tx로 재시도 대기
 PREP_FAILED = "FAILED"                  # 사전 READY 시스템 실패(종료)
 
@@ -846,9 +847,11 @@ CANONICAL_DOMAINS = (
     "pending_bgm",              # 추출 적용이 설정 / 이전 턴 확정분 소비는 rebaseline(아래)
     "last_bgm_situation",       # select_bgm(추출 적용)
     "start_day_number",         # timeline.quantify(추출 적용)
-    "total_ink_spent",          # legacy 청구 집계(continuation)
-    "last_turn_cost",           # legacy 청구 집계(continuation)
+    "total_ink_spent",          # Settlement 파생 미러(WP-D CommitCoordinator만 씀)
+    "last_turn_cost",           # Settlement 파생 미러(WP-D CommitCoordinator만 씀)
     "_rewind_snapshot",         # 되감기 델타 기준 스냅샷(continuation)
+    # WP-D — CommitCoordinator만 쓰는 커밋 소유 필드
+    "commit_marker", "last_turn_ink", "rewind_degraded_turns",
 )
 # 명시적 제외(배경/운영) — 근거는 completion bundle §23 필드 커버리지 매트릭스:
 #   compressed_memory / last_compressed_turn / compression_count / last_compression_settle

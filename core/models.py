@@ -200,6 +200,16 @@ class TRPGSession:
         self.cost_stats = {}
         # 되감기 — 마지막으로 델타를 기록한 턴 번호(중복 기록 방지)
         self.last_recorded_turn = 0
+        # WP-D — CommitCoordinator가 정본 적용과 함께 strict 저장하는 커밋 표식.
+        #   {transaction_id, attempt, logical_turn, settlement_id, plan_fingerprint}.
+        #   재시작 복구가 data.json이 '이전 커밋(기준선)'인지 '이 시도(대상)'인지 가른다.
+        self.commit_marker = None
+        # 직전 턴 청구 잉크(1인당) — Settlement.charge_ink_per_user 미러(디스플레이용)
+        self.last_turn_ink = 0
+        # 되감기/전체 로그 기록이 실패한 커밋 턴 — 이 공백을 넘는 되감기는 안전하지 않다
+        self.rewind_degraded_turns = []
+        # 런타임 전용: 영속 이후 미완료 커밋(복구 대기) — 새 자동 턴 차단 근거
+        self.commit_recovery = None
         # 추출층위 상태 — 미완료(True)면 다음 턴 선언을 차단한다.
         self.extraction_pending = False
         self.extraction_retry_ctx = {}   # 재시도용 묘사 텍스트 등

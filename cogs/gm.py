@@ -570,7 +570,7 @@ _OUTCOME_SUPERSEDED = "SUPERSEDED"      # 더 새로운 시도가 현재 — 이
 _OUTCOMES_RESTART_ROUND = frozenset({
     _OUTCOME_READY, _OUTCOME_NO_NARRATION, _OUTCOME_DELIVERY_FAILED, _OUTCOME_NOT_READY})
 # 추출 재시도 컨텍스트 표식 — 이 표식이 있으면 같은 tx 준비 owner로 재개한다.
-_RETRY_MODE_PREPARATION = "wp_c_preparation"
+_RETRY_MODE_PREPARATION = core.commit_coordinator.RETRY_MODE_PREPARATION
 
 
 # ========== [GM 주사위 버튼 View] ==========
@@ -1392,13 +1392,21 @@ class GMCog(commands.Cog):
             await core.save_session_data(self.bot, session)
             return
 
+        # WP-D: 영속 이후 미완료 커밋(복구 대기)이 있으면 같은 durable 입력으로 먼저
+        #   재개한다. 복구가 끝나기 전에는 새 자동 턴을 열지 않는다(차단 = unlock 권위).
+        if getattr(session, "commit_recovery", None):
+            if await self._resume_commit_recovery(session, master_ch) and session.gm_active:
+                await self._start_round(session)
+            return
+
         # WP-C: 현재 시도가 확정 묘사 이후 준비/READY/재시도 대기 중이면 새 선언을
-        #   받지 않는다 — 다음 자동 논리 턴은 READY 배리어(와 legacy continuation) 이후에만.
+        #   받지 않는다 — 다음 자동 논리 턴은 READY 배리어와 durable 커밋 이후에만.
         _active = core.turn_transaction.get_active_transaction(session)
         _aprep = getattr(_active, "preparation", None) if _active is not None else None
         if _aprep is not None and getattr(_aprep, "phase", None) in (
                 core.turn_preparation.PREP_PREPARING,
                 core.turn_preparation.PREP_READY,
+                core.turn_preparation.PREP_COMMITTING,
                 core.turn_preparation.PREP_RETRY_PENDING):
             print(f"[WP-C/{session.session_id}] 준비 중인 시도가 있어 새 선언 차단 "
                   f"(phase={_aprep.phase})")
@@ -1430,9 +1438,12 @@ class GMCog(commands.Cog):
              자동 재계획) 발사 → 전달/스트리밍(준비 작업과 겹침)
           3) 모든 등록 준비 작업 합류 → 레지스트리 봉인 → 비용 멤버십 동결
              → 단일 READY_TO_COMMIT 전이(증명 캡처, 턴 소유 정본은 아직 미적용)
-          4) READY 이후에만 legacy compatibility continuation(적용·카운터·델타·기존 청구)
-          5) 처리 잠금 해제 → 디스플레이 → 다음 라운드
-        사전 READY 실패(생성/전달/추출/검증)는 정본 전진·성공 턴 청구 없이 처리된다.
+          4) WP-D: READY 이후 권위적 커밋 — core.commit_coordinator.CommitCoordinator
+             (PREPARED → 부수효과 없는 적용 → strict 저장 → SESSION_PERSISTED →
+              Settlement → InkTransaction → BILLING_APPLIED → durable COMMITTED)
+          5) 처리 잠금 해제 → 파생 알림·비용 보고·통계 → 디스플레이 → 다음 라운드
+             (다음 라운드는 durable COMMITTED 또는 안전한 실패 처분 이후에만 열린다)
+        사전 READY 실패(생성/전달/추출/검증)는 정본 전진 없이 FAILED_SYSTEM Settlement(청구 0).
 
         Args:
             event_assessment: PROCEED 계열에서 지시층위가 평가한 사건 상태.
@@ -1455,7 +1466,6 @@ class GMCog(commands.Cog):
         state_before = getattr(session, "_rewind_snapshot", None)
         if state_before is None:
             state_before = core.capture_state(session)
-        cost_before = getattr(session, "total_cost", 0.0)
 
         # 대기 중인 BGM 재생 — 기획 규정상 온 직후가 아니라 다음 스트리밍 시작 시점이다.
         #   (이전 턴에 확정된 pending_bgm의 소비 — 이번 턴 소유 정본 변경이 아니다.)
@@ -1488,6 +1498,7 @@ class GMCog(commands.Cog):
         prep.event_assessment = event_assessment
 
         outcome = None
+        result = None
         try:
             try:
                 await self._dispatch_proceed(
@@ -1499,34 +1510,16 @@ class GMCog(commands.Cog):
                 prep.violations.append(f"exception:{type(e).__name__}")
                 outcome = await self._join_after_exception(session, prep)
             if outcome == _OUTCOME_READY:
-                try:
-                    await self._post_ready_legacy_continuation(
-                        session, prep, master_ch,
-                        state_before=state_before, cost_before=cost_before)
-                except Exception as e:
-                    # READY 이후 legacy continuation 도중 예외 — crash-safe 아님(WP-D 복구 소관).
-                    #   활성 포인터가 남아 세션이 잠기지 않도록 식별자만 정리한다.
-                    print(f"[WP-C/{prep.transaction_id[:8]}] READY 이후 continuation 예외: "
-                          f"{type(e).__name__}: {e}")
-                    prep.failure_stage = "POST_READY_CONTINUATION"
-                    core.turn_transaction.finalize(
-                        session, prep.transaction_id,
-                        core.turn_transaction.TurnStatus.FAILED_SYSTEM,
-                        failure_stage="POST_READY_CONTINUATION",
-                        failure_code=core.turn_transaction.FailureCode.COMMIT_VALIDATION_FAILURE,
-                        failure_message=f"{type(e).__name__}: {e}")
+                result = await self._commit_ready_turn(
+                    session, prep, state_before=state_before)
             else:
                 await self._handle_preparation_failure(session, prep, outcome, master_ch)
         finally:
             await self._release_turn_processing(session, prep)
 
         if outcome == _OUTCOME_READY:
-            # 디스플레이 갱신 — 턴 종료 계층 (기획서 갱신 시점 ②)
-            try:
-                await core.refresh_display(self.bot, session, reason="turn_end")
-            except Exception as e:
-                print(f"[디스플레이] 턴 종료 갱신 실패: {e}")
-
+            if not await self._after_commit(session, prep, result, master_ch):
+                return
         if outcome in _OUTCOMES_RESTART_ROUND and session.gm_active:
             await self._start_round(session)
 
@@ -1726,11 +1719,9 @@ class GMCog(commands.Cog):
                 session, tid, TT.TurnStatus.STREAMING_EXTRACTING,
                 failure_stage="EXTRACTION",
                 failure_code=TT.FailureCode.EXTRACTION_PROVIDER_FAILURE)
-            session.extraction_pending = True
-            session.extraction_retry_ctx = {
-                "text": prep.extraction_text or "", "transaction_id": tid,
-                "mode": _RETRY_MODE_PREPARATION}
-            await core.save_session_data(self.bot, session)
+            # WP-D: 재시작 시 이 시도를 exact 멤버십으로 종결할 수 있도록 정확한 클레임
+            #   CostEvent ID를 복구 입력으로 strict 영속한다(최종 Settlement 아님).
+            await core.commit_coordinator.persist_retry_breadcrumb(self.bot, session, prep)
             game_ch = self.bot.get_channel(session.game_ch_id)
             if game_ch:
                 await game_ch.send(
@@ -1768,6 +1759,8 @@ class GMCog(commands.Cog):
             TT.finalize(session, tid, TT.TurnStatus.FAILED_SYSTEM,
                         failure_stage="READY_PREDICATE",
                         failure_code=TT.FailureCode.COMMIT_VALIDATION_FAILURE)
+        # WP-D(§10): 종료 실패 — 동결된 exact 멤버십으로 FAILED_SYSTEM Settlement(청구 0).
+        await self._settle_failed_turn(session, prep, master_ch)
         await core.save_session_data(self.bot, session)
 
     async def _cleanup_failed_delivery(self, session, prep) -> None:
@@ -1788,31 +1781,41 @@ class GMCog(commands.Cog):
                 continue
         await core.clear_messages(msgs)
 
-    async def _post_ready_legacy_continuation(self, session, prep, master_ch, *,
-                                              state_before, cost_before) -> None:
-        """
-        ▼▼▼ LEGACY POST-READY CONTINUATION (pre-WP-D) ▼▼▼
-        READY_TO_COMMIT 증명이 캡처된 '이후'에만 스테이징 효과를 정본에 적용하고 기존
-        카운터·되감기 델타·legacy 청구·WP-01 finalize를 수행한다(S11).
-        이것은 authoritative commit이 아니다 — CommitJournal/Settlement/InkTransaction
-        호출 없음, crash-safe 아님. WP-D가 이 경계를 CommitCoordinator로 치환한다.
-        적용 순서(현행 의미 보존 + D2 결정):
-          로그/카운터 → ROLL 성장 → 비정규 NPC 등록·승격 → 진행 이력 → progress →
-          지시효과 → 재계획 마커 → 추출 → 자동 재계획 → 카운터 → 델타·청구 → finalize → 저장
+    # ─────────────────────────────────────────────────────────────
+    # WP-D — 권위적 커밋(CommitCoordinator) 연결 · 파생 출력 · 실패/복구 UX
+    # ─────────────────────────────────────────────────────────────
+
+    async def _commit_ready_turn(self, session, prep, *, state_before=None):
+        """READY_TO_COMMIT 시도를 단일 커밋 owner(CommitCoordinator)로 넘긴다."""
+        coord = core.commit_coordinator.CommitCoordinator(self.bot)
+        try:
+            return await coord.commit_ready_turn(
+                session, prep, apply_effects=self._apply_commit_effects,
+                state_before=state_before)
+        except Exception as e:
+            # 코디네이터 자체의 예기치 못한 예외 — 정본 영속 여부를 저널로만 판정한다.
+            print(f"[WP-D/{prep.transaction_id[:8]}] 커밋 owner 예외: {type(e).__name__}: {e}")
+            session.commit_recovery = {"transaction_id": prep.transaction_id,
+                                       "status": "PENDING", "stage": "COORDINATOR_EXCEPTION",
+                                       "error": f"{type(e).__name__}: {e}"}
+            return core.commit_coordinator.CommitResult(
+                core.commit_coordinator.CommitOutcome.RECOVERY_PENDING,
+                reason="COORDINATOR_EXCEPTION", error=str(e))
+
+    async def _apply_commit_effects(self, session, prep, derived) -> None:
+        """커밋 영속 전 도메인 적용 — 정본 메모리 변이만(Discord/통계/세션 저장 없음).
+
+        적용 순서(WP-C 순서 보존): 비정규 NPC 등록·승격 → 진행 이력 → progress →
+        지시효과 → 재계획 마커 → 추출 → 자동 재계획. 묘사 로그·ROLL 성장·카운터·
+        Settlement 미러·되감기 델타·커밋 표식은 CommitCoordinator가 적용한다.
+        파생 알림은 derived에만 쌓여 durable COMMITTED 이후 방출된다.
         """
         TP = core.turn_preparation
-        tid = prep.transaction_id
-        assert prep.ready_proof is not None, "READY 증명 없이 continuation 불가"
-
-        TP.apply_staged_narration_log(session, prep.staged_log)
-        TP.apply_staged_growth(session, prep)
-
         if prep.irregular_plan is not None and not prep.irregular_plan.applied:
             try:
                 await self._apply_irregular_npc_plan(
-                    session, prep.irregular_plan, prep.irregular_text,
-                    self.bot.get_channel(getattr(session, "master_ch_id", 0)),
-                    staged_promotions=prep.promotions)
+                    session, prep.irregular_plan, prep.irregular_text, None,
+                    staged_promotions=prep.promotions, derived=derived)
             except Exception as e:
                 print(f"[비정규NPC] 적용 실패(진행에는 영향 없음): {e}")
 
@@ -1830,11 +1833,11 @@ class GMCog(commands.Cog):
 
         try:
             _applied = TP.apply_instruction_effects(session, TP.pending_for(session))
-            if (master_ch and _applied["applied"]
+            if (_applied["applied"]
                     and _applied["quest_action"] in ("start", "switch")
                     and _applied["quest_active_name"]):
                 verb = "전환" if _applied["quest_action"] == "switch" else "선정"
-                await master_ch.send(
+                derived.master(
                     f"📜 **[퀘스트 {verb}]** {_applied['quest_active_name']}\n"
                     f"> {_applied['quest_reason']}")
         except Exception as e:
@@ -1846,66 +1849,190 @@ class GMCog(commands.Cog):
                 _plan["last_planned_turn"] = session.turn_count
                 session.narrative_plan = _plan
 
-        await self._apply_prepared_extraction(session, prep)
+        await self._apply_prepared_extraction(session, prep, derived=derived)
 
         if prep.replan_candidate is not None:
             try:
                 await self._commit_replan_candidate(
                     session, prep.replan_candidate,
-                    logical_turn=prep.logical_turn, attempt=prep.attempt)
+                    logical_turn=prep.logical_turn, attempt=prep.attempt,
+                    derived=derived)
             except Exception as e:
                 print(f"[서사설계] 재계획 적용 실패(기존 계획 유지): {e}")
 
-        session.gm_clarify_count = 0
-        session.gm_narrate_count = 0
-        session.gm_turns_done += 1
-        session.gm_side_note = ""
-
-        # ── 되감기 기록 (4.6.0) ── (WP-C: 이번 턴 준비 효과가 모두 적용된 뒤 기록)
-        turn_no = session.gm_turns_done
-        if turn_no > getattr(session, "last_recorded_turn", 0):
+    async def _emit_commit_derived(self, session, derived) -> None:
+        """durable COMMITTED 이후 파생 출력 방출. 실패는 커밋을 되돌리지 않는다(§7 Phase F)."""
+        if derived is None:
+            return
+        master_ch = self.bot.get_channel(getattr(session, "master_ch_id", 0))
+        game_ch = self.bot.get_channel(getattr(session, "game_ch_id", 0))
+        for item in list(derived.items):
             try:
-                state_after = core.capture_state(session)
-                changes = core.diff_state(state_before, state_after)
-                turn_cost = getattr(session, "total_cost", 0.0) - cost_before
-                session.last_turn_cost = turn_cost   # 디스플레이 '직전 턴 금액'
-
-                # 실제 잉크 차감(legacy 청구 권위 — WP-D가 Settlement로 치환).
-                # 예상 최대를 넘겨 음수가 되면 1잉크로 맞춘다. 초과분은 운영자가 부담한다.
-                try:
-                    ink = core.cost_to_ink(turn_cost)
-                    session.total_ink_spent = int(
-                        getattr(session, "total_ink_spent", 0) or 0) + ink
-                    for _uid in (session.players or {}):
-                        res = await core.accounts.deduct_ink(_uid, ink, allow_overdraft=True)
-                        await core.stats.bump(_uid, ink_spent=ink)
-                        if res.get("overdraft"):
-                            await m_send(
-                                f"ℹ️ 예상 초과분이 발생해 잔액을 1잉크로 맞췄습니다. "
-                                f"(차감 {ink}잉크)")
-                except Exception as e:
-                    print(f"[결제] 차감 실패: {e}")
-                core.record_delta(session, turn_no, changes, cost_krw=turn_cost)
-                session._rewind_snapshot = state_after
-                core.record_full_log(
-                    session, turn_no,
-                    core.serialize_log_entries(session.raw_logs[-2:]),
-                )
-                session.last_recorded_turn = turn_no
+                kind = item[0]
+                if kind == "master" and master_ch:
+                    _, content, embed = item
+                    if embed is not None:
+                        await master_ch.send(content, embed=embed)
+                    elif content:
+                        await master_ch.send(content)
+                elif kind == "game" and game_ch:
+                    _, content, view_factory = item
+                    if view_factory is not None:
+                        await game_ch.send(content, view=view_factory())
+                    else:
+                        await game_ch.send(content)
+                elif kind == "stats":
+                    await core.stats.bump(item[1], **item[2])
+                elif kind == "npcs":
+                    await core.stats.add_npcs(item[1], item[2])
             except Exception as e:
-                print(f"[되감기] 델타 기록 실패(진행에는 영향 없음): {e}")
+                print(f"[WP-D] 파생 출력 실패(커밋 유지): {type(e).__name__}: {e}")
 
-        # WP-01 과도기 메타데이터: 시도를 COMMITTED로 종료 표기하고 활성 포인터를 비운다.
-        #   READY 배리어 자체는 COMMITTED를 설정하지 않는다 — 이것은 legacy continuation의
-        #   기존 식별자 정리이며 durable commit 의미가 아니다(WP-D가 치환).
-        core.turn_transaction.finalize(
-            session, tid, core.turn_transaction.TurnStatus.COMMITTED)
-        prep.phase = TP.PREP_CONTINUED
+    async def _send_turn_cost_report(self, session, settlement) -> None:
+        """Settlement 파생 턴 비용 보고(마스터 전용). 재환산·재반올림 없음(AUD-022)."""
+        master_ch = self.bot.get_channel(getattr(session, "master_ch_id", 0))
+        log = list(getattr(session, "turn_cost_log", None) or [])
+        session.turn_cost_log = []
+        if not master_ch or settlement is None:
+            return
+        try:
+            embed = core.build_turn_cost_embed(
+                session.turn_count, log, session.total_cost,
+                total_ink=int(getattr(session, "total_ink_spent", 0) or 0),
+                total_usd=float(getattr(session, "total_usd", 0.0) or 0.0),
+                free_krw=float(getattr(session, "profile_ai_cost_krw", 0.0) or 0.0),
+                settlement=settlement)
+            await master_ch.send(embed=embed)
+        except Exception as e:
+            print(f"[WP-D] 턴 비용 보고 실패(커밋 유지): {e}")
 
-        await core.save_session_data(self.bot, session)
-        # ▲▲▲ LEGACY POST-READY CONTINUATION END ▲▲▲
+    async def _settle_failed_turn(self, session, prep, master_ch) -> None:
+        """시스템 실패 시도 → FAILED_SYSTEM Settlement(청구 0). 기록 실패는 명시적으로 알린다."""
+        s, err = core.commit_coordinator.settle_failed_attempt(self.bot, session, prep)
+        session.turn_cost_log = []
+        if not master_ch:
+            return
+        try:
+            if s is not None:
+                await master_ch.send(
+                    f"🧾 실패 턴 정산 — 플레이어 청구 **0잉크** "
+                    f"(발생 비용 {core.format_cost(s.provider_cost_krw)}은 운영 기록으로 보존)")
+            else:
+                await master_ch.send(
+                    f"⚠️ 실패 턴 정산 기록 실패 — 청구는 없으나 감사 기록이 남지 않았습니다. "
+                    f"운영 확인 필요: {err}")
+        except Exception:
+            pass
 
-    async def _apply_prepared_extraction(self, session, prep) -> None:
+    async def _after_commit(self, session, prep, result, master_ch) -> bool:
+        """커밋 결과 처분. True면 호출자가 다음 라운드를 연다(성공 또는 안전한 실패)."""
+        CC = core.commit_coordinator
+        outcome = getattr(result, "outcome", None)
+        if outcome == CC.CommitOutcome.COMMITTED:
+            # 비권위 저장 — 정본은 이미 strict 저장됨. 커밋 이후 파생 필드(되감기 공백 표식 등)만.
+            await core.save_session_data(self.bot, session)
+            await self._emit_commit_derived(session, result.derived)
+            await self._send_turn_cost_report(session, result.settlement)
+            try:
+                await core.refresh_display(self.bot, session, reason="turn_end")
+            except Exception as e:
+                print(f"[디스플레이] 턴 종료 갱신 실패: {e}")
+            return True
+        if outcome == CC.CommitOutcome.FAILED_PRE_PERSIST:
+            # 정본 미영속 — 전달된 묘사는 정본이 아니므로 정리하고 재선언을 안내한다.
+            await self._cleanup_uncommitted_output(session, prep)
+            game_ch = self.bot.get_channel(session.game_ch_id)
+            if game_ch:
+                try:
+                    await core.send_streamed(self.bot, game_ch, core.build_failed_turn_notice(""))
+                except Exception:
+                    pass
+            session.current_turn_logs = []
+            session.gm_side_note = ""
+            if master_ch:
+                try:
+                    await master_ch.send(
+                        f"⚠️ 턴 확정 실패(영속 전: {result.reason}) — 정본 미반영·청구 0잉크. "
+                        f"선언 질문으로 되돌립니다.")
+                    if result.audit_error:
+                        await master_ch.send(
+                            f"⚠️ 실패 턴 정산 기록 실패 — 새 턴 차단 후 재시도합니다: {result.audit_error}")
+                except Exception:
+                    pass
+            session.turn_cost_log = []
+            await core.save_session_data(self.bot, session)
+            return not getattr(session, "commit_recovery", None)
+        if outcome == CC.CommitOutcome.RECOVERY_PENDING:
+            if master_ch:
+                try:
+                    await master_ch.send(
+                        f"⏸️ 턴 이야기는 확정·저장되었으나 정산/확정 단계가 끝나지 않았습니다"
+                        f"({result.reason}). 복구 완료 전까지 다음 턴을 열지 않습니다.")
+                except Exception:
+                    pass
+            return False
+        return False     # REJECTED — 이 호출은 흐름을 소유하지 않는다
+
+    async def _cleanup_uncommitted_output(self, session, prep) -> None:
+        """커밋되지 않은 시도의 전달 출력 정리(ID는 tx에 보존) — 정본처럼 남지 않게."""
+        ids = list(getattr(prep.delivery, "canonical_message_ids", ()) or ()) + \
+            list(getattr(prep.delivery, "media_message_ids", ()) or ())
+        game_ch = self.bot.get_channel(session.game_ch_id)
+        if not ids or game_ch is None:
+            return
+        msgs = []
+        for mid in ids:
+            if mid is None:
+                continue
+            try:
+                msgs.append(await game_ch.fetch_message(mid))
+            except Exception:
+                continue
+        try:
+            await core.clear_messages(msgs)
+        except Exception:
+            pass
+
+    async def _resume_commit_recovery(self, session, master_ch) -> bool:
+        """차단 중인 커밋 복구를 같은 durable 입력으로 재시도한다. True면 차단 해제."""
+        rep = await core.commit_coordinator.recover_session(
+            self.bot, session, context="in_process")
+        if rep.blocked:
+            if master_ch:
+                try:
+                    await master_ch.send(
+                        f"⏸️ 커밋 복구 대기({rep.status}) — 새 턴을 진행하지 않습니다. {rep.detail}")
+                except Exception:
+                    pass
+            return False
+        # durable 사실상 미결 시도가 없는데 런타임 tx가 COMMITTING으로 남았다면(영속 전
+        #   owner 예외) — 정본은 영속되지 않았으므로 실패로 종결해 새 선언을 받는다.
+        _tx = core.turn_transaction.get_active_transaction(session)
+        if (_tx is not None
+                and _tx.status == core.turn_transaction.TurnStatus.COMMITTING):
+            core.turn_transaction.finalize(
+                session, _tx.transaction_id, core.turn_transaction.TurnStatus.FAILED_SYSTEM,
+                failure_stage="COMMIT_ORPHANED",
+                failure_code=core.turn_transaction.FailureCode.COMMIT_VALIDATION_FAILURE)
+            _p = getattr(_tx, "preparation", None)
+            if _p is not None:
+                _p.phase = core.turn_preparation.PREP_FAILED
+        if rep.status == "RESOLVED":
+            await self._emit_commit_derived(session, rep.derived)
+            if rep.action == "FINALIZED":
+                await self._send_turn_cost_report(session, rep.settlement)
+            try:
+                await core.refresh_display(self.bot, session, reason="turn_end")
+            except Exception:
+                pass
+            if master_ch:
+                try:
+                    await master_ch.send(f"✅ 커밋 복구 완료({rep.action}).")
+                except Exception:
+                    pass
+        return True
+
+    async def _apply_prepared_extraction(self, session, prep, *, derived=None) -> None:
         """READY 이후 추출 계획 호환 적용(멱등). 계획(정규화 typed 필드)만이 권위다."""
         plan = prep.extraction_plan
         if plan is None or plan.applied:
@@ -1920,8 +2047,9 @@ class GMCog(commands.Cog):
         _applied_ids.append(tid)
         if len(_applied_ids) > 16:
             del _applied_ids[:-16]
-        _mch = self.bot.get_channel(getattr(session, "master_ch_id", 0))
-        await self._apply_extraction_plan(session, plan, _mch)
+        _mch = None if derived is not None else \
+            self.bot.get_channel(getattr(session, "master_ch_id", 0))
+        await self._apply_extraction_plan(session, plan, _mch, derived=derived)
 
     async def _retry_prepared_extraction(self, session) -> str:
         """추출 재시도 — 같은 논리 시도·같은 준비 owner로 재개한다(새 자동 턴 아님).
@@ -1934,19 +2062,23 @@ class GMCog(commands.Cog):
         async with self._lock_for(session):
             prep = TP.get_preparation(session, ctx.get("transaction_id"))
             if prep is None or prep.phase != TP.PREP_RETRY_PENDING:
-                # 런타임 준비 상태 소실(재시작 등) — 미확정 묘사에 추출을 적용하지 않고 차단만 해제.
-                session.extraction_pending = False
-                session.extraction_retry_ctx = {}
-                await core.save_session_data(self.bot, session)
+                # 런타임 준비 상태 소실(재시작 등) — 미확정 묘사에 추출을 적용하지 않는다.
+                #   WP-D: 이 시도를 exact 클레임 ID로 FAILED_SYSTEM(청구 0) 종결한 뒤 해제.
+                res = await core.commit_coordinator.abandon_retry_pending(self.bot, session)
+                if res == "PENDING":
+                    return "failed"
+                if getattr(session, "extraction_pending", False):
+                    session.extraction_pending = False
+                    session.extraction_retry_ctx = {}
+                    await core.save_session_data(self.bot, session)
                 return "released"
             session.is_processing = True
             prep.processing_held = True
             outcome = None
-            tx = core.turn_transaction.get_active_transaction(session)
+            result = None
             state_before = getattr(session, "_rewind_snapshot", None)
             if state_before is None:
                 state_before = core.capture_state(session)
-            cost_before = getattr(session, "total_cost", 0.0)
             try:
                 prep.reopen_for_retry()
                 _mch = self.bot.get_channel(getattr(session, "master_ch_id", 0))
@@ -1956,21 +2088,20 @@ class GMCog(commands.Cog):
                     required_success=True, may_spawn_required_child_work=True)
                 outcome = await self._join_and_ready(session, prep)
                 if outcome == _OUTCOME_READY:
-                    await self._post_ready_legacy_continuation(
-                        session, prep, master_ch,
-                        state_before=state_before, cost_before=cost_before)
+                    result = await self._commit_ready_turn(
+                        session, prep, state_before=state_before)
                 else:
                     await self._handle_preparation_failure(session, prep, outcome, master_ch)
             finally:
                 await self._release_turn_processing(session, prep)
+            committed = (outcome == _OUTCOME_READY and getattr(result, "outcome", None)
+                         == core.commit_coordinator.CommitOutcome.COMMITTED)
             if outcome == _OUTCOME_READY:
-                try:
-                    await core.refresh_display(self.bot, session, reason="turn_end")
-                except Exception as e:
-                    print(f"[디스플레이] 턴 종료 갱신 실패: {e}")
+                if not await self._after_commit(session, prep, result, master_ch):
+                    return "failed"
             if outcome in _OUTCOMES_RESTART_ROUND and session.gm_active:
                 await self._start_round(session)
-            return "ready" if outcome == _OUTCOME_READY else "failed"
+            return "ready" if committed else "failed"
 
     async def _run_gm_logic_loop(self, session, player_message: str, master_ch,
                                  *, transaction_id: str | None = None):
@@ -3494,7 +3625,8 @@ class GMCog(commands.Cog):
             return True
         return await self._apply_npc_promotion(session, name, norm, master_ch)
 
-    async def _apply_npc_promotion(self, session, name, norm, master_ch=None) -> bool:
+    async def _apply_npc_promotion(self, session, name, norm, master_ch=None,
+                                   *, derived=None) -> bool:
         """LegacyCompatibilityApplier(NPC 승격) — 정규화된 세부설정만 소비한다.
 
         raw 모델 payload는 이 함수에 입력되지 않는다. mark_detailed/promote는 정규화된
@@ -3511,17 +3643,19 @@ class GMCog(commands.Cog):
             npcs[final_name] = npcs.pop(name)
             session.npcs = npcs
 
-        if master_ch:
+        if master_ch or derived is not None:
             age_txt = ""
             if details.get("birth_year"):
                 age = core.compute_age(session, details["birth_year"])
                 if age is not None:
                     age_txt = f" ({age}세)"
-            await master_ch.send(
-                f"📇 **[NPC 승격]** {final_name}{age_txt} — "
-                f"{details['role']} · {details['attitude']}\n"
-                f"> {details['details'][:200]}"
-            )
+            _msg = (f"📇 **[NPC 승격]** {final_name}{age_txt} — "
+                    f"{details['role']} · {details['attitude']}\n"
+                    f"> {details['details'][:200]}")
+            if derived is not None:
+                derived.master(_msg)        # WP-D: COMMITTED 이후 방출
+            else:
+                await master_ch.send(_msg)
         return promoted
 
     async def _resolve_irregular_npcs(self, session, text: str, master_ch=None,
@@ -3713,7 +3847,7 @@ class GMCog(commands.Cog):
         return launched
 
     async def _apply_irregular_npc_plan(self, session, plan, text, master_ch=None,
-                                        *, staged_promotions=None) -> int:
+                                        *, staged_promotions=None, derived=None) -> int:
         """LegacyCompatibilityApplier(비정규 NPC 등록) — 계획의 정규화 항목만 적용한다.
 
         raw 모델 payload는 이 함수에 입력되지 않는다. register는 계획의 정규화된
@@ -3740,23 +3874,29 @@ class GMCog(commands.Cog):
                     # WP-C READY 이후: 사전 READY에 준비된 승격만 적용(provider 호출 없음).
                     if name in staged_promotions:
                         await self._apply_npc_promotion(
-                            session, name, staged_promotions[name], master_ch)
+                            session, name, staged_promotions[name], master_ch,
+                            derived=derived)
                 elif core.irregular_npc.should_promote(session, name):
                     await self._generate_npc_detail(session, name, text, master_ch)
         except Exception as e:
             print(f"[NPC설정] 승격 판정 실패(진행에는 영향 없음): {e}")
 
-        if added and master_ch:
+        if added and (master_ch or derived is not None):
             reg = core.irregular_npc.get_registry(session)
             names = [r["name"] for r in plan.registrations]
             lines = [f"{n} — {reg[n]['gender']}/{reg[n]['age']}"
                      f"{', ' + reg[n]['image_key'] if reg[n].get('image_key') else ''}"
                      for n in names if n in reg]
-            await master_ch.send("🎭 **[비정규 NPC 배정]** " + " · ".join(lines))
+            _msg = "🎭 **[비정규 NPC 배정]** " + " · ".join(lines)
+            if derived is not None:
+                derived.master(_msg)
+            else:
+                await master_ch.send(_msg)
         plan.applied = True
         return added
 
-    async def _apply_extraction_plan(self, session, plan, master_ch=None) -> dict:
+    async def _apply_extraction_plan(self, session, plan, master_ch=None,
+                                     *, derived=None) -> dict:
         """LegacyCompatibilityApplier — 추출 변이 계획(정규화 typed 필드)만 적용한다.
 
         raw provider result는 이 함수에 **입력되지 않으며** 어떤 canonical mutator의
@@ -3764,7 +3904,28 @@ class GMCog(commands.Cog):
         도달할 수 없다(되살아남 불가). 기존 도메인 helper는 재사용하되 입력은 계획에서
         파생한 정규화 DTO(또는 좁은 구조)뿐이다. plan.result는 증거 스냅샷·로그용일 뿐
         mutator 입력이 아니다.
+
+        WP-D: derived(core.commit_coordinator.DerivedEffects)가 주어지면(권위적 커밋의
+        영속 전 적용) Discord 송신·통계 쓰기를 하지 않고 기술자만 쌓는다 — 정본 변이만
+        메모리에서 일어나며 파생 출력은 durable COMMITTED 이후 방출된다.
         """
+        async def _master(content):
+            if derived is not None:
+                derived.master(content)
+            elif master_ch:
+                await master_ch.send(content)
+
+        async def _game(content, view_factory=None):
+            if derived is not None:
+                derived.game(content, view_factory=view_factory)
+                return
+            ch = self.bot.get_channel(session.game_ch_id)
+            if ch:
+                if view_factory is not None:
+                    await ch.send(content, view=view_factory())
+                else:
+                    await ch.send(content)
+
         # ── 세계 타임라인 / 장소(정규화된 이름으로만) ──
         if plan.location_after:
             try:
@@ -3772,8 +3933,8 @@ class GMCog(commands.Cog):
                     print(f"[장소] 첫 방문: {plan.location_after}")
                 if plan.location_moved:
                     gone = core.release_resident_companions(session, plan.location_after)
-                    if gone and master_ch:
-                        await master_ch.send(
+                    if gone:
+                        await _master(
                             f"👋 **[동행]** {', '.join(gone)}이(가) 자리에 남았습니다.")
             except Exception as e:
                 print(f"[장소] 적용 실패: {e}")
@@ -3791,10 +3952,10 @@ class GMCog(commands.Cog):
                 "joined": plan.companions_joined,
                 "left": plan.companions_left,
                 "npcs_met": plan.npcs_met})
-            if comp["joined"] and master_ch:
-                await master_ch.send(f"🤝 **[동행]** {', '.join(comp['joined'])} 합류")
-            if comp["left"] and master_ch:
-                await master_ch.send(f"👋 **[동행]** {', '.join(comp['left'])} 이탈")
+            if comp["joined"]:
+                await _master(f"🤝 **[동행]** {', '.join(comp['joined'])} 합류")
+            if comp["left"]:
+                await _master(f"👋 **[동행]** {', '.join(comp['left'])} 이탈")
         except Exception as e:
             print(f"[동행] 갱신 실패: {e}")
 
@@ -3811,17 +3972,15 @@ class GMCog(commands.Cog):
             if core.quest.check_secret_awareness(
                     session, {"secret_awareness": plan.secret_awareness}):
                 print(f"[GM/{session.session_id}] 이면정보 인지됨")
-                if master_ch:
-                    await master_ch.send("🔓 **[퀘스트]** 플레이어가 숨겨진 사실을 알아챘습니다.")
+                await _master("🔓 **[퀘스트]** 플레이어가 숨겨진 사실을 알아챘습니다.")
 
             try:
                 mains = core.quest.check_main_unlock(session)
                 if mains and not getattr(session, "main_unlocked_notified", False):
                     session.main_unlocked_notified = True
-                    if master_ch:
-                        await master_ch.send(
-                            f"🗝️ **[퀘스트]** 메인라인 조건 충족 — "
-                            f"{', '.join(q['name'] for q in mains)}")
+                    await _master(
+                        f"🗝️ **[퀘스트]** 메인라인 조건 충족 — "
+                        f"{', '.join(q['name'] for q in mains)}")
             except Exception as e:
                 print(f"[퀘스트] 메인 해금 확인 실패: {e}")
 
@@ -3831,26 +3990,20 @@ class GMCog(commands.Cog):
                 outcome = moved.get("outcome")
                 print(f"[GM/{session.session_id}] 퀘스트 진전 → {moved['node']}"
                       + (f" (완료: {outcome})" if outcome else ""))
-                if outcome and master_ch:
-                    await master_ch.send(f"📜 **[퀘스트]** 완료 — {outcome}")
+                if outcome:
+                    await _master(f"📜 **[퀘스트]** 완료 — {outcome}")
                 if moved.get("granted"):
                     g = moved["granted"]
                     if g.get("faction"):
                         print(f"[GM/{session.session_id}] 소속 획득: {g['faction']}")
-                        game_ch2 = self.bot.get_channel(session.game_ch_id)
-                        if game_ch2:
-                            await game_ch2.send(
-                                f"🏛️ **{g['faction']}**의 일원이 되었습니다.")
+                        await _game(f"🏛️ **{g['faction']}**의 일원이 되었습니다.")
                 if core.quest.is_ending(outcome):
                     session.pending_ending = outcome
-                    game_ch = self.bot.get_channel(session.game_ch_id)
-                    if game_ch:
-                        await game_ch.send(
-                            f"🎬 **세션 엔딩에 도달했습니다.**\n"
-                            f"> 결말: {outcome}\n\n"
-                            + core.quest.format_plans(),
-                            view=InfinityPlanView(self.bot, session),
-                        )
+                    await _game(
+                        f"🎬 **세션 엔딩에 도달했습니다.**\n"
+                        f"> 결말: {outcome}\n\n"
+                        + core.quest.format_plans(),
+                        view_factory=lambda: InfinityPlanView(self.bot, session))
         except Exception as e:
             print(f"[퀘스트] 진전 실패(진행에는 영향 없음): {e}")
         if applied["applied"] or applied["cleared"]:
@@ -3866,9 +4019,15 @@ class GMCog(commands.Cog):
         except Exception as e:
             print(f"[BGM] 선택 실패(진행에는 영향 없음): {e}")
 
-        # ── 통계 ──
+        # ── 통계 ── (WP-D: 권위 커밋에서는 COMMITTED 이후 파생 방출)
         try:
             for uid in (session.players or {}):
+                if derived is not None:
+                    derived.stats(uid, turns=1,
+                                  status_applied=len(applied["applied"]),
+                                  status_cleared=len(applied["cleared"]))
+                    derived.npcs(uid, applied["npcs"])
+                    continue
                 await core.stats.bump(
                     uid, turns=1,
                     status_applied=len(applied["applied"]),
@@ -3885,7 +4044,7 @@ class GMCog(commands.Cog):
             print(f"[추출/{session.session_id}] 계획 충돌 진단(적용 제외): {plan.conflicts}")
 
         # 마스터 보고 — 계획·적용 결과에서 구성(raw result는 mutator에 안 들어감).
-        if master_ch:
+        if master_ch or derived is not None:
             loc = (plan.world_new_tl or {}).get("current_location") or "미확인"
             report = f"🔎 **[추출층위]** 위치={loc}"
             if applied["applied"]:
@@ -3899,7 +4058,7 @@ class GMCog(commands.Cog):
                 report += f"\n> 소지품 반영: {', '.join(shown)}"
             if plan.companions_joined:
                 report += f"\n> 동행 합류: {', '.join(plan.companions_joined)}"
-            await master_ch.send(report)
+            await _master(report)
 
         plan.applied = True
         return {"applied": applied, "moved": moved}
@@ -4645,7 +4804,8 @@ class GMCog(commands.Cog):
             session, candidate, logical_turn=logical_turn, attempt=attempt)
 
     async def _commit_replan_candidate(self, session, candidate, *,
-                                       logical_turn=None, attempt=None) -> bool:
+                                       logical_turn=None, attempt=None,
+                                       derived=None) -> bool:
         """정규화 재계획 후보를 stale/멱등 검사 후 호환 적용한다(단일 적용 규칙)."""
         # stale guard(§26/§38): 이 재계획을 일으킨 시도보다 더 새로운 시도가 활성이면 폐기.
         if core.turn_preparation.superseded_by_newer_attempt(
@@ -4669,9 +4829,9 @@ class GMCog(commands.Cog):
             if len(applied_keys) > 16:
                 del applied_keys[:-16]
 
-        return await self._apply_narrative_plan(session, candidate)
+        return await self._apply_narrative_plan(session, candidate, derived=derived)
 
-    async def _apply_narrative_plan(self, session, candidate) -> bool:
+    async def _apply_narrative_plan(self, session, candidate, *, derived=None) -> bool:
         """LegacyCompatibilityApplier(서사 계획 교체) — 정규화 후보만 canonical에 적용한다.
 
         raw provider payload는 입력되지 않는다(candidate.normalized만 소비).
@@ -4687,7 +4847,9 @@ class GMCog(commands.Cog):
         plan["plan_version"]      = (session.narrative_plan or {}).get("plan_version", 0) + 1
         plan["last_planned_turn"] = session.turn_count
         session.narrative_plan    = plan
-        await core.save_session_data(self.bot, session)
+        if derived is None:
+            # setup/수동 경로 — 기존 영속 의미 유지. (WP-D 권위 커밋은 strict 저장이 영속한다)
+            await core.save_session_data(self.bot, session)
         candidate.applied = True
 
         # ── 마스터 채널 보고 (embed) ──
@@ -4701,7 +4863,7 @@ class GMCog(commands.Cog):
         }
         trigger_label = trigger_label_map.get(trigger_reason, "계획 갱신")
 
-        if master_ch:
+        if master_ch or derived is not None:
             embed = discord.Embed(
                 title=f"📖 서사 계획 갱신 — {trigger_label}",
                 color=0x5865F2,
@@ -4747,7 +4909,10 @@ class GMCog(commands.Cog):
             if planner_notes:
                 embed.add_field(name="📝 설계 메모", value=planner_notes[:1020], inline=False)
 
-            await master_ch.send(embed=embed)
+            if derived is not None:
+                derived.master(embed=embed)     # WP-D: COMMITTED 이후 방출
+            else:
+                await master_ch.send(embed=embed)
 
         core.write_log(session.session_id, "api",
                        f"[서사 계획 결과 ({trigger_label})]\n{json.dumps(plan, ensure_ascii=False, indent=2)}")

@@ -167,7 +167,10 @@ def test_29_legacy_billing_callers_unchanged_and_no_strict_cutover():
                 # §8/§40). 이는 라이브 청구 cutover 가 아니며 cogs/ 호출자는 0 이다
                 # (별도 caller-scan 테스트가 이를 직접 증명한다).
                 if rel in ("core/accounts.py", "core/cost_ledger.py",
-                           "core/settlement.py", "core/ink_transactions.py"):
+                           "core/settlement.py", "core/ink_transactions.py",
+                           # WP-D 권위 owner — foundation을 조합만 하며 strict 프리미티브는
+                           # 원장 부재 봇용 _NullLedger 인터페이스 정의뿐이다.
+                           "core/commit_coordinator.py"):
                     continue                        # 정의 파일 제외
                 text = source_of(rel)
                 for sym in strict_syms:

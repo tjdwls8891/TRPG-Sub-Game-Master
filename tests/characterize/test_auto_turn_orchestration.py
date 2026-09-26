@@ -34,8 +34,9 @@ async def test_c001_finish_proceed_current_order(
     """C-001 — 정상 PROCEED 후처리의 현재 호출 순서를 고정한다.
 
     WP-C에서 의도적으로 바뀌었다: 디스패치(확정 묘사·동시 준비 발사·전달) →
-    준비 작업 합류 → READY_TO_COMMIT → legacy continuation(델타·청구) → 저장 →
-    디스플레이 → 다음 라운드. READY 이전에는 어떤 카운터·델타·청구도 없다.
+    준비 작업 합류 → READY_TO_COMMIT. WP-D에서 다시 의도적으로 바뀌었다(CHANGE LIST 1·3·4):
+    READY → CommitCoordinator(strict 저장 → 되감기 기록 → Settlement 청구) → 비권위
+    저장 → 디스플레이 → 다음 라운드. legacy deduct_ink는 더 이상 호출되지 않는다.
     """
     import core
     from tests.fakes.barrier_fakes import begin_tx, make_prepared_dispatch
@@ -61,12 +62,22 @@ async def test_c001_finish_proceed_current_order(
     monkeypatch.setattr(core, "diff_state",
                         recorder.make_sync("diff_state", result=lambda: []),
                         raising=False)
-    monkeypatch.setattr(core, "record_delta",
-                        recorder.make_sync("record_delta"), raising=False)
-    monkeypatch.setattr(core, "record_full_log",
-                        recorder.make_sync("record_full_log"), raising=False)
-    monkeypatch.setattr(core, "serialize_log_entries",
-                        lambda *a, **k: [], raising=False)
+    monkeypatch.setattr(core.rewind, "record_delta",
+                        recorder.make_sync("record_delta", result=True), raising=False)
+    monkeypatch.setattr(core.rewind, "record_full_log",
+                        recorder.make_sync("record_full_log", result=True), raising=False)
+    _orig_strict = core.io.write_session_strict_locked
+
+    async def _strict(session):
+        recorder.order.append("strict_save")
+        return await _orig_strict(session)
+    monkeypatch.setattr(core.io, "write_session_strict_locked", _strict)
+    _orig_charges = core.ink_transactions.execute_settlement_charges
+
+    async def _charges(settlement, **k):
+        recorder.order.append("settlement_charges")
+        return await _orig_charges(settlement, **k)
+    monkeypatch.setattr(core.ink_transactions, "execute_settlement_charges", _charges)
     monkeypatch.setattr(core, "save_session_data",
                         recorder.make("save_session"), raising=False)
     monkeypatch.setattr(core, "refresh_display",
@@ -86,13 +97,18 @@ async def test_c001_finish_proceed_current_order(
     assert order.index("dispatch_proceed") < order.index("extraction_done")
     assert order.index("extraction_done") < order.index("ready_to_commit")
     assert order.index("delivery_done") < order.index("ready_to_commit")
-    assert order.index("ready_to_commit") < order.index("deduct_ink")
-    assert order.index("deduct_ink") < order.index("record_delta")
-    assert order.index("record_delta") < order.index("save_session")
+    assert order.index("ready_to_commit") < order.index("strict_save")
+    assert order.index("strict_save") < order.index("record_delta")
+    assert order.index("record_delta") < order.index("settlement_charges")
+    assert order.index("settlement_charges") < order.index("save_session")
+    assert "deduct_ink" not in order, "legacy 차감이 정상 자동 턴에 남아 있습니다"
+    assert core.commit_journal.CommitJournal(
+        core.commit_journal.default_journal_path(sess.session_id)
+    ).classify_recovery(tx.transaction_id, tx.attempt).value == "COMPLETE"
     assert order.index("save_session") < order.index("refresh_display")
     assert order.index("refresh_display") < order.index("start_round")
 
-    # 카운터는 READY 이후 legacy continuation에서만 오른다.
+    # 카운터는 READY 이후 권위적 커밋에서만 오른다.
     assert sess.gm_turns_done == 1
     assert sess.turn_count == 8
     assert sess.gm_clarify_count == 0

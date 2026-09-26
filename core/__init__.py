@@ -214,6 +214,7 @@ from . import cost_ledger  # WP-02: append-only shadow CostLedger
 from . import commit_journal  # WP-JOURNAL-01: durable commit journal foundation
 from . import settlement  # WP-SETTLEMENT-01: immutable TurnSettlement + durable store
 from . import ink_transactions  # WP-SETTLEMENT-01: exactly-once InkTransaction executor
+from . import commit_coordinator  # WP-D: authoritative commit / recovery / billing cutover
 from .cost import (
     extract_token_usage,
     format_cost,
@@ -244,6 +245,8 @@ from .io import (
     get_available_scenarios,
     save_session_data,
     save_session_data_strict,
+    session_io_lock,
+    write_session_strict_locked,
     SessionPersistenceError,
     process_cache_deletion,
     load_authorized_users,
@@ -357,7 +360,7 @@ __all__ = [
     # io
     "SCHEMA_VERSION", "migrate_session_data", "SESSION_FIELDS", "SESSION_RESET_FIELDS",
     "write_log", "write_cost_log", "load_scenario_from_file", "get_available_scenarios",
-    "save_session_data", "save_session_data_strict", "SessionPersistenceError", "process_cache_deletion",
+    "save_session_data", "save_session_data_strict", "session_io_lock", "write_session_strict_locked", "SessionPersistenceError", "process_cache_deletion",
     "load_authorized_users", "save_authorized_users", "AUTHORIZED_USERS_PATH",
     # cache
     "build_scenario_cache_text", "update_session_cache_state", "remaining_ttl", "is_cache_expired", "is_session_open", "restore_sessions_from_disk",

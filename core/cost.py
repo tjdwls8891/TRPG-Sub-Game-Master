@@ -364,7 +364,8 @@ def format_breakdown(entry: dict) -> str:
 def build_turn_cost_embed(turn_number: int, cost_log: list, total_cost: float,
                           *, total_ink: int = None,
                           total_usd: float = None,
-                          free_krw: float = 0.0) -> discord.Embed:
+                          free_krw: float = 0.0,
+                          settlement=None) -> discord.Embed:
     """
     한 턴의 비용을 호출별로 분해해 보고한다(마스터 채널 전용).
 
@@ -376,6 +377,9 @@ def build_turn_cost_embed(turn_number: int, cost_log: list, total_cost: float,
         cost_log: [{"label", "cost", "in"?, "cached"?, "out"?, "model"?, "manifest"?}, ...]
         total_cost: session.total_cost 누적값 (KRW)
         total_ink: 누적 잉크. 원 단위 누적을 변환하지 않고 턴별 잉크를 더한 값.
+        settlement: (WP-D) 정상 자동 턴의 불변 TurnSettlement. 주어지면 턴 청구액은
+            Settlement의 charge_ink_per_user/player_billable_cost_krw만 표시한다
+            (재환산·재반올림 금지 — 청구 금액의 단일 출처). 호출 내역은 참고용.
     """
     embed = discord.Embed(
         title=f"🎲 턴 비용 리포트 · #{turn_number}",
@@ -420,11 +424,20 @@ def build_turn_cost_embed(turn_number: int, cost_log: list, total_cost: float,
             inline=False)
 
     # ink는 cost를 임포트하므로 여기서 지연 임포트한다.
-    from .ink import cost_to_ink
-    embed.add_field(name="🧮 턴 소계",
-                    value=f"**{format_cost(total_turn_cost)}**\n"
-                          f"= {cost_to_ink(total_turn_cost)}잉크",
-                    inline=True)
+    if settlement is not None:
+        _users = len(getattr(settlement, "billing_user_ids", ()) or ())
+        embed.add_field(
+            name="🧮 턴 청구(Settlement)",
+            value=(f"**{format_cost(settlement.player_billable_cost_krw)}**\n"
+                   f"= 1인당 {settlement.charge_ink_per_user}잉크 × {_users}명\n"
+                   f"(호출 내역 합계 {format_cost(total_turn_cost)} · 참고)"),
+            inline=True)
+    else:
+        from .ink import cost_to_ink
+        embed.add_field(name="🧮 턴 소계",
+                        value=f"**{format_cost(total_turn_cost)}**\n"
+                              f"= {cost_to_ink(total_turn_cost)}잉크",
+                        inline=True)
     # 청구 근거는 달러다. 원화는 현재 환율로 환산한 참고값.
     acc = format_cost(total_cost)
     if total_usd is not None:

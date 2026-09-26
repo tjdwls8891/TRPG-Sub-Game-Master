@@ -481,6 +481,27 @@ async def restore_sessions_from_disk(bot):
                         restored_raw_logs.append(entry)
                 session.raw_logs = restored_raw_logs
 
+                # ── WP-D: 커밋 복구 — 게임 진입(active_sessions 등록)·캐시 재발급 저장 전에
+                #    CommitJournal/Settlement/계정 사실과 data.json 커밋 표식을 대조해 처분한다.
+                #    구 런타임 tx/준비 객체는 없다(재시작) — durable 사실만 쓴다.
+                try:
+                    from . import commit_coordinator as _cc
+                    _rep = await _cc.recover_session(bot, session, context="restart")
+                    if _rep.status == "RESOLVED":
+                        print(f"🔁 {session_id}: 커밋 복구 {_rep.action} (tx={_rep.transaction_id})")
+                        await _cc.emit_stats_effects(_rep.derived)
+                    elif _rep.blocked:
+                        print(f"⛔ {session_id}: 커밋 복구 {_rep.status} — 새 턴 차단: {_rep.detail}")
+                    # RETRY_PENDING은 런타임 준비가 소실됐다 — exact ID로 종결(청구 0) 후 재선언.
+                    _ab = await _cc.abandon_retry_pending(bot, session)
+                    if _ab != "NONE":
+                        print(f"🔁 {session_id}: 추출 재시도 대기 시도 종결({_ab})")
+                except Exception as _e:
+                    session.commit_recovery = {"status": "RECOVERY_REQUIRED",
+                                               "stage": "RESTORE_EXCEPTION",
+                                               "error": f"{type(_e).__name__}: {_e}"}
+                    print(f"⛔ {session_id}: 커밋 복구 실행 실패 — 새 턴 차단: {_e}")
+
                 if session.cache_name:
                     try:
                         session.cache_obj = await asyncio.to_thread(bot.genai_client.caches.get,

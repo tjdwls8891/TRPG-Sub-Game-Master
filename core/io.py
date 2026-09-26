@@ -166,6 +166,10 @@ SESSION_FIELDS: dict = {
     "cache_read_tokens": 0,
     "cost_stats": {},
     "last_recorded_turn": 0,
+    # WP-D: authoritative commit 표식·Settlement 파생 미러·되감기 기록 공백
+    "commit_marker": None,
+    "last_turn_ink": 0,
+    "rewind_degraded_turns": [],
     "extraction_pending": False,
     "extraction_retry_ctx": {},
     "last_extraction": {},
@@ -447,6 +451,12 @@ async def save_session_data(bot, session: TRPGSession):
     패키지에서 그대로 유지된다. 명확한 실패 신호가 필요한 신규 경로는
     save_session_data_strict 를 사용한다.
     """
+    # WP-D: authoritative commit 임계구역(io 락 보유) 안에서 같은 태스크가 부르면
+    #   재진입 교착이 된다. 그 임계구역은 곧 strict write로 전체 상태를 영속하므로
+    #   여기서는 쓰지 않고 돌아간다(정본 결정권은 커밋의 strict write에 있다).
+    owner = getattr(session, "_commit_io_task", None)
+    if owner is not None and owner is asyncio.current_task():
+        return
     async with _get_session_io_lock(bot, session):
         try:
             data = _serialize_session(session)
@@ -472,15 +482,33 @@ async def save_session_data_strict(bot, session: TRPGSession) -> None:
     기존 호출부에 배선하지 않는다.
     """
     async with _get_session_io_lock(bot, session):
-        try:
-            data = _serialize_session(session)
-            await asyncio.to_thread(_atomic_write_session, session, data)
-        except Exception as e:
-            # tolerant 와 동일하게 실패 시 tmp 를 정리하되, 삼키지 않고 명확히 전파.
-            _sweep_leftover_tmp(session.session_id)
-            raise SessionPersistenceError(
-                f"세션 저장 실패: {session.session_id}"
-            ) from e
+        await write_session_strict_locked(session)
+
+
+def session_io_lock(bot, session):
+    """세션별 io 락(strict/tolerant 공통)의 공개 접근자(WP-D).
+
+    authoritative commit이 '정본 적용 → 직렬화 → 원자적 쓰기'를 하나의 임계구역으로
+    묶어, 그 사이에 tolerant save가 적용 도중 상태를 끼워 쓰지 못하게 한다.
+    asyncio.Lock은 재진입 불가 — 이 락을 쥔 채 save_session_data를 부르면 교착된다.
+    """
+    return _get_session_io_lock(bot, session)
+
+
+async def write_session_strict_locked(session) -> None:
+    """(strict) 호출자가 session_io_lock을 이미 쥐고 있을 때의 저장 본체.
+
+    save_session_data_strict 와 같은 직렬화·원자적 쓰기·실패 계약(SessionPersistenceError).
+    """
+    try:
+        data = _serialize_session(session)
+        await asyncio.to_thread(_atomic_write_session, session, data)
+    except Exception as e:
+        # tolerant 와 동일하게 실패 시 tmp 를 정리하되, 삼키지 않고 명확히 전파.
+        _sweep_leftover_tmp(session.session_id)
+        raise SessionPersistenceError(
+            f"세션 저장 실패: {session.session_id}"
+        ) from e
 
 
 async def process_cache_deletion(bot, session) -> float:

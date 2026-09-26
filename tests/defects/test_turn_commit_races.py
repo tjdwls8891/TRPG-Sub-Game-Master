@@ -59,8 +59,11 @@ def test_d002_extraction_is_registered_and_joined():
     assert "create_task" not in dispatch, "디스패치에 미등록 fire-and-forget이 남았습니다"
     assert "create_task(\n                self._run_extraction" not in src
     owner = body_of("_finish_proceed_and_continue")
-    assert owner.index("_join_and_ready") < owner.index("_post_ready_legacy_continuation")
-    assert owner.index("_post_ready_legacy_continuation") < owner.index("_start_round")
+    # WP-D: READY 이후 owner는 권위적 커밋(_commit_ready_turn → CommitCoordinator)이다.
+    assert "_post_ready_legacy_continuation" not in src
+    assert owner.index("_join_and_ready") < owner.index("_commit_ready_turn")
+    assert owner.index("_commit_ready_turn") < owner.index("_after_commit")
+    assert owner.index("_after_commit") < owner.index("_start_round")
 
 
 def _patch_common(monkeypatch, recorder):
@@ -69,10 +72,11 @@ def _patch_common(monkeypatch, recorder):
                         recorder.make("save_session"), raising=False)
     monkeypatch.setattr(core, "refresh_display",
                         recorder.make("refresh_display"), raising=False)
-    monkeypatch.setattr(core, "record_delta",
-                        recorder.make_sync("record_delta"), raising=False)
-    monkeypatch.setattr(core, "record_full_log",
-                        recorder.make_sync("record_full_log"), raising=False)
+    # WP-D: 되감기 기록 owner는 CommitCoordinator(core.rewind 직접 호출)다.
+    monkeypatch.setattr(core.rewind, "record_delta",
+                        recorder.make_sync("record_delta", result=True), raising=False)
+    monkeypatch.setattr(core.rewind, "record_full_log",
+                        recorder.make_sync("record_full_log", result=True), raising=False)
     monkeypatch.setattr(core, "serialize_log_entries",
                         lambda *a, **k: [], raising=False)
     monkeypatch.setattr(core.accounts, "deduct_ink",
@@ -188,9 +192,9 @@ async def test_d002d_delta_recorded_after_extraction_commit(
 
     _orig_apply = cog._apply_extraction_plan
 
-    async def _rec_apply(session, plan, master_ch=None):
+    async def _rec_apply(session, plan, master_ch=None, **k):
         recorder.order.append("extraction_applied")
-        return await _orig_apply(session, plan, master_ch)
+        return await _orig_apply(session, plan, master_ch, **k)
 
     monkeypatch.setattr(cog, "_apply_extraction_plan", _rec_apply, raising=False)
     monkeypatch.setattr(cog, "_dispatch_proceed",

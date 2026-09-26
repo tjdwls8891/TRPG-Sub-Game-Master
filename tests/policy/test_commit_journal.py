@@ -320,7 +320,11 @@ async def test_20_composes_with_strict_save(tmp_path, wired_bot, session_auto_re
 
 
 def test_21_no_production_turn_orchestration_caller():
-    """프로덕션 턴 파이프라인에 CommitJournal 호출자가 0 인지 소스 스캔(J6/§14)."""
+    """WP-D: 저널 오케스트레이션 호출자는 권위 owner(core/commit_coordinator.py) 단 하나.
+
+    (WP-JOURNAL-01 시점 '호출자 0' 특성화 → WP-D CHANGE LIST 5로 의도적 전환)
+    cogs/ 등 다른 프로덕션 모듈은 저널을 직접 쓰지 않는다(이중 권위 금지).
+    """
     from tests.conftest import source_of, REPO_ROOT
 
     # 중립 모듈 import 는 허용(배선 아님). 호출/구성 패턴만 금지한다.
@@ -343,8 +347,9 @@ def test_21_no_production_turn_orchestration_caller():
                 text = source_of(rel)
                 for pat in call_patterns:
                     if pat in text:
-                        offenders.append((rel, pat))
-    assert offenders == [], f"프로덕션 저널 호출자 발견: {offenders}"
+                        offenders.append((rel.replace("\\", "/"), pat))
+    owners = {rel for rel, _ in offenders}
+    assert owners == {"core/commit_coordinator.py"}, f"저널 호출 owner: {offenders}"
 
 
 def test_22_journal_module_does_not_touch_legacy_billing():

@@ -164,11 +164,17 @@ def test_s8_no_settlement_or_ink_executor_callers_in_cogs():
 
 
 def test_s8_legacy_finish_proceed_billing_remains():
-    # 레거시 결제 경로(_finish_proceed_and_continue)가 그대로 살아 있다.
+    """WP-D: legacy 결제(누적 차분 → cost_to_ink → deduct_ink)는 권위에서 제거됐다.
+
+    정상 자동 턴 청구의 유일한 권위는 CommitCoordinator의 Settlement → InkTransaction이다.
+    """
     gm = source_of("cogs/gm.py")
     assert "async def _finish_proceed_and_continue" in gm
-    assert "ink = core.cost_to_ink(turn_cost)" in gm
-    assert "core.accounts.deduct_ink(_uid, ink, allow_overdraft=True)" in gm
+    assert "ink = core.cost_to_ink(turn_cost)" not in gm
+    assert "deduct_ink" not in gm
+    assert "total_cost\", 0.0) - cost_before" not in gm
+    cc = source_of("core/commit_coordinator.py")
+    assert "_st.build_turn_settlement(" in cc and "_ink.execute_settlement_charges(" in cc
 
 
 def test_s8_foundation_not_wired_into_turn_pipeline():

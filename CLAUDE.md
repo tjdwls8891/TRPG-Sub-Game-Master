@@ -116,7 +116,7 @@ python main.py
 |---|---|---|
 | `constants.py` | 143 | 모델 ID, `EXCHANGE_RATE`, `PRICING_1M`, `TTS_VOICES`, `__version__` |
 | `models.py` | 245 | `TRPGSession` — 단일 세션의 모든 상태 |
-| `io.py` | 430 | `SCHEMA_VERSION`, `SESSION_FIELDS`(76), `migrate_session_data`, 직렬화·로그 |
+| `io.py` | 430 | `SCHEMA_VERSION`, `SESSION_FIELDS`(79), `migrate_session_data`, 직렬화·로그 |
 | `cache.py` | 531 | 룰북 캐시 빌드, `remaining_ttl`, `is_cache_expired`, `is_session_open`, 세션 복구 |
 | `resilience.py` | 107 | `call_with_retry` — 재시도·타임아웃·오류 로그 분리 |
 
