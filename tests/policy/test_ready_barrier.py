@@ -1323,6 +1323,63 @@ async def test_bc5_callback_gap_keeps_membership_open(session_auto_ready, tmp_pa
     assert len(frozen) == 1 and frozen[0] == op.event_ids[0]
 
 
+async def test_bc5_timeout_then_caller_cancel_records_each_provider_attempt(tmp_path):
+    """같은 ProviderOperation에서 attempt 1 타임아웃 → attempt 2 호출자 취소.
+
+    외부 루프가 call_with_retry(retries=1)을 반복하므로 래퍼 attempt는 매번 1이다.
+    취소 분기도 실제 provider-attempt 카운터를 올려야 두 늦은 usage가 각각
+    provider_attempt 1·2로 정확히 한 번씩 기록된다(_late_observed dedupe로 유실 없음).
+    """
+    ledger = CostLedger(str(tmp_path / "l.jsonl"))
+    op = core.cost_ledger.ProviderOperation(ledger, operation="TURN_EXTRACTION",
+                                            model=core.DEFAULT_MODEL)
+    loop = asyncio.get_running_loop()
+    pending = [loop.create_future(), loop.create_future()]
+    started = [asyncio.Event(), asyncio.Event()]
+    calls = []
+
+    def _factory():
+        i = len(calls)
+        calls.append(i)
+
+        async def _call():
+            started[i].set()
+            return await pending[i]
+        return _call()
+
+    # attempt 1 — 래퍼 타임아웃
+    ok, res = await core.call_with_retry(
+        _factory, layer="extraction", timeout=0.05, retries=1,
+        on_attempt_result=op.on_attempt, operation_id=op.operation_id)
+    assert ok is False and res is None and op.has_inflight()
+
+    # attempt 2 — provider 호출 진행 중 호출자 취소
+    outer = asyncio.ensure_future(core.call_with_retry(
+        _factory, layer="extraction", timeout=30, retries=1,
+        on_attempt_result=op.on_attempt, operation_id=op.operation_id))
+    await asyncio.wait_for(started[1].wait(), 5)
+    outer.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await outer
+    assert len(calls) == 2 and op._attempt == 2
+
+    # 두 underlying 호출 모두 늦게 usage를 반환한다(역순 완료).
+    pending[1].set_result(FakeGenAIResponse("b", usage=_usage(222, 22)))
+    pending[0].set_result(FakeGenAIResponse("a", usage=_usage(111, 11)))
+    await _until(lambda: not op.has_inflight())
+
+    rows = ledger.list_cost_events()
+    by_pa = {}
+    for r in rows:
+        by_pa.setdefault(r["provider_attempt"], []).append(r)
+    assert sorted(by_pa) == [1, 2]
+    assert all(len(v) == 1 for v in by_pa.values()), "중복 CostEvent"
+    assert by_pa[1][0]["input_tokens"] == 111
+    assert by_pa[2][0]["input_tokens"] == 222
+    assert all(r["metadata"].get("late_after_wrapper_timeout") for r in rows)
+    assert sorted(op.late_events) == [1, 2] and len(op.event_ids) == 2
+
+
 # ── B-C6 — 필드 커버리지 음성/양성 테스트 ─────────────────────
 
 def _append_full_log(s):

@@ -158,8 +158,13 @@ async def call_with_retry(fn, *, layer: str, session_id: str = "",
             #   (TimeoutError 결정 직후 provider가 완료되는 경계 race에서도 usage 유실 없음)
             _track_inflight(on_attempt_result, task, attempt=attempt,
                             operation_id=operation_id)
-        except asyncio.CancelledError:
+        except asyncio.CancelledError as e:
             # 호출자 취소 — underlying 호출도(완료 여부 무관) 관측 경계로 넘긴 뒤 취소를 전파한다.
+            #   타임아웃·예외와 같이 먼저 관측자에 알려 실제 provider-attempt 카운터를 올린다.
+            #   (누락 시 이 호출이 이전 attempt 번호로 늦게 관측되어 dedupe로 usage가 유실된다)
+            _notify_attempt_observer(
+                on_attempt_result, attempt=attempt, success=False,
+                response=None, exception=e, operation_id=operation_id)
             _track_inflight(on_attempt_result, task, attempt=attempt,
                             operation_id=operation_id)
             raise
