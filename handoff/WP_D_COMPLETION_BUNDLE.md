@@ -256,3 +256,82 @@ AUD-030 정책 보존. WP-C F2(`m_send` NameError 경로) legacy 루프와 함�
 ## 19. Hard stop
 
 WP-D 구현 후 정지. **WP-E는 시작하지 않았다.** 독립 GPT 게이트 대기.
+
+---
+
+## 20. 게이트 패치 D-D1~D-D4 (parent `861d0293e6e32fcbddc9f4c8ec2b11081aa9712f`)
+
+게이트 결과 PATCH REQUIRED에 대한 패치. 정상 커밋 순서·Settlement/Ink foundation·WP-C B-C1~B-C7·청구/UI/통계
+권위 전환은 재설계하지 않았다. 최종 SHA는 이 절을 담은 커밋(= 브랜치 HEAD, 채팅 보고에 literal).
+
+### 20.1 변경 파일
+
+```
+M cogs/gm.py                  D-D1 전파 · D-D2 라운드 미개방 · D-D3 fail-closed/claim 훅 · D-D4 복구 우선 admission
+M core/commit_coordinator.py  D-D2 실패 정산 백로그+차단, 복구 실행기 백로그 처리 · D-D3 durable claim·멤버십 재구성
+M core/turn_preparation.py    D-D3 TurnPreparation.durable_claim 훅(재시도 중에만 설정, claim 시 선행 기록)
+M core/io.py, core/models.py  SESSION_FIELDS += failed_settlement_backlog (79→80)
+M CLAUDE.md, DEVLOG.md        SESSION_FIELDS 수치 79→80 (이 패치의 필드 신설분만)
+M tests/policy/test_commit_recovery.py  settle_failed_attempt 비동기화에 맞춘 주입 지점 변경(의미 동일)
+A tests/policy/test_wp_d_patch.py       D-D1~D-D4 회귀 15건
+M handoff/WP_D_COMPLETION_BUNDLE.md     본 절
+```
+
+### 20.2 D-D1 — 정본 변이 예외 전파
+
+- `_apply_commit_effects`: try/except 전부 제거(비정규 NPC·지시효과·재계획). 예외는 CommitCoordinator로 전파 →
+  `restore_rollback_snapshot` → `_fail_pre_persist`(stage=APPLY).
+- `_apply_extraction_plan`(장소·동행·메인 해금·퀘스트 진전·BGM·통계 기술자)·`_apply_irregular_npc_plan`(등장 누적·승격)
+  의 모든 except에 `if derived is not None: raise` — 권위 커밋 모드에서만 전파, 수동/setup(derived=None)은 기존 best-effort.
+- 파생 출력(Discord/통계)은 여전히 derived 기술자로 COMMITTED 이후 방출·실패(커밋 불변).
+- core 도메인 헬퍼(extraction/quest/irregular_npc/timeline/media_control)의 except는 읽기·정규화 전용으로 정본 변이 경계가 아님(스캔 확인).
+
+### 20.3 D-D2 — FAILED_SYSTEM 정산 실패 fail-closed
+
+- `settle_failed_attempt`(비동기): 영속 실패 시 PREPARED 유무와 무관하게 `_enqueue_failed_settlement` —
+  `failed_settlement_backlog`에 {session·tx·logical_turn·attempt·동결 exact CostEvent ID·청구 유저·stage}를 담아 strict 저장
+  시도, `commit_recovery`(FAILED_SETTLEMENT_PENDING) 설정. 청구 0, Settlement 미영속을 그대로 드러낸다.
+- 사전 READY 실패·커밋 영속 전 실패 모두 이 경로. 라운드 개방은 `open_round and gm_active and not commit_recovery`.
+- `recover_session`이 백로그를 먼저 같은 exact 입력으로 재시도(ID 미동결 항목은 RECOVERY_REQUIRED) → 성공 시 해제.
+- CostLedger strict 파서는 변경하지 않았다.
+
+### 20.4 D-D3 — RETRY_PENDING exact 멤버십 내구성
+
+- `persist_retry_breadcrumb` → bool. strict 실패 시 tolerant 대체 없음, 상태 원복 후 False. 호출자는 재시도 UI를 열지 않고
+  멤버십 동결 → FAILED_SYSTEM 종결(청구 0, 재선언).
+- 재시도 중 `prep.durable_claim` → `record_retry_claim(session, tx, attempt, operation_id)`를
+  `sessions/{id}/retry_claims.jsonl`에 write→flush→fsync, **provider 호출 전**(claim 시점). 실패 시 호출 자체가 일어나지 않음.
+- 재시작 폐기 멤버십 `retry_membership` = breadcrumb exact ID ∪ claim된 오퍼레이션의 CostEvent
+  (`idempotency_key` 접두 `<operation_id>:attempt:` — 오퍼레이션 단위 정확 식별). tx 전체 조회·가변 합계 미사용.
+
+### 20.5 D-D4 — 복구 admission 우선
+
+- `on_message`: `commit_recovery`가 있으면 gm_active 검사 전에 `_recovery_admission`.
+- `_process_actions`·`_handle_player_message`: 복구 게이트가 gm_active·턴 한도·비용 한도보다 먼저.
+- `_recover_then_maybe_round`: 복구 성공 후 `_round_eligible`(활성·턴/비용 한도)로만 새 라운드 여부 결정.
+
+### 20.6 회귀 테스트 (`tests/policy/test_wp_d_patch.py`)
+
+| 항목 | 테스트 |
+|---|---|
+| D-D1 | `test_dd1_helper_mutation_exception_rolls_back[extraction_companions|extraction_quest|extraction_bgm|instruction_effects]` (헬퍼 내부에서 필드 A 변경 후 예외 → owner 전파·스냅샷 복원·디스크 정본 불변·COMMITTED Settlement 없음·청구 없음), `test_dd1_irregular_helper_boundary_propagates_only_in_commit_mode`, `test_dd1_replan_apply_exception_propagates`, `test_dd1_commit_path_has_no_swallowing_boundary` |
+| D-D2 | `test_dd2_pre_ready_failure_with_failed_settlement_failure_blocks`, `test_dd2_ledger_parse_failure_blocks_candidate_and_failed_settlement`(재시작 후에도 차단 유지 → 해소 시 exact ID 종결) |
+| D-D3 | `test_dd3_retry_provider_event_before_breadcrumb_refresh_crash`(A durable → 재시도 B 생성 → 갱신 전 하드 크래시 → 재시작 → 멤버십 정확히 A+B, 무관 수동 이벤트 제외, 청구 0), `test_dd3_retry_claim_is_durable_before_provider_call`, `test_dd3_breadcrumb_strict_failure_is_fail_closed` |
+| D-D4 | `test_dd4_last_turn_recovery_runs_despite_gm_inactive`(마지막 턴·gm_active=False·같은 프로세스 입력 → Settlement/Ink/COMMITTED 정확히 1회, 라운드 없음), `test_dd4_cost_cap_blocked_session_still_recovers_first`, `test_dd4_admission_order_scan` |
+
+변이 검사: 동행 except의 re-raise 제거 + `_process_actions` 게이트 순서 역전 시 3건 실패 확인 후 원복.
+
+### 20.7 결과
+
+- 전체: **454 passed, 3 xfailed, 0 failed, 0 XPASS** (기존 439 + 신규 15).
+- 기존 WP-D 신규 37건(`test_authoritative_commit.py` 17 + `test_commit_recovery.py` 20) 전부 유지·통과.
+- compile/import PASS, 검증 루틴 ①②⑤ OK(cogs 9 · 명령어 46 · views 5). `verify_docs` 잔여 불일치는 기존 core 서브모듈 수(미수정 규정).
+- xfail 3건 불변(d004c AUD-020, d005d AUD-029, d006e AUD-034/035).
+
+### 20.8 잔여
+
+- 백로그 strict 저장까지 실패(디스크 전면 장애)하면 차단은 런타임에만 남는다. PREPARED가 있으면 재시작 시 저널 폐기
+  경로가 exact ID로 종결하지만, 사전 READY 실패(저널 없음)는 재시작 후 차단이 유지되지 않는다(오류 로그에 ID 보존).
+- `retry_claims.jsonl`은 append-only 복구 입력으로 누적된다(정리는 후속).
+
+WP-E는 시작하지 않았다.

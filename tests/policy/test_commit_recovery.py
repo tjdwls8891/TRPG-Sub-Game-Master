@@ -307,7 +307,9 @@ async def test_r_restart_after_prepared_with_baseline_disk_discards(rig, inject)
     async def _crash(session):
         raise OSError("저장 전 크래시(테스트)")
     inject.setattr(core.io, "write_session_strict_locked", _crash)
-    inject.setattr(CC, "settle_failed_attempt", lambda *a, **k: (None, "크래시"))
+    def _fail_settle(*a, **k):
+        raise core.settlement.SettlementPersistenceError("크래시")
+    inject.setattr(CC, "persist_failed_settlement", _fail_settle)
     tx = await _run_turn(r)
     assert _phases(r.sess, tx) == ["PREPARED"]
     assert r.sess.commit_recovery["stage"] == "FAILED_SETTLEMENT_PENDING"

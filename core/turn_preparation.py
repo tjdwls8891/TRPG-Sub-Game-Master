@@ -984,6 +984,9 @@ class TurnPreparation:
         self.failure_stage = None
         self.ready_proof = None
         self.processing_held = False        # 자동 턴 owner가 is_processing 해제 책임 보유
+        # WP-D(D-D3): 재시도 중 새 provider 오퍼레이션 claim을 provider 호출 전에 내구 기록하는
+        #   훅(op) -> None. 실패 시 예외로 claim(=호출)을 막는다. 재시도 동안에만 설정된다.
+        self.durable_claim = None
 
     # ── 정체성 ──
     def identity(self) -> tuple:
@@ -1104,6 +1107,8 @@ class TurnPreparation:
                 f"attribution_mismatch:{getattr(op, 'operation', '?')}")
             return False
         if op not in self.cost_operations:
+            if self.durable_claim is not None:
+                self.durable_claim(op)          # 실패는 전파 — 내구 claim 없이 호출하지 않는다
             self.cost_operations.append(op)
         return True
 

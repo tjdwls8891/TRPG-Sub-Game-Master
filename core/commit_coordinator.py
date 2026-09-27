@@ -367,25 +367,69 @@ def persist_failed_settlement(bot, session_id, identity, cost_event_ids, billing
     return settlement_store_for(session_id).record_strict(s)
 
 
-def settle_failed_attempt(bot, session, prep):
-    """사전 READY 종료 실패(전달/생성/READY 불가) → FAILED_SYSTEM Settlement(§10).
+def _failed_entry(session, prep, stage) -> dict:
+    ids = prep.frozen_cost_event_ids
+    return {
+        "session_id": session.session_id,
+        "transaction_id": prep.transaction_id,
+        "logical_turn": int(prep.logical_turn),
+        "attempt": int(prep.attempt),
+        "cost_event_ids": list(ids) if ids is not None else None,
+        "billing_user_ids": list(_st.normalize_billing_user_ids(
+            list((getattr(session, "players", {}) or {}).keys()))),
+        "stage": stage,
+    }
 
-    Returns: (settlement | None, error | None). 계정은 절대 건드리지 않는다.
+
+def _persist_failed_entry(bot, ent):
+    ident = _st.TransactionIdentity(session_id=ent["session_id"],
+                                    transaction_id=ent["transaction_id"],
+                                    logical_turn=int(ent["logical_turn"]),
+                                    attempt=int(ent["attempt"]))
+    return persist_failed_settlement(bot, ent["session_id"], ident,
+                                     ent["cost_event_ids"], ent["billing_user_ids"])
+
+
+async def _enqueue_failed_settlement(bot, session, ent, err) -> None:
+    """D-D2 fail-closed — 종료 실패 시도의 FAILED_SYSTEM 정산이 영속되지 못했다.
+
+    PREPARED 유무와 무관하게: 정확한 시도 정체성·동결 exact CostEvent ID를 복구 입력으로
+    보존(failed_settlement_backlog, strict 저장 시도)하고 세션을 차단한다(다음 자동 턴 금지).
+    청구는 없으며 '정산된 것처럼' 가장하지 않는다. 복구 실행기가 같은 입력으로 재시도한다.
     """
+    backlog = [e for e in list(getattr(session, "failed_settlement_backlog", None) or [])
+               if (e.get("transaction_id"), e.get("attempt"))
+               != (ent["transaction_id"], ent["attempt"])]
+    backlog.append(ent)
+    session.failed_settlement_backlog = backlog
+    session.commit_recovery = {"transaction_id": ent["transaction_id"],
+                               "attempt": ent["attempt"],
+                               "stage": "FAILED_SETTLEMENT_PENDING",
+                               "status": "PENDING", "error": err,
+                               "cost_event_ids": ent["cost_event_ids"]}
+    _io.write_log(session.session_id, "error",
+                  f"[WP-D] FAILED_SYSTEM 정산 기록 실패 → 차단·백로그 tx={ent['transaction_id']} "
+                  f"ids={ent['cost_event_ids']} — {err}")
     try:
-        ident = _st.TransactionIdentity(session_id=session.session_id,
-                                        transaction_id=prep.transaction_id,
-                                        logical_turn=int(prep.logical_turn),
-                                        attempt=int(prep.attempt))
-        users = _st.normalize_billing_user_ids(
-            list((getattr(session, "players", {}) or {}).keys()))
-        s = persist_failed_settlement(bot, session.session_id, ident,
-                                      prep.frozen_cost_event_ids, users)
-        return s, None
+        await _io.save_session_data_strict(bot, session)
+    except Exception as e:  # noqa: BLE001
+        # 백로그 영속도 실패 — 런타임 차단은 유지된다(성공 가장 금지). 증거는 오류 로그.
+        _io.write_log(session.session_id, "error",
+                      f"[WP-D] 실패 정산 백로그 strict 저장 실패(런타임 차단 유지): "
+                      f"{type(e).__name__}: {e}")
+
+
+async def settle_failed_attempt(bot, session, prep, *, stage="PRE_READY"):
+    """종료 실패 시도 → FAILED_SYSTEM Settlement(§10). 계정은 절대 건드리지 않는다.
+
+    영속 실패 시 fail-closed(D-D2): 백로그 + 차단. Returns: (settlement | None, error | None).
+    """
+    ent = _failed_entry(session, prep, stage)
+    try:
+        return _persist_failed_entry(bot, ent), None
     except Exception as e:  # noqa: BLE001
         msg = f"{type(e).__name__}: {e}"
-        _io.write_log(session.session_id, "error",
-                      f"[WP-D] FAILED_SYSTEM 정산 기록 실패 tx={prep.transaction_id} — {msg}")
+        await _enqueue_failed_settlement(bot, session, ent, msg)
         return None, msg
 
 
@@ -643,13 +687,9 @@ class CommitCoordinator:
                                 plan=None) -> CommitResult:
         """정본 영속 전 실패 — (메모리는 이미 복원됨) FAILED_SYSTEM·청구 0."""
         tid = prep.transaction_id
-        settlement, audit = settle_failed_attempt(self.bot, session, prep)
-        if audit is not None and prepared:
-            # PREPARED는 있는데 종결 사실(FAILED_SYSTEM Settlement)이 없다 — 미해결 시도를
-            # 남긴 채 다음 커밋이 진행되면 복구가 모호해지므로 차단하고 재시도한다.
-            session.commit_recovery = {"transaction_id": tid, "attempt": prep.attempt,
-                                       "stage": "FAILED_SETTLEMENT_PENDING",
-                                       "error": audit, "status": "PENDING"}
+        # D-D2: 정산 기록 실패 시 PREPARED 유무와 무관하게 fail-closed(백로그 + 차단).
+        settlement, audit = await settle_failed_attempt(self.bot, session, prep,
+                                                        stage=f"COMMIT_{stage}")
         code = (TT.FailureCode.PERSISTENCE_FAILURE
                 if stage in ("STRICT_SAVE", "PREPARED_APPEND")
                 else TT.FailureCode.COMMIT_VALIDATION_FAILURE)
@@ -724,6 +764,31 @@ async def recover_session(bot, session, *, context: str = "restart") -> Recovery
     실행 중(in-process) 호출은 같은 규칙에 더해, 남아 있는 런타임 커밋 스태시를
     파생 효과·되감기 기록 재개에 쓴다.
     """
+    # D-D2: 영속하지 못한 종료 실패 정산(백로그)을 먼저 같은 exact 입력으로 재시도한다.
+    backlog = list(getattr(session, "failed_settlement_backlog", None) or [])
+    backlog_settled = False
+    if backlog:
+        remaining, errs = [], []
+        for ent in backlog:
+            try:
+                _persist_failed_entry(bot, ent)
+            except Exception as e:  # noqa: BLE001
+                remaining.append(ent)
+                errs.append(f"{ent.get('transaction_id')}: {type(e).__name__}: {e}")
+        if len(remaining) != len(backlog):
+            session.failed_settlement_backlog = remaining
+            backlog_settled = True
+            try:
+                await _io.save_session_data_strict(bot, session)
+            except Exception as e:  # noqa: BLE001 — 재시도해도 같은 결정적 Settlement(멱등)
+                print(f"[WP-D] 백로그 갱신 저장 실패(다음 복구에서 멱등 재시도): {e}")
+        if remaining:
+            status = ("RECOVERY_REQUIRED"
+                      if any(ent.get("cost_event_ids") is None for ent in remaining)
+                      else "PENDING")
+            return _block(session, RecoveryReport(
+                status, transaction_id=remaining[0].get("transaction_id"),
+                action="FAILED_SETTLEMENT_BACKLOG", detail="; ".join(errs)))
     journal = journal_for(session.session_id)
     store = settlement_store_for(session.session_id)
     try:
@@ -759,6 +824,9 @@ async def recover_session(bot, session, *, context: str = "restart") -> Recovery
     if not incomplete:
         if getattr(session, "commit_recovery", None) and context != "restart":
             session.commit_recovery = None
+        if backlog_settled:
+            return RecoveryReport("RESOLVED", action="FAILED_SETTLED",
+                                  detail="보류된 FAILED_SYSTEM 정산 영속 완료(청구 0)")
         return RecoveryReport("CLEAN")
     if len(incomplete) > 1:
         for g, *_ in incomplete:
@@ -901,15 +969,93 @@ def retry_pending_breadcrumb(session, prep) -> dict:
     }
 
 
-async def persist_retry_breadcrumb(bot, session, prep) -> None:
-    """RETRY_PENDING 진입 — breadcrumb을 extraction_retry_ctx에 담아 strict 영속한다."""
+async def persist_retry_breadcrumb(bot, session, prep) -> bool:
+    """RETRY_PENDING 진입 — breadcrumb을 extraction_retry_ctx에 담아 strict 영속한다.
+
+    D-D3: strict 영속 실패를 tolerant 저장으로 숨기지 않는다. exact 멤버십 내구성을
+    보장하지 못하면 False — 호출자는 재시도 상태를 열지 않고 fail-closed 처분한다.
+    """
+    prev = (getattr(session, "extraction_pending", False),
+            copy.deepcopy(getattr(session, "extraction_retry_ctx", {}) or {}))
     session.extraction_pending = True
     session.extraction_retry_ctx = retry_pending_breadcrumb(session, prep)
     try:
         await _io.save_session_data_strict(bot, session)
+        return True
     except Exception as e:  # noqa: BLE001
-        print(f"[WP-D] RETRY_PENDING breadcrumb strict 저장 실패(tolerant 재시도): {e}")
-        await _io.save_session_data(bot, session)
+        session.extraction_pending, session.extraction_retry_ctx = prev
+        _io.write_log(session.session_id, "error",
+                      f"[WP-D] RETRY_PENDING breadcrumb strict 저장 실패 — 재시도 불가(fail-closed): "
+                      f"{type(e).__name__}: {e}")
+        return False
+
+
+# ── D-D3: 재시도 provider 오퍼레이션의 durable claim ─────────────
+#   재시도 중 새로 claim되는 provider 오퍼레이션의 operation_id를 provider 호출 '전에'
+#   fsync로 영속한다. 재시작 폐기 시 멤버십 = breadcrumb exact ID ∪ claim된 오퍼레이션의
+#   CostEvent(idempotency_key = "<operation_id>:attempt:<n>" — 오퍼레이션 단위 정확 식별).
+#   트랜잭션 전체 원장 조회·가변 합계는 쓰지 않는다.
+
+RETRY_CLAIMS_FILE = "retry_claims.jsonl"
+
+
+def retry_claims_path(session_id) -> str:
+    import os as _os
+    return _os.path.join("sessions", str(session_id), RETRY_CLAIMS_FILE)
+
+
+def record_retry_claim(session_id, transaction_id, attempt, operation_id) -> None:
+    """재시도 오퍼레이션 claim을 내구 기록(write→flush→fsync). 실패는 전파(호출 전 중단)."""
+    import os as _os
+    if not operation_id:
+        raise _st.SettlementError("operation_id 없는 재시도 claim")
+    path = retry_claims_path(session_id)
+    _os.makedirs(_os.path.dirname(path), exist_ok=True)
+    line = json.dumps({"transaction_id": transaction_id, "attempt": int(attempt),
+                       "operation_id": str(operation_id), "ts": time.time()},
+                      ensure_ascii=False) + "\n"
+    with open(path, "a", encoding="utf-8") as f:
+        f.write(line)
+        f.flush()
+        _os.fsync(f.fileno())
+
+
+def _claimed_retry_operations(session_id, transaction_id, attempt) -> list:
+    import os as _os
+    path = retry_claims_path(session_id)
+    if not _os.path.exists(path):
+        return []
+    out = []
+    with open(path, "r", encoding="utf-8") as f:
+        for lineno, raw in enumerate(f, start=1):
+            s = raw.strip()
+            if not s:
+                continue
+            try:
+                obj = json.loads(s)
+            except Exception as e:  # 손상 — 추정하지 않는다
+                raise _st.SettlementError(f"{path}:{lineno} 재시도 claim 손상") from e
+            if (obj.get("transaction_id") == transaction_id
+                    and int(obj.get("attempt", -1)) == int(attempt)
+                    and obj.get("operation_id") not in out):
+                out.append(obj["operation_id"])
+    return out
+
+
+def retry_membership(bot, session_id, ctx) -> list:
+    """재시작 폐기 멤버십 = breadcrumb exact ID ∪ durable claim 오퍼레이션의 CostEvent."""
+    ids = list(ctx.get("claimed_cost_event_ids") or [])
+    ops = _claimed_retry_operations(session_id, ctx["transaction_id"], ctx["attempt"])
+    if ops:
+        led = _cl.get_ledger(bot)
+        if led is None:
+            raise _st.SettlementError("원장 없음 — claim 오퍼레이션 CostEvent 확인 불가")
+        prefixes = tuple(f"{op}:attempt:" for op in ops)
+        for row in led.list_cost_events_strict(session_id=session_id):
+            if str(row.get("idempotency_key", "")).startswith(prefixes) \
+                    and row["event_id"] not in ids:
+                ids.append(row["event_id"])
+    return ids
 
 
 async def abandon_retry_pending(bot, session) -> str:
@@ -924,6 +1070,7 @@ async def abandon_retry_pending(bot, session) -> str:
     ids = ctx.get("claimed_cost_event_ids")
     if ids is not None and ctx.get("transaction_id"):
         try:
+            ids = retry_membership(bot, session.session_id, ctx)   # D-D3 crash window 포함
             ident = _st.TransactionIdentity(session_id=session.session_id,
                                             transaction_id=ctx["transaction_id"],
                                             logical_turn=int(ctx["logical_turn"]),

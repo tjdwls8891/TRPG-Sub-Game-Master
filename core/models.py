@@ -208,6 +208,8 @@ class TRPGSession:
         self.last_turn_ink = 0
         # 되감기/전체 로그 기록이 실패한 커밋 턴 — 이 공백을 넘는 되감기는 안전하지 않다
         self.rewind_degraded_turns = []
+        # 영속하지 못한 FAILED_SYSTEM 정산의 exact 복구 입력(D-D2 fail-closed) — 비면 정상
+        self.failed_settlement_backlog = []
         # 런타임 전용: 영속 이후 미완료 커밋(복구 대기) — 새 자동 턴 차단 근거
         self.commit_recovery = None
         # 추출층위 상태 — 미완료(True)면 다음 턴 선언을 차단한다.

@@ -170,6 +170,7 @@ SESSION_FIELDS: dict = {
     "commit_marker": None,
     "last_turn_ink": 0,
     "rewind_degraded_turns": [],
+    "failed_settlement_backlog": [],
     "extraction_pending": False,
     "extraction_retry_ctx": {},
     "last_extraction": {},
