@@ -358,7 +358,9 @@ async def test_e_rerender_same_logical_turn_attempt_plus_one(rig, inject):
     rec_new = TH.load_record(s.session_id, new_tid)
     assert rec_new["player_declaration"] == rec_old["player_declaration"]
     assert rec_new["judgment"] == rec_old["judgment"]
-    _strip = lambda st: {k: v for k, v in st.items() if k != "gm_side_note"}
+    # gm_side_note(재생성 지시)와 캐시 파생 필드(E-E3: 무효 캐시 재발급이 갱신)만 다를 수 있다
+    _strip = lambda st: {k: v for k, v in st.items()
+                         if k != "gm_side_note" and k not in TH.CACHE_DERIVED_FIELDS}
     assert _strip(rec_new["pre"]) == _strip(rec_old["pre"]), "같은 턴 이전 상태에서 다시 적용해야 합니다"
     assert "[재생성 지시] 더 어둡게" in rec_new["pre"]["gm_side_note"]
     assert s.world_timeline["current_location"] == "동굴 깊은 곳"
@@ -500,30 +502,31 @@ async def test_e_crash_during_rerender_restart_restores_old_post(rig, inject):
 
 
 async def test_e_crash_after_replacement_commit_before_history_select(rig, inject):
-    """교체 시도가 COMMITTED 직전(E-2 기록 전) 크래시 → degraded 선택으로 정합, 차단 없음."""
+    """교체 시도 COMMITTED 이후 SELECT 실패(1회) → 레코드는 이미 durable → 재정합이 정상
+    (non-degraded) 선택으로 확정, 교체 이야기를 되돌리지 않음, 차단 없음."""
     r = rig
     s = r.sess
     await _fund(PLAYER_UID, 100)
     tx_old = await _commit(r, "숲길")
     _fake_logic(r, inject)
-    orig = TH.record_commit
+    orig = TH.select_committed
     state = {"n": 0}
 
-    def _bad(session, plan, payload):
+    def _bad(session, plan):
         if plan.attempt == 2 and state["n"] == 0:
             state["n"] += 1
-            raise TH.HistoryError("이력 기록 실패(모사, 1회)")
-        return orig(session, plan, payload)
-    inject.setattr(TH, "record_commit", _bad)
+            raise TH.HistoryError("선택 전환 실패(모사, 1회)")
+        return orig(session, plan)
+    inject.setattr(TH, "select_committed", _bad)
     old_ids = set(TH.attempt_message_ids(s.session_id, _hv(s).head_entry()))
     await r.gm.rerender_latest(s)
     inject.undo()
-    # 런타임에서 이미 교체가 정본(청구된 이야기를 되돌리지 않음), 선택은 degraded
     hv = _hv(s)
-    assert hv.head_entry()["attempt"] == 2 and not hv.head_entry()["record"]
-    assert hv.head_entry()["supersedes"] == tx_old.transaction_id
-    assert s.commit_marker["transaction_id"] == hv.head_entry()["transaction_id"]
-    assert 1 in s.rewind_degraded_turns and s.commit_recovery is None
+    head = hv.head_entry()
+    assert head["attempt"] == 2 and head["record"] and head["rerenderable"]
+    assert head["supersedes"] == tx_old.transaction_id
+    assert s.commit_marker["transaction_id"] == head["transaction_id"]
+    assert 1 not in (s.rewind_degraded_turns or []) and s.commit_recovery is None
     assert TH.read_op(s.session_id) is None
     assert all(m.deleted for m in r.gch.sent if m.id in old_ids)
     assert len(_ink_rows(PLAYER_UID)) == 2
@@ -548,16 +551,22 @@ async def test_e_rerender_command_and_display_entrypoints_use_history_authority(
 async def test_e_cleanup_missing_messages_is_idempotent(rig):
     r = rig
     s = r.sess
-    await _commit(r, "숲길")
+    tx1 = await _commit(r, "숲길")
     tx2 = await _commit(r, "동굴", "동굴로 간다")
-    entry = _hv(s).selected[2]
-    n1 = await r.gm._cleanup_attempt_output(s, entry)
-    n2 = await r.gm._cleanup_attempt_output(s, entry)
-    assert n1 >= 1 and n2 == 0
-    ids = set(TH.attempt_message_ids(s.session_id, entry))
-    assert all(m.deleted for m in r.gch.sent if m.id in ids)
-    assert any(not m.deleted for m in r.gch.sent), "다른 시도 출력은 남아야 합니다"
-    assert tx2.transaction_id == entry["transaction_id"]
+    entry2 = _hv(s).selected[2]
+    ids2 = set(TH.attempt_message_ids(s.session_id, entry2))
+    ids1 = set(TH.attempt_message_ids(s.session_id, _hv(s).selected[1]))
+    # 일부는 이미 사라진 상태(Discord NotFound)
+    gone = next(m for m in r.gch.sent if m.id in ids2)
+    gone.deleted = True
+    res = await r.gm.history_rewind(s, 1)
+    assert res["ok"]
+    assert all(m.deleted for m in r.gch.sent if m.id in ids2)
+    assert not any(m.deleted for m in r.gch.sent if m.id in ids1), "남은 턴 출력 삭제 금지"
+    assert TH.pending_cleanups(s.session_id) == []
+    # 멱등 재실행 — 부채 없음, 추가 삭제 없음
+    assert await r.gm._drain_history_cleanup(s) == 0
+    assert tx2.transaction_id == entry2["transaction_id"] and tx1
 
 
 async def test_e_persistent_history_failure_after_replacement_commit_blocks_not_reverts(rig, inject):
@@ -569,19 +578,22 @@ async def test_e_persistent_history_failure_after_replacement_commit_blocks_not_
     _fake_logic(r, inject)
     r.prov.routes["extraction"] = [_loc("숲 속 오두막")]
 
-    def _bad(session, plan, payload):
-        raise TH.HistoryError("이력 기록 영구 실패(모사)")
-    inject.setattr(TH, "record_commit", _bad)
+    def _bad(session, plan):
+        raise TH.HistoryError("선택 전환 영구 실패(모사)")
+    inject.setattr(TH, "select_committed", _bad)
     await r.gm.rerender_latest(s)
     assert s.commit_recovery and str(s.commit_recovery["stage"]).startswith("HISTORY")
+    # 교체는 선택되지 않았고(이전 시도가 head) 의도도 남아 있다 — 되돌리지도 않는다
+    assert _hv(s).head_entry()["attempt"] == 1
+    assert TH.read_op(s.session_id)["op"] == "RERENDER"
     assert s.world_timeline["current_location"] == "숲 속 오두막"
     assert _disk(s)["world_timeline"]["current_location"] == "숲 속 오두막"
     assert len(_ink_rows(PLAYER_UID)) == 2
     # 이력 조작은 차단 상태에서 거부된다
     assert TH.rerender_target(s)[0] is None
-    # 고장 해소 후 복구 재개 → 교체가 선택 head(degraded)로 확정, 차단 해제
+    # 고장 해소 후 복구 재개 → 교체가 선택 head(레코드 있음)로 확정, 차단 해제
     inject.undo()
     assert await r.gm._resume_commit_recovery(s, r.master)
     head = _hv(s).head_entry()
-    assert head["attempt"] == 2 and s.commit_recovery is None
+    assert head["attempt"] == 2 and head["record"] and s.commit_recovery is None
     assert TH.read_op(s.session_id) is None

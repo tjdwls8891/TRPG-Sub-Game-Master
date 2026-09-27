@@ -1,0 +1,168 @@
+# WP-E gate patch (E-E1~E-E3) post-change scans — production code only (core/ cogs/ main.py)
+
+## 10. committed-history writers (index append / record / op)
+core/turn_history.py:337:    _write_json_strict(path, rec)
+core/turn_history.py:378:    _append_event(sid, ev)
+core/turn_history.py:385:    write_attempt_record(session, plan, payload)
+core/turn_history.py:386:    return select_committed(session, plan)
+core/turn_history.py:392:        clear_op(sid)
+core/turn_history.py:413:        _append_event(session_id, ev)
+core/turn_history.py:422:    _append_event(session_id, {"type": "MESSAGES_BEGIN", "transaction_id": transaction_id,
+core/turn_history.py:445:        _write_json_strict(pending_messages_path(sid), pend)
+core/turn_history.py:578:                _append_event(sid, {"type": "CLEANUP_DONE", "op_id": op_id})
+core/turn_history.py:597:    _write_json_strict(op_path(session_id), op)
+core/turn_history.py:765:    write_op(sid, op)
+core/turn_history.py:788:            clear_op(sid)
+core/turn_history.py:794:        _append_event(sid, {"type": "REWIND", "op_id": op_id, "target_gm_turn": target,
+core/turn_history.py:798:        clear_op(sid)
+core/turn_history.py:881:        write_op(sid, op)
+core/turn_history.py:901:            clear_op(sid)
+core/turn_history.py:930:    clear_op(sid)
+core/turn_history.py:1029:            res = select_committed(session, plan)
+core/turn_history.py:1050:                clear_op(sid)
+core/turn_history.py:1065:                clear_op(sid)
+core/turn_history.py:1069:                _append_event(sid, {"type": "REWIND", "op_id": op["op_id"],
+core/turn_history.py:1075:                clear_op(sid)
+core/turn_history.py:1079:                clear_op(sid)
+core/commit_coordinator.py:638:                hist_ok = _th.write_attempt_record(session, plan,
+core/commit_coordinator.py:698:            sel = _th.select_committed(session, plan)
+
+## 10. committed-history readers
+core/cache.py:507:                    _h = await _th.reconcile(bot, session)
+core/cache.py:513:                        _d = await _th.drain_cleanup(bot, session)
+core/commit_coordinator.py:590:        hist_pre = _th.capture_reversible(session)
+core/commit_coordinator.py:618:        history = {"pre": hist_pre, "post": _th.capture_reversible(session),
+core/commit_coordinator.py:638:                hist_ok = _th.write_attempt_record(session, plan,
+core/commit_coordinator.py:698:            sel = _th.select_committed(session, plan)
+cogs/game.py:650:                if session.cache_obj and core.turn_history.cache_usable(session):
+cogs/game.py:681:        if not (session.cache_obj and core.turn_history.cache_usable(session)):
+cogs/gm.py:622:        entry, _rec, reason = core.turn_history.rerender_target(self.session)
+cogs/gm.py:2083:            res = await core.turn_history.drain_cleanup(self.bot, session)
+cogs/gm.py:2106:        op = core.turn_history.rerender_op_for(session.session_id, prep.transaction_id)
+cogs/gm.py:2116:            res = await core.turn_history.settle_rerender(self.bot, session)
+cogs/gm.py:2141:            core.turn_history.try_flush(session)        # E-E2 보전 매핑 먼저 인덱스로
+cogs/gm.py:2160:            core.turn_history.try_flush(session)        # E-E2 보전 매핑 먼저 인덱스로
+cogs/gm.py:2161:            entry, rec, reason = core.turn_history.rerender_target(session)
+cogs/gm.py:2210:        if core.turn_history.rerender_op_for(session.session_id, tid):
+cogs/gm.py:2238:                if core.turn_history.needs_reconcile(session):
+cogs/gm.py:2239:                    core.turn_history.try_flush(session)
+cogs/gm.py:2252:            _h = await core.turn_history.reconcile(self.bot, session)
+cogs/gm.py:2409:                             and core.turn_history.cache_usable(session))
+cogs/gm.py:2972:                           and core.turn_history.cache_usable(session))
+cogs/gm.py:3469:            if core.turn_history.cache_usable(session):     # WP-E(E-E3)
+cogs/gm.py:4702:        if not core.turn_history.cache_usable(session):     # WP-E(E-E3)
+
+## 11. SELECT timing — every SELECT append site and its COMMITTED gate
+367:        "type": "SELECT", "transaction_id": plan.transaction_id,
+351:    if not _journal_committed(sid, plan.transaction_id):
+352:        raise HistoryError(f"COMMITTED 이전 선택 금지: {plan.transaction_id}")
+-- select_committed call sites (all after durable COMMITTED):
+core/turn_history.py:386:    return select_committed(session, plan)
+core/turn_history.py:1029:            res = select_committed(session, plan)
+core/commit_coordinator.py:698:            sel = _th.select_committed(session, plan)
+-- coordinator order (E-2 record → E-3 Ink/BILLING_APPLIED → E-4 COMMITTED → E-5 SELECT):
+638:                hist_ok = _th.write_attempt_record(session, plan,
+668:            results = await _ink.execute_settlement_charges(settlement)
+678:            journal.append_entry(_entry(plan, cj.CommitPhase.BILLING_APPLIED,
+683:        created = journal.append_entry(_entry(plan, cj.CommitPhase.COMMITTED,
+698:            sel = _th.select_committed(session, plan)
+933:                await _ink.execute_settlement_charges(settlement)   # 원장 복구만(멱등)
+
+## 12. output cleanup debt / restart
+23:#     MESSAGES_BEGIN {tx, emit_id} / MESSAGES {tx, emit_id, message_ids[]}
+24:#     CLEANUP_DONE {op_id}
+32:#   원자 라인에 cleanup 부채로 싣는다. CLEANUP_DONE 전까지 부채는 남고 drain_cleanup이
+155:EVENT_TYPES = ("SELECT", "REWIND", "MESSAGES", "MESSAGES_BEGIN", "CLEANUP_DONE")
+191:        self.cleanup_debts: dict = {}     # op_id -> cleanup 부채(CLEANUP_DONE 전까지)
+209:            elif t == "MESSAGES_BEGIN":
+211:            elif t == "CLEANUP_DONE":
+213:            c = ev.get("cleanup") if t in ("SELECT", "REWIND") else None
+377:        ev["cleanup"] = _cleanup_debt(sid, hv, [superseded], "RERENDER_SUPERSEDE")
+395:def _cleanup_debt(sid, hv, entries, reason) -> dict:
+417:    """파생 게임 메시지 송출 전 durable 의도(MESSAGES_BEGIN). 송출 후 MESSAGES가 닫는다.
+422:    _append_event(session_id, {"type": "MESSAGES_BEGIN", "transaction_id": transaction_id,
+427:def record_emitted_messages(session, transaction_id, emit_id, message_ids) -> str:
+482:def try_flush(session) -> bool:
+491:def needs_reconcile(session) -> bool:
+533:async def drain_cleanup(bot, session) -> dict:
+578:                _append_event(sid, {"type": "CLEANUP_DONE", "op_id": op_id})
+762:          "cleanup": _cleanup_debt(sid, hv, removed, "REWIND"),
+795:                            "removed": op["removed"], "cleanup": op["cleanup"],
+1072:                                    "cleanup": op.get("cleanup"),
+core/cache.py:513:                        _d = await _th.drain_cleanup(bot, session)
+cogs/gm.py:1931:                emit_id = core.turn_history.begin_emit(session.session_id, _tid)
+cogs/gm.py:1960:            where = core.turn_history.record_emitted_messages(session, _tid, emit_id, game_ids)
+cogs/gm.py:2010:            await self._drain_history_cleanup(session)
+cogs/gm.py:2083:            res = await core.turn_history.drain_cleanup(self.bot, session)
+cogs/gm.py:2126:            await self._drain_history_cleanup(session)
+cogs/gm.py:2141:            core.turn_history.try_flush(session)        # E-E2 보전 매핑 먼저 인덱스로
+cogs/gm.py:2146:            result["removed_messages"] = await self._drain_history_cleanup(session)
+cogs/gm.py:2160:            core.turn_history.try_flush(session)        # E-E2 보전 매핑 먼저 인덱스로
+cogs/gm.py:2239:                    core.turn_history.try_flush(session)
+cogs/gm.py:2241:                    await self._drain_history_cleanup(session)
+cogs/gm.py:2257:                await self._drain_history_cleanup(session)      # E-E2 남은 정리 부채
+
+## 13. cache-history provenance / use
+core/turn_history.py:35:#   이력 출처(cache_history_marker)가 복원 상태보다 새롭거나 불명이면 cache_history_stale로
+core/turn_history.py:679:def cache_marker_now(session) -> dict:
+core/turn_history.py:687:def _cache_compatible(session, selected: dict, state_gm: int) -> bool:
+core/turn_history.py:694:    m = getattr(session, "cache_history_marker", None)
+core/turn_history.py:707:def cache_usable(session) -> bool:
+core/turn_history.py:710:        session, "cache_history_stale", False)
+core/turn_history.py:768:    backup_stale = bool(getattr(session, "cache_history_stale", False))
+core/turn_history.py:773:            if not _cache_compatible(session, keep, int(rec["post"].get("gm_turns_done") or 0)):
+core/turn_history.py:774:                session.cache_history_stale = True
+core/turn_history.py:786:        session.cache_history_stale = backup_stale
+core/turn_history.py:875:    backup_stale = bool(getattr(session, "cache_history_stale", False))
+core/turn_history.py:886:            if not _cache_compatible(session, hv.selected,
+core/turn_history.py:888:                session.cache_history_stale = True
+core/turn_history.py:897:        session.cache_history_stale = backup_stale
+core/io.py:174:    "cache_history_marker": None,     # WP-E(E-E3) provider 캐시 이력 출처
+core/io.py:175:    "cache_history_stale": False,     # WP-E(E-E3) 이력 조작 후 캐시 사용 금지
+core/cache.py:154:    #   출처보다 이전 상태로 복원하면 cache_history_stale로 사용이 막힌다.
+core/cache.py:156:    session.cache_history_marker = cache_marker_now(session)
+core/cache.py:157:    session.cache_history_stale = False
+core/models.py:216:        self.cache_history_marker = None
+core/models.py:217:        self.cache_history_stale = False
+cogs/game.py:650:                if session.cache_obj and core.turn_history.cache_usable(session):
+cogs/game.py:681:        if not (session.cache_obj and core.turn_history.cache_usable(session)):
+cogs/gm.py:2409:                             and core.turn_history.cache_usable(session))
+cogs/gm.py:2972:                           and core.turn_history.cache_usable(session))
+cogs/gm.py:3469:            if core.turn_history.cache_usable(session):     # WP-E(E-E3)
+cogs/gm.py:4702:        if not core.turn_history.cache_usable(session):     # WP-E(E-E3)
+-- every provider cached_content use site:
+cogs/game.py:651:                    config = types.GenerateContentConfig(cached_content=session.cache_name, temperature=0.7,
+cogs/gm.py:3008:                    cached_content=cache_name,
+cogs/gm.py:3472:                    cached_content=session.cache_name,
+cogs/gm.py:4749:                cached_content=cache_name,
+-- cache-derived prompt fields now reversible:
+71:    "cached_compressed_memory", "cached_session_npcs", "cached_worldview_sections",
+73:CACHE_DERIVED_FIELDS = ("cached_compressed_memory", "cached_session_npcs",
+
+## 14. financial mutation reachable from turn_history (expect none)
+(none)
+-- imports of turn_history:
+1043:        from . import turn_transaction as TT
+256:    from .cache import _deserialize_log_entry
+264:    from .rewind import capture_state
+280:    from . import turn_transaction as TT
+41:from __future__ import annotations
+43:import copy
+44:import hashlib
+45:import json
+46:import os
+47:import time
+48:import uuid
+50:from . import io as _io
+525:        import discord
+649:    from . import turn_preparation as TP
+650:    from . import turn_transaction as TT
+715:    from . import turn_transaction as TT
+814:        from . import rewind as _rw
+864:    from . import turn_transaction as TT
+975:    from . import commit_coordinator as CC
+976:    from . import commit_journal as cj
+984:    from . import commit_coordinator as CC
+989:    from . import commit_journal as cj
+994:    from . import commit_coordinator as CC
+995:    from . import commit_journal as cj

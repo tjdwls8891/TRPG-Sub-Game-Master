@@ -71,7 +71,6 @@ class DerivedEffects:
     def __init__(self):
         self.items: list = []
         self.transaction_id = None     # WP-E: 파생 게임 메시지 ID를 이 시도에 귀속
-        self.superseded = None         # WP-E: 재생성으로 대체된 이전 선택 시도(출력 정리 대상)
 
     def master(self, content=None, *, embed=None):
         self.items.append(("master", content, embed))
@@ -446,6 +445,15 @@ def _commit_lock(session_id) -> asyncio.Lock:
     return _COMMIT_LOCKS[key]
 
 
+def _history_select_block(session, plan) -> None:
+    """COMMITTED 이후 선택 전환이 실패했다면 차단 표식(HISTORY_SELECT) — reconcile이 해소."""
+    err = getattr(session, "_history_select_error", None)
+    if err:
+        session.commit_recovery = {"status": "PENDING", "stage": "HISTORY_SELECT",
+                                   "transaction_id": plan.transaction_id, "error": err}
+        session._history_select_error = None
+
+
 def _mark_rewind_degraded(session, turn) -> None:
     lst = list(getattr(session, "rewind_degraded_turns", None) or [])
     if turn not in lst:
@@ -568,6 +576,7 @@ class CommitCoordinator:
         except Exception as e:  # noqa: BLE001
             return self._recovery_pending(session, prep, plan, derived, "FINALIZE", e)
         self._finalize_runtime(session, tid, prep)
+        _history_select_block(session, plan)
         return CommitResult(CommitOutcome.COMMITTED, settlement=settlement,
                             plan=plan, derived=derived)
 
@@ -622,19 +631,14 @@ class CommitCoordinator:
             raise _st.SettlementConflictError("영속 이후 Settlement가 COMMITTED가 아님")
         # E-2 되감기/전체 로그 연결 — 실패는 공백 표식, 이야기 롤백 없음
         if cj.CommitPhase.REWIND_RECORDED not in phases:
-            # WP-E: 선택 이력(정본 시도 레코드 + SELECT) — 재시작 복구(pending 없음)면 degraded
+            # WP-E(E-E1): 불변 시도 레코드만 영속 — 선택(SELECT)은 COMMITTED 이후(E-5).
+            #   재시작 복구(pending 없음)는 이미 쓰인 레코드가 있으면 그것을 쓴다.
             hist_ok = False
             try:
-                res = _th.record_commit(session, plan, (pending or {}).get("history"))
-                hist_ok = bool(res.get("record"))
-                if pending is not None:
-                    if res.get("superseded") is not None:
-                        pending["superseded"] = res["superseded"]
-                    d0 = pending.get("derived")
-                    if d0 is not None and pending.get("superseded") is not None:
-                        d0.superseded = pending["superseded"]
+                hist_ok = _th.write_attempt_record(session, plan,
+                                                   (pending or {}).get("history"))
             except Exception as e:  # noqa: BLE001
-                print(f"[WP-E] 선택 이력 기록 실패(되감기·재생성 공백): {e}")
+                print(f"[WP-E] 시도 레코드 기록 실패(되감기·재생성 공백): {e}")
             if not hist_ok:
                 _mark_rewind_degraded(session, plan.gm_turn)
             done = bool((pending or {}).get("rewind_done"))
@@ -687,6 +691,16 @@ class CommitCoordinator:
             if d is not None and settlement.charge_ink_per_user > 0:
                 for uid in settlement.billing_user_ids:
                     d.stats(uid, ink_spent=settlement.charge_ink_per_user)
+        # E-5 (WP-E/E-E1) 정본 선택 전환 — durable COMMITTED 이후에만. 실패해도 COMMITTED는
+        #   되돌리지 않는다: 호출자가 HISTORY_SELECT 차단을 걸고 reconcile이 결정적으로 선택한다.
+        session._history_select_error = None
+        try:
+            sel = _th.select_committed(session, plan)
+            if sel.get("superseded") is not None:
+                session._history_cleanup_clear = False
+        except Exception as e:  # noqa: BLE001
+            session._history_select_error = f"{type(e).__name__}: {e}"
+            print(f"[WP-E] 정본 선택 전환 실패(재정합 대기): {e}")
         return settlement, created
 
     def _finalize_runtime(self, session, tid, prep) -> None:
@@ -945,6 +959,7 @@ async def recover_session(bot, session, *, context: str = "restart") -> Recovery
         coord._finalize_runtime(session, tid, getattr(active, "preparation", None))
     session.commit_recovery = None
     session._commit_pending = None
+    _history_select_block(session, plan)
     try:
         await _io.save_session_data(bot, session)   # 공백 표식 등 파생 영속(비권위)
     except Exception:

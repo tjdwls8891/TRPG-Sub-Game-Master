@@ -646,7 +646,8 @@ class GameCog(commands.Cog):
 
         async def generate_with_retry(retry_count=0):
             try:
-                if session.cache_obj and session.cache_name:
+                # WP-E(E-E3): 이력 출처가 선택 이력보다 새로운 캐시는 읽지 않는다.
+                if session.cache_obj and core.turn_history.cache_usable(session):
                     config = types.GenerateContentConfig(cached_content=session.cache_name, temperature=0.7,
                                                          safety_settings=core.TRPG_SAFETY_SETTINGS)
                 else:
@@ -676,7 +677,8 @@ class GameCog(commands.Cog):
         # 않고 선제 발급한다. 캐시 부재 시 cacheless 분기는 system_instruction(GM 페르소나)만
         # 넘겨 시나리오 룰북 전체(세계관·NPC·스탯·금지)가 프롬프트에서 누락되므로, 비용뿐 아니라
         # 서사 품질이 붕괴한다. 발급 실패 시에는 기존처럼 캐시 없이 그레이스풀 진행.
-        if not (session.cache_obj and session.cache_name):
+        # WP-E(E-E3): 되감기/재생성으로 캐시 이력 출처가 무효화됐으면 복원된 정본으로 재발급한다.
+        if not (session.cache_obj and core.turn_history.cache_usable(session)):
             try:
                 await m_send("🔄 **[시스템 알림]** 활성 캐시가 없어 룰북 캐시를 선제 발급합니다. (명시적 삭제 후 재개 등)")
                 await _reissue_cache("캐시 선제 재발급 (캐시 부재)")

@@ -212,6 +212,9 @@ class TRPGSession:
         self.failed_settlement_backlog = []
         # 런타임 전용: 영속 이후 미완료 커밋(복구 대기) — 새 자동 턴 차단 근거
         self.commit_recovery = None
+        # WP-E(E-E3): provider 캐시 이력 출처 · 되감기/재생성 후 사용 금지 표식(영속)
+        self.cache_history_marker = None
+        self.cache_history_stale = False
         # 추출층위 상태 — 미완료(True)면 다음 턴 선언을 차단한다.
         self.extraction_pending = False
         self.extraction_retry_ctx = {}   # 재시도용 묘사 텍스트 등

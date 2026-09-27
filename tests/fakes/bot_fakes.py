@@ -31,6 +31,9 @@ class FakeBot:
         self.strict = strict
         self.owner_ids: set[int] = set()
         self.presence_calls: list[dict] = []
+        # 실제 TRPGBot과 같은 속성(main.py: prompts.SYSTEM_INSTRUCTION). 캐시 없는 묘사 폴백·
+        #   캐시 재발급이 읽는다(WP-E 캐시 출처 무효화 이후 경로).
+        self.system_instruction = "테스트 GM 시스템 지시문"
 
     # ── 등록 ──
     def add_channel(self, channel_id: int, name: str = "") -> FakeChannel:

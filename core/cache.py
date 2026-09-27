@@ -150,6 +150,12 @@ def update_session_cache_state(session: TRPGSession):
     # 이번 캐시에 편입된 연고지(사문·근거지) 섹션 id 기록 → 온디맨드 중복 주입 억제 기준
     session.cached_worldview_sections = get_home_section_ids(session)
 
+    # WP-E(E-E3): 이 provider 캐시의 이력 출처(현재 정본 표식·gm 턴). 되감기/재생성이
+    #   출처보다 이전 상태로 복원하면 cache_history_stale로 사용이 막힌다.
+    from .turn_history import cache_marker_now
+    session.cache_history_marker = cache_marker_now(session)
+    session.cache_history_stale = False
+
 
 # noinspection PyShadowingNames
 async def build_scenario_cache_text(bot, model_id, scenario_data: dict, cache_note: str = "", session_id: str = None, session: "TRPGSession" = None) -> tuple[str, int, str]:
@@ -501,6 +507,12 @@ async def restore_sessions_from_disk(bot):
                     _h = await _th.reconcile(bot, session)
                     if _h["action"] not in ("CLEAN",):
                         print(f"🔁 {session_id}: 이력 정합 {_h['action']} ok={_h['ok']}")
+                    if _h["ok"]:
+                        # E-E2: 크래시로 남은 출력 정리 부채 재개(채널 미준비면 부채 유지 →
+                        #   다음 입력 admission에서 재시도)
+                        _d = await _th.drain_cleanup(bot, session)
+                        if _d["done"] or _d["pending"]:
+                            print(f"🧹 {session_id}: 출력 정리 부채 완료 {_d['done']} · 보류 {_d['pending']}")
                 except Exception as _e:
                     session.commit_recovery = {"status": "RECOVERY_REQUIRED",
                                                "stage": "RESTORE_EXCEPTION",

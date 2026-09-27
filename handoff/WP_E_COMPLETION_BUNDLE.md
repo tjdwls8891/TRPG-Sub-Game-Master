@@ -234,3 +234,127 @@ lifecycle migration, no `!수정` change, no manual-command retirement.
 ## 23. Hard stop
 
 WP-F **NOT STARTED**. Awaiting independent GPT gate.
+
+---
+
+# GATE PATCH — E-E1 ~ E-E3 (independent gate: PATCH REQUIRED)
+
+Parent: `03654fd6ee51cf378d66429b95008251f8fd6614` · branch `claude/wp-e-rewind-rerender-history`.
+Final SHA, local==remote and literal clean status: see closure text.
+Not redesigned: snapshot rewind authority, financial irreversibility, structured-judgment preservation,
+same logical_turn attempt+1, instruction-layer restart, WP-C/WP-D authority.
+
+## Changed files (vs 03654fd)
+
+| File | Change |
+|---|---|
+| `core/turn_history.py` | record/selection split (`write_attempt_record` / `select_committed` with COMMITTED gate); SELECT carries `message_ids` and supersede cleanup debt; REWIND carries cleanup debt; `CLEANUP_DONE`, `MESSAGES_BEGIN` events; `drain_cleanup`; mapping preservation (`begin_emit`, `record_emitted_messages`, pending file, `try_flush`, `needs_reconcile`); cache provenance (`cache_marker_now`, `_cache_compatible`, `cache_usable`); cache-derived fields reversible; record schema v2 required for restore; `abort_rerender` refuses once replacement story is persisted; `settle_rerender` WAIT; reconcile waits for D recovery, selects COMMITTED-unselected marker deterministically |
+| `core/commit_coordinator.py` | E-2 writes attempt record only; new E-5 `select_committed` after durable COMMITTED; `_history_select_block` (HISTORY_SELECT) after runtime finalize / recovery finalize; `DerivedEffects.superseded` removed |
+| `cogs/gm.py` | `_drain_history_cleanup` replaces direct deletes (after commit, after rewind, after recovery, at input admission); derived-message BEGIN/mapping preservation; `try_flush` before rewind/rerender; `cache_usable` at instruction, simulation, light-narrate sites |
+| `cogs/game.py` | narration `cached_content` only when `cache_usable`; otherwise reissue from restored state (existing pre-emptive path) |
+| `core/cache.py` | `update_session_cache_state` stamps `cache_history_marker`, clears stale; restart drains cleanup debt after reconcile |
+| `core/models.py`, `core/io.py` | persisted `cache_history_marker`, `cache_history_stale` (SESSION_FIELDS 80 → 82) |
+| `CLAUDE.md`, `DEVLOG.md` | SESSION_FIELDS 82 (verify_docs); core-module count left untouched as instructed |
+| `tests/policy/test_wp_e_patch.py` | NEW — 17 gate-patch tests |
+| `tests/policy/test_turn_history.py` | 4 tests adapted to the split/drain API (semantics strengthened: SELECT-failure now yields non-degraded selection) |
+| `tests/defects/test_rewind_accounting.py` | d004c now commits through the real coordinator path (a fake uncommitted plan can no longer be selected) |
+| `tests/fakes/bot_fakes.py` | `FakeBot.system_instruction` (real `TRPGBot` attribute) — needed by uncached/reissue paths |
+
+Untouched: `core/settlement.py`, `core/ink_transactions.py`, `core/accounts.py`, `core/cost_ledger.py`,
+`core/turn_transaction.py`, `prompts.py`, `scenarios/*.json`.
+
+## E-E1 — selection only after durable COMMITTED
+
+Order in `_complete_from_persisted`:
+
+```
+SESSION_PERSISTED → Settlement → E-2 write_attempt_record (pre/post/judgment, strict; NOT a selection)
+→ legacy rewind linkage → REWIND_RECORDED → E-3 InkTransaction → BILLING_APPLIED → E-4 COMMITTED
+→ E-5 select_committed: SELECT{supersedes, message_ids, cleanup} → clear RERENDER intent
+```
+
+- `select_committed` raises unless the CommitJournal already holds COMMITTED for that transaction.
+- SELECT failure never undoes COMMITTED: `HISTORY_SELECT` block → reconcile selects deterministically
+  (record exists → full, non-degraded selection).
+- Billing failure after persist: old attempt stays selected; RERENDER intent kept; `settle_rerender` returns
+  WAIT; `abort_rerender` refuses (story persisted); D recovery (in-process or restart) finishes
+  BILLING_APPLIED/COMMITTED; SELECT then happens exactly once.
+- Reconcile makes no changes while a non-HISTORY D recovery is blocked (`WAIT_COMMIT_RECOVERY`), and
+  blocks `HISTORY_RERENDER_AWAIT_COMMIT` rather than reverting a persisted-but-uncommitted replacement.
+  This also closes a latent restart case where the previous reconcile could have reverted a
+  SESSION_PERSISTED replacement.
+
+## E-E2 — durable output cleanup debt
+
+- Debt shape: `{op_id, reason: RERENDER_SUPERSEDE|REWIND, transaction_ids, message_ids, unmapped}`,
+  stored on the same atomic index line as the state transition (SELECT with supersede / REWIND; for
+  REWIND also inside `history_op.json`, so a crash before the event is finalized with the same debt).
+- `CLEANUP_DONE{op_id}` only when every ID is deleted or already gone (NotFound). Other failures leave the
+  debt for retry. IDs belonging to any currently selected attempt are never deleted, even when a stale
+  debt lists them. Player messages are never mapped, so they never appear in debt.
+- Drain points: after COMMITTED (`_after_commit`), after rewind, after recovery, at restart (after
+  reconcile), and at game-channel input admission.
+- Derived game messages: `MESSAGES_BEGIN` before sending, `MESSAGES` after. If the index append fails,
+  the mapping goes to a strict pending file; if that also fails, it goes to a runtime payload. Either way
+  `needs_reconcile()` blocks rewind/rerender until `try_flush` (before each history op, at admission, in
+  reconcile/restart) moves it into the index. A BEGIN with no MESSAGES (crash between send and mapping)
+  marks the attempt's debt `unmapped`, and the master is told manual cleanup is needed. Gameplay is not
+  blocked by a mapping failure.
+- Cleanup failure never rolls back story or finance.
+
+## E-E3 — cache history provenance
+
+- `cache_history_marker = {transaction_id, attempt, gm_turn}` is stamped at every cache build
+  (`update_session_cache_state` — session open, reissue, restore, `!캐시 재발급`).
+- Rewind / rerender-begin evaluate compatibility against the restored state inside the same io-locked
+  strict save. The cache counts as compatible only if the marker's gm_turn ≤ the restored gm_turns_done and
+  the marker's transaction is the selected attempt at that gm_turn. Unknown provenance counts as
+  incompatible. Incompatible ⇒ durable `cache_history_stale=True`.
+- `cache_usable()` gates every `cached_content` use: instruction layer, simulation, light narration,
+  main narration. The main narration path reissues from the restored canonical state, which clears the
+  stale flag and re-stamps the marker. Until then the calls go uncached.
+- Uncached prompts also read `cached_compressed_memory`, `cached_session_npcs` and
+  `cached_worldview_sections`, so these are now reversible fields restored with the snapshot. Records
+  therefore move to schema v2; v1 records (03654fd-era) are refused as restore targets rather than guessed.
+- No cache billing/TTL/storage-settlement change (WP-F). d006e remains strict xfail.
+
+## Named regression tests (tests/policy/test_wp_e_patch.py)
+
+```
+E-E1
+test_ee1_billing_failure_keeps_old_selected_until_inprocess_recovery
+test_ee1_billing_failure_then_restart_selects_exactly_once
+test_ee1_crash_after_committed_before_select_restart_selects_once
+test_ee1_replacement_failed_pre_persist_keeps_old_selection
+test_ee1_select_committed_refuses_uncommitted_attempt
+(select_timing fixture: every SELECT append observed with journal COMMITTED already durable)
+E-E2
+test_ee2_rerender_crash_before_old_output_cleanup_restart_resumes
+test_ee2_rewind_crash_before_cleanup_restart_resumes
+test_ee2_rewind_crash_before_event_restart_finalizes_debt_and_cleans
+test_ee2_partial_failures_retry_idempotently_and_never_touch_current
+test_ee2_derived_message_mapping_failure_is_not_silently_lost
+test_ee2_mapping_total_failure_blocks_with_payload_then_recovers
+test_ee2_emit_begin_without_mapping_surfaces_unmapped_debt
+E-E3
+test_ee3_rewind_blocks_future_cache_and_future_memory        (+ CostEvent/Settlement/Ink unchanged)
+test_ee3_rerender_instruction_does_not_read_old_outcome
+test_ee3_compatible_cache_kept_after_rewind
+test_ee3_unknown_cache_provenance_is_not_trusted
+test_ee3_d006e_remains_strict_xfail_for_wp_f
+```
+
+## Results
+
+- Existing 25 WP-E tests: kept (4 adapted as listed; all pass)
+- d004c / d005d: PASS
+- d006e: strict xfail (only remaining xfail)
+- Full regression: **498 passed, 1 xfailed, 0 failed, 0 XPASS**
+- compileall + import: OK · routines ①② OK · bot load cogs 9 · 명령어 46 · views 5
+- verify_docs: only the pre-existing core-module-count mismatch remains (deliberately untouched)
+- Scans (§10–§14): `handoff/WP_E_GATE_PATCH_SCAN.txt`. Every SELECT append goes through
+  `select_committed`, which has a COMMITTED gate; `turn_history` has no financial mutation or import.
+
+## Hard stop
+
+WP-F **NOT STARTED**.

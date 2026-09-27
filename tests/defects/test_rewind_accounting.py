@@ -12,6 +12,8 @@ from __future__ import annotations
 
 import pytest
 
+from tests.policy.test_ready_barrier import rig  # noqa: F401 — 픽스처 재사용
+
 pytestmark = pytest.mark.defect
 
 
@@ -78,43 +80,28 @@ def test_d004b_late_mutation_lands_in_next_turn_delta(session_auto_ready):
         "늦은 변화가 N+1 델타에 잡히지 않았습니다")
 
 
-async def test_d004c_rewind_to_n_preserves_n_extraction(session_auto_ready):
+async def test_d004c_rewind_to_n_preserves_n_extraction(rig):
     """AUD-020 해소(WP-E) — 턴 N으로 되감으면 N의 추출 결과가 남는다.
 
     과거 xfail은 '델타 역적용 + 늦은 추출이 N+1 델타에 귀속'되던 legacy 경로를
     모델링했다. WP-D부터 추출은 같은 커밋의 적용 단계에서 반영되고, WP-E 되감기는
-    선택된 커밋 시도 N의 커밋 직후 스냅샷(post)을 복원한다. 이 테스트는 그 production
-    권위(core.turn_history)로 같은 의미를 증명한다: N에서 커밋된 추출 효과(위치)는
-    N으로 되감아도 남고, N+1의 변화만 사라진다.
+    선택된 커밋 시도 N의 커밋 직후 스냅샷(post)을 복원한다. 이 테스트는 실제 자동 경로
+    (CommitCoordinator → durable COMMITTED → SELECT)로 두 턴을 커밋한 뒤 production 권위
+    (core.turn_history)로 같은 의미를 증명한다: N에서 커밋된 추출 효과(위치)는 N으로
+    되감아도 남고, N+1의 변화만 사라진다.
     """
     import core
-    from tests.fakes.bot_fakes import FakeBot
+    from tests.policy.test_turn_history import _commit
 
-    sess = session_auto_ready
-    bot = FakeBot(strict=False)
-
-    def _commit(turn, loc):
-        # 커밋 적용 단계와 같은 순서: 이전 상태 캡처 → 추출 효과 적용 → 커밋 직후 캡처
-        pre = core.turn_history.capture_reversible(sess)
-        sess.world_timeline = dict(sess.world_timeline, current_location=loc)
-        sess.gm_turns_done = turn
-        sess.turn_count += 1
-        sess.commit_marker = {"transaction_id": f"tx{turn}", "attempt": 1}
-        post = core.turn_history.capture_reversible(sess)
-        plan = type("P", (), dict(
-            transaction_id=f"tx{turn}", logical_turn=turn, attempt=1, settlement_id=f"s{turn}",
-            story_turn=sess.turn_count, gm_turn=turn, fingerprint=f"f{turn}",
-            player_declaration="이동", canonical_message_ids=(), media_message_ids=()))()
-        core.turn_history.record_commit(sess, plan, {"pre": pre, "post": post,
-                                                     "judgment": None})
-
-    _commit(1, "숲길")        # 턴 N=1의 추출 결과 = 숲길
-    _commit(2, "동굴")        # 턴 N+1
-    res = await core.turn_history.rewind(bot, sess, 1)
+    tx1 = await _commit(rig, "숲길")          # 턴 N=1의 추출 결과 = 숲길
+    await _commit(rig, "동굴", "동굴로 간다")   # 턴 N+1
+    sess = rig.sess
+    res = await core.turn_history.rewind(rig.bot, sess, 1)
     assert res["ok"], res
     assert sess.world_timeline.get("current_location") == "숲길", (
         "턴 N의 추출 결과가 되감기로 사라졌습니다")
-    assert sess.gm_turns_done == 1 and sess.commit_marker["transaction_id"] == "tx1"
+    assert sess.gm_turns_done == 1
+    assert sess.commit_marker["transaction_id"] == tx1.transaction_id
 
 
 # ──────────────────────────────────────────────────────────

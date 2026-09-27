@@ -1923,6 +1923,14 @@ class GMCog(commands.Cog):
         master_ch = self.bot.get_channel(getattr(session, "master_ch_id", 0))
         game_ch = self.bot.get_channel(getattr(session, "game_ch_id", 0))
         game_ids = []
+        # WP-E(E-E2): 파생 게임 메시지 송출 전 durable 의도 — 송출 후 매핑이 닫는다.
+        emit_id = None
+        _tid = getattr(derived, "transaction_id", None)
+        if _tid and game_ch and any(it[0] == "game" for it in derived.items):
+            try:
+                emit_id = core.turn_history.begin_emit(session.session_id, _tid)
+            except Exception as e:
+                print(f"[WP-E] 파생 메시지 의도 기록 실패(송출 후 매핑으로 보전): {e}")
         for item in list(derived.items):
             try:
                 kind = item[0]
@@ -1946,13 +1954,12 @@ class GMCog(commands.Cog):
                     await core.stats.add_npcs(item[1], item[2])
             except Exception as e:
                 print(f"[WP-D] 파생 출력 실패(커밋 유지): {type(e).__name__}: {e}")
-        # WP-E: 정본 게임 이벤트 메시지를 커밋 시도에 귀속(되감기·재생성 정리 대상)
-        if game_ids and getattr(derived, "transaction_id", None):
-            try:
-                core.turn_history.append_messages(
-                    session.session_id, derived.transaction_id, game_ids)
-            except Exception as e:
-                print(f"[WP-E] 파생 메시지 매핑 기록 실패(정리 공백): {e}")
+        # WP-E(E-E2): 정본 게임 이벤트 메시지를 커밋 시도에 귀속(되감기·재생성 정리 대상).
+        #   인덱스 실패 → 대체 파일 → 런타임 차단 순으로 보전하며 조용히 유실하지 않는다.
+        if _tid and (game_ids or emit_id):
+            where = core.turn_history.record_emitted_messages(session, _tid, emit_id, game_ids)
+            if where != "INDEX":
+                print(f"⛔ [WP-E] 파생 메시지 매핑 보류({where}) — 재정합 전 되감기·재생성 차단")
 
     async def _send_turn_cost_report(self, session, settlement) -> None:
         """Settlement 파생 턴 비용 보고(마스터 전용). 재환산·재반올림 없음(AUD-022)."""
@@ -1998,10 +2005,9 @@ class GMCog(commands.Cog):
             # 비권위 저장 — 정본은 이미 strict 저장됨. 커밋 이후 파생 필드(되감기 공백 표식 등)만.
             await core.save_session_data(self.bot, session)
             await self._emit_commit_derived(session, result.derived)
-            # WP-E: 재생성 교체가 COMMITTED된 뒤에만 이전 시도의 봇 정본 출력을 정리한다.
-            _sup = getattr(result.derived, "superseded", None)
-            if _sup is not None:
-                await self._cleanup_attempt_output(session, _sup)
+            # WP-E(E-E2): 재생성 교체의 durable 정리 부채(SELECT와 같은 라인)를 실행한다 —
+            #   선택 전환이 COMMITTED 이후에만 일어나므로 이전 출력 삭제도 그 이후뿐이다.
+            await self._drain_history_cleanup(session)
             await self._send_turn_cost_report(session, result.settlement)
             try:
                 await core.refresh_display(self.bot, session, reason="turn_end")
@@ -2067,31 +2073,27 @@ class GMCog(commands.Cog):
     # WP-E — 되감기 · 같은 턴 재생성 어댑터(권위는 core.turn_history)
     # ─────────────────────────────────────────────────────────────
 
-    async def _cleanup_attempt_output(self, session, entry) -> int:
-        """특정 커밋 시도의 봇 정본 출력만 정리한다(ID 스코프 — 다른 시도 출력 불가침).
+    async def _drain_history_cleanup(self, session) -> int:
+        """durable 정리 부채(E-E2) 실행 — 멱등, 실패는 부채로 남아 다음 복구·입력에서 재시도.
 
-        플레이어 메시지는 기록되지 않으므로 삭제되지 않는다. 이미 없는 메시지는 건너뛴다.
+        부채에는 봇 정본 출력 ID만 있다(플레이어 메시지 없음). 현재 선택 시도의 출력은
+        부채에 있어도 삭제하지 않는다. 이야기·재무에는 영향이 없다.
         """
         try:
-            ids = core.turn_history.attempt_message_ids(session.session_id, entry)
+            res = await core.turn_history.drain_cleanup(self.bot, session)
         except Exception as e:
-            print(f"[WP-E] 시도 출력 ID 조회 실패(정리 생략): {e}")
+            print(f"[WP-E] 출력 정리 부채 실행 실패(부채 유지): {e}")
             return 0
-        game_ch = self.bot.get_channel(session.game_ch_id)
-        if not ids or game_ch is None:
-            return 0
-        n = 0
-        for mid in ids:
-            try:
-                m = await game_ch.fetch_message(mid)
-            except Exception:
-                continue
-            try:
-                await m.delete()
-                n += 1
-            except Exception as e:
-                print(f"[WP-E] 출력 정리 실패(채널 정리 공백): {mid} {e}")
-        return n
+        if res.get("unmapped"):
+            master_ch = self.bot.get_channel(getattr(session, "master_ch_id", 0))
+            if master_ch:
+                try:
+                    await master_ch.send(
+                        "⚠️ 일부 이전 턴 출력은 매핑 기록이 없어 자동 정리하지 못했습니다. "
+                        "게임 채널을 확인해 주십시오.")
+                except Exception:
+                    pass
+        return int(res.get("deleted") or 0)
 
     async def _settle_history_op(self, session, prep, master_ch) -> None:
         """재생성 교체 시도 종결 후 남은 의도 처분.
@@ -2119,9 +2121,9 @@ class GMCog(commands.Cog):
             return
         if res.get("action") == "ABORTED" and master_ch:
             await master_ch.send("↩️ 재생성 시도가 확정되지 않아 기존 턴을 그대로 유지합니다(청구 0).")
-        elif res.get("superseded"):
-            # 교체가 COMMITTED로 확정(선택 기록은 복구로 맞춤) — 이전 시도 출력 정리
-            await self._cleanup_attempt_output(session, res["superseded"])
+        elif res.get("action") == "SELECTED":
+            # 교체가 COMMITTED로 확정(선택은 재정합으로 맞춤) — durable 부채로 이전 출력 정리
+            await self._drain_history_cleanup(session)
 
     async def _abort_rerender(self, session, master_ch) -> None:
         try:
@@ -2136,13 +2138,12 @@ class GMCog(commands.Cog):
     async def history_rewind(self, session, target: int) -> dict:
         """모든 되감기 입구(!되감기·디스플레이·rewind:one)의 단일 어댑터."""
         async with self._lock_for(session):
+            core.turn_history.try_flush(session)        # E-E2 보전 매핑 먼저 인덱스로
             result = await core.turn_history.rewind(self.bot, session, target)
             if not result.get("ok"):
                 return result
-            removed = 0
-            for entry in result.get("removed") or []:
-                removed += await self._cleanup_attempt_output(session, entry)
-            result["removed_messages"] = removed
+            # E-E2: REWIND 이벤트에 실린 durable 정리 부채를 실행(실패 시 부채 유지·재시도)
+            result["removed_messages"] = await self._drain_history_cleanup(session)
         try:
             await core.refresh_display(self.bot, session, reason="rewind")
         except Exception as e:
@@ -2156,6 +2157,7 @@ class GMCog(commands.Cog):
         """
         master_ch = self.bot.get_channel(session.master_ch_id)
         async with self._lock_for(session):
+            core.turn_history.try_flush(session)        # E-E2 보전 매핑 먼저 인덱스로
             entry, rec, reason = core.turn_history.rerender_target(session)
             if entry is None:
                 return False, reason
@@ -2232,6 +2234,11 @@ class GMCog(commands.Cog):
         """게임 채널 입력 경로의 복구 admission — gm_active와 무관하게 먼저 실행된다."""
         async with self._lock_for(session):
             if not getattr(session, "commit_recovery", None):
+                # WP-E(E-E2): 보전된 출력 매핑 재정합 · 남은 출력 정리 부채 재시도
+                if core.turn_history.needs_reconcile(session):
+                    core.turn_history.try_flush(session)
+                if not getattr(session, "_history_cleanup_clear", False):
+                    await self._drain_history_cleanup(session)
                 return
             master_ch = self.bot.get_channel(getattr(session, "master_ch_id", 0))
             await self._recover_then_maybe_round(session, master_ch)
@@ -2246,6 +2253,8 @@ class GMCog(commands.Cog):
             if not _h["ok"]:
                 rep = core.commit_coordinator.RecoveryReport(
                     "RECOVERY_REQUIRED", action=_h["action"], detail=_h["detail"])
+            else:
+                await self._drain_history_cleanup(session)      # E-E2 남은 정리 부채
         if rep.blocked:
             if master_ch:
                 try:
@@ -2395,7 +2404,9 @@ class GMCog(commands.Cog):
         sim_result: dict | None = None
         cache_name  = getattr(session, "cache_name",  None)
         cache_model = getattr(session, "cache_model", None)
-        do_simulation = bool(cache_name and cache_model == core.DEFAULT_MODEL)
+        # WP-E(E-E3): 이력 출처가 선택 이력보다 새로운 캐시는 읽지 않는다.
+        do_simulation = bool(cache_name and cache_model == core.DEFAULT_MODEL
+                             and core.turn_history.cache_usable(session))
 
         # ── 세션 오픈 여부 확인 (기획 규정 — 닫혀 있으면 차단) ──
         # 만료된 캐시로 진행하면 API 오류가 난다. 미리 막고 안내한다.
@@ -2956,7 +2967,9 @@ class GMCog(commands.Cog):
         # 캐시 활용 가능 여부 판단
         cache_name  = getattr(session, "cache_name",  None)
         cache_model = getattr(session, "cache_model", None)
-        use_cache   = bool(cache_name and cache_model == core.DEFAULT_MODEL)
+        # WP-E(E-E3): 되감기/재생성 뒤 미래 이력을 담은 캐시는 쓰지 않는다(캐시 없는 폴백).
+        use_cache   = bool(cache_name and cache_model == core.DEFAULT_MODEL
+                           and core.turn_history.cache_usable(session))
 
         try:
             # ── 상황별 스키마 조립 ──
@@ -3453,7 +3466,7 @@ class GMCog(commands.Cog):
         # WP-C: 자동 턴 비용 멤버 claim(transaction_id=None인 수동 호출은 no-op).
         core.turn_preparation.claim_cost_operation(session, transaction_id, _cl_op)
         try:
-            if session.cache_name:
+            if core.turn_history.cache_usable(session):     # WP-E(E-E3)
                 config = types.GenerateContentConfig(
                     http_options=core.resilience.provider_http_options("narration"),  # WP-C B-C4
                     cached_content=session.cache_name,
@@ -4686,6 +4699,8 @@ class GMCog(commands.Cog):
             dict | None: {"world_state_analysis": str, "directions": [...]} 또는 None
         """
         cache_name = getattr(session, "cache_name", None)
+        if not core.turn_history.cache_usable(session):     # WP-E(E-E3)
+            return None
 
         # 최근 로그 (턴 개수 4개 유지, 각 턴은 온전 원문)
         recent_lines = []

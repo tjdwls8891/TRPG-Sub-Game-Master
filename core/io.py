@@ -171,6 +171,8 @@ SESSION_FIELDS: dict = {
     "last_turn_ink": 0,
     "rewind_degraded_turns": [],
     "failed_settlement_backlog": [],
+    "cache_history_marker": None,     # WP-E(E-E3) provider 캐시 이력 출처
+    "cache_history_stale": False,     # WP-E(E-E3) 이력 조작 후 캐시 사용 금지
     "extraction_pending": False,
     "extraction_retry_ctx": {},
     "last_extraction": {},
