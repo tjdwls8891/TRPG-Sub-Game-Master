@@ -90,8 +90,9 @@ def test_c004c_only_automatic_path_reaches_finish_proceed():
     sites = _callsites("_finish_proceed_and_continue")
     owners = {owner for _, _, owner in sites}
 
+    # WP-E: 같은 턴 재생성(rerender_latest)도 자동 경로 owner다 — 지시층위부터 같은 파이프라인.
     assert owners <= {"_run_gm_logic_loop", "_continue_with_roll_results",
-                      "_finish_proceed_and_continue"}, (
+                      "_finish_proceed_and_continue", "rerender_latest"}, (
         f"예상 밖 호출부: {sorted(owners)}")
     assert "proceed_turn" not in owners
     assert "play_intro" not in owners

@@ -214,7 +214,7 @@
 
 ```
 장소 122 · NPC 47(32명 배치) · 직업 16 · 퀘스트 44
-시작 틀 8 · 프로필 단계 10 · SESSION_FIELDS 80 · TRACKED_PATHS 15
+시작 틀 8 · 프로필 단계 10 · SESSION_FIELDS 80 · TRACKED_PATHS 14
 명령어 44 · persistent view 5종 22버튼
 ```
 

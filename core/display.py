@@ -332,24 +332,26 @@ class DisplayView(discord.ui.View):
     @discord.ui.button(label="🔄 턴 재시작", style=discord.ButtonStyle.danger,
                        custom_id="disp:restart", row=2)
     async def restart(self, interaction, _b):
-        """직전 턴을 되감고 곧바로 선언 질문부터 다시 진행한다."""
+        """턴 재시작(WP-E) = 같은 논리 턴 재생성 — 선언·판단 보존, 지시층위부터 다시 서술.
+
+        되감기 후 새 선언을 받는 옛 의미는 폐기되었다(되감기는 별도 버튼).
+        """
         session = self.bot.active_sessions.get(interaction.channel.id)
         if self._busy(session):
             await interaction.response.send_message(
                 "턴 진행 중에는 재시작할 수 없습니다.", ephemeral=True)
             return
-        from .rewind import available_range
-        _oldest, newest = available_range(session)
-        if newest == 0:
-            await interaction.response.send_message(
-                "재시작할 턴이 없습니다.", ephemeral=True)
+        from .turn_history import rerender_target
+        entry, _rec, reason = rerender_target(session)
+        if entry is None:
+            await interaction.response.send_message(f"⚠️ {reason}", ephemeral=True)
             return
-        confirm_cls = getattr(__import__("cogs.gm", fromlist=["RewindConfirmView"]),
-                              "RewindConfirmView")
+        confirm_cls = getattr(__import__("cogs.gm", fromlist=["RerenderConfirmView"]),
+                              "RerenderConfirmView")
         await interaction.response.send_message(
-            f"⚠️ **{newest}턴을 취소하고 선언부터 다시 진행합니다.**\n"
-            f"되돌리기는 취소할 수 없으며, 이미 소모된 비용은 환불되지 않습니다.",
-            view=confirm_cls(self.bot, session, newest - 1),
+            f"⚠️ **{entry['gm_turn']}턴을 같은 선언으로 다시 서술합니다.**\n"
+            f"새 서술이 확정되면 기존 턴 출력이 교체됩니다. 이미 소모된 비용은 환불되지 않습니다.",
+            view=confirm_cls(self.bot, session),
         )
 
     @discord.ui.button(label="⏻ 세션 열기", style=discord.ButtonStyle.success,

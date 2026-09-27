@@ -740,7 +740,7 @@ class GameCog(commands.Cog):
         if not full_ai_response:
             finish_reason = response.candidates[0].finish_reason if response.candidates else "Unknown"
             raise ValueError(
-                f"AI가 텍스트를 반환하지 않았습니다. (구글 API 강제 차단 혹은 모델 에러. 사유: {finish_reason})\n지시사항의 수위를 조절하거나 `!재생성`을 이용해 턴을 취소해 주십시오.")
+                f"AI가 텍스트를 반환하지 않았습니다. (구글 API 강제 차단 혹은 모델 에러. 사유: {finish_reason})\n지시사항의 수위를 조절해 다시 시도해 주십시오.")
 
         # PC 자율성 보호: AI가 NPC가 아닌 '플레이어 이름'으로 대사를 출력한 경우,
         # 로그 저장·파싱·스트리밍에 들어가기 전 문자열 단계에서 해당 발화 문단을 제거한다.
@@ -1306,73 +1306,22 @@ class GameCog(commands.Cog):
     @commands.command(name="재생성")
     async def regenerate_turn(self, ctx, *, instruction: str = ""):
         """
-        직전 턴의 시스템 출력을 무효화(Rollback)하고, 새로운 지시사항을 바탕으로 턴 묘사를 재생성.
+        직전(선택된 최신) 커밋 턴을 같은 논리 턴의 새 시도로 다시 서술한다(WP-E).
+
+        원래 선언과 판단을 보존하고 지시층위부터 일반 파이프라인으로 진행한다. 새 시도가
+        실제로 확정(COMMITTED)되기 전까지 기존 턴이 정본으로 남으며, 실패하면 기존 턴이
+        유지된다(실패 시도 청구 0). 기존 턴 청구는 환불되지 않는다.
+        instruction(선택)은 새 선언이 아니라 지시층위에 전달되는 재생성 지시다.
         """
         session = self.bot.active_sessions.get(ctx.channel.id)
         if not session or ctx.channel.id != session.master_ch_id:
             return await ctx.send("이 명령어는 마스터 채널에서만 사용할 수 있습니다.")
-
-        game_channel = self.bot.get_channel(session.game_ch_id)
-        if not game_channel:
-            return await ctx.send("⚠️ 게임 채널을 찾을 수 없습니다.")
-
-        if getattr(session, "is_processing", False):
-            return await ctx.send("⏳ 시스템이 다른 명령을 처리 중입니다. 잠시만 기다려주십시오.")
-
-        if session.turn_count <= 0 or len(session.raw_logs) < 2:
-            return await ctx.send("⚠️ 취소할 직전 턴의 묘사가 존재하지 않습니다.")
-
-        # [압축 타이밍 이동] 압축은 5N 턴 종료 직후가 아니라 5N+1 프로씨드 시작 시점에 백그라운드로
-        # 실행되므로, 5의 배수 턴 자체는 롤백이 가능하다. 다만 그 백그라운드 압축이 진행 중인 짧은
-        # 창에서는 롤백 대상 로그와 경합할 수 있어 잠시 대기를 안내한다.
-        if getattr(session, "is_compressing", False):
-            return await ctx.send("⏳ 기억 압축이 진행 중입니다. 수 초 후 다시 시도해 주세요.")
-
-        await ctx.send("⏳ 직전 턴의 로그와 출력물을 삭제하고 있습니다...")
-        session.is_processing = True
-
-        try:
-            # 1. 디스코드 UI 롤백: 앵커 이후에 생성된 봇의 모든 출력물 일괄 삭제
-            if getattr(session, "last_turn_anchor_id", None):
-                try:
-                    anchor_msg = await game_channel.fetch_message(session.last_turn_anchor_id)
-                    await game_channel.purge(after=anchor_msg, check=lambda m: m.author == self.bot.user)
-                except discord.NotFound:
-                    pass
-
-            # 2. 메모리 로그 롤백: 유저 프롬프트와 AI 묘사를 1세트(2개) Pop 처리
-            if len(session.raw_logs) >= 2:
-                # 롤백할 이전 턴의 유저 턴 데이터 문자열 추출
-                prev_user_content = session.raw_logs[-2].parts[0].text
-
-                # "[GM 지시]:"를 기준으로 문자열을 분할하여 앞부분(대화 기록)만 추출
-                if "\n[GM 지시]:" in prev_user_content:
-                    chat_logs = prev_user_content.split("\n[GM 지시]:")[0].strip()
-                    if chat_logs:
-                        # 추출된 대화 문자열을 다시 리스트 형태로 복구하여 대기열에 삽입
-                        session.current_turn_logs = chat_logs.split("\n")
-
-                # 배열에서 직전 턴 데이터 2세트(프롬프트, 응답) 삭제
-                session.raw_logs = session.raw_logs[:-2]
-
-            if len(session.uncompressed_logs) >= 2:
-                session.uncompressed_logs = session.uncompressed_logs[:-2]
-
-            # 3. 턴 카운터 차감 및 앵커 초기화
-            session.turn_count -= 1
-            session.last_turn_anchor_id = None
-
-            await core.save_session_data(self.bot, session)
-            await ctx.send("✅ 이전 출력이 삭제되었습니다. 새 지시사항으로 턴을 진행합니다...")
-
-        except Exception as e:
-            await ctx.send(f"⚠️ 롤백 중 오류가 발생했습니다: {e}")
-            return
-        finally:
-            session.is_processing = False
-
-        # 새로운 묘사 출력을 위해 메인 진행 함수 재호출
-        await self.proceed_turn(ctx, instruction=instruction)
+        gm_cog = self.bot.get_cog("GMCog")
+        if gm_cog is None:
+            return await ctx.send("⚠️ 자동 GM이 로드되지 않았습니다.")
+        started, reason = await gm_cog.rerender_latest(session, addendum=instruction.strip())
+        if not started:
+            await ctx.send(f"⚠️ 재생성할 수 없습니다: {reason}")
 
 
     @commands.command(name="출력물")

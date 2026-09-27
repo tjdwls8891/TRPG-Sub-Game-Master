@@ -177,7 +177,7 @@ python main.py
 | 모듈 | 줄 | 내용 |
 |---|---|---|
 | `memory_plan.py` | 202 | 압축 플랜 4종 |
-| `rewind.py` | 340 | 되감기 델타 로그 (`TRACKED_PATHS` 15개) |
+| `rewind.py` | 340 | 되감기 델타 로그 (`TRACKED_PATHS` 14개) |
 
 #### 미디어·UI
 

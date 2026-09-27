@@ -2,9 +2,10 @@
 
 WP00_EXECUTABLE_TEST_PLAN.md §6 기준.
 
-D-004 (AUD-020) 늦게 도착한 추출 결과가 다음 턴 델타에 귀속된다.
+D-004 (AUD-020) 늦게 도착한 추출 결과가 다음 턴 델타에 귀속된다. — WP-E 해소:
+                되감기 권위가 선택된 커밋 시도 스냅샷으로 바뀌었다(d004c 전환).
 D-005 (AUD-029) `total_cost`가 되감기 추적 대상이라 제공자 비용 이력이
-                게임 상태와 함께 되돌아간다.
+                게임 상태와 함께 되돌아간다. — WP-E 해소(d005 계열 전환).
 """
 
 from __future__ import annotations
@@ -77,42 +78,43 @@ def test_d004b_late_mutation_lands_in_next_turn_delta(session_auto_ready):
         "늦은 변화가 N+1 델타에 잡히지 않았습니다")
 
 
-@pytest.mark.xfail(strict=True,
-                   reason="AUD-020 되감기가 턴 N의 추출 결과를 보존하지 않는다")
-def test_d004c_rewind_to_n_preserves_n_extraction(session_auto_ready):
-    """바람직한 동작 — 턴 N으로 되감으면 N의 추출 결과는 남아야 한다.
+async def test_d004c_rewind_to_n_preserves_n_extraction(session_auto_ready):
+    """AUD-020 해소(WP-E) — 턴 N으로 되감으면 N의 추출 결과가 남는다.
 
-    현재는 그 결과가 N+1 델타에 귀속되므로, N으로 되감으면 함께 사라진다.
+    과거 xfail은 '델타 역적용 + 늦은 추출이 N+1 델타에 귀속'되던 legacy 경로를
+    모델링했다. WP-D부터 추출은 같은 커밋의 적용 단계에서 반영되고, WP-E 되감기는
+    선택된 커밋 시도 N의 커밋 직후 스냅샷(post)을 복원한다. 이 테스트는 그 production
+    권위(core.turn_history)로 같은 의미를 증명한다: N에서 커밋된 추출 효과(위치)는
+    N으로 되감아도 남고, N+1의 변화만 사라진다.
     """
     import core
+    from tests.fakes.bot_fakes import FakeBot
 
     sess = session_auto_ready
-    snap_n = core.capture_state(sess)
-    sess._rewind_snapshot = snap_n
+    bot = FakeBot(strict=False)
 
-    after_n = core.capture_state(sess)
-    sess._rewind_snapshot = after_n
+    def _commit(turn, loc):
+        # 커밋 적용 단계와 같은 순서: 이전 상태 캡처 → 추출 효과 적용 → 커밋 직후 캡처
+        pre = core.turn_history.capture_reversible(sess)
+        sess.world_timeline = dict(sess.world_timeline, current_location=loc)
+        sess.gm_turns_done = turn
+        sess.turn_count += 1
+        sess.commit_marker = {"transaction_id": f"tx{turn}", "attempt": 1}
+        post = core.turn_history.capture_reversible(sess)
+        plan = type("P", (), dict(
+            transaction_id=f"tx{turn}", logical_turn=turn, attempt=1, settlement_id=f"s{turn}",
+            story_turn=sess.turn_count, gm_turn=turn, fingerprint=f"f{turn}",
+            player_declaration="이동", canonical_message_ids=(), media_message_ids=()))()
+        core.turn_history.record_commit(sess, plan, {"pre": pre, "post": post,
+                                                     "judgment": None})
 
-    # 턴 N의 추출 결과가 늦게 도착
-    sess.world_timeline = dict(sess.world_timeline)
-    sess.world_timeline["current_location"] = "숲길"
-    late_value = sess.world_timeline["current_location"]
-
-    # 턴 N+1 델타에 귀속됨
-    after_n1 = core.capture_state(sess)
-    delta_n1 = core.diff_state(sess._rewind_snapshot, after_n1)
-
-    # 턴 N으로 되감기 = N+1 델타를 되돌린다
-    restored = {k: v for k, v in after_n1.items()}
-    for d in delta_n1:
-        if not isinstance(d, dict):
-            continue
-        path = d.get("path")
-        if path and "world_timeline" in str(path):
-            restored["world_timeline"] = after_n.get("world_timeline")
-
-    assert restored["world_timeline"].get("current_location") == late_value, (
+    _commit(1, "숲길")        # 턴 N=1의 추출 결과 = 숲길
+    _commit(2, "동굴")        # 턴 N+1
+    res = await core.turn_history.rewind(bot, sess, 1)
+    assert res["ok"], res
+    assert sess.world_timeline.get("current_location") == "숲길", (
         "턴 N의 추출 결과가 되감기로 사라졌습니다")
+    assert sess.gm_turns_done == 1 and sess.commit_marker["transaction_id"] == "tx1"
 
 
 # ──────────────────────────────────────────────────────────
@@ -120,10 +122,14 @@ def test_d004c_rewind_to_n_preserves_n_extraction(session_auto_ready):
 # ──────────────────────────────────────────────────────────
 
 def test_d005_total_cost_is_currently_rewindable():
-    """현재 동작 — `total_cost`가 되감기 추적 대상이다."""
+    """WP-E(AUD-029) — `total_cost`는 더 이상 되감기 추적 대상이 아니다(운영 이력).
+
+    이력 선택의 가역 필드에도 운영/재무 필드가 없다.
+    """
     import core
-    assert "total_cost" in core.TRACKED_PATHS, (
-        "total_cost가 추적 대상에서 빠졌다면 AUD-029 상태가 달라졌습니다")
+    assert "total_cost" not in core.TRACKED_PATHS
+    assert not set(core.turn_history.REVERSIBLE_FIELDS) & {
+        "total_cost", "total_usd", "total_ink_spent", "last_turn_cost", "last_turn_ink"}
 
 
 def test_d005b_ink_and_usd_are_not_rewindable():
@@ -138,7 +144,7 @@ def test_d005b_ink_and_usd_are_not_rewindable():
 
 
 def test_d005c_rewind_makes_cost_fields_diverge(session_auto_ready):
-    """현재 동작 — 되감기가 원화 누적만 되돌려 표기가 어긋난다."""
+    """WP-E — 되감기 델타에 비용 필드가 잡히지 않는다(원화·잉크 모두 운영 이력)."""
     import core
 
     sess = session_auto_ready
@@ -159,13 +165,11 @@ def test_d005c_rewind_makes_cost_fields_diverge(session_auto_ready):
     ink_changed = any("total_ink_spent" in str(d.get("path"))
                       for d in delta if isinstance(d, dict))
 
-    assert cost_changed, "total_cost가 델타에 잡히지 않았습니다"
+    assert not cost_changed, "total_cost가 여전히 되감기 델타에 잡힙니다(AUD-029)"
     assert not ink_changed, (
         "total_ink_spent가 델타에 잡혔습니다 — 정책과 다릅니다")
 
 
-@pytest.mark.xfail(strict=True,
-                   reason="AUD-029 제공자 비용 이력이 되감기로 바뀐다")
 def test_d005d_provider_history_is_irreversible():
     """바람직한 동작 — 제공자/회계 이력은 되감기로 변하지 않아야 한다.
 

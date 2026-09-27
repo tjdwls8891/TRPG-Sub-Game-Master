@@ -103,7 +103,6 @@ from .rewind import (
     record_delta,
     record_full_log,
     archive_removed,
-    rewind_to,
     available_range,
     serialize_log_entries,
     read_jsonl,
@@ -215,6 +214,7 @@ from . import commit_journal  # WP-JOURNAL-01: durable commit journal foundation
 from . import settlement  # WP-SETTLEMENT-01: immutable TurnSettlement + durable store
 from . import ink_transactions  # WP-SETTLEMENT-01: exactly-once InkTransaction executor
 from . import commit_coordinator  # WP-D: authoritative commit / recovery / billing cutover
+from . import turn_history  # WP-E: selected committed-attempt history / rewind / rerender
 from .cost import (
     extract_token_usage,
     format_cost,
@@ -339,7 +339,7 @@ __all__ = [
     "estimate_compression", "compression_prepay", "settle_compression",
     "settle_on_session_close", "COMPRESSION_INTERVAL",
     "REWIND_MAX_TURNS", "TRACKED_PATHS", "capture_state", "diff_state",
-    "record_delta", "record_full_log", "archive_removed", "available_range", "rewind_to",
+    "record_delta", "record_full_log", "archive_removed", "available_range",
     "serialize_log_entries", "read_jsonl",
     "COMMON_EXTRACTION_TARGETS", "EXTRACTION_RESPONSE_SCHEMA", "THRESHOLDS",
     "get_thresholds", "build_extraction_targets", "parse_extraction",

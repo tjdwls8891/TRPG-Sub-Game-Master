@@ -496,6 +496,11 @@ async def restore_sessions_from_disk(bot):
                     _ab = await _cc.abandon_retry_pending(bot, session)
                     if _ab != "NONE":
                         print(f"🔁 {session_id}: 추출 재시도 대기 시도 종결({_ab})")
+                    # WP-E: D 복구·재시도 폐기 이후 선택 이력/이력 조작 의도 정합(모순이면 차단).
+                    from . import turn_history as _th
+                    _h = await _th.reconcile(bot, session)
+                    if _h["action"] not in ("CLEAN",):
+                        print(f"🔁 {session_id}: 이력 정합 {_h['action']} ok={_h['ok']}")
                 except Exception as _e:
                     session.commit_recovery = {"status": "RECOVERY_REQUIRED",
                                                "stage": "RESTORE_EXCEPTION",

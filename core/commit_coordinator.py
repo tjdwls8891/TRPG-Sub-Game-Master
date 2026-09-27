@@ -43,6 +43,7 @@ from . import rewind as _rw
 from . import settlement as _st
 from . import turn_preparation as TP
 from . import turn_transaction as TT
+from . import turn_history as _th
 
 # 추출 재시도 컨텍스트 표식(cogs/gm.py와 공유) — 이 표식이 있으면 같은 tx 준비 owner로 재개.
 RETRY_MODE_PREPARATION = "wp_c_preparation"
@@ -69,6 +70,8 @@ class DerivedEffects:
 
     def __init__(self):
         self.items: list = []
+        self.transaction_id = None     # WP-E: 파생 게임 메시지 ID를 이 시도에 귀속
+        self.superseded = None         # WP-E: 재생성으로 대체된 이전 선택 시도(출력 정리 대상)
 
     def master(self, content=None, *, embed=None):
         self.items.append(("master", content, embed))
@@ -526,13 +529,14 @@ class CommitCoordinator:
             before = getattr(session, "_rewind_snapshot", None) or _rw.capture_state(session)
         snap = capture_rollback_snapshot(session, prep)
         derived = DerivedEffects()
+        derived.transaction_id = tid
         stage, err, rewind = "APPLY", None, None
         persisted = False
         async with _io.session_io_lock(self.bot, session):
             session._commit_io_task = asyncio.current_task()
             try:
-                rewind = await self._apply_in_memory(session, prep, plan, candidate,
-                                                     derived, apply_effects, before)
+                rewind, history = await self._apply_in_memory(
+                    session, prep, plan, candidate, derived, apply_effects, before, tx)
                 stage = "STRICT_SAVE"
                 await _io.write_session_strict_locked(session)
                 persisted = True
@@ -547,7 +551,7 @@ class CommitCoordinator:
 
         # ── SESSION_PERSISTED — 여기부터 이야기는 정본이다(롤백 금지) ──
         pending = {"plan": plan, "derived": derived, "rewind": rewind,
-                   "rewind_done": False, "settlement": candidate}
+                   "rewind_done": False, "settlement": candidate, "history": history}
         session._commit_pending = pending
         try:
             journal.append_entry(_entry(plan, cj.CommitPhase.SESSION_PERSISTED,
@@ -568,8 +572,13 @@ class CommitCoordinator:
                             plan=plan, derived=derived)
 
     async def _apply_in_memory(self, session, prep, plan, candidate, derived,
-                               apply_effects, before):
-        """부수효과 없는 정본 적용(Discord/통계/계정/tolerant save 없음). 되감기 델타 반환."""
+                               apply_effects, before, tx=None):
+        """부수효과 없는 정본 적용(Discord/통계/계정/tolerant save 없음).
+
+        Returns: (되감기 델타, WP-E 이력 payload{pre, post, judgment}).
+        """
+        # WP-E: 턴 이전 가역 정본(재생성의 복원 기준) — 적용 직전, 같은 임계구역.
+        hist_pre = _th.capture_reversible(session)
         TP.apply_staged_narration_log(session, prep.staged_log)
         TP.apply_staged_growth(session, prep)
         await apply_effects(session, prep, derived)
@@ -597,7 +606,9 @@ class CommitCoordinator:
                 print(f"[WP-D] 되감기 델타 계산 실패: {e}")
                 _mark_rewind_degraded(session, turn_no)
         session.commit_marker = plan.target_marker()
-        return rewind
+        history = {"pre": hist_pre, "post": _th.capture_reversible(session),
+                   "judgment": copy.deepcopy(getattr(tx, "judgment_result", None))}
+        return rewind, history
 
     async def _complete_from_persisted(self, session, plan, journal, phases, *,
                                        pending=None, settlement=None):
@@ -609,8 +620,23 @@ class CommitCoordinator:
             settlement = store.record_strict(cand)
         if settlement.outcome != _st.SettlementOutcome.COMMITTED.value:
             raise _st.SettlementConflictError("영속 이후 Settlement가 COMMITTED가 아님")
-        # E-2 되감기/전체 로그 연결(WP-E 소비) — 실패는 공백 표식, 이야기 롤백 없음
+        # E-2 되감기/전체 로그 연결 — 실패는 공백 표식, 이야기 롤백 없음
         if cj.CommitPhase.REWIND_RECORDED not in phases:
+            # WP-E: 선택 이력(정본 시도 레코드 + SELECT) — 재시작 복구(pending 없음)면 degraded
+            hist_ok = False
+            try:
+                res = _th.record_commit(session, plan, (pending or {}).get("history"))
+                hist_ok = bool(res.get("record"))
+                if pending is not None:
+                    if res.get("superseded") is not None:
+                        pending["superseded"] = res["superseded"]
+                    d0 = pending.get("derived")
+                    if d0 is not None and pending.get("superseded") is not None:
+                        d0.superseded = pending["superseded"]
+            except Exception as e:  # noqa: BLE001
+                print(f"[WP-E] 선택 이력 기록 실패(되감기·재생성 공백): {e}")
+            if not hist_ok:
+                _mark_rewind_degraded(session, plan.gm_turn)
             done = bool((pending or {}).get("rewind_done"))
             rewind = (pending or {}).get("rewind")
             if not done and rewind is not None:
@@ -626,7 +652,7 @@ class CommitCoordinator:
                     _mark_rewind_degraded(session, turn)
             elif not done:
                 _mark_rewind_degraded(session, plan.gm_turn)
-            if done:
+            if done and hist_ok:
                 try:
                     journal.append_entry(_entry(plan, cj.CommitPhase.REWIND_RECORDED,
                                                 settlement_id=plan.settlement_id,

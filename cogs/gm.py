@@ -583,23 +583,18 @@ class RewindConfirmView(discord.ui.View):
     @discord.ui.button(label="되감기 실행", style=discord.ButtonStyle.danger)
     async def confirm(self, interaction: discord.Interaction, _b: discord.ui.Button):
         await interaction.response.defer()
-        result = core.rewind_to(self.session, self.target_turn)
+        # WP-E: 되감기의 유일한 권위 — 선택된 커밋 시도 스냅샷 복원(게임 이력만, 환불 없음).
+        cog = self.bot.get_cog("GMCog")
+        result = await cog.history_rewind(self.session, self.target_turn)
         if not result["ok"]:
             await core.display.close_notice(
                 interaction, f"⚠️ {result['reason']}", seconds=8)
             return
-        await core.save_session_data(self.bot, self.session)
-        try:
-            await core.refresh_display(self.bot, self.session, reason="rewind")
-        except Exception as e:
-            print(f"[디스플레이] 되감기 갱신 실패: {e}")
         msg = (
             f"⏪ **{self.target_turn}턴 종료 시점으로 되돌렸습니다.**\n"
             f"> 제거된 턴: {', '.join(str(t) for t in result['removed_turns'])}\n"
-            f"> 복원된 항목: {result['changes']}건"
+            f"> 정리된 봇 출력: {result.get('removed_messages', 0)}건 · 결제 이력은 그대로 유지됩니다."
         )
-        if result["compression_rolled_back"]:
-            msg += "\n> 압축 기억도 함께 롤백되었습니다."
         # 확인 메시지를 결과로 바꾸고 잠시 뒤 지운다.
         # 확인·결과가 따로 남으면 상태판이 위로 밀려난다.
         await core.display.close_notice(interaction, msg)
@@ -609,6 +604,35 @@ class RewindConfirmView(discord.ui.View):
     async def cancel(self, interaction: discord.Interaction, _b: discord.ui.Button):
         await interaction.response.defer()
         await core.display.close_notice(interaction, "되감기를 취소했습니다.", seconds=6)
+        self.stop()
+
+
+class RerenderConfirmView(discord.ui.View):
+    """같은 턴 재생성 확인(WP-E) — 선언·판단 보존, 지시층위부터 다시 서술. 환불 없음."""
+
+    def __init__(self, bot, session, addendum: str = ""):
+        super().__init__(timeout=60)
+        self.bot = bot
+        self.session = session
+        self.addendum = addendum
+
+    @discord.ui.button(label="재생성 실행", style=discord.ButtonStyle.danger)
+    async def confirm(self, interaction: discord.Interaction, _b: discord.ui.Button):
+        await interaction.response.defer()
+        entry, _rec, reason = core.turn_history.rerender_target(self.session)
+        if entry is None:
+            await core.display.close_notice(interaction, f"⚠️ {reason}", seconds=8)
+            return
+        await core.display.close_notice(
+            interaction, "🔁 같은 선언으로 턴을 다시 서술합니다. 이전 턴 청구는 유지됩니다.")
+        cog = self.bot.get_cog("GMCog")
+        asyncio.create_task(cog.rerender_latest(self.session, addendum=self.addendum))
+        self.stop()
+
+    @discord.ui.button(label="취소", style=discord.ButtonStyle.secondary)
+    async def cancel(self, interaction: discord.Interaction, _b: discord.ui.Button):
+        await interaction.response.defer()
+        await core.display.close_notice(interaction, "재생성을 취소했습니다.", seconds=6)
         self.stop()
 
 
@@ -1527,6 +1551,8 @@ class GMCog(commands.Cog):
             if not await self._after_commit(session, prep, result, master_ch):
                 return
             open_round = True
+        # WP-E: 재생성 교체 시도가 커밋되지 못했으면 이전 선택 시도의 정본을 되돌린다.
+        await self._settle_history_op(session, prep, master_ch)
         # 다음 라운드: durable COMMITTED 또는 안전하게 종결된 실패만. 복구 대기(차단)면 금지.
         if open_round and session.gm_active and not getattr(session, "commit_recovery", None):
             await self._start_round(session)
@@ -1896,6 +1922,7 @@ class GMCog(commands.Cog):
             return
         master_ch = self.bot.get_channel(getattr(session, "master_ch_id", 0))
         game_ch = self.bot.get_channel(getattr(session, "game_ch_id", 0))
+        game_ids = []
         for item in list(derived.items):
             try:
                 kind = item[0]
@@ -1908,15 +1935,24 @@ class GMCog(commands.Cog):
                 elif kind == "game" and game_ch:
                     _, content, view_factory = item
                     if view_factory is not None:
-                        await game_ch.send(content, view=view_factory())
+                        _m = await game_ch.send(content, view=view_factory())
                     else:
-                        await game_ch.send(content)
+                        _m = await game_ch.send(content)
+                    if getattr(_m, "id", None) is not None:
+                        game_ids.append(_m.id)
                 elif kind == "stats":
                     await core.stats.bump(item[1], **item[2])
                 elif kind == "npcs":
                     await core.stats.add_npcs(item[1], item[2])
             except Exception as e:
                 print(f"[WP-D] 파생 출력 실패(커밋 유지): {type(e).__name__}: {e}")
+        # WP-E: 정본 게임 이벤트 메시지를 커밋 시도에 귀속(되감기·재생성 정리 대상)
+        if game_ids and getattr(derived, "transaction_id", None):
+            try:
+                core.turn_history.append_messages(
+                    session.session_id, derived.transaction_id, game_ids)
+            except Exception as e:
+                print(f"[WP-E] 파생 메시지 매핑 기록 실패(정리 공백): {e}")
 
     async def _send_turn_cost_report(self, session, settlement) -> None:
         """Settlement 파생 턴 비용 보고(마스터 전용). 재환산·재반올림 없음(AUD-022)."""
@@ -1962,6 +1998,10 @@ class GMCog(commands.Cog):
             # 비권위 저장 — 정본은 이미 strict 저장됨. 커밋 이후 파생 필드(되감기 공백 표식 등)만.
             await core.save_session_data(self.bot, session)
             await self._emit_commit_derived(session, result.derived)
+            # WP-E: 재생성 교체가 COMMITTED된 뒤에만 이전 시도의 봇 정본 출력을 정리한다.
+            _sup = getattr(result.derived, "superseded", None)
+            if _sup is not None:
+                await self._cleanup_attempt_output(session, _sup)
             await self._send_turn_cost_report(session, result.settlement)
             try:
                 await core.refresh_display(self.bot, session, reason="turn_end")
@@ -2023,6 +2063,151 @@ class GMCog(commands.Cog):
         except Exception:
             pass
 
+    # ─────────────────────────────────────────────────────────────
+    # WP-E — 되감기 · 같은 턴 재생성 어댑터(권위는 core.turn_history)
+    # ─────────────────────────────────────────────────────────────
+
+    async def _cleanup_attempt_output(self, session, entry) -> int:
+        """특정 커밋 시도의 봇 정본 출력만 정리한다(ID 스코프 — 다른 시도 출력 불가침).
+
+        플레이어 메시지는 기록되지 않으므로 삭제되지 않는다. 이미 없는 메시지는 건너뛴다.
+        """
+        try:
+            ids = core.turn_history.attempt_message_ids(session.session_id, entry)
+        except Exception as e:
+            print(f"[WP-E] 시도 출력 ID 조회 실패(정리 생략): {e}")
+            return 0
+        game_ch = self.bot.get_channel(session.game_ch_id)
+        if not ids or game_ch is None:
+            return 0
+        n = 0
+        for mid in ids:
+            try:
+                m = await game_ch.fetch_message(mid)
+            except Exception:
+                continue
+            try:
+                await m.delete()
+                n += 1
+            except Exception as e:
+                print(f"[WP-E] 출력 정리 실패(채널 정리 공백): {mid} {e}")
+        return n
+
+    async def _settle_history_op(self, session, prep, master_ch) -> None:
+        """재생성 교체 시도 종결 후 남은 의도 처분.
+
+        비커밋 종결 → 이전 선택 시도의 커밋 직후 정본으로 복원. 교체가 COMMITTED인데 선택
+        기록만 실패했다면 되돌리지 않고 선택을 정합(degraded)한다 — 청구된 이야기가 정본.
+        """
+        if prep is None:
+            return
+        op = core.turn_history.rerender_op_for(session.session_id, prep.transaction_id)
+        if not op:
+            return
+        if prep.phase == core.turn_preparation.PREP_RETRY_PENDING:
+            return          # 같은 시도로 재시도 가능 — 의도 유지(재시작 시 정합이 처분)
+        tx = core.turn_transaction.get_active_transaction(session)
+        if tx is not None and tx.transaction_id == prep.transaction_id \
+                and not core.turn_transaction.is_terminal(tx.status):
+            return
+        try:
+            res = await core.turn_history.settle_rerender(self.bot, session)
+        except Exception as e:
+            session.commit_recovery = {"status": "PENDING", "stage": "HISTORY_RERENDER_ABORT",
+                                       "error": f"{type(e).__name__}: {e}"}
+            print(f"⛔ [WP-E] 재생성 종결 처분 실패 — 차단: {e}")
+            return
+        if res.get("action") == "ABORTED" and master_ch:
+            await master_ch.send("↩️ 재생성 시도가 확정되지 않아 기존 턴을 그대로 유지합니다(청구 0).")
+        elif res.get("superseded"):
+            # 교체가 COMMITTED로 확정(선택 기록은 복구로 맞춤) — 이전 시도 출력 정리
+            await self._cleanup_attempt_output(session, res["superseded"])
+
+    async def _abort_rerender(self, session, master_ch) -> None:
+        try:
+            await core.turn_history.abort_rerender(self.bot, session)
+            if master_ch:
+                await master_ch.send("↩️ 재생성 시도가 확정되지 않아 기존 턴을 그대로 유지합니다(청구 0).")
+        except Exception as e:
+            session.commit_recovery = {"status": "PENDING", "stage": "HISTORY_RERENDER_ABORT",
+                                       "error": f"{type(e).__name__}: {e}"}
+            print(f"⛔ [WP-E] 재생성 중단 복원 실패 — 차단: {e}")
+
+    async def history_rewind(self, session, target: int) -> dict:
+        """모든 되감기 입구(!되감기·디스플레이·rewind:one)의 단일 어댑터."""
+        async with self._lock_for(session):
+            result = await core.turn_history.rewind(self.bot, session, target)
+            if not result.get("ok"):
+                return result
+            removed = 0
+            for entry in result.get("removed") or []:
+                removed += await self._cleanup_attempt_output(session, entry)
+            result["removed_messages"] = removed
+        try:
+            await core.refresh_display(self.bot, session, reason="rewind")
+        except Exception as e:
+            print(f"[디스플레이] 되감기 갱신 실패: {e}")
+        return result
+
+    async def rerender_latest(self, session, *, addendum: str = "") -> tuple:
+        """같은 논리 턴 attempt+1 재생성 — 선언·판단 보존, 지시층위부터 일반 파이프라인.
+
+        Returns: (started: bool, reason: str)
+        """
+        master_ch = self.bot.get_channel(session.master_ch_id)
+        async with self._lock_for(session):
+            entry, rec, reason = core.turn_history.rerender_target(session)
+            if entry is None:
+                return False, reason
+            try:
+                tx = await core.turn_history.begin_rerender(
+                    self.bot, session, entry, rec, addendum=addendum)
+            except core.turn_history.HistoryError as e:
+                return False, str(e)
+            tid = tx.transaction_id
+            j = tx.judgment_result
+            if master_ch:
+                await master_ch.send(
+                    f"🔁 **[재생성]** {rec['gm_turn']}턴을 같은 선언·판단으로 다시 서술합니다 "
+                    f"(시도 {tx.attempt}). 기존 턴 청구는 유지됩니다.")
+            decision = await self._call_gm_logic(
+                session, j["player_message"], list(j.get("roll_results") or []), master_ch,
+                action="PROCEED", transaction_id=tid)
+            if not decision:
+                await self._fail_rerender_before_narration(session, tid, master_ch)
+                return False, "지시층위 호출 실패 — 기존 턴 유지"
+            decision = {**(j.get("judgment") or {}), **decision, "action": "PROCEED"}
+            core.turn_preparation.stage_instruction_effects(
+                session, decision, transaction_id=tid)
+            instruction = _clean_proceed_instruction(decision.get("proceed_instruction") or "") \
+                or "현재 상황에서 자연스럽게 다음 묘사를 이어가십시오."
+            await self._finish_proceed_and_continue(
+                session, instruction, master_ch,
+                event_assessment=decision.get("event_assessment", "ongoing"),
+                transaction_id=tid)
+            return True, ""
+
+    async def _fail_rerender_before_narration(self, session, tid, master_ch) -> None:
+        """묘사 이전 실패 — 교체 시도를 FAILED_SYSTEM(청구 0)으로 종결하고 이전 선택 유지."""
+        TP = core.turn_preparation
+        prep = TP.get_preparation(session, tid)
+        if prep is not None:
+            try:
+                await prep.join()
+                prep.seal()
+                prep.close_cost_membership()
+            except Exception as e:
+                prep.violations.append(f"cost_close:{e}")
+            prep.phase = TP.PREP_FAILED
+        core.turn_transaction.finalize(
+            session, tid, core.turn_transaction.TurnStatus.FAILED_SYSTEM,
+            failure_stage="RERENDER_INSTRUCTION",
+            failure_code=core.turn_transaction.FailureCode.INSTRUCTION_PROVIDER_FAILURE)
+        if prep is not None:
+            await self._settle_failed_turn(session, prep, master_ch)
+        if core.turn_history.rerender_op_for(session.session_id, tid):
+            await self._abort_rerender(session, master_ch)
+
     def _round_eligible(self, session) -> bool:
         """새 자동 라운드를 열 자격(복구 이후에만 평가) — 활성·턴 한도·비용 한도."""
         if not getattr(session, "gm_active", False):
@@ -2055,6 +2240,12 @@ class GMCog(commands.Cog):
         """차단 중인 커밋 복구를 같은 durable 입력으로 재시도한다. True면 차단 해제."""
         rep = await core.commit_coordinator.recover_session(
             self.bot, session, context="in_process")
+        if not rep.blocked:
+            # WP-E: D 커밋 복구 이후 선택 이력·이력 조작 의도 정합(모순이면 다시 차단).
+            _h = await core.turn_history.reconcile(self.bot, session)
+            if not _h["ok"]:
+                rep = core.commit_coordinator.RecoveryReport(
+                    "RECOVERY_REQUIRED", action=_h["action"], detail=_h["detail"])
         if rep.blocked:
             if master_ch:
                 try:
@@ -2165,6 +2356,7 @@ class GMCog(commands.Cog):
                 if not await self._after_commit(session, prep, result, master_ch):
                     return "failed"
                 open_round = True
+            await self._settle_history_op(session, prep, master_ch)
             if (open_round and session.gm_active
                     and not getattr(session, "commit_recovery", None)):
                 await self._start_round(session)
@@ -2291,6 +2483,10 @@ class GMCog(commands.Cog):
 
         if not judgment:
             return
+        # WP-E: 재생성이 판단을 다시 돌리지 않도록 구조화 판단과 지시층위 입력을 tx에 기록한다.
+        core.turn_history.note_judgment(
+            session, transaction_id, judgment=judgment,
+            player_message=player_message, roll_results=list(roll_results))
 
         for iteration in range(MAX_ITERATIONS_PER_MESSAGE):
             action = (judgment.get("action") or "ASK").upper()
@@ -3160,6 +3356,10 @@ class GMCog(commands.Cog):
                 await core.save_session_data(self.bot, session)
                 return
 
+            # WP-E: 굴림 결과까지 포함한 지시층위 입력을 판단 기록에 반영(재생성 보존 대상).
+            core.turn_history.note_judgment(
+                session, transaction_id, player_message=player_message,
+                roll_results=list(roll_results))
             decision = await self._call_gm_logic(
                 session, player_message, roll_results, master_ch,
                 transaction_id=transaction_id)

@@ -1,0 +1,127 @@
+# WP-E post-change authority scan (§23) — production code only (core/ cogs/ main.py)
+## rewind_to / equivalent
+core/rewind.py:195:# WP-E: 레거시 rewind_to(델타 역적용·행 절단)는 제거되었다. 되감기의 유일한 권위는
+
+## rewind service callers
+core/rewind.py:196:#   core.turn_history.rewind(선택된 커밋 시도 스냅샷 복원 + strict 저장 + 선택 인덱스)다.
+cogs/gm.py:588:        result = await cog.history_rewind(self.session, self.target_turn)
+cogs/gm.py:2136:    async def history_rewind(self, session, target: int) -> dict:
+cogs/gm.py:2139:            result = await core.turn_history.rewind(self.bot, session, target)
+
+## history writers
+core/turn_history.py:115:def _append_event(session_id, event: dict) -> None:
+core/turn_history.py:216:def restore_reversible(session, state: dict) -> None:
+core/turn_history.py:266:def record_commit(session, plan, payload) -> dict:
+core/turn_history.py:303:    _append_event(sid, {
+core/turn_history.py:313:        clear_op(sid)
+core/turn_history.py:317:def append_messages(session_id, transaction_id, message_ids) -> None:
+core/turn_history.py:320:        _append_event(session_id, {"type": "MESSAGES", "transaction_id": transaction_id,
+core/turn_history.py:352:def write_op(session_id, op: dict) -> None:
+core/turn_history.py:356:def clear_op(session_id) -> None:
+core/turn_history.py:471:    write_op(sid, op)
+core/turn_history.py:476:            restore_reversible(session, rec["post"])
+core/turn_history.py:486:        restore_reversible(session, backup)
+core/turn_history.py:489:            clear_op(sid)
+core/turn_history.py:495:        _append_event(sid, {"type": "REWIND", "op_id": op_id, "target_gm_turn": target,
+core/turn_history.py:498:        clear_op(sid)
+core/turn_history.py:578:        write_op(sid, op)
+core/turn_history.py:580:            restore_reversible(session, rec["pre"])
+core/turn_history.py:588:        restore_reversible(session, backup)
+core/turn_history.py:592:            clear_op(sid)
+core/turn_history.py:615:        restore_reversible(session, rec["post"])
+core/turn_history.py:619:    clear_op(sid)
+core/turn_history.py:695:            record_commit(session, plan, None)
+core/turn_history.py:711:                clear_op(sid)
+core/turn_history.py:722:                clear_op(sid)
+core/turn_history.py:726:                _append_event(sid, {"type": "REWIND", "op_id": op["op_id"],
+core/turn_history.py:730:                clear_op(sid)
+core/turn_history.py:734:                clear_op(sid)
+core/commit_coordinator.py:628:                res = _th.record_commit(session, plan, (pending or {}).get("history"))
+cogs/gm.py:1952:                core.turn_history.append_messages(
+
+## history readers
+core/cache.py:501:                    _h = await _th.reconcile(bot, session)
+core/commit_coordinator.py:581:        hist_pre = _th.capture_reversible(session)
+core/commit_coordinator.py:609:        history = {"pre": hist_pre, "post": _th.capture_reversible(session),
+core/commit_coordinator.py:628:                res = _th.record_commit(session, plan, (pending or {}).get("history"))
+core/rewind.py:196:#   core.turn_history.rewind(선택된 커밋 시도 스냅샷 복원 + strict 저장 + 선택 인덱스)다.
+cogs/gm.py:622:        entry, _rec, reason = core.turn_history.rerender_target(self.session)
+cogs/gm.py:1952:                core.turn_history.append_messages(
+cogs/gm.py:2076:            ids = core.turn_history.attempt_message_ids(session.session_id, entry)
+cogs/gm.py:2104:        op = core.turn_history.rerender_op_for(session.session_id, prep.transaction_id)
+cogs/gm.py:2114:            res = await core.turn_history.settle_rerender(self.bot, session)
+cogs/gm.py:2128:            await core.turn_history.abort_rerender(self.bot, session)
+cogs/gm.py:2139:            result = await core.turn_history.rewind(self.bot, session, target)
+cogs/gm.py:2159:            entry, rec, reason = core.turn_history.rerender_target(session)
+cogs/gm.py:2163:                tx = await core.turn_history.begin_rerender(
+cogs/gm.py:2165:            except core.turn_history.HistoryError as e:
+cogs/gm.py:2208:        if core.turn_history.rerender_op_for(session.session_id, tid):
+cogs/gm.py:2245:            _h = await core.turn_history.reconcile(self.bot, session)
+cogs/gm.py:2487:        core.turn_history.note_judgment(
+cogs/gm.py:3360:            core.turn_history.note_judgment(
+
+## legacy rewind_log / full_logs (non-authoritative) incl. compression record_delta
+core/turn_preparation.py:897:        from .rewind import FULL_LOGS
+core/turn_preparation.py:898:        path = _os.path.join("sessions", str(getattr(session, "session_id", "")), FULL_LOGS)
+core/turn_history.py:515:        doomed = [d for d in _rw.read_jsonl(session.session_id, _rw.REWIND_LOG)
+core/turn_history.py:518:            _rw.archive_removed(session, target, doomed)
+core/turn_history.py:519:        _rw._truncate_jsonl(session.session_id, _rw.REWIND_LOG, target)
+core/turn_history.py:520:        _rw._truncate_jsonl(session.session_id, _rw.FULL_LOGS, target)
+core/commit_coordinator.py:644:                ok1 = _rw.record_delta(session, turn, changes,
+core/commit_coordinator.py:646:                ok2 = _rw.record_full_log(session, turn, entries)
+core/rewind.py:15:REWIND_LOG = "rewind_log.jsonl"
+core/rewind.py:17:FULL_LOGS = "full_logs.jsonl"
+core/rewind.py:66:def read_jsonl(session_id: str, filename: str) -> list:
+core/rewind.py:127:def record_delta(session, turn: int, changes: list,
+core/rewind.py:151:    return _append_jsonl(session.session_id, REWIND_LOG, payload)
+core/rewind.py:154:def record_full_log(session, turn: int, entries: list) -> bool:
+core/rewind.py:166:    return _append_jsonl(session.session_id, FULL_LOGS, {
+core/rewind.py:173:def archive_removed(session, target_turn: int, removed: list) -> bool:
+core/rewind.py:200:def _truncate_jsonl(session_id: str, filename: str, target_turn: int) -> bool:
+core/rewind.py:202:    kept = [e for e in read_jsonl(session_id, filename) if e.get("turn", 0) <= target_turn]
+cogs/game.py:1055:                    core.record_delta(
+cogs/game.py:1571:                    core.record_delta(
+
+## rerender/restart entry points
+core/display.py:333:                       custom_id="disp:restart", row=2)
+cogs/game.py:1306:    @commands.command(name="재생성")
+cogs/game.py:1322:        started, reason = await gm_cog.rerender_latest(session, addendum=instruction.strip())
+cogs/gm.py:610:class RerenderConfirmView(discord.ui.View):
+cogs/gm.py:629:        asyncio.create_task(cog.rerender_latest(self.session, addendum=self.addendum))
+cogs/gm.py:2152:    async def rerender_latest(self, session, *, addendum: str = "") -> tuple:
+
+## rewind entry points
+core/display.py:285:                       custom_id="disp:rewind", row=2)
+core/display.py:315:                       custom_id="disp:rewind_multi", row=2)
+cogs/gm.py:574:class RewindConfirmView(discord.ui.View):
+cogs/gm.py:653:                       custom_id="rewind:one")
+cogs/gm.py:680:            view=RewindConfirmView(self.bot, session, target),
+cogs/gm.py:2735:    @commands.command(name="되감기")
+cogs/gm.py:2778:            view=RewindConfirmView(self.bot, session, target),
+
+## begin_attempt production callers
+core/turn_history.py:569:    tx = TT.begin_attempt(session, logical_turn=lt,
+core/turn_transaction.py:287:def begin_attempt(session, *, logical_turn: int,
+
+## financial references inside turn_history
+46:#   total_cost / total_usd / total_ink_spent / last_turn_cost / last_turn_ink,
+58:OPERATIONAL_FIELDS = ("total_cost", "total_usd", "total_ink_spent",
+286:            "settlement_id": plan.settlement_id,
+307:        "settlement_id": plan.settlement_id, "record": has_record,
+
+## old-attempt output cleanup callers
+cogs/gm.py:2004:                await self._cleanup_attempt_output(session, _sup)
+cogs/gm.py:2070:    async def _cleanup_attempt_output(self, session, entry) -> int:
+cogs/gm.py:2124:            await self._cleanup_attempt_output(session, res["superseded"])
+cogs/gm.py:2144:                removed += await self._cleanup_attempt_output(session, entry)
+
+## new persisted files
+41:RECORD_DIR = "turn_history"
+42:INDEX_FILE = "turn_history.jsonl"
+43:OP_FILE = "history_op.json"
+
+## restore callers of history (restart)
+core/turn_history.py:636:        res = await reconcile(bot, session)
+core/turn_history.py:674:async def reconcile(bot, session) -> dict:
+core/cache.py:501:                    _h = await _th.reconcile(bot, session)
+cogs/gm.py:2245:            _h = await core.turn_history.reconcile(self.bot, session)
