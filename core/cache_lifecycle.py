@@ -67,7 +67,6 @@ REMOTE_FAILED = "FAILED"
 REMOTE_SKIPPED = "SKIPPED"
 
 REFERENCE_KIND = "CACHE_WINDOW"
-INTERPRET_REFERENCE_KIND = "CACHE_TIME_INTERPRETATION"
 
 _PURPOSE_ACTOR = {
     PURPOSE_OPEN: (CL.ACTOR_PLAYER, CL.HINT_PLAYER_CANDIDATE, CL.OP_CACHE_CREATE),
@@ -143,15 +142,12 @@ class JournalView:
             if t == "WINDOW_OPENED":
                 self.windows[ev["window_id"]] = {
                     "opened": ev, "aborted": None, "prepaid": False,
-                    "interpret_charged": False,
                     "settle_intent": None, "settled": False, "lifecycles": []}
                 self.window_order.append(ev["window_id"])
             elif t == "WINDOW_ABORTED":
                 self.windows.setdefault(ev["window_id"], {}).update(aborted=ev)
             elif t == "WINDOW_PREPAID":
                 self.windows[ev["window_id"]]["prepaid"] = True
-            elif t == "WINDOW_INTERPRET_CHARGED":
-                self.windows[ev["window_id"]]["interpret_charged"] = True
             elif t == "WINDOW_SETTLE_INTENT":
                 self.windows[ev["window_id"]]["settle_intent"] = ev
             elif t == "WINDOW_SETTLED":
@@ -378,7 +374,7 @@ def _legacy_window_payload(session) -> dict:
             "ttl_seconds": minutes * 60 if minutes else CACHE_TTL_SECONDS,
             "model": getattr(session, "cache_model", None) or DEFAULT_MODEL,
             "tokens": int(getattr(session, "cache_tokens", 0) or 0) or MIN_CACHE_TOKENS,
-            "cache_ink": prepaid, "interpret_ink": 0,
+            "cache_ink": prepaid,
             # 레거시 선불은 마커 없는 tolerant 차감 — 기존 닫기 규약대로 현재 참가자 기준.
             "prepay": {u: prepaid for u in uids} if prepaid else {},
             "legacy": True}
@@ -579,24 +575,6 @@ async def _paid_amounts(wid, opened) -> dict:
     return out
 
 
-async def _execute_interpretation_locked(session, wid, opened) -> bool:
-    """POLICY-CACHE-01: 이미 수행된 시간 해석 서비스 청구 — 캐시 선불과 별개 거래, 환불 없음."""
-    from . import ink_transactions as IT
-    ok = True
-    for uid, ink in (opened.get("interpret") or {}).items():
-        try:
-            await IT.execute_lifecycle_ink(
-                reference_kind=INTERPRET_REFERENCE_KIND, reference_id=wid, user_id=uid,
-                kind=IT.KIND_INTERPRETATION_CHARGE, nominal_ink=int(ink),
-                reason="cache_time_interpretation")
-        except Exception as e:  # noqa: BLE001
-            ok = False
-            print(f"[캐시 생애주기] 해석 청구 실패(재시도 대기) uid={uid}: {type(e).__name__}: {e}")
-    if ok:
-        _append(session.session_id, {"type": "WINDOW_INTERPRET_CHARGED", "window_id": wid})
-    return ok
-
-
 async def _settle_window_locked(session, wid, *, disposition, reason, closed_at=None) -> dict:
     """창을 정확히 한 번 정산한다. 환급은 선불이 실제 적용된 유저에게만."""
     from . import ink_transactions as IT
@@ -665,9 +643,6 @@ async def _resume_locked(bot, session) -> None:
     jv = view(sid)
     for wid in jv.window_order:
         w = jv.windows[wid]
-        # 해석 청구는 캐시 생성·창 결과와 무관하게 완료되어야 한다(이미 소비된 서비스).
-        if (w.get("opened") or {}).get("interpret") and not w.get("interpret_charged"):
-            await _execute_interpretation_locked(session, wid, w["opened"])
         if w.get("aborted") or w.get("settled"):
             continue
         if not w["lifecycles"] and w["settle_intent"] is None:
@@ -691,14 +666,27 @@ async def _save(bot, session):
 #  공개 진입점
 # ══════════════════════════════════════════════════════════════
 
-async def open_window(bot, session, *, say=None) -> dict:
+class CacheOpenInsufficientFunds(CacheLifecycleError):
+    """캐시 선불 잔액 부족 — 창을 열지 않는다(재무·provider 효과 없음, overdraft 우회 금지)."""
+
+    def __init__(self, user_id, need: int, balance: int):
+        super().__init__(f"캐시 선불 잔액 부족 uid={user_id}: 필요 {need} / 보유 {balance}")
+        self.user_id, self.need, self.balance = str(user_id), int(need), int(balance)
+
+
+async def open_window(bot, session, *, say=None, quoted_tokens: int | None = None) -> dict:
     """세션 열기 — 선불 창 시작 + provider 캐시 생성.
 
-    예상액은 선불액 산정에만 쓰인다(provider 사실 아님). 생성이 성공해야 생성 사실과
-    선불(PREPAYMENT)이 기록된다. 실패하면 창은 ABORTED이고 재무 효과가 없다.
+    예상액은 선불액 산정에만 쓰인다(provider 사실 아님). quoted_tokens 가 있으면 확인
+    화면이 보여준 견적 토큰으로 같은 canonical 공식을 계산해 '보여준 필요 잉크 = 실제
+    선불'을 보장한다. 모든 payer 잔액이 캐시 선불 이상이어야 창을 연다 — 부족하면
+    CacheOpenInsufficientFunds(창·선불·provider 생성 모두 없음).
+    생성이 성공해야 생성 사실과 캐시 선불(PREPAYMENT)이 기록되고, 실패하면 창은 ABORTED이며
+    캐시 선불·생성 사실이 없다. 시간 해석 청구는 이 창과 별개(core.interpretation_billing)로
+    해석 직후 이미 확정되며, 캐시 생성 실패·취소와 무관하게 유지된다(POLICY-CACHE-01).
     """
+    from . import accounts
     from .cost import cache_usd_to_ink, cache_window_estimate_usd
-    from .session_open import should_charge_interpretation
     sid = session.session_id
     async with lifecycle_lock(sid):
         if getattr(session, "cache_name", None):
@@ -711,31 +699,28 @@ async def open_window(bot, session, *, say=None) -> dict:
         minutes = int(getattr(session, "open_minutes", 0) or 0)
         ttl = minutes * 60 if minutes else CACHE_TTL_SECONDS
         caching_text, tokens, base_text = await _build_text(bot, session, "", False)
+        est_tokens = int(quoted_tokens or 0) or int(tokens or 0)
         # 선불 예상 — 종료 책임과 같은 canonical 공식(계획 TTL). CostEvent 아님.
-        est_usd = cache_window_estimate_usd(DEFAULT_MODEL, tokens=int(tokens or 0),
+        est_usd = cache_window_estimate_usd(DEFAULT_MODEL, tokens=est_tokens,
                                             planned_seconds=float(ttl))
         cache_ink = cache_usd_to_ink(est_usd)
-        interpret_charge, interpret_ink = should_charge_interpretation(session)
-        interp = interpret_ink if interpret_charge else 0
         payers = [str(u) for u in (session.players or {})] or \
             [str(u) for u in [getattr(session, "creator_uid", "")] if u]
+        # 잔액 검사 — 부족분을 overdraft/운영자 보조로 우회하지 않는다(창을 열기 전).
+        for u in payers:
+            bal = accounts.get_balance(u)
+            if bal < cache_ink:
+                raise CacheOpenInsufficientFunds(u, cache_ink, bal)
         wid = f"win-{uuid.uuid4().hex}"
         now = time.time()
         opened = {"type": "WINDOW_OPENED", "window_id": wid, "opened_at": now,
                   "planned_minutes": minutes, "ttl_seconds": ttl, "model": DEFAULT_MODEL,
-                  "tokens": int(tokens or 0), "estimate_usd": est_usd,
+                  "tokens": est_tokens, "counted_tokens": int(tokens or 0),
+                  "estimate_usd": est_usd,
                   "estimate_krw": round(est_usd * EXCHANGE_RATE, 4),
                   "cache_ink": cache_ink,
-                  "interpret_ink": interp,
-                  "interpret_krw": float(getattr(session, "interpret_cost_krw", 0.0) or 0.0),
-                  "prepay": {u: cache_ink for u in payers},
-                  "interpret": {u: interp for u in payers} if interp else {}}
+                  "prepay": {u: cache_ink for u in payers}}
         _append(sid, opened)
-        # POLICY-CACHE-01: 해석은 이미 수행된 서비스 — 캐시 생성 전에 별도 거래로 청구하고
-        #   (의도는 WINDOW_OPENED 에 durable) 누적값을 비운다. 생성 실패여도 환불하지 않는다.
-        interpret_charged = await _execute_interpretation_locked(session, wid, opened) \
-            if interp else True
-        session.interpret_cost_krw = 0.0
         try:
             res = await _create_locked(bot, session, window_id=wid, purpose=PURPOSE_OPEN,
                                        ttl_seconds=ttl, caching_text=caching_text,
@@ -750,7 +735,6 @@ async def open_window(bot, session, *, say=None) -> dict:
         prepaid = await _execute_prepayments_locked(session, wid, opened)
         await _save(bot, session)
         return {"ok": True, "window_id": wid, "ttl_seconds": ttl, "charge_ink": cache_ink,
-                "interpret_ink": interp, "interpret_charged": interpret_charged,
                 "prepaid": prepaid, "create_krw": res["create_krw"]}
 
 

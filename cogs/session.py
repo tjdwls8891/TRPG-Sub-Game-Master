@@ -275,7 +275,7 @@ class SessionCog(commands.Cog):
         await core.save_session_data(self.bot, session)
         return session
 
-    async def upload_cache(self, session, *, notify=None) -> bool:
+    async def upload_cache(self, session, *, notify=None, quoted_tokens=None) -> bool:
         """
         장기 기억 캐시를 업로드한다. 프로필 생성 완료 후 호출된다.
 
@@ -306,12 +306,25 @@ class SessionCog(commands.Cog):
 
             # WP-F: 선불 창 + provider 캐시 생성은 캐시 생애주기 서비스가 소유한다.
             #   예상액은 선불액 산정에만 쓰이고, 생성 성공 뒤에만 생성 사실·선불이 기록된다.
-            res = await core.cache_lifecycle.open_window(self.bot, session)
+            # WP-F(POLICY-CACHE-01): 시간 해석 청구는 캐시 창과 별개 owner 가 해석 직후 이미
+            #   처리했다. 열기 직전에는 중단된 청구를 재개하고, 임계 미만 누적은 기존 규정대로
+            #   면제한다(열기 시점 초기화).
+            try:
+                await core.interpretation_billing.settle(self.bot, session)
+                core.interpretation_billing.waive_pending(session)
+            except Exception as e:
+                print(f"[시간해석] 열기 전 청구 정리 실패(재시도 대기): {e}")
+            try:
+                res = await core.cache_lifecycle.open_window(
+                    self.bot, session, quoted_tokens=quoted_tokens)
+            except core.cache_lifecycle.CacheOpenInsufficientFunds as e:
+                await _say(f"⛔ 캐시 선불 잔액이 부족해 세션을 열지 않았습니다. "
+                           f"(필요 {e.need}잉크 / 보유 {e.balance}잉크)")
+                return False
             if res.get("already"):
                 return True
             ttl = int(res["ttl_seconds"])
             charge_ink = int(res["charge_ink"])
-            interpret_ink = int(res.get("interpret_ink") or 0)
 
             master_ch = self.bot.get_channel(session.master_ch_id)
             if master_ch:
@@ -321,14 +334,10 @@ class SessionCog(commands.Cog):
                     await master_ch.send(
                         "⚠️ 세션 오픈 선불 기록이 완료되지 않았습니다 — 다음 캐시 조작·재시작 시 재시도합니다.")
 
-            # POLICY-CACHE-01: 캐시 선불(환급 대상)과 시간 해석 청구(환불 없음)는 별개 거래다.
+            # POLICY-CACHE-01: 캐시 선불(환급 대상)만 여기서 결제된다 — 시간 해석은 별개 거래.
             await _say(
                 f"✅ 세션이 열렸습니다. (유지 {ttl // 60}분)\n"
-                f"> 캐시 선결제 **{charge_ink}잉크** (미사용분은 종료 시 환급)"
-                + (f"\n> 시간 해석 **{interpret_ink}잉크** 청구 (환불 없음)"
-                   if interpret_ink and res.get("interpret_charged") else "")
-                + ("\n> ⚠️ 시간 해석 청구 기록이 지연되어 다음 캐시 조작 시 재시도합니다."
-                   if interpret_ink and not res.get("interpret_charged") else ""))
+                f"> 캐시 선결제 **{charge_ink}잉크** (미사용분은 종료 시 환급)")
             return True
         except Exception as e:
             await _say(f"⚠️ 캐시 업로드 실패 (일반 모드로 진행됩니다. 원인: {e})")

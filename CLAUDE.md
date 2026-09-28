@@ -106,7 +106,7 @@ python main.py
 | `permissions.py` | 98 | `!권한부여` `!권한회수` `!권한목록` |
 | `presence.py` | 110+ | 상태 메시지 순환 + **캐시 만료 감지**(15초 주기) |
 
-### core/ — 56개 서브모듈
+### core/ — 57개 서브모듈
 
 `core/__init__.py`가 전 심볼을 re-export하므로 외부에서는 `core.XYZ`로 접근한다.
 

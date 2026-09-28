@@ -656,14 +656,15 @@ async def on_profile_done(bot, session, channel):
     await render(bot, session, channel)
 
 
-async def on_open_time_done(bot, session, channel):
+async def on_open_time_done(bot, session, channel, *, quoted_tokens=None):
     """유지 시간 확정 시 호출된다. 캐시를 올리고 시작 상황으로 넘어간다."""
     creation.record(session, "open", f"{getattr(session, 'open_minutes', 0)}분")
 
     cog = bot.get_cog("SessionCog")
     if cog:
         from . import message_lifecycle as _ml
-        await cog.upload_cache(session, notify=_ml.transient_notifier(bot, session, channel, ttl=60))
+        await cog.upload_cache(session, notify=_ml.transient_notifier(bot, session, channel, ttl=60),
+                               quoted_tokens=quoted_tokens)
 
     # 세션이 실제로 열렸다. 이 플래그가 없으면 턴 진행이 차단된다.
     # !시작 명령 경로에만 있어 버튼 플로우에서는 영원히 False였다.

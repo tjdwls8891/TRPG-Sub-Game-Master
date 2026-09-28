@@ -524,6 +524,13 @@ async def restore_sessions_from_disk(bot):
                                                "error": f"{type(_e).__name__}: {_e}"}
                     print(f"⛔ {session_id}: 커밋 복구 실행 실패 — 새 턴 차단: {_e}")
 
+                # WP-F(POLICY-CACHE-01): 크래시로 끊긴 시간 해석 청구를 재구성·재개한다(캐시와 별개).
+                try:
+                    from . import interpretation_billing as _ib
+                    await _ib.settle(bot, session)
+                except Exception as _ie:
+                    print(f"⚠️ {session_id}: 시간 해석 청구 재개 실패(다음 해석·열기 시 재시도): {_ie}")
+
                 # WP-F: 캐시 연동·교체·만료는 캐시 생애주기 서비스가 소유한다 — 중단된 종료/정산을
                 #   먼저 재개하고, 복구 재생성은 생성 성공 뒤에만 사실을 기록한다(사전 accrue 없음).
                 try:

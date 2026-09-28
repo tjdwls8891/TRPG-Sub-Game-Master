@@ -149,6 +149,10 @@ async def test_d006e_single_settlement_point(fake_bot, session_factory, monkeypa
     tokens = 26_268
     sess = session_factory(session_id="d006e")
     sess.players = {"u1": {"name": "p"}}
+    # WP-F RE-GATE 2: 캐시 선불 잔액 검사(overdraft 우회 금지) — 선불 가능한 잔액을 준비한다.
+    acc = core.accounts._blank_account("u1")
+    acc["ink_balance"] = 1000
+    core.accounts._write_account_strict(acc)
     sess.open_minutes = 180
     sess.total_cost = 0.0
     sess.total_usd = 0.0

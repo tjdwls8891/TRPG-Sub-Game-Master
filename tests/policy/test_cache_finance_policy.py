@@ -70,100 +70,85 @@ def _join_late(s):
     s.players[LATE] = {"name": "늦참", "profile": {}}
 
 
-async def _interpret(cbot, s, provider):
-    """실제 GMCog.interpret_cache_time — provider 해석 사실 + interpret_cost_krw 누적."""
+async def _interpret(cbot, s, provider, *, prompt=200_000):
+    """실제 GMCog.interpret_cache_time — provider 해석 사실 → durable 청구(임계 이상이면 즉시)."""
     import cogs.gm as gm_mod
     gm = gm_mod.GMCog.__new__(gm_mod.GMCog)
     gm.bot = cbot
     provider.outcomes = [FakeGenAIResponse(
         json.dumps({"case": "explicit", "minutes": 180}),
-        usage=FakeUsageMetadata(prompt=200_000, candidates=20_000))]
+        usage=FakeUsageMetadata(prompt=prompt, candidates=prompt // 10))]
     res = await gm.interpret_cache_time(s, "3시간")
     assert res["minutes"] == 180
-    return gm
+    return gm, res
 
 
-# ── P1 — 해석 비용이 실제로 청구된다 (실제 재오픈 경로) ─────────
+async def _interpret_fact(cbot, s, krw=50.0, iid="op-1"):
+    """해석 사실을 직접 주입(provider 호출 대역) — 기록 + 청구 정산."""
+    core.interpretation_billing.record_interpretation(s, interp_id=iid, cost_krw=krw,
+                                                      cost_usd=krw / core.EXCHANGE_RATE)
+    return await core.interpretation_billing.settle(cbot, s)
 
-async def test_p1_interpretation_actually_charged_on_reopen_path(sess, cbot, clock, provider,
-                                                                  game_channel, display_channel):
+
+def _confirm_view(cbot, sess, display_channel, minutes=180):
     import cogs.gm as gm_mod
     import cogs.session as session_mod
-    await _interpret(cbot, sess, provider)
-    interp_krw = sess.interpret_cost_krw
-    charge, interp_ink = core.should_charge_interpretation(sess)
-    assert charge and interp_ink >= 2
-    # provider 해석 사실
-    ev = _events(cbot, CL.OP_CACHE_TIME_INTERPRET)
-    assert len(ev) == 1 and ev[0]["cost_krw"] == pytest.approx(interp_krw)
-
     scog = session_mod.SessionCog.__new__(session_mod.SessionCog)
     scog.bot = cbot
     cbot.add_cog_stub("SessionCog", scog)
     sess.creation_state = {"step": "done", "history": [], "data": {}}   # 닫았다가 다시 여는 경로
-    view = gm_mod.OpenConfirmView(cbot, sess, 180)
+    view = gm_mod.OpenConfirmView(cbot, sess, minutes)
     msg = FakeMessage(channel=display_channel, content="열까요?", view=view)
     view.bind(msg)
     inter = FakeInteraction(user=FakeUser(int(PLAYER_UID)), channel=display_channel, message=msg)
+    return view, msg, inter
+
+
+def _interp_ink_of(res):
+    return int((res.get("interpret_charge") or {}).get("ink") or 0)
+
+
+# ── P1 — 해석 비용이 해석 직후 실제로 청구된다 (실제 재오픈 경로) ──
+
+async def test_p1_interpretation_charged_at_interpretation_then_open(
+        sess, cbot, clock, provider, game_channel, display_channel):
+    _gm, res = await _interpret(cbot, sess, provider)
+    interp_ink = _interp_ink_of(res)
+    assert interp_ink >= 2 and res["interpret_charge"]["complete"]
+    # provider 사실 ↔ 청구 레코드 감사 연결(interp_id)
+    ev = _events(cbot, CL.OP_CACHE_TIME_INTERPRET)
+    assert len(ev) == 1 and ev[0]["metadata"]["interpretation_billing"] == 2
+    bv = core.interpretation_billing.view(sess.session_id)
+    assert list(bv.interpreted) == [ev[0]["metadata"]["interp_id"]]
+    # 확인 화면 이전에 이미 durable 계정 효과
+    rows = _rows(IT.KIND_INTERPRETATION_CHARGE)
+    assert len(rows) == 1 and rows[0]["nominal_ink"] == interp_ink
+    assert rows[0]["reference_kind"] == core.interpretation_billing.REFERENCE_KIND
+    assert _bal() == 1000 - interp_ink
+    assert sess.interpret_cost_krw == 0.0
+    # 세션 열기 — 캐시 선불만 새로 결제
+    view, msg, inter = _confirm_view(cbot, sess, display_channel)
     await view.confirm.callback(inter)
-
-    # durable player financial effect — 정확히 한 번, 캐시 선불과 별개 거래
-    interp_rows = _rows(IT.KIND_INTERPRETATION_CHARGE)
-    prepay_rows = _rows(IT.KIND_PREPAYMENT)
-    assert len(interp_rows) == 1 and interp_rows[0]["nominal_ink"] == interp_ink
-    assert interp_rows[0]["reference_kind"] == CLC.INTERPRET_REFERENCE_KIND
-    assert len(prepay_rows) == 1
-    cache_ink = prepay_rows[0]["nominal_ink"]
-    assert _bal() == 1000 - cache_ink - interp_ink
-    assert sess.interpret_cost_krw == 0.0
-    # UI 의 '청구됨' 문구 = 실제 거래
-    assert any(f"시간 해석 **{interp_ink}잉크** 청구" in (m.content or "")
-               for m in game_channel.sent)
-    assert "청구되었습니다" not in (msg.content or "")
+    prepay = _rows(IT.KIND_PREPAYMENT)
+    assert len(prepay) == 1 and len(_rows(IT.KIND_INTERPRETATION_CHARGE)) == 1
+    assert _bal() == 1000 - interp_ink - prepay[0]["nominal_ink"]
+    assert any("캐시 선결제" in (m.content or "") for m in game_channel.sent)
 
 
-async def test_p1b_below_threshold_is_waived_and_not_charged(sess, cbot, clock):
-    sess.interpret_cost_krw = 1.0                       # 1잉크 → 임계(2) 미만 면제(기존 정책)
-    res = await CLC.open_window(cbot, sess)
-    assert res["interpret_ink"] == 0 and _rows(IT.KIND_INTERPRETATION_CHARGE) == []
-    assert sess.interpret_cost_krw == 0.0
-
-
-async def test_p1c_interpretation_charged_even_if_cache_create_fails(sess, cbot, clock):
-    """이미 수행된 서비스 — 캐시 생성 실패와 무관하게 청구(환불 없음)."""
-    sess.interpret_cost_krw = 50.0
-    interp = core.cost_to_ink(50.0)
-    cbot.genai_client.caches.fail_create = True
-    with pytest.raises(RuntimeError):
-        await CLC.open_window(cbot, sess)
-    assert [r["nominal_ink"] for r in _rows(IT.KIND_INTERPRETATION_CHARGE)] == [interp]
-    assert _rows(IT.KIND_PREPAYMENT) == [] and _bal() == 1000 - interp
-
-
-async def test_p1d_interpretation_charge_failure_resumes_exactly_once(sess, cbot, clock, monkeypatch):
-    sess.interpret_cost_krw = 50.0
-    real = accounts.apply_ink_adjustment_strict
-    state = {"fail": True}
-
-    async def _flaky(uid, **kw):
-        if state["fail"] and kw["kind"] == IT.KIND_INTERPRETATION_CHARGE:
-            raise accounts.AccountPersistenceError("disk")
-        return await real(uid, **kw)
-    monkeypatch.setattr(accounts, "apply_ink_adjustment_strict", _flaky)
-    res = await CLC.open_window(cbot, sess)
-    assert res["interpret_charged"] is False
-    state["fail"] = False
-    await CLC.restore(cbot, sess)
-    await CLC.restore(cbot, sess)
-    assert len(_rows(IT.KIND_INTERPRETATION_CHARGE)) == 1
-    assert "WINDOW_INTERPRET_CHARGED" in _journal(sess.session_id)
+async def test_p1_ui_note_matches_committed_charge(sess, cbot, clock, provider, display_channel):
+    import cogs.gm as gm_mod
+    _gm, res = await _interpret(cbot, sess, provider)
+    note = gm_mod._interp_note(res)
+    assert f"**{_interp_ink_of(res)}잉크**가 청구되었습니다" in note
+    assert len(_rows(IT.KIND_INTERPRETATION_CHARGE)) == 1          # 문구 = 거래
 
 
 # ── P2 — 해석 비용은 환불되지 않는다 ─────────────────────────
 
 async def test_p2_interpretation_non_refundable_on_early_close(sess, cbot, clock):
-    sess.interpret_cost_krw = 50.0
-    interp = core.cost_to_ink(50.0)
+    st = await _interpret_fact(cbot, sess, 50.0)
+    interp = st["charged_ink"]
+    assert interp == core.cost_to_ink(50.0)
     res = await CLC.open_window(cbot, sess)
     cache_ink = res["charge_ink"]
     clock.advance(1800)
@@ -212,8 +197,7 @@ async def _operator(kind, cbot, sess, master_channel):
 
 @pytest.mark.parametrize("kind", ["end", "delete"])
 async def test_p3_p4_operator_close_refunds_payer_only(kind, sess, cbot, clock, master_channel):
-    sess.interpret_cost_krw = 50.0
-    interp = core.cost_to_ink(50.0)
+    interp = (await _interpret_fact(cbot, sess, 50.0))["charged_ink"]
     res = await CLC.open_window(cbot, sess)
     cache_ink = res["charge_ink"]
     _join_late(sess)                                                  # 선불하지 않은 늦은 참가자
@@ -342,7 +326,7 @@ def test_p8_policy_source_scan():
         if "NO_PLAYER_EFFECT" in src:
             nope.append(rel)
     assert add == []                                  # ADDITIONAL_CHARGE production callers: 0
-    assert interp == ["core/cache_lifecycle.py"]
+    assert interp == ["core/interpretation_billing.py"]       # 캐시 창과 분리된 단일 owner
     assert refund == ["core/cache_lifecycle.py"]
     assert prepay == ["core/cache_lifecycle.py"]
     assert ad_hoc == [] and nope == []
@@ -355,8 +339,161 @@ def test_p8_policy_source_scan():
     assert "cache_window_estimate_usd" in lc and "cache_window_responsibility_usd" in lc
     assert "cache_window_estimate_usd" in est and "cache_usd_to_ink" in est
     assert "calculate_upload_cost" not in lc
+    assert "interpret" not in lc.replace("interpretation_billing", "")  # 캐시 창은 해석을 모른다
     # OpenConfirmView 는 더 이상 업로드 전에 해석 누적값을 지우지 않는다
     gm = pathlib.Path(REPO_ROOT, "cogs/gm.py").read_text(encoding="utf-8")
     i = gm.index("class OpenConfirmView")
     j = gm.index("class InfinityPlanView")
     assert "interpret_cost_krw = 0" not in gm[i:j]
+
+
+# ══════════════════════════════════════════════════════════════
+#  RE-GATE PATCH 2 — 해석 청구 경계·내구성 (P9 ~ P14)
+# ══════════════════════════════════════════════════════════════
+
+async def test_p9_interpretation_then_cancel_keeps_single_charge(
+        sess, cbot, clock, provider, display_channel):
+    _gm, res = await _interpret(cbot, sess, provider)
+    view, msg, inter = _confirm_view(cbot, sess, display_channel)
+    await view.cancel.callback(inter)
+    rows = _rows(IT.KIND_INTERPRETATION_CHARGE)
+    assert len(rows) == 1 and _bal() == 1000 - rows[0]["nominal_ink"]   # debit 정확히 1회
+    assert _rows(IT.KIND_PREPAYMENT) == [] and _rows(IT.KIND_REFUND) == []
+    assert cbot.genai_client.caches.created == []
+
+
+async def test_p10_interpretation_then_timeout_keeps_single_charge(
+        sess, cbot, clock, provider, display_channel):
+    _gm, res = await _interpret(cbot, sess, provider)
+    view, msg, inter = _confirm_view(cbot, sess, display_channel)
+    await view.on_timeout()
+    rows = _rows(IT.KIND_INTERPRETATION_CHARGE)
+    assert len(rows) == 1 and _bal() == 1000 - rows[0]["nominal_ink"]
+    assert _rows(IT.KIND_PREPAYMENT) == [] and _rows(IT.KIND_REFUND) == []
+    assert cbot.genai_client.caches.created == []
+    await core.interpretation_billing.settle(cbot, sess)             # 재정산에도 불변
+    assert len(_rows(IT.KIND_INTERPRETATION_CHARGE)) == 1
+
+
+async def test_p11a_crash_after_cost_event_before_billing_record(sess, cbot, clock, provider):
+    """provider CostEvent 는 durable, 청구 기록 전 프로세스 종료 → 재시작이 CostLedger 로 재구성."""
+    def _crash(*a, **k):
+        raise SystemExit("hard crash after CostEvent")
+    inject = pytest.MonkeyPatch()                                     # 격리 cwd 픽스처와 분리
+    inject.setattr(core.interpretation_billing, "record_interpretation", _crash)
+    with pytest.raises(SystemExit):
+        await _interpret(cbot, sess, provider)
+    inject.undo()
+    assert len(_events(cbot, CL.OP_CACHE_TIME_INTERPRET)) == 1
+    assert _rows(IT.KIND_INTERPRETATION_CHARGE) == []
+    restored = core.TRPGSession(sess.session_id, 1, 2, "t", {})      # 재시작 후 새 객체(메모리 누적 없음)
+    restored.players = dict(sess.players)
+    st = await core.interpretation_billing.settle(cbot, restored)
+    await core.interpretation_billing.settle(cbot, restored)
+    rows = _rows(IT.KIND_INTERPRETATION_CHARGE)
+    assert len(rows) == 1 and rows[0]["nominal_ink"] == st["charged_ink"] > 0
+    assert core.interpretation_billing.view(sess.session_id).interpreted[
+        _events(cbot, CL.OP_CACHE_TIME_INTERPRET)[0]["metadata"]["interp_id"]]["adopted"]
+
+
+@pytest.mark.parametrize("boundary", ["after_intent", "after_account_effect"])
+async def test_p11b_crash_around_account_effect_resumes_exactly_once(boundary, sess, cbot, clock):
+    IB = core.interpretation_billing
+    core.interpretation_billing.record_interpretation(sess, interp_id="op-crash", cost_krw=50.0,
+                                                      cost_usd=50.0 / core.EXCHANGE_RATE)
+    real_exec = IB._execute_intent
+
+    async def _crash(intent):
+        if boundary == "after_account_effect":
+            await real_exec(intent)                                   # 계정·원장 적용 후
+        raise SystemExit("hard crash")
+    inject = pytest.MonkeyPatch()
+    inject.setattr(IB, "_execute_intent", _crash)
+    with pytest.raises(SystemExit):
+        await IB.settle(cbot, sess)
+    inject.undo()
+    ev = [e["type"] for e in IB.load_events(sess.session_id)]
+    assert "CHARGE_INTENT" in ev and "CHARGED" not in ev
+    expected_rows = 1 if boundary == "after_account_effect" else 0
+    assert len(_rows(IT.KIND_INTERPRETATION_CHARGE)) == expected_rows
+    restored = core.TRPGSession(sess.session_id, 1, 2, "t", {})
+    restored.players = dict(sess.players)
+    await IB.settle(cbot, restored)
+    await IB.settle(cbot, restored)
+    assert len(_rows(IT.KIND_INTERPRETATION_CHARGE)) == 1
+    assert _bal() == 1000 - core.cost_to_ink(50.0)                   # double debit 없음
+    assert [e["type"] for e in IB.load_events(sess.session_id)].count("CHARGE_INTENT") == 1
+
+
+async def test_p12_already_charged_then_open_and_early_close(sess, cbot, clock):
+    interp = (await _interpret_fact(cbot, sess, 50.0))["charged_ink"]
+    res = await CLC.open_window(cbot, sess)                          # 새 창 ID
+    assert len(_rows(IT.KIND_INTERPRETATION_CHARGE)) == 1            # 재청구 없음
+    assert len(_rows(IT.KIND_PREPAYMENT)) == 1
+    clock.advance(600)
+    out = await CLC.close_window(cbot, sess, reason=CLC.REASON_PLAYER_CLOSE,
+                                 disposition=CLC.WINDOW_SETTLE_REFUND)
+    assert list(out["refund"].values())[0] <= res["charge_ink"]      # 캐시 미사용분만
+    assert _kinds() == [IT.KIND_INTERPRETATION_CHARGE, IT.KIND_PREPAYMENT, IT.KIND_REFUND]
+    # 다음 열기(새 창)도 과거 해석을 다시 청구하지 않는다
+    await CLC.open_window(cbot, sess)
+    assert len(_rows(IT.KIND_INTERPRETATION_CHARGE)) == 1
+    assert _bal() == 1000 - interp - (res["charge_ink"] - out["refund"][PLAYER_UID]) - res["charge_ink"]
+
+
+async def test_p13_affordability_after_interpretation(sess, cbot, clock, provider, display_channel,
+                                                      game_channel):
+    need = core.estimate_session_open(sess, 3.0)["total_ink"]
+    # 해석 청구 후 캐시 선불에는 1잉크 모자라게
+    _gm, res = await _interpret(cbot, sess, provider)
+    interp = _interp_ink_of(res)
+    _seed(PLAYER_UID, 0)
+    acc = accounts.load_account_strict(PLAYER_UID)
+    acc["ink_balance"] = need - 1
+    accounts._write_account_strict(acc)
+    view, msg, inter = _confirm_view(cbot, sess, display_channel)
+    await view.confirm.callback(inter)
+    assert "잔액이 부족" in (msg.content or "") and f"{need}잉크" in (msg.content or "")
+    assert len(_rows(IT.KIND_INTERPRETATION_CHARGE)) == 1            # 해석 청구 유지
+    assert _rows(IT.KIND_PREPAYMENT) == [] and cbot.genai_client.caches.created == []
+    assert _bal() == need - 1                                         # overdraft/보조 우회 없음
+    # 서비스 계층도 스스로 거부한다(다른 입구 방어)
+    with pytest.raises(CLC.CacheOpenInsufficientFunds):
+        await CLC.open_window(cbot, sess, quoted_tokens=int(
+            core.estimate_session_open(sess, 3.0)["cache_tokens"]))
+    assert _rows(IT.KIND_PREPAYMENT) == [] and cbot.genai_client.caches.created == []
+    assert "WINDOW_OPENED" not in _journal(sess.session_id)
+
+
+async def test_p13b_displayed_need_equals_actual_prepayment(sess, cbot, clock, display_channel):
+    need = core.estimate_session_open(sess, 3.0)["total_ink"]
+    view, msg, inter = _confirm_view(cbot, sess, display_channel)
+    await view.confirm.callback(inter)
+    assert [r["nominal_ink"] for r in _rows(IT.KIND_PREPAYMENT)] == [need]
+
+
+async def test_p14_below_threshold_preserved(sess, cbot, clock, provider, display_channel):
+    # 1잉크 해석 — 청구 없이 누적, 취소해도 유지, 두 번째 해석으로 임계 도달 시 합산 청구
+    st1 = await _interpret_fact(cbot, sess, 5.0, iid="op-a")
+    assert st1["charged_ink"] == 0 and _rows(IT.KIND_INTERPRETATION_CHARGE) == []
+    assert sess.interpret_cost_krw == pytest.approx(5.0)
+    st2 = await _interpret_fact(cbot, sess, 5.0, iid="op-b")
+    assert st2["charged_ink"] == core.cost_to_ink(10.0) >= 2
+    assert len(_rows(IT.KIND_INTERPRETATION_CHARGE)) == 1
+    # 임계 미만 누적이 남은 채로 세션을 열면 면제(기존 규정)
+    await _interpret_fact(cbot, sess, 5.0, iid="op-c")
+    assert core.cost_to_ink(5.0) < 2
+    view, msg, inter = _confirm_view(cbot, sess, display_channel)
+    await view.confirm.callback(inter)
+    assert len(_rows(IT.KIND_INTERPRETATION_CHARGE)) == 1
+    assert sess.interpret_cost_krw == 0.0
+    assert "WAIVED" in [e["type"] for e in core.interpretation_billing.load_events(sess.session_id)]
+
+
+async def test_p1c_interpretation_charge_survives_cache_create_failure(sess, cbot, clock):
+    interp = (await _interpret_fact(cbot, sess, 50.0))["charged_ink"]
+    cbot.genai_client.caches.fail_create = True
+    with pytest.raises(RuntimeError):
+        await CLC.open_window(cbot, sess)
+    assert [r["nominal_ink"] for r in _rows(IT.KIND_INTERPRETATION_CHARGE)] == [interp]
+    assert _rows(IT.KIND_PREPAYMENT) == [] and _bal() == 1000 - interp

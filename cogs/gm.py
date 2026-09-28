@@ -702,6 +702,17 @@ class RewindView(discord.ui.View):
         await core.message_lifecycle.bind_interaction_prompt(interaction, view)
 
 
+def _interp_note(resolved: dict) -> str:
+    """WP-F(POLICY-CACHE-01): 방금 확정된 시간 해석 청구를 확인 화면에 그대로 알린다(UI = 거래)."""
+    ch = (resolved or {}).get("interpret_charge") or {}
+    ink = int(ch.get("ink") or 0)
+    if not ink:
+        return ""
+    if ch.get("complete"):
+        return f"\n> 🧾 시간 해석 비용 **{ink}잉크**가 청구되었습니다(캐시와 별개 · 환불되지 않습니다)."
+    return f"\n> 🧾 시간 해석 비용 {ink}잉크 청구가 기록되었습니다(계정 반영은 곧 재시도됩니다)."
+
+
 class OpenConfirmView(core.message_lifecycle.LifecyclePromptView):
     """세션 오픈 확인 — 유지 시간과 예상 비용을 보고 진행 여부를 정한다.
 
@@ -724,9 +735,12 @@ class OpenConfirmView(core.message_lifecycle.LifecyclePromptView):
             return
 
         # 잔액 확인 — 선불식이므로 부족하면 진행하지 않는다(기획 규정).
+        #   WP-F: 해석 청구가 이미 반영된 현재 잔액으로 '캐시 선불'만 검사한다. 이 필요액은
+        #   open_window 가 같은 견적 토큰(quoted_tokens)으로 실제 선불할 금액과 같다.
         uid = str(interaction.user.id)
         est = core.estimate_session_open(self.session, self.minutes / 60)
         need = est.get("total_ink", 0)
+        quoted = int(est.get("cache_tokens") or 0) or None
         bal = core.accounts.get_balance(uid)
         if bal < need:
             await core.display.close_notice(
@@ -736,14 +750,9 @@ class OpenConfirmView(core.message_lifecycle.LifecyclePromptView):
             self.stop()
             return
 
-        # 해석 비용 — 2잉크 이상일 때만 청구한다(기획 규정).
-        # WP-F(POLICY-CACHE-01): 실제 청구는 캐시 생애주기 open_window 가 별도 거래
-        #   (INTERPRETATION_CHARGE)로 수행하고 그때 누적값을 비운다. 여기서 먼저 0으로
-        #   만들면 안내만 하고 청구가 사라진다(F-NEW-1).
-        charge, ink = core.should_charge_interpretation(self.session)
+        # WP-F(POLICY-CACHE-01): 시간 해석 비용은 해석 직후 interpretation_billing 이 이미
+        #   청구했다(취소·시간 만료와 무관). 여기서의 필요 잉크는 앞으로 낼 캐시 선불뿐이다.
         note = ""
-        if charge:
-            note = f"\n> 시간 해석 비용 {ink}잉크는 세션을 열 때 별도로 청구되며 환불되지 않습니다."
 
         for child in self.children:
             child.disabled = True
@@ -760,7 +769,7 @@ class OpenConfirmView(core.message_lifecycle.LifecyclePromptView):
             # 세션 제작 중 — 캐시를 올리고 시작 상황으로 넘어간다.
             try:
                 await core.session_flow.on_open_time_done(
-                    self.bot, self.session, game_ch)
+                    self.bot, self.session, game_ch, quoted_tokens=quoted)
             except Exception as e:
                 print(f"[세션플로우] 오픈 처리 실패: {e}")
         else:
@@ -771,7 +780,7 @@ class OpenConfirmView(core.message_lifecycle.LifecyclePromptView):
                 # WP-F: 업로드 진행/결과 안내는 TRANSIENT_GAME_STATUS(교체·자동 정리, 로그 미기록).
                 notify = core.message_lifecycle.transient_notifier(
                     self.bot, self.session, game_ch, ttl=60) if game_ch else None
-                ok = await cog.upload_cache(self.session, notify=notify)
+                ok = await cog.upload_cache(self.session, notify=notify, quoted_tokens=quoted)
                 if ok:
                     self.session.is_started = True
                     await core.save_session_data(self.bot, self.session)
@@ -3813,6 +3822,7 @@ class GMCog(commands.Cog):
                 await message.channel.send(
                     "❓ 입력을 이해하지 못했습니다. 다시 답해 주십시오.\n"
                     "> 예: `3시간`, `90분`, `20턴`, `적당히`, `알아서`"
+                    + _interp_note(resolved)
                 ), cls=core.message_lifecycle.INTERACTION_PROMPT)
             return
 
@@ -3822,7 +3832,8 @@ class GMCog(commands.Cog):
         except Exception:
             est = {}
         view = OpenConfirmView(self.bot, session, resolved["minutes"])
-        view.bind(await message.channel.send(core.format_confirmation(resolved, est), view=view))
+        view.bind(await message.channel.send(
+            core.format_confirmation(resolved, est) + _interp_note(resolved), view=view))
 
     async def interpret_cache_time(self, session, text: str) -> dict:
         """
@@ -3851,6 +3862,10 @@ class GMCog(commands.Cog):
             model=core.DEFAULT_MODEL, actor_kind=core.cost_ledger.ACTOR_PLAYER,
             billing_hint=core.cost_ledger.HINT_PLAYER_CANDIDATE,
             copy_transaction=False)
+        # WP-F(POLICY-CACHE-01): 이 provider 사실은 interpretation_billing 이 청구한다 —
+        #   표식·interp_id 로 CostEvent ↔ 청구 레코드를 감사·재구성할 수 있게 한다.
+        _cl_op.metadata.update({"interpretation_billing": core.interpretation_billing.BILLING_MARK,
+                                "interp_id": _cl_op.operation_id})
         ok, response = await core.call_with_retry(
             lambda: asyncio.to_thread(
                 self.bot.genai_client.models.generate_content,
@@ -3863,7 +3878,10 @@ class GMCog(commands.Cog):
             return {"ok": False, "minutes": 0, "case": "unclear",
                     "notes": ["해석에 실패했습니다."], "retry": True}
 
-        # 해석 비용 누적 — 즉시 청구하지 않는다.
+        # WP-F(POLICY-CACHE-01): provider 해석 사실 → durable 청구 후보 → (임계 이상이면) 즉시
+        #   청구. 캐시 열기·취소·시간 만료·재시작과 무관하게 같은 결과다. 2잉크 미만 누적은
+        #   기존대로 이어서 누적되고 세션을 열 때 면제된다.
+        interp_charge = {"ink": 0, "complete": True}
         try:
             meta = response.usage_metadata
             in_t, out_t, cached_t, _th = core.extract_token_usage(meta)
@@ -3872,24 +3890,32 @@ class GMCog(commands.Cog):
                 output_tokens=out_t, cached_read_tokens=cached_t,
             )
             cost = _bd["total_krw"]
-            session.interpret_cost_krw = (
-                float(getattr(session, "interpret_cost_krw", 0.0) or 0.0) + cost
-            )
             _cl_op.record(
                 input_tokens=in_t, cached_input_tokens=cached_t,
                 output_tokens=out_t, thought_tokens=_th,
                 cost_usd=_bd["total_usd"], cost_krw=cost,
                 usage_source=core.cost_ledger.SOURCE_PROVIDER_METADATA)
+            core.interpretation_billing.record_interpretation(
+                session, interp_id=_cl_op.operation_id, cost_krw=cost,
+                cost_usd=_bd["total_usd"])
         except Exception as e:
-            print(f"[시간해석] 비용 집계 실패: {e}")
+            print(f"[시간해석] 비용 기록 실패(CostLedger 재구성으로 재시도): {e}")
+        try:
+            _st = await core.interpretation_billing.settle(self.bot, session)
+            interp_charge = {"ink": _st["charged_ink"], "complete": _st["complete"]}
+        except Exception as e:
+            interp_charge = {"ink": 0, "complete": False}
+            print(f"[시간해석] 청구 처리 실패(다음 해석·재시작 시 재시도): {e}")
 
         try:
             data = json.loads(response.text or "{}")
         except json.JSONDecodeError:
             return {"ok": False, "minutes": 0, "case": "unclear",
-                    "notes": ["해석 결과를 읽지 못했습니다."], "retry": True}
+                    "notes": ["해석 결과를 읽지 못했습니다."], "retry": True,
+                    "interpret_charge": interp_charge}
 
         resolved = core.resolve_minutes(data)
+        resolved["interpret_charge"] = interp_charge
         core.write_log(
             session.session_id, "api",
             f"[유지시간 해석] 입력={text[:60]} → {json.dumps(data, ensure_ascii=False)} "

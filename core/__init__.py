@@ -217,6 +217,7 @@ from . import commit_coordinator  # WP-D: authoritative commit / recovery / bill
 from . import turn_history  # WP-E: selected committed-attempt history / rewind / rerender
 from . import cache_lifecycle  # WP-F: cache lifecycle finance single owner
 from . import message_lifecycle  # WP-F: player-channel message lifecycle owner
+from . import interpretation_billing  # WP-F: cache-time interpretation billing (separate from cache window)
 from .cost import (
     extract_token_usage,
     format_cost,
