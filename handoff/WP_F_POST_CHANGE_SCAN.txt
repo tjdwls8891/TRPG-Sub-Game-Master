@@ -57,7 +57,7 @@
   core/ink_transactions.py:398: accounts_module.apply_ink_charge_strict
   core/ink_transactions.py:453: execute_settlement_charge
   core/ink_transactions.py:582: accounts_module.apply_ink_adjustment_strict
-  core/interpretation_billing.py:184: IT.execute_lifecycle_ink
+  core/interpretation_billing.py:194: IT.execute_lifecycle_ink
   core/terms.py:114: accounts.add_ink
 
 ## cache CostEvent writers  (6)
@@ -144,7 +144,7 @@
   cogs/gm.py:1371: core.send_streamed
   cogs/gm.py:1832: game_ch.send
   cogs/gm.py:3301: core.send_streamed
-  cogs/gm.py:4642: game_ch.send
+  cogs/gm.py:4655: game_ch.send
   cogs/gm.py:3312: core.send_streamed
   cogs/gm.py:2013: game_ch.send
   cogs/gm.py:2015: game_ch.send
@@ -180,13 +180,13 @@
   cogs/gm.py:1930: derived.game
   cogs/gm.py:2074: self._emit_commit_derived
   cogs/gm.py:2366: self._emit_commit_derived
-  cogs/gm.py:4329: derived.game
+  cogs/gm.py:4342: derived.game
 
 ## cache_usable / provenance stamp sites  (8)
   cogs/game.py:660: core.turn_history.cache_usable
   cogs/game.py:629: core.turn_history.cache_usable
   cogs/gm.py:3574: core.turn_history.cache_usable
-  cogs/gm.py:4829: core.turn_history.cache_usable
+  cogs/gm.py:4842: core.turn_history.cache_usable
   cogs/gm.py:2502: core.turn_history.cache_usable
   cogs/gm.py:3070: core.turn_history.cache_usable
   core/cache.py:156: cache_marker_now
@@ -212,7 +212,7 @@
 ## interpretation charge writers (KIND_INTERPRETATION_CHARGE use)  (3)
   core/ink_transactions.py:475: KIND_INTERPRETATION_CHARGE = "INTERPRETATION_CHARGE"
   core/ink_transactions.py:480: KIND_INTERPRETATION_CHARGE: accounts.DIRECTION_DEBIT,
-  core/interpretation_billing.py:186: kind=IT.KIND_INTERPRETATION_CHARGE, nominal_ink=int(ink),
+  core/interpretation_billing.py:196: kind=IT.KIND_INTERPRETATION_CHARGE, nominal_ink=int(ink),
 
 ## cache PREPAYMENT writers (KIND_PREPAYMENT use)  (4)
   core/cache_lifecycle.py:551: kind=IT.KIND_PREPAYMENT, nominal_ink=int(ink), reason="cache_window_prepayment")
@@ -291,8 +291,8 @@
 # ═══ WP-F RE-GATE PATCH 2 — INTERPRETATION BILLING DURABILITY SCAN ═══
 
 ## interpretation billing owner entry points (record/settle/waive/reconcile)  (5)
-  cogs/gm.py:3898: core.interpretation_billing.record_interpretation
-  cogs/gm.py:3904: core.interpretation_billing.settle
+  cogs/gm.py:3911: core.interpretation_billing.record_interpretation
+  cogs/gm.py:3917: core.interpretation_billing.settle
   cogs/session.py:314: core.interpretation_billing.waive_pending
   cogs/session.py:313: core.interpretation_billing.settle
   core/cache.py:530: _ib.settle
@@ -305,10 +305,10 @@
   cogs/gm.py:3868: "interp_id": _cl_op.operation_id})
   core/interpretation_billing.py:38: BILLING_MARK = 2                      # CostEvent metadata["interpretation_billing"] — 이 구조로 청구되는 사실
   core/interpretation_billing.py:97: self.interpreted.setdefault(ev["interp_id"], ev)
-  core/interpretation_billing.py:143: _append(sid, {"type": "INTERPRETED", "interp_id": interp_id,
-  core/interpretation_billing.py:161: if md.get("interpretation_billing") != BILLING_MARK or not md.get("interp_id"):
-  core/interpretation_billing.py:163: iid = md["interp_id"]
-  core/interpretation_billing.py:166: _append(sid, {"type": "INTERPRETED", "interp_id": iid,
+  core/interpretation_billing.py:147: _append(sid, {"type": "INTERPRETED", "interp_id": interp_id,
+  core/interpretation_billing.py:171: if md.get("interpretation_billing") != BILLING_MARK or not md.get("interp_id"):
+  core/interpretation_billing.py:173: iid = md["interp_id"]
+  core/interpretation_billing.py:176: _append(sid, {"type": "INTERPRETED", "interp_id": iid,
 
 ## cache open affordability guard  (5)
   cogs/session.py:320: except core.cache_lifecycle.CacheOpenInsufficientFunds as e:
@@ -329,3 +329,20 @@
   core/cache_lifecycle.py:702: est_tokens = int(quoted_tokens or 0) or int(tokens or 0)
   core/session_flow.py:659: async def on_open_time_done(bot, session, channel, *, quoted_tokens=None):
   core/session_flow.py:667: quoted_tokens=quoted_tokens)
+
+
+# ═══ WP-F RE-GATE PATCH 3 — STRICT INTERPRETATION COST FACT SCAN ═══
+
+## strict provider-fact writers (record_fact_strict callers)  (1)
+  cogs/gm.py:3895: _cl_op.record_fact_strict
+
+## tolerant ProviderOperation.record on OP_CACHE_TIME_INTERPRET path (expected 0 in interpret_cache_time)  (0)
+
+## billing recovery ledger reads in interpretation_billing (strict only)  (1)
+  core/interpretation_billing.py:167: for ev in ledger.list_cost_events_strict(session_id=sid):
+
+## INTERPRETED writers (must follow strict fact)  (4)
+  cogs/gm.py:3911: core.interpretation_billing.record_interpretation(
+  core/interpretation_billing.py:137: def record_interpretation(session, *, interp_id: str, cost_krw: float, cost_usd: float,
+  core/interpretation_billing.py:147: _append(sid, {"type": "INTERPRETED", "interp_id": interp_id,
+  core/interpretation_billing.py:176: _append(sid, {"type": "INTERPRETED", "interp_id": iid,

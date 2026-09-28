@@ -1,8 +1,97 @@
 # WP-F COMPLETION BUNDLE — Derived Systems Stabilization
 
-**Status:** WP-F 구현 완료 후보 + FINAL GATE PATCH(Cache Finance Policy Alignment) + **RE-GATE PATCH 2(Interpretation Billing Durability)** 적용 — 독립 GPT 재게이트 대기 (VERIFIED 아님)
+**Status:** WP-F 구현 완료 후보 + FINAL GATE PATCH(Cache Finance Policy Alignment) + RE-GATE PATCH 2(Interpretation Billing Durability) + **RE-GATE PATCH 3(Strict Interpretation Cost Fact)** 적용 — 독립 GPT 재게이트 대기 (VERIFIED 아님)
 **Date:** 2026-09-28
 **WP-G:** NOT STARTED
+
+---
+
+## 0-C. RE-GATE PATCH 3 — Strict Interpretation Cost Fact Only (이 절이 §0-B·§0보다 우선한다)
+
+| 항목 | 값 |
+|---|---|
+| patch start SHA | `ee047f87f1369455f7e1f653d3b32d47b281ad87` (재게이트: PATCH REQUIRED — tolerant CostEvent 뒤 청구 가능 1건) |
+| patch code commit | `65bcf45` `wp-f re-gate patch 3: strict interpretation cost fact before billing` |
+| final SHA | 이 번들·스캔을 담은 최종 커밋 — push 후 채팅에 exact 값·local==remote·literal `git status --short`·아카이브 SHA-256 보고 |
+| final regression | **593 passed, 0 failed, 0 xfailed, 0 XPASS** (587 + 신규 6) |
+
+### 0-C.1 결함과 수정
+
+**결함:** `interpret_cache_time`이 tolerant/shadow API인 `ProviderOperation.record()`의 반환값(False = 원장 없음 또는 쓰기 실패)을 확인하지 않고 `record_interpretation`과 `settle`로 넘어갔다. 그래서 CostEvent가 없어도 플레이어 청구가 가능했다.
+
+**수정 (범위: `OP_CACHE_TIME_INTERPRET` 청구 경로만):**
+1. `core/cost_ledger.py`
+   - `ProviderOperation.record_fact_strict(...)`를 추가했다.
+   - `record()`와 **같은** operation_id·provider_attempt·idempotency_key(`{operation_id}:attempt:{n}`)·metadata·토큰·pricing basis로 CostEvent를 만든다.
+   - 기록은 `CostLedger.record_cost_event_strict`(write → flush → fsync)로 한다. 같은 요청을 다시 보내면 기존 canonical event_id를 돌려준다(`created=False`).
+   - 원장이 없거나 영속·상충에 실패하면 예외를 올린다.
+   - `record()`와 그 밖의 호출자는 **바꾸지 않았다**. 이름은 SettlementStore의 `record_strict(` 호출자 스캔과 겹치지 않도록 정했다.
+2. `cogs/gm.py::interpret_cache_time`
+   - strict CostEvent가 성공해야만 `record_interpretation(..., cost_event_id=<canonical>)`과 `settle`로 진행한다.
+   - strict가 실패하면:
+     - 청구 후보(INTERPRETED)를 만들지 않는다.
+     - 청구는 0이다.
+     - UI 청구 표시가 없다(`interpret_charge.ink = 0`).
+     - 결과를 확정하지 않고 재질문(retry) 경로로 끝낸다.
+     - error 로그를 남긴다.
+   - 실제로 발생한 provider 비용은 시스템 영속 실패로 인한 운영 손실이다.
+3. `core/interpretation_billing.py`
+   - INTERPRETED에 `cost_event_id`를 기록해 감사 연결을 남긴다.
+   - `reconcile_from_ledger`는 `list_cost_events_strict`로 읽는다. 손상되거나 identity가 중복된 원장이면 조용히 건너뛰지 않고 예외를 낸다. 이때 채택은 없지만 `settle`은 막히지 않는다. 이미 저널된 후보는 각자 strict 사실을 근거로 유효하다.
+4. 허용 목록: `tests/policy/test_accounts_strict.py::test_29`에 `core/interpretation_billing.py`를 WP-F 인가 strict 소비 owner로 추가했다(의도된 변경).
+
+### 0-C.2 변경 파일 (patch start → `65bcf45`; 최종 커밋은 번들·스캔 갱신을 더함)
+```
+ cogs/gm.py                                |  19 ++++-
+ core/cost_ledger.py                       |  57 +++++++++++++
+ core/interpretation_billing.py            |  20 +++--
+ tests/policy/test_accounts_strict.py      |   5 +-
+ tests/policy/test_cache_finance_policy.py | 129 ++++++++++++++++++++++++++++++
+ 5 files changed, 221 insertions(+), 9 deletions(-)
+```
+보존: P1~P14 의미·캐시 창 분리·취소/시간 만료·청구 의도 복구·재청구 방지·잔액 검사·면제·운영자 환급·운영자 부담·가격·finalizer·Message/UI·압축·WP-E·턴 Settlement/CHARGE — 모두 변경 없음(테스트 PASS).
+
+### 0-C.3 테스트 — `tests/policy/test_cache_finance_policy.py` 25건 전부 PASS
+```
+  tests/policy/test_cache_finance_policy.py::test_p1_interpretation_charged_at_interpretation_then_open
+  tests/policy/test_cache_finance_policy.py::test_p1_ui_note_matches_committed_charge
+  tests/policy/test_cache_finance_policy.py::test_p2_interpretation_non_refundable_on_early_close
+  tests/policy/test_cache_finance_policy.py::test_p3_p4_operator_close_refunds_payer_only[end]
+  tests/policy/test_cache_finance_policy.py::test_p3_p4_operator_close_refunds_payer_only[delete]
+  tests/policy/test_cache_finance_policy.py::test_p5_repeated_concurrent_and_restart_operator_close_exactly_once
+  tests/policy/test_cache_finance_policy.py::test_p6_actual_exceeds_prepayment_is_operator_borne
+  tests/policy/test_cache_finance_policy.py::test_p7_estimate_and_actual_share_canonical_pricing
+  tests/policy/test_cache_finance_policy.py::test_p8_policy_source_scan
+  tests/policy/test_cache_finance_policy.py::test_p9_interpretation_then_cancel_keeps_single_charge
+  tests/policy/test_cache_finance_policy.py::test_p10_interpretation_then_timeout_keeps_single_charge
+  tests/policy/test_cache_finance_policy.py::test_p11a_crash_after_cost_event_before_billing_record
+  tests/policy/test_cache_finance_policy.py::test_p11b_crash_around_account_effect_resumes_exactly_once[after_intent]
+  tests/policy/test_cache_finance_policy.py::test_p11b_crash_around_account_effect_resumes_exactly_once[after_account_effect]
+  tests/policy/test_cache_finance_policy.py::test_p12_already_charged_then_open_and_early_close
+  tests/policy/test_cache_finance_policy.py::test_p13_affordability_after_interpretation
+  tests/policy/test_cache_finance_policy.py::test_p13b_displayed_need_equals_actual_prepayment
+  tests/policy/test_cache_finance_policy.py::test_p14_below_threshold_preserved
+  tests/policy/test_cache_finance_policy.py::test_p1c_interpretation_charge_survives_cache_create_failure
+  tests/policy/test_cache_finance_policy.py::test_p15_strict_costevent_failure_means_no_charge
+  tests/policy/test_cache_finance_policy.py::test_p15b_no_cost_ledger_means_no_charge
+  tests/policy/test_cache_finance_policy.py::test_p16_strict_fact_then_crash_before_billing_record
+  tests/policy/test_cache_finance_policy.py::test_p17_strict_replay_reuses_canonical_identity
+  tests/policy/test_cache_finance_policy.py::test_p17b_corrupted_ledger_reconcile_fails_closed
+  tests/policy/test_cache_finance_policy.py::test_p8b_interpretation_path_uses_strict_fact_before_billing
+```
+| 요구 | 테스트 |
+|---|---|
+| P15 strict 쓰기 실패 | `test_p15_…` — provider 응답 성공, strict append에 실패를 주입 → INTERPRETATION_CHARGE 0, 잔액 변화 0, INTERPRETED 0, UI 청구 표시 없음, 재질문, PREPAYMENT 0, 부분 CostEvent 0, 재시작 후에도 phantom 청구 없음. 보강: `test_p15b_…` — CostLedger가 없으면 청구 0 |
+| P16 strict 사실 후 크래시 | `test_p16_…` — strict CostEvent가 durable 1건인 상태로 INTERPRETED 전에 크래시 → 재시작 시 strict 원장에서 채택, INTERPRETATION_CHARGE 정확히 1, double debit 없음, `cost_event_id` = canonical |
+| P17 strict replay | `test_p17_…` — 같은 idempotency replay → `created=False`로 같은 event_id, durable CostEvent 1, INTERPRETED 1, 청구 1. 보강: `test_p17b_…` — 손상된 원장이면 복구 채택이 fail-closed |
+| 스캔 | `test_p8b_…` — 해석 경로는 `record_fact_strict`만 쓰고 순서는 strict 사실 → 청구 후보 → 정산이다. 복구 읽기는 strict이며 tolerant `record()` 의미는 유지된다 |
+
+### 0-C.4 기타 검증
+- WP-F targeted(`test_cache_finance_policy` · `test_cache_lifecycle` · `test_compression_safety` · `test_message_lifecycle_wpf` · `test_cache_accounting`): **95 passed**. WP-E 이력 테스트 포함 스위트도 PASS.
+- compileall OK, CLAUDE.md ①② OK, ④ verify_docs OK, ⑤ cogs 9 · 명령어 46 · views 5
+- 변경 후 스캔: `handoff/WP_F_POST_CHANGE_SCAN.txt` 말미 "RE-GATE PATCH 3 — STRICT INTERPRETATION COST FACT SCAN". strict 사실 writer 1(`cogs/gm.py`), 해석 경로의 tolerant `record` 0, 복구 읽기는 strict만.
+- source archive: 최종 커밋에서 `git archive`로 만들었고 `media/`를 제외했다. 채팅에 첨부하고 SHA-256을 보고한다.
+
 
 ---
 
