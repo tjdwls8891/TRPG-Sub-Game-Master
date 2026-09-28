@@ -1,8 +1,114 @@
 # WP-F COMPLETION BUNDLE — Derived Systems Stabilization
 
-**Status:** WP-F 구현 완료 후보 + **FINAL GATE PATCH (Cache Finance Policy Alignment)** 적용 — 독립 GPT 게이트 대기 (VERIFIED 아님)
+**Status:** WP-F 구현 완료 후보 + FINAL GATE PATCH(Cache Finance Policy Alignment) + **RE-GATE PATCH 2(Interpretation Billing Durability)** 적용 — 독립 GPT 재게이트 대기 (VERIFIED 아님)
 **Date:** 2026-09-28
 **WP-G:** NOT STARTED
+
+---
+
+## 0-B. RE-GATE PATCH 2 — Interpretation Billing Durability Only (이 절이 §0보다 우선한다)
+
+| 항목 | 값 |
+|---|---|
+| patch start SHA | `2da800601ce5cd7cfc9b0c9db48df6d5a239cb52` (재게이트: PATCH REQUIRED — 해석 청구 경계·크래시 내구성 1건) |
+| patch code commit | `wp-f re-gate patch 2: interpretation billing durability` |
+| final SHA | 이 번들·스캔을 담은 최종 커밋 — push 후 채팅에 exact 값·local==remote·literal `git status --short`·아카이브 SHA-256 보고 |
+| final regression | **587 passed, 0 failed, 0 xfailed, 0 XPASS** (579 − 대체된 해석 테스트 4 + 신규/재작성 12) |
+
+### 0-B.1 결함과 수정
+
+**이전 흐름:**
+1. 해석 provider 호출이 끝나면 비용은 volatile 값인 `session.interpret_cost_krw`에만 쌓였다.
+2. 청구는 OpenConfirmView에서 CONFIRM을 누른 뒤 `open_window` 안에서만 일어났다.
+
+그래서 취소·시간 만료·크래시가 나면 청구가 사라졌다.
+
+**수정 — 새 단일 owner `core/interpretation_billing.py`(캐시 창과 분리):**
+
+1. `interpret_cache_time`
+   - 해석 CostEvent 메타데이터에 `interpretation_billing=2`와 `interp_id`(= provider operation_id)를 붙인다.
+   - CostEvent를 기록한 직후 `record_interpretation`으로 **INTERPRETED**를 durable 기록한다(fsync 저널 `sessions/{id}/interpretation_billing.jsonl`).
+   - 곧바로 `settle`을 호출한다.
+2. `settle`
+   - `reconcile_from_ledger`: 표식된 CostEvent 중 저널에 없는 것을 채택한다(크래시 경계 A 복구). WP-F 이전의 표식 없는 해석 사실은 채택하지 않는다.
+   - 중단된 CHARGE_INTENT를 같은 charge_id로 재실행한다.
+   - 미청구 누적이 2잉크 이상이면 **CHARGE_INTENT**(charge_id = interp_id 집합의 결정적 해시)를 기록한다.
+   - 이어서 `LifecycleInkTransaction(kind=INTERPRETATION_CHARGE, reference_kind=CACHE_TIME_INTERPRETATION, reference_id=charge_id)`를 실행한다. 기존 exactly-once 계정 마커·원장 프리미티브를 재사용한다.
+   - 마지막으로 **CHARGED**를 기록한다.
+3. 청구는 **확인 화면 이전**에 확정된다. 그 결과 열기·취소·시간 만료·재시작이 모두 같은 결과를 낸다.
+4. 확인 화면 문구(`_interp_note`)는 방금 확정된 거래 금액을 그대로 표시한다(UI = 거래).
+5. 기존 면제 규칙은 그대로다. 2잉크 미만은 누적을 이어 가고(이제 durable), 세션을 열 때 남은 미만분을 **WAIVED**로 면제한다(`upload_cache` 직전, 기존 "열기 시점 초기화"와 같은 의미).
+6. `session.interpret_cost_krw`는 저널에서 파생된 호환 미러일 뿐 청구 근거가 아니다.
+7. 재시작 시 `restore_sessions_from_disk`가 `interpretation_billing.settle`로 재개한다.
+8. `core/cache_lifecycle.py`에서 해석 로직을 모두 제거했다: WINDOW_OPENED의 `interpret` 맵, `WINDOW_INTERPRET_CHARGED`, `_execute_interpretation_locked`. 캐시 창 ID와 해석 청구 ID는 무관하다. 따라서 새 창이 과거 해석을 다시 청구하지 않고, 캐시 REFUND는 해석 거래를 건드리지 않는다.
+
+**잔액 검사 정합(요구 4):**
+- `OpenConfirmView`는 해석 청구가 이미 반영된 현재 잔액으로 **캐시 선불만** 검사한다.
+- 표시한 필요 잉크의 견적 토큰(`quoted_tokens`)을 `upload_cache`/`on_open_time_done`을 거쳐 `open_window`로 넘긴다. 따라서 **표시 필요액 = 실제 PREPAYMENT**다. 공식은 기존 canonical 공식 그대로다.
+- `open_window`는 창을 열기 전에 모든 payer의 잔액이 캐시 선불 이상인지 검사한다. 부족하면 `CacheOpenInsufficientFunds`를 내며, 이때 창·선불·provider 생성은 모두 없다. 부족분이 overdraft나 운영자 보조로 우회되지 않는다.
+- 잔액 검사와 선불 적용 사이의 좁은 경쟁 구간(다른 경로의 동시 차감)에서는 기존 floor 규약이 적용된다. 이 구간은 durable 재개 가능성을 위해 유지했다.
+
+**문서 정합(요구 7):** `open_window` docstring은 이제 이렇게 말한다. 생성이 실패하면 캐시 선불과 생성 사실이 없고, 시간 해석 청구는 별개 owner가 해석 직후 이미 확정하므로 생성 실패·취소와 무관하게 유지된다.
+
+### 0-B.2 변경 파일 (patch start → patch code commit; 최종 커밋은 번들·스캔 갱신을 더함)
+```
+ CLAUDE.md                                 |   2 +-
+ cogs/gm.py                                |  58 +++++--
+ cogs/session.py                           |  27 ++-
+ core/__init__.py                          |   1 +
+ core/cache.py                             |   7 +
+ core/cache_lifecycle.py                   |  72 ++++----
+ core/interpretation_billing.py            | 248 +++++++++++++++++++++++++++
+ core/session_flow.py                      |   5 +-
+ tests/defects/test_cache_accounting.py    |   4 +
+ tests/policy/test_cache_finance_policy.py | 269 ++++++++++++++++++++++--------
+ 10 files changed, 555 insertions(+), 138 deletions(-)
+```
+`CLAUDE.md`: verify_docs --fix(core 서브모듈 56 → 57). 보존: 캐시 가격 공식·운영자 환급·운영자 부담 부족분·ADDITIONAL_CHARGE 0·finalizer·PREPAYMENT/REFUND 의미·Message/UI·압축·WP-E·CommitCoordinator·턴 CHARGE·prompts/scenarios — 모두 무변경.
+
+### 0-B.3 테스트 — `tests/policy/test_cache_finance_policy.py` 19건 전부 PASS
+```
+  tests/policy/test_cache_finance_policy.py::test_p1_interpretation_charged_at_interpretation_then_open
+  tests/policy/test_cache_finance_policy.py::test_p1_ui_note_matches_committed_charge
+  tests/policy/test_cache_finance_policy.py::test_p2_interpretation_non_refundable_on_early_close
+  tests/policy/test_cache_finance_policy.py::test_p3_p4_operator_close_refunds_payer_only[end]
+  tests/policy/test_cache_finance_policy.py::test_p3_p4_operator_close_refunds_payer_only[delete]
+  tests/policy/test_cache_finance_policy.py::test_p5_repeated_concurrent_and_restart_operator_close_exactly_once
+  tests/policy/test_cache_finance_policy.py::test_p6_actual_exceeds_prepayment_is_operator_borne
+  tests/policy/test_cache_finance_policy.py::test_p7_estimate_and_actual_share_canonical_pricing
+  tests/policy/test_cache_finance_policy.py::test_p8_policy_source_scan
+  tests/policy/test_cache_finance_policy.py::test_p9_interpretation_then_cancel_keeps_single_charge
+  tests/policy/test_cache_finance_policy.py::test_p10_interpretation_then_timeout_keeps_single_charge
+  tests/policy/test_cache_finance_policy.py::test_p11a_crash_after_cost_event_before_billing_record
+  tests/policy/test_cache_finance_policy.py::test_p11b_crash_around_account_effect_resumes_exactly_once[after_intent]
+  tests/policy/test_cache_finance_policy.py::test_p11b_crash_around_account_effect_resumes_exactly_once[after_account_effect]
+  tests/policy/test_cache_finance_policy.py::test_p12_already_charged_then_open_and_early_close
+  tests/policy/test_cache_finance_policy.py::test_p13_affordability_after_interpretation
+  tests/policy/test_cache_finance_policy.py::test_p13b_displayed_need_equals_actual_prepayment
+  tests/policy/test_cache_finance_policy.py::test_p14_below_threshold_preserved
+  tests/policy/test_cache_finance_policy.py::test_p1c_interpretation_charge_survives_cache_create_failure
+```
+| 요구 | 테스트 |
+|---|---|
+| P9 해석 후 취소 | `test_p9_…` — INTERPRETATION_CHARGE 1, debit 1, PREPAYMENT 0, provider 생성 0, REFUND 0 |
+| P10 해석 후 시간 만료 | `test_p10_…` — P9와 같음, 재정산 후에도 불변 |
+| P11 크래시 경계 | `test_p11a_…`(CostEvent 후, 청구 기록 전 → CostLedger 재구성), `test_p11b_…[after_intent]`, `[after_account_effect]` — 재시작 후 정확히 1건, double debit 없음, CHARGE_INTENT 1 |
+| P12 청구 완료 후 열기 | `test_p12_…` — 재청구 없음, PREPAYMENT만, 조기 종료 시 캐시분만 REFUND, 다음 새 창에서도 재청구 없음 |
+| P13 해석 후 잔액 부족 | `test_p13_…` — 해석 청구 유지, 확인 화면 거부(필요액 표시), PREPAYMENT 0·생성 0·잔액 불변, 서비스 계층도 `CacheOpenInsufficientFunds`로 거부, 창 저널 없음. `test_p13b_…` — 표시 필요액 = 실제 PREPAYMENT |
+| P14 2잉크 미만 면제 | `test_p14_…` — 미만 누적 → 다음 해석에서 합산 청구 → 열기 시 남은 미만분 WAIVED |
+| P1/P2(재작성) | 실제 `interpret_cache_time` → 즉시 청구 → `OpenConfirmView`(선불만). UI 문구 = 거래. 해석은 환불 안 됨 |
+| P3–P8 | 유지·통과(P8 스캔: 해석 청구 writer = `core/interpretation_billing.py` 단 한 곳, 캐시 창 모듈은 해석을 모름) |
+
+대체된 이전 테스트: 해석을 `open_window`에서 청구하던 전제의 `test_p1_interpretation_actually_charged_on_reopen_path`, `test_p1b_below_threshold…`, `test_p1c…create_fails`, `test_p1d…resumes`는 새 경계 기준의 P1·P1c·P11·P14로 대체했다.
+
+`tests/defects/test_cache_accounting.py::test_d006e`에는 선불 가능한 잔액을 준비하도록 픽스처 한 줄을 추가했다. 새 잔액 검사가 잔액 0인 payer를 정상적으로 거부하기 때문이다. 단언은 바뀌지 않았다.
+
+### 0-B.4 기타 검증
+- WP-F targeted(`test_cache_finance_policy` + `test_cache_lifecycle` + `test_compression_safety` + `test_message_lifecycle_wpf` + `test_cache_accounting`): **89 passed**
+- compileall OK, CLAUDE.md ①② OK, ④ verify_docs OK(--fix 반영), ⑤ cogs 9 · 명령어 46 · views 5
+- 변경 후 스캔: `handoff/WP_F_POST_CHANGE_SCAN.txt` 말미 "RE-GATE PATCH 2 — INTERPRETATION BILLING DURABILITY SCAN"
+- source archive: 최종 커밋에서 `git archive`로 만들었고 `media/`를 제외했다. 채팅에 첨부하고 SHA-256을 보고한다.
+
 
 ---
 
@@ -19,7 +125,7 @@
 
 | 정책 | 구현 |
 |---|---|
-| **POLICY-CACHE-01** 해석 비용 = 별도 실제 청구·환불 없음·선불/환급과 분리 | 새 kind `INTERPRETATION_CHARGE`(DEBIT, `LifecycleInkTransaction`, reference_kind `CACHE_TIME_INTERPRETATION`, 결정적 ID `ink-interpretation_charge:{window_id}:user:{uid}`). `open_window`가 WINDOW_OPENED(의도: `interpret` 맵) 기록 직후 **캐시 생성 전에** 청구 → `WINDOW_INTERPRET_CHARGED` → 누적값 0. 생성 실패여도 유지(이미 소비된 서비스). 실패 시 `_resume_locked`가 모든 창(중단·정산된 창 포함)에 대해 정확히 한 번 완료. `PREPAYMENT`는 캐시분만(`prepay = {uid: cache_ink}`), 환급 기준도 PREPAYMENT 마커 nominal만 → 해석은 구조적으로 환급 공식 밖. **F-NEW-1 수정:** `OpenConfirmView`가 업로드 전에 `interpret_cost_krw`를 0으로 만들던 코드를 제거하고, 안내 문구를 "세션을 열 때 별도로 청구되며 환불되지 않습니다"로 바꾸었으며, 열림 메시지는 실제 거래가 적용된 경우에만 "시간 해석 N잉크 청구"를 표시한다(UI = ledger = account). |
+| **POLICY-CACHE-01** 해석 비용 = 별도 실제 청구·환불 없음·선불/환급과 분리 | **(RE-GATE PATCH 2로 대체: 청구 owner는 `core/interpretation_billing`이고 해석 직후 확정된다 — §0-B)** 새 kind `INTERPRETATION_CHARGE`(DEBIT, `LifecycleInkTransaction`, reference_kind `CACHE_TIME_INTERPRETATION`, 결정적 ID `ink-interpretation_charge:{window_id}:user:{uid}`). `open_window`가 WINDOW_OPENED(의도: `interpret` 맵) 기록 직후 **캐시 생성 전에** 청구 → `WINDOW_INTERPRET_CHARGED` → 누적값 0. 생성 실패여도 유지(이미 소비된 서비스). 실패 시 `_resume_locked`가 모든 창(중단·정산된 창 포함)에 대해 정확히 한 번 완료. `PREPAYMENT`는 캐시분만(`prepay = {uid: cache_ink}`), 환급 기준도 PREPAYMENT 마커 nominal만 → 해석은 구조적으로 환급 공식 밖. **F-NEW-1 수정:** `OpenConfirmView`가 업로드 전에 `interpret_cost_krw`를 0으로 만들던 코드를 제거하고, 안내 문구를 "세션을 열 때 별도로 청구되며 환불되지 않습니다"로 바꾸었으며, 열림 메시지는 실제 거래가 적용된 경우에만 "시간 해석 N잉크 청구"를 표시한다(UI = ledger = account). |
 | **POLICY-CACHE-02** 운영자 조기 종료도 payer 환급 | `!세션종료`·`!캐시 삭제`(및 호환 `process_cache_deletion`)가 `WINDOW_SETTLE_REFUND` 처분으로 같은 창 정산 권위를 소비. `WINDOW_NO_PLAYER_EFFECT` 처분 **삭제**(참조 0). 종료 actor는 `reason`(OPERATOR_END/OPERATOR_DELETE)과 정산 의도 레코드에만 남고, 환급 자격은 사라지지 않는다. 실제 PREPAYMENT 마커가 없는 사용자(늦은 참가자)에게는 REFUND가 없다. |
 | **POLICY-CACHE-03** 실제 > 선불 → 추가 청구 없음·운영자 부담 기록 | `WINDOW_SETTLE_INTENT.operator_borne_shortfall`에 기록. `KIND_ADDITIONAL_CHARGE`는 정의만 있으며 **production callers: 0**(P8 스캔 테스트로 고정). |
 
