@@ -306,9 +306,12 @@ class GameCog(commands.Cog):
         # 되감기로 턴이 되돌아가도 이미 압축한 구간을 재압축하지 않는다(기획 규정).
         if (core.memory_plan.should_compress(session)
                 and session.uncompressed_logs and not getattr(session, "is_compressing", False)):
-            _logs_snapshot = list(session.uncompressed_logs)
+            # WP-F: 출발 시점의 불변 출처 식별(세대·접두 지문)을 캡처해 넘긴다. 표식은 동기적으로
+            #   세워 같은 루프의 재발동 틈을 닫는다(해제는 태스크 finally).
+            _source = core.memory_plan.capture_compression_source(session)
+            session.is_compressing = True
             asyncio.create_task(
-                self._run_auto_compression(session, _logs_snapshot, cost_log_prefix)
+                self._run_auto_compression(session, _source, cost_log_prefix)
             )
 
         try:
@@ -939,13 +942,49 @@ class GameCog(commands.Cog):
             media_message_ids=tuple(getattr(m, "id", None) for m in media_collector if m is not None),
         )
 
-    async def _run_auto_compression(self, session, logs_to_compress: list, cost_log_prefix: str = ""):
+    async def _apply_compression(self, session, source, segment: str) -> dict:
+        """WP-F: 압축 결과 적용 — 커밋 직렬화 경계 + 세션 io 경계 안에서 출처를 재검증한다.
+
+        출처가 여전히 정본이면 적용하고, 아니면(되감기·재생성·로그 변경 등) 결과를 버린다.
+        버려진 결과는 compressed_memory/uncompressed_logs/압축 부기/되감기 델타를 건드리지 않는다.
+        """
+        async with core.commit_coordinator.commit_serialization_lock(session.session_id):
+            async with core.session_io_lock(self.bot, session):
+                res = core.memory_plan.apply_compression_result(session, source, segment)
+        if res["applied"]:
+            await core.save_session_data(self.bot, session)
+        else:
+            core.write_log(session.session_id, "api",
+                           f"[기억 압축 결과 폐기] 출처 무효({res['reason']}) — "
+                           f"출발 턴 {source.started_turn}, 대상 {source.prefix_len}건")
+        return res
+
+    def _record_compression_settle(self, session, turn_cost, out_tokens, thought_tokens):
+        """압축 선결제(표시용 누적) 대비 실제 발생분 비교 — 계정 재무 효과 없음(정책 미정).
+
+        WP-F: 적용 분기와 무관하게, provider 비용이 사실로 확정된 호출마다 한 번 수행한다
+        (기존: 최초 생성 분기에서만 실행되던 PF-10 결함 제거). 턴 Settlement 는 건드리지 않는다.
+        """
+        try:
+            settle = core.settle_compression(session, turn_cost)
+            core.update_stats(session, "compression", out_tokens, thought_tokens)
+            if settle["refund_ink"] or settle["charge_ink"]:
+                print(
+                    f"[정산] 압축 선결제 {settle['prepaid_krw']}원 vs 실제 "
+                    f"{settle['actual_krw']}원 → 환급 {settle['refund_ink']}잉크 "
+                    f"/ 추가 {settle['charge_ink']}잉크 (표시용 — 계정 반영 없음)"
+                )
+            session.last_compression_settle = settle
+        except Exception as e:
+            print(f"[정산] 압축 정산 실패: {e}")
+
+    async def _run_auto_compression(self, session, source, cost_log_prefix: str = ""):
         """
         누적 기억을 백그라운드에서 무손실 압축한다(프로씨드와 동시 실행).
 
-        압축 대상은 호출 시점에 스냅샷된 logs_to_compress로 고정된다. 완료 후
-        uncompressed_logs '앞'에서 len(logs_to_compress)개를 제거하므로, 그 사이 진행 중인
-        프로씨드가 '뒤'에 append하는 이번 턴 로그와 경합하지 않는다. 실패해도 게임 진행 무영향.
+        WP-F: 입력은 출발 시점에 캡처한 불변 출처(source)로 고정된다. provider 결과는 적용 직전
+        커밋·세션 io 경계 안에서 출처가 여전히 정본인지 재검증한 뒤에만 반영되며, 아니면 폐기된다.
+        provider 비용(CostEvent)은 적용 여부와 무관하게 사실로 남는다(턴 Settlement 무관).
         """
         master_ch = self.bot.get_channel(session.master_ch_id)
 
@@ -958,8 +997,7 @@ class GameCog(commands.Cog):
         try:
             await m_send("⏳ (시스템: 백그라운드에서 자동 초정밀 기억 압축을 진행합니다...)")
 
-            log_text = "\n\n".join(logs_to_compress)
-            summary_prompt = core.build_compression_prompt(session, log_text)
+            summary_prompt = core.build_compression_prompt(session, source.text)
             core.write_log(session.session_id, "api", f"[기억 압축 요청]\n{summary_prompt}")
 
             # 로우 플랜은 일정 횟수 이후 저비용 모델로 전환한다.
@@ -971,7 +1009,10 @@ class GameCog(commands.Cog):
                 model=comp_model, actor_kind=core.cost_ledger.ACTOR_SYSTEM,
                 billing_hint=core.cost_ledger.HINT_PLAYER_CANDIDATE,
                 copy_transaction=False,
-                metadata={"note": "background; transaction attribution intentionally omitted"})
+                metadata={"note": "background; transaction attribution intentionally omitted",
+                          "source_generation": source.generation,
+                          "source_prefix_len": source.prefix_len,
+                          "source_turn": source.started_turn})
             _ok, summary_response = await core.call_with_retry(
                 lambda: asyncio.to_thread(
                     self.bot.genai_client.models.generate_content,
@@ -1004,43 +1045,16 @@ class GameCog(commands.Cog):
             print(f"[자동 기억 압축 비용] In:{in_tokens} Cached:{cached_tokens} Out:{out_tokens} | {core.format_cost(turn_cost)}")
             await m_send(embed=core.build_compression_cost_embed(
                 "자동 기억 압축", in_tokens, cached_tokens, out_tokens, turn_cost, session.total_cost))
+            self._record_compression_settle(session, turn_cost, out_tokens, thought_tokens)
 
-            new_compressed_segment = summary_response.text.strip()
-            if session.compressed_memory:
-                session.compressed_memory += f"\n{new_compressed_segment}"
-            else:
-                # 압축 선결제 정산 — 누적 선결제분과 실제 발생분의 차액을 산출한다.
-                try:
-                    settle = core.settle_compression(session, turn_cost)
-                    core.update_stats(session, "compression", out_tokens, thought_tokens)
-                    if settle["refund_ink"] or settle["charge_ink"]:
-                        print(
-                            f"[정산] 압축 선결제 {settle['prepaid_krw']}원 vs 실제 "
-                            f"{settle['actual_krw']}원 → 환급 {settle['refund_ink']}잉크 "
-                            f"/ 추가 {settle['charge_ink']}잉크"
-                        )
-                    session.last_compression_settle = settle
-                except Exception as e:
-                    print(f"[정산] 압축 정산 실패: {e}")
-
-                # 되감기용 — 압축 발생 시점과 이전 원본을 남긴다.
-                # 발생 시점 기록만으로 압축 주기(플랜별 상이)를 몰라도 정확히 롤백된다.
-                try:
-                    core.record_delta(
-                        session, getattr(session, "gm_turns_done", 0), [],
-                        compression={
-                            "occurred": True,
-                            "before": session.compressed_memory or "",
-                        },
-                    )
-                except Exception as e:
-                    print(f"[되감기] 압축 기록 실패: {e}")
-                session.compressed_memory = new_compressed_segment
-                # 압축 완료 시점 기록 — 재압축 방지와 로우 플랜 전환 판정의 근거.
-                core.memory_plan.mark_compressed(session)
-
-            # 앞에서 count만큼 제거 (스냅샷된 대상 로그). 이후 append된 이번 턴 로그는 보존.
-            del session.uncompressed_logs[:len(logs_to_compress)]
+            new_compressed_segment = (summary_response.text or "").strip()
+            if not new_compressed_segment:
+                raise RuntimeError("압축 결과가 비어 있음")
+            res = await self._apply_compression(session, source, new_compressed_segment)
+            if not res["applied"]:
+                await m_send(f"⏭️ 자동 기억 압축 결과를 폐기했습니다 — 출발 이후 이력이 바뀜"
+                             f"({res['reason']}). 비용 기록은 유지됩니다.")
+                return
 
             success_msg = f"✅ 자동 누적 압축 완료.\n**[최근 추가된 기억]**\n{new_compressed_segment}"
             if len(success_msg) > 2000:
@@ -1049,8 +1063,6 @@ class GameCog(commands.Cog):
                     await asyncio.sleep(1)
             else:
                 await m_send(success_msg)
-
-            await core.save_session_data(self.bot, session)
         except Exception as e:
             await m_send(f"⚠️ 자동 기억 압축 중 오류 발생: {e}")
         finally:
@@ -1471,14 +1483,19 @@ class GameCog(commands.Cog):
             await ctx.send("압축할 새로운 대화 로그가 없습니다.")
             return
 
+        if getattr(session, "is_compressing", False):
+            await ctx.send("⚠️ 자동 기억 압축이 진행 중입니다. 완료 후 다시 시도해 주십시오.")
+            return
+
         await ctx.send("⏳ 수 초정밀 기억 압축을 진행 중입니다...")
 
-        logs_to_compress = list(session.uncompressed_logs)
-        log_text = "\n\n".join(logs_to_compress)
-        summary_prompt = core.build_compression_prompt(session, log_text)
+        # WP-F: 자동 압축과 같은 출처 식별·적용 검증을 쓴다. 동시 실행은 is_compressing으로 직렬화.
+        source = core.memory_plan.capture_compression_source(session)
+        summary_prompt = core.build_compression_prompt(session, source.text)
 
         core.write_log(session.session_id, "api", f"[기억 압축 요청]\n{summary_prompt}")
 
+        session.is_compressing = True
         try:
             _cl_op = core.cost_ledger.begin_operation(
                 self.bot, core.cost_ledger.OP_MEMORY_MANUAL_COMPRESSION, session=session,
@@ -1520,43 +1537,16 @@ class GameCog(commands.Cog):
                 "수동 기억 압축", in_tokens, cached_tokens, out_tokens, turn_cost, session.total_cost
             )
             await ctx.send(embed=_comp_embed)
+            self._record_compression_settle(session, turn_cost, out_tokens, thought_tokens)
 
-            new_compressed_segment = summary_response.text.strip()
-            if session.compressed_memory:
-                session.compressed_memory += f"\n{new_compressed_segment}"
-            else:
-                # 압축 선결제 정산 — 누적 선결제분과 실제 발생분의 차액을 산출한다.
-                try:
-                    settle = core.settle_compression(session, turn_cost)
-                    core.update_stats(session, "compression", out_tokens, thought_tokens)
-                    if settle["refund_ink"] or settle["charge_ink"]:
-                        print(
-                            f"[정산] 압축 선결제 {settle['prepaid_krw']}원 vs 실제 "
-                            f"{settle['actual_krw']}원 → 환급 {settle['refund_ink']}잉크 "
-                            f"/ 추가 {settle['charge_ink']}잉크"
-                        )
-                    session.last_compression_settle = settle
-                except Exception as e:
-                    print(f"[정산] 압축 정산 실패: {e}")
-
-                # 되감기용 — 압축 발생 시점과 이전 원본을 남긴다.
-                # 발생 시점 기록만으로 압축 주기(플랜별 상이)를 몰라도 정확히 롤백된다.
-                try:
-                    core.record_delta(
-                        session, getattr(session, "gm_turns_done", 0), [],
-                        compression={
-                            "occurred": True,
-                            "before": session.compressed_memory or "",
-                        },
-                    )
-                except Exception as e:
-                    print(f"[되감기] 압축 기록 실패: {e}")
-                session.compressed_memory = new_compressed_segment
-                # 압축 완료 시점 기록 — 재압축 방지와 로우 플랜 전환 판정의 근거.
-                core.memory_plan.mark_compressed(session)
-
-            del session.uncompressed_logs[:len(logs_to_compress)]
-            await core.save_session_data(self.bot, session)
+            new_compressed_segment = (summary_response.text or "").strip()
+            if not new_compressed_segment:
+                raise RuntimeError("압축 결과가 비어 있음")
+            res = await self._apply_compression(session, source, new_compressed_segment)
+            if not res["applied"]:
+                await ctx.send(f"⏭️ 압축 결과를 폐기했습니다 — 요청 이후 이력이 바뀜({res['reason']}). "
+                               f"비용 기록은 유지됩니다.")
+                return
 
             success_msg = f"✅ 수동 누적 압축 완료.\n**[최근 추가된 기억]**\n{new_compressed_segment}"
             if len(success_msg) > 2000:
@@ -1568,6 +1558,8 @@ class GameCog(commands.Cog):
 
         except Exception as e:
             await ctx.send(f"⚠️ 요약 중 오류 발생: {e}")
+        finally:
+            session.is_compressing = False
 
 
     @commands.command(name="노트")

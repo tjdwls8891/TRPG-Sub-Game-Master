@@ -200,3 +200,104 @@ def compare_curves(turns: int = 30) -> dict:
         key: [t // int(p["interval"]) for t in range(1, turns + 1)]
         for key, p in PLANS.items()
     }
+
+
+# ══════════════════════════════════════════════════════════════
+#  WP-F — 백그라운드 압축 출처 식별(source identity) · 적용 시 검증
+# ══════════════════════════════════════════════════════════════
+#  압축은 턴 진행과 독립적으로 늦게 도착할 수 있다. 결과는 '출발 시점의 정본 이력에서
+#  파생된 것이 지금도 정본일 때만' 적용한다. 판정 근거:
+#    · 기억 세대(memory generation) — 정본 이력을 되돌리는 모든 복원(되감기·재생성 시작/중단,
+#      turn_history.restore_reversible)과 압축 적용 자체가 올린다. 정상 턴 커밋(뒤에 append)은
+#      올리지 않는다 — 압축과 동시에 진행되는 턴은 정상 경로다.
+#    · 접두 지문 — uncompressed_logs[:n] 이 출발 시점 스냅샷과 같아야 한다(수정·삭제 감지).
+#  세대는 런타임 값이다. asyncio 태스크는 재시작을 넘지 못하므로 재시작 뒤 늦은 적용은
+#  구조적으로 없다(재시작은 새 세대 0에서 시작하고 진행 중 압축 표식 is_compressing 도 초기화).
+
+import hashlib as _hashlib
+import json as _json
+from dataclasses import dataclass as _dataclass
+
+_GEN_ATTR = "_memory_generation"
+
+
+def memory_generation(session) -> int:
+    return int(getattr(session, _GEN_ATTR, 0) or 0)
+
+
+def bump_memory_generation(session) -> int:
+    g = memory_generation(session) + 1
+    setattr(session, _GEN_ATTR, g)
+    return g
+
+
+def _prefix_digest(logs) -> str:
+    return _hashlib.sha256(_json.dumps(list(logs), ensure_ascii=False).encode("utf-8")).hexdigest()
+
+
+@_dataclass(frozen=True)
+class CompressionSource:
+    """압축 출발 시점의 불변 출처 식별."""
+    session_id: str
+    generation: int
+    prefix_len: int
+    prefix_digest: str
+    started_turn: int
+    commit_marker_tx: str | None
+    logs: tuple
+
+    @property
+    def text(self) -> str:
+        return "\n\n".join(self.logs)
+
+
+def capture_compression_source(session, logs=None) -> CompressionSource:
+    logs = tuple(list(session.uncompressed_logs) if logs is None else list(logs))
+    marker = getattr(session, "commit_marker", None) or {}
+    return CompressionSource(
+        session_id=str(session.session_id), generation=memory_generation(session),
+        prefix_len=len(logs), prefix_digest=_prefix_digest(logs),
+        started_turn=int(getattr(session, "turn_count", 0) or 0),
+        commit_marker_tx=marker.get("transaction_id"), logs=logs)
+
+
+def compression_source_status(session, source: CompressionSource) -> tuple:
+    """(still_canonical: bool, reason: str)."""
+    if str(session.session_id) != source.session_id:
+        return False, "session_mismatch"
+    if memory_generation(session) != source.generation:
+        return False, "history_generation_changed"
+    cur = list(getattr(session, "uncompressed_logs", None) or [])
+    if len(cur) < source.prefix_len:
+        return False, "source_logs_truncated"
+    if _prefix_digest(cur[:source.prefix_len]) != source.prefix_digest:
+        return False, "source_logs_changed"
+    return True, "ok"
+
+
+def apply_compression_result(session, source: CompressionSource, segment: str) -> dict:
+    """검증을 통과한 결과만 정본 압축 기억에 반영한다(동기 — 호출자가 직렬화 경계를 쥔다).
+
+    Returns: {"applied": bool, "reason": str, "first": bool}
+    """
+    ok, reason = compression_source_status(session, source)
+    if not ok:
+        return {"applied": False, "reason": reason, "first": False}
+    first = not bool(session.compressed_memory)
+    if first:
+        # 되감기용(레거시 비권위 로그) — 압축 발생 시점과 이전 원본. 수용된 결과에만 기록.
+        try:
+            from .rewind import record_delta
+            record_delta(session, getattr(session, "gm_turns_done", 0), [],
+                         compression={"occurred": True,
+                                      "before": session.compressed_memory or ""})
+        except Exception as e:  # noqa: BLE001
+            print(f"[되감기] 압축 기록 실패: {e}")
+        session.compressed_memory = segment
+        # 압축 완료 시점 기록 — 재압축 방지와 로우 플랜 전환 판정의 근거(기존 규정: 최초 생성 시).
+        mark_compressed(session)
+    else:
+        session.compressed_memory += f"\n{segment}"
+    del session.uncompressed_logs[:source.prefix_len]
+    bump_memory_generation(session)
+    return {"applied": True, "reason": "ok", "first": first}

@@ -445,6 +445,12 @@ def _commit_lock(session_id) -> asyncio.Lock:
     return _COMMIT_LOCKS[key]
 
 
+def commit_serialization_lock(session_id) -> asyncio.Lock:
+    """(WP-F) 커밋 직렬화 락의 공개 접근자 — 백그라운드 파생 적용(압축)이 커밋 임계구역
+    (롤백 스냅샷 캡처 ~ strict 저장 ~ 롤백)과 겹치지 않게 한다. 커밋 owner는 바뀌지 않는다."""
+    return _commit_lock(session_id)
+
+
 def _history_select_block(session, plan) -> None:
     """COMMITTED 이후 선택 전환이 실패했다면 차단 표식(HISTORY_SELECT) — reconcile이 해소."""
     err = getattr(session, "_history_select_error", None)

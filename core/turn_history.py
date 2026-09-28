@@ -268,6 +268,9 @@ def restore_reversible(session, state: dict) -> None:
         setattr(session, f, v)
     from .rewind import capture_state
     session._rewind_snapshot = capture_state(session)
+    # WP-F: 정본 이력 복원 — 진행 중(출발 시점이 이전 이력인) 백그라운드 압축 결과를 무효화한다.
+    from .memory_plan import bump_memory_generation
+    bump_memory_generation(session)
 
 
 def _digest(obj) -> str:
