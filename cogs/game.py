@@ -392,7 +392,7 @@ class GameCog(commands.Cog):
 
             # 플레이어가 보는 게임 채널에 대기 안내 (출력 시작 직전 삭제). 자동/수동 공통.
             # 묘사는 가장 오래 걸린다. 문구를 갈아 끼워 멈춘 것처럼 보이지 않게 한다.
-            status_msg = await core.WaitingStatus.begin(game_channel, "narration")
+            status_msg = await core.WaitingStatus.begin(game_channel, "narration", session=session)
 
             # === 묘사 생성 (provider + 검증 + 후처리) — canonical/전달 부작용 없음 ===
             narr = await self._generate_narration(
@@ -503,6 +503,10 @@ class GameCog(commands.Cog):
                     pass
             return {"ok": False, "ai_text": "", "error": str(e),
                     "finalized": bool(preparation is not None and preparation.narration is not None)}
+        finally:
+            # WP-F: 취소(CancelledError 등 Exception 밖 종료)에서도 대기 안내가 남지 않는다(멱등).
+            if status_msg:
+                await status_msg.done()
 
         if preparation is not None:
             # WP-C: 처리 잠금/채널 해제는 배리어·legacy continuation 이후 owner가 수행한다.

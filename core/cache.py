@@ -513,6 +513,11 @@ async def restore_sessions_from_disk(bot):
                         _d = await _th.drain_cleanup(bot, session)
                         if _d["done"] or _d["pending"]:
                             print(f"🧹 {session_id}: 출력 정리 부채 완료 {_d['done']} · 보류 {_d['pending']}")
+                    # WP-F: 재시작으로 끊긴 대기 안내(주인 없는 transient)·만료분 정리.
+                    #   채널 미준비면 등록부에 남고 다음 입력 admission 에서 재시도된다.
+                    from . import message_lifecycle as _ml
+                    await _ml.sweep(bot, session, prefix=_ml.WAITING_PREFIX)
+                    await _ml.sweep(bot, session, only_expired=True)
                 except Exception as _e:
                     session.commit_recovery = {"status": "RECOVERY_REQUIRED",
                                                "stage": "RESTORE_EXCEPTION",

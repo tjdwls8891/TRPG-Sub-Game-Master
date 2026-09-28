@@ -86,12 +86,12 @@ class PresenceCog(commands.Cog):
 
             game_ch = self.bot.get_channel(getattr(session, "game_ch_id", 0))
             if game_ch:
-                try:
-                    await game_ch.send(
-                        "⏸️ **세션 유지 시간이 끝났습니다.**\n"
-                        "> 디스플레이 채널의 **세션 열기**를 누르시면 이어서 진행하실 수 있습니다.")
-                except Exception:
-                    pass
+                # WP-F: TRANSIENT_GAME_STATUS — 다음 세션 열기 안내가 supersede(로그 미기록).
+                await core.message_lifecycle.send_transient(
+                    self.bot, session, game_ch,
+                    "⏸️ **세션 유지 시간이 끝났습니다.**\n"
+                    "> 디스플레이 채널의 **세션 열기**를 누르시면 이어서 진행하실 수 있습니다.",
+                    key=core.message_lifecycle.KEY_SESSION_NOTICE)
 
     @tasks.loop(seconds=STATUS_ROTATE_SECONDS)
     async def rotate_status(self):

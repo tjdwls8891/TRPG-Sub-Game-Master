@@ -571,8 +571,11 @@ _RETRY_MODE_PREPARATION = core.commit_coordinator.RETRY_MODE_PREPARATION
 
 
 # ========== [GM 주사위 버튼 View] ==========
-class RewindConfirmView(discord.ui.View):
-    """되감기 실행 확인 — 되돌리기 불가·환불 불가를 고지한 뒤 실행한다."""
+class RewindConfirmView(core.message_lifecycle.LifecyclePromptView):
+    """되감기 실행 확인 — 되돌리기 불가·환불 불가를 고지한 뒤 실행한다.
+
+    WP-F: INTERACTION_PROMPT — 확인/취소/시간 만료 중 정확히 한 번 종결하고 접어서 지운다.
+    """
 
     def __init__(self, bot, session, target_turn: int):
         super().__init__(timeout=60)
@@ -582,33 +585,43 @@ class RewindConfirmView(discord.ui.View):
 
     @discord.ui.button(label="되감기 실행", style=discord.ButtonStyle.danger)
     async def confirm(self, interaction: discord.Interaction, _b: discord.ui.Button):
-        await interaction.response.defer()
-        # WP-E: 되감기의 유일한 권위 — 선택된 커밋 시도 스냅샷 복원(게임 이력만, 환불 없음).
-        cog = self.bot.get_cog("GMCog")
-        result = await cog.history_rewind(self.session, self.target_turn)
-        if not result["ok"]:
-            await core.display.close_notice(
-                interaction, f"⚠️ {result['reason']}", seconds=8)
+        if not self.claim(core.message_lifecycle.PROMPT_CONFIRM):
+            await interaction.response.defer()
             return
-        msg = (
-            f"⏪ **{self.target_turn}턴 종료 시점으로 되돌렸습니다.**\n"
-            f"> 제거된 턴: {', '.join(str(t) for t in result['removed_turns'])}\n"
-            f"> 정리된 봇 출력: {result.get('removed_messages', 0)}건 · 결제 이력은 그대로 유지됩니다."
-        )
-        # 확인 메시지를 결과로 바꾸고 잠시 뒤 지운다.
-        # 확인·결과가 따로 남으면 상태판이 위로 밀려난다.
-        await core.display.close_notice(interaction, msg)
-        self.stop()
+        await interaction.response.defer()
+        try:
+            # WP-E: 되감기의 유일한 권위 — 선택된 커밋 시도 스냅샷 복원(게임 이력만, 환불 없음).
+            cog = self.bot.get_cog("GMCog")
+            result = await cog.history_rewind(self.session, self.target_turn)
+            if not result["ok"]:
+                await core.display.close_notice(
+                    interaction, f"⚠️ {result['reason']}", seconds=8)
+                return
+            msg = (
+                f"⏪ **{self.target_turn}턴 종료 시점으로 되돌렸습니다.**\n"
+                f"> 제거된 턴: {', '.join(str(t) for t in result['removed_turns'])}\n"
+                f"> 정리된 봇 출력: {result.get('removed_messages', 0)}건 · 결제 이력은 그대로 유지됩니다."
+            )
+            # 확인 메시지를 결과로 바꾸고 잠시 뒤 지운다.
+            # 확인·결과가 따로 남으면 상태판이 위로 밀려난다.
+            await core.display.close_notice(interaction, msg)
+        finally:
+            self.stop()
 
     @discord.ui.button(label="취소", style=discord.ButtonStyle.secondary)
     async def cancel(self, interaction: discord.Interaction, _b: discord.ui.Button):
         await interaction.response.defer()
+        if not self.claim(core.message_lifecycle.PROMPT_CANCEL):
+            return
         await core.display.close_notice(interaction, "되감기를 취소했습니다.", seconds=6)
         self.stop()
 
 
-class RerenderConfirmView(discord.ui.View):
-    """같은 턴 재생성 확인(WP-E) — 선언·판단 보존, 지시층위부터 다시 서술. 환불 없음."""
+class RerenderConfirmView(core.message_lifecycle.LifecyclePromptView):
+    """같은 턴 재생성 확인(WP-E) — 선언·판단 보존, 지시층위부터 다시 서술. 환불 없음.
+
+    WP-F: INTERACTION_PROMPT — 확인/취소/시간 만료 중 정확히 한 번 종결.
+    """
 
     def __init__(self, bot, session, addendum: str = ""):
         super().__init__(timeout=60)
@@ -619,19 +632,25 @@ class RerenderConfirmView(discord.ui.View):
     @discord.ui.button(label="재생성 실행", style=discord.ButtonStyle.danger)
     async def confirm(self, interaction: discord.Interaction, _b: discord.ui.Button):
         await interaction.response.defer()
-        entry, _rec, reason = core.turn_history.rerender_target(self.session)
-        if entry is None:
-            await core.display.close_notice(interaction, f"⚠️ {reason}", seconds=8)
+        if not self.claim(core.message_lifecycle.PROMPT_CONFIRM):
             return
-        await core.display.close_notice(
-            interaction, "🔁 같은 선언으로 턴을 다시 서술합니다. 이전 턴 청구는 유지됩니다.")
-        cog = self.bot.get_cog("GMCog")
-        asyncio.create_task(cog.rerender_latest(self.session, addendum=self.addendum))
-        self.stop()
+        try:
+            entry, _rec, reason = core.turn_history.rerender_target(self.session)
+            if entry is None:
+                await core.display.close_notice(interaction, f"⚠️ {reason}", seconds=8)
+                return
+            await core.display.close_notice(
+                interaction, "🔁 같은 선언으로 턴을 다시 서술합니다. 이전 턴 청구는 유지됩니다.")
+            cog = self.bot.get_cog("GMCog")
+            asyncio.create_task(cog.rerender_latest(self.session, addendum=self.addendum))
+        finally:
+            self.stop()
 
     @discord.ui.button(label="취소", style=discord.ButtonStyle.secondary)
     async def cancel(self, interaction: discord.Interaction, _b: discord.ui.Button):
         await interaction.response.defer()
+        if not self.claim(core.message_lifecycle.PROMPT_CANCEL):
+            return
         await core.display.close_notice(interaction, "재생성을 취소했습니다.", seconds=6)
         self.stop()
 
@@ -673,16 +692,21 @@ class RewindView(discord.ui.View):
                 f"되감기 가능 범위는 {oldest}~{newest}턴입니다.", ephemeral=True)
             return
 
+        view = RewindConfirmView(self.bot, session, target)
         await interaction.response.send_message(
             f"⚠️ **{newest}턴을 제거하고 {target}턴 종료 시점으로 되돌립니다.**\n"
             f"되돌리기는 취소할 수 없으며, 이미 소모된 비용은 환불되지 않습니다.\n"
             f"제거되는 정보는 되감기 로그로 이관됩니다.",
-            view=RewindConfirmView(self.bot, session, target),
+            view=view,
         )
+        await core.message_lifecycle.bind_interaction_prompt(interaction, view)
 
 
-class OpenConfirmView(discord.ui.View):
-    """세션 오픈 확인 — 유지 시간과 예상 비용을 보고 진행 여부를 정한다."""
+class OpenConfirmView(core.message_lifecycle.LifecyclePromptView):
+    """세션 오픈 확인 — 유지 시간과 예상 비용을 보고 진행 여부를 정한다.
+
+    WP-F: INTERACTION_PROMPT — 확인/취소/시간 만료 중 정확히 한 번 종결. 만료는 취소와 같다.
+    """
 
     def __init__(self, bot, session, minutes: int):
         super().__init__(timeout=300)
@@ -690,9 +714,14 @@ class OpenConfirmView(discord.ui.View):
         self.session = session
         self.minutes = minutes
 
+    async def on_expired(self):
+        self.session.open_minutes = 0
+
     @discord.ui.button(label="세션 열기", style=discord.ButtonStyle.success)
     async def confirm(self, interaction, _b):
         await interaction.response.defer()
+        if not self.claim(core.message_lifecycle.PROMPT_CONFIRM):
+            return
 
         # 잔액 확인 — 선불식이므로 부족하면 진행하지 않는다(기획 규정).
         uid = str(interaction.user.id)
@@ -704,6 +733,7 @@ class OpenConfirmView(discord.ui.View):
                 interaction,
                 f"⚠️ 잔액이 부족합니다. 필요 **{need}잉크** / 보유 **{bal}잉크**\n"
                 f"GM 스페이스에서 충전 후 다시 시도해 주십시오.", seconds=15)
+            self.stop()
             return
 
         # 해석 비용 — 2잉크 이상일 때만 청구한다(기획 규정).
@@ -736,7 +766,9 @@ class OpenConfirmView(discord.ui.View):
             # 이 분기가 없으면 시간만 정해지고 세션이 열리지 않는다.
             cog = self.bot.get_cog("SessionCog")
             if cog:
-                notify = game_ch.send if game_ch else None
+                # WP-F: 업로드 진행/결과 안내는 TRANSIENT_GAME_STATUS(교체·자동 정리, 로그 미기록).
+                notify = core.message_lifecycle.transient_notifier(
+                    self.bot, self.session, game_ch, ttl=60) if game_ch else None
                 ok = await cog.upload_cache(self.session, notify=notify)
                 if ok:
                     self.session.is_started = True
@@ -747,10 +779,10 @@ class OpenConfirmView(discord.ui.View):
 
     @discord.ui.button(label="취소", style=discord.ButtonStyle.secondary)
     async def cancel(self, interaction, _b):
-        self.session.open_minutes = 0
-        for child in self.children:
-            child.disabled = True
         await interaction.response.defer()
+        if not self.claim(core.message_lifecycle.PROMPT_CANCEL):
+            return
+        self.session.open_minutes = 0
         await core.display.close_notice(
             interaction, "세션 오픈을 취소했습니다.", seconds=6)
         self.stop()
@@ -1774,7 +1806,9 @@ class GMCog(commands.Cog):
                             failure_code=TT.FailureCode.PERSISTENCE_FAILURE)
                 game_ch = self.bot.get_channel(session.game_ch_id)
                 if game_ch:
-                    await core.send_streamed(self.bot, game_ch, core.build_failed_turn_notice(""))
+                    await core.message_lifecycle.send_transient(
+                        self.bot, session, game_ch, core.build_failed_turn_notice(""),
+                        key=core.message_lifecycle.KEY_TURN_NOTICE)
                 if master_ch:
                     await master_ch.send(
                         "⚠️ 추출 실패 + 재시도 복구 기록 저장 실패 — 재시도 없이 턴을 취소합니다(청구 0).")
@@ -1800,7 +1834,9 @@ class GMCog(commands.Cog):
             await self._cleanup_failed_delivery(session, prep)
             game_ch = self.bot.get_channel(session.game_ch_id)
             if game_ch:
-                await core.send_streamed(self.bot, game_ch, core.build_failed_turn_notice(""))
+                await core.message_lifecycle.send_transient(
+                    self.bot, session, game_ch, core.build_failed_turn_notice(""),
+                    key=core.message_lifecycle.KEY_TURN_NOTICE)
             if master_ch:
                 await master_ch.send("⚠️ 묘사 전달 실패 — 턴을 취소하고 선언 질문으로 되돌립니다.")
             session.current_turn_logs = []
@@ -2035,7 +2071,9 @@ class GMCog(commands.Cog):
             game_ch = self.bot.get_channel(session.game_ch_id)
             if game_ch:
                 try:
-                    await core.send_streamed(self.bot, game_ch, core.build_failed_turn_notice(""))
+                    await core.message_lifecycle.send_transient(
+                        self.bot, session, game_ch, core.build_failed_turn_notice(""),
+                        key=core.message_lifecycle.KEY_TURN_NOTICE)
                 except Exception:
                     pass
             session.current_turn_logs = []
@@ -2258,6 +2296,14 @@ class GMCog(commands.Cog):
     async def _recovery_admission(self, session) -> None:
         """게임 채널 입력 경로의 복구 admission — gm_active와 무관하게 먼저 실행된다."""
         async with self._lock_for(session):
+            if not getattr(session, "is_processing", False):
+                # WP-F: 주인 없는 대기 안내(재시작 잔재)·만료된 transient 재시도 정리.
+                try:
+                    await core.message_lifecycle.sweep(
+                        self.bot, session, prefix=core.message_lifecycle.WAITING_PREFIX)
+                    await core.message_lifecycle.sweep(self.bot, session, only_expired=True)
+                except Exception as e:
+                    print(f"[메시지 수명주기] transient 정리 실패(등록부 유지): {e}")
             if not getattr(session, "commit_recovery", None):
                 # WP-E(E-E2): 보전된 출력 매핑 재정합 · 남은 출력 정리 부채 재시도
                 if core.turn_history.needs_reconcile(session):
@@ -2420,6 +2466,12 @@ class GMCog(commands.Cog):
         roll_results: list[str] = []
 
         game_ch = self.bot.get_channel(session.game_ch_id)
+        # WP-F: 새 선언이 들어왔다 — 이전 턴 실패/차단 안내(transient)를 supersede 로 정리한다.
+        try:
+            await core.message_lifecycle.clear(self.bot, session,
+                                               core.message_lifecycle.KEY_TURN_NOTICE)
+        except Exception as e:
+            print(f"[메시지 수명주기] 턴 안내 정리 실패(등록부 유지·재시도): {e}")
 
         # ── 방안 6 → 지시층위 순차 주입 ──
         # 세계관 캐시가 유효하면 먼저 서사 방향성을 시뮬레이션하고, 그 결과(sim_result)를
@@ -2441,9 +2493,11 @@ class GMCog(commands.Cog):
                     if expired else "세션이 닫혀 있습니다.")
             await m_send(f"⚠️ {note} 디스플레이에서 세션을 열어 주십시오.")
             if game_ch:
-                await core.send_streamed(
-                    self.bot, game_ch,
-                    f"⏸️ {note}\n> 디스플레이 채널의 **세션 열기**를 눌러 주십시오.")
+                # WP-F: TRANSIENT_GAME_STATUS — 다음 턴 시도·세션 열기가 supersede(로그 미기록).
+                await core.message_lifecycle.send_transient(
+                    self.bot, session, game_ch,
+                    f"⏸️ {note}\n> 디스플레이 채널의 **세션 열기**를 눌러 주십시오.",
+                    key=core.message_lifecycle.KEY_TURN_NOTICE)
             return
 
         # ── 잔액 검사 (기획 규정 — 소지금 < 예상 최대금액이면 차단) ──
@@ -2453,10 +2507,12 @@ class GMCog(commands.Cog):
                 _bal = core.accounts.get_balance(_uid)
                 if _bal < _pre_est["max_ink"]:
                     if game_ch:
-                        await core.send_streamed(self.bot, game_ch,
+                        await core.message_lifecycle.send_transient(
+                            self.bot, session, game_ch,
                             f"⛔ **잉크가 부족합니다.**\n"
                             f"> 필요 {_pre_est['max_ink']}잉크 / 보유 {_bal}잉크\n"
-                            f"> GM 스페이스에서 충전 후 진행해 주십시오.")
+                            f"> GM 스페이스에서 충전 후 진행해 주십시오.",
+                            key=core.message_lifecycle.KEY_TURN_NOTICE)
                     await m_send(f"⛔ 잔액 부족으로 턴 차단 (보유 {_bal} < 필요 {_pre_est['max_ink']})")
                     return
         except Exception as e:
@@ -2490,31 +2546,31 @@ class GMCog(commands.Cog):
 
         # 플레이어가 보는 게임 채널에 판단 대기 안내 (판단 완료 후 삭제)
         # 층위별 문구 — 4층위 도입으로 대기가 길어져 같은 문구 반복은 멈춘 듯 보인다.
-        status_msg = await core.WaitingStatus.begin(game_ch, "judgment")
-
-        if do_simulation:
-            if game_ch:
-                async with game_ch.typing():
+        # WP-F: TRANSIENT_GAME_STATUS — 성공·실패·예외·취소 어느 경로든 finally 에서 멱등 정리.
+        status_msg = await core.WaitingStatus.begin(game_ch, "judgment", session=session)
+        try:
+            if do_simulation:
+                if game_ch:
+                    async with game_ch.typing():
+                        sim_result = await self._simulate_narrative_directions(
+                            session, player_message, master_ch,
+                            transaction_id=transaction_id)
+                else:
                     sim_result = await self._simulate_narrative_directions(
                         session, player_message, master_ch,
                         transaction_id=transaction_id)
-            else:
-                sim_result = await self._simulate_narrative_directions(
-                    session, player_message, master_ch,
-                    transaction_id=transaction_id)
 
-        # ── [판단층위] 캐시 미사용 — 진행 유형과 ASK 질문·ROLL 명세를 결정 ──
-        if game_ch:
-            async with game_ch.typing():
+            # ── [판단층위] 캐시 미사용 — 진행 유형과 ASK 질문·ROLL 명세를 결정 ──
+            if game_ch:
+                async with game_ch.typing():
+                    judgment = await self._call_judgment(
+                        session, player_message, roll_results, master_ch,
+                        transaction_id=transaction_id)
+            else:
                 judgment = await self._call_judgment(
                     session, player_message, roll_results, master_ch,
                     transaction_id=transaction_id)
-        else:
-            judgment = await self._call_judgment(
-                session, player_message, roll_results, master_ch,
-                transaction_id=transaction_id)
-
-        if status_msg:
+        finally:
             await status_msg.done()
 
         if not judgment:
@@ -2807,12 +2863,13 @@ class GMCog(commands.Cog):
                 await ctx.send("사용법: `!되감기` / `!되감기 [턴번호]` / `!되감기 범위`")
                 return
 
-        await ctx.send(
+        view = RewindConfirmView(self.bot, session, target)
+        view.bind(await ctx.send(
             f"⚠️ **{target}턴 종료 시점으로 되돌립니다.**\n"
             f"되돌리기는 취소할 수 없으며, 이미 소모된 비용은 환불되지 않습니다.\n"
             f"제거되는 정보는 되감기 로그로 이관됩니다.",
-            view=RewindConfirmView(self.bot, session, target),
-        )
+            view=view,
+        ))
 
     async def _forced_proceed_instruction(self, session, player_message: str,
                                           roll_results: list, master_ch,
@@ -3684,7 +3741,9 @@ class GMCog(commands.Cog):
             except Exception:
                 pass
             if game_ch:
-                await core.send_streamed(self.bot, game_ch, core.build_failed_turn_notice(last_decl))
+                await core.message_lifecycle.send_transient(
+                    self.bot, session, game_ch, core.build_failed_turn_notice(last_decl),
+                    key=core.message_lifecycle.KEY_TURN_NOTICE)
             if master_ch:
                 await master_ch.send("⚠️ 묘사층위 실패 — 턴을 취소하고 선언 질문으로 되돌립니다.")
             # 실패 턴의 잔재 제거. 플레이 로그에는 정상 선언 질문처럼 남는다.
@@ -3729,13 +3788,18 @@ class GMCog(commands.Cog):
         except Exception:
             pass
 
+        # WP-F: 답변이 들어왔다 — 유지 시간 질문(INTERACTION_PROMPT)은 여기서 종결 정리한다.
+        await core.message_lifecycle.clear(self.bot, session,
+                                           core.message_lifecycle.KEY_DISPLAY_OPEN_PROMPT)
         if resolved.get("retry"):
-            # 재질문 — 이 경우에만 다시 언락한다(기획 규정).
+            # 재질문 — 이 경우에만 다시 언락한다(기획 규정). 재질문도 같은 키의 프롬프트다.
             session.awaiting_display_input = True
-            await message.channel.send(
-                "❓ 입력을 이해하지 못했습니다. 다시 답해 주십시오.\n"
-                "> 예: `3시간`, `90분`, `20턴`, `적당히`, `알아서`"
-            )
+            core.message_lifecycle.register(
+                session, core.message_lifecycle.KEY_DISPLAY_OPEN_PROMPT,
+                await message.channel.send(
+                    "❓ 입력을 이해하지 못했습니다. 다시 답해 주십시오.\n"
+                    "> 예: `3시간`, `90분`, `20턴`, `적당히`, `알아서`"
+                ), cls=core.message_lifecycle.INTERACTION_PROMPT)
             return
 
         session.open_minutes = resolved["minutes"]
@@ -3743,10 +3807,8 @@ class GMCog(commands.Cog):
             est = core.estimate_session_open(session, resolved["minutes"] / 60)
         except Exception:
             est = {}
-        await message.channel.send(
-            core.format_confirmation(resolved, est),
-            view=OpenConfirmView(self.bot, session, resolved["minutes"]),
-        )
+        view = OpenConfirmView(self.bot, session, resolved["minutes"])
+        view.bind(await message.channel.send(core.format_confirmation(resolved, est), view=view))
 
     async def interpret_cache_time(self, session, text: str) -> dict:
         """

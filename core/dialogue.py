@@ -128,13 +128,21 @@ class WaitingStatus:
         self.message = message
         self.layer = layer
         self._task = None
+        self._session = None
+        self._key = None
 
     @classmethod
-    async def begin(cls, channel, layer: str = "narration"):
+    async def begin(cls, channel, layer: str = "narration", *, session=None):
+        """WP-F: session 을 넘기면 내구 transient 등록부에 올린다 — 재시작으로 끊겨도 sweep 이 정리."""
         msg = await send_status_message(channel, pick_status_message(layer))
         if not msg:
             return cls(None, layer)
         self = cls(msg, layer)
+        if session is not None:
+            from . import message_lifecycle as _ml
+            self._session = session
+            self._key = f"{_ml.WAITING_PREFIX}{layer}"
+            _ml.register(session, self._key, msg)
         self._task = asyncio.create_task(self._rotate())
         return self
 
@@ -152,15 +160,29 @@ class WaitingStatus:
             return
 
     async def done(self, *, keep: bool = False):
+        """멱등 종결 — 성공·실패·취소·예외 경로의 finally 에서 여러 번 불러도 안전하다."""
         if self._task:
             self._task.cancel()
             self._task = None
         if self.message and not keep:
+            gone = False
             try:
                 await self.message.delete()
-            except Exception:
-                pass
+                gone = True
+            except Exception as e:
+                from .message_lifecycle import is_gone
+                gone = is_gone(e)
+            if gone and self._session is not None:
+                from . import message_lifecycle as _ml
+                _ml._unregister(self._session, self._key, [self.message.id])
             self.message = None
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *exc):
+        await self.done()
+        return False
 
 
 async def send_status_message(channel, text: str):

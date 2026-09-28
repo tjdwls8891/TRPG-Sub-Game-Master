@@ -662,7 +662,8 @@ async def on_open_time_done(bot, session, channel):
 
     cog = bot.get_cog("SessionCog")
     if cog:
-        await cog.upload_cache(session, notify=channel.send)
+        from . import message_lifecycle as _ml
+        await cog.upload_cache(session, notify=_ml.transient_notifier(bot, session, channel, ttl=60))
 
     # 세션이 실제로 열렸다. 이 플래그가 없으면 턴 진행이 차단된다.
     # !시작 명령 경로에만 있어 버튼 플로우에서는 영원히 False였다.

@@ -12,6 +12,8 @@ import asyncio
 import discord
 
 from . import media_control
+from .message_lifecycle import (LifecyclePromptView, PROMPT_CANCEL, PROMPT_CONFIRM,
+                                bind_interaction_prompt)
 from .ink import format_ink, cost_to_ink
 from .timeline import format_timeline
 from .constants import CACHE_TTL_SECONDS, TTS_NARRATOR_VOICE
@@ -308,12 +310,14 @@ class DisplayView(discord.ui.View):
         cog = self.bot.get_cog("GMCog")
         confirm_cls = getattr(__import__("cogs.gm", fromlist=["RewindConfirmView"]),
                               "RewindConfirmView")
+        view = confirm_cls(self.bot, session, target)
         await interaction.response.send_message(
             f"⚠️ **{newest}턴을 제거하고 {target}턴 종료 시점으로 되돌립니다.**\n"
             f"되돌리기는 취소할 수 없으며, 이미 소모된 비용은 환불되지 않습니다.",
-            view=confirm_cls(self.bot, session, target),
+            view=view,
             ephemeral=False,
         )
+        await bind_interaction_prompt(interaction, view)
 
     @discord.ui.button(label="⏪⏪ 여러 턴 되감기", style=discord.ButtonStyle.danger,
                        custom_id="disp:rewind_multi", row=2)
@@ -352,11 +356,13 @@ class DisplayView(discord.ui.View):
             return
         confirm_cls = getattr(__import__("cogs.gm", fromlist=["RerenderConfirmView"]),
                               "RerenderConfirmView")
+        view = confirm_cls(self.bot, session)
         await interaction.response.send_message(
             f"⚠️ **{entry['gm_turn']}턴을 같은 선언으로 다시 서술합니다.**\n"
             f"새 서술이 확정되면 기존 턴 출력이 교체됩니다. 이미 소모된 비용은 환불되지 않습니다.",
-            view=confirm_cls(self.bot, session),
+            view=view,
         )
+        await bind_interaction_prompt(interaction, view)
 
     @discord.ui.button(label="⏻ 세션 열기", style=discord.ButtonStyle.success,
                        custom_id="disp:open", row=3)
@@ -375,12 +381,21 @@ class DisplayView(discord.ui.View):
         # 기획 규정: 버튼으로 시간 입력을 호출하고, 이때만 채팅을 언락한다.
         # 답변은 1회만 받고 즉시 다시 잠근다(chat_guard의 awaiting_display_input).
         session.awaiting_display_input = True
+        # WP-F: INTERACTION_PROMPT — 이전 질문이 남아 있으면 supersede 로 정리하고, 답변 처리
+        #   (gm._handle_open_time_input)가 이 질문을 종결 정리한다.
+        from . import message_lifecycle as _ml
+        await _ml.clear(self.bot, session, _ml.KEY_DISPLAY_OPEN_PROMPT)
         await interaction.response.send_message(
             "⏱️ **세션을 얼마나 유지하시겠습니까?**\n"
             "이 채널에 답해 주십시오. (예: `3시간`, `20턴`, `적당히`, `알아서`)\n"
             "> 유지 시간에 비례해 캐시 유지비가 발생합니다.\n"
             f"> 최소 {MIN_MINUTES}분 · 최대 {MAX_MINUTES // 60}시간"
         )
+        try:
+            _ml.register(session, _ml.KEY_DISPLAY_OPEN_PROMPT,
+                         await interaction.original_response(), cls=_ml.INTERACTION_PROMPT)
+        except Exception as e:
+            print(f"[디스플레이] 유지 시간 질문 핸들 확보 실패: {e}")
 
     @discord.ui.button(label="⏹ 세션 닫기", style=discord.ButtonStyle.danger,
                        custom_id="disp:close", row=3)
@@ -401,12 +416,14 @@ class DisplayView(discord.ui.View):
         pv = preview_close(session)
         used_h, prepaid, refund = pv["used_hours"], pv["prepaid_ink"], pv["refund_ink"]
 
+        view = CloseConfirmView(self.bot, session, refund)
         await interaction.response.send_message(
             f"⚠️ **세션을 닫으시겠습니까?**\n"
             f"> 사용 {used_h:.1f}시간 · 선결제 {prepaid}잉크\n"
             f"> 환급 예정 **{refund}잉크**\n"
             f"> 닫으면 캐시가 파기되며 다시 열 때 업로드 비용이 재발생합니다.",
-            view=CloseConfirmView(self.bot, session, refund))
+            view=view)
+        await bind_interaction_prompt(interaction, view)
 
     @discord.ui.button(label="💰 결제", style=discord.ButtonStyle.primary,
                        custom_id="disp:pay", row=3)
@@ -415,8 +432,11 @@ class DisplayView(discord.ui.View):
             "결제 기능은 계정·약관 시스템 도입 후 활성화됩니다.", ephemeral=True)
 
 
-class CloseConfirmView(discord.ui.View):
-    """세션 클로즈 확인 — 캐시 파기 후 환급액을 몇 초간 알린다(기획 규정)."""
+class CloseConfirmView(LifecyclePromptView):
+    """세션 클로즈 확인 — 캐시 파기 후 환급액을 몇 초간 알린다(기획 규정).
+
+    WP-F: INTERACTION_PROMPT — 확인/취소/시간 만료 중 정확히 한 번 종결.
+    """
 
     def __init__(self, bot, session, refund: int):
         super().__init__(timeout=300)
@@ -427,6 +447,8 @@ class CloseConfirmView(discord.ui.View):
     @discord.ui.button(label="세션 닫기", style=discord.ButtonStyle.danger)
     async def confirm(self, interaction, _b):
         await interaction.response.defer()
+        if not self.claim(PROMPT_CONFIRM):
+            return
         # WP-F: 원격 삭제·보관 사실·선불 정산(환급)은 캐시 생애주기 단일 finalizer가
         #   정확히 한 번 수행한다(직접 caches.delete / add_ink 금지).
         from . import cache_lifecycle
@@ -453,6 +475,8 @@ class CloseConfirmView(discord.ui.View):
     @discord.ui.button(label="취소", style=discord.ButtonStyle.secondary)
     async def cancel(self, interaction, _b):
         await interaction.response.defer()
+        if not self.claim(PROMPT_CANCEL):
+            return
         await close_notice(interaction, "세션 클로즈를 취소했습니다.", seconds=6)
         self.stop()
 
@@ -486,11 +510,13 @@ class RewindTargetModal(discord.ui.Modal, title="여러 턴 되감기"):
         confirm_cls = getattr(__import__("cogs.gm", fromlist=["RewindConfirmView"]),
                               "RewindConfirmView")
         removed = self.newest - t
+        view = confirm_cls(self.bot, self.session, t)
         await interaction.response.send_message(
             f"⚠️ **{t}턴 종료 시점으로 되돌립니다.** ({removed}개 턴 제거)\n"
             f"되돌리기는 취소할 수 없으며, 이미 소모된 비용은 환불되지 않습니다.\n"
             f"제거되는 정보는 되감기 로그로 이관됩니다.",
-            view=confirm_cls(self.bot, self.session, t))
+            view=view)
+        await bind_interaction_prompt(interaction, view)
 
 
 async def notify(interaction, text: str, *, seconds: int = 12, view=None):
@@ -579,10 +605,14 @@ def build_view(bot, session) -> discord.ui.View:
 
 
 async def refresh(bot, session, *, reason: str = "") -> bool:
-    """디스플레이 메시지를 갱신한다. 실패해도 게임 진행을 막지 않는다.
+    """CANONICAL_DISPLAY 갱신 — 같은 메시지를 edit 한다. 실패해도 게임 진행을 막지 않는다.
 
-    메시지가 없으면 새로 만들고 id를 기록한다.
+    WP-F: 기록된 메시지가 없거나(NotFound) 접근 불가(Forbidden)일 때만 새로 만들고 새 ID를
+    영속한다. 일시적 오류(HTTP 5xx·레이트리밋 등)에는 두 번째 상태판을 만들지 않는다 —
+    표시는 정본 세션에서 언제든 다시 그릴 수 있으므로 다음 갱신이 복구한다. Discord 실패는
+    정본 상태를 바꾸지 않는다.
     """
+    from .message_lifecycle import is_inaccessible
     ch_id = getattr(session, "display_ch_id", None)
     if not ch_id:
         return False
@@ -594,19 +624,34 @@ async def refresh(bot, session, *, reason: str = "") -> bool:
     view = build_view(bot, session)
     msg_id = getattr(session, "display_msg_id", None)
 
-    try:
-        if msg_id:
+    if msg_id:
+        try:
             msg = await channel.fetch_message(msg_id)
             await msg.edit(embed=embed, view=view)
             return True
-    except Exception:
-        # 메시지가 삭제됐거나 접근 불가 — 새로 만든다.
-        pass
+        except Exception as e:
+            if not is_inaccessible(e):
+                print(f"[디스플레이] 갱신 일시 실패 ({reason}) — 중복 생성 없이 다음 갱신에 맡김: {e}")
+                return False
+            # 메시지가 삭제됐거나 접근 불가 — 새로 만든다.
 
     try:
         msg = await channel.send(embed=embed, view=view)
-        session.display_msg_id = msg.id
-        return True
     except Exception as e:
         print(f"[디스플레이] 갱신 실패 ({reason}): {e}")
         return False
+    session.display_msg_id = msg.id
+    await _persist_display_id(bot, session)
+    return True
+
+
+async def _persist_display_id(bot, session) -> None:
+    """재생성된 상태판 ID 를 영속한다(tolerant). 세션 io 락을 이미 쥔 호출 문맥이면 예약한다."""
+    from .io import save_session_data, session_io_lock
+    try:
+        if session_io_lock(bot, session).locked():
+            asyncio.create_task(save_session_data(bot, session))
+        else:
+            await save_session_data(bot, session)
+    except Exception as e:
+        print(f"[디스플레이] 상태판 ID 저장 실패(다음 저장에 포함): {e}")
