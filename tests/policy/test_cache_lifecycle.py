@@ -212,7 +212,7 @@ async def test_remote_delete_failure_bills_storage_to_expiry_as_estimate(fresh, 
         raise RuntimeError("503 unavailable")
     monkeypatch.setattr(cbot.genai_client.caches, "delete", _boom)
     out = await CLC.close_window(cbot, fresh, reason=CLC.REASON_OPERATOR_DELETE,
-                                 disposition=CLC.WINDOW_NO_PLAYER_EFFECT)
+                                 disposition=CLC.WINDOW_SETTLE_REFUND)
     assert out["remote"] == CLC.REMOTE_FAILED
     st = _events(cbot, CL.OP_CACHE_STORAGE)[0]
     assert st["usage_source"] == CL.SOURCE_ESTIMATE
@@ -351,60 +351,8 @@ async def test_restore_expired_window_finalizes_without_recreate(fresh, cbot, cl
     assert st[0]["metadata"]["storage_seconds"] == pytest.approx(180 * 60)  # TTL 상한
 
 
-# ── K-F12 additional charge ─────────────────────────────────
-
-async def test_kf12_shortfall_is_operator_borne_no_additional_charge(fresh, cbot, clock, monkeypatch):
-    await CLC.open_window(cbot, fresh)
-    # 사용분이 선불을 넘는 상황(예: 선불액 산정 이후 단가 변화)을 저널 값으로 재현
-    evs = CLC.load_events(fresh.session_id)
-    for e in evs:
-        if e["type"] == "WINDOW_OPENED":
-            e["cache_ink"] = 1
-    with open(CLC.journal_path(fresh.session_id), "w", encoding="utf-8") as f:
-        f.write("".join(json.dumps(e, ensure_ascii=False) + "\n" for e in evs))
-    clock.advance(3600)
-    await CLC.close_window(cbot, fresh, reason=CLC.REASON_PLAYER_CLOSE,
-                           disposition=CLC.WINDOW_SETTLE_REFUND)
-    intent = [e for e in CLC.load_events(fresh.session_id) if e["type"] == "WINDOW_SETTLE_INTENT"][0]
-    assert intent["refund"] == {}
-    assert intent["operator_borne_shortfall"][PLAYER_UID] > 0
-    assert [r["kind"] for r in _ink_rows()] == [IT.KIND_PREPAYMENT]   # ADDITIONAL_CHARGE 없음
-
-
-# ── K-F13 operator actions ─────────────────────────────────
-
-async def test_kf13_operator_actions_have_no_player_effect(fresh, cbot, clock):
-    await CLC.open_window(cbot, fresh)
-    bal_after_open = _bal()
-    await CLC.reissue(cbot, fresh, purpose=CLC.PURPOSE_REISSUE_MANUAL)
-    ev = _events(cbot, CL.OP_CACHE_CREATE)[-1]
-    assert (ev["actor_kind"], ev["billing_hint"]) == (CL.ACTOR_OWNER, CL.HINT_OPERATOR)
-    assert ev["transaction_id"] is None and ev["logical_turn"] is None
-    clock.advance(600)
-    await CLC.close_window(cbot, fresh, reason=CLC.REASON_OPERATOR_DELETE,
-                           disposition=CLC.WINDOW_NO_PLAYER_EFFECT)
-    assert _bal() == bal_after_open
-    assert [r["kind"] for r in _ink_rows()] == [IT.KIND_PREPAYMENT]
-    assert fresh.cache_name is None and fresh.cache_created_at == 0.0
-
-
-# ── 환급 대상 · 해석 비용 정정 ─────────────────────────────
-
-async def test_refund_excludes_interpretation_and_non_payers(fresh, cbot, clock):
-    fresh.interpret_cost_krw = 50.0
-    interp = core.cost_to_ink(50.0)                          # 임계(2잉크) 이상 → 선불에 합산
-    res = await CLC.open_window(cbot, fresh)
-    assert res["interpret_ink"] == interp
-    per_user = res["charge_ink"]
-    late = "555999"
-    _seed(late, 100)
-    fresh.players[late] = {"name": "늦참", "profile": {}}     # 오픈 후 합류(선불 안 함)
-    out = await CLC.close_window(cbot, fresh, reason=CLC.REASON_PLAYER_CLOSE,
-                                 disposition=CLC.WINDOW_SETTLE_REFUND)
-    cache_ink = per_user - interp
-    used = core.cost_to_ink(core.calculate_upload_cost(core.DEFAULT_MODEL, input_tokens=TOKENS))
-    assert out["refund"] == {PLAYER_UID: cache_ink - used}
-    assert _bal(late) == 100
+# K-F12 / K-F13 / 해석·비선불자 환급은 WP-F gate patch 정책(POLICY-CACHE-01~03)에 따라
+# tests/policy/test_cache_finance_policy.py 의 P1~P8 로 대체·강화되었다.
 
 
 # ── 레거시 채택 (WP-F 이전에 열린 캐시) ───────────────────

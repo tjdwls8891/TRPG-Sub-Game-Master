@@ -518,3 +518,33 @@ def cache_storage_cost_usd(model_id: str, *, tokens: int, seconds: float) -> flo
     rates = PRICING_1M.get(model_id, PRICING_1M[DEFAULT_MODEL])
     return ((max(0, int(tokens or 0)) / 1_000_000)
             * rates.get("CACHE_STORAGE_PER_HOUR", 0.0) * (max(0.0, float(seconds)) / 3600.0))
+
+
+# ══════════════════════════════════════════════════════════════
+#  WP-F gate patch — 캐시 창 책임액의 단일 canonical 공식 (POLICY-CACHE-03)
+# ══════════════════════════════════════════════════════════════
+#  선불 예상(estimate)과 종료 시 실제 책임(actual)은 **같은** 원시 함수·단위·반올림으로
+#  계산한다. 차이는 저장 시간(계획 TTL vs 실제 경과)과 토큰 실측값뿐이어야 한다.
+#    · 단가: cache_create_cost_usd / cache_storage_cost_usd (초 단위, 반올림 없음)
+#    · 통화: USD 합산 → × EXCHANGE_RATE (한 번)
+#    · 잉크: cost_to_ink 를 **합계에 한 번**(구성요소별 올림 금지)
+
+def cache_window_responsibility_usd(model_id: str, *, create_tokens: int,
+                                    storage: list) -> float:
+    """생성(업로드) 1회 + 저장 구간들 [(tokens, seconds), …] 의 책임액(USD)."""
+    usd = cache_create_cost_usd(model_id, tokens=create_tokens)
+    for tokens, seconds in storage or []:
+        usd += cache_storage_cost_usd(model_id, tokens=tokens, seconds=seconds)
+    return usd
+
+
+def cache_window_estimate_usd(model_id: str, *, tokens: int, planned_seconds: float) -> float:
+    """선불 예상 — 계획 TTL 동안 같은 토큰으로 유지된다고 가정한 canonical 책임액."""
+    return cache_window_responsibility_usd(
+        model_id, create_tokens=tokens, storage=[(tokens, planned_seconds)])
+
+
+def cache_usd_to_ink(usd: float) -> int:
+    """캐시 책임액(USD)의 잉크 환산 — 유일한 반올림 경계."""
+    from .ink import cost_to_ink
+    return cost_to_ink(float(usd) * EXCHANGE_RATE)

@@ -259,7 +259,9 @@ def estimate_session_open(session, hours: float) -> dict:
 
     cache_tokens 실측값 기반이라 정확도가 높다.
     """
-    from .cost import calculate_upload_cost
+    from .cost import (cache_create_cost_usd, cache_usd_to_ink,
+                       cache_window_estimate_usd)
+    from .constants import EXCHANGE_RATE
 
     tokens = int(getattr(session, "cache_tokens", 0) or 0)
     if tokens <= 0:
@@ -268,20 +270,24 @@ def estimate_session_open(session, hours: float) -> dict:
         # 캐시에는 story_guide·stat_system·desc_guide·NPC 사전도 함께 실린다.
         tokens = approx_cache_tokens(getattr(session, "scenario_data", {}) or {})
     # NOTE: 실제 청구와 같은 함수를 써야 예상과 결과가 어긋나지 않는다.
-    #       이전에는 여기서만 저장비를 따로 계산해 두 값이 달랐다.
+    #       WP-F: 선불·종료 책임과 같은 canonical 공식(core.cost.cache_window_*)과
+    #       같은 잉크 반올림 경계(cache_usd_to_ink)를 쓴다.
     try:
-        create_krw = calculate_upload_cost(DEFAULT_MODEL, input_tokens=tokens)
-        total = calculate_upload_cost(DEFAULT_MODEL, input_tokens=tokens,
-                                      store_hours=hours)
+        total_usd = cache_window_estimate_usd(DEFAULT_MODEL, tokens=tokens,
+                                              planned_seconds=float(hours) * 3600.0)
+        create_krw = cache_create_cost_usd(DEFAULT_MODEL, tokens=tokens) * EXCHANGE_RATE
+        total = total_usd * EXCHANGE_RATE
         store_krw = total - create_krw
+        total_ink = cache_usd_to_ink(total_usd)
     except Exception:
         create_krw = store_krw = total = 0.0
+        total_ink = 0
     return {
         "cache_tokens": tokens,
         "create_krw": round(create_krw, 2),
         "store_krw": round(store_krw, 2),
         "total_krw": round(total, 2),
-        "total_ink": cost_to_ink(total),
+        "total_ink": total_ink,
         "hours": hours,
     }
 

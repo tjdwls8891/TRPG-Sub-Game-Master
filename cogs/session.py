@@ -321,10 +321,14 @@ class SessionCog(commands.Cog):
                     await master_ch.send(
                         "⚠️ 세션 오픈 선불 기록이 완료되지 않았습니다 — 다음 캐시 조작·재시작 시 재시도합니다.")
 
+            # POLICY-CACHE-01: 캐시 선불(환급 대상)과 시간 해석 청구(환불 없음)는 별개 거래다.
             await _say(
                 f"✅ 세션이 열렸습니다. (유지 {ttl // 60}분)\n"
-                f"> 선결제 **{charge_ink}잉크**"
-                + (f" (시간 해석 {interpret_ink}잉크 포함)" if interpret_ink else ""))
+                f"> 캐시 선결제 **{charge_ink}잉크** (미사용분은 종료 시 환급)"
+                + (f"\n> 시간 해석 **{interpret_ink}잉크** 청구 (환불 없음)"
+                   if interpret_ink and res.get("interpret_charged") else "")
+                + ("\n> ⚠️ 시간 해석 청구 기록이 지연되어 다음 캐시 조작 시 재시도합니다."
+                   if interpret_ink and not res.get("interpret_charged") else ""))
             return True
         except Exception as e:
             await _say(f"⚠️ 캐시 업로드 실패 (일반 모드로 진행됩니다. 원인: {e})")

@@ -116,7 +116,7 @@ async def test_d006d_close_paths_converge_on_one_finalizer(
     close_settled = await core.process_cache_deletion(wired_bot, _mk("d006-a"))
     res = await CLC.close_window(wired_bot, _mk("d006-b"),
                                  reason=CLC.REASON_OPERATOR_DELETE,
-                                 disposition=CLC.WINDOW_NO_PLAYER_EFFECT)
+                                 disposition=CLC.WINDOW_SETTLE_REFUND)
     direct_delete_recorded = res["storage_krw"]
 
     assert round(upload_planned, 2) != round(close_settled, 2)

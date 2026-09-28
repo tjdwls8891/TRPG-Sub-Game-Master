@@ -209,14 +209,19 @@ class SystemCog(commands.Cog):
             await ctx.send(f"⚠️ 게임 채널 잠금 실패: {e}")
 
         # 2. 캐시 파기 및 보관 시간 정산 — WP-F 캐시 생애주기 단일 finalizer.
-        #    운영자 종료: 플레이어 재무 효과 없음(현행 보존 — 운영자 종료 시 환급 정책 미정).
+        #    POLICY-CACHE-02: 운영자 조기 종료도 실제 선불 payer 에게 미사용 캐시 선불을 환급한다.
         storage_cost = 0.0
         if session.cache_name:
             try:
                 res = await core.cache_lifecycle.close_window(
                     self.bot, session, reason=core.cache_lifecycle.REASON_OPERATOR_END,
-                    disposition=core.cache_lifecycle.WINDOW_NO_PLAYER_EFFECT)
+                    disposition=core.cache_lifecycle.WINDOW_SETTLE_REFUND)
                 storage_cost = res["storage_krw"]
+                if res.get("refund"):
+                    await ctx.send("💰 미사용 캐시 선불 환급: " + ", ".join(
+                        f"<@{u}> {v}잉크" for u, v in res["refund"].items()))
+                if not res.get("settled"):
+                    await ctx.send("⚠️ 환급 기록이 완료되지 않아 다음 캐시 조작·재시작 시 재시도합니다.")
                 if res.get("remote") == core.cache_lifecycle.REMOTE_FAILED:
                     await ctx.send("⚠️ API 서버 측 캐시 삭제 실패 — 만료 시각까지의 보관분으로 정산했습니다.")
             except Exception as e:
@@ -286,12 +291,17 @@ class SystemCog(commands.Cog):
                 return await ctx.send("⚠️ 현재 유지 중인 캐시가 없습니다.")
 
             await ctx.send("⏳ 기존 캐시를 명시적으로 삭제하고 보관 비용을 정산합니다...")
-            # WP-F: 단일 finalizer — 운영자 삭제는 플레이어 재무 효과 없음(현행 보존).
+            # WP-F: 단일 finalizer — POLICY-CACHE-02: 운영자 삭제도 미사용 캐시 선불을 환급한다.
             try:
                 res = await core.cache_lifecycle.close_window(
                     self.bot, session, reason=core.cache_lifecycle.REASON_OPERATOR_DELETE,
-                    disposition=core.cache_lifecycle.WINDOW_NO_PLAYER_EFFECT)
+                    disposition=core.cache_lifecycle.WINDOW_SETTLE_REFUND)
                 storage_cost = res["storage_krw"]
+                if res.get("refund"):
+                    await ctx.send("💰 미사용 캐시 선불 환급: " + ", ".join(
+                        f"<@{u}> {v}잉크" for u, v in res["refund"].items()))
+                if not res.get("settled"):
+                    await ctx.send("⚠️ 환급 기록이 완료되지 않아 다음 캐시 조작·재시작 시 재시도합니다.")
                 print(f"[수동 캐시 파기] storage={core.format_cost(storage_cost)} total={core.format_cost(session.total_cost)}")
                 await ctx.send(embed=core.build_cache_cost_embed(
                     "수동 캐시 파기", storage_cost, 0.0, session.total_cost))

@@ -59,7 +59,6 @@ REASON_REISSUE_FAILED = "REISSUE_FAILED"    # 교체 생성 실패 → 창 종�
 # 창 처분
 WINDOW_CONTINUE = "CONTINUE"                # 창 유지(교체)
 WINDOW_SETTLE_REFUND = "SETTLE_REFUND"      # 사용분 정산 후 남는 선불 환급
-WINDOW_NO_PLAYER_EFFECT = "NO_PLAYER_EFFECT"  # 운영자 조작 — 플레이어 재무 효과 없음(현행 보존)
 
 # provider 삭제 결과
 REMOTE_DELETED = "DELETED"
@@ -68,6 +67,7 @@ REMOTE_FAILED = "FAILED"
 REMOTE_SKIPPED = "SKIPPED"
 
 REFERENCE_KIND = "CACHE_WINDOW"
+INTERPRET_REFERENCE_KIND = "CACHE_TIME_INTERPRETATION"
 
 _PURPOSE_ACTOR = {
     PURPOSE_OPEN: (CL.ACTOR_PLAYER, CL.HINT_PLAYER_CANDIDATE, CL.OP_CACHE_CREATE),
@@ -143,12 +143,15 @@ class JournalView:
             if t == "WINDOW_OPENED":
                 self.windows[ev["window_id"]] = {
                     "opened": ev, "aborted": None, "prepaid": False,
+                    "interpret_charged": False,
                     "settle_intent": None, "settled": False, "lifecycles": []}
                 self.window_order.append(ev["window_id"])
             elif t == "WINDOW_ABORTED":
                 self.windows.setdefault(ev["window_id"], {}).update(aborted=ev)
             elif t == "WINDOW_PREPAID":
                 self.windows[ev["window_id"]]["prepaid"] = True
+            elif t == "WINDOW_INTERPRET_CHARGED":
+                self.windows[ev["window_id"]]["interpret_charged"] = True
             elif t == "WINDOW_SETTLE_INTENT":
                 self.windows[ev["window_id"]]["settle_intent"] = ev
             elif t == "WINDOW_SETTLED":
@@ -302,24 +305,45 @@ def _ensure_create_cost(bot, session, created: dict):
 #  예상(estimate) — provider 사실 아님
 # ══════════════════════════════════════════════════════════════
 
-def window_used_krw(model, tokens, elapsed_seconds, planned_seconds) -> float:
-    """창 사용분의 정산 기준액(기존 세션 닫기 규약 보존: 업로드 + 경과 유지, 계획 시간 상한)."""
-    from .cost import calculate_upload_cost
-    secs = max(0.0, min(float(elapsed_seconds), float(planned_seconds)))
-    return calculate_upload_cost(model or DEFAULT_MODEL, input_tokens=int(tokens or 0),
-                                 store_hours=secs / 3600.0)
+def _window_storage_spans(jv, wid, closed_at: float) -> tuple:
+    """(create_tokens, [(tokens, seconds), …]) — 창의 실제 캐시 책임 구성요소.
+
+    생성 책임은 창을 연 생애주기(OPEN/레거시) 하나. 재발급·복구 생성은 시스템 부담(현행).
+    저장 책임은 창 안의 각 생애주기가 실제로 존재한 초(종료 의도 시각 또는 이번 종료 시각,
+    provider TTL 만료 상한). 원격 삭제 실패로 provider 가 더 보관한 시간은 운영 사실일 뿐
+    플레이어 책임에 넣지 않는다.
+    """
+    w = jv.windows.get(wid) or {}
+    opened = w.get("opened") or {}
+    create_tokens = 0
+    spans = []
+    names = w.get("lifecycles") or []
+    for i, name in enumerate(names):
+        c = (jv.lifecycles.get(name) or {}).get("created") or {}
+        if i == 0 and c.get("purpose") in (PURPOSE_OPEN, "LEGACY"):
+            create_tokens = int(c.get("tokens") or 0)
+        intent = (jv.lifecycles.get(name) or {}).get("intent") or {}
+        end = float(intent.get("closed_at") or closed_at)
+        start = float(c.get("created_at") or end)
+        expire = float(c.get("expire_at") or end)
+        spans.append((int(c.get("tokens") or 0), max(0.0, min(end, expire) - start)))
+    if not names:
+        # 레거시 미리보기(저널 없음) — 창 시작부터 지금까지를 같은 공식으로.
+        planned = float(opened.get("ttl_seconds") or CACHE_TTL_SECONDS)
+        create_tokens = int(opened.get("tokens") or 0)
+        spans.append((create_tokens, max(0.0, min(closed_at - float(opened.get("opened_at") or closed_at), planned))))
+    return create_tokens, spans
 
 
-def _window_amounts(opened: dict, closed_at: float) -> dict:
-    from .ink import cost_to_ink
-    planned = float(opened.get("ttl_seconds") or CACHE_TTL_SECONDS)
-    used_krw = window_used_krw(opened.get("model"), opened.get("tokens"),
-                               closed_at - float(opened.get("opened_at") or closed_at), planned)
-    used_ink = cost_to_ink(used_krw)
-    cache_ink = int(opened.get("cache_ink") or 0)
-    return {"used_krw": round(used_krw, 4), "used_ink": used_ink,
-            "refund_per_user": max(0, cache_ink - used_ink),
-            "shortfall_per_user": max(0, used_ink - cache_ink)}
+def window_responsibility(jv, wid, opened: dict, closed_at: float) -> dict:
+    """창의 실제 캐시 책임액 — 선불 예상과 같은 canonical 공식·같은 잉크 반올림 경계."""
+    from .cost import cache_usd_to_ink, cache_window_responsibility_usd
+    create_tokens, spans = _window_storage_spans(jv, wid, closed_at)
+    model = opened.get("model") or DEFAULT_MODEL
+    usd = cache_window_responsibility_usd(model, create_tokens=create_tokens, storage=spans)
+    return {"used_usd": usd, "used_krw": round(usd * EXCHANGE_RATE, 4),
+            "used_ink": cache_usd_to_ink(usd), "spans": spans,
+            "create_tokens": create_tokens}
 
 
 def preview_close(session) -> dict:
@@ -331,10 +355,11 @@ def preview_close(session) -> dict:
     wid = jv.open_window_id()
     opened = jv.windows[wid]["opened"] if wid else _legacy_window_payload(session)
     now = time.time()
-    amounts = _window_amounts(opened, now)
+    r = window_responsibility(jv, wid, opened, now)
+    cache_ink = int(opened.get("cache_ink") or 0)
     return {"used_hours": max(0.0, now - float(opened.get("opened_at") or now)) / 3600.0,
-            "prepaid_ink": int(getattr(session, "open_prepaid_ink", 0) or 0),
-            "refund_ink": amounts["refund_per_user"]}
+            "prepaid_ink": cache_ink,
+            "refund_ink": max(0, cache_ink - r["used_ink"])}
 
 
 # ══════════════════════════════════════════════════════════════
@@ -536,12 +561,13 @@ async def _execute_prepayments_locked(session, wid, opened) -> bool:
     return ok
 
 
-async def _paid_uids(wid, opened) -> list:
+async def _paid_amounts(wid, opened) -> dict:
+    """{uid: 실제 적용된 캐시 선불 잉크} — PREPAYMENT 마커가 근거(레거시 창은 기존 규약)."""
     from . import accounts
     from . import ink_transactions as IT
     if opened.get("legacy"):
-        return list((opened.get("prepay") or {}).keys())
-    out = []
+        return {u: int(v) for u, v in (opened.get("prepay") or {}).items()}
+    out = {}
     for uid in (opened.get("prepay") or {}):
         try:
             m = await accounts.get_applied_ink_marker(
@@ -549,8 +575,26 @@ async def _paid_uids(wid, opened) -> list:
         except Exception:  # noqa: BLE001
             m = None
         if m is not None:
-            out.append(uid)
+            out[uid] = int(m.get("nominal_ink") or 0)
     return out
+
+
+async def _execute_interpretation_locked(session, wid, opened) -> bool:
+    """POLICY-CACHE-01: 이미 수행된 시간 해석 서비스 청구 — 캐시 선불과 별개 거래, 환불 없음."""
+    from . import ink_transactions as IT
+    ok = True
+    for uid, ink in (opened.get("interpret") or {}).items():
+        try:
+            await IT.execute_lifecycle_ink(
+                reference_kind=INTERPRET_REFERENCE_KIND, reference_id=wid, user_id=uid,
+                kind=IT.KIND_INTERPRETATION_CHARGE, nominal_ink=int(ink),
+                reason="cache_time_interpretation")
+        except Exception as e:  # noqa: BLE001
+            ok = False
+            print(f"[캐시 생애주기] 해석 청구 실패(재시도 대기) uid={uid}: {type(e).__name__}: {e}")
+    if ok:
+        _append(session.session_id, {"type": "WINDOW_INTERPRET_CHARGED", "window_id": wid})
+    return ok
 
 
 async def _settle_window_locked(session, wid, *, disposition, reason, closed_at=None) -> dict:
@@ -569,20 +613,23 @@ async def _settle_window_locked(session, wid, *, disposition, reason, closed_at=
             closed_at = _window_closed_at(jv, wid)
         at = float(closed_at if closed_at is not None else time.time())
         refund, shortfall = {}, {}
-        amounts = _window_amounts(opened, at)
+        amounts = window_responsibility(jv, wid, opened, at)
+        used_ink = amounts["used_ink"]
+        paid = await _paid_amounts(wid, opened)
         if disposition == WINDOW_SETTLE_REFUND:
-            for uid in await _paid_uids(wid, opened):
-                paid_cache = min(int(opened.get("cache_ink") or 0),
-                                 int((opened.get("prepay") or {}).get(uid) or 0))
-                r = min(paid_cache, amounts["refund_per_user"])
+            # 선불은 payer 마다 창 전체 캐시 책임을 기준으로 받았다(현행 선불 규약) —
+            # 배분 책임 = 창 책임액. 해석 청구(별도 거래)는 이 공식 밖이다.
+            for uid, prepaid in paid.items():
+                r = max(prepaid - used_ink, 0)
                 if r > 0:
                     refund[uid] = r
-                if amounts["shortfall_per_user"] > 0:
-                    # 추가 청구 정책은 승인되지 않았다 — 초과분은 운영자 부담으로 기록만 한다.
-                    shortfall[uid] = amounts["shortfall_per_user"]
+                if used_ink > prepaid:
+                    # POLICY-CACHE-03: 추가 청구 없음 — 초과분은 운영자 부담으로 기록만 한다.
+                    shortfall[uid] = used_ink - prepaid
         intent = _append(sid, {"type": "WINDOW_SETTLE_INTENT", "window_id": wid,
                                "disposition": disposition, "reason": reason, "closed_at": at,
-                               "used_krw": amounts["used_krw"], "used_ink": amounts["used_ink"],
+                               "used_usd": amounts["used_usd"], "used_krw": amounts["used_krw"],
+                               "used_ink": used_ink, "paid": paid,
                                "refund": refund, "operator_borne_shortfall": shortfall})
     ok = True
     for uid, ink in (intent.get("refund") or {}).items():
@@ -618,6 +665,9 @@ async def _resume_locked(bot, session) -> None:
     jv = view(sid)
     for wid in jv.window_order:
         w = jv.windows[wid]
+        # 해석 청구는 캐시 생성·창 결과와 무관하게 완료되어야 한다(이미 소비된 서비스).
+        if (w.get("opened") or {}).get("interpret") and not w.get("interpret_charged"):
+            await _execute_interpretation_locked(session, wid, w["opened"])
         if w.get("aborted") or w.get("settled"):
             continue
         if not w["lifecycles"] and w["settle_intent"] is None:
@@ -647,9 +697,8 @@ async def open_window(bot, session, *, say=None) -> dict:
     예상액은 선불액 산정에만 쓰인다(provider 사실 아님). 생성이 성공해야 생성 사실과
     선불(PREPAYMENT)이 기록된다. 실패하면 창은 ABORTED이고 재무 효과가 없다.
     """
-    from .cost import calculate_upload_cost
+    from .cost import cache_usd_to_ink, cache_window_estimate_usd
     from .session_open import should_charge_interpretation
-    from .ink import cost_to_ink
     sid = session.session_id
     async with lifecycle_lock(sid):
         if getattr(session, "cache_name", None):
@@ -662,22 +711,31 @@ async def open_window(bot, session, *, say=None) -> dict:
         minutes = int(getattr(session, "open_minutes", 0) or 0)
         ttl = minutes * 60 if minutes else CACHE_TTL_SECONDS
         caching_text, tokens, base_text = await _build_text(bot, session, "", False)
-        est_krw = calculate_upload_cost(DEFAULT_MODEL, input_tokens=tokens,
-                                        store_hours=ttl / 3600)
-        cache_ink = cost_to_ink(est_krw)
+        # 선불 예상 — 종료 책임과 같은 canonical 공식(계획 TTL). CostEvent 아님.
+        est_usd = cache_window_estimate_usd(DEFAULT_MODEL, tokens=int(tokens or 0),
+                                            planned_seconds=float(ttl))
+        cache_ink = cache_usd_to_ink(est_usd)
         interpret_charge, interpret_ink = should_charge_interpretation(session)
-        per_user = cache_ink + (interpret_ink if interpret_charge else 0)
+        interp = interpret_ink if interpret_charge else 0
         payers = [str(u) for u in (session.players or {})] or \
             [str(u) for u in [getattr(session, "creator_uid", "")] if u]
         wid = f"win-{uuid.uuid4().hex}"
         now = time.time()
         opened = {"type": "WINDOW_OPENED", "window_id": wid, "opened_at": now,
                   "planned_minutes": minutes, "ttl_seconds": ttl, "model": DEFAULT_MODEL,
-                  "tokens": int(tokens or 0), "estimate_krw": round(est_krw, 4),
+                  "tokens": int(tokens or 0), "estimate_usd": est_usd,
+                  "estimate_krw": round(est_usd * EXCHANGE_RATE, 4),
                   "cache_ink": cache_ink,
-                  "interpret_ink": interpret_ink if interpret_charge else 0,
-                  "prepay": {u: per_user for u in payers}}
+                  "interpret_ink": interp,
+                  "interpret_krw": float(getattr(session, "interpret_cost_krw", 0.0) or 0.0),
+                  "prepay": {u: cache_ink for u in payers},
+                  "interpret": {u: interp for u in payers} if interp else {}}
         _append(sid, opened)
+        # POLICY-CACHE-01: 해석은 이미 수행된 서비스 — 캐시 생성 전에 별도 거래로 청구하고
+        #   (의도는 WINDOW_OPENED 에 durable) 누적값을 비운다. 생성 실패여도 환불하지 않는다.
+        interpret_charged = await _execute_interpretation_locked(session, wid, opened) \
+            if interp else True
+        session.interpret_cost_krw = 0.0
         try:
             res = await _create_locked(bot, session, window_id=wid, purpose=PURPOSE_OPEN,
                                        ttl_seconds=ttl, caching_text=caching_text,
@@ -685,15 +743,15 @@ async def open_window(bot, session, *, say=None) -> dict:
         except Exception as e:
             _append(sid, {"type": "WINDOW_ABORTED", "window_id": wid,
                           "reason": f"create_failed:{type(e).__name__}"})
+            await _save(bot, session)
             raise
         session.cache_created_at = now
-        session.interpret_cost_krw = 0.0
-        session.open_prepaid_ink = per_user
+        session.open_prepaid_ink = cache_ink
         prepaid = await _execute_prepayments_locked(session, wid, opened)
         await _save(bot, session)
-        return {"ok": True, "window_id": wid, "ttl_seconds": ttl, "charge_ink": per_user,
-                "interpret_ink": opened["interpret_ink"], "prepaid": prepaid,
-                "create_krw": res["create_krw"]}
+        return {"ok": True, "window_id": wid, "ttl_seconds": ttl, "charge_ink": cache_ink,
+                "interpret_ink": interp, "interpret_charged": interpret_charged,
+                "prepaid": prepaid, "create_krw": res["create_krw"]}
 
 
 async def reissue(bot, session, *, purpose, cache_note: str = "",
@@ -758,9 +816,9 @@ async def close_window(bot, session, *, reason, disposition, delete_remote=True)
 
 
 async def finalize_legacy(bot, session) -> float:
-    """io.process_cache_deletion 호환 — 생애주기 종료 + 창 종료(플레이어 재무 효과 없음)."""
+    """io.process_cache_deletion 호환 — 생애주기 종료 + 창 정산(POLICY-CACHE-02: 미사용 선불 환급)."""
     res = await close_window(bot, session, reason=REASON_LEGACY,
-                             disposition=WINDOW_NO_PLAYER_EFFECT, delete_remote=False)
+                             disposition=WINDOW_SETTLE_REFUND, delete_remote=False)
     return float(res["storage_krw"])
 
 

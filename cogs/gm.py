@@ -737,11 +737,13 @@ class OpenConfirmView(core.message_lifecycle.LifecyclePromptView):
             return
 
         # 해석 비용 — 2잉크 이상일 때만 청구한다(기획 규정).
+        # WP-F(POLICY-CACHE-01): 실제 청구는 캐시 생애주기 open_window 가 별도 거래
+        #   (INTERPRETATION_CHARGE)로 수행하고 그때 누적값을 비운다. 여기서 먼저 0으로
+        #   만들면 안내만 하고 청구가 사라진다(F-NEW-1).
         charge, ink = core.should_charge_interpretation(self.session)
         note = ""
         if charge:
-            note = f"\n> 시간 해석 비용 {ink}잉크가 함께 청구되었습니다."
-        self.session.interpret_cost_krw = 0.0
+            note = f"\n> 시간 해석 비용 {ink}잉크는 세션을 열 때 별도로 청구되며 환불되지 않습니다."
 
         for child in self.children:
             child.disabled = True
