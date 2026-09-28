@@ -498,3 +498,23 @@ def calculate_cost(model_id: str, input_tokens=0, output_tokens=0, cached_read_t
     cost += (cached_read_tokens / 1_000_000) * rates["CACHE_READ"]
     cost += (cache_storage_tokens / 1_000_000) * rates["CACHE_STORAGE_PER_HOUR"] * storage_hours
     return cost
+
+
+# ══════════════════════════════════════════════════════════════
+#  WP-F — 단위를 이름·키워드로 강제한 캐시 비용 헬퍼 (PF-11 단위 혼동 제거)
+# ══════════════════════════════════════════════════════════════
+#  calculate_storage_cost(…, duration_seconds)는 '초', calculate_storage_cost_usd(…, hours)는
+#  '시간'을 받는다. 이름이 비슷해 3600배 오차가 가능했다(d006f). 캐시 생애주기 서비스는
+#  아래 두 함수만 쓴다 — 단위는 키워드 전용 인자 이름으로 호출부에 드러난다.
+
+def cache_create_cost_usd(model_id: str, *, tokens: int) -> float:
+    """캐시 생성(업로드 입력) 비용 — 달러. 저장 비용은 포함하지 않는다."""
+    rates = PRICING_1M.get(model_id, PRICING_1M[DEFAULT_MODEL])
+    return (max(0, int(tokens or 0)) / 1_000_000) * rates["INPUT"]
+
+
+def cache_storage_cost_usd(model_id: str, *, tokens: int, seconds: float) -> float:
+    """실제 경과(초) 기준 캐시 보관 비용 — 달러. 반올림하지 않는다."""
+    rates = PRICING_1M.get(model_id, PRICING_1M[DEFAULT_MODEL])
+    return ((max(0, int(tokens or 0)) / 1_000_000)
+            * rates.get("CACHE_STORAGE_PER_HOUR", 0.0) * (max(0.0, float(seconds)) / 3600.0))

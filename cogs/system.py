@@ -208,19 +208,19 @@ class SystemCog(commands.Cog):
         except Exception as e:
             await ctx.send(f"⚠️ 게임 채널 잠금 실패: {e}")
 
-        # 2. 캐시 파기 및 보관 시간 정산
+        # 2. 캐시 파기 및 보관 시간 정산 — WP-F 캐시 생애주기 단일 finalizer.
+        #    운영자 종료: 플레이어 재무 효과 없음(현행 보존 — 운영자 종료 시 환급 정책 미정).
         storage_cost = 0.0
         if session.cache_name:
             try:
-                await asyncio.to_thread(self.bot.genai_client.caches.delete, name=session.cache_name)
-                storage_cost = await core.process_cache_deletion(self.bot, session)
+                res = await core.cache_lifecycle.close_window(
+                    self.bot, session, reason=core.cache_lifecycle.REASON_OPERATOR_END,
+                    disposition=core.cache_lifecycle.WINDOW_NO_PLAYER_EFFECT)
+                storage_cost = res["storage_krw"]
+                if res.get("remote") == core.cache_lifecycle.REMOTE_FAILED:
+                    await ctx.send("⚠️ API 서버 측 캐시 삭제 실패 — 만료 시각까지의 보관분으로 정산했습니다.")
             except Exception as e:
-                # WARNING: API 상에서 이미 파기된 상태라도 시간 계산 및 정산 로직이 정상 구동되도록 Fallback 처리.
-                await ctx.send(f"⚠️ API 서버 측 캐시 삭제 실패 (이미 만료되었을 수 있습니다): {e}")
-                storage_cost = await core.process_cache_deletion(self.bot, session)
-
-            if storage_cost > 0:
-                core.write_cost_log(session.session_id, "세션 종료 (캐시 유지비 정산)", 0, 0, 0, storage_cost, session.total_cost)
+                await ctx.send(f"⚠️ 캐시 종료 정산 실패(다음 캐시 조작·재시작 시 재시도): {e}")
 
         await core.save_session_data(self.bot, session)
 
@@ -266,57 +266,18 @@ class SystemCog(commands.Cog):
             except Exception as e:
                 print(f"[캐시] 시나리오 재로드 실패: {e}")
 
-            # 파기 및 정산
-            storage_cost = 0.0
-            if session.cache_name:
-                try:
-                    await asyncio.to_thread(self.bot.genai_client.caches.delete, name=session.cache_name)
-                except Exception as e:
-                    pass
-                storage_cost = await core.process_cache_deletion(self.bot, session)
-                if storage_cost > 0:
-                    core.write_cost_log(session.session_id, "수동 캐시 파기 (유지비 정산)", 0, 0, 0, storage_cost,
-                                        session.total_cost)
-
+            # WP-F: 교체(기존 생애주기 종료 → 생성 성공 뒤에만 생성 사실) — 운영자 조작(OPERATOR).
+            #   창 시작은 유지되어 재발급이 결제한 유지 시간을 연장하지 않는다.
             try:
-                caching_text, cache_tokens, base_text = await core.build_scenario_cache_text(
-                    self.bot, core.DEFAULT_MODEL, session.scenario_data,
-                    getattr(session, "cache_note", ""), session=session
-                )
-
-                upload_cost = core.calculate_upload_cost(core.DEFAULT_MODEL, input_tokens=cache_tokens)
-                core.accrue(session, upload_cost, upload_cost / core.EXCHANGE_RATE)
-                core.write_cost_log(session.session_id, "수동 캐시 재발급 (업로드)", cache_tokens, 0, 0, upload_cost,
-                                    session.total_cost)
-                session.cache_created_at = time.time()
-                session.cache_tokens = cache_tokens
-
-                print(f"[수동 캐시 재발급] storage={core.format_cost(storage_cost)} upload={core.format_cost(upload_cost)} total={core.format_cost(session.total_cost)}")
-                _cache_embed = core.build_cache_cost_embed(
-                    "수동 캐시 재발급", storage_cost, upload_cost, session.total_cost
-                )
-                await ctx.send(embed=_cache_embed)
-
-                cache = await asyncio.to_thread(
-                    self.bot.genai_client.caches.create,
-                    model=core.DEFAULT_MODEL,
-                    config=types.CreateCachedContentConfig(
-                        system_instruction=self.bot.system_instruction,
-                        contents=[types.Content(role="user", parts=[types.Part.from_text(text=caching_text)])],
-                        # 남은 유지 시간을 이어간다(고정 6시간 금지).
-                        ttl=f"{core.remaining_ttl(session)}s",
-                    )
-                )
-
-                session.cache_obj = cache
-                session.cache_name = cache.name
-                session.cache_model = core.DEFAULT_MODEL
-                session.cache_text = base_text
-                core.update_session_cache_state(session)
-                await core.save_session_data(self.bot, session)
-
-                await ctx.send(f"✅ 수동 캐시 재발급 완료! (새 캐시 ID: {cache.name})\n누적 비용에 캐시 생성 및 1시간 유지 비용이 합산되었습니다.")
-
+                res = await core.cache_lifecycle.reissue(
+                    self.bot, session, purpose=core.cache_lifecycle.PURPOSE_REISSUE_MANUAL,
+                    cache_note=getattr(session, "cache_note", ""), log_session_id=False)
+                print(f"[수동 캐시 재발급] storage={core.format_cost(res['storage_krw'])} "
+                      f"upload={core.format_cost(res['create_krw'])} total={core.format_cost(session.total_cost)}")
+                await ctx.send(embed=core.build_cache_cost_embed(
+                    "수동 캐시 재발급", res["storage_krw"], res["create_krw"], session.total_cost))
+                await ctx.send(f"✅ 수동 캐시 재발급 완료! (새 캐시 ID: {res['cache_name']})\n"
+                               f"누적 비용에 캐시 생성 비용이 합산되었습니다(보관비는 종료 시 실제 시간으로 정산).")
             except Exception as e:
                 await ctx.send(f"⚠️ 캐시 재발급 중 오류가 발생했습니다: {e}")
 
@@ -325,24 +286,21 @@ class SystemCog(commands.Cog):
                 return await ctx.send("⚠️ 현재 유지 중인 캐시가 없습니다.")
 
             await ctx.send("⏳ 기존 캐시를 명시적으로 삭제하고 보관 비용을 정산합니다...")
+            # WP-F: 단일 finalizer — 운영자 삭제는 플레이어 재무 효과 없음(현행 보존).
             try:
-                await asyncio.to_thread(self.bot.genai_client.caches.delete, name=session.cache_name)
-                storage_cost = await core.process_cache_deletion(self.bot, session)
-                if storage_cost > 0:
-                    core.write_cost_log(session.session_id, "명시적 캐시 삭제 (유지비 정산)", 0, 0, 0, storage_cost,
-                                        session.total_cost)
-
+                res = await core.cache_lifecycle.close_window(
+                    self.bot, session, reason=core.cache_lifecycle.REASON_OPERATOR_DELETE,
+                    disposition=core.cache_lifecycle.WINDOW_NO_PLAYER_EFFECT)
+                storage_cost = res["storage_krw"]
                 print(f"[수동 캐시 파기] storage={core.format_cost(storage_cost)} total={core.format_cost(session.total_cost)}")
-                _cache_embed = core.build_cache_cost_embed(
-                    "수동 캐시 파기", storage_cost, 0.0, session.total_cost
-                )
-                await ctx.send(embed=_cache_embed)
-
-                await ctx.send("✅ 캐시가 정상적으로 삭제되어 스토리지 과금이 중단되었습니다.")
+                await ctx.send(embed=core.build_cache_cost_embed(
+                    "수동 캐시 파기", storage_cost, 0.0, session.total_cost))
+                if res.get("remote") == core.cache_lifecycle.REMOTE_FAILED:
+                    await ctx.send("⚠️ API 삭제 실패 — 만료 시각까지의 보관분으로 정산했습니다.")
+                else:
+                    await ctx.send("✅ 캐시가 정상적으로 삭제되어 스토리지 과금이 중단되었습니다.")
             except Exception as e:
-                storage_cost = await core.process_cache_deletion(self.bot, session)
-                await ctx.send(
-                    f"⚠️ 캐시 삭제 중 오류 발생 (이미 만료됨): {e}\n내부 메타데이터가 초기화되었습니다. 보관 비용 정산: {core.format_cost(storage_cost)}")
+                await ctx.send(f"⚠️ 캐시 삭제 정산 실패(다음 캐시 조작·재시작 시 재시도): {e}")
 
         elif action == "출력":
             cache_text = getattr(session, "cache_text", "")

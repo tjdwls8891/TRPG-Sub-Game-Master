@@ -515,39 +515,14 @@ async def write_session_strict_locked(session) -> None:
 
 
 async def process_cache_deletion(bot, session) -> float:
-    """
-    캐시 파기 시 보관 시간을 계산하여 정산하고 캐시 관련 메타데이터를 초기화.
+    """(호환) 캐시 메타데이터 정리 + 보관 비용 정산 — WP-F 생애주기 finalizer 위임.
+
+    WP-F 이전에는 경과 보관비를 직접 accrue하고 메타데이터를 초기화했다. 이제 모든
+    종료 경로는 core.cache_lifecycle 의 단일 finalizer를 지나며, 이 함수는 원격 삭제를
+    하지 않는(호출자 관리) 호환 입구다. 창은 플레이어 재무 효과 없이 종료된다.
 
     Returns:
-        float: 정산된 보관 비용 (KRW)
+        float: 이번에 확정된 보관 비용 (KRW). 이미 종료된 생애주기면 0.
     """
-    storage_cost_krw = 0.0
-    if session.cache_name and getattr(session, "cache_created_at", 0.0) > 0:
-        duration_seconds = time.time() - session.cache_created_at
-        # 상한은 유저가 정한 유지 시간이다. 고정 6시간으로 두면 3시간을 고른
-        # 세션도 6시간까지 청구될 수 있다.
-        minutes = int(getattr(session, "open_minutes", 0) or 0)
-        cap_seconds = minutes * 60 if minutes else CACHE_TTL_SECONDS
-        duration_seconds = min(duration_seconds, float(cap_seconds))
-
-        # 폴백은 MIN_CACHE_TOKENS다. 이전 값 32768은 4.1.0에서 최소 토큰이
-        # 1024로 정정되기 전의 것으로, 도달하면 32배 과다 청구된다.
-        cache_tokens = getattr(session, "cache_tokens", 0) or MIN_CACHE_TOKENS
-
-        # NOTE: AttributeError 방지를 위해 getattr를 사용하여 안전하게 접근하고 기본값(DEFAULT_MODEL) 할당.
-        model_id = getattr(session, "cache_model", DEFAULT_MODEL) or DEFAULT_MODEL
-        storage_cost_krw = calculate_storage_cost(model_id, cache_tokens, duration_seconds)
-        from .cost import accrue as _accrue
-        _accrue(session, storage_cost_krw,
-                storage_cost_krw / EXCHANGE_RATE)
-
-    session.cache_name = None
-    session.cache_obj = None
-
-    # NOTE: 존재하지 않는 속성에 접근하여 발생하는 에러를 막기 위해 setattr 활용.
-    setattr(session, "cache_model", None)
-    session.cache_created_at = 0.0
-    session.cache_tokens = 0
-
-    await save_session_data(bot, session)
-    return storage_cost_krw
+    from . import cache_lifecycle
+    return await cache_lifecycle.finalize_legacy(bot, session)

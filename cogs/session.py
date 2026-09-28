@@ -296,11 +296,6 @@ class SessionCog(commands.Cog):
 
         try:
             await _say("⏳ 장기 기억 캐시를 업로드하는 중…")
-            caching_text, cache_tokens, base_text = await core.build_scenario_cache_text(
-                self.bot, core.DEFAULT_MODEL, session.scenario_data, session=session
-            )
-
-            # 선택된 유지 시간을 먼저 확정한다. 비용 계산과 TTL이 같은 값을 써야 한다.
             minutes = int(getattr(session, "open_minutes", 0) or 0)
             if minutes <= 0:
                 # 여기까지 왔는데 시간이 없다면 선택 단계가 건너뛰어진 것이다.
@@ -308,62 +303,28 @@ class SessionCog(commands.Cog):
                 print(f"⚠️ [캐시] open_minutes 미설정 — 기본 TTL로 진행합니다. "
                       f"세션 {session.session_id}")
                 await _say("⚠️ 유지 시간이 정해지지 않아 기본값으로 엽니다.")
-            ttl = minutes * 60 if minutes else core.CACHE_TTL_SECONDS
-            store_hours = ttl / 3600
 
-            # 업로드(입력) + 유지(저장) 비용을 함께 계산한다.
-            upload_cost = core.calculate_upload_cost(
-                core.DEFAULT_MODEL, input_tokens=cache_tokens,
-                store_hours=store_hours)
-            if cache_tokens <= 0:
-                print(f"⚠️ [캐시] 토큰 수가 0입니다. 비용이 0원으로 계산됩니다.")
-            core.accrue(session, upload_cost, upload_cost / core.EXCHANGE_RATE)
-            session.cache_created_at = time.time()
-            # 새로 열렸으므로 만료 알림 플래그를 푼다.
-            session.cache_expired_notified = False
-            session.cache_tokens = cache_tokens
-            session.cache_text = base_text
-            core.write_cost_log(session.session_id, "초기 캐시 생성",
-                                cache_tokens, 0, 0, upload_cost, session.total_cost)
+            # WP-F: 선불 창 + provider 캐시 생성은 캐시 생애주기 서비스가 소유한다.
+            #   예상액은 선불액 산정에만 쓰이고, 생성 성공 뒤에만 생성 사실·선불이 기록된다.
+            res = await core.cache_lifecycle.open_window(self.bot, session)
+            if res.get("already"):
+                return True
+            ttl = int(res["ttl_seconds"])
+            charge_ink = int(res["charge_ink"])
+            interpret_ink = int(res.get("interpret_ink") or 0)
 
             master_ch = self.bot.get_channel(session.master_ch_id)
             if master_ch:
                 await master_ch.send(embed=core.build_cache_cost_embed(
-                    "새 세션 캐시 생성", 0.0, upload_cost, session.total_cost))
-
-            cache = await asyncio.to_thread(
-                self.bot.genai_client.caches.create,
-                model=core.DEFAULT_MODEL,
-                config=types.CreateCachedContentConfig(
-                    system_instruction=self.bot.system_instruction,
-                    contents=[types.Content(role="user",
-                                            parts=[types.Part.from_text(text=caching_text)])],
-                    ttl=f"{ttl}s",
-                ),
-            )
-            session.cache_obj = cache
-            session.cache_name = cache.name
-            session.cache_model = core.DEFAULT_MODEL
-            core.update_session_cache_state(session)
-
-            # 선불 차감 (기획 규정). 해석 비용이 2잉크 이상이면 함께 청구한다.
-            charge_ink = core.cost_to_ink(upload_cost)
-            interpret_charge, interpret_ink = core.should_charge_interpretation(session)
-            if interpret_charge:
-                charge_ink += interpret_ink
-            session.interpret_cost_krw = 0.0
-            session.open_prepaid_ink = charge_ink
-
-            for uid in (session.players or {}) or [getattr(session, "creator_uid", "")]:
-                if not uid:
-                    continue
-                await core.accounts.deduct_ink(uid, charge_ink, allow_overdraft=True)
-            await core.save_session_data(self.bot, session)
+                    "새 세션 캐시 생성", 0.0, res["create_krw"], session.total_cost))
+                if not res.get("prepaid"):
+                    await master_ch.send(
+                        "⚠️ 세션 오픈 선불 기록이 완료되지 않았습니다 — 다음 캐시 조작·재시작 시 재시도합니다.")
 
             await _say(
                 f"✅ 세션이 열렸습니다. (유지 {ttl // 60}분)\n"
                 f"> 선결제 **{charge_ink}잉크**"
-                + (f" (시간 해석 {interpret_ink}잉크 포함)" if interpret_charge else ""))
+                + (f" (시간 해석 {interpret_ink}잉크 포함)" if interpret_ink else ""))
             return True
         except Exception as e:
             await _say(f"⚠️ 캐시 업로드 실패 (일반 모드로 진행됩니다. 원인: {e})")

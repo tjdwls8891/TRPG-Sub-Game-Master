@@ -422,11 +422,13 @@ async def test_69_compat_cumulative_field_preserved(tmp_path):
 def test_70_legacy_deduct_ink_callers_unchanged():
     """WP-D(CHANGE LIST 3·11): 정상 자동 턴의 legacy deduct_ink 루프(gm)가 제거됐다.
 
-    남은 호출자는 범위 밖(세션 오픈 캐시 결제 — WP-F, 운영자 !지급)뿐이다.
+    WP-F: 세션 오픈 캐시 선불은 durable PREPAYMENT(LifecycleInkTransaction)로 이관됐다.
+    남은 호출자는 범위 밖(운영자 !지급 — WP-G)뿐이다.
     """
     gm = source_of("cogs/gm.py")
     assert "deduct_ink" not in gm
-    # 프로덕션 deduct_ink 호출자: session(캐시 오픈)/system(운영자) 2곳.
+    assert "deduct_ink" not in source_of("cogs/session.py")
+    # 프로덕션 deduct_ink 호출자: system(운영자) 1곳.
     n = 0
     from tests.conftest import REPO_ROOT
     for dirpath, _dirs, files in os.walk(os.path.join(REPO_ROOT, "cogs")):
@@ -436,7 +438,7 @@ def test_70_legacy_deduct_ink_callers_unchanged():
             if fn.endswith(".py"):
                 n += source_of(os.path.relpath(os.path.join(dirpath, fn),
                                                REPO_ROOT)).count("deduct_ink(")
-    assert n == 2
+    assert n == 1
 
 
 # ══════════════════════════════════════════════════════════════

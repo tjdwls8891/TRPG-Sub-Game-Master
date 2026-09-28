@@ -215,6 +215,7 @@ from . import settlement  # WP-SETTLEMENT-01: immutable TurnSettlement + durable
 from . import ink_transactions  # WP-SETTLEMENT-01: exactly-once InkTransaction executor
 from . import commit_coordinator  # WP-D: authoritative commit / recovery / billing cutover
 from . import turn_history  # WP-E: selected committed-attempt history / rewind / rerender
+from . import cache_lifecycle  # WP-F: cache lifecycle finance single owner
 from .cost import (
     extract_token_usage,
     format_cost,

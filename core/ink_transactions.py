@@ -454,3 +454,146 @@ async def execute_settlement_charges(settlement, *, ledger_for=None,
             settlement, uid, ledger=led, accounts_module=accounts_module,
             allow_overdraft=allow_overdraft)
     return results
+
+
+# ══════════════════════════════════════════════════════════════
+#  WP-F — 생애주기 InkTransaction (캐시 오픈 창 선불 / 환급 / 추가 청구)
+# ══════════════════════════════════════════════════════════════
+#  CHARGE(턴 Settlement 청구)는 위에서 그대로다 — 이 확장은 CHARGE 레코드·ID·지문·
+#  executor 를 바꾸지 않는다. Settlement 가 아닌 '참조 대상'(캐시 오픈 창 등)에 속한
+#  플레이어 재무 사실을 같은 per-user 원장/계정 마커 경계로 정확히 한 번 적용한다.
+#
+#  · 결정적 ID: ink-{kind}:{reference_id}:user:{uid}  (재시작 후에도 재구성)
+#  · 요청 지문: reference/user/kind/direction/nominal — 같은 ID 에 다른 요청이면 상충
+#  · 부호: nominal_ink 는 항상 0 이상, 방향은 DEBIT/CREDIT 로 명시(음수 CHARGE 금지)
+#  · 원장: 같은 append-only per-user JSONL. 과거 레코드는 절대 다시 쓰지 않는다.
+
+KIND_PREPAYMENT = "PREPAYMENT"
+KIND_REFUND = "REFUND"
+KIND_ADDITIONAL_CHARGE = "ADDITIONAL_CHARGE"
+LIFECYCLE_KINDS = {
+    KIND_PREPAYMENT: accounts.DIRECTION_DEBIT,
+    KIND_REFUND: accounts.DIRECTION_CREDIT,
+    KIND_ADDITIONAL_CHARGE: accounts.DIRECTION_DEBIT,
+}
+
+
+@dataclass(frozen=True)
+class LifecycleInkTransaction:
+    ink_tx_id: str
+    reference_kind: str          # 예: CACHE_WINDOW
+    reference_id: str
+    user_id: str
+
+    kind: str                    # PREPAYMENT | REFUND | ADDITIONAL_CHARGE
+    direction: str               # DEBIT | CREDIT
+    nominal_ink: int
+
+    balance_before: int
+    balance_after: int
+    applied_balance_delta: int
+
+    overdraft: bool
+    operator_subsidy_ink: int
+
+    reason: str
+    created_at: float
+
+
+def lifecycle_ink_tx_id(kind: str, reference_id: str, user_id) -> str:
+    if kind not in LIFECYCLE_KINDS:
+        raise InkTransactionError(f"알 수 없는 생애주기 kind: {kind}")
+    if not reference_id:
+        raise InkTransactionError("ink_tx_id 파생 실패: reference_id 없음")
+    return f"ink-{kind.lower()}:{reference_id}:user:{user_id}"
+
+
+def lifecycle_request_fingerprint(reference_kind: str, reference_id: str, user_id,
+                                  kind: str, nominal_ink: int) -> str:
+    return json.dumps(
+        {"reference_kind": str(reference_kind), "reference_id": str(reference_id),
+         "user_id": str(user_id), "kind": str(kind),
+         "direction": LIFECYCLE_KINDS[kind], "nominal_ink": int(nominal_ink)},
+        sort_keys=True, ensure_ascii=False)
+
+
+def _lifecycle_tx_from_marker(reference_kind, reference_id, user_id, ink_tx_id, kind,
+                              reason, marker) -> LifecycleInkTransaction:
+    return LifecycleInkTransaction(
+        ink_tx_id=ink_tx_id, reference_kind=str(reference_kind),
+        reference_id=str(reference_id), user_id=str(user_id),
+        kind=kind, direction=str(marker["direction"]),
+        nominal_ink=int(marker["nominal_ink"]),
+        balance_before=int(marker["balance_before"]),
+        balance_after=int(marker["balance_after"]),
+        applied_balance_delta=int(marker["applied_balance_delta"]),
+        overdraft=bool(marker["overdraft"]),
+        operator_subsidy_ink=int(marker["operator_subsidy_ink"]),
+        reason=str(reason), created_at=time.time())
+
+
+async def execute_lifecycle_ink(*, reference_kind: str, reference_id: str, user_id,
+                                kind: str, nominal_ink: int, reason: str,
+                                ledger=None, accounts_module=accounts,
+                                allow_overdraft: bool = True) -> InkChargeResult:
+    """생애주기 잉크 사실 하나를 계정에 정확히 한 번 적용/복구한다.
+
+    라우팅은 execute_settlement_charge 와 같다(§20): 마커+원장 → ALREADY, 마커만 →
+    원장 복구, 원장만 → 복구 필요, 신규 → 계정 원자 기록 후 원장 append.
+    0 잉크는 계정/원장을 건드리지 않는다(NO_MUTATION).
+    """
+    if kind not in LIFECYCLE_KINDS:
+        raise InkTransactionError(f"알 수 없는 생애주기 kind: {kind}")
+    uid = str(user_id)
+    nominal = int(nominal_ink)
+    if nominal < 0:
+        raise InkTransactionError(f"nominal_ink 음수 금지: {nominal}")
+    ink_tx_id = lifecycle_ink_tx_id(kind, reference_id, uid)
+    if nominal == 0:
+        return InkChargeResult(EXEC_NO_MUTATION, ink_tx_id, None)
+
+    led = _ledger_for(uid, ledger)
+    fingerprint = lifecycle_request_fingerprint(reference_kind, reference_id, uid,
+                                                kind, nominal)
+    marker = await accounts_module.get_applied_ink_marker(uid, ink_tx_id)
+    ledger_row = led.get_by_id_strict(ink_tx_id)
+
+    if marker is not None:
+        if marker.get("fingerprint") != fingerprint:
+            raise InkTransactionConflictError(f"applied 마커 상충: ink_tx_id={ink_tx_id}")
+        rec = _lifecycle_tx_from_marker(reference_kind, reference_id, uid, ink_tx_id,
+                                        kind, reason, marker)
+        if ledger_row is None:
+            led.append_strict(rec)
+            return InkChargeResult(EXEC_RECOVERED_LEDGER, ink_tx_id, rec,
+                                   balance_after=rec.balance_after)
+        if _ink_tx_fingerprint(ledger_row) != _ink_tx_fingerprint(asdict(rec)):
+            raise InkTransactionCorruptionError(f"마커-원장 불일치: ink_tx_id={ink_tx_id}")
+        return InkChargeResult(EXEC_ALREADY, ink_tx_id, rec, balance_after=rec.balance_after)
+
+    if ledger_row is not None:
+        raise InkTransactionRecoveryRequired(
+            f"원장에 라인이 있으나 계정 applied 마커가 없음(복구 필요): ink_tx_id={ink_tx_id}")
+
+    try:
+        applied = await accounts_module.apply_ink_adjustment_strict(
+            uid, ink_tx_id=ink_tx_id, fingerprint=fingerprint, kind=kind,
+            direction=LIFECYCLE_KINDS[kind], reference_id=reference_id,
+            nominal_ink=nominal, allow_overdraft=allow_overdraft)
+    except accounts.AccountError as e:
+        raise InkTransactionPersistenceError(
+            f"계정 조정 적용 실패: ink_tx_id={ink_tx_id}") from e
+    status = applied["status"]
+    if status == accounts.APPLY_INSUFFICIENT:
+        raise InsufficientInkError(f"잔액 부족(overdraft 불허): ink_tx_id={ink_tx_id}")
+    if status == accounts.APPLY_CONFLICT:
+        raise InkTransactionConflictError(f"applied 마커 상충: ink_tx_id={ink_tx_id}")
+    rec = _lifecycle_tx_from_marker(reference_kind, reference_id, uid, ink_tx_id, kind,
+                                    reason, applied["marker"])
+    try:
+        led.append_strict(rec)
+    except InkTransactionPersistenceError as e:
+        raise InkTransactionRecoveryRequired(
+            f"계정 변이는 내구화됐으나 원장 append 실패(복구 필요): ink_tx_id={ink_tx_id}") from e
+    result_status = EXEC_APPLIED if status == accounts.APPLY_NEW else EXEC_RECOVERED_LEDGER
+    return InkChargeResult(result_status, ink_tx_id, rec, balance_after=rec.balance_after)

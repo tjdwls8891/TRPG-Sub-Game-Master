@@ -35,6 +35,10 @@ def build_embed(session) -> discord.Embed:
     # 때까지 '오픈'으로 보이고, 그동안 열기 버튼도 잠겨 있다.
     from .cache import is_cache_expired
     expired = is_cache_expired(session)
+    # WP-F: 만료는 생애주기 finalizer가 cache_name을 정리한다(재오픈 가능). 정리 뒤에도
+    #   재오픈 전까지는 '만료' 상태로 보인다.
+    if not getattr(session, "cache_name", None) and getattr(session, "cache_expired_notified", False):
+        expired = True
     is_open = bool(getattr(session, "cache_name", None)) and not expired
     private = "비공개" if getattr(session, "is_private", False) else "공개"
 
@@ -392,22 +396,10 @@ class DisplayView(discord.ui.View):
                 "아직 열려 있지 않습니다.", ephemeral=True)
             return
 
-        import time as _t
-        from .ink import refund_ink as _refund
-
-        created = getattr(session, "cache_created_at", 0.0) or 0.0
-        used_h = max(0.0, (_t.time() - created) / 3600) if created else 0.0
-        prepaid = int(getattr(session, "open_prepaid_ink", 0) or 0)
-        try:
-            from .cost import calculate_upload_cost
-            from .constants import DEFAULT_MODEL
-            used_krw = calculate_upload_cost(
-                DEFAULT_MODEL,
-                input_tokens=int(getattr(session, "cache_tokens", 0) or 0),
-                store_hours=used_h)
-        except Exception:
-            used_krw = 0.0
-        refund = _refund(prepaid, used_krw)
+        # WP-F: 표시용 예상 — 실제 정산은 종료 시점에 캐시 생애주기 서비스가 한 번 확정한다.
+        from .cache_lifecycle import preview_close
+        pv = preview_close(session)
+        used_h, prepaid, refund = pv["used_hours"], pv["prepaid_ink"], pv["refund_ink"]
 
         await interaction.response.send_message(
             f"⚠️ **세션을 닫으시겠습니까?**\n"
@@ -435,32 +427,26 @@ class CloseConfirmView(discord.ui.View):
     @discord.ui.button(label="세션 닫기", style=discord.ButtonStyle.danger)
     async def confirm(self, interaction, _b):
         await interaction.response.defer()
-
-        # 캐시 파기
-        name = getattr(self.session, "cache_name", None)
-        if name:
-            try:
-                import asyncio as _a
-                await _a.to_thread(self.bot.genai_client.caches.delete, name=name)
-            except Exception as e:
-                print(f"[세션] 캐시 삭제 실패: {e}")
-        self.session.cache_name = None
-        self.session.cache_obj = None
-
-        # 환급
-        if self.refund > 0:
-            from . import accounts
-            for uid in (self.session.players or {}):
-                await accounts.add_ink(uid, self.refund, reason="세션 오프 환급")
-        self.session.open_prepaid_ink = 0
-
-        from .io import save_session_data
-        await save_session_data(self.bot, self.session)
+        # WP-F: 원격 삭제·보관 사실·선불 정산(환급)은 캐시 생애주기 단일 finalizer가
+        #   정확히 한 번 수행한다(직접 caches.delete / add_ink 금지).
+        from . import cache_lifecycle
+        try:
+            res = await cache_lifecycle.close_window(
+                self.bot, self.session, reason=cache_lifecycle.REASON_PLAYER_CLOSE,
+                disposition=cache_lifecycle.WINDOW_SETTLE_REFUND)
+        except Exception as e:
+            print(f"[세션] 세션 닫기 정산 실패(재시도 가능): {e}")
+            await close_notice(interaction, f"⚠️ 세션을 닫지 못했습니다. 잠시 후 다시 시도해 주십시오. ({e})")
+            self.stop()
+            return
+        refunds = set((res.get("refund") or {}).values())
+        refund = max(refunds) if refunds else 0
 
         # 확인 메시지를 결과로 바꿔 쓴다. 둘을 따로 남기면 상태판이 밀린다.
         await close_notice(
             interaction,
-            f"⚫ 세션을 닫았습니다.\n> 💰 **{self.refund}잉크 환급**")
+            f"⚫ 세션을 닫았습니다.\n> 💰 **{refund}잉크 환급**"
+            + ("" if res.get("settled") else "\n> ⚠️ 환급 기록이 완료되지 않아 다음 조작 시 재시도합니다."))
         await refresh(self.bot, self.session, reason="close")
         self.stop()
 

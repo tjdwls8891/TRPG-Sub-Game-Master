@@ -519,44 +519,17 @@ async def restore_sessions_from_disk(bot):
                                                "error": f"{type(_e).__name__}: {_e}"}
                     print(f"⛔ {session_id}: 커밋 복구 실행 실패 — 새 턴 차단: {_e}")
 
-                if session.cache_name:
-                    try:
-                        session.cache_obj = await asyncio.to_thread(bot.genai_client.caches.get,
-                                                                    name=session.cache_name)
+                # WP-F: 캐시 연동·교체·만료는 캐시 생애주기 서비스가 소유한다 — 중단된 종료/정산을
+                #   먼저 재개하고, 복구 재생성은 생성 성공 뒤에만 사실을 기록한다(사전 accrue 없음).
+                try:
+                    from . import cache_lifecycle as _cl
+                    _cr = await _cl.restore(bot, session)
+                    if _cr.get("action") not in ("NONE", "LINKED"):
+                        print(f"🔄 {session_id}: 캐시 복구 {_cr['action']}")
+                    elif _cr.get("action") == "LINKED":
                         print(f"✅ {session_id}: 기존 캐시 연동 성공.")
-                    except APIError:
-                        print(f"🔄 {session_id}: 기존 캐시 만료됨. 새로 발급합니다...")
-                        caching_text, cache_tokens, base_text = await build_scenario_cache_text(bot, DEFAULT_MODEL,
-                                                                                                scenario_data,
-                                                                                                session=session)
-
-                        creation_cost = calculate_cost(DEFAULT_MODEL, input_tokens=cache_tokens)
-                        storage_cost = calculate_cost(DEFAULT_MODEL, cache_storage_tokens=cache_tokens, storage_hours=1)
-                        accrue(session, creation_cost + storage_cost,
-                               (creation_cost + storage_cost) / EXCHANGE_RATE)
-                        print(
-                            f"💰 [비용 보고] 세션({session_id}) 복구용 캐시 발급: ${creation_cost + storage_cost:.6f} (누적: ${session.total_cost:.6f})")
-
-                        cache = await asyncio.to_thread(
-                            bot.genai_client.caches.create,
-                            model=DEFAULT_MODEL,
-                            config=types.CreateCachedContentConfig(
-                                system_instruction=bot.system_instruction,
-                                contents=[types.Content(role="user", parts=[types.Part.from_text(text=caching_text)])],
-                                # 복구 시에도 남은 시간만 준다.
-                                ttl=f"{remaining_ttl(session)}s",
-                            )
-                        )
-
-                        session.cache_obj = cache
-                        session.cache_name = cache.name
-                        session.cache_text = base_text
-                        session.cache_created_at = time.time()
-                        session.cache_expired_notified = False
-                        session.cache_tokens = cache_tokens
-                        session.cache_model = DEFAULT_MODEL
-                        update_session_cache_state(session)
-                        await save_session_data(bot, session)
+                except Exception as _ce:
+                    print(f"⚠️ {session_id}: 캐시 생애주기 복구 실패(다음 조작 시 재시도): {_ce}")
 
                 bot.active_sessions[session.game_ch_id] = session
                 bot.active_sessions[session.master_ch_id] = session

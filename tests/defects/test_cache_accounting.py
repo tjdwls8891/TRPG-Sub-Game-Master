@@ -2,7 +2,8 @@
 
 WP00_EXECUTABLE_TEST_PLAN.md §6 기준.
 
-세 경로가 서로 다른 값을 누적한다.
+(WP-F 이전) 세 경로가 서로 다른 값을 누적했다. WP-F 이후 종료 경로는 캐시 생애주기의
+단일 finalizer로 수렴한다(d006d·d006e 갱신).
   1. 캐시 생성 성공 전에 TTL 예상액을 미리 누적하는 경로
   2. 직접 삭제 경로
   3. `process_cache_deletion` 정산 경로
@@ -86,74 +87,90 @@ async def test_d006c_settlement_cap_uses_planned_ttl(
         "상한이 계획 TTL을 따르지 않습니다")
 
 
-async def test_d006d_three_paths_produce_divergent_totals(
+async def test_d006d_close_paths_converge_on_one_finalizer(
         wired_bot, session_factory):
-    """세 경로의 누적값이 서로 다르다 — WP-04가 통합해야 할 증거."""
+    """(WP-F 특성 갱신) 예상(계획 TTL)은 실측이 아니며, 종료 경로는 한 finalizer로 수렴한다.
+
+    WP-F 이전에는 세 경로(업로드 예상 누적 / 직접 삭제 / process_cache_deletion)가 서로 다른
+    값을 누적했다. 이제 직접 삭제(운영자)와 호환 래퍼는 같은 생애주기 finalizer를 지나
+    같은 경과 기준 보관 사실을 확정한다. 계획 TTL 예상액은 여전히 그와 다르다(예상 ≠ 사실).
+    """
     import core
+    from core import cache_lifecycle as CLC
 
     tokens = 26_268
     planned_hours = 3.0
-
-    # 경로 1: 업로드 시 계획 TTL 전체를 누적
     upload_planned = core.calculate_upload_cost(
         core.DEFAULT_MODEL, input_tokens=tokens, store_hours=planned_hours)
 
-    # 경로 3: 1시간 만에 닫으면 그만큼만 정산
-    sess = session_factory(session_id="d006")
-    sess.cache_name = "caches/x"
-    sess.cache_tokens = tokens
-    sess.open_minutes = int(planned_hours * 60)
-    sess.cache_created_at = time.time() - 3600
-    sess.total_cost = 0.0
-    sess.total_usd = 0.0
-    close_settled = await core.process_cache_deletion(wired_bot, sess)
+    def _mk(sid):
+        sess = session_factory(session_id=sid)
+        sess.cache_name = f"caches/{sid}"
+        sess.cache_tokens = tokens
+        sess.open_minutes = int(planned_hours * 60)
+        sess.cache_created_at = time.time() - 3600
+        sess.total_cost = 0.0
+        sess.total_usd = 0.0
+        return sess
 
-    # 경로 2: 직접 삭제 — 정산 함수를 거치지 않으면 0이다.
-    direct_delete_recorded = 0.0
+    close_settled = await core.process_cache_deletion(wired_bot, _mk("d006-a"))
+    res = await CLC.close_window(wired_bot, _mk("d006-b"),
+                                 reason=CLC.REASON_OPERATOR_DELETE,
+                                 disposition=CLC.WINDOW_NO_PLAYER_EFFECT)
+    direct_delete_recorded = res["storage_krw"]
 
-    totals = {
-        "upload_planned_ttl": round(upload_planned, 2),
-        "close_by_elapsed": round(close_settled, 2),
-        "direct_delete": direct_delete_recorded,
-    }
-    assert len(set(totals.values())) == 3, (
-        f"세 경로가 같은 값을 낸다면 이 결함이 해소된 것입니다: {totals}")
+    assert round(upload_planned, 2) != round(close_settled, 2)
+    assert direct_delete_recorded == pytest.approx(close_settled, rel=0.01)
+    assert "caches/d006-b" in wired_bot.genai_client.caches.deleted
 
 
-@pytest.mark.xfail(strict=True,
-                   reason="AUD-034/035 캐시 회계가 단일 정산점을 갖지 않는다")
-async def test_d006e_single_settlement_point(wired_bot, session_factory):
-    """바람직한 동작 — 캐시 비용은 한 곳에서 한 번만 확정되어야 한다.
+async def test_d006e_single_settlement_point(fake_bot, session_factory, monkeypatch):
+    """(WP-F 해소 — 이전 strict xfail) 캐시 비용은 한 곳에서, provider 사실로 한 번 확정된다.
 
-    현재는 업로드 시 예상 누적과 종료 시 실측 정산이 따로 존재하며
-    서로를 상쇄하지 않는다.
+    과거 결함(AUD-034/035): 업로드 시 계획 TTL 예상액이 provider 비용처럼 먼저 누적되고
+    종료 시 실측 보관비가 다시 누적되어 서로 상쇄되지 않았다. 옛 단언은 '업로드 예상 누적'을
+    전제로 했으나 그 전제 자체가 제거되었으므로, 같은 결함 의미를 최종 구조로 표현한다:
+    열기는 생성 사실만, 닫기는 실제 경과 보관 사실만 기록한다 — 1시간 만에 닫으면 누적과
+    CostEvent 합계가 모두 정확히 '생성 + 1시간 보관'이다. 선불은 별도 플레이어 재무 사실이다.
     """
+    import os
     import core
+    from core import cache_lifecycle as CLC
+    from core import cost_ledger as CL
+
+    now = {"t": 1_800_000_000.0}
+    monkeypatch.setattr(CLC.time, "time", lambda: now["t"])
+
+    async def _text(bot, model_id, scenario_data, cache_note="", session_id=None, session=None):
+        return "룰북", 26_268, "룰북"
+    monkeypatch.setattr(core.cache, "build_scenario_cache_text", _text)
+    fake_bot.cost_ledger = CL.CostLedger(os.path.join("data", "cost_ledger.jsonl"))
 
     tokens = 26_268
     sess = session_factory(session_id="d006e")
-    sess.cache_name = "caches/x"
-    sess.cache_tokens = tokens
+    sess.players = {"u1": {"name": "p"}}
     sess.open_minutes = 180
-    sess.cache_created_at = time.time() - 3600
     sess.total_cost = 0.0
     sess.total_usd = 0.0
 
-    # 업로드 시 계획분이 이미 누적됐다고 가정한다.
-    planned = core.calculate_upload_cost(
-        core.DEFAULT_MODEL, input_tokens=tokens, store_hours=3.0)
-    core.accrue(sess, planned, planned / core.EXCHANGE_RATE)
-    after_upload = sess.total_cost
-
-    # 1시간 만에 닫는다.
-    await core.process_cache_deletion(wired_bot, sess)
+    await CLC.open_window(fake_bot, sess)
+    after_open = sess.total_cost
+    now["t"] += 3600
+    await CLC.close_window(fake_bot, sess, reason=CLC.REASON_PLAYER_CLOSE,
+                           disposition=CLC.WINDOW_SETTLE_REFUND)
 
     actual_1h = core.calculate_upload_cost(
         core.DEFAULT_MODEL, input_tokens=tokens, store_hours=1.0)
+    planned = core.calculate_upload_cost(
+        core.DEFAULT_MODEL, input_tokens=tokens, store_hours=3.0)
+    assert after_open < planned, "열기에서 계획 TTL 예상액이 provider 비용으로 누적됐습니다"
     assert sess.total_cost == pytest.approx(actual_1h, rel=0.02), (
-        f"실사용(1시간) 기준으로 정산되지 않았습니다: "
-        f"업로드 후 {after_upload:.2f} → 종료 후 {sess.total_cost:.2f}, "
+        f"실사용(1시간) 기준으로 정산되지 않았습니다: 종료 후 {sess.total_cost:.2f}, "
         f"기대 {actual_1h:.2f}")
+    ev = fake_bot.cost_ledger.list_cost_events_strict(session_id="d006e")
+    ops = sorted(e["operation"] for e in ev)
+    assert ops == [CL.OP_CACHE_CREATE, CL.OP_CACHE_STORAGE]     # 단일 정산점 — 각 사실 한 번
+    assert sum(e["cost_krw"] for e in ev) == pytest.approx(actual_1h, rel=0.02)
 
 
 def test_d006f_storage_cost_helpers_disagree_on_units():

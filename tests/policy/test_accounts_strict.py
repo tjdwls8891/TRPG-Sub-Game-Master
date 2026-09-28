@@ -170,7 +170,10 @@ def test_29_legacy_billing_callers_unchanged_and_no_strict_cutover():
                            "core/settlement.py", "core/ink_transactions.py",
                            # WP-D 권위 owner — foundation을 조합만 하며 strict 프리미티브는
                            # 원장 부재 봇용 _NullLedger 인터페이스 정의뿐이다.
-                           "core/commit_coordinator.py"):
+                           "core/commit_coordinator.py",
+                           # WP-F 인가 캐시 생애주기 재무 owner — 결정적 키 CostEvent를
+                           # strict append 로 기록한다(턴 Settlement 경로가 아님).
+                           "core/cache_lifecycle.py"):
                     continue                        # 정의 파일 제외
                 text = source_of(rel)
                 for sym in strict_syms:

@@ -595,45 +595,17 @@ class GameCog(commands.Cog):
             캐시 만료 에러 복구와 캐시 부재 선제 발급(방안③)이 공유하는 단일 경로.
             호출 측이 예외를 흡수해 캐시 없이도 턴이 진행될 수 있게 한다.
             """
-            storage_cost = await core.process_cache_deletion(self.bot, session)
-            caching_text, cache_tokens, base_text = await core.build_scenario_cache_text(
-                self.bot, core.DEFAULT_MODEL, session.scenario_data,
-                getattr(session, "cache_note", ""), session.session_id, session=session
-            )
-
-            upload_cost = core.calculate_upload_cost(core.DEFAULT_MODEL, input_tokens=cache_tokens)
-            core.accrue(session, upload_cost, upload_cost / core.EXCHANGE_RATE)
-            session.cache_created_at = time.time()
-            session.cache_expired_notified = False
-            session.cache_tokens = cache_tokens
-
-            core.write_cost_log(session.session_id, f"{cost_log_prefix}{reason_label}", cache_tokens, 0, 0, upload_cost,
-                                session.total_cost)
-
+            # WP-F: 교체는 캐시 생애주기 서비스의 단일 finalizer(기존 생애주기 원격 삭제·보관 사실
+            #   한 번) → 생성 성공 뒤에만 생성 사실. 창 시작(결제한 유지 시간)은 연장하지 않는다.
+            res = await core.cache_lifecycle.reissue(
+                self.bot, session, purpose=core.cache_lifecycle.PURPOSE_REISSUE_AUTO,
+                cache_note=getattr(session, "cache_note", ""))
             _cache_embed = core.build_cache_cost_embed(
-                reason_label, storage_cost, upload_cost, session.total_cost
+                reason_label, res["storage_krw"], res["create_krw"], session.total_cost
             )
-            print(f"[{reason_label}] storage={core.format_cost(storage_cost)} upload={core.format_cost(upload_cost)} total={core.format_cost(session.total_cost)}")
+            print(f"[{reason_label}] storage={core.format_cost(res['storage_krw'])} "
+                  f"upload={core.format_cost(res['create_krw'])} total={core.format_cost(session.total_cost)}")
             await m_send(embed=_cache_embed)
-
-            new_cache = await asyncio.to_thread(
-                self.bot.genai_client.caches.create,
-                model=core.DEFAULT_MODEL,
-                config=types.CreateCachedContentConfig(
-                    system_instruction=self.bot.system_instruction,
-                    contents=[
-                        types.Content(role="user", parts=[types.Part.from_text(text=caching_text)])],
-                    # 남은 유지 시간을 이어간다. 매번 6시간을 새로 주면
-                    # 결제한 것보다 오래 살아 비용이 어긋난다.
-                    ttl=f"{core.remaining_ttl(session)}s",
-                )
-            )
-            session.cache_obj = new_cache
-            session.cache_name = new_cache.name
-            session.cache_model = core.DEFAULT_MODEL
-            session.cache_text = base_text
-            core.update_session_cache_state(session)
-            await core.save_session_data(self.bot, session)
 
         # WP-02: 묘사 생성은 call_with_retry를 쓰지 않는 자체 캐시만료 재시도 경로다.
         #        동일 operation_id를 유지하며 실제 호출마다 provider_attempt를 센다.

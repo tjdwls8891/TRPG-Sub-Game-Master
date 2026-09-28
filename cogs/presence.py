@@ -71,6 +71,14 @@ class PresenceCog(commands.Cog):
 
             session.cache_expired_notified = True
             print(f"[Presence] 캐시 만료 감지: {sid}")
+            # WP-F: 만료도 캐시 생애주기 단일 finalizer를 지난다 — 보관 사실(만료 시각까지) 한 번,
+            #   창 정산(미사용 선불 환급) 한 번, cache_name 정리(재오픈 가능).
+            try:
+                await core.cache_lifecycle.close_window(
+                    self.bot, session, reason=core.cache_lifecycle.REASON_EXPIRED,
+                    disposition=core.cache_lifecycle.WINDOW_SETTLE_REFUND)
+            except Exception as e:
+                print(f"[Presence] 만료 정산 실패(다음 조작·재시작 시 재시도): {e}")
             try:
                 await core.refresh_display(self.bot, session, reason="expired")
             except Exception as e:

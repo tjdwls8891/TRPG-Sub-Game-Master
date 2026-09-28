@@ -412,3 +412,82 @@ async def deduct_ink(user_id, amount: int, allow_overdraft: bool = False) -> dic
         acc["total_spent_ink"] = int(acc.get("total_spent_ink", 0)) + amount
         _write_account(acc)
         return {"ok": True, "balance": remaining, "deducted": amount, "overdraft": overdraft}
+
+
+# ══════════════════════════════════════════════════════════════
+#  WP-F — 생애주기 InkTransaction 계정 적용 프리미티브(선불/환급/추가청구)
+# ══════════════════════════════════════════════════════════════
+#  CHARGE(apply_ink_charge_strict)는 그대로 둔다. 캐시 오픈 창의 선불(PREPAYMENT)·
+#  환급(REFUND)·추가 청구(ADDITIONAL_CHARGE)는 부호가 다른 재무 사실이므로 nominal 을
+#  음수로 비트는 대신 방향(DEBIT/CREDIT)을 명시한다. 같은 per-user 락·strict 로드·
+#  applied 마커 맵·원자 교체를 공유하므로 CHARGE 와 동일한 exactly-once 경계를 갖는다.
+
+DIRECTION_DEBIT = "DEBIT"
+DIRECTION_CREDIT = "CREDIT"
+
+
+async def apply_ink_adjustment_strict(user_id, *, ink_tx_id: str, fingerprint: str,
+                                      kind: str, direction: str, reference_id: str,
+                                      nominal_ink: int,
+                                      allow_overdraft: bool = True) -> dict:
+    """하나의 생애주기 잉크 조정을 계정에 '정확히 한 번' 원자 적용한다.
+
+    · DEBIT  — 레거시 deduct_ink 와 같은 floor 규약(잔액 1 미만이면 1, 초과분은 운영자 부담).
+               total_spent_ink 는 nominal 로 누적(레거시 호환 필드).
+    · CREDIT — 잔액에 더한다. 누적 필드는 레거시 add_ink(환급 사유)처럼 건드리지 않는다.
+    마커는 잔액과 같은 원자 교체로 기록된다(재적용 이중 효과 방지의 단일 근거).
+
+    Returns: {"status": APPLY_*, "marker": {...}}  (INSUFFICIENT 는 balance_before 만)
+    """
+    nominal = int(nominal_ink)
+    if nominal < 0:
+        raise AccountError(f"nominal_ink 는 음수일 수 없다: {nominal}")
+    if direction not in (DIRECTION_DEBIT, DIRECTION_CREDIT):
+        raise AccountError(f"알 수 없는 방향: {direction}")
+    key = str(ink_tx_id)
+
+    async with _lock_for(user_id):
+        acc = load_account_strict(user_id)
+        applied = acc.get("applied_ink_transactions")
+        if not isinstance(applied, dict):
+            applied = {}
+        existing = applied.get(key)
+        if isinstance(existing, dict):
+            if existing.get("fingerprint") == fingerprint:
+                return {"status": APPLY_ALREADY, "marker": dict(existing)}
+            return {"status": APPLY_CONFLICT, "marker": dict(existing)}
+
+        balance_before = int(acc.get("ink_balance", 0))
+        if direction == DIRECTION_DEBIT:
+            if nominal > balance_before and not allow_overdraft:
+                return {"status": APPLY_INSUFFICIENT, "balance_before": balance_before}
+            remaining = balance_before - nominal
+            overdraft = remaining < 1 and nominal > 0
+            if overdraft:
+                remaining = 1
+            balance_after = remaining
+            operator_subsidy = nominal - (balance_before - balance_after)
+        else:
+            overdraft = False
+            balance_after = balance_before + nominal
+            operator_subsidy = 0
+
+        marker = {
+            "fingerprint": fingerprint,
+            "kind": str(kind),
+            "direction": direction,
+            "reference_id": str(reference_id),
+            "nominal_ink": nominal,
+            "balance_before": balance_before,
+            "balance_after": balance_after,
+            "applied_balance_delta": balance_after - balance_before,
+            "overdraft": bool(overdraft),
+            "operator_subsidy_ink": int(operator_subsidy),
+        }
+        acc["ink_balance"] = balance_after
+        if direction == DIRECTION_DEBIT:
+            acc["total_spent_ink"] = int(acc.get("total_spent_ink", 0)) + nominal
+        applied[key] = marker
+        acc["applied_ink_transactions"] = applied
+        _write_account_strict(acc)
+        return {"status": APPLY_NEW, "marker": dict(marker)}
