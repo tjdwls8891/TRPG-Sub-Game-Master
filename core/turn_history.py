@@ -21,7 +21,7 @@
 #     SELECT {tx, logical_turn, attempt, gm_turn, record, supersedes, message_ids, cleanup?}
 #     REWIND {op_id, target_gm_turn, removed[], cleanup}
 #     MESSAGES_BEGIN {tx, emit_id} / MESSAGES {tx, emit_id, message_ids[]}
-#     CLEANUP_DONE {op_id}
+#     CLEANUP_DONE {op_id, manual_ack?}   (unmapped 부채는 수동 정리 안내 성공 후에만)
 #   sessions/{id}/history_op.json                      진행 중 이력 조작 의도(재시작 정합용)
 #   sessions/{id}/history_pending_messages.json        MESSAGES append 실패 시 대체 영속(재정합 대상)
 #
@@ -190,6 +190,8 @@ class HistoryView:
         self.rewind_ops: set = set()
         self.cleanup_debts: dict = {}     # op_id -> cleanup 부채(CLEANUP_DONE 전까지)
         self.open_emits: dict = {}        # tx -> {emit_id} (BEGIN 후 MESSAGES 미기록)
+        self.closed_emits: set = set()    # MESSAGES로 닫힌 emit_id(늦게 fold된 BEGIN은 무시)
+        self.begun_emits: set = set()
         done = set()
         for ev in events:
             t = ev["type"]
@@ -205,9 +207,12 @@ class HistoryView:
                 self.messages.setdefault(ev["transaction_id"], []).extend(
                     ev.get("message_ids") or [])
                 if ev.get("emit_id"):
+                    self.closed_emits.add(ev["emit_id"])
                     self.open_emits.get(ev["transaction_id"], set()).discard(ev["emit_id"])
             elif t == "MESSAGES_BEGIN":
-                self.open_emits.setdefault(ev["transaction_id"], set()).add(ev["emit_id"])
+                self.begun_emits.add(ev["emit_id"])
+                if ev["emit_id"] not in self.closed_emits:
+                    self.open_emits.setdefault(ev["transaction_id"], set()).add(ev["emit_id"])
             elif t == "CLEANUP_DONE":
                 done.add(ev.get("op_id"))
             c = ev.get("cleanup") if t in ("SELECT", "REWIND") else None
@@ -413,15 +418,54 @@ def append_messages(session_id, transaction_id, message_ids, emit_id=None) -> No
         _append_event(session_id, ev)
 
 
-def begin_emit(session_id, transaction_id) -> str:
-    """파생 게임 메시지 송출 전 durable 의도(MESSAGES_BEGIN). 송출 후 MESSAGES가 닫는다.
+def begin_emit(session_id, transaction_id, emit_id=None) -> str:
+    """인덱스에 송출 전 의도(MESSAGES_BEGIN)를 남긴다(저수준). 송출 후 MESSAGES가 닫는다.
 
     BEGIN만 남은 시도는 '매핑 유실 가능'으로 표시되어 정리 부채에 unmapped로 드러난다.
     """
-    emit_id = uuid.uuid4().hex
+    emit_id = emit_id or uuid.uuid4().hex
     _append_event(session_id, {"type": "MESSAGES_BEGIN", "transaction_id": transaction_id,
                                "emit_id": emit_id})
     return emit_id
+
+
+def secure_emit_intent(session, transaction_id) -> tuple:
+    """게임 채널 파생 출력 송출 전 durable 의도를 반드시 확보한다(E-E2a).
+
+    ① 인덱스 MESSAGES_BEGIN → ② 실패 시 대체 파일에 begin-only 항목(strict).
+    둘 다 실패하면 HistoryError — 호출자는 게임 채널 출력을 보내지 않는다(fail-closed,
+    이미 COMMITTED된 이야기·재무는 그대로). 대체 파일의 BEGIN은 재정합이 인덱스로 fold한다.
+    Returns: (emit_id, "INDEX"|"PENDING_FILE")
+    """
+    sid = session.session_id
+    emit_id = uuid.uuid4().hex
+    try:
+        begin_emit(sid, transaction_id, emit_id)
+        return emit_id, "INDEX"
+    except Exception as e:  # noqa: BLE001
+        err = f"{type(e).__name__}: {e}"
+    try:
+        pend = _read_json(pending_messages_path(sid)) or {}
+        pend[emit_id] = {"transaction_id": transaction_id, "message_ids": None, "begin": True}
+        _write_json_strict(pending_messages_path(sid), pend)
+        print(f"[WP-E] MESSAGES_BEGIN 대체 파일 보전({transaction_id}): {err}")
+        return emit_id, "PENDING_FILE"
+    except Exception as e2:  # noqa: BLE001
+        raise HistoryError(f"송출 의도 영속 불가 — {err}; fallback {type(e2).__name__}: {e2}") from e2
+
+
+def _drop_pending_entry(sid, emit_id) -> None:
+    """매핑이 인덱스에 닫힌 뒤 대체 파일의 같은 emit 항목 제거(실패해도 fold가 무시)."""
+    try:
+        pend = _read_json(pending_messages_path(sid))
+        if pend and emit_id in pend:
+            del pend[emit_id]
+            if pend:
+                _write_json_strict(pending_messages_path(sid), pend)
+            else:
+                os.remove(pending_messages_path(sid))
+    except Exception as e:  # noqa: BLE001
+        print(f"[WP-E] 대체 파일 항목 정리 보류(재정합에서 멱등 처리): {e}")
 
 
 def record_emitted_messages(session, transaction_id, emit_id, message_ids) -> str:
@@ -435,13 +479,16 @@ def record_emitted_messages(session, transaction_id, emit_id, message_ids) -> st
     sid = session.session_id
     try:
         append_messages(sid, transaction_id, message_ids, emit_id)
+        if emit_id:
+            _drop_pending_entry(sid, emit_id)
         return "INDEX"
     except Exception as e:  # noqa: BLE001
         err = f"{type(e).__name__}: {e}"
     try:
         pend = _read_json(pending_messages_path(sid)) or {}
         pend[emit_id or uuid.uuid4().hex] = {"transaction_id": transaction_id,
-                                             "message_ids": list(message_ids or [])}
+                                             "message_ids": list(message_ids or []),
+                                             "begin": True}
         _write_json_strict(pending_messages_path(sid), pend)
         print(f"[WP-E] MESSAGES 매핑 대체 파일 보전({transaction_id}): {err}")
         return "PENDING_FILE"
@@ -462,9 +509,17 @@ def _flush_pending_messages(session) -> int:
     sid = session.session_id
     n = 0
     pend = _read_json(pending_messages_path(sid)) or {}
+    hv = view(sid) if pend else None
     for emit_id, body in list(pend.items()):
-        append_messages(sid, body["transaction_id"], body.get("message_ids"), emit_id)
-        n += 1
+        tx = body["transaction_id"]
+        if body.get("message_ids") is None:
+            # begin-only — 인덱스에 BEGIN/MESSAGES가 이미 있으면 건너뛴다(중복·역전 fold)
+            if emit_id not in hv.begun_emits and emit_id not in hv.closed_emits:
+                begin_emit(sid, tx, emit_id)
+                n += 1
+        elif emit_id not in hv.closed_emits:
+            append_messages(sid, tx, body.get("message_ids"), emit_id)
+            n += 1
     if pend:
         p = pending_messages_path(sid)
         if os.path.exists(p):
@@ -472,10 +527,13 @@ def _flush_pending_messages(session) -> int:
     slot = list(getattr(session, "_history_unmapped_payload", None) or [])
     while slot:
         body = slot[0]
-        append_messages(sid, body["transaction_id"], body.get("message_ids"), body.get("emit_id"))
+        hv2 = view(sid)
+        if not body.get("emit_id") or body["emit_id"] not in hv2.closed_emits:
+            append_messages(sid, body["transaction_id"], body.get("message_ids"),
+                            body.get("emit_id"))
+            n += 1
         slot.pop(0)
         session._history_unmapped_payload = list(slot)
-        n += 1
     return n
 
 
@@ -535,10 +593,13 @@ async def drain_cleanup(bot, session) -> dict:
 
     · 이미 없는 메시지는 성공. · 현재 선택된 시도의 출력 ID는 부채에 있어도 삭제 금지.
     · 채널을 얻지 못하면(재시작 초기 등) 부채 유지.
-    Returns: {"done": n_ops, "pending": n_ops, "deleted": n_msgs, "unmapped": [tx…]}
+    · unmapped 부채(매핑 유실 가능 출력)는 알려진 ID를 처리해도 닫지 않는다 — 수동 정리
+      안내가 실제로 표면화된 뒤 ack_manual_cleanup만 닫는다(E-E2b). 그 전까지 매 drain에서
+      다시 "manual"로 보고된다(중복 안내 허용, 사실 유실 금지).
+    Returns: {"done", "pending", "deleted", "manual": [{op_id, transaction_ids}…]}
     """
     sid = session.session_id
-    out = {"done": 0, "pending": 0, "deleted": 0, "unmapped": []}
+    out = {"done": 0, "pending": 0, "deleted": 0, "manual": []}
     hv = view(sid)
     if not hv.cleanup_debts:
         session._history_cleanup_clear = True
@@ -571,8 +632,11 @@ async def drain_cleanup(bot, session) -> dict:
             except Exception as e:  # noqa: BLE001
                 if not _is_gone(e):
                     ok = False
-        if debt.get("unmapped"):
-            out["unmapped"] += list(debt.get("transaction_ids") or [])
+        if ok and debt.get("unmapped"):
+            out["manual"].append({"op_id": op_id,
+                                  "transaction_ids": list(debt.get("transaction_ids") or [])})
+            out["pending"] += 1
+            continue
         if ok:
             try:
                 _append_event(sid, {"type": "CLEANUP_DONE", "op_id": op_id})
@@ -583,6 +647,17 @@ async def drain_cleanup(bot, session) -> dict:
             out["pending"] += 1
     session._history_cleanup_clear = out["pending"] == 0
     return out
+
+
+def ack_manual_cleanup(session, op_id) -> bool:
+    """수동 정리 안내가 실제로 전달된 뒤에만 unmapped 부채를 닫는다(E-E2b)."""
+    try:
+        _append_event(session.session_id, {"type": "CLEANUP_DONE", "op_id": op_id,
+                                           "manual_ack": True})
+        return True
+    except HistoryError as e:
+        print(f"[WP-E] 수동 정리 ack 기록 실패(부채 유지·재안내): {e}")
+        return False
 
 
 # ══════════════════════════════════════════════════════════════

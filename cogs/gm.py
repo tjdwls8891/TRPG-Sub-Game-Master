@@ -1923,14 +1923,29 @@ class GMCog(commands.Cog):
         master_ch = self.bot.get_channel(getattr(session, "master_ch_id", 0))
         game_ch = self.bot.get_channel(getattr(session, "game_ch_id", 0))
         game_ids = []
-        # WP-E(E-E2): 파생 게임 메시지 송출 전 durable 의도 — 송출 후 매핑이 닫는다.
+        # WP-E(E-E2a): 게임 채널 파생 출력은 durable 송출 의도(인덱스 BEGIN 또는 대체 파일)가
+        #   확보된 뒤에만 보낸다. 확보 불가면 보내지 않는다(fail-closed) — 추적 불가 출력 금지.
+        #   이미 COMMITTED된 이야기·재무는 되돌리지 않는다.
         emit_id = None
         _tid = getattr(derived, "transaction_id", None)
-        if _tid and game_ch and any(it[0] == "game" for it in derived.items):
-            try:
-                emit_id = core.turn_history.begin_emit(session.session_id, _tid)
-            except Exception as e:
-                print(f"[WP-E] 파생 메시지 의도 기록 실패(송출 후 매핑으로 보전): {e}")
+        n_game = sum(1 for it in derived.items if it[0] == "game")
+        game_allowed = False
+        if n_game and game_ch:
+            if _tid:
+                try:
+                    emit_id, _ = core.turn_history.secure_emit_intent(session, _tid)
+                    game_allowed = True
+                except Exception as e:
+                    print(f"⛔ [WP-E] 송출 의도 영속 불가 — 게임 채널 파생 출력 {n_game}건 보류: {e}")
+            else:
+                print(f"⛔ [WP-E] 시도 식별 없는 게임 채널 파생 출력 {n_game}건 보류(추적 불가)")
+            if not game_allowed and master_ch:
+                try:
+                    await master_ch.send(
+                        f"⚠️ 이력 기록을 확보하지 못해 게임 채널 파생 알림 {n_game}건을 보내지 "
+                        f"않았습니다(턴 확정·청구는 유지).")
+                except Exception:
+                    pass
         for item in list(derived.items):
             try:
                 kind = item[0]
@@ -1940,7 +1955,7 @@ class GMCog(commands.Cog):
                         await master_ch.send(content, embed=embed)
                     elif content:
                         await master_ch.send(content)
-                elif kind == "game" and game_ch:
+                elif kind == "game" and game_ch and game_allowed:
                     _, content, view_factory = item
                     if view_factory is not None:
                         _m = await game_ch.send(content, view=view_factory())
@@ -2084,15 +2099,25 @@ class GMCog(commands.Cog):
         except Exception as e:
             print(f"[WP-E] 출력 정리 부채 실행 실패(부채 유지): {e}")
             return 0
-        if res.get("unmapped"):
+        # E-E2b: unmapped 부채는 수동 정리 안내가 실제로 전달된 뒤에만 닫는다(ack).
+        #   채널 부재·전송 실패 시 부채가 남아 다음 admission/재시작에서 다시 안내된다.
+        manual = res.get("manual") or []
+        if manual:
             master_ch = self.bot.get_channel(getattr(session, "master_ch_id", 0))
+            sent = False
             if master_ch:
                 try:
                     await master_ch.send(
                         "⚠️ 일부 이전 턴 출력은 매핑 기록이 없어 자동 정리하지 못했습니다. "
-                        "게임 채널을 확인해 주십시오.")
-                except Exception:
-                    pass
+                        "게임 채널을 확인해 수동으로 정리해 주십시오.")
+                    sent = True
+                except Exception as e:
+                    print(f"[WP-E] 수동 정리 안내 실패(부채 유지·재안내): {e}")
+            if sent:
+                for m in manual:
+                    core.turn_history.ack_manual_cleanup(session, m["op_id"])
+                session._history_cleanup_clear = not core.turn_history.pending_cleanups(
+                    session.session_id)
         return int(res.get("deleted") or 0)
 
     async def _settle_history_op(self, session, prep, master_ch) -> None:

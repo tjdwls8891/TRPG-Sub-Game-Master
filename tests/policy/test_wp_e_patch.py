@@ -562,3 +562,203 @@ def test_ee3_d006e_remains_strict_xfail_for_wp_f():
     src = source_of("tests/defects/test_cache_accounting.py")
     i = src.index("def test_d006e_single_settlement_point")
     assert "strict=True" in src[max(0, i - 400):i]
+
+
+# ══════════════════════════════════════════════════════════════
+# E-E2a — durable 송출 의도 없이는 게임 채널 파생 출력 금지
+# ══════════════════════════════════════════════════════════════
+
+def _intent_durable(sid, tx_id) -> bool:
+    """지금 디스크에 이 시도의 송출 의도(인덱스 BEGIN 또는 대체 파일 항목)가 있는가."""
+    if any(e["type"] == "MESSAGES_BEGIN" and e["transaction_id"] == tx_id
+           for e in TH.load_events(sid)):
+        return True
+    p = TH.pending_messages_path(sid)
+    if os.path.exists(p):
+        pend = json.load(open(p, encoding="utf-8"))
+        return any(b["transaction_id"] == tx_id for b in pend.values())
+    return False
+
+
+def _fail_begin_append(inject):
+    orig = TH._append_event
+
+    def _bad(sid, ev):
+        if ev.get("type") == "MESSAGES_BEGIN":
+            raise TH.HistoryError("MESSAGES_BEGIN append 실패(모사)")
+        return orig(sid, ev)
+    inject.setattr(TH, "_append_event", _bad)
+
+
+async def test_ee2a_begin_failure_falls_back_durably_and_crash_before_mapping_is_traceable(
+        rig, inject):
+    """BEGIN 인덱스 실패 → 대체 파일에 의도 확보 후에만 송출 → 매핑 전 크래시 → 재시작 후
+    BEGIN이 인덱스로 fold되어 그 출력은 unmapped 부채로 추적된다(orphan 없음)."""
+    r = rig
+    s = r.sess
+    await _commit(r, "숲길")
+    await _commit(r, "동굴", "동굴로 간다")
+    tx2 = _hv(s).selected[2]["transaction_id"]
+    _fail_begin_append(inject)
+    seen = []
+    orig_send = r.gch.send
+
+    async def _send(content=None, **kw):
+        seen.append(_intent_durable(s.session_id, tx2))    # 송출 순간의 durable 의도
+        return await orig_send(content, **kw)
+    inject.setattr(r.gch, "send", _send)
+
+    def _crash(*a, **k):                                      # 송출 후 매핑 직전 하드 크래시
+        raise KeyboardInterrupt("크래시 모사")
+    inject.setattr(TH, "record_emitted_messages", _crash)
+    d = CC.DerivedEffects()
+    d.transaction_id = tx2
+    d.game("📜 파생 정본 알림")
+    with pytest.raises(KeyboardInterrupt):
+        await r.gm._emit_commit_derived(s, d)
+    inject.undo()
+    orphan = r.gch.sent[-1]
+    assert seen == [True], "durable 의도 없이 송출됨"
+    assert orphan.content == "📜 파생 정본 알림"
+
+    bot2, s2 = await _restart_with_channels(r)
+    assert not TH.needs_reconcile(s2)
+    hv = _hv(s2)
+    assert hv.open_emits.get(tx2), "재시작 후 송출 의도가 인덱스에 없음(추적 불가)"
+    # 그 시도를 되감으면 매핑 유실 가능 부채로 드러나고 수동 정리 안내가 나간다
+    r.gm.bot = bot2
+    assert (await r.gm.history_rewind(s2, 1))["ok"]
+    rw = [e for e in TH.load_events(s2.session_id) if e["type"] == "REWIND"][-1]
+    assert rw["cleanup"]["unmapped"] is True
+    assert any("매핑 기록이 없어" in (m.content or "") for m in r.master.sent)
+
+
+async def test_ee2a_no_durable_intent_means_no_game_output(rig, inject):
+    """BEGIN 인덱스·대체 파일 모두 실패 → 게임 채널 파생 출력은 보내지 않는다(fail-closed).
+    이야기·재무는 유지되고, 재시작 후에도 추적 불가 출력(orphan)이 존재하지 않는다."""
+    r = rig
+    s = r.sess
+    await _fund(PLAYER_UID, 100)
+    tx1 = await _commit(r, "숲길")
+    tx_id = tx1.transaction_id
+    story = TH.capture_reversible(s)
+    rows, bal = _ink_rows(PLAYER_UID), _balance(PLAYER_UID)
+    _fail_begin_append(inject)
+
+    def _bad_write(path, obj):
+        raise TH.HistoryError("대체 파일 쓰기 실패(모사)")
+    inject.setattr(TH, "_write_json_strict", _bad_write)
+    before = list(r.gch.sent)
+    d = CC.DerivedEffects()
+    d.transaction_id = tx_id
+    d.game("📜 보내면 안 되는 알림")
+    d.master("마스터 보고")
+    await r.gm._emit_commit_derived(s, d)
+    inject.undo()
+    assert r.gch.sent == before, "durable 의도 없이 게임 채널 출력이 나갔습니다"
+    assert any("보내지 않았습니다" in (m.content or "") for m in r.master.sent)
+    assert any(m.content == "마스터 보고" for m in r.master.sent)
+    # 이야기·재무 롤백 없음
+    assert TH.capture_reversible(s) == story
+    assert _ink_rows(PLAYER_UID) == rows and _balance(PLAYER_UID) == bal
+    assert _hv(s).head_entry()["transaction_id"] == tx_id
+
+    bot2, s2 = await _restart_with_channels(r)
+    hv = _hv(s2)
+    bot_game_msgs = [m for m in r.gch.sent if m.content and "보내면 안 되는" in m.content]
+    assert bot_game_msgs == []
+    assert not hv.open_emits.get(tx_id)
+
+
+async def test_ee2a_pending_begin_fold_is_idempotent_and_order_safe(rig):
+    """대체 파일 BEGIN이 인덱스 MESSAGES보다 늦게 fold되거나 중복 flush돼도 열린 의도가
+    되살아나지 않는다(순서 역전·중복·재시작 멱등)."""
+    r = rig
+    s = r.sess
+    await _commit(r, "숲길")
+    tx = _hv(s).selected[1]["transaction_id"]
+    sid = s.session_id
+    # 대체 파일 begin-only + 인덱스 MESSAGES(같은 emit) — 역전 상태
+    with open(TH.pending_messages_path(sid), "w", encoding="utf-8") as f:
+        json.dump({"e1": {"transaction_id": tx, "message_ids": None, "begin": True}}, f)
+    TH.append_messages(sid, tx, [123], "e1")
+    assert TH.try_flush(s)
+    assert TH.try_flush(s)
+    hv = _hv(s)
+    assert not hv.open_emits.get(tx) and "e1" in hv.closed_emits
+    assert [e for e in TH.load_events(sid) if e["type"] == "MESSAGES_BEGIN"] == []
+    # begin-only 두 번 flush(재시작 중복) → BEGIN 1건
+    with open(TH.pending_messages_path(sid), "w", encoding="utf-8") as f:
+        json.dump({"e2": {"transaction_id": tx, "message_ids": None, "begin": True}}, f)
+    assert TH.try_flush(s)
+    with open(TH.pending_messages_path(sid), "w", encoding="utf-8") as f:
+        json.dump({"e2": {"transaction_id": tx, "message_ids": None, "begin": True}}, f)
+    assert TH.try_flush(s)
+    assert len([e for e in TH.load_events(sid)
+                if e["type"] == "MESSAGES_BEGIN" and e["emit_id"] == "e2"]) == 1
+    # 뒤이은 매핑이 닫는다
+    TH.append_messages(sid, tx, [456], "e2")
+    assert not _hv(s).open_emits.get(tx)
+
+
+# ══════════════════════════════════════════════════════════════
+# E-E2b — 수동 정리 안내 성공 전 unmapped 부채 종결 금지
+# ══════════════════════════════════════════════════════════════
+
+async def test_ee2b_manual_cleanup_debt_survives_warning_failure_until_surfaced(rig, inject):
+    r = rig
+    s = r.sess
+    await _commit(r, "숲길")
+    await _commit(r, "동굴", "동굴로 간다")
+    tx2 = _hv(s).selected[2]["transaction_id"]
+    TH.begin_emit(s.session_id, tx2)                       # BEGIN만 남은 시도(매핑 유실 가능)
+    known = set(TH.attempt_message_ids(s.session_id, _hv(s).selected[2]))
+    orig_send = r.master.send
+    state = {"n": 0}
+
+    async def _flaky(content=None, **kw):
+        if content and "매핑 기록이 없어" in content and state["n"] == 0:
+            state["n"] += 1
+            raise RuntimeError("마스터 채널 전송 실패(모사)")
+        return await orig_send(content, **kw)
+    inject.setattr(r.master, "send", _flaky)
+
+    assert (await r.gm.history_rewind(s, 1))["ok"]          # 첫 drain — 안내 실패
+    debts = TH.pending_cleanups(s.session_id)
+    assert len(debts) == 1 and debts[0]["unmapped"] is True, "안내 실패 후 부채가 사라졌습니다"
+    assert all(m.deleted for m in r.gch.sent if m.id in known), "알려진 출력은 정리돼야 합니다"
+    assert not [e for e in TH.load_events(s.session_id) if e["type"] == "CLEANUP_DONE"]
+    assert not any("매핑 기록이 없어" in (m.content or "") for m in r.master.sent)
+    assert s._history_cleanup_clear is False
+    inject.undo()
+
+    # 재시작 — restore drain은 안내 없이 부채 유지(수동 안내는 어댑터만)
+    bot2, s2 = await _restart_with_channels(r)
+    assert len(TH.pending_cleanups(s2.session_id)) == 1
+    # 다음 입력 admission이 다시 발견 → 안내 성공 → 그때에만 manual_ack로 종결
+    r.gm.bot = bot2
+    await r.gm._recovery_admission(s2)
+    warns = [m for m in r.master.sent if "매핑 기록이 없어" in (m.content or "")]
+    assert len(warns) == 1
+    done = [e for e in TH.load_events(s2.session_id) if e["type"] == "CLEANUP_DONE"]
+    assert len(done) == 1 and done[0].get("manual_ack") is True
+    assert TH.pending_cleanups(s2.session_id) == []
+    # 종결 후에는 재안내 없음
+    await r.gm._recovery_admission(s2)
+    assert len([m for m in r.master.sent if "매핑 기록이 없어" in (m.content or "")]) == 1
+
+
+async def test_ee2b_no_master_channel_keeps_manual_debt(rig, inject):
+    r = rig
+    s = r.sess
+    await _commit(r, "숲길")
+    await _commit(r, "동굴", "동굴로 간다")
+    TH.begin_emit(s.session_id, _hv(s).selected[2]["transaction_id"])
+    orig_get = r.bot.get_channel
+    inject.setattr(r.bot, "get_channel",
+                   lambda cid: None if cid == s.master_ch_id else orig_get(cid))
+    assert (await r.gm.history_rewind(s, 1))["ok"]
+    assert len(TH.pending_cleanups(s.session_id)) == 1
+    inject.undo()
+    await r.gm._drain_history_cleanup(s)
+    assert TH.pending_cleanups(s.session_id) == []

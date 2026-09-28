@@ -1,0 +1,53 @@
+# WP-E gate patch 2 (E-E2a/E-E2b) post-patch scan — production code only
+
+## E-E2a: every game-channel derived send and its intent gate
+1958:                elif kind == "game" and game_ch and game_allowed:
+1932:        game_allowed = False
+1936:                    emit_id, _ = core.turn_history.secure_emit_intent(session, _tid)
+1937:                    game_allowed = True
+1942:            if not game_allowed and master_ch:
+1958:                elif kind == "game" and game_ch and game_allowed:
+-- secure_emit_intent: index BEGIN → pending-file BEGIN → HistoryError (fail-closed)
+432:def secure_emit_intent(session, transaction_id) -> tuple:
+454:        raise HistoryError(f"송출 의도 영속 불가 — {err}; fallback {type(e2).__name__}: {e2}") from e2
+-- other direct game-channel sends of committed-derived items (expect only the gated one above):
+1961:                        _m = await game_ch.send(content, view=view_factory())
+1963:                        _m = await game_ch.send(content)
+
+## pending fold idempotency (begun/closed emit sets)
+193:        self.closed_emits: set = set()    # MESSAGES로 닫힌 emit_id(늦게 fold된 BEGIN은 무시)
+194:        self.begun_emits: set = set()
+210:                    self.closed_emits.add(ev["emit_id"])
+213:                self.begun_emits.add(ev["emit_id"])
+214:                if ev["emit_id"] not in self.closed_emits:
+517:            if emit_id not in hv.begun_emits and emit_id not in hv.closed_emits:
+520:        elif emit_id not in hv.closed_emits:
+531:        if not body.get("emit_id") or body["emit_id"] not in hv2.closed_emits:
+
+## E-E2b: CLEANUP_DONE writers
+642:                _append_event(sid, {"type": "CLEANUP_DONE", "op_id": op_id})
+655:        _append_event(session.session_id, {"type": "CLEANUP_DONE", "op_id": op_id,
+635:        if ok and debt.get("unmapped"):
+652:def ack_manual_cleanup(session, op_id) -> bool:
+cogs/gm.py:2118:                    core.turn_history.ack_manual_cleanup(session, m["op_id"])
+
+## drain callers
+cogs/gm.py:2025:            await self._drain_history_cleanup(session)
+cogs/gm.py:2098:            res = await core.turn_history.drain_cleanup(self.bot, session)
+cogs/gm.py:2151:            await self._drain_history_cleanup(session)
+cogs/gm.py:2171:            result["removed_messages"] = await self._drain_history_cleanup(session)
+cogs/gm.py:2266:                    await self._drain_history_cleanup(session)
+cogs/gm.py:2282:                await self._drain_history_cleanup(session)      # E-E2 남은 정리 부채
+core/cache.py:513:                        _d = await _th.drain_cleanup(bot, session)
+
+## SELECT gate unchanged
+357:        raise HistoryError(f"COMMITTED 이전 선택 금지: {plan.transaction_id}")
+698:            sel = _th.select_committed(session, plan)
+
+## financial references in turn_history (expect none)
+(none)
+
+## files changed vs 700a49e
+M	cogs/gm.py
+M	core/turn_history.py
+M	tests/policy/test_wp_e_patch.py

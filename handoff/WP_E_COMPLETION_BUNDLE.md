@@ -358,3 +358,64 @@ test_ee3_d006e_remains_strict_xfail_for_wp_f
 ## Hard stop
 
 WP-F **NOT STARTED**.
+
+---
+
+# GATE PATCH 2 — E-E2a / E-E2b (re-gate: PATCH REQUIRED; E-E1·E-E3 approved, unchanged)
+
+Parent: `700a49e205558a835ca3b4ea03cfeff03fc77f1c`. Final SHA, local==remote and literal clean status: see closure text.
+Changed: `core/turn_history.py`, `cogs/gm.py`, `tests/policy/test_wp_e_patch.py`, this bundle, `handoff/WP_E_GATE_PATCH2_SCAN.txt`.
+Not changed: E-E1 SELECT gate, E-E3 cache provenance, settlement/ink_transactions/accounts/cost_ledger, prompts/scenarios.
+
+## E-E2a — no game-channel derived output without a durable pre-send intent
+
+- `secure_emit_intent(session, tx)`: tries an index `MESSAGES_BEGIN` first. If that fails, it writes a
+  begin-only entry (`message_ids: null`) to the strict pending file. If both fail it raises `HistoryError`.
+- `_emit_commit_derived` sends game-channel items only when `game_allowed` is set, which requires a
+  secured intent and a transaction id. Otherwise the items are **not sent** (fail-closed), the master is
+  told, and the COMMITTED story and finance stay as they are. Master and stats items are unaffected.
+- A crash after sending but before mapping always leaves a durable BEGIN, either in the index or in the
+  pending file. Restart or reconcile folds it into the index, so the attempt shows an open emit and any
+  later removal makes an `unmapped` debt that triggers the manual-cleanup warning.
+- The fold is idempotent and order-safe:
+  - `HistoryView` tracks `begun_emits` and `closed_emits`. A BEGIN folded after the matching MESSAGES does
+    not reopen the emit.
+  - A begin-only entry is appended only if the emit has no BEGIN or MESSAGES yet; a mapping entry only if
+    the emit isn't closed. Duplicate flushes and restarts add nothing.
+  - A successful index MESSAGES drops the matching pending entry.
+
+## E-E2b — unmapped debt is not closed before the manual-cleanup warning is delivered
+
+- `drain_cleanup` still deletes the known IDs of an `unmapped` debt, but never writes `CLEANUP_DONE` for it.
+  The debt is reported under `manual` and stays pending, so `_history_cleanup_clear` stays False.
+- Only the GM adapter closes it. It sends the master warning, and after a **successful** send it calls
+  `ack_manual_cleanup`, which writes `CLEANUP_DONE{manual_ack: true}`.
+- If the warning fails, there is no master channel, the restart-time drain has no adapter, or the process
+  crashes before the ack, the debt remains. The next admission or recovery finds it again. A duplicate
+  warning is possible; losing the orphan fact is not.
+
+## New tests (tests/policy/test_wp_e_patch.py)
+
+```
+test_ee2a_begin_failure_falls_back_durably_and_crash_before_mapping_is_traceable
+  (index BEGIN forced to fail; send-time spy proves a durable intent existed at send; crash before mapping;
+   restart folds BEGIN; rewind yields unmapped debt + warning)
+test_ee2a_no_durable_intent_means_no_game_output
+  (index BEGIN + pending file both fail → zero game-channel output; master notified; story/ink unchanged;
+   restart: no orphan)
+test_ee2a_pending_begin_fold_is_idempotent_and_order_safe
+test_ee2b_manual_cleanup_debt_survives_warning_failure_until_surfaced
+  (first warning send fails → debt persists, no CLEANUP_DONE; restart keeps it; next admission warns
+   once → CLEANUP_DONE manual_ack; no re-warning afterwards)
+test_ee2b_no_master_channel_keeps_manual_debt
+```
+
+## Results
+
+- WP-E related tests (test_turn_history + test_wp_e_patch): **47 passed** (previous 42 all kept + 5 new)
+- Full regression: **503 passed, 1 xfailed (d006e strict), 0 failed, 0 XPASS**
+- compileall/import OK · routine ① OK · bot load cogs 9 · 명령어 46 · views 5 · verify_docs: only the
+  pre-existing core-module count mismatch (untouched)
+- Scan: `handoff/WP_E_GATE_PATCH2_SCAN.txt`
+
+WP-F **NOT STARTED**.
