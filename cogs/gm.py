@@ -1912,6 +1912,11 @@ class GMCog(commands.Cog):
         #   전파되어 롤백 스냅샷이 전체 precommit 상태를 복원한다(영속 전 실패). 파생 출력
         #   (Discord/통계)은 derived 기술자일 뿐이며 COMMITTED 이후에만 방출·실패한다.
         TP = core.turn_preparation
+        # WP-F: 커밋된 ROLL 성장의 확정 알림(CANONICAL_GAME_EVENT) — 성장은 코디네이터가
+        #   이미 정본에 적용했다. derived 로만 쌓여 durable COMMITTED 이후 송출 의도와 함께 나간다.
+        if derived is not None:
+            for _line in list(getattr(prep, "growth_notices", None) or []):
+                derived.game(_line)
         if prep.irregular_plan is not None and not prep.irregular_plan.applied:
             await self._apply_irregular_npc_plan(
                 session, prep.irregular_plan, prep.irregular_text, None,
@@ -3330,7 +3335,14 @@ class GMCog(commands.Cog):
                     growth = outcome["growth"]
                     if growth:
                         g_line = core.format_growth(char_name, stat_name, growth)
-                        if game_ch:
+                        # WP-F: '성장!'은 정본 변이(스테이징) 알림이다 — 자동 턴에서는 커밋된
+                        #   성장 사실에서만(derived, durable COMMITTED 이후) 게임 채널에 나간다.
+                        #   실패·폐기 시도에 거짓 영구 알림을 남기지 않는다. 판정 사실(아직/상한)은
+                        #   정본 변이가 아니므로 즉시 보인다. 수동 경로(transaction_id 없음)는 기존대로.
+                        if growth.get("grew") and transaction_id is not None:
+                            if _prep is not None:
+                                _prep.growth_notices.append(g_line)
+                        elif game_ch:
                             await core.send_streamed(self.bot, game_ch, g_line)
                         if master_ch:
                             await master_ch.send(g_line)

@@ -978,6 +978,8 @@ class TurnPreparation:
         self.growth_players = None          # ROLL 성장 투영(players 복제)
         self.growth_fail_counts = None      # ROLL 성장 투영(stat_fail_counts 복제)
         self.growth_events: list = []       # [(uid, stat, new_value)]
+        # WP-F: 성장 '확정' 알림 문구 — 커밋된 성장 사실에서만 게임 채널로 방출(derived).
+        self.growth_notices: list = []
         self.delivery = None                # DeliveryResult
         self.delivery_error = None
         self.failure_code = None

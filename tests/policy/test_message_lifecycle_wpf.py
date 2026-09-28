@@ -315,3 +315,51 @@ def test_mf11b_player_notices_route_through_lifecycle_source_scan():
     presence = source_of("cogs/presence.py")
     assert "game_ch.send(" not in presence
     assert source_of("core/dialogue.py").count("_ml.register(") == 1
+
+
+# ── M-F09/M-F10 실제 변이 알림: ROLL 성장 ───────────────────
+
+def _grow(monkeypatch):
+    def _outcome(sess, char, stat, *, failed, sides):
+        return {"growth": {"grew": True, "rolled": 3, "target": 5, "new_value": 13},
+                "luck": None}
+    monkeypatch.setattr(core, "process_roll_outcome", _outcome)
+
+
+async def test_mf09_growth_notice_only_after_commit(rig, monkeypatch):
+    r = rig
+    _grow(monkeypatch)
+    decl = "힘껏 문을 민다"
+    tx = tt.get_or_begin_turn_transaction(r.sess, decl)
+    await r.gm._execute_rolls(r.sess, [{"char_name": "테스터", "stat": "근력", "sides": 20}],
+                              r.gch, transaction_id=tx.transaction_id)
+    assert not any("성장!" in (m.content or "") for m in r.gch.sent)      # 커밋 전 알림 없음
+    assert any("성장!" in (m.content or "") for m in r.master.sent)       # 운영 로그는 즉시
+    await r.gm._finish_proceed_and_continue(
+        r.sess, f"{decl} 묘사", r.master, event_assessment="ongoing",
+        transaction_id=tx.transaction_id)
+    assert tx.status == tt.TurnStatus.COMMITTED
+    notices = [m for m in r.gch.sent if "성장!" in (m.content or "")]
+    assert len(notices) == 1
+    assert r.sess.players[PLAYER_UID]["profile"]["근력"] == 13          # 알림 = 커밋된 사실
+    entry = _hv(r.sess).selected[1]
+    assert notices[0].id in TH.attempt_message_ids(r.sess.session_id, entry)
+
+
+async def test_mf10_growth_notice_absent_when_turn_fails(rig, monkeypatch):
+    r = rig
+    _grow(monkeypatch)
+
+    async def _fail(session):
+        raise core.SessionPersistenceError("strict save 실패(모사)")
+    monkeypatch.setattr(core.io, "write_session_strict_locked", _fail)
+    decl = "힘껏 문을 민다"
+    tx = tt.get_or_begin_turn_transaction(r.sess, decl)
+    await r.gm._execute_rolls(r.sess, [{"char_name": "테스터", "stat": "근력", "sides": 20}],
+                              r.gch, transaction_id=tx.transaction_id)
+    await r.gm._finish_proceed_and_continue(
+        r.sess, f"{decl} 묘사", r.master, event_assessment="ongoing",
+        transaction_id=tx.transaction_id)
+    assert tx.status != tt.TurnStatus.COMMITTED
+    assert not any("성장!" in (m.content or "") for m in r.gch.sent)
+    assert r.sess.players[PLAYER_UID]["profile"]["근력"] == 10
