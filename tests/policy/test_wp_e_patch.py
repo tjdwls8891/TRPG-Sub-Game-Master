@@ -557,11 +557,14 @@ async def test_ee3_unknown_cache_provenance_is_not_trusted(rig):
     assert not TH.cache_usable(s)
 
 
-def test_ee3_d006e_remains_strict_xfail_for_wp_f():
+def test_ee3_d006e_resolved_by_wp_f_not_by_wp_e():
+    """WP-E는 d006e를 닫지 않았다(strict xfail 유지). WP-F가 캐시 생애주기 단일 정산점으로
+    해소했으므로 이제 xfail 없이 정상 게이트 테스트로 통과해야 한다(XPASS 은폐 금지)."""
     from tests.conftest import source_of
     src = source_of("tests/defects/test_cache_accounting.py")
     i = src.index("def test_d006e_single_settlement_point")
-    assert "strict=True" in src[max(0, i - 400):i]
+    assert "xfail" not in src[max(0, i - 400):i]
+    assert "cache_lifecycle" in src[i:i + 3000]
 
 
 # ══════════════════════════════════════════════════════════════
