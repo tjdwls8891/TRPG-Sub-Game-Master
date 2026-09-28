@@ -779,6 +779,16 @@ async def restore(bot, session) -> dict:
             session.cache_name = None          # 크래시로 남은 종료된 캐시 참조
             name = None
         wid = jv.open_window_id()
+        if name is None and wid is not None:
+            # 생성은 저널에 기록됐지만 세션 저장이 유실된 경우 — 저널이 권위(고아 캐시 방지).
+            live = [n for n in jv.windows[wid]["lifecycles"] if jv.live(n)]
+            if live:
+                c = jv.lifecycles[live[-1]]["created"]
+                name = session.cache_name = c["cache_name"]
+                session.cache_model = c["model"]
+                session.cache_tokens = int(c["tokens"])
+                if not getattr(session, "cache_created_at", 0.0):
+                    session.cache_created_at = float(jv.windows[wid]["opened"].get("opened_at") or 0.0)
         if name and is_cache_expired(session):
             await _finalize_lifecycle_locked(bot, session, reason=REASON_EXPIRED)
             if view(sid).open_window_id():

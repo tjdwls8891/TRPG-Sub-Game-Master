@@ -21,6 +21,7 @@ from core import cache_lifecycle as CLC
 from core import cost_ledger as CL
 from core import ink_transactions as IT
 from tests.conftest import PLAYER_UID, REPO_ROOT
+from tests.policy.test_ready_barrier import rig  # noqa: F401 — 픽스처 재사용
 
 pytestmark = pytest.mark.policy
 
@@ -532,3 +533,52 @@ def test_storage_helper_units_are_explicit():
     assert "calculate_storage_cost(" not in src and "calculate_storage_cost_usd(" not in src
     h1 = core.cost.cache_storage_cost_usd(core.DEFAULT_MODEL, tokens=TOKENS, seconds=3600)
     assert h1 == pytest.approx(core.calculate_storage_cost_usd(core.DEFAULT_MODEL, TOKENS, 1.0))
+
+
+async def test_create_journaled_but_session_save_lost_is_readopted_on_restart(fresh, cbot, clock):
+    """생성 사실은 저널에 있으나 data.json 에 cache_name 이 없는 크래시 — 재시작이 되찾는다."""
+    await CLC.open_window(cbot, fresh)
+    fresh.cache_name = None                                   # 세션 저장 유실 모사
+    fresh.cache_obj = None
+    out = await CLC.restore(cbot, fresh)
+    assert out["action"] == "LINKED" and fresh.cache_name == "caches/fake-1"
+    assert len(cbot.genai_client.caches.created) == 1         # 재생성·고아 없음
+    await CLC.close_window(cbot, fresh, reason=CLC.REASON_PLAYER_CLOSE,
+                           disposition=CLC.WINDOW_SETTLE_REFUND)
+    assert len(_events(cbot, CL.OP_CACHE_STORAGE)) == 1
+
+
+# ── 연결 증명: 실제 재시작 경로 → 생애주기 서비스 ──────────
+
+async def test_restart_path_reaches_lifecycle_service_for_expired_window(rig):
+    from tests.policy.test_wp_e_patch import _restart_with_channels
+    r = rig
+    await core.save_session_data(r.bot, r.sess)
+    r.sess.cache_created_at = 1_000.0                          # 오래전에 열린 창(만료)
+    await core.save_session_data(r.bot, r.sess)
+    bot2, s2 = await _restart_with_channels(r)
+    assert s2.cache_name is None                               # 만료 finalize → 재오픈 가능
+    types_ = [e["type"] for e in CLC.load_events(s2.session_id)]
+    assert "FINALIZED" in types_ and "WINDOW_SETTLED" in types_
+    assert bot2.genai_client.caches.created == []              # 만료 창을 되살리지 않음
+
+
+async def test_narration_reissue_routes_through_lifecycle_and_stays_out_of_turn_settlement(rig):
+    """연결 증명: 실제 자동 턴 묘사 경로의 선제 재발급 → 생애주기 서비스 → CostEvent(session
+    범위) — 턴 Settlement 에 포함되지 않는다(P-F11/P-F12)."""
+    from tests.policy.test_turn_history import _commit
+    r = rig
+    r.sess.cache_history_stale = True                          # 출처 무효 → 선제 재발급
+    r.sess.cache_created_at = CLC.time.time() - 60
+    tx = await _commit(r, "숲길")
+    ev = CLC.load_events(r.sess.session_id)
+    created = [e for e in ev if e["type"] == "CREATED" and not e.get("legacy")]
+    assert len(created) == 1 and created[0]["purpose"] == CLC.PURPOSE_REISSUE_AUTO
+    assert any(e["type"] == "FINALIZED" and e["cache_name"] == "caches/fake" for e in ev)
+    cache_ids = {e["event_id"] for e in r.bot.cost_ledger.list_cost_events_strict()
+                 if e["operation"].startswith("CACHE_")}
+    assert cache_ids                                            # 생성·보관 사실 기록됨
+    st = core.commit_coordinator.settlement_store_for(r.sess.session_id)
+    settled = st.list_for_transaction(tx.transaction_id)
+    assert settled and not (set(settled[0].included_cost_event_ids) & cache_ids)
+    assert core.turn_history.cache_usable(r.sess)               # 새 캐시에 출처 스탬프

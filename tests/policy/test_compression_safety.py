@@ -252,5 +252,5 @@ def test_legacy_settle_is_branch_independent_source_scan():
     from tests.conftest import source_of
     src = source_of("cogs/game.py")
     assert src.count("core.settle_compression(") == 1
-    assert src.count("self._record_compression_settle(") == 2
+    assert src.count("self." + "_record_compression_settle(") == 2
     assert "del session.uncompressed_logs" not in src        # 적용은 memory_plan 한 곳
