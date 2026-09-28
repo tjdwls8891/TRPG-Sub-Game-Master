@@ -1,0 +1,206 @@
+
+## genai caches.create/get/delete call sites (AST)  (0)
+
+## caches.* attribute references (incl. to_thread args)  (3)
+  core/cache_lifecycle.py:225: caches.create
+  core/cache_lifecycle.py:238: caches.delete
+  core/cache_lifecycle.py:803: caches.get
+
+## cache lifecycle finalizer/entry call sites  (14)
+  cogs/game.py:607: core.cache_lifecycle.reissue
+  cogs/presence.py:77: core.cache_lifecycle.close_window
+  cogs/session.py:309: core.cache_lifecycle.open_window
+  cogs/system.py:216: core.cache_lifecycle.close_window
+  cogs/system.py:272: core.cache_lifecycle.reissue
+  cogs/system.py:291: core.cache_lifecycle.close_window
+  core/cache_lifecycle.py:762: close_window
+  core/cache_lifecycle.py:710: _finalize_lifecycle_locked
+  core/cache_lifecycle.py:744: _finalize_lifecycle_locked
+  core/cache_lifecycle.py:614: _finalize_lifecycle_locked
+  core/cache_lifecycle.py:793: _finalize_lifecycle_locked
+  core/cache_lifecycle.py:808: _finalize_lifecycle_locked
+  core/display.py:456: cache_lifecycle.close_window
+  core/io.py:528: cache_lifecycle.finalize_legacy
+
+## process_cache_deletion callers  (0)
+
+## cache metadata writers (cache_name/cache_created_at/cache_tokens/open_prepaid_ink =)  (20)
+  core/cache.py:455: session.cache_name = data.get("cache_name")
+  core/cache_lifecycle.py:12: #                      session.cache_created_at = 창 시작(표시·만료·remaining_ttl의 기준).
+  core/cache_lifecycle.py:426: session.cache_name = cache.name
+  core/cache_lifecycle.py:428: session.cache_tokens = tokens
+  core/cache_lifecycle.py:506: session.cache_name = None
+  core/cache_lifecycle.py:509: session.cache_tokens = 0
+  core/cache_lifecycle.py:599: session.cache_created_at = 0.0
+  core/cache_lifecycle.py:600: session.open_prepaid_ink = 0
+  core/cache_lifecycle.py:613: session.cache_name = name
+  core/cache_lifecycle.py:617: session.cache_name = saved
+  core/cache_lifecycle.py:689: session.cache_created_at = now
+  core/cache_lifecycle.py:691: session.open_prepaid_ink = per_user
+  core/cache_lifecycle.py:719: session.cache_created_at = time.time()
+  core/cache_lifecycle.py:753: session.cache_created_at = 0.0
+  core/cache_lifecycle.py:754: session.open_prepaid_ink = 0
+  core/cache_lifecycle.py:779: session.cache_name = None          # 크래시로 남은 종료된 캐시 참조
+  core/cache_lifecycle.py:787: name = session.cache_name = c["cache_name"]
+  core/cache_lifecycle.py:789: session.cache_tokens = int(c["tokens"])
+  core/cache_lifecycle.py:791: session.cache_created_at = float(jv.windows[wid]["opened"].get("opened_at") or 0.0)
+  core/cache_lifecycle.py:823: session.cache_created_at = float(opened.get("opened_at") or time.time())
+
+## player ink writers (deduct_ink/add_ink/set_balance/execute_lifecycle_ink/execute_settlement_charge*)  (11)
+  cogs/system.py:569: core.accounts.set_balance
+  cogs/system.py:390: core.accounts.add_ink
+  cogs/system.py:393: core.accounts.deduct_ink
+  core/cache_lifecycle.py:528: IT.execute_lifecycle_ink
+  core/cache_lifecycle.py:590: IT.execute_lifecycle_ink
+  core/commit_coordinator.py:674: _ink.execute_settlement_charges
+  core/commit_coordinator.py:939: _ink.execute_settlement_charges
+  core/ink_transactions.py:398: accounts_module.apply_ink_charge_strict
+  core/ink_transactions.py:453: execute_settlement_charge
+  core/ink_transactions.py:579: accounts_module.apply_ink_adjustment_strict
+  core/terms.py:114: accounts.add_ink
+
+## cache CostEvent writers  (6)
+  core/cache_lifecycle.py:73: PURPOSE_OPEN: (CL.ACTOR_PLAYER, CL.HINT_PLAYER_CANDIDATE, CL.OP_CACHE_CREATE),
+  core/cache_lifecycle.py:74: PURPOSE_REISSUE_AUTO: (CL.ACTOR_SYSTEM, CL.HINT_SYSTEM, CL.OP_CACHE_CREATE),
+  core/cache_lifecycle.py:75: PURPOSE_REISSUE_MANUAL: (CL.ACTOR_OWNER, CL.HINT_OPERATOR, CL.OP_CACHE_CREATE),
+  core/cache_lifecycle.py:76: PURPOSE_RECOVERY: (CL.ACTOR_SYSTEM, CL.HINT_SYSTEM, CL.OP_CACHE_RECOVERY_CREATE),
+  core/cache_lifecycle.py:77: "LEGACY": (CL.ACTOR_UNKNOWN, CL.HINT_UNKNOWN, CL.OP_CACHE_CREATE),
+  core/cache_lifecycle.py:485: bot, session, key=storage_cost_key(sid, name), operation=CL.OP_CACHE_STORAGE,
+
+## compression CostEvent writers  (2)
+  cogs/game.py:1012: self.bot, core.cost_ledger.OP_MEMORY_AUTO_COMPRESSION, session=session,
+  cogs/game.py:1505: self.bot, core.cost_ledger.OP_MEMORY_MANUAL_COMPRESSION, session=session,
+
+## compressed_memory / uncompressed_logs mutation sites  (12)
+  cogs/game.py:439: session.uncompressed_logs.extend(_unc_entries)
+  cogs/game.py:1456: session.uncompressed_logs[i] = f"[GM 묘사]: {new_text.strip()}"
+  cogs/session.py:472: session.uncompressed_logs.append(f"[세션 시작 묘사]: {start_text}")
+  core/cache.py:148: session.compressed_memory = ""  # 캐시로 이동됨 — 프롬프트에서 중복 주입 방지
+  core/cache.py:454: session.compressed_memory = data.get("compressed_memory", "")
+  core/cache.py:458: session.uncompressed_logs = data.get("uncompressed_logs", [])
+  core/memory_plan.py:296: session.compressed_memory = segment
+  core/memory_plan.py:300: session.compressed_memory += f"\n{segment}"
+  core/memory_plan.py:301: del session.uncompressed_logs[:source.prefix_len]
+  core/models.py:35: self.compressed_memory = ""
+  core/models.py:38: self.uncompressed_logs = []
+  core/turn_preparation.py:1394: session.uncompressed_logs.extend(staged["uncompressed_entries"])
+
+## compression scheduler/apply/version  (10)
+  cogs/game.py:1497: core.memory_plan.capture_compression_source
+  cogs/game.py:311: core.memory_plan.capture_compression_source
+  cogs/game.py:955: core.commit_coordinator.commit_serialization_lock
+  cogs/game.py:314: self._run_auto_compression
+  cogs/game.py:957: core.memory_plan.apply_compression_result
+  cogs/game.py:1057: self._apply_compression
+  cogs/game.py:1549: self._apply_compression
+  core/memory_plan.py:283: compression_source_status
+  core/memory_plan.py:302: bump_memory_generation
+  core/turn_history.py:273: bump_memory_generation
+
+## WaitingStatus / transient lifecycle entry points  (26)
+  cogs/game.py:395: core.WaitingStatus.begin
+  cogs/game.py:451: status_msg.done
+  cogs/game.py:509: status_msg.done
+  cogs/game.py:495: status_msg.done
+  cogs/gm.py:2555: core.WaitingStatus.begin
+  cogs/gm.py:3804: core.message_lifecycle.clear
+  cogs/gm.py:3809: core.message_lifecycle.register
+  cogs/gm.py:2476: core.message_lifecycle.clear
+  cogs/gm.py:2579: status_msg.done
+  cogs/gm.py:770: core.message_lifecycle.transient_notifier
+  cogs/gm.py:1837: core.message_lifecycle.send_transient
+  cogs/gm.py:2502: core.message_lifecycle.send_transient
+  cogs/gm.py:3756: core.message_lifecycle.send_transient
+  cogs/gm.py:1809: core.message_lifecycle.send_transient
+  cogs/gm.py:2079: core.message_lifecycle.send_transient
+  cogs/gm.py:2307: core.message_lifecycle.sweep
+  cogs/gm.py:2309: core.message_lifecycle.sweep
+  cogs/gm.py:2515: core.message_lifecycle.send_transient
+  cogs/presence.py:90: core.message_lifecycle.send_transient
+  core/cache.py:519: _ml.sweep
+  core/cache.py:520: _ml.sweep
+  core/dialogue.py:145: _ml.register
+  core/display.py:387: _ml.clear
+  core/display.py:395: _ml.register
+  core/message_lifecycle.py:231: send_transient
+  core/session_flow.py:666: _ml.transient_notifier
+
+## direct game-channel sends (game_ch/game_channel .send / send_streamed)  (31)
+  cogs/character.py:1110: core.send_streamed
+  cogs/character.py:486: core.send_streamed
+  cogs/character.py:648: core.send_streamed
+  cogs/character.py:777: game_channel.send
+  cogs/character.py:559: core.send_streamed
+  cogs/character.py:567: core.send_streamed
+  cogs/character.py:593: core.send_streamed
+  cogs/character.py:604: core.send_streamed
+  cogs/game.py:225: game_channel.send
+  cogs/game.py:177: game_channel.send
+  cogs/game.py:182: game_channel.send
+  cogs/game.py:900: game_channel.send
+  cogs/game.py:1445: game_channel.send
+  cogs/gm.py:3425: game_ch.send
+  cogs/gm.py:1360: core.send_streamed
+  cogs/gm.py:1821: game_ch.send
+  cogs/gm.py:3290: core.send_streamed
+  cogs/gm.py:4614: game_ch.send
+  cogs/gm.py:3301: core.send_streamed
+  cogs/gm.py:2002: game_ch.send
+  cogs/gm.py:2004: game_ch.send
+  cogs/gm.py:3361: core.send_streamed
+  cogs/gm.py:3346: core.send_streamed
+  cogs/media.py:260: game_channel.send
+  cogs/session.py:190: game_ch.send
+  cogs/session.py:453: game_channel.send
+  cogs/session.py:355: game_ch.send
+  cogs/system.py:207: core.send_streamed
+  core/gm_space.py:395: send_streamed
+  core/media.py:35: game_channel.send
+  core/media.py:63: game_channel.send
+
+## display canonical refresh writers  (9)
+  cogs/gm.py:842: core.refresh_display
+  cogs/gm.py:2216: core.refresh_display
+  cogs/gm.py:2069: core.refresh_display
+  cogs/gm.py:2359: core.refresh_display
+  cogs/gm.py:777: _refresh
+  cogs/presence.py:83: core.refresh_display
+  cogs/session.py:417: core.refresh_display
+  cogs/session.py:532: core.refresh_display
+  core/display.py:472: refresh
+
+## interaction prompt lifecycle owners (LifecyclePromptView subclasses)  (4)
+  cogs/gm.py:574: class RewindConfirmView
+  cogs/gm.py:620: class RerenderConfirmView
+  cogs/gm.py:705: class OpenConfirmView
+  core/display.py:435: class CloseConfirmView
+
+## committed game-notification writers (derived.game / _emit_commit_derived)  (4)
+  cogs/gm.py:1919: derived.game
+  cogs/gm.py:2063: self._emit_commit_derived
+  cogs/gm.py:2355: self._emit_commit_derived
+  cogs/gm.py:4301: derived.game
+
+## cache_usable / provenance stamp sites  (8)
+  cogs/game.py:660: core.turn_history.cache_usable
+  cogs/game.py:629: core.turn_history.cache_usable
+  cogs/gm.py:3563: core.turn_history.cache_usable
+  cogs/gm.py:4801: core.turn_history.cache_usable
+  cogs/gm.py:2491: core.turn_history.cache_usable
+  cogs/gm.py:3059: core.turn_history.cache_usable
+  core/cache.py:156: cache_marker_now
+  core/cache_lifecycle.py:431: update_session_cache_state
+
+## turn_history SELECT writers/gates  (10)
+  core/commit_coordinator.py:704: _th.select_committed
+  core/turn_history.py:386: _append_event
+  core/turn_history.py:394: select_committed
+  core/turn_history.py:430: _append_event
+  core/turn_history.py:421: _append_event
+  core/turn_history.py:658: _append_event
+  core/turn_history.py:872: _append_event
+  core/turn_history.py:1107: select_committed
+  core/turn_history.py:645: _append_event
+  core/turn_history.py:1147: _append_event
+
+## financial references reachable from core/turn_history.py (expect none)  (0)
