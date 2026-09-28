@@ -173,7 +173,10 @@ def test_29_legacy_billing_callers_unchanged_and_no_strict_cutover():
                            "core/commit_coordinator.py",
                            # WP-F 인가 캐시 생애주기 재무 owner — 결정적 키 CostEvent를
                            # strict append 로 기록한다(턴 Settlement 경로가 아님).
-                           "core/cache_lifecycle.py"):
+                           "core/cache_lifecycle.py",
+                           # WP-F RE-GATE 3 인가 시간 해석 청구 owner — 청구 복구 근거를
+                           # strict(fail-closed)로 읽는다.
+                           "core/interpretation_billing.py"):
                     continue                        # 정의 파일 제외
                 text = source_of(rel)
                 for sym in strict_syms:

@@ -134,19 +134,29 @@ def _mirror(session, bv: BillingView) -> None:
 #  기록 / 재구성
 # ══════════════════════════════════════════════════════════════
 
-def record_interpretation(session, *, interp_id: str, cost_krw: float, cost_usd: float) -> bool:
-    """provider 해석 사실 직후 durable 청구 후보로 기록한다(멱등)."""
+def record_interpretation(session, *, interp_id: str, cost_krw: float, cost_usd: float,
+                          cost_event_id: str | None = None) -> bool:
+    """strict provider 해석 사실(CostEvent) 이 durable 해진 **뒤에만** 청구 후보로 기록한다(멱등).
+
+    호출자는 ProviderOperation.record_fact_strict 성공(canonical event_id)을 먼저 확보해야 한다.
+    """
     sid = session.session_id
     bv = view(sid)
     if interp_id in bv.interpreted:
         return False
     _append(sid, {"type": "INTERPRETED", "interp_id": interp_id,
-                  "cost_krw": float(cost_krw or 0.0), "cost_usd": float(cost_usd or 0.0)})
+                  "cost_krw": float(cost_krw or 0.0), "cost_usd": float(cost_usd or 0.0),
+                  "cost_event_id": cost_event_id})
     return True
 
 
 def reconcile_from_ledger(bot, session) -> int:
-    """CostEvent 는 기록됐지만 INTERPRETED 전에 끊긴 해석을 채택한다(표식된 사실만)."""
+    """CostEvent 는 기록됐지만 INTERPRETED 전에 끊긴 해석을 채택한다(표식된 사실만).
+
+    청구 복구 근거이므로 strict 로 읽는다 — 손상·중복 identity 행을 조용히 건너뛰어
+    잘못된 결론을 내리지 않고 예외로 멈춘다(fail-closed: 채택 없음, 이미 저널된 청구 후보는
+    각자 strict 사실을 근거로 계속 유효).
+    """
     from . import cost_ledger as CL
     ledger = CL.get_ledger(bot)
     if ledger is None:
@@ -154,7 +164,7 @@ def reconcile_from_ledger(bot, session) -> int:
     sid = session.session_id
     known = set(view(sid).interpreted)
     n = 0
-    for ev in ledger.list_cost_events(session_id=sid):
+    for ev in ledger.list_cost_events_strict(session_id=sid):
         md = ev.get("metadata") or {}
         if ev.get("operation") != CL.OP_CACHE_TIME_INTERPRET:
             continue

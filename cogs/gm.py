@@ -3881,6 +3881,8 @@ class GMCog(commands.Cog):
         # WP-F(POLICY-CACHE-01): provider 해석 사실 → durable 청구 후보 → (임계 이상이면) 즉시
         #   청구. 캐시 열기·취소·시간 만료·재시작과 무관하게 같은 결과다. 2잉크 미만 누적은
         #   기존대로 이어서 누적되고 세션을 열 때 면제된다.
+        #   플레이어 청구는 durable provider 사실보다 앞설 수 없다 — 이 경로만 strict CostEvent
+        #   (fsync, 멱등 replay 는 canonical identity)를 쓰고, 그 성공 뒤에만 청구 후보를 기록한다.
         interp_charge = {"ink": 0, "complete": True}
         try:
             meta = response.usage_metadata
@@ -3890,16 +3892,27 @@ class GMCog(commands.Cog):
                 output_tokens=out_t, cached_read_tokens=cached_t,
             )
             cost = _bd["total_krw"]
-            _cl_op.record(
+            _fact = _cl_op.record_fact_strict(
                 input_tokens=in_t, cached_input_tokens=cached_t,
                 output_tokens=out_t, thought_tokens=_th,
                 cost_usd=_bd["total_usd"], cost_krw=cost,
                 usage_source=core.cost_ledger.SOURCE_PROVIDER_METADATA)
+        except Exception as e:
+            # strict provider 사실 없음 → 청구 0·청구 후보 없음·결과 미확정(재질문).
+            #   실제 provider 비용은 시스템 영속 실패로 인한 운영 손실로 남는다.
+            print(f"[시간해석] provider 비용 사실 strict 기록 실패 — 청구 없이 재질문: {e}")
+            core.write_log(session.session_id, "error",
+                           f"[시간해석] strict CostEvent 실패(op={_cl_op.operation_id}): "
+                           f"{type(e).__name__}: {e}")
+            return {"ok": False, "minutes": 0, "case": "unclear",
+                    "notes": ["해석 결과를 확정하지 못했습니다(비용 기록 실패)."], "retry": True,
+                    "interpret_charge": {"ink": 0, "complete": True}}
+        try:
             core.interpretation_billing.record_interpretation(
                 session, interp_id=_cl_op.operation_id, cost_krw=cost,
-                cost_usd=_bd["total_usd"])
+                cost_usd=_bd["total_usd"], cost_event_id=_fact.event_id)
         except Exception as e:
-            print(f"[시간해석] 비용 기록 실패(CostLedger 재구성으로 재시도): {e}")
+            print(f"[시간해석] 청구 후보 기록 실패(strict CostEvent 로 재구성·재시도): {e}")
         try:
             _st = await core.interpretation_billing.settle(self.bot, session)
             interp_charge = {"ink": _st["charged_ink"], "complete": _st["complete"]}

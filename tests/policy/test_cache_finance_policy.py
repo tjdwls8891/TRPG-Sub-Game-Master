@@ -497,3 +497,132 @@ async def test_p1c_interpretation_charge_survives_cache_create_failure(sess, cbo
         await CLC.open_window(cbot, sess)
     assert [r["nominal_ink"] for r in _rows(IT.KIND_INTERPRETATION_CHARGE)] == [interp]
     assert _rows(IT.KIND_PREPAYMENT) == [] and _bal() == 1000 - interp
+
+
+# ══════════════════════════════════════════════════════════════
+#  RE-GATE PATCH 3 — strict 해석 provider 사실 (P15 ~ P17)
+# ══════════════════════════════════════════════════════════════
+
+def _billing_types(sid):
+    return [e["type"] for e in core.interpretation_billing.load_events(sid)]
+
+
+async def test_p15_strict_costevent_failure_means_no_charge(sess, cbot, clock, provider,
+                                                             display_channel):
+    """provider 응답은 성공, strict CostEvent append 실패 → 청구·청구 후보·UI 청구 표시 모두 없음."""
+    import cogs.gm as gm_mod
+    real = cbot.cost_ledger.record_cost_event_strict
+
+    def _fail(event):
+        if event.operation == CL.OP_CACHE_TIME_INTERPRET:
+            raise CL.CostLedgerPersistenceError("fsync failed (injected)")
+        return real(event)
+    inject = pytest.MonkeyPatch()
+    inject.setattr(cbot.cost_ledger, "record_cost_event_strict", _fail)
+    gm = gm_mod.GMCog.__new__(gm_mod.GMCog)
+    gm.bot = cbot
+    provider.outcomes = [FakeGenAIResponse(
+        json.dumps({"case": "explicit", "minutes": 180}),
+        usage=FakeUsageMetadata(prompt=200_000, candidates=20_000))]
+    res = await gm.interpret_cache_time(sess, "3시간")
+    inject.undo()
+    assert provider.attempt_count == 1                                # provider 호출은 성공했다
+    assert res["retry"] is True and res.get("minutes", 0) == 0        # 결과 미확정(재질문)
+    assert gm_mod._interp_note(res) == ""                             # UI 청구 표시 없음
+    assert _rows(IT.KIND_INTERPRETATION_CHARGE) == [] and _bal() == 1000
+    assert "INTERPRETED" not in _billing_types(sess.session_id)
+    assert _events(cbot, CL.OP_CACHE_TIME_INTERPRET) == []            # 부분 기록도 없음
+    assert _rows(IT.KIND_PREPAYMENT) == []
+    # 재시작 후에도 phantom 청구 없음
+    restored = core.TRPGSession(sess.session_id, 1, 2, "t", {})
+    restored.players = dict(sess.players)
+    await core.interpretation_billing.settle(cbot, restored)
+    assert _rows(IT.KIND_INTERPRETATION_CHARGE) == [] and _bal() == 1000
+
+
+async def test_p15b_no_cost_ledger_means_no_charge(sess, cbot, clock, provider):
+    cbot.cost_ledger = None                                           # 관측 불가 환경
+    import cogs.gm as gm_mod
+    gm = gm_mod.GMCog.__new__(gm_mod.GMCog)
+    gm.bot = cbot
+    provider.outcomes = [FakeGenAIResponse(
+        json.dumps({"case": "explicit", "minutes": 180}),
+        usage=FakeUsageMetadata(prompt=200_000, candidates=20_000))]
+    res = await gm.interpret_cache_time(sess, "3시간")
+    assert res["retry"] is True
+    assert _rows(IT.KIND_INTERPRETATION_CHARGE) == [] and _bal() == 1000
+    assert "INTERPRETED" not in _billing_types(sess.session_id)
+
+
+async def test_p16_strict_fact_then_crash_before_billing_record(sess, cbot, clock, provider):
+    def _crash(*a, **k):
+        raise SystemExit("hard crash after strict CostEvent")
+    inject = pytest.MonkeyPatch()
+    inject.setattr(core.interpretation_billing, "record_interpretation", _crash)
+    with pytest.raises(SystemExit):
+        await _interpret(cbot, sess, provider)
+    inject.undo()
+    strict_rows = [e for e in cbot.cost_ledger.list_cost_events_strict(session_id=sess.session_id)
+                   if e["operation"] == CL.OP_CACHE_TIME_INTERPRET]
+    assert len(strict_rows) == 1                                      # durable strict 사실
+    assert _rows(IT.KIND_INTERPRETATION_CHARGE) == []
+    restored = core.TRPGSession(sess.session_id, 1, 2, "t", {})
+    restored.players = dict(sess.players)
+    await core.interpretation_billing.settle(cbot, restored)
+    await core.interpretation_billing.settle(cbot, restored)
+    rows = _rows(IT.KIND_INTERPRETATION_CHARGE)
+    assert len(rows) == 1 and _bal() == 1000 - rows[0]["nominal_ink"]   # double debit 없음
+    interp = core.interpretation_billing.view(sess.session_id).interpreted
+    assert [v["cost_event_id"] for v in interp.values()] == [strict_rows[0]["event_id"]]
+
+
+async def test_p17_strict_replay_reuses_canonical_identity(sess, cbot, clock):
+    op = CL.begin_operation(cbot, CL.OP_CACHE_TIME_INTERPRET, session=sess,
+                            model=core.DEFAULT_MODEL, actor_kind=CL.ACTOR_PLAYER,
+                            billing_hint=CL.HINT_PLAYER_CANDIDATE, copy_transaction=False)
+    op.metadata.update({"interpretation_billing": core.interpretation_billing.BILLING_MARK,
+                        "interp_id": op.operation_id})
+    op.mark_attempt()
+    kw = dict(input_tokens=200_000, output_tokens=20_000, cost_krw=60.0,
+              cost_usd=60.0 / core.EXCHANGE_RATE, usage_source=CL.SOURCE_PROVIDER_METADATA)
+    r1 = op.record_fact_strict(**kw)
+    r2 = op.record_fact_strict(**kw)                                       # 동일 idempotency replay
+    assert r1.created is True and r2.created is False and r1.event_id == r2.event_id
+    for r in (r1, r2):
+        core.interpretation_billing.record_interpretation(
+            sess, interp_id=op.operation_id, cost_krw=60.0,
+            cost_usd=60.0 / core.EXCHANGE_RATE, cost_event_id=r.event_id)
+    await core.interpretation_billing.settle(cbot, sess)
+    await core.interpretation_billing.settle(cbot, sess)
+    strict_rows = [e for e in cbot.cost_ledger.list_cost_events_strict(session_id=sess.session_id)
+                   if e["operation"] == CL.OP_CACHE_TIME_INTERPRET]
+    assert len(strict_rows) == 1                                      # durable identity 1
+    assert _billing_types(sess.session_id).count("INTERPRETED") == 1
+    assert len(_rows(IT.KIND_INTERPRETATION_CHARGE)) == 1             # player charge 1
+
+
+async def test_p17b_corrupted_ledger_reconcile_fails_closed(sess, cbot, clock, provider):
+    """청구 복구 원천이 손상되면 조용히 건너뛰지 않는다 — 채택 없음(과·오청구 없음)."""
+    os.makedirs(os.path.dirname(cbot.cost_ledger.path), exist_ok=True)
+    with open(cbot.cost_ledger.path, "a", encoding="utf-8") as f:
+        f.write("{not json\n")
+    with pytest.raises(CL.CostLedgerCorruptionError):
+        core.interpretation_billing.reconcile_from_ledger(cbot, sess)
+    st = await core.interpretation_billing.settle(cbot, sess)         # settle 은 막히지 않음
+    assert st["charged_ink"] == 0 and _rows(IT.KIND_INTERPRETATION_CHARGE) == []
+
+
+def test_p8b_interpretation_path_uses_strict_fact_before_billing():
+    gm = pathlib.Path(REPO_ROOT, "cogs/gm.py").read_text(encoding="utf-8")
+    i = gm.index("async def interpret_cache_time")
+    j = gm.index("async def _generate_npc_detail")
+    body = gm[i:j]
+    assert "_cl_op.record_fact_strict(" in body and "_cl_op.record(" not in body
+    assert body.index("record_fact_strict(") < body.index("record_interpretation(") \
+        < body.index("interpretation_billing.settle(")
+    ib = pathlib.Path(REPO_ROOT, "core/interpretation_billing.py").read_text(encoding="utf-8")
+    assert "list_cost_events_strict(" in ib and ".list_cost_events(" not in ib
+    # tolerant record() 의미는 그대로(다른 호출자 영향 없음)
+    cl = pathlib.Path(REPO_ROOT, "core/cost_ledger.py").read_text(encoding="utf-8")
+    k = cl.index("    def record(self")
+    assert "record_cost_event(event)" in cl[k:cl.index("    def record_fact_strict(self")]

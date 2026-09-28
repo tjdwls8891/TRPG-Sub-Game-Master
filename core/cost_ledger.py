@@ -804,6 +804,63 @@ class ProviderOperation:
         return created
 
 
+    def record_fact_strict(self, *, cost_usd=0.0, cost_krw=0.0,
+                      usage_source=SOURCE_PROVIDER_METADATA, provider_attempt=None,
+                      success=True, model=None,
+                      input_tokens=0, cached_input_tokens=0, output_tokens=0,
+                      thought_tokens=0, image_output_tokens=0, audio_input_tokens=0,
+                      audio_output_tokens=0, extra_metadata=None) -> StrictAppendResult:
+        """(WP-F) 플레이어 청구 근거가 되는 provider 사실용 strict 기록 — record()와 같은 사실.
+
+        record()(tolerant/shadow)와 같은 operation_id·provider_attempt·metadata·토큰·
+        pricing basis 로 CostEvent 를 만들되, CostLedger.record_cost_event_strict
+        (write→flush→fsync, 멱등 replay 는 canonical identity 반환)로 기록한다.
+        원장 부재·영속 실패·상충은 예외로 올린다 — 성공처럼 삼키지 않는다.
+        record() 의 의미와 다른 호출자는 바꾸지 않는다.
+        """
+        if self.ledger is None:
+            raise CostLedgerPersistenceError(
+                f"CostLedger 없음 — strict provider 사실 기록 불가: {self.operation}")
+        pa = provider_attempt if provider_attempt is not None else self.current_attempt
+        _model = model or self.model
+        md = dict(self.metadata)
+        if extra_metadata:
+            md.update(extra_metadata)
+        md["pricing_basis"] = pricing_basis_for(_model)
+        event = CostEvent(
+            event_id=uuid.uuid4().hex,
+            idempotency_key=f"{self.operation_id}:attempt:{pa}",
+            created_at=time.time(),
+            provider=PROVIDER_GOOGLE_GENAI,
+            operation=self.operation,
+            model=_model,
+            session_id=self.session_id,
+            transaction_id=self.transaction_id,
+            logical_turn=self.logical_turn,
+            turn_attempt=self.turn_attempt,
+            provider_attempt=pa,
+            actor_user_id=self.actor_user_id,
+            actor_kind=self.actor_kind,
+            billing_hint=self.billing_hint,
+            input_tokens=int(input_tokens or 0),
+            cached_input_tokens=int(cached_input_tokens or 0),
+            output_tokens=int(output_tokens or 0),
+            thought_tokens=int(thought_tokens or 0),
+            image_output_tokens=int(image_output_tokens or 0),
+            audio_input_tokens=int(audio_input_tokens or 0),
+            audio_output_tokens=int(audio_output_tokens or 0),
+            cost_usd=float(cost_usd or 0.0),
+            cost_krw=float(cost_krw or 0.0),
+            usage_source=usage_source,
+            success=success,
+            metadata=md,
+        )
+        res = self.ledger.record_cost_event_strict(event)
+        if res.created:
+            self.event_ids.append(res.event_id)
+        return res
+
+
 def begin_operation(bot, operation, *, session=None, model=None,
                     actor_kind=ACTOR_UNKNOWN, billing_hint=HINT_UNKNOWN,
                     actor_user_id=None, operation_id=None, metadata=None,
