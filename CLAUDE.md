@@ -235,10 +235,38 @@ sessions/{session_id}/
 ### 무협 (`scenarios/무협.json`)
 
 `places`·`profile_creation`·퀘스트가 **없다.** 스탯 4종(무공·내공·신법·기예), 프로필 9항목으로 영도와 체계가 다르다.
+`location_images`는 비어 있다(WP-G D2-b: 가짜 예시 키워드 2개 제거). `image_prompts`의 예시 문구는 사용자 결정으로 유지한다.
+
+### 시나리오 필드 메모 (WP-G 정합)
+
+| 필드 | 런타임 의미 |
+|---|---|
+| `keyword_memory` | 플레이어 연고지(사문·근거지) 섹션을 캐시 `[1-B]`에 편입하는 원천. 턴별 키워드 온디맨드 주입은 폐지됐다 |
+| `media_dir` | **런타임 미사용.** 미디어 경로는 항상 `media/{시나리오 id}`로 계산한다(키는 호환용으로 유지) |
+| `job_guides` (영도) | 읽는 코드가 없는 비활성 저작 데이터 |
+| `location_images` | 지시층위에 "사용 가능한 장소 이미지 목록"으로 주입된다 — 실재 이미지 키워드만 넣을 것 |
+
+시나리오 세대 간 구조 차이는 정규화 대상이 아니다.
 
 ---
 
 ## 핵심 시스템
+
+### 턴 확정 권위 (WP-A~F)
+
+자동 턴 하나 = `TurnTransaction` 하나. AI 결과는 준비(`turn_preparation`)에 스테이징되고, 필수 작업이 모두 합류한 `READY_TO_COMMIT` 뒤에 `CommitCoordinator`만 정본 상태를 커밋한다(`CommitJournal`로 복구). 게임 채널 출력은 `message_lifecycle` 5분류로 소유되며, 백그라운드 압축은 출처 식별이 맞을 때만 적용된다. 수동 `!진행`·`!수정`은 WP-G에서 은퇴했다 — 공유 묘사 엔진(`_execute_proceed`)의 호출자는 자동 턴과 인트로뿐이다.
+
+### 프롬프트 권위 (WP-G D1)
+
+단일 선형 서열이 아니라 정보 종류별 권위다.
+
+- **플레이어 주권** — PC의 선택·생각·감정·행동을 AI가 확정하지 않는다(세계 사실의 출처 서열과 별개인 최상위 제약). 플레이어 선언은 PC가 무엇을 시도·말·선택하는지의 권위다.
+- **룰북 고정 사실·금지사항** — `session.note`·GM 지시로 무효화되지 않는다.
+- **런타임 상태** — 변하는 항목(NPC 현재 위치·상태 등)에 한해 룰북 초기값보다 우선한다.
+- **`session.note`·캐시 노트** — 세션 한정 사실 추가·범위 축소. 룰북 사실·런타임 상태와 충돌하면 자동 override하지 않는다.
+- **GM 지시·`[진행자]` 중계·사이드 노트** — 위 사실과 제약 안의 진행 지시.
+- **압축 기억** — 파생 기억. **플레이어의 외부 세계 주장** — 확인되지 않은 주장.
+- 판단층위는 세계 설정을 받지 않으므로 세계 사실을 판정하지 않는다. 추출층위는 스토리 권위가 아니다. 자원·상태 변화는 묘사 → 추출 → 코드 검증으로만 적용된다(`자:/태:` 태그 권위 없음, `상:/중:/하:` 이미지 태그는 유지).
 
 ### 장소 계층 (`places.py`)
 
@@ -294,19 +322,27 @@ narrative_mode == "free"   서사설계자가 주도 (풀자유·인피니티 de
 
 `met_npcs`(누적)와 `companions`(현재)를 분리한다. 추출층위는 `joined`/`left` **변화만** 보고한다. 장소 이동 시 그곳 **상주** NPC는 자동 해제된다.
 
-### 되감기 (`rewind.py`)
+### 되감기·재생성 (`turn_history.py`)
 
-턴별 델타를 append-only로 기록하고 역순 복원한다. **압축 기억도 롤백**된다.
+WP-E 이후 되감기(`!되감기`, `disp:rewind*`)와 재생성(`!재생성`)은 커밋된 턴 이력(`core.turn_history`)을 권위로 삼는다. 선택 전환은 durable COMMITTED 이후에만 일어나고, 재무 사실(CostEvent·Settlement·잉크)은 되돌리지 않는다. `rewind.py`의 델타 로그는 비권위 레거시 기록이다.
 
 ### 비용
 
-**청구 근거는 달러다.** 원화는 표시 직전에 환산한다.
+권위는 셋으로 나뉜다(WP-02·D·F·G).
+
+| 사실 | 권위 |
+|---|---|
+| provider 사용량·비용 | `CostLedger` CostEvent (기록 당시 KRW/USD 그대로) |
+| 정상 턴 플레이어 부담 | `Settlement` → `InkTransaction` (정확히 한 번) |
+| 캐시 창 선불·환급 / 유지 시간 해석 청구 | `cache_lifecycle` · `interpretation_billing` 저널 + `LifecycleInkTransaction` |
 
 ```python
-core.accrue(session, krw, usd)   # 두 값을 함께 쌓는다
+core.accrue(session, krw, usd)   # 호환 미러(total_cost/total_usd)만 쌓는다 — 규칙 입력 금지
 ```
 
-원화만 쌓으면 환율이 바뀔 때 과거분이 왜곡된다. `breakdown["total_usd"]`를 직접 넘겨 역산 오차를 없앤다.
+`total_cost`와 `total_usd`는 집계 범위가 다르다(무료 프로필 AI는 usd에만). 둘을 환율 등식으로 잇지 않는다.
+자동 GM 비용 상한은 CostLedger 세션 합계 기준이다(`core.auto_cost_cap_reached`, fail-closed).
+압축 provider 비용은 운영자 부담 유지비다(WP-G D3 — '압축 선결제' 은퇴).
 
 **사고 토큰 주의** — thinking 계열은 `thoughts_token_count`를 별도 반환한다. `candidates`와 합산해야 하며, 누락하면 40%를 과소 계상한다.
 
@@ -380,10 +416,13 @@ python3 -m pytest tests/ -q
 
 ---
 
-## 진행 중인 작업 — 기능 명세
+## 기능 명세 작업 (HISTORICAL)
 
-전 기능의 명세를 코드에서 역추출하는 작업이 진행 중이다.
-**명세 작업 중에는 코드·시나리오·프롬프트를 수정하지 않는다.**
+> **HISTORICAL** — v5.29.1 기준 역추출 명세 작업의 기록이다. 이후 코드는 사용자 WP 지시(WP-A~WP-G)로
+> 변경됐으며 `specs/`는 당시 스냅샷이다. 현재 동작은 이 문서의 나머지 절과 `handoff/WP_G_COMPLETION_BUNDLE.md`를 따른다.
+
+전 기능의 명세를 코드에서 역추출하는 작업이었다.
+당시 규칙: 명세 작업 중에는 코드·시나리오·프롬프트를 수정하지 않는다.
 
 - 규칙: `SPEC_RULES.md` (작업 전 전문을 읽을 것)
 - 진행: `specs/00_INDEX.md`
