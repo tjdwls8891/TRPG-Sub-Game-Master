@@ -161,8 +161,12 @@ async def test_d001d_full_narration_reaches_provider_prompt(
     monkeypatch.setattr(cog.bot.genai_client.models, "generate_content",
                         _fake_generate, raising=False)
 
+    # WP-G(RE-GATE): 추출은 준비 객체가 필수다(비준비 직접 적용 경로 은퇴).
+    tx = core.turn_transaction.get_or_begin_turn_transaction(sess, "선언")
+    prep = core.turn_preparation.ensure_preparation(sess, tx.transaction_id)
     await cog._run_extraction(sess, narration, master_channel,
-                              transaction_id=None, logical_turn=None, attempt=None)
+                              transaction_id=tx.transaction_id, logical_turn=tx.logical_turn,
+                              attempt=tx.attempt, preparation=prep)
 
     contents = captured.get("contents")
     assert contents, "추출 provider가 호출되지 않았습니다"

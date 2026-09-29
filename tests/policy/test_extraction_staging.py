@@ -23,9 +23,12 @@ def _make_gm_cog(fake_bot):
     return cog
 
 
-async def _drive_extraction(monkeypatch, cog, session, master_ch, canned, *,
-                            transaction_id, logical_turn, attempt):
-    """provider 호출·파싱을 결정적으로 대체해 적용 경계까지 구동한다."""
+async def _drive_extraction(monkeypatch, cog, session, master_ch, canned, *, prep=None):
+    """provider 호출·파싱을 결정적으로 대체해 준비 모드 추출 → 커밋 경로 적용 단계까지 구동한다.
+
+    WP-G(RE-GATE): 비준비 추출의 정본 직접 적용 경로는 은퇴했다. 추출은 준비 객체에 계획을
+    스테이징하고, 정본 반영은 CommitCoordinator가 부르는 _apply_prepared_extraction만 한다.
+    """
     async def _fake_cwr(fn, **kw):
         return True, SimpleNamespace(text="{}", usage_metadata=None)
 
@@ -35,9 +38,15 @@ async def _drive_extraction(monkeypatch, cog, session, master_ch, canned, *,
 
     monkeypatch.setattr(core, "call_with_retry", _fake_cwr, raising=True)
     monkeypatch.setattr(core, "parse_extraction", _fake_parse, raising=True)
-    return await cog._run_extraction(
-        session, "묘사 전문", master_ch, transaction_id=transaction_id,
-        logical_turn=logical_turn, attempt=attempt)
+    if prep is None:
+        tx = core.turn_transaction.get_or_begin_turn_transaction(session, "선언")
+        prep = tp.ensure_preparation(session, tx.transaction_id)
+    plan = await cog._run_extraction(
+        session, "묘사 전문", master_ch, transaction_id=prep.transaction_id,
+        logical_turn=prep.logical_turn, attempt=prep.attempt, preparation=prep)
+    if plan is not None:
+        await cog._apply_prepared_extraction(session, prep)   # 커밋 경로의 추출 적용 단계
+    return plan
 
 
 # ── T-B17 동치 중복 제거 / 모순 진단 ──────────────────────────────
@@ -87,18 +96,21 @@ async def test_b19b_stale_extraction_applies_no_mutation(
     cog = _make_gm_cog(wired_bot)
     sess.world_timeline = {"current_location": "마을", "time_of_day": "낮"}
     sess.resources = {}
-    # 더 새로운 논리 턴을 연다(추출보다 최신).
-    core.turn_transaction.begin_turn_transaction(sess, "다음 턴")  # logical_turn=8 active
+    # 이전 시도의 준비 객체를 만든 뒤, 더 새로운 논리 시도가 활성화된다(추출보다 최신).
+    old = core.turn_transaction.begin_turn_transaction(sess, "이전 턴")
+    old_prep = tp.ensure_preparation(sess, old.transaction_id)
+    core.turn_transaction.clear_active_transaction(sess, old.transaction_id)
+    core.turn_transaction.begin_turn_transaction(sess, "다음 턴")
 
     canned = {"location": {"name": "숲"},
               "item_changes": [{"target": "테스터", "item": "물", "delta": 5}],
               "status_scores": [], "npcs_met": [], "companions": {},
               "datetime": {}, "situation": {}}
     out = await _drive_extraction(
-        monkeypatch, cog, sess, master_channel, canned,
-        transaction_id="old-tx", logical_turn=7, attempt=1)
+        monkeypatch, cog, sess, master_channel, canned, prep=old_prep)
 
     assert out is None, "stale 추출이 거부되지 않았습니다"
+    assert old_prep.extraction_plan is None, "stale 추출 계획이 준비 객체에 스테이징됐습니다"
     assert sess.world_timeline.get("current_location") == "마을", (
         "stale 추출이 canonical world_timeline을 변경했습니다")
     assert sess.resources.get("테스터", {}).get("물") is None, (
@@ -111,21 +123,18 @@ async def test_b21_compatibility_apply_at_most_once(
     sess = session_auto_ready
     cog = _make_gm_cog(wired_bot)
     sess.resources = {}
-    # active 없음 → 비-stale 적용 대상.
     canned = {"location": {"name": "마을"},
               "item_changes": [{"target": "테스터", "item": "물", "delta": 5}],
               "status_scores": [], "npcs_met": [], "companions": {},
               "datetime": {}, "situation": {}}
+    tx = core.turn_transaction.begin_turn_transaction(sess, "선언")
+    prep = tp.ensure_preparation(sess, tx.transaction_id)
 
-    await _drive_extraction(
-        monkeypatch, cog, sess, master_channel, canned,
-        transaction_id="tx-1", logical_turn=8, attempt=1)
+    await _drive_extraction(monkeypatch, cog, sess, master_channel, canned, prep=prep)
     first = sess.resources.get("테스터", {}).get("물")
 
-    # 같은 트랜잭션 결과를 리플레이한다(이중 적용 시도).
-    await _drive_extraction(
-        monkeypatch, cog, sess, master_channel, canned,
-        transaction_id="tx-1", logical_turn=8, attempt=1)
+    # 같은 트랜잭션 결과를 리플레이한다(이중 적용 시도) — 커밋 경로의 적용 단계가 막는다.
+    await _drive_extraction(monkeypatch, cog, sess, master_channel, canned, prep=prep)
     second = sess.resources.get("테스터", {}).get("물")
 
     assert first == 5, f"첫 적용에서 자원이 반영되지 않았습니다(={first})"

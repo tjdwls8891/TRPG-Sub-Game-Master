@@ -905,23 +905,19 @@ class ExtractionRetryView(discord.ui.View):
                     "진행 중이던 턴 준비 상태가 없어(재시작 등) 차단만 해제했습니다.",
                     ephemeral=True)
             return
-        ctx_text = _ctx.get("text", "")
-        if not ctx_text:
-            session.extraction_pending = False
-            await core.save_session_data(self.bot, session)
-            await interaction.followup.send("재시도할 원본이 없어 차단만 해제했습니다.", ephemeral=True)
-            return
-
-        master_ch = self.bot.get_channel(session.master_ch_id) if getattr(session, "master_ch_id", None) else None
-        result = await cog._run_extraction(session, ctx_text, master_ch)
-        if result:
-            await core.save_session_data(self.bot, session)
+        # WP-G(RE-GATE): 준비 모드가 아닌 재시도 컨텍스트(WP-C 이전 저장 형식)는 현재 권위로
+        #   안전하게 적용할 수 없다 — provider 재호출·추출 계획 적용·정본 변이 없이 은퇴한다.
+        #   은퇴는 strict 저장이 성공한 뒤에만 차단을 해제한다(실패 시 차단·컨텍스트 유지).
+        if await cog._retire_legacy_extraction_retry(session):
             await core.display.close_notice(
-                interaction, "✅ 턴 정보 정리가 완료되었습니다. 계속 진행하십시오.")
-            try:
-                await interaction.message.delete()
-            except Exception:
-                pass
+                interaction,
+                "ℹ️ 이전 버전에서 남은 턴 정보 정리 요청이라 현재 방식으로 안전하게 적용할 수 없어 "
+                "폐기했습니다. 이미 진행된 게임 상태는 소급 변경하지 않았습니다. "
+                "다음 행동을 선언해 계속 진행하십시오.")
+        else:
+            await interaction.followup.send(
+                "⚠️ 이전 버전의 정리 요청을 폐기하는 저장에 실패했습니다. 차단은 유지되며 "
+                "게임 상태는 바뀌지 않았습니다. 잠시 후 다시 눌러 주십시오.", ephemeral=True)
 
 
 class GMRollView(discord.ui.View):
@@ -2406,6 +2402,30 @@ class GMCog(commands.Cog):
         _mch = None if derived is not None else \
             self.bot.get_channel(getattr(session, "master_ch_id", 0))
         await self._apply_extraction_plan(session, plan, _mch, derived=derived)
+
+    async def _retire_legacy_extraction_retry(self, session) -> bool:
+        """WP-G(RE-GATE): 준비 모드가 아닌(WP-C 이전) 추출 재시도 컨텍스트의 fail-closed 호환 은퇴.
+
+        provider 추출을 다시 부르지 않고, 추출 계획을 적용하지 않으며, 정본 게임 상태를 바꾸지
+        않는다. 차단(extraction_pending)과 구 컨텍스트는 strict 세션 저장이 성공한 뒤에만
+        해제된다 — 저장이 실패하면 메모리 상태도 되돌려 성공으로 보고하지 않는다.
+        새 트랜잭션·별도 커밋 권위를 만들지 않는다.
+
+        Returns: True = 은퇴 영속 완료, False = 저장 실패(차단·컨텍스트 유지)
+        """
+        async with self._lock_for(session):
+            ok = await core.commit_coordinator.retire_legacy_retry_context(self.bot, session)
+        if not ok:
+            return False
+        master_ch = self.bot.get_channel(getattr(session, "master_ch_id", 0))
+        if master_ch:
+            try:
+                await master_ch.send(
+                    "ℹ️ **[추출 재시도]** WP-C 이전 형식의 재시도 요청을 폐기했습니다 — "
+                    "현재 커밋 권위로 적용할 수 없어 정본 상태를 소급 변경하지 않았습니다.")
+            except Exception:
+                pass
+        return True
 
     async def _retry_prepared_extraction(self, session) -> str:
         """추출 재시도 — 같은 논리 시도·같은 준비 owner로 재개한다(새 자동 턴 아님).
@@ -4516,8 +4536,16 @@ class GMCog(commands.Cog):
         동작한다: 검증·정규화된 ExtractionMutationPlan을 preparation.extraction_plan에
         저장해 반환하고, 정본 적용·extraction_pending/UI는 하지 않는다(배리어 owner 소관).
         프롬프트·계획 입력은 기존 흐름과 같은 의미(지시효과 quest 투영, 이번 턴 비정규
-        등록/승격 NPC)를 읽기 전용 투영 뷰로 본다. preparation=None이면 기존 동작.
+        등록/승격 NPC)를 읽기 전용 투영 뷰로 본다.
+
+        WP-G(RE-GATE): 준비 객체가 필수다. preparation=None 호출은 provider 호출 전에 거부된다 —
+        추출 결과를 정본에 직접 적용하던 비준비 경로(WP-B 호환 경계)는 은퇴했고, 정본 적용은
+        READY 이후 CommitCoordinator 경로(_apply_prepared_extraction)만 수행한다.
         """
+        if preparation is None:
+            raise RuntimeError(
+                "추출층위는 자동 턴 준비 객체(preparation) 없이 실행할 수 없습니다 "
+                "(비준비 추출 → 정본 직접 적용 경로는 WP-G에서 은퇴)")
         view = session
         if preparation is not None:
             _pend = core.turn_preparation.pending_for(session)
@@ -4640,92 +4668,29 @@ class GMCog(commands.Cog):
                 break
             print(f"[GM] 추출층위 응답 파싱 실패(시도 {_try + 1})")
 
-        if not result and preparation is not None:
+        if not result:
             # WP-C: 실패 처리(재시도 UI·차단)는 배리어 owner가 담당한다.
             return None
 
-        if not result:
-            # 재시도 실패 → 다음 턴 차단 + 재시도 버튼
-            session.extraction_pending = True
-            session.extraction_retry_ctx = {"text": ai_output_text}
-            await core.save_session_data(self.bot, session)
-            game_ch = self.bot.get_channel(session.game_ch_id)
-            if game_ch:
-                await game_ch.send(
-                    "⚠️ 턴 정보 정리 중 문제가 발생했습니다.\n"
-                    "아래 버튼으로 다시 시도해 주십시오. 완료 전까지 다음 턴은 진행되지 않습니다.",
-                    view=ExtractionRetryView(self.bot),
-                )
-            if master_ch:
-                await master_ch.send("⚠️ 추출층위 실패 — 다음 턴 차단됨. 재시도 버튼 배치.")
-            return None
-
-        # ══════════════════════════════════════════════════════════════
-        #  ▼▼▼ WP-B 단일 호환 적용 경계 (pre-WP-D COMPATIBILITY BOUNDARY) ▼▼▼
-        #  이 구획이 추출 결과를 canonical에 반영하는 유일한 지점이다.
-        #  · 위쪽(provider 호출 + 파싱)은 result-only 생산: canonical 미변경.
-        #  · build_extraction_plan이 raw result를 검증·정규화·dedup·모순처리해
-        #    ExtractionMutationPlan(적용의 유일 권위)을 만든다. 이후 raw result는
-        #    어떤 canonical mutator의 입력도 되지 않는다.
-        #  · 적용은 _apply_extraction_plan(LegacyCompatibilityApplier)이 계획의
-        #    정규화 typed 필드(또는 좁은 파생 DTO)만 소비해 수행한다. 기존 도메인
-        #    helper(apply_normalized_*/advance_quest/check_secret_awareness/select_bgm/
-        #    places)는 재사용하되 입력은 정규화 데이터뿐이다.
-        #  · WP-D가 이 경계를 barrier·commit 뒤로 이동/치환한다. 여기는 authoritative
-        #    commit이 아니다.
-        #  적용 전 두 가지를 보장한다:
-        #    (1) stale guard(§26/§38): 추출의 (logical_turn, attempt)보다 더 새로운
-        #        논리 시도가 활성화됐으면 canonical을 건드리지 않고 진단만 남긴다.
-        #    (2) idempotency(T-B21): 같은 트랜잭션 결과의 이중 적용을 막는다.
-        # ══════════════════════════════════════════════════════════════
+        # 검증·정규화 계획 — ExtractionMutationPlan이 적용의 유일 권위다. raw result는 어떤
+        #   canonical mutator의 입력도 되지 않는다. 여기서는 스테이징만 하며 정본 적용은
+        #   READY 이후 CommitCoordinator 경로(_apply_prepared_extraction)가 수행한다.
         plan = core.turn_preparation.build_extraction_plan(
             view, result, transaction_id=transaction_id,
             logical_turn=logical_turn, attempt=attempt)
-
-        if preparation is not None:
-            # WP-C 준비 모드: 계획만 스테이징(정본 미적용). stale이면 현재 배리어를 만족 못함.
-            if (not preparation.matches(core.turn_transaction.get_active_transaction(session))
-                    or core.turn_preparation.extraction_is_stale(
-                        session, logical_turn=logical_turn, attempt=attempt)):
-                plan.rejected_stale = True
-                print(f"[추출/{session.session_id}] stale 준비 결과 — 배리어 미충족 "
-                      f"(tx={transaction_id}, lt={logical_turn}, at={attempt})")
-                return None
-            core.write_log(
-                session.session_id, "api",
-                f"[추출층위 결과(준비·미적용)]\n{json.dumps(result, ensure_ascii=False, indent=2)}")
-            preparation.extraction_plan = plan
-            return plan
-
-        if core.turn_preparation.extraction_is_stale(
-                session, logical_turn=logical_turn, attempt=attempt):
+        # stale이면 현재 배리어를 만족 못한다(정본 미변경).
+        if (not preparation.matches(core.turn_transaction.get_active_transaction(session))
+                or core.turn_preparation.extraction_is_stale(
+                    session, logical_turn=logical_turn, attempt=attempt)):
             plan.rejected_stale = True
-            print(f"[추출/{session.session_id}] stale 결과 거부 — 더 새로운 논리 시도 활성 "
+            print(f"[추출/{session.session_id}] stale 준비 결과 — 배리어 미충족 "
                   f"(tx={transaction_id}, lt={logical_turn}, at={attempt})")
-            core.write_log(
-                session.session_id, "api",
-                f"[추출층위 stale 거부]\n{json.dumps(result, ensure_ascii=False, indent=2)}")
-            if master_ch:
-                await master_ch.send("⏭️ **[추출층위]** 더 새로운 턴이 시작되어 이전 턴 추출 결과를 적용하지 않았습니다.")
             return None
-
-        _applied_ids = getattr(session, "_extraction_applied_tx", None)
-        if _applied_ids is None:
-            _applied_ids = session._extraction_applied_tx = []
-        if transaction_id and transaction_id in _applied_ids:
-            print(f"[추출/{session.session_id}] 이미 적용된 트랜잭션 — 이중 적용 방지 (tx={transaction_id})")
-            return result
-        if transaction_id:
-            _applied_ids.append(transaction_id)
-            if len(_applied_ids) > 16:
-                del _applied_ids[:-16]
-
-        # 성공 — 계획(정규화 typed 필드)만을 권위로 canonical에 적용한다.
-        #   raw result는 여기서 어떤 mutator의 입력도 되지 않는다(계획이 유일 권위).
-        #   검증 탈락·dedup·conflict로 계획에서 빠진 후보는 적용부에 도달할 수 없다.
-        await self._apply_extraction_plan(session, plan, master_ch)
-        # ▲▲▲ WP-B 단일 호환 적용 경계 끝 (COMPATIBILITY BOUNDARY END) ▲▲▲
-        return result
+        core.write_log(
+            session.session_id, "api",
+            f"[추출층위 결과(준비·미적용)]\n{json.dumps(result, ensure_ascii=False, indent=2)}")
+        preparation.extraction_plan = plan
+        return plan
 
     async def _verify_proceed_instruction(self, session, instruction: str,
                                            player_message: str, master_ch) -> str:

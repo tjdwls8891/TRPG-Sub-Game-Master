@@ -255,6 +255,7 @@ sessions/{session_id}/
 ### 턴 확정 권위 (WP-A~F)
 
 자동 턴 하나 = `TurnTransaction` 하나. AI 결과는 준비(`turn_preparation`)에 스테이징되고, 필수 작업이 모두 합류한 `READY_TO_COMMIT` 뒤에 `CommitCoordinator`만 정본 상태를 커밋한다(`CommitJournal`로 복구). 게임 채널 출력은 `message_lifecycle` 5분류로 소유되며, 백그라운드 압축은 출처 식별이 맞을 때만 적용된다. 수동 `!진행`·`!수정`은 WP-G에서 은퇴했다 — 공유 묘사 엔진(`_execute_proceed`)의 호출자는 자동 턴과 인트로뿐이다.
+추출 결과의 정본 적용은 커밋 경로 하나뿐이다(`CommitCoordinator` → `_apply_commit_effects` → `_apply_prepared_extraction` → `_apply_extraction_plan`). `_run_extraction`은 준비 객체 없이 호출하면 provider 호출 전에 거부된다. WP-C 이전 형식의 추출 재시도 컨텍스트는 재추출·정본 변이 없이 은퇴된다(`commit_coordinator.retire_legacy_retry_context`).
 
 ### 프롬프트 권위 (WP-G D1)
 

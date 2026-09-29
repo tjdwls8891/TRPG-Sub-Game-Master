@@ -2,14 +2,28 @@
 
 > **상태: IMPLEMENTED / AWAITING FINAL GATE.** 구현자는 WP-G나 7-WP 프로그램을 VERIFIED로 선언하지 않습니다. 최종 후보를 push한 뒤 독립 GPT 최종 게이트를 위해 멈춥니다. 다음 WP는 없습니다(There is no WP-H).
 
+## 0. FINAL RE-GATE PATCH — 비준비 추출 적용 은퇴
+
+독립 GPT 최종 게이트(후보 `6e2e003`)의 판정은 PATCH REQUIRED였고, 남은 blocker는 1건이었습니다. `ExtractionRetryView.retry`가 모드 없는(WP-C 이전) 재시도 컨텍스트를 `_run_extraction(preparation=None)` → `_apply_extraction_plan`으로 보내 CommitCoordinator 밖에서 정본 상태를 바꿨습니다.
+
+| 항목 | 값 |
+|---|---|
+| patch start SHA | `6e2e003c34e24bb960c5400e3ebc1b1567cb6adc` |
+| 변경 | `_run_extraction`은 `preparation=None`이면 provider 호출 전에 `RuntimeError`로 거부합니다. 비준비 실패 분기(구 형식 retry ctx 기록)와 stale/멱등/직접 적용 블록을 삭제했고, 준비 모드는 계획 스테이징만 합니다. 재시도 버튼의 비준비 컨텍스트는 `commit_coordinator.retire_legacy_retry_context`로 은퇴합니다. 이 은퇴는 provider 재호출·계획 적용·정본 변이·청구·CostEvent를 모두 0으로 두고, strict 세션 저장이 성공한 뒤에만 차단을 해제합니다. 저장이 실패하면 메모리 상태를 되돌리고 차단을 유지합니다 |
+| 최종 불변식 | `_run_extraction` 프로덕션 호출자 = `_prepare_extraction` · `_apply_extraction_plan` 프로덕션 호출자 = `_apply_prepared_extraction` · 그 호출자 = `_apply_commit_effects` · 그 참조 = `CommitCoordinator(... apply_effects=self._apply_commit_effects)` 하나 (스캔 A8–A12) |
+| strict 저장 위치 | 재시도 컨텍스트 은퇴의 strict 저장은 `core/commit_coordinator.py`에 둡니다. `persist_retry_breadcrumb`와 같은 소유 경계이고, `cogs/gm.py`에 strict 저장 호출을 두지 않는 WP-D 불변식(`test_tc26_*`)을 유지합니다. 새 트랜잭션·Settlement·저널·커밋 권위는 없습니다 |
+| 보존(무변경) | D1 프롬프트 · 시나리오 · 압축 · 캐시 재무/생애주기 · 자동 GM 비용 상한 · 운영자 계정 도구 · `!재생성` · 현재 준비 모드 추출·재시도 · CommitCoordinator 의미 · Settlement/InkTransaction · message lifecycle · WP-E 이력 |
+| G-FINAL-1~5 | 6 노드 전부 PASS(`tests/policy/test_wp_g_extraction_owner.py`, 시나리오 매트릭스 말미 표) |
+| 재확인 | WP-G targeted 77 passed · §16 보존 묶음 22 passed · 현재 재시도/복구(`test_retry_button_*`, `tc12/12b/13/26`, `test_commit_recovery.py`, `test_wp_d_patch.py`) 40 passed · 시나리오 69/69 PASS · AUD 인용 테스트 전부 실재 · 전체 637 passed(xfail/XPASS 0) · 보존 영역 파일 diff 0 |
+
 ## 1. 식별 (인계서 §19 항목 1–3, 5–6)
 
 | 항목 | 값 |
 |---|---|
 | exact start SHA | `c508ce76afef3c66182d879a18e91fb501a1ae0e` (fetch 후 확인, 시작 시 `git status --short` 공백, 베이스라인 `593 passed, 0 failed, 0 xfailed, 0 XPASS`) |
 | 브랜치 | `claude/wp-g-legacy-retirement-final-stabilization` |
-| 내부 커밋 | `99dd5fc` G1–G3 · `f410076` 결정 게이트 보고 · `bea5196` D1/D2-b/D3/U-2 · `003fff1` 매트릭스·문서 (코드 후보) |
-| final candidate SHA | 이 번들·스캔·제어 동기화 제안을 담은 커밋(부모 = `003fff1d82bbee30a6abe9356e2af3393f7eb132`). 자기 참조를 피하려고 정확한 값은 push 직후 채팅 보고에 적습니다 |
+| 내부 커밋 | `99dd5fc` G1–G3 · `f410076` 결정 게이트 보고 · `bea5196` D1/D2-b/D3/U-2 · `003fff1` 매트릭스·문서 · `6e2e003` 1차 최종 후보(게이트: PATCH REQUIRED) |
+| final candidate SHA | RE-GATE 커밋은 2개입니다. ① 코드·테스트·문서(부모 = `6e2e003c34e24bb960c5400e3ebc1b1567cb6adc`) ② ①을 스캔한 `WP_G_POST_CHANGE_SCAN.txt`만 담은 최종 커밋. 최종 후보 = ②. 자기 참조를 피하려고 정확한 값은 push 직후 채팅 보고에 적습니다 |
 | local == remote · literal `git status --short` | push 직후 채팅 보고에 원문으로 기재합니다 |
 
 ## 2. 변경 파일 (항목 4) — `git diff --name-status c508ce7`
@@ -19,6 +33,9 @@ M CLAUDE.md                      M core/estimate.py        M prompts.py
 M cogs/errors.py                 M core/io.py              M scenarios/무협.json
 M cogs/game.py                   M core/memory_plan.py     M specs/00_INDEX.md
 M cogs/gm.py                     M core/models.py          M tests/characterize/test_execute_proceed_shared_paths.py
+M core/commit_coordinator.py (RE-GATE)                     M tests/defects/test_extraction_boundary.py (RE-GATE)
+M tests/policy/test_extraction_staging.py (RE-GATE)        M tests/policy/test_plan_authority.py (RE-GATE)
+A tests/policy/test_wp_g_extraction_owner.py (RE-GATE)
 M cogs/media.py                  M core/prompt.py          M tests/characterize/test_harness_selfcheck.py
 M cogs/system.py                 M core/session_flow.py    M tests/policy/test_accounts_strict.py
 M core/__init__.py               M core/terms.py           M tests/policy/test_compression_safety.py
@@ -48,6 +65,7 @@ A handoff/WP_G_COMPLETION_BUNDLE.md
 | 압축 비용 | 계정 효과 없는 "선결제/환급/추가" 표시 | 운영자 부담 유지비. CostEvent만 남음 (스캔 B8 = 0) |
 | 압축 주기 부기 | 최초 생성에서만 `mark_compressed` | 적용된 모든 압축에서 갱신 |
 | 프롬프트 권위 | 층위마다 다른 선형 서열(X1–X9 모순) | D1 종류별 권위(§6) |
+| 추출 결과 정본 적용 | 커밋 경로(`_apply_prepared_extraction`) + 비준비 `_run_extraction` 직접 적용(재시도 버튼의 WP-C 이전 컨텍스트) | 커밋 경로 하나. 비준비 추출은 provider 전에 거부, 구 컨텍스트는 변이 없이 은퇴(스캔 A8–A14) |
 
 WP-A~F 권위(TurnTransaction, READY 배리어, CommitCoordinator, CommitJournal, CostLedger, Settlement, InkTransaction, 커밋 이력, message lifecycle, 압축 출처, cache lifecycle, interpretation billing)는 새로 만들거나 교체하지 않았습니다.
 
@@ -58,6 +76,7 @@ WP-A~F 권위(TurnTransaction, READY 배리어, CommitCoordinator, CommitJournal
 - `!수정` 명령과 직접 편집 경로, 그 경로만 소비하던 턴 앵커 쓰기. 필드 `last_turn_anchor_id`는 구세션 로드 호환용으로 남겼고 쓰지 않습니다(AUD-018).
 - 허구 압축 선결제: 20% 가산·누적(`gm.py`), 정산(`estimate.py`의 `estimate_compression`/`compression_prepay`/`settle_compression`/`settle_on_session_close`), 디스플레이·세션 종료 표시, 필드 `compression_prepaid_krw`(AUD-026/027).
 - 도움말·사용법표·TTS 문구의 `!진행`/`!수정`/`자:/태:` 안내.
+- (RE-GATE) 비준비 추출 → 정본 직접 적용 경로(WP-B 호환 적용 경계). WP-C 이전 재시도 컨텍스트는 정본 변이 없이 호환 은퇴합니다.
 - 명령어 수: 46 → 44.
 
 **보존**: `!재생성` · `!출력물`(읽기 전용, 안내만 `!재생성`으로 변경) · `!되감기` · `!주사위` · `!기억압축` · `!노트` · `!캐시노트` · `!더빙`·`!더빙테스트` · 캐릭터·NPC 보정(`!증감` 등) · `!자동` 그룹 · 관리 도구 전부(`!지급`, `!잉크`, `!사용량`, `!배포`, `!재시작`, `!리로드`, `!캐시`, `!세션종료`, `!채널정리`, `!스페이스*`, `!권한*`, `!tts생성`). 마스터 채널 `[진행자]` 중계도 유지하며, D1에서 GM/운영자 지시로 분류했습니다. `상:/중:/하:` 이미지 태그와 `자:/태:` 방어적 strip도 유지합니다.
@@ -120,7 +139,7 @@ Settlement/InkTransaction 정책은 바꾸지 않았습니다(인계서 §17 중
 
 ## 10. 최종 시나리오 매트릭스 (항목 14)
 
-`handoff/WP_G_FINAL_SCENARIO_MATRIX.md` — 인계서 §14 전 사례, 69행 **전부 PASS**.
+`handoff/WP_G_FINAL_SCENARIO_MATRIX.md` — 인계서 §14 전 사례, 69행 **전부 PASS**(RE-GATE 후 재실행 결과도 같음). RE-GATE G-FINAL 6행도 PASS입니다.
 
 §16 보존 테스트 묶음(20 노드: 자동 트랜잭션 경계, READY, 전문 추출, CommitCoordinator 단일 커밋, FAILED_SYSTEM 0, CostEvent 보존, Settlement/Ink 정확히 한 번, WP-E 되감기·재서술, 현재 `!재생성`, 정리 부채, 디스플레이 lifecycle, stale 압축 거부, cache lifecycle, 운영자 환급, 해석 strict 사실)을 별도 실행한 결과: `22 passed`(파라미터 전개 포함).
 
@@ -138,7 +157,7 @@ import: OK    (core, prompts, main)
 
 ## 12. 최종 전체 회귀 (항목 16)
 
-`631 passed, 0 failed, 0 xfailed, 0 XPASS` (`python3 -m pytest tests/ -q -p no:cacheprovider`). 시작 대비 +38건입니다: `test_wp_g_retirement.py` 23건 + `test_wp_g_prompt_authority.py` 11건 + U-2 4건(`test_compression_safety.py`). harness의 AUD-053 테스트는 기존 1건을 교체해 순증 0입니다.
+`637 passed, 0 failed, 0 xfailed, 0 XPASS` (`python3 -m pytest tests/ -q -p no:cacheprovider`). WP-G 시작 대비 +44건입니다: `test_wp_g_retirement.py` 23건 + `test_wp_g_prompt_authority.py` 11건 + U-2 4건(`test_compression_safety.py`) + RE-GATE `test_wp_g_extraction_owner.py` 6건. harness의 AUD-053 테스트는 기존 1건을 교체해 순증 0입니다. 1차 후보 `6e2e003`의 결과는 631 passed였습니다.
 
 의도적으로 갱신한 기존 테스트:
 - `test_c004_*`: `_execute_proceed` 호출자 3 → 2(`!진행` 은퇴).
@@ -147,6 +166,8 @@ import: OK    (core, prompts, main)
 - `test_ink_transactions::test_70`: 레거시 `deduct_ink` 호출자 1 → 0.
 - `test_wp_d_patch::test_dd4_admission_order_scan`: 상한 판정 이름이 `auto_cost_cap_reached`로 바뀜(순서 불변식은 그대로).
 - `test_compression_safety::test_legacy_settle_*`: 선결제 정산 은퇴 반영.
+- (RE-GATE) `test_c004e_run_extraction_callers`: 호출자 `{"_prepare_extraction", "retry"}` → `{"_prepare_extraction"}`.
+- (RE-GATE) `test_extraction_staging::test_b19b/test_b21`, `test_plan_authority::test_pa_a/b/c`, `test_extraction_boundary::test_d001d`: 은퇴한 비준비 직접 적용 대신 준비 모드 추출 + 커밋 경로의 추출 적용 단계(`_apply_prepared_extraction`)로 구동합니다. 단언(stale 무변이, 동일 트랜잭션 1회 적용, 탈락 후보 부활 금지, dedup, 모순 비적용, 묘사 전문 전달)은 그대로입니다.
 
 ## 13. prompts·scenarios diff 요약 (항목 17)
 
@@ -163,7 +184,7 @@ import: OK    (core, prompts, main)
 | 무협 NPC 밀도, 시나리오 세대 차이 | D2-e / AUD-007 — 정규화·창작 금지 |
 | 레거시 `add_ink`/`deduct_ink`/`set_balance`/`register_account` 정의 | 테스트 시드·하위 호환용. 프로덕션 호출자 0을 정적 테스트로 고정 |
 | `total_cost`/`total_usd`/`turn_cost_log` 미러 | 표시 참고·cost_log 기록용. 규칙 입력 0 |
-| 추출 재시도 버튼의 비준비(구 표식) 경로 | WP-C 이전에 저장된 세션의 복구용. 호출자 = 버튼 1곳(`test_c004e`) |
+| ~~추출 재시도 버튼의 비준비(구 표식) 경로~~ | **RE-GATE로 삭제.** pre-WP-C non-prepared retry는 정본 변이 없이 compatibility-retired됩니다(`retire_legacy_retry_context`, G-FINAL-2/3) |
 | `자:/태:` 방어적 strip | 모델이 태그를 다시 출력할 때 출력 오염 방지 — 권위 없음 |
 | 더빙 인트로 한정 | 자동 턴 미적용은 기존 동작. 확장은 새 기능이라 범위 밖 |
 | `__version__` v5.33.0 | 버전 상향은 배포 결정(제어 동기화 제안 §6) |
@@ -180,7 +201,7 @@ import: OK    (core, prompts, main)
 ## 17. 산출물
 
 - `handoff/WP_G_COMPLETION_BUNDLE.md` (이 문서)
-- `handoff/WP_G_POST_CHANGE_SCAN.txt` (코드 후보 `003fff1` 기준 자동 스캔)
+- `handoff/WP_G_POST_CHANGE_SCAN.txt` (RE-GATE 코드 커밋 기준 자동 스캔. 헤더에 HEAD를 기록하고 A8–A14 추출 소유 섹션을 포함)
 - `handoff/WP_G_FINAL_AUDIT_MATRIX.md`
 - `handoff/WP_G_FINAL_SCENARIO_MATRIX.md`
 - `handoff/WP_G_CONTROL_SYNC_PROPOSAL.md`

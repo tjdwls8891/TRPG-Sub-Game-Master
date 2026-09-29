@@ -2,7 +2,7 @@
 
 - 기준: `claude/wp-g-legacy-retirement-final-stabilization` 최종 후보(해당 SHA는 `WP_G_COMPLETION_BUNDLE.md` §1)
 - 실행: `scratchpad/scen.py`가 아래 노드 ID만 골라 `pytest -rA`로 실행하고, PASSED/FAILED 행을 그대로 옮겼습니다.
-- 결과: **69행 모두 PASS** (파라미터 전개 포함 pytest 73 passed, 실패 0).
+- 결과: **69행 모두 PASS** (파라미터 전개 포함 pytest 73 passed, 실패 0). FINAL RE-GATE PATCH 후 재실행해도 같습니다.
 - 방침: 기존 패키지(WP-A~F) 테스트를 우선 인용했습니다. WP-G에서 새로 추가한 것은 G 범위 행동(은퇴·비용 상한·D3·U-2)뿐입니다. 행 수를 늘리려고 중복 테스트를 만들지 않았습니다.
 - 전체 회귀는 완료 번들 §15에 기록합니다.
 
@@ -83,3 +83,16 @@
 - **인트로 경로**: `preparation=None`으로 공유 엔진을 쓰며 트랜잭션·배리어를 갖지 않습니다(`test_tc28_intro_manual_execute_proceed_has_no_barrier`, `test_ta08_intro_reuse_creates_no_automatic_transaction`). 수동 `!진행`은 은퇴해 이 경로의 호출자는 인트로뿐입니다(`test_c004_execute_proceed_has_two_distinct_callers`).
 - **판단·지시 실패**: 판단층위 예외 행은 대기 안내가 남지 않는 것(`mf07`)을 증명합니다. 지시층위 실패 행은 재생성 시도에서 FAILED_SYSTEM·청구 0을 증명합니다. 정상 턴 준비 전 실패의 FAILED_SYSTEM 정산은 `test_d_pre_ready_failure_persists_failed_system_settlement`(전체 회귀 포함)가 증명합니다.
 - **누락 사례 없음**: 인계서 §14의 모든 사례에 현재 소스 기준 통과 테스트가 하나 이상 있습니다.
+
+## FINAL RE-GATE — 추출 정본 적용 소유 (G-FINAL-1~5)
+
+| 항목 | 노드 ID | 결과 |
+|---|---|---|
+| G-FINAL-1 프로덕션 `_run_extraction` 호출자 = `_prepare_extraction` | `tests/policy/test_wp_g_extraction_owner.py::test_gfinal1_run_extraction_production_callers_are_preparation_owned` | PASS |
+| G-FINAL-1b 비준비 호출은 provider 전에 거부(CostEvent 0·정본 무변) | `tests/policy/test_wp_g_extraction_owner.py::test_gfinal1b_non_prepared_extraction_is_refused_before_provider` | PASS |
+| G-FINAL-2 구 재시도 컨텍스트 → 변이·재무·CostEvent 0, durable 은퇴 | `tests/policy/test_wp_g_extraction_owner.py::test_gfinal2_legacy_retry_context_is_retired_without_mutation` | PASS |
+| G-FINAL-3 은퇴 저장 실패 → 성공 보고 없음, 영속 pending 유지, 변이 0 | `tests/policy/test_wp_g_extraction_owner.py::test_gfinal3_retirement_persistence_failure_keeps_block` | PASS |
+| G-FINAL-4 `_apply_extraction_plan` 정본 호출자 = 커밋 경로 하나 | `tests/policy/test_wp_g_extraction_owner.py::test_gfinal4_canonical_extraction_apply_owner_is_commit_path_only` | PASS |
+| G-FINAL-5 현재 준비 모드 재시도 경로 불변 | `tests/policy/test_wp_g_extraction_owner.py::test_gfinal5_current_prepared_retry_route_unchanged` | PASS |
+
+G-FINAL-5 행동 증명: `test_retry_button_resumes_same_transaction`, `test_tc12_exhausted_extraction_no_ready_no_charge_then_retry`, `test_tc12b_retry_without_live_preparation_only_releases`, `test_r_retry_pending_*`(전체 회귀 PASS).

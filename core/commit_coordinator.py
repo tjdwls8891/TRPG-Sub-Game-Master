@@ -1037,6 +1037,37 @@ async def persist_retry_breadcrumb(bot, session, prep) -> bool:
         return False
 
 
+async def retire_legacy_retry_context(bot, session) -> bool:
+    """WP-G(RE-GATE): 준비 모드가 아닌(WP-C 이전 저장 형식) 추출 재시도 컨텍스트의 호환 은퇴.
+
+    정본 게임 상태·재무를 바꾸지 않는다(provider 재호출·추출 계획 적용·청구 없음).
+    차단(extraction_pending)과 구 컨텍스트는 strict 영속이 성공한 뒤에만 해제된다 — 실패하면
+    메모리 상태를 되돌리고 False(fail-closed: 차단 유지, 성공으로 보고하지 않음).
+    새 트랜잭션·Settlement·저널 항목을 만들지 않는다(재시도 breadcrumb 영속과 같은 소유 경계).
+
+    Returns: True = 은퇴 영속 완료(또는 은퇴 대상 아님), False = strict 영속 실패
+    """
+    ctx = getattr(session, "extraction_retry_ctx", None)
+    if (not getattr(session, "extraction_pending", False)
+            or (isinstance(ctx, dict) and ctx.get("mode") == RETRY_MODE_PREPARATION)):
+        return True
+    prev = (session.extraction_pending, copy.deepcopy(ctx))
+    session.extraction_pending = False
+    session.extraction_retry_ctx = {}
+    try:
+        await _io.save_session_data_strict(bot, session)
+    except Exception as e:  # noqa: BLE001
+        session.extraction_pending, session.extraction_retry_ctx = prev
+        _io.write_log(session.session_id, "error",
+                      f"[WP-G] 구 추출 재시도 컨텍스트 은퇴 strict 저장 실패 — 차단 유지: "
+                      f"{type(e).__name__}: {e}")
+        return False
+    _io.write_log(session.session_id, "api",
+                  "[추출 재시도 호환 은퇴] WP-C 이전 형식의 재시도 컨텍스트를 폐기했습니다 "
+                  "(provider 재호출·계획 적용·정본 변이·청구 없음).")
+    return True
+
+
 # ── D-D3: 재시도 provider 오퍼레이션의 durable claim ─────────────
 #   재시도 중 새로 claim되는 provider 오퍼레이션의 operation_id를 provider 호출 '전에'
 #   fsync로 영속한다. 재시작 폐기 시 멤버십 = breadcrumb exact ID ∪ claim된 오퍼레이션의

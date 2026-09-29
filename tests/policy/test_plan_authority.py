@@ -29,9 +29,12 @@ def _make_gm_cog(fake_bot):
     return cog
 
 
-async def _drive_extraction(monkeypatch, cog, session, master_ch, canned, *,
-                            transaction_id, logical_turn, attempt):
-    """provider 호출·파싱을 결정적으로 대체해 적용 경계까지 구동한다."""
+async def _drive_extraction(monkeypatch, cog, session, master_ch, canned, *, prep=None):
+    """provider 호출·파싱을 결정적으로 대체해 준비 모드 추출 → 커밋 경로 적용 단계까지 구동한다.
+
+    WP-G(RE-GATE): 비준비 추출의 정본 직접 적용 경로는 은퇴했다. 추출은 준비 객체에 계획을
+    스테이징하고, 정본 반영은 CommitCoordinator가 부르는 _apply_prepared_extraction만 한다.
+    """
     async def _fake_cwr(fn, **kw):
         return True, SimpleNamespace(text="{}", usage_metadata=None)
 
@@ -41,9 +44,15 @@ async def _drive_extraction(monkeypatch, cog, session, master_ch, canned, *,
 
     monkeypatch.setattr(core, "call_with_retry", _fake_cwr, raising=True)
     monkeypatch.setattr(core, "parse_extraction", _fake_parse, raising=True)
-    return await cog._run_extraction(
-        session, "묘사 전문", master_ch, transaction_id=transaction_id,
-        logical_turn=logical_turn, attempt=attempt)
+    if prep is None:
+        tx = core.turn_transaction.get_or_begin_turn_transaction(session, "선언")
+        prep = tp.ensure_preparation(session, tx.transaction_id)
+    plan = await cog._run_extraction(
+        session, "묘사 전문", master_ch, transaction_id=prep.transaction_id,
+        logical_turn=prep.logical_turn, attempt=prep.attempt, preparation=prep)
+    if plan is not None:
+        await cog._apply_prepared_extraction(session, prep)   # 커밋 경로의 추출 적용 단계
+    return plan
 
 
 # ── A. 검증 탈락 후보는 되살아날 수 없다 ──────────────────────────
@@ -73,8 +82,7 @@ async def test_pa_a_rejected_candidate_cannot_resurrect(
 
     # 실제 구동 후에도 canonical 무변화(적용부는 raw result를 보지 않는다).
     await _drive_extraction(
-        monkeypatch, cog, sess, master_channel, canned,
-        transaction_id="tx-A", logical_turn=8, attempt=1)
+        monkeypatch, cog, sess, master_channel, canned,)
 
     assert sess.statuses.get("테스터", []) == [], "무효 상태가 되살아나 적용됐습니다"
     assert "없는사람" not in sess.statuses, "무효 캐릭터 상태가 적용됐습니다"
@@ -104,8 +112,7 @@ async def test_pa_b_duplicate_candidate_applies_once(
     assert len(water) == 1, "동치 아이템 후보가 dedup되지 않았습니다"
 
     await _drive_extraction(
-        monkeypatch, cog, sess, master_channel, canned,
-        transaction_id="tx-B", logical_turn=8, attempt=1)
+        monkeypatch, cog, sess, master_channel, canned,)
 
     assert sess.resources.get("테스터", {}).get("물") == 5, (
         "동치 중복 후보가 이중 적용되어 +10이 되었습니다(last-candidate-wins)")
@@ -133,8 +140,7 @@ async def test_pa_c_conflict_is_not_last_write_wins(
     assert any(c["target"] == "백가" for c in plan.conflicts), "모순이 진단되지 않았습니다"
 
     await _drive_extraction(
-        monkeypatch, cog, sess, master_channel, canned,
-        transaction_id="tx-C", logical_turn=8, attempt=1)
+        monkeypatch, cog, sess, master_channel, canned,)
 
     # last-write-wins였다면 join의 부수효과로 met_npcs에 흔적이 남는다.
     assert "백가" not in (sess.companions or []), "모순 이름이 동행에 적용됐습니다"

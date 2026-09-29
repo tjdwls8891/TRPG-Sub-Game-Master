@@ -113,7 +113,7 @@ def test_c004e_run_extraction_callers():
     """
     sites = _callsites("_run_extraction")
     owners = {owner for _, _, owner in sites}
-    # WP-C — 자동 경로는 등록 준비 작업(_prepare_extraction)이 부르고,
-    #   레거시 비준비 호출은 추출 재시도 버튼(구 표식 컨텍스트)에만 남는다.
-    assert owners == {"_prepare_extraction", "retry"}, (
+    # WP-C — 자동 경로는 등록 준비 작업(_prepare_extraction)이 부른다.
+    #   WP-G(RE-GATE): 추출 재시도 버튼의 레거시 비준비 호출은 은퇴했다(G-FINAL-1).
+    assert owners == {"_prepare_extraction"}, (
         f"추출 호출부가 바뀌었습니다: {sorted(owners)}")
