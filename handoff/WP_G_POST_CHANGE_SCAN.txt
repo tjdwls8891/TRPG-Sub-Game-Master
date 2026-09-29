@@ -1,5 +1,5 @@
 # WP-G POST-CHANGE SCAN
-HEAD(scan time) 003fff1d82bbee30a6abe9356e2af3393f7eb132  start c508ce76afef3c66182d879a18e91fb501a1ae0e
+HEAD(scan time) b1db6a2b7cf049f18134292c8299a260f80ebc2e  WP-G start c508ce76afef3c66182d879a18e91fb501a1ae0e  re-gate patch start 6e2e003c34e24bb960c5400e3ebc1b1567cb6adc
 
 ## A1 command definitions (cogs)  (53)
   cogs/character.py:314: 참가
@@ -18,18 +18,18 @@ HEAD(scan time) 003fff1d82bbee30a6abe9356e2af3393f7eb132  start c508ce76afef3c66
   cogs/game.py:1306: 기억압축
   cogs/game.py:1402: 노트
   cogs/game.py:1440: 캐시노트
-  cogs/gm.py:1027: 자동
-  cogs/gm.py:1051: 시작
-  cogs/gm.py:1114: 중단
-  cogs/gm.py:1140: 상태
-  cogs/gm.py:1171: 개입
-  cogs/gm.py:1187: 턴제한
-  cogs/gm.py:1210: 비용제한
-  cogs/gm.py:2765: 퀘스트
-  cogs/gm.py:2843: 되감기
-  cogs/gm.py:4985: 서사
-  cogs/gm.py:5053: 원장
-  cogs/gm.py:5085: 재계획
+  cogs/gm.py:1023: 자동
+  cogs/gm.py:1047: 시작
+  cogs/gm.py:1110: 중단
+  cogs/gm.py:1136: 상태
+  cogs/gm.py:1167: 개입
+  cogs/gm.py:1183: 턴제한
+  cogs/gm.py:1206: 비용제한
+  cogs/gm.py:2785: 퀘스트
+  cogs/gm.py:2863: 되감기
+  cogs/gm.py:4950: 서사
+  cogs/gm.py:5018: 원장
+  cogs/gm.py:5050: 재계획
   cogs/media.py:22: 이미지
   cogs/media.py:266: 브금
   cogs/media.py:552: 플리
@@ -57,13 +57,13 @@ HEAD(scan time) 003fff1d82bbee30a6abe9356e2af3393f7eb132  start c508ce76afef3c66
   cogs/system.py:757: 배포
 
 ## A2 _execute_proceed call sites (production)  (2)
-  cogs/gm.py:3741: _execute_proceed (in _dispatch_proceed)
+  cogs/gm.py:3761: _execute_proceed (in _dispatch_proceed)
   cogs/session.py:534: _execute_proceed (in play_intro)
 
 ## A3 rerender_latest defs/calls  (3)
   cogs/game.py:1273: started, reason = await gm_cog.rerender_latest(session, addendum=instruction.strip())
   cogs/gm.py:651: asyncio.create_task(cog.rerender_latest(self.session, addendum=self.addendum))
-  cogs/gm.py:2244: async def rerender_latest(self, session, *, addendum: str = "") -> tuple:
+  cogs/gm.py:2240: async def rerender_latest(self, session, *, addendum: str = "") -> tuple:
 
 ## A4 retired command residue (!진행/!수정/proceed_turn/edit_last_output/last_turn_anchor_id writes)  (3)
   cogs/game.py:238: WP-G: 수동 `!진행` 명령은 은퇴했다(AUD-016). 명령 컨텍스트(ctx)에 의존하지 않으며,
@@ -71,11 +71,36 @@ HEAD(scan time) 003fff1d82bbee30a6abe9356e2af3393f7eb132  start c508ce76afef3c66
   core/models.py:57: self.last_turn_anchor_id = None   # WP-G: 비활성 호환 필드(유일 소비자 `!수정` 은퇴) — 구세션 로드 호환용으로만 유지
 
 ## A5 _call_gm_logic call sites  (5)
-  cogs/gm.py:2903: _call_gm_logic (in _forced_proceed_instruction)
-  cogs/gm.py:2266: _call_gm_logic (in rerender_latest)
-  cogs/gm.py:3480: _call_gm_logic (in _continue_with_roll_results)
-  cogs/gm.py:2615: _call_gm_logic (in _run_gm_logic_loop)
-  cogs/gm.py:2610: _call_gm_logic (in _run_gm_logic_loop)
+  cogs/gm.py:2923: _call_gm_logic (in _forced_proceed_instruction)
+  cogs/gm.py:2262: _call_gm_logic (in rerender_latest)
+  cogs/gm.py:3500: _call_gm_logic (in _continue_with_roll_results)
+  cogs/gm.py:2635: _call_gm_logic (in _run_gm_logic_loop)
+  cogs/gm.py:2630: _call_gm_logic (in _run_gm_logic_loop)
+
+## A8 _run_extraction production callers  (1)
+  cogs/gm.py:1675: _run_extraction (in _prepare_extraction)
+
+## A9 _apply_extraction_plan production callers  (1)
+  cogs/gm.py:2404: _apply_extraction_plan (in _apply_prepared_extraction)
+
+## A10 _apply_prepared_extraction production callers  (1)
+  cogs/gm.py:1971: _apply_prepared_extraction (in _apply_commit_effects)
+
+## A11 _apply_commit_effects references (must be CommitCoordinator apply_effects only)  (2)
+  cogs/gm.py:1910: session, prep, apply_effects=self._apply_commit_effects,
+  cogs/gm.py:1922: async def _apply_commit_effects(self, session, prep, derived) -> None:
+
+## A12 legacy non-prepared retry callers (ExtractionRetryView → _run_extraction / _apply_extraction_plan)  (0)
+
+## A13 legacy retry retirement path  (4)
+  cogs/gm.py:911: if await cog._retire_legacy_extraction_retry(session):
+  cogs/gm.py:2406: async def _retire_legacy_extraction_retry(self, session) -> bool:
+  cogs/gm.py:2417: ok = await core.commit_coordinator.retire_legacy_retry_context(self.bot, session)
+  core/commit_coordinator.py:1040: async def retire_legacy_retry_context(bot, session) -> bool:
+
+## A14 _run_extraction preparation guard  (2)
+          if preparation is None:
+              raise RuntimeError(
 
 ## A6 legacy 자:/태: tag literals in prompts/cache/context/help (non-comment)  (0)
 
@@ -95,27 +120,27 @@ HEAD(scan time) 003fff1d82bbee30a6abe9356e2af3393f7eb132  start c508ce76afef3c66
   cogs/game.py:1251: accrue (in test_tts)
   cogs/game.py:1361: accrue (in compress_memory)
   cogs/game.py:877: accrue (in _deliver_narration)
-  cogs/gm.py:3169: accrue (in _call_gm_logic)
-  cogs/gm.py:3635: accrue (in _dispatch_narrate)
-  cogs/gm.py:4006: accrue (in _generate_npc_detail)
-  cogs/gm.py:4172: accrue (in _resolve_irregular_npcs)
-  cogs/gm.py:4784: accrue (in _verify_proceed_instruction)
-  cogs/gm.py:4925: accrue (in _simulate_narrative_directions)
-  cogs/gm.py:5538: accrue (in _generate_narrative_plan_candidate)
-  cogs/gm.py:2981: accrue (in _call_judgment)
-  cogs/gm.py:4617: accrue (in _run_extraction)
+  cogs/gm.py:3189: accrue (in _call_gm_logic)
+  cogs/gm.py:3655: accrue (in _dispatch_narrate)
+  cogs/gm.py:4026: accrue (in _generate_npc_detail)
+  cogs/gm.py:4192: accrue (in _resolve_irregular_npcs)
+  cogs/gm.py:4749: accrue (in _verify_proceed_instruction)
+  cogs/gm.py:4890: accrue (in _simulate_narrative_directions)
+  cogs/gm.py:5503: accrue (in _generate_narrative_plan_candidate)
+  cogs/gm.py:3001: accrue (in _call_judgment)
+  cogs/gm.py:4645: accrue (in _run_extraction)
   cogs/media.py:196: accrue (in send_media)
   core/cache_lifecycle.py:455: accrue (in _create_locked)
   core/cache_lifecycle.py:519: accrue (in _finalize_lifecycle_locked)
 
 ## B3 auto cost cap sites  (17)
-  cogs/gm.py:1084: core.mark_auto_mode_start(self.bot, session)   # WP-G: CostLedger 기준(AUD-033)
-  cogs/gm.py:1129: used = core.auto_mode_used_krw(self.bot, session)
-  cogs/gm.py:1148: used = core.auto_mode_used_krw(self.bot, session)   # WP-G: CostLedger provider 비용
-  cogs/gm.py:1439: if core.auto_cost_cap_reached(self.bot, session):
-  cogs/gm.py:1476: if core.auto_cost_cap_reached(self.bot, session):
-  cogs/gm.py:2311: if core.auto_cost_cap_reached(self.bot, session):   # WP-G: CostLedger 기준 운영 예산
-  cogs/gm.py:3468: if core.auto_cost_cap_reached(self.bot, session):
+  cogs/gm.py:1080: core.mark_auto_mode_start(self.bot, session)   # WP-G: CostLedger 기준(AUD-033)
+  cogs/gm.py:1125: used = core.auto_mode_used_krw(self.bot, session)
+  cogs/gm.py:1144: used = core.auto_mode_used_krw(self.bot, session)   # WP-G: CostLedger provider 비용
+  cogs/gm.py:1435: if core.auto_cost_cap_reached(self.bot, session):
+  cogs/gm.py:1472: if core.auto_cost_cap_reached(self.bot, session):
+  cogs/gm.py:2307: if core.auto_cost_cap_reached(self.bot, session):   # WP-G: CostLedger 기준 운영 예산
+  cogs/gm.py:3488: if core.auto_cost_cap_reached(self.bot, session):
   core/__init__.py:238: mark_auto_mode_start,
   core/__init__.py:239: auto_mode_used_krw,
   core/__init__.py:240: auto_cost_cap_reached,
@@ -147,7 +172,7 @@ HEAD(scan time) 003fff1d82bbee30a6abe9356e2af3393f7eb132  start c508ce76afef3c66
 
 ## B7 strict CostLedger readers — production  (8)
   core/commit_coordinator.py:321: def get_cost_events_by_ids_strict(self, event_ids, **_k):
-  core/commit_coordinator.py:1101: for row in led.list_cost_events_strict(session_id=session_id):
+  core/commit_coordinator.py:1132: for row in led.list_cost_events_strict(session_id=session_id):
   core/cost.py:581: rows = ledger.list_cost_events_strict(session_id=session_id)
   core/cost.py:601: rows = ledger.list_cost_events_strict() if ledger is not None else []
   core/cost_ledger.py:516: def list_cost_events_strict(self, *, session_id=None,
@@ -164,35 +189,35 @@ HEAD(scan time) 003fff1d82bbee30a6abe9356e2af3393f7eb132  start c508ce76afef3c66
   cogs/game.py:880: session.turn_cost_log.append(
   cogs/game.py:889: _turn_no, session.turn_cost_log, session.total_cost,
   cogs/game.py:893: session.turn_cost_log.clear()
-  cogs/gm.py:2046: log = list(getattr(session, "turn_cost_log", None) or [])
-  cogs/gm.py:2047: session.turn_cost_log = []
-  cogs/gm.py:2064: session.turn_cost_log = []
-  cogs/gm.py:2119: session.turn_cost_log = []
-  cogs/gm.py:2997: if not hasattr(session, "turn_cost_log"):
-  cogs/gm.py:2998: session.turn_cost_log = []
-  cogs/gm.py:2999: session.turn_cost_log.append({
-  cogs/gm.py:3187: if not hasattr(session, "turn_cost_log"):
-  cogs/gm.py:3188: session.turn_cost_log = []
-  cogs/gm.py:3189: session.turn_cost_log.append({
-  cogs/gm.py:3653: if not hasattr(session, "turn_cost_log"):
-  cogs/gm.py:3654: session.turn_cost_log = []
-  cogs/gm.py:3655: session.turn_cost_log.append({"label": "묘사층위(NARRATE)", "cost": cost,
-  cogs/gm.py:4016: if not hasattr(session, "turn_cost_log"):
-  cogs/gm.py:4017: session.turn_cost_log = []
-  cogs/gm.py:4018: session.turn_cost_log.append({
-  cogs/gm.py:4182: if not hasattr(session, "turn_cost_log"):
-  cogs/gm.py:4183: session.turn_cost_log = []
-  cogs/gm.py:4184: session.turn_cost_log.append({
-  cogs/gm.py:4628: if not hasattr(session, "turn_cost_log"):
-  cogs/gm.py:4629: session.turn_cost_log = []
-  cogs/gm.py:4630: session.turn_cost_log.append({
-  cogs/gm.py:4933: if not hasattr(session, "turn_cost_log"):
-  cogs/gm.py:4934: session.turn_cost_log = []
-  cogs/gm.py:4937: session.turn_cost_log.append({"label": "개연성 시뮬레이션", "cost": cost,
-  cogs/gm.py:5369: (CostLedger operation, accrue, turn_cost_log)은 기존 의미 그대로 수행하고,
-  cogs/gm.py:5554: if not hasattr(session, "turn_cost_log"):
-  cogs/gm.py:5555: session.turn_cost_log = []
-  cogs/gm.py:5556: session.turn_cost_log.append({"label": "서사 설계자(계획)", "cost": cost,
+  cogs/gm.py:2042: log = list(getattr(session, "turn_cost_log", None) or [])
+  cogs/gm.py:2043: session.turn_cost_log = []
+  cogs/gm.py:2060: session.turn_cost_log = []
+  cogs/gm.py:2115: session.turn_cost_log = []
+  cogs/gm.py:3017: if not hasattr(session, "turn_cost_log"):
+  cogs/gm.py:3018: session.turn_cost_log = []
+  cogs/gm.py:3019: session.turn_cost_log.append({
+  cogs/gm.py:3207: if not hasattr(session, "turn_cost_log"):
+  cogs/gm.py:3208: session.turn_cost_log = []
+  cogs/gm.py:3209: session.turn_cost_log.append({
+  cogs/gm.py:3673: if not hasattr(session, "turn_cost_log"):
+  cogs/gm.py:3674: session.turn_cost_log = []
+  cogs/gm.py:3675: session.turn_cost_log.append({"label": "묘사층위(NARRATE)", "cost": cost,
+  cogs/gm.py:4036: if not hasattr(session, "turn_cost_log"):
+  cogs/gm.py:4037: session.turn_cost_log = []
+  cogs/gm.py:4038: session.turn_cost_log.append({
+  cogs/gm.py:4202: if not hasattr(session, "turn_cost_log"):
+  cogs/gm.py:4203: session.turn_cost_log = []
+  cogs/gm.py:4204: session.turn_cost_log.append({
+  cogs/gm.py:4656: if not hasattr(session, "turn_cost_log"):
+  cogs/gm.py:4657: session.turn_cost_log = []
+  cogs/gm.py:4658: session.turn_cost_log.append({
+  cogs/gm.py:4898: if not hasattr(session, "turn_cost_log"):
+  cogs/gm.py:4899: session.turn_cost_log = []
+  cogs/gm.py:4902: session.turn_cost_log.append({"label": "개연성 시뮬레이션", "cost": cost,
+  cogs/gm.py:5334: (CostLedger operation, accrue, turn_cost_log)은 기존 의미 그대로 수행하고,
+  cogs/gm.py:5519: if not hasattr(session, "turn_cost_log"):
+  cogs/gm.py:5520: session.turn_cost_log = []
+  cogs/gm.py:5521: session.turn_cost_log.append({"label": "서사 설계자(계획)", "cost": cost,
   cogs/system.py:491: log = getattr(session, "turn_cost_log", None) or []
   core/cost.py:378: — WP-G: session.turn_cost_log(호환 전용 표시 버퍼). 금액 권위가 아니다.
   core/models.py:70: self.turn_cost_log: list = []
@@ -227,16 +252,17 @@ HEAD(scan time) 003fff1d82bbee30a6abe9356e2af3393f7eb132  start c508ce76afef3c66
   prompts.py | 35 +++++++++++++++++++++--------------
    1 file changed, 21 insertions(+), 14 deletions(-)
 
-## E changed files vs start  (36)
-  CLAUDE.md                                          |  60 +++-
+## E changed files vs start  (44)
+  CLAUDE.md                                          |  61 +++-
    cogs/errors.py                                     |   2 -
    cogs/game.py                                       | 225 ++-----------
-   cogs/gm.py                                         |  57 ++--
+   cogs/gm.py                                         | 210 +++++-------
    cogs/media.py                                      |   5 +-
    cogs/system.py                                     | 207 +++++++-----
    core/__init__.py                                   |  16 +-
    core/accounts.py                                   |  83 +++++
    core/cache.py                                      |  19 +-
+   core/commit_coordinator.py                         |  31 ++
    core/cost.py                                       | 155 ++++++++-
    core/display.py                                    |   4 +-
    core/estimate.py                                   |  87 +----
@@ -248,19 +274,26 @@ HEAD(scan time) 003fff1d82bbee30a6abe9356e2af3393f7eb132  start c508ce76afef3c66
    core/terms.py                                      |  17 +-
    core/turn_preparation.py                           |   2 +-
    core/ui.py                                         |  13 +-
+   handoff/WP_G_COMPLETION_BUNDLE.md                  | 208 ++++++++++++
+   handoff/WP_G_CONTROL_SYNC_PROPOSAL.md              |  97 ++++++
    handoff/WP_G_DECISION_GATES.md                     |  94 ++++++
-   handoff/WP_G_FINAL_AUDIT_MATRIX.md                 |  79 +++++
-   handoff/WP_G_FINAL_SCENARIO_MATRIX.md              |  85 +++++
+   handoff/WP_G_FINAL_AUDIT_MATRIX.md                 |  80 +++++
+   handoff/WP_G_FINAL_SCENARIO_MATRIX.md              |  98 ++++++
+   handoff/WP_G_POST_CHANGE_SCAN.txt                  |   0
    handoff/WP_G_PRE_EDIT_INVENTORY.md                 | 271 +++++++++++++++
    prompts.py                                         |  35 +-
    "scenarios/\353\254\264\355\230\221.json"          |   5 +-
    specs/00_INDEX.md                                  |   4 +
-   .../test_execute_proceed_shared_paths.py           |  16 +-
+   .../test_execute_proceed_shared_paths.py           |  22 +-
    tests/characterize/test_harness_selfcheck.py       |  24 +-
+   tests/defects/test_extraction_boundary.py          |   6 +-
    tests/policy/test_accounts_strict.py               |   8 +-
    tests/policy/test_compression_safety.py            |  58 +++-
+   tests/policy/test_extraction_staging.py            |  45 ++-
    tests/policy/test_ink_transactions.py              |   7 +-
+   tests/policy/test_plan_authority.py                |  30 +-
    tests/policy/test_wp_d_patch.py                    |   3 +-
+   tests/policy/test_wp_g_extraction_owner.py         | 242 ++++++++++++++
    tests/policy/test_wp_g_prompt_authority.py         | 145 ++++++++
    tests/policy/test_wp_g_retirement.py               | 369 +++++++++++++++++++++
-   35 files changed, 1675 insertions(+), 518 deletions(-)
+   43 files changed, 2380 insertions(+), 646 deletions(-)
