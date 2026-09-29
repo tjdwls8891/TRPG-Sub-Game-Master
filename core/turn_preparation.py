@@ -854,7 +854,7 @@ CANONICAL_DOMAINS = (
     "commit_marker", "last_turn_ink", "rewind_degraded_turns",
 )
 # 명시적 제외(배경/운영) — 근거는 completion bundle §23 필드 커버리지 매트릭스:
-#   compressed_memory / last_compressed_turn / compression_count / last_compression_settle
+#   compressed_memory / last_compressed_turn / compression_count
 #   (SESSION_BACKGROUND 압축), total_cost / total_usd / turn_cost_log (append-only 운영 집계),
 #   extraction_pending / extraction_retry_ctx (운영 게이트), gm_clarify_count /
 #   gm_narrate_count / gm_* 라운드 상태 (운영 카운터), cache_* (인프라),

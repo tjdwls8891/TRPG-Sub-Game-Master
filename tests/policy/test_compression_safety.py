@@ -107,7 +107,7 @@ async def test_cf02a_cf05_append_during_compression_applies_and_keeps_newer_logs
 async def test_cf02b_later_change_to_source_discards_and_preserves_logs(cbot, sess, gate):
     cog = GameCog(cbot)
     _src, task = await _start(cog, sess)
-    sess.uncompressed_logs[-1] = "[GM 묘사]: 수정된 장면"      # !수정 등으로 출처 변경
+    sess.uncompressed_logs[-1] = "[GM 묘사]: 수정된 장면"      # 출처 접두 변경(이력 편집 등)
     sess.uncompressed_logs.append("[GM 묘사]: 이후 장면")
     before = list(sess.uncompressed_logs)
     gate.event.set()
@@ -248,9 +248,59 @@ async def test_apply_waits_for_commit_critical_section(cbot, sess):
 
 
 def test_legacy_settle_is_branch_independent_source_scan():
-    """PF-10: 압축 선결제 비교는 적용 분기와 무관하게 한 경로(_record_compression_settle)."""
+    """PF-10: 압축 provider 결과 기록은 적용 분기와 무관하게 한 경로(_record_compression_stats).
+
+    WP-G(D3): 계정 효과 없던 '압축 선결제' 정산(settle_compression)은 은퇴했다.
+    """
     from tests.conftest import source_of
     src = source_of("cogs/game.py")
-    assert src.count("core.settle_compression(") == 1
-    assert src.count("self." + "_record_compression_settle(") == 2
+    assert "settle_compression" not in src
+    assert src.count("self." + "_record_compression_stats(") == 2
     assert "del session.uncompressed_logs" not in src        # 적용은 memory_plan 한 곳
+
+
+# ── WP-G U-2 — 적용된 모든 압축이 주기·횟수 부기를 갱신한다 ───────────
+
+async def test_wpg_u2_second_compression_updates_cadence_and_count(cbot, sess, gate):
+    sess.compressed_memory = "이전 요약"               # 두 번째 이후 압축(추가 분기)
+    cog = GameCog(cbot)
+    _src, task = await _start(cog, sess)
+    gate.event.set()
+    await task
+    assert sess.compressed_memory == "이전 요약\n요약 결과"
+    assert sess.last_compressed_turn == 10 and sess.compression_count == 2
+    assert core.memory_plan.should_compress(sess) is False   # 매 턴 재발동하지 않는다
+
+
+async def test_wpg_u2_provider_failure_does_not_update_bookkeeping(cbot, sess, gate):
+    sess.compressed_memory = "이전 요약"
+    gate.fail = True
+    cog = GameCog(cbot)
+    _src, task = await _start(cog, sess)
+    gate.event.set()
+    await task
+    assert sess.compressed_memory == "이전 요약"
+    assert sess.last_compressed_turn == 5 and sess.compression_count == 1
+
+
+async def test_wpg_u2_stale_discard_does_not_update_bookkeeping(cbot, sess, gate):
+    sess.compressed_memory = "이전 요약"
+    cog = GameCog(cbot)
+    _src, task = await _start(cog, sess)
+    sess.uncompressed_logs[0] = "[플레이어 및 GM]: 바뀐 출처"
+    gate.event.set()
+    await task
+    assert sess.compressed_memory == "이전 요약"
+    assert sess.last_compressed_turn == 5 and sess.compression_count == 1
+
+
+def test_wpg_u2_every_applied_compression_counts_towards_low_plan_switch(session_auto_ready):
+    s = session_auto_ready
+    s.compressed_memory, s.compression_count, s.last_compressed_turn = "", 0, 0
+    for i, turn in enumerate((5, 10, 15), start=1):
+        s.turn_count = turn
+        s.uncompressed_logs = [f"로그{turn}"]
+        src = core.memory_plan.capture_compression_source(s)
+        res = core.memory_plan.apply_compression_result(s, src, f"요약{turn}")
+        assert res["applied"]
+        assert s.compression_count == i and s.last_compressed_turn == turn

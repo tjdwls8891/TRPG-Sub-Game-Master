@@ -28,8 +28,6 @@ def _cleanup_session_memory(bot, channel_id: int):
                     and bot.active_sessions[other_id] is session:
                 bot.active_sessions.pop(other_id)
 
-        # 압축 선결제 미정산분 정산 (기획 확정 사항)
-        # 압축 전에 세션이 끝나면 실제 발생분은 0이므로 전액 환급 대상이 된다.
         # 통계 — 세션 온 시간을 마감 시점에 누적한다.
         # WP-D(AUD-028): 소모 잉크는 턴별 커밋 Settlement가 이미 기록한다. 여기서
         #   total_cost를 다시 잉크로 환산해 더하면 같은 턴이 두 번 계상되므로 하지 않는다.
@@ -56,16 +54,7 @@ def _cleanup_session_memory(bot, channel_id: int):
         except Exception as e:
             print(f"[GM스페이스] 보드 갱신 예약 실패: {e}")
 
-        try:
-            from .estimate import settle_on_session_close
-            settle = settle_on_session_close(session)
-            if settle["refund_ink"]:
-                print(
-                    f"[정산] 세션 종료 — 미정산 압축 선결제 "
-                    f"{settle['prepaid_krw']}원 → 환급 {settle['refund_ink']}잉크"
-                )
-        except Exception as e:
-            print(f"[정산] 세션 종료 정산 실패: {e}")
+        # WP-G(D3): 세션 종료 '압축 선결제 환급'(계정 효과 없는 표시) 은퇴.
 
 
 class ChannelSelect(discord.ui.Select):

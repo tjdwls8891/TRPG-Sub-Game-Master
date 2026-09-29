@@ -287,3 +287,65 @@ def test_g2_no_production_caller_of_legacy_tolerant_account_writers():
                     if pat.search(line) and not line.lstrip().startswith("#"):
                         offenders.append((rel, ln, line.strip()))
     assert offenders == []
+
+
+# ══════════════════════════════════════════════════════════════
+#  D2 — 저작 콘텐츠: 승인된 D2-b만 변경
+# ══════════════════════════════════════════════════════════════
+
+def _scenario(name):
+    from tests.conftest import REPO_ROOT
+    with open(os.path.join(REPO_ROOT, "scenarios", f"{name}.json"), encoding="utf-8") as f:
+        return json.load(f)
+
+
+def test_d2b_wuxia_placeholder_location_images_removed_without_invention():
+    d = _scenario("무협")
+    assert d["location_images"] == {}                 # 가짜 entry 제거, 대체 키워드 창작 없음
+
+
+def test_d2_retained_authored_content_untouched():
+    d = _scenario("무협")
+    assert "플레이스홀더" in d["image_prompts"]["인물"]["prompt"]        # D2-a 유지
+    assert "플레이스홀더" in d["image_prompts"]["배경"]["prompt"]
+    for name in ("무협", "영도", "다크판타지", "빈시나리오", "scenario.example"):
+        assert _scenario(name)["media_dir"] == "./media"                  # D2-c 유지
+    assert _scenario("영도")["job_guides"]                                # D2-d 유지
+
+
+async def test_d2b_empty_location_images_injects_no_image_list(session_auto_ready):
+    import cogs.gm as gm_mod
+    s = session_auto_ready
+    s.scenario_data = dict(s.scenario_data, location_images={})
+    logic = gm_mod._build_logic_user_prompt(s, "주변을 살핀다", [])
+    assert "[사용 가능한 장소 이미지 목록" not in logic
+
+
+# ══════════════════════════════════════════════════════════════
+#  D3 — 압축 선결제 은퇴 (AUD-026/027)
+# ══════════════════════════════════════════════════════════════
+
+def test_d3_fictional_compression_prepayment_retired():
+    for name in ("compression_prepay", "settle_compression", "settle_on_session_close",
+                 "estimate_compression"):
+        assert not hasattr(core, name), name
+        assert not hasattr(core.estimate, name), name
+    assert "compression_prepaid_krw" not in core.SESSION_FIELDS
+    for rel in ("cogs/gm.py", "cogs/game.py", "core/display.py", "core/ui.py",
+                "core/estimate.py", "core/models.py", "core/io.py"):
+        src = source_of(rel)
+        assert "compression_prepaid_krw" not in src, rel
+        assert "compression_prepay(" not in src, rel
+    # 플레이어/마스터에게 '압축 선결제·환급·추가' 문구를 내지 않는다
+    for rel in ("cogs/gm.py", "core/display.py", "core/ui.py", "cogs/game.py"):
+        for line in source_of(rel).splitlines():
+            if "압축 선결제" in line:
+                assert line.lstrip().startswith("#") or "WP-G" in line, (rel, line)
+
+
+def test_d3_compression_cost_stays_operational_fact_outside_settlement():
+    """압축 CostEvent는 세션 범위 운영 사실(transaction 미귀속) — 턴 Settlement에 들어가지 않는다."""
+    game = source_of("cogs/game.py")
+    for op in ("OP_MEMORY_AUTO_COMPRESSION", "OP_MEMORY_MANUAL_COMPRESSION"):
+        i = game.index(op)
+        assert "copy_transaction=False" in game[i:i + 400]

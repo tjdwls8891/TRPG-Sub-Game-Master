@@ -930,24 +930,18 @@ class GameCog(commands.Cog):
                            f"출발 턴 {source.started_turn}, 대상 {source.prefix_len}건")
         return res
 
-    def _record_compression_settle(self, session, turn_cost, out_tokens, thought_tokens):
-        """압축 선결제(표시용 누적) 대비 실제 발생분 비교 — 계정 재무 효과 없음(정책 미정).
+    def _record_compression_stats(self, session, turn_cost, out_tokens, thought_tokens):
+        """압축 provider 호출 1건의 예측 통계(출력 이동평균)를 갱신한다.
 
-        WP-F: 적용 분기와 무관하게, provider 비용이 사실로 확정된 호출마다 한 번 수행한다
-        (기존: 최초 생성 분기에서만 실행되던 PF-10 결함 제거). 턴 Settlement 는 건드리지 않는다.
+        WP-G(D3/AUD-026·027): 압축 비용은 운영자 부담 유지비다. 계정 효과 없던 '압축 선결제'
+        대비 정산(표시용 환급/추가)은 은퇴했다. provider 비용 사실은 CostEvent로만 남고 턴
+        Settlement/InkTransaction에는 들어가지 않는다. WP-F: 적용 분기와 무관하게 provider 비용이
+        사실로 확정된 호출마다 한 번 수행한다(PF-10).
         """
         try:
-            settle = core.settle_compression(session, turn_cost)
             core.update_stats(session, "compression", out_tokens, thought_tokens)
-            if settle["refund_ink"] or settle["charge_ink"]:
-                print(
-                    f"[정산] 압축 선결제 {settle['prepaid_krw']}원 vs 실제 "
-                    f"{settle['actual_krw']}원 → 환급 {settle['refund_ink']}잉크 "
-                    f"/ 추가 {settle['charge_ink']}잉크 (표시용 — 계정 반영 없음)"
-                )
-            session.last_compression_settle = settle
         except Exception as e:
-            print(f"[정산] 압축 정산 실패: {e}")
+            print(f"[압축] 예측 통계 갱신 실패: {e}")
 
     async def _run_auto_compression(self, session, source, cost_log_prefix: str = ""):
         """
@@ -1016,7 +1010,7 @@ class GameCog(commands.Cog):
             print(f"[자동 기억 압축 비용] In:{in_tokens} Cached:{cached_tokens} Out:{out_tokens} | {core.format_cost(turn_cost)}")
             await m_send(embed=core.build_compression_cost_embed(
                 "자동 기억 압축", in_tokens, cached_tokens, out_tokens, turn_cost, session.total_cost))
-            self._record_compression_settle(session, turn_cost, out_tokens, thought_tokens)
+            self._record_compression_stats(session, turn_cost, out_tokens, thought_tokens)
 
             new_compressed_segment = (summary_response.text or "").strip()
             if not new_compressed_segment:
@@ -1380,7 +1374,7 @@ class GameCog(commands.Cog):
                 "수동 기억 압축", in_tokens, cached_tokens, out_tokens, turn_cost, session.total_cost
             )
             await ctx.send(embed=_comp_embed)
-            self._record_compression_settle(session, turn_cost, out_tokens, thought_tokens)
+            self._record_compression_stats(session, turn_cost, out_tokens, thought_tokens)
 
             new_compressed_segment = (summary_response.text or "").strip()
             if not new_compressed_segment:

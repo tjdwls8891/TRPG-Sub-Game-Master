@@ -86,9 +86,7 @@ def build_embed(session) -> discord.Embed:
                 cost_lines.append(f"　+ TTS {t['min_ink']}~{t['max_ink']}잉크")
         except Exception:
             pass
-    prepaid = getattr(session, "compression_prepaid_krw", 0.0) or 0.0
-    if prepaid:
-        cost_lines.append(f"압축 선결제 {cost_to_ink(prepaid)}잉크")
+    # WP-G(D3): 계정 효과 없던 '압축 선결제' 표시 은퇴 — 압축은 운영자 부담 유지비.
     embed.add_field(name="비용", value="\n".join(cost_lines), inline=True)
 
     # ── 세션 오픈 정보 ──

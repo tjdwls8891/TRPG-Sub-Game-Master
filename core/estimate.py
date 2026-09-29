@@ -340,90 +340,9 @@ def get_calibration(session) -> float:
 
 # 압축 주기 (턴). 기억 방식 플랜 도입 시 세션별로 달라진다.
 COMPRESSION_INTERVAL = 5
-# 매 턴 선결제할 압축 비용 비율 (기획 규정: 예상액의 20%)
-COMPRESSION_PREPAY_RATIO = 0.20
-
-
-def estimate_compression(session) -> dict:
-    """다음 압축 예상 비용.
-
-    압축 입력은 uncompressed_logs 누적분이므로 실측 가능하다.
-    출력은 압축 결과 요약이라 입력에 대체로 비례한다.
-
-    Returns:
-        {"in_tokens": int, "out_tokens": int, "krw": float, "ink": int}
-    """
-    logs = getattr(session, "uncompressed_logs", None) or []
-    log_chars = sum(len(str(x)) for x in logs)
-    prev = getattr(session, "compressed_memory", "") or ""
-    in_tokens = int(log_chars * CHARS_TO_TOKENS)
-    in_tokens += _tok(prev)
-
-    # 압축 출력은 입력의 대략 1/8 수준. 표본이 쌓이면 이동평균으로 대체된다.
-    st = _stats(session).get("compression")
-    if st and st.get("n", 0) > 0:
-        out_tokens = int(st["mean"])
-    else:
-        out_tokens = max(400, int(in_tokens * 0.12))
-
-    try:
-        krw = calculate_text_gen_cost_breakdown(
-            DEFAULT_MODEL, input_tokens=in_tokens,
-            output_tokens=out_tokens, cached_read_tokens=0,
-        )["total_krw"]
-    except Exception:
-        krw = 0.0
-    return {"in_tokens": in_tokens, "out_tokens": out_tokens,
-            "krw": round(krw, 2), "ink": cost_to_ink(krw)}
-
-
-def compression_prepay(session) -> dict:
-    """이번 턴에 선결제할 압축 몫.
-
-    기획 규정 — 5턴 압축 비용의 20%를 매 턴 예상액에 포함하고,
-    실제 압축 후 차액을 정산한다. 미진행 턴의 데이터량은 평균보다
-    보수적으로 잡아 부족분이 생기지 않게 한다.
-
-    Returns:
-        {"krw": float, "ink": int, "estimate": dict}
-    """
-    est = estimate_compression(session)
-    # 남은 턴 수만큼 데이터가 더 쌓일 것을 보수적으로 반영한다.
-    done = getattr(session, "turn_count", 0) % COMPRESSION_INTERVAL
-    remaining = max(0, COMPRESSION_INTERVAL - done)
-    projected = est["krw"] * (1 + remaining * 0.15) * CONSERVATIVE_FACTOR
-    share = projected * COMPRESSION_PREPAY_RATIO
-    return {"krw": round(share, 2), "ink": cost_to_ink(share), "estimate": est}
-
-
-def settle_compression(session, actual_krw: float) -> dict:
-    """실제 압축 발생 시 선결제분과 정산한다.
-
-    Returns:
-        {"prepaid_krw": float, "actual_krw": float, "diff_krw": float,
-         "refund_ink": int, "charge_ink": int}
-        diff_krw > 0 이면 과다 선결제(환급), < 0 이면 부족(추가 결제)
-    """
-    prepaid = float(getattr(session, "compression_prepaid_krw", 0.0) or 0.0)
-    diff = prepaid - float(actual_krw or 0.0)
-    session.compression_prepaid_krw = 0.0
-    return {
-        "prepaid_krw": round(prepaid, 2),
-        "actual_krw": round(float(actual_krw or 0.0), 2),
-        "diff_krw": round(diff, 2),
-        "refund_ink": cost_to_ink(diff) if diff > 0 else 0,
-        "charge_ink": cost_to_ink(-diff) if diff < 0 else 0,
-    }
-
-
-def settle_on_session_close(session) -> dict:
-    """세션 종료 시 미정산 선결제분을 정산한다.
-
-    기획 확정 사항 — 압축 전에 세션이 끝나면 종료 시점에 실제 발생분을
-    계산해 차액을 환급하거나 추가 결제한다.
-    압축이 일어나지 않았다면 실제 발생분은 0이므로 전액 환급된다.
-    """
-    return settle_compression(session, 0.0)
+# WP-G(D3/AUD-026·027): '압축 선결제'(예상액 20% 가산·누적·정산)는 은퇴했다. 압축 provider
+#   비용은 운영자 부담 유지비로 CostEvent 사실만 남으며 플레이어 청구·환급이 없다.
+#   estimate_compression/compression_prepay/settle_compression/settle_on_session_close 삭제.
 
 
 # TTS 문자당 비용(원). 실측으로 보정한다.

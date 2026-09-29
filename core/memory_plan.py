@@ -294,10 +294,13 @@ def apply_compression_result(session, source: CompressionSource, segment: str) -
         except Exception as e:  # noqa: BLE001
             print(f"[되감기] 압축 기록 실패: {e}")
         session.compressed_memory = segment
-        # 압축 완료 시점 기록 — 재압축 방지와 로우 플랜 전환 판정의 근거(기존 규정: 최초 생성 시).
-        mark_compressed(session)
     else:
         session.compressed_memory += f"\n{segment}"
+    # 압축 완료 시점 기록 — 재압축 방지(주기 판정)와 로우 플랜 전환 횟수의 근거.
+    # WP-G(U-2): 최초 생성뿐 아니라 실제로 적용된 모든 압축에서 갱신한다(이전에는 최초 생성
+    #   분기에서만 갱신되어 두 번째 압축부터 주기 판정이 매 턴 참이 되고 count가 멈췄다).
+    #   stale 폐기·provider 실패·취소는 이 함수에 도달하지 않거나 위에서 반환되므로 갱신하지 않는다.
+    mark_compressed(session)
     del session.uncompressed_logs[:source.prefix_len]
     bump_memory_generation(session)
     return {"applied": True, "reason": "ok", "first": first}

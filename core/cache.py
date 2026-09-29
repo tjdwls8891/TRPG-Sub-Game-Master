@@ -178,7 +178,10 @@ async def build_scenario_cache_text(bot, model_id, scenario_data: dict, cache_no
     stat_system = scenario_data.get('stat_system', '특별한 스탯 시스템 없음')
     desc_guide = scenario_data.get('desc_guide', '상황에 맞게 묘사하세요.')
     status_code_block = scenario_data.get('status_code_block', '상태창 코드블럭 양식 없음')
-    note_injection = f"\n[추가 세계관 및 상태 (캐시 노트)]\n{cache_note}\n" if cache_note else ""
+    # WP-G(D1): 캐시 노트는 세션 한정 추가 사실 — 룰북 고정 사실·금지사항을 무효화하지 않는다.
+    note_injection = (f"\n[추가 세계관 및 상태 (캐시 노트 — 이번 세션의 추가 사실. "
+                      f"위 룰북의 고정 사실·금지사항과 충돌하면 룰북을 따른다)]\n{cache_note}\n"
+                      if cache_note else "")
 
     # ── NPC 사전 텍스트 조립 (구조화 필드 지원) ──
     npc_text = ""
@@ -234,8 +237,8 @@ async def build_scenario_cache_text(bot, model_id, scenario_data: dict, cache_no
             )
         status_effects_section = f"""
 [4.5. 사용 가능한 상태이상 목록]
-(태: 태그로 캐릭터에 부여하거나 제거할 수 있는 공식 상태이상 목록이다.
-이 목록에 존재하는 이름만 태: 태그에 사용해야 한다. 적용 조건·제거 조건을 반드시 준수할 것.)
+(이 시나리오의 공식 상태이상 목록이다. 상태 변화를 묘사할 때 이 목록의 이름과 적용·제거 조건을 기준으로 할 것.
+실제 부여·제거는 묘사를 읽은 추출층위와 시스템 검증이 결정한다.)
 """ + "\n".join(se_lines) + "\n"
     else:
         status_effects_section = ""
@@ -299,7 +302,8 @@ async def build_scenario_cache_text(bot, model_id, scenario_data: dict, cache_no
 [8. 세션 진행 중 추가된 NPC]
 이 목록은 시나리오 외 세션 중 새로 생성된 NPC의 설정 원본이다.
 [3. NPC 사전]과 동일하게, 프롬프트에 [NPC 변경사항 / 런타임 상태] 블록이 제공된 경우
-해당 NPC에 한해 아래 내용 대신 프롬프트 내 정보를 우선 적용할 것.
+해당 NPC의 변하는 항목(현재 위치·상태·스탯 등)에 한해 아래 내용 대신 프롬프트 내 정보를 우선 적용할 것
+(인물의 정체성·고정 설정은 아래 내용을 유지).
 {session_npc_text}
 """
 
@@ -338,7 +342,9 @@ async def build_scenario_cache_text(bot, model_id, scenario_data: dict, cache_no
 
     rulebook_text = f"""=== [시나리오 핵심 룰북] ===
 이 내용은 세션의 근간이 되는 절대적인 세계관 및 시스템 설정입니다.
-진행자(GM)의 특별한 지시가 없는 한 아래의 설정을 완벽하게 유지하십시오.
+아래의 고정 세계 사실과 [6. GM 절대 금지 사항]은 진행자(GM) 지시나 실시간 노트로도 바뀌지 않습니다.
+NPC의 현재 위치·상태처럼 변하는 런타임 상태는 프롬프트의 런타임 상태 블록이 아래 초기값보다 우선하며,
+이 예외는 변하는 항목에 한합니다(인물의 정체성·세계 규칙은 바뀌지 않음).
 
 [1. 세계관 정보]
 {worldview}
@@ -349,7 +355,8 @@ async def build_scenario_cache_text(bot, model_id, scenario_data: dict, cache_no
 [3. NPC 사전 — 전체 등장인물 설정 (기준 데이터)]
 이 목록이 모든 NPC의 기본 설정 원본이다.
 게임 진행 중 프롬프트에 [NPC 변경사항 / 런타임 상태] 블록이 제공된 경우,
-해당 NPC에 한해 아래 내용 대신 프롬프트 내 정보를 우선 적용할 것.
+해당 NPC의 변하는 항목(현재 위치·상태·스탯 등)에 한해 아래 내용 대신 프롬프트 내 정보를 우선 적용할 것
+(인물의 정체성·고정 설정은 아래 내용을 유지).
 {npc_text}
 
 [4. 게임 스탯 및 판정 시스템]

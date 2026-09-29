@@ -187,7 +187,8 @@ class PromptBuilder:
             lines.append(entry)
 
         if lines:
-            block = "\n▶ [NPC 변경사항 / 런타임 상태] (캐시 룰북 [3. NPC 사전]보다 우선 적용):\n"
+            block = ("\n▶ [NPC 변경사항 / 런타임 상태] (변하는 항목(현재 위치·상태·스탯 등)에 한해 "
+                     "캐시 룰북 [3. NPC 사전]보다 우선 적용):\n")
             block += "\n".join(lines) + "\n"
             self.blocks.append(block)
             self.manifest.append(f"NPC 오버라이드 {len(lines)}명")
@@ -205,7 +206,8 @@ class PromptBuilder:
 
     def add_note_block(self):
         if getattr(self.session, "note", ""):
-            block = f"\n▶ 실시간 노트 (GM 직접 관리):\n{self.session.note}\n"
+            block = (f"\n▶ 실시간 노트 (GM 직접 관리 — 이번 세션의 추가 사실·제약. "
+                     f"룰북 고정 사실·금지사항·런타임 상태와 충돌하는 부분은 적용하지 않음):\n{self.session.note}\n")
             self.blocks.append(block)
             self.manifest.append("실시간 노트")
         return self
@@ -248,7 +250,8 @@ class PromptBuilder:
         return self
 
     def add_rule_enforcement_block(self):
-        block = f"[최종 지시] 캐시된 [시나리오 핵심 룰북]의 묘사 가이드와 위 GM의 지시사항을 최우선으로 반영하여 상황을 묘사하세요.\n"
+        block = ("[최종 지시] 캐시된 [시나리오 핵심 룰북]의 사실·금지사항·묘사 가이드를 지키는 범위 안에서 "
+                 "위 GM의 지시사항을 최우선으로 반영하여 상황을 묘사하세요.\n")
 
         # 개연성·예법·연속성 강제 룰 (매 묘사 턴 상시 노출) — AI 집중도 한계 보정용 살라이언스 강화.
         block += (

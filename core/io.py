@@ -161,7 +161,6 @@ SESSION_FIELDS: dict = {
     "met_npcs": [],
     "visited_places": [],
     "start_day_number": None,
-    "compression_prepaid_krw": 0.0,
     "last_estimate": {},
     "cache_read_tokens": 0,
     "cost_stats": {},

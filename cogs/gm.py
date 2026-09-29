@@ -163,7 +163,9 @@ def _build_judgment_user_prompt(session, player_message: str, roll_results: list
     # ③ 실시간 노트
     note = getattr(session, "note", "") or ""
     if note:
-        lines.append(f"[실시간 노트 — 이번 판단에 우선 적용]\n{note}")
+        # WP-G(D1): 판단층위는 룰북·세계 사실을 받지 않는다 — 노트를 진행 제약으로만 싣고
+        #   세계 사실 판정 권위를 부여하지 않는다.
+        lines.append(f"[실시간 노트 — 진행 제약으로 반영 (플레이어 주권이 우선)]\n{note}")
 
     # 진행 상태 카운터 — ASK/NARRATE 반복 억제 판단 근거
     lines.append(
@@ -279,7 +281,9 @@ def _build_logic_user_prompt(session, player_message: str, roll_results: list,
     note_block = f"\n[GM 사이드 노트 (이번 턴 적용)]\n{side_note}\n" if side_note else ""
 
     # 지속 GM 노트(!노트 → session.note): 메인 묘사 프롬프트(PromptBuilder.add_note_block)와
-    # 동일하게 지시층위 결정에도 주입한다. PC 신분·세계관·기정사실 등 GM이 고정한 내용이 담긴다.
+    # 동일하게 지시층위 결정에도 주입한다. GM이 고정한 세션 한정 사실(PC 신분 등)과 제약이 담긴다.
+    # WP-G(D1): 노트는 룰북에 없는 사실을 더하거나 범위를 좁힐 뿐, 룰북 고정 사실·금지사항·
+    #   런타임 상태를 덮어쓰지 않는다(권위 한계는 GM_LOGIC_SYSTEM_INSTRUCTION에 명시).
     gm_note = getattr(session, "note", "") or ""
     gm_note_block = f"\n▶ 실시간 노트 (GM 직접 관리):\n{gm_note}\n" if gm_note else ""
 
@@ -346,7 +350,8 @@ def _build_logic_user_prompt(session, player_message: str, roll_results: list,
     else:
         location_images_block = ""
 
-    # 유효 상태이상 목록 (태: 태그 사용 시 이 목록에서만 선택 가능)
+    # 유효 상태이상 목록 — 상태 변화 묘사의 어휘 기준. WP-G(D1/AUD-001): 레거시 상태 태그 권위 문구 제거
+    #   (상태 적용 권위는 추출층위 + 코드 검증).
     merged_statuses = core.get_merged_status_effects(session.scenario_data)
     if merged_statuses:
         status_list_lines = []
@@ -355,7 +360,8 @@ def _build_logic_user_prompt(session, player_message: str, roll_results: list,
             w_str = f"가중치 {w:+d}" if w != 0 else "가중치 없음"
             status_list_lines.append(f"  - {sname}: 적용조건=[{seff.get('apply_condition', '')}] / {w_str} / 제거조건=[{seff.get('remove_condition', '')}]")
         valid_status_block = (
-            "\n[유효 상태이상 목록 — 태: 태그는 이 목록에 있는 이름만 사용 가능]\n"
+            "\n[유효 상태이상 목록 — 상태 변화를 묘사하게 할 때 이 목록의 이름과 조건을 기준으로 할 것 "
+            "(실제 적용은 묘사를 읽은 추출층위와 시스템 검증이 한다)]\n"
             + "\n".join(status_list_lines) + "\n"
         )
     else:
@@ -2542,25 +2548,14 @@ class GMCog(commands.Cog):
         # 이번 턴 예상 비용 — 디스플레이 채널 도입 전까지 마스터 채널에 보고한다.
         try:
             est = core.estimate_turn(session, "PROCEED")
-            # 압축 선결제 몫 — 5턴 압축 비용의 20%를 매 턴 예상액에 포함한다(기획 규정).
-            prepay = core.compression_prepay(session)
-            est["compression_prepay_krw"] = prepay["krw"]
-            est["min_krw"] = round(est["min_krw"] + prepay["krw"], 2)
-            est["max_krw"] = round(est["max_krw"] + prepay["krw"], 2)
-            est["min_ink"] = core.cost_to_ink(est["min_krw"])
-            est["max_ink"] = core.cost_to_ink(est["max_krw"])
+            # WP-G(D3): 압축 비용은 운영자 부담 유지비다 — 계정 효과 없는 '압축 선결제' 20% 가산·
+            #   누적·정산 표시를 은퇴했다. 압축 provider 비용은 CostEvent(운영 사실)로만 남는다.
             session.last_estimate = est
-            # 선결제분 누적 — 실제 압축 시 또는 세션 종료 시 정산된다.
-            session.compression_prepaid_krw = (
-                float(getattr(session, "compression_prepaid_krw", 0.0) or 0.0) + prepay["krw"]
-            )
             _tts = core.estimate_tts(session)
             await m_send(
                 f"💰 **[예상]** {core.format_estimate(est, _tts if _tts['enabled'] else None)}\n"
                 f"> 입력 {est['input_tokens']['instruction']:,} + 캐시 "
-                f"{est['input_tokens']['cached']:,} 토큰 | "
-                f"압축 선결제 {prepay['krw']:.2f}원 누적 "
-                f"{session.compression_prepaid_krw:.2f}원"
+                f"{est['input_tokens']['cached']:,} 토큰"
             )
         except Exception as e:
             print(f"[EST] 예상 산출 실패(진행에는 영향 없음): {e}")

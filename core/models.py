@@ -199,8 +199,6 @@ class TRPGSession:
         self.visited_places = []
         # 세션 시작 시점의 통산 일수 — 경과 일수 계산의 기준
         self.start_day_number = None
-        # 압축 선결제 누적액(원). 실제 압축 시 또는 세션 종료 시 정산된다.
-        self.compression_prepaid_krw = 0.0
         # 직전 산출한 턴 예상치 (디스플레이 표시용)
         self.last_estimate = {}
         # 예측 대조용 직전 입력 추정값 — 런타임 전용(저장 안 함)
