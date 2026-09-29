@@ -188,6 +188,7 @@ SESSION_FIELDS: dict = {
     "gm_narrate_count": 0,
     "gm_cost_cap_krw": None,
     "gm_cost_baseline": 0.0,
+    "gm_cost_basis": "",          # WP-G: "ledger"이면 gm_cost_baseline은 CostLedger 세션 합계 스냅샷
     "gm_side_note": "",
     "gm_target_chars": [],
     "gm_proceed_history": [],

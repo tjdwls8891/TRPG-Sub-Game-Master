@@ -714,7 +714,8 @@ class MediaCog(commands.Cog):
             !더빙 켜기/on    — 켜기
             !더빙 끄기/off   — 끄기
 
-        NOTE: 수동 `!진행`에만 적용되며, GM 묘사·NPC 개별 보이스는 현재 미적용.
+        NOTE: 인트로 묘사에만 적용되며, 자동 GM 턴 묘사·NPC 개별 보이스는 현재 미적용.
+              (WP-G: 수동 `!진행`은 은퇴했다.)
         """
         session = self.bot.active_sessions.get(ctx.channel.id)
         if not session or ctx.channel.id != session.master_ch_id:
@@ -742,7 +743,7 @@ class MediaCog(commands.Cog):
                         "`!브금` 또는 `!플리`로 봇을 음성 채널에 입장시켜야 더빙이 들립니다.")
             await ctx.send(
                 f"🔊 **TTS 더빙 켜짐** (모델 `{core.TTS_MODEL}`, 보이스 `{core.TTS_NARRATOR_VOICE}`). "
-                f"이후 `!진행` 묘사를 음성으로 읽어줍니다.{note}"
+                f"인트로 묘사를 음성으로 읽어줍니다(자동 턴 미적용).{note}"
             )
         else:
             await ctx.send("🔇 **TTS 더빙 꺼짐.**")

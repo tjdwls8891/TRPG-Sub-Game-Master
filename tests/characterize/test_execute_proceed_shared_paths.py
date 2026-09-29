@@ -54,20 +54,20 @@ def _callsites(func_name: str) -> list[tuple[str, int, str]]:
     return sorted(out)
 
 
-def test_c004_execute_proceed_has_three_distinct_callers():
-    """C-004 — 자동 GM · 수동 · 인트로 세 경로가 같은 함수를 공유한다.
+def test_c004_execute_proceed_has_two_distinct_callers():
+    """C-004 — 자동 GM · 인트로 두 경로가 같은 함수를 공유한다.
 
-    이 사실이 WP-01의 `transaction_id=None` 경로 요구와 직결된다.
+    WP-G(AUD-016): 수동 `!진행`(proceed_turn) 경로는 의도적으로 은퇴했다(이전: 세 호출자).
+    인트로가 계속 `transaction_id=None`/`preparation=None` 경로를 쓴다.
     """
     sites = _callsites("_execute_proceed")
     owners = {owner for _, _, owner in sites}
 
-    assert "_dispatch_proceed" in owners, "자동 GM 경로가 사라졌습니다"
-    assert "proceed_turn" in owners, "수동 !진행 경로가 사라졌습니다"
-    assert "play_intro" in owners, "인트로 경로가 사라졌습니다"
+    assert owners == {"_dispatch_proceed", "play_intro"}, (
+        f"공유 묘사 엔진 호출자가 달라졌습니다: {sorted(owners)}")
 
     files = {path for path, _, _ in sites}
-    assert files == {"cogs/gm.py", "cogs/game.py", "cogs/session.py"}, (
+    assert files == {"cogs/gm.py", "cogs/session.py"}, (
         f"호출 파일 집합이 달라졌습니다: {sorted(files)}")
 
 
@@ -82,7 +82,7 @@ def test_c004b_execute_proceed_is_defined_once():
 
 
 def test_c004c_only_automatic_path_reaches_finish_proceed():
-    """특성화 — 수동·인트로 경로는 `_finish_proceed_and_continue`를 거치지 않는다.
+    """특성화 — 인트로 경로는 `_finish_proceed_and_continue`를 거치지 않는다.
 
     따라서 턴 카운터·되감기 델타·잉크 차감도 그 경로에서는 일어나지 않는다.
     WP-01은 이 비대칭을 유지해야 한다.

@@ -392,4 +392,5 @@ def test_dd4_admission_order_scan():
     pa = src[src.index("async def _process_actions"):src.index("async def _finish_proceed_and_continue")]
     assert pa.index("commit_recovery") < pa.index("if not session.gm_active")
     assert pa.index("commit_recovery") < pa.index("gm_turn_cap")
-    assert pa.index("commit_recovery") < pa.index("gm_cost_cap_krw")
+    # WP-G: 비용 상한 판정은 CostLedger 기준 헬퍼로 이관(AUD-033) — 순서 불변식은 그대로.
+    assert pa.index("commit_recovery") < pa.index("auto_cost_cap_reached")

@@ -106,13 +106,24 @@ class TermsView(discord.ui.View):
             return
 
         first_time = not accounts.is_registered(self.user_id)
-        await accounts.register_account(self.user_id)
+        # WP-G(AUD-061): strict 계정 쓰기 — 저장 실패를 등록/지급 성공으로 보고하지 않는다.
+        try:
+            await accounts.register_account_strict(self.user_id)
+        except accounts.AccountError as ex:
+            print(f"[약관] 계정 등록 저장 실패 uid={self.user_id}: {ex}")
+            await interaction.response.send_message(
+                "⚠️ 계정 저장에 실패했습니다. 잠시 후 다시 시도해 주십시오.", ephemeral=True)
+            return
 
         lines = []
         if first_time:
             if SIGNUP_GIFT_INK:
-                await accounts.add_ink(self.user_id, SIGNUP_GIFT_INK, reason="가입선물")
-                lines.append(f"🎁 가입선물 **{SIGNUP_GIFT_INK}잉크**가 지급되었습니다.")
+                try:
+                    await accounts.grant_ink_strict(self.user_id, SIGNUP_GIFT_INK, reason="가입선물")
+                    lines.append(f"🎁 가입선물 **{SIGNUP_GIFT_INK}잉크**가 지급되었습니다.")
+                except accounts.AccountError as ex:
+                    print(f"[약관] 가입선물 저장 실패 uid={self.user_id}: {ex}")
+                    lines.append("⚠️ 가입선물 지급 저장에 실패했습니다. 운영자에게 문의해 주십시오.")
             lines.append(
                 "이제 서버의 **GM 스페이스**에서 세션을 열 수 있습니다.\n"
                 "잉크가 부족하면 홈의 **잉크 충전** 버튼을 이용하십시오."

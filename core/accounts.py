@@ -415,6 +415,89 @@ async def deduct_ink(user_id, amount: int, allow_overdraft: bool = False) -> dic
 
 
 # ══════════════════════════════════════════════════════════════
+#  WP-G — 운영자·가입 계정 쓰기의 strict 전환 (AUD-061 레거시 잔재 해소)
+# ══════════════════════════════════════════════════════════════
+#  `!지급`·`!잉크`·약관 동의(가입선물)는 레거시 tolerant 경로(load_account 가 읽기 실패를
+#  빈 계정으로 대체 → 그 위에 저장 = 잔액 소실 가능, _write_account 실패를 삼키고 성공 보고)를
+#  썼다. 아래 함수는 같은 per-user 락 아래 strict 로드/원자 교체를 쓰며, 실패를 Account*
+#  예외로 올린다(조용한 성공 보고 없음). 도구의 의미(지급 누적 규칙, 회수 floor 규약)는 유지한다.
+#  레거시 add_ink/deduct_ink/set_balance/register_account 는 테스트 시드·하위 호환용으로
+#  정의만 남으며 프로덕션 호출자는 0 이다(정적 테스트가 고정).
+
+
+def _history(acc: dict, delta: int, reason: str) -> None:
+    acc.setdefault("history", []).append({
+        "at": _now(), "delta": int(delta), "balance": int(acc.get("ink_balance", 0)),
+        "reason": reason})
+
+
+async def register_account_strict(user_id, terms_version: int = None) -> dict:
+    """register_account 의 strict 판 — 약관 동의 등록/재동의. 실패는 예외."""
+    version = CURRENT_TERMS_VERSION if terms_version is None else terms_version
+    async with _lock_for(user_id):
+        acc = load_account_strict(user_id)
+        if not acc.get("registered"):
+            acc["registered"] = True
+            acc["registered_at"] = _now()
+            if SIGNUP_BONUS_INK:
+                acc["ink_balance"] = int(acc.get("ink_balance", 0)) + SIGNUP_BONUS_INK
+                acc["total_charged_ink"] = int(acc.get("total_charged_ink", 0)) + SIGNUP_BONUS_INK
+        acc["terms_version"] = version
+        acc["terms_agreed_at"] = _now()
+        _write_account_strict(acc)
+        return acc
+
+
+async def grant_ink_strict(user_id, amount: int, reason: str = "충전") -> int:
+    """잉크 지급(운영자 지급·가입선물·충전). 레거시 add_ink 와 같은 누적 규칙. 갱신 잔액 반환."""
+    amount = int(amount)
+    if amount <= 0:
+        raise AccountError(f"지급액은 양수여야 한다: {amount}")
+    async with _lock_for(user_id):
+        acc = load_account_strict(user_id)
+        acc["ink_balance"] = int(acc.get("ink_balance", 0)) + amount
+        if reason == "충전":
+            acc["total_charged_ink"] = int(acc.get("total_charged_ink", 0)) + amount
+        _history(acc, amount, reason)
+        _write_account_strict(acc)
+        return acc["ink_balance"]
+
+
+async def reclaim_ink_strict(user_id, amount: int, reason: str = "운영자 회수") -> dict:
+    """운영자 회수. 레거시 deduct_ink(allow_overdraft=True)와 같은 floor 규약(잔액 1 미만→1).
+
+    Returns: {"balance": int, "deducted": int, "overdraft": bool}
+    """
+    amount = int(amount)
+    if amount <= 0:
+        raise AccountError(f"회수액은 양수여야 한다: {amount}")
+    async with _lock_for(user_id):
+        acc = load_account_strict(user_id)
+        balance = int(acc.get("ink_balance", 0))
+        remaining = balance - amount
+        overdraft = remaining < 1
+        if overdraft:
+            remaining = 1
+        acc["ink_balance"] = remaining
+        acc["total_spent_ink"] = int(acc.get("total_spent_ink", 0)) + amount
+        _history(acc, remaining - balance, reason)
+        _write_account_strict(acc)
+        return {"balance": remaining, "deducted": amount, "overdraft": overdraft}
+
+
+async def set_balance_strict(user_id, amount: int, reason: str = "운영자 조정") -> dict:
+    """잔액 지정(오너 전용). Returns: {"before", "after", "delta"} — 실패는 예외."""
+    amount = max(0, int(amount))
+    async with _lock_for(user_id):
+        acc = load_account_strict(user_id)
+        before = int(acc.get("ink_balance", 0))
+        acc["ink_balance"] = amount
+        _history(acc, amount - before, reason)
+        _write_account_strict(acc)
+    return {"before": before, "after": amount, "delta": amount - before}
+
+
+# ══════════════════════════════════════════════════════════════
 #  WP-F — 생애주기 InkTransaction 계정 적용 프리미티브(선불/환급/추가청구)
 # ══════════════════════════════════════════════════════════════
 #  CHARGE(apply_ink_charge_strict)는 그대로 둔다. 캐시 오픈 창의 선불(PREPAYMENT)·

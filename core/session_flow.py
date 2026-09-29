@@ -681,7 +681,8 @@ async def on_open_time_done(bot, session, channel, *, quoted_tokens=None):
         session.gm_target_char = names[0]   # 지시층위 단일 PC 참조용
         session.gm_turns_done = 0
         session.gm_clarify_count = 0
-        session.gm_cost_baseline = getattr(session, "total_cost", 0.0)
+        from .cost import mark_auto_mode_start
+        mark_auto_mode_start(bot, session)   # WP-G: CostLedger 기준(AUD-033)
         session.gm_side_note = ""
         session.gm_pending_players = []
         session.gm_collected_actions = {}

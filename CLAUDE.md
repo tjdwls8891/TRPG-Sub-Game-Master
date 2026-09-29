@@ -97,7 +97,7 @@ python main.py
 | 파일 | 줄 | 명령어 |
 |---|---|---|
 | `gm.py` | 4,000+ | `!자동` 그룹(시작·중단·상태·개입·재계획·서사·원장·**퀘스트**·턴제한·비용제한), `!되감기` |
-| `game.py` | 1,500+ | `!진행` `!재생성` `!출력물` `!수정` `!주사위` `!기억압축` `!노트` `!캐시노트` `!더빙테스트` |
+| `game.py` | 1,500+ | `!재생성` `!출력물` `!주사위` `!기억압축` `!노트` `!캐시노트` `!더빙테스트` (WP-G: 수동 `!진행`·`!수정` 은퇴) |
 | `character.py` | 1,249 | `!참가` `!설정` `!증감` `!외형` `!프로필` `!엔피씨` `!능력치` `!설정생성` `!캐릭터가져오기` |
 | `system.py` | 800+ | `!명령어` `!배포` `!재시작` `!지급` **`!잉크`** **`!사용량`** `!스페이스` `!캐시` `!리로드` `!세션종료` `!채널정리` `!tts생성` |
 | `media.py` | 733 | `!이미지` `!브금` `!플리` `!볼륨` `!채팅` `!더빙` |
@@ -116,7 +116,7 @@ python main.py
 |---|---|---|
 | `constants.py` | 143 | 모델 ID, `EXCHANGE_RATE`, `PRICING_1M`, `TTS_VOICES`, `__version__` |
 | `models.py` | 245 | `TRPGSession` — 단일 세션의 모든 상태 |
-| `io.py` | 430 | `SCHEMA_VERSION`, `SESSION_FIELDS`(82), `migrate_session_data`, 직렬화·로그 |
+| `io.py` | 430 | `SCHEMA_VERSION`, `SESSION_FIELDS`(83), `migrate_session_data`, 직렬화·로그 |
 | `cache.py` | 531 | 룰북 캐시 빌드, `remaining_ttl`, `is_cache_expired`, `is_session_open`, 세션 복구 |
 | `resilience.py` | 107 | `call_with_retry` — 재시도·타임아웃·오류 로그 분리 |
 
@@ -463,7 +463,6 @@ import core
 print('재수출:', [n for n in core.__all__ if not hasattr(core, n)] or 'OK')
 attrs = set(re.findall(r'self\.(\w+)\s*=',
             pathlib.Path('core/models.py').read_text(encoding='utf-8')))
-attrs.add('cached_worldview_sections')   # cache.py가 동적 생성하는 정상 예외
 print('필드:', [k for k in core.SESSION_FIELDS if k not in attrs] or 'OK')
 "
 ```
@@ -549,7 +548,7 @@ asyncio.run(t())
 " 2>&1 | grep -E 'cogs|Error'
 ```
 
-기준값 — cogs 9 · 명령어 46 · views 5
+기준값 — cogs 9 · 명령어 44 · views 5 (WP-G: `!진행`·`!수정` 은퇴로 46 → 44)
 
 ---
 

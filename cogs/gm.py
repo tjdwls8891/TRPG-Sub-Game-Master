@@ -1075,7 +1075,7 @@ class GMCog(commands.Cog):
         session.gm_target_char = target_chars[0]   # 하위 호환성 (지시층위 단일 PC 참조용)
         session.gm_turns_done = 0
         session.gm_clarify_count = 0
-        session.gm_cost_baseline = session.total_cost
+        core.mark_auto_mode_start(self.bot, session)   # WP-G: CostLedger 기준(AUD-033)
         session.gm_side_note = ""
         session.gm_pending_players = []
         session.gm_collected_actions = {}
@@ -1119,7 +1119,11 @@ class GMCog(commands.Cog):
         session.gm_pending_players = []
         await core.save_session_data(self.bot, session)
 
-        used = session.total_cost - session.gm_cost_baseline
+        try:
+            used = core.auto_mode_used_krw(self.bot, session)
+        except Exception as e:  # noqa: BLE001
+            print(f"[자동 비용] 원장 읽기 실패: {e}")
+            used = 0.0
         await ctx.send(
             f"🛑 **[GM 정지]**\n"
             f"- 자동 처리 턴: {session.gm_turns_done}턴\n"
@@ -1134,7 +1138,11 @@ class GMCog(commands.Cog):
             return await ctx.send("이 명령어는 마스터 채널에서만 사용할 수 있습니다.")
 
         active = getattr(session, "gm_active", False)
-        used = session.total_cost - getattr(session, "gm_cost_baseline", 0.0)
+        try:
+            used = core.auto_mode_used_krw(self.bot, session)   # WP-G: CostLedger provider 비용
+        except Exception as e:  # noqa: BLE001
+            print(f"[자동 비용] 원장 읽기 실패: {e}")
+            used = 0.0
         target_chars = getattr(session, "gm_target_chars", [])
         waiting = getattr(session, "gm_waiting_for", None)
         pending = getattr(session, "gm_pending_players", [])
@@ -1422,8 +1430,7 @@ class GMCog(commands.Cog):
                 await core.save_session_data(self.bot, session)
                 return
 
-            used_cost = session.total_cost - session.gm_cost_baseline
-            if session.gm_cost_cap_krw is not None and used_cost >= session.gm_cost_cap_krw:
+            if core.auto_cost_cap_reached(self.bot, session):
                 session.gm_active = False
                 await m_send(
                     f"🛑 **[GM 자동 정지]** 자동 모드 누적 비용 한도 도달."
@@ -1460,8 +1467,7 @@ class GMCog(commands.Cog):
             await core.save_session_data(self.bot, session)
             return
 
-        used_cost = session.total_cost - session.gm_cost_baseline
-        if session.gm_cost_cap_krw is not None and used_cost >= session.gm_cost_cap_krw:
+        if core.auto_cost_cap_reached(self.bot, session):
             session.gm_active = False
             if master_ch:
                 await master_ch.send(
@@ -2296,8 +2302,7 @@ class GMCog(commands.Cog):
         cap = getattr(session, "gm_turn_cap", None)
         if cap is not None and session.gm_turns_done >= cap:
             return False
-        ccap = getattr(session, "gm_cost_cap_krw", None)
-        if ccap is not None and (session.total_cost - session.gm_cost_baseline) >= ccap:
+        if core.auto_cost_cap_reached(self.bot, session):   # WP-G: CostLedger 기준 운영 예산
             return False
         return True
 
@@ -3465,8 +3470,7 @@ class GMCog(commands.Cog):
                 print(f"[TURN] stale roll continuation tx={str(transaction_id)[:8]} 무시(현재 트랜잭션 아님)")
                 return
 
-            used_cost = session.total_cost - session.gm_cost_baseline
-            if session.gm_cost_cap_krw is not None and used_cost >= session.gm_cost_cap_krw:
+            if core.auto_cost_cap_reached(self.bot, session):
                 session.gm_active = False
                 await m_send(
                     f"🛑 **[GM 자동 정지]** 자동 모드 누적 비용 한도 도달."

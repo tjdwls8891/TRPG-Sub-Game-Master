@@ -375,7 +375,8 @@ def build_turn_cost_embed(turn_number: int, cost_log: list, total_cost: float,
     Args:
         turn_number: 현재 진행 턴 번호
         cost_log: [{"label", "cost", "in"?, "cached"?, "out"?, "model"?, "manifest"?}, ...]
-        total_cost: session.total_cost 누적값 (KRW)
+            — WP-G: session.turn_cost_log(호환 전용 표시 버퍼). 금액 권위가 아니다.
+        total_cost: session.total_cost 호환 미러 (KRW, 참고)
         total_ink: 누적 잉크. 원 단위 누적을 변환하지 않고 턴별 잉크를 더한 값.
         settlement: (WP-D) 정상 자동 턴의 불변 TurnSettlement. 주어지면 턴 청구액은
             Settlement의 charge_ink_per_user/player_billable_cost_krw만 표시한다
@@ -438,17 +439,21 @@ def build_turn_cost_embed(turn_number: int, cost_log: list, total_cost: float,
                         value=f"**{format_cost(total_turn_cost)}**\n"
                               f"= {cost_to_ink(total_turn_cost)}잉크",
                         inline=True)
-    # 청구 근거는 달러다. 원화는 현재 환율로 환산한 참고값.
-    acc = format_cost(total_cost)
-    if total_usd is not None:
-        acc = f"{format_usd(total_usd)}\n= {acc}"
+    # WP-G(AUD-033): 서로 다른 우주를 등식(=)으로 잇지 않는다. 플레이어 청구는 Settlement 파생
+    #   잉크, 원화/달러 누적은 호환 미러(집계 범위가 서로 다름)로 각각 따로 표기한다.
+    #   권위 있는 제공자 비용은 `!사용량`(CostLedger 기록값)으로 본다.
+    lines = []
     if total_ink is not None:
-        acc += f"\n= **{total_ink:,}잉크**"
+        lines.append(f"턴 청구 **{total_ink:,}잉크**")
+    lines.append(f"비용 미러 {format_cost(total_cost)}")
+    if total_usd is not None:
+        lines.append(f"USD 미러 {format_usd(total_usd)}")
     if free_krw:
         # 무료 제공분은 청구액과 구분해 표기한다. 섞으면 어느 쪽이
         # 플레이어 부담인지 알 수 없다.
-        acc += f"\n(무료 {format_cost(free_krw)})"
-    embed.add_field(name="Σ 누적", value=acc, inline=True)
+        lines.append(f"(무료 {format_cost(free_krw)})")
+    lines.append("(미러는 참고값 · 권위: `!사용량`)")
+    embed.add_field(name="Σ 누적", value="\n".join(lines), inline=True)
     return embed
 
 
@@ -548,3 +553,137 @@ def cache_usd_to_ink(usd: float) -> int:
     """캐시 책임액(USD)의 잉크 환산 — 유일한 반올림 경계."""
     from .ink import cost_to_ink
     return cost_to_ink(float(usd) * EXCHANGE_RATE)
+
+
+# ══════════════════════════════════════════════════════════════
+#  WP-G — 레거시 회계 소비자 전환: 권위 원천 조회 헬퍼
+# ══════════════════════════════════════════════════════════════
+#  session.total_cost / total_usd / turn_cost_log 는 호환 미러(표시 참고)일 뿐이며
+#  어떤 비즈니스 규칙도 이것을 독립 재무 진실로 읽지 않는다(AUD-033).
+#    · 제공자 비용 권위  = CostLedger — 기록 당시의 KRW/USD 그대로(현재 환율로 재해석하지 않는다)
+#    · 플레이어 잉크 권위 = Settlement(턴, total_ink_spent 미러) + 캐시 창 저널(선불/환급)
+#                           + 해석 청구 저널 — 각 저널/미러를 그대로 읽는다
+#  두 우주는 서로 환산 관계가 아니므로 등식(=)으로 잇지 않는다.
+
+AUTO_COST_BASIS = "ledger"   # gm_cost_baseline 이 CostLedger 세션 합계 스냅샷임을 표시
+
+
+def provider_cost_summary(bot, session_id=None, *, rows=None) -> dict | None:
+    """CostLedger provider 비용 합계(strict). 원장이 없으면 None, 손상이면 예외.
+
+    Returns: {"count", "usd", "krw", "by_hint": {billing_hint: {"count","usd","krw"}}}
+    """
+    from . import cost_ledger as CL
+    if rows is None:
+        ledger = CL.get_ledger(bot)
+        if ledger is None:
+            return None
+        rows = ledger.list_cost_events_strict(session_id=session_id)
+    out = {"count": 0, "usd": 0.0, "krw": 0.0, "by_hint": {}}
+    for r in rows:
+        if session_id is not None and r.get("session_id") != session_id:
+            continue
+        usd = float(r.get("cost_usd") or 0.0)
+        krw = float(r.get("cost_krw") or 0.0)
+        hint = r.get("billing_hint") or CL.HINT_UNKNOWN
+        b = out["by_hint"].setdefault(hint, {"count": 0, "usd": 0.0, "krw": 0.0})
+        for d in (out, b):
+            d["count"] += 1
+            d["usd"] += usd
+            d["krw"] += krw
+    return out
+
+
+def provider_cost_by_session(bot) -> tuple:
+    """전체 CostLedger(strict)를 session_id 별로 합산한다. Returns: ({sid: {"usd","krw"}}, 행 수)."""
+    from . import cost_ledger as CL
+    ledger = CL.get_ledger(bot)
+    rows = ledger.list_cost_events_strict() if ledger is not None else []
+    per_sid: dict = {}
+    for r in rows:
+        b = per_sid.setdefault(r.get("session_id"), {"usd": 0.0, "krw": 0.0})
+        b["usd"] += float(r.get("cost_usd") or 0.0)
+        b["krw"] += float(r.get("cost_krw") or 0.0)
+    return per_sid, len(rows)
+
+
+def player_ink_summary(session) -> dict:
+    """세션에서 플레이어에게 실제로 청구·환급된 잉크(전 payer 합). 각 권위 기록을 그대로 읽는다.
+
+    turn_ink        — Settlement 파생 미러(CommitCoordinator만 씀)
+    cache_prepaid   — 선불이 적용된 캐시 창(WINDOW_PREPAID)의 payer 선불 합
+    cache_refunded  — 정산 완료 창(WINDOW_SETTLED)의 환급 합
+    interpretation  — 계정 적용이 끝난 해석 청구(CHARGED)의 payer 합
+    net             — 위 합(턴 + 선불 − 환급 + 해석). 읽기 실패 항목은 None, net 도 None.
+    """
+    from . import cache_lifecycle as CLC
+    from . import interpretation_billing as IB
+    sid = getattr(session, "session_id", None)
+    out = {"turn_ink": int(getattr(session, "total_ink_spent", 0) or 0),
+           "cache_prepaid": None, "cache_refunded": None, "interpretation": None, "net": None}
+    try:
+        jv = CLC.view(sid)
+        pre = ref = 0
+        for w in jv.windows.values():
+            if w.get("prepaid"):
+                pre += sum(int(v) for v in ((w.get("opened") or {}).get("prepay") or {}).values())
+            if w.get("settled") and w.get("settle_intent"):
+                ref += sum(int(v) for v in (w["settle_intent"].get("refund") or {}).values())
+        out["cache_prepaid"], out["cache_refunded"] = pre, ref
+    except Exception as e:  # noqa: BLE001
+        print(f"[사용량] 캐시 저널 읽기 실패: {type(e).__name__}: {e}")
+    try:
+        bv = IB.view(sid)
+        out["interpretation"] = sum(
+            sum(int(v) for v in (ev.get("payers") or {}).values())
+            for cid, ev in bv.intents.items() if cid in bv.charged)
+    except Exception as e:  # noqa: BLE001
+        print(f"[사용량] 해석 청구 저널 읽기 실패: {type(e).__name__}: {e}")
+    if None not in (out["cache_prepaid"], out["cache_refunded"], out["interpretation"]):
+        out["net"] = (out["turn_ink"] + out["cache_prepaid"] - out["cache_refunded"]
+                      + out["interpretation"])
+    return out
+
+
+def _session_provider_krw(bot, session) -> float:
+    s = provider_cost_summary(bot, getattr(session, "session_id", None))
+    return 0.0 if s is None else float(s["krw"])
+
+
+def mark_auto_mode_start(bot, session) -> None:
+    """자동 모드 활성화 시점의 CostLedger 세션 provider 비용(KRW 기록값)을 기준으로 잡는다."""
+    try:
+        base = _session_provider_krw(bot, session)
+    except Exception as e:  # noqa: BLE001 — 원장 손상: 다음 점검에서 재기준(상한은 fail-closed)
+        print(f"[자동 비용 상한] 기준 산정 실패: {type(e).__name__}: {e}")
+        session.gm_cost_baseline = 0.0
+        session.gm_cost_basis = ""
+        return
+    session.gm_cost_baseline = base
+    session.gm_cost_basis = AUTO_COST_BASIS
+
+
+def auto_mode_used_krw(bot, session) -> float:
+    """자동 모드 활성화 이후 이 세션에서 발생한 provider 비용(CostLedger, KRW 기록값).
+
+    운영 예산 규칙(OPERATIONAL_BUDGET_OR_CAP)의 입력 — 플레이어 청구액이 아니다.
+    WP-G 이전 세션(기준이 레거시 total_cost 우주)은 첫 점검 때 현재 원장 합계로 재기준한다.
+    원장 손상이면 예외를 올린다(호출자가 fail-closed 처리).
+    """
+    total = _session_provider_krw(bot, session)
+    if getattr(session, "gm_cost_basis", "") != AUTO_COST_BASIS:
+        session.gm_cost_baseline = total
+        session.gm_cost_basis = AUTO_COST_BASIS
+    return max(0.0, total - float(getattr(session, "gm_cost_baseline", 0.0) or 0.0))
+
+
+def auto_cost_cap_reached(bot, session) -> bool:
+    """자동 모드 비용 상한 도달 여부. 원장을 읽을 수 없으면 도달로 본다(fail-closed)."""
+    cap = getattr(session, "gm_cost_cap_krw", None)
+    if cap is None:
+        return False
+    try:
+        return auto_mode_used_krw(bot, session) >= cap
+    except Exception as e:  # noqa: BLE001
+        print(f"[자동 비용 상한] CostLedger 읽기 실패 — 상한 도달로 처리: {type(e).__name__}: {e}")
+        return True

@@ -176,7 +176,13 @@ def test_29_legacy_billing_callers_unchanged_and_no_strict_cutover():
                            "core/cache_lifecycle.py",
                            # WP-F RE-GATE 3 인가 시간 해석 청구 owner — 청구 복구 근거를
                            # strict(fail-closed)로 읽는다.
-                           "core/interpretation_billing.py"):
+                           "core/interpretation_billing.py",
+                           # WP-G 인가 레거시 회계 소비자 전환 — 제공자 비용 조회(운영 예산 상한·
+                           # 사용량 표시)를 CostLedger strict 로 읽는다(쓰기 없음, fail-closed).
+                           "core/cost.py",
+                           # WP-G 인가 운영자 도구(!잉크 조회) — 손상 계정을 빈 계정으로 보이지 않게
+                           # strict 로 읽는다(쓰기는 accounts.py 의 strict 운영자 함수 경유).
+                           "cogs/system.py"):
                     continue                        # 정의 파일 제외
                 text = source_of(rel)
                 for sym in strict_syms:

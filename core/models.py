@@ -54,16 +54,19 @@ class TRPGSession:
 
         self.is_processing = False
         self.is_compressing = False    # 자동 기억 압축 백그라운드 실행 중 여부 (런타임 전용, !재생성 경합 방지)
-        self.last_turn_anchor_id = None
+        self.last_turn_anchor_id = None   # WP-G: 비활성 호환 필드(유일 소비자 `!수정` 은퇴) — 구세션 로드 호환용으로만 유지
 
         # ========== [TTS 음성 더빙 — 실험 기능] ==========
-        # NOTE: 옵트인. True일 때만 수동 !진행 묘사를 음성 채널에서 단일 나레이터 보이스로 읽어준다.
+        # NOTE: 옵트인. True일 때만 인트로 묘사를 음성 채널에서 단일 나레이터 보이스로 읽어준다
+        #       (자동 GM 턴 미적용. WP-G: 수동 !진행 은퇴).
         #       (GM·NPC 개별 보이스는 현재 미적용)
         self.tts_enabled = False
 
         # 턴 진행 카테고리 배치 비용 로그 — PROCEED 직전에 플러시 후 초기화.
         # 형식: [{"label": str, "cost": float}, ...]
         # 지시층위 / NARRATE / 서사 계획 / auto compression 등이 여기 누적된다.
+        # WP-G: 호환 전용 표시 버퍼(마스터 턴 비용 리포트의 호출 내역). 금액 권위가 아니며
+        #   비워도 재무 이력은 바뀌지 않는다 — 제공자 비용=CostLedger, 턴 청구=Settlement.
         self.turn_cost_log: list = []
 
         self.gm_typing_task = None
@@ -92,6 +95,9 @@ class TRPGSession:
         # 가장 최근 캐시 재발급 시점까지 누적된 압축 기억 (캐시 섹션 [9]에 포함됨).
         # 프롬프트에서는 이미 캐시에 있으므로 중복 주입하지 않는다.
         self.cached_compressed_memory = ""
+        # 캐시에 편입된 연고지(사문·근거지) keyword_memory 섹션 id — 캐시 발급 시 core.cache가 채운다.
+        # WP-G(AUD-053): 영속 필드(SESSION_FIELDS)이므로 새 세션 생성 시에도 존재해야 한다.
+        self.cached_worldview_sections = []
 
         # ========== [GM 상태] ==========
         # NOTE: GM는 게임 채널의 플레이어 발언을 받아 AI가 GM 역할을 수행하는 옵트인 모드.
@@ -103,7 +109,10 @@ class TRPGSession:
         self.gm_clarify_count = 0         # 같은 플레이어 발언에 대한 명확화 누적 횟수
         self.gm_narrate_count = 0         # 같은 플레이어 발언에 대한 NARRATE 누적 횟수
         self.gm_cost_cap_krw = None       # 자동 모드 누적 비용 상한 (None=무제한, 도달 시 정지)
-        self.gm_cost_baseline = 0.0       # 활성화 시점의 session.total_cost (사용량 추적용)
+        # WP-G: 활성화 시점의 CostLedger 세션 provider 비용(KRW 기록값) 스냅샷 — 운영 예산 상한용.
+        #   (이전: 레거시 미러 session.total_cost. gm_cost_basis != "ledger"면 첫 점검 때 재기준)
+        self.gm_cost_baseline = 0.0
+        self.gm_cost_basis = ""
         self.gm_side_note = ""            # !자동 개입으로 주입된 GM 사이드 노트 (다음 호출에 1회 합류 후 비움)
         self.gm_lock = False              # 동시 처리 방지용 락 (직렬화 시 무시)
         self.gm_proceed_history = []      # 최근 PROCEED 이력 (지시사항+컨텍스트+AI요약, 반복 방지용)

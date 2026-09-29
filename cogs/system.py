@@ -10,6 +10,15 @@ from google.genai import types
 # 코어 유틸리티 모듈 임포트
 import core
 
+# WP-G: CostLedger billing_hint 표시 라벨(`!사용량`).
+_HINT_LABEL = {
+    "PLAYER_CANDIDATE": "플레이어 청구 후보",
+    "OPERATOR": "운영자",
+    "SYSTEM": "시스템",
+    "FREE_FEATURE": "무료 제공",
+    "UNKNOWN": "미분류",
+}
+
 # ========== [시스템 관리 모듈(System Cog)] ==========
 class SystemCog(commands.Cog):
     """
@@ -36,7 +45,7 @@ class SystemCog(commands.Cog):
             description=(
                 "마스터 채널 전용입니다. 인자 표기 규약:\n"
                 "> `[필수]` · `(선택)` · `A/B` 중 택1\n"
-                "> 태그·`!증감` 값에 띄어쓰기가 필요하면 **언더바(_)**로: `태:유이설;내력_고갈`\n\n"
+                "> `!증감` 값에 띄어쓰기가 필요하면 **언더바(_)**로: `!증감 유이설 상태 내력_고갈`\n\n"
                 "**대부분의 조작은 명령어가 아니라 버튼입니다.**\n"
                 "> 세션 열기 → 서버 GM 스페이스 · 진행 상태·미디어 → 디스플레이 채널\n"
                 "> 아래 명령어는 GM의 수동 개입·복구 수단입니다."
@@ -73,11 +82,9 @@ class SystemCog(commands.Cog):
         ), inline=False)
 
         embed.add_field(name="🎲  게임 진행·판정", value=(
-            "`!진행 [지시사항]` — AI 턴 묘사 생성·스트리밍 연출\n"
-            "　└ 태그: `상/중/하:키워드`(이미지) · `자:이름;아이템;수치`(자원) · `태:이름;[-]상태`(상태)\n"
+            "턴 진행은 자동 GM(`!자동`)이 맡습니다. 자원·상태 변화는 묘사에서 추출층위가 읽어 반영합니다.\n"
             "`!재생성 (지시사항)` — 직전 커밋 턴을 같은 선언·판단으로 다시 서술 (기존 청구 유지)\n"
-            "`!출력물` — 직전 턴 AI 텍스트를 마스터 채널에 전송\n"
-            "`!수정 [텍스트 전체]` — 직전 턴 게임 채널 출력물 편집\n"
+            "`!출력물` — 직전 턴 AI 텍스트를 마스터 채널에 전송 (읽기 전용)\n"
             "`!주사위 [이름] [눈] (가중치) (목표값)` — 일반 / 목표값 판정\n"
             "`!주사위 [이름] [스탯] [눈] (가중치)` — 능력치 기반 판정\n"
             "`!기억압축` — 미압축 로그 수동 요약\n"
@@ -93,7 +100,7 @@ class SystemCog(commands.Cog):
             "`!플리 [재생/일시정지/다음/이전/종료]` — 플레이리스트 제어\n"
             "`!볼륨 [0.0~2.0]` — BGM·플리 볼륨 (기본 `0.3`)\n"
             "`!채팅 [잠금/해제]` — 게임 채널 플레이어 채팅 통제\n"
-            "`!더빙 [켜기/끄기]` — AI 묘사 TTS 더빙 토글 (실험 · `!진행` 한정)\n"
+            "`!더빙 [켜기/끄기]` — AI 묘사 TTS 더빙 토글 (실험 · 인트로 한정, 자동 턴 미적용)\n"
             "`!더빙테스트 (보이스)` — 직전 묘사 마지막 문단 TTS 재생"
         ), inline=False)
 
@@ -391,18 +398,23 @@ class SystemCog(commands.Cog):
             await ctx.send("0잉크는 지급할 수 없습니다.")
             return
 
-        # 미등록이면 등록시킨다. 지급 대상이 계정이 없어 실패하면 곤란하다.
-        if not core.accounts.is_registered(uid):
-            await core.accounts.register_account(uid)
-            await ctx.send(f"ℹ️ {member.mention} 계정을 새로 등록했습니다.")
+        # WP-G(AUD-061): strict 계정 쓰기 — 저장 실패·손상을 성공으로 보고하지 않는다.
+        try:
+            # 미등록이면 등록시킨다. 지급 대상이 계정이 없어 실패하면 곤란하다.
+            if not core.accounts.is_registered(uid):
+                await core.accounts.register_account_strict(uid)
+                await ctx.send(f"ℹ️ {member.mention} 계정을 새로 등록했습니다.")
 
-        if amount > 0:
-            new_bal = await core.accounts.add_ink(uid, amount, reason=reason)
-            verb, sign = "지급", "+"
-        else:
-            result = await core.accounts.deduct_ink(uid, -amount, allow_overdraft=True)
-            new_bal = result.get("balance", 0) if isinstance(result, dict) else 0
-            verb, sign = "회수", ""
+            if amount > 0:
+                new_bal = await core.accounts.grant_ink_strict(uid, amount, reason=reason)
+                verb, sign = "지급", "+"
+            else:
+                result = await core.accounts.reclaim_ink_strict(uid, -amount, reason=reason)
+                new_bal = result["balance"]
+                verb, sign = "회수", ""
+        except core.accounts.AccountError as ex:
+            await ctx.send(f"⚠️ 계정 저장 실패 — 반영되지 않았습니다: {ex}")
+            return
 
         await ctx.send(
             f"✅ {member.mention} {verb} **{sign}{amount:,}잉크**\n"
@@ -417,12 +429,15 @@ class SystemCog(commands.Cog):
 
     @commands.command(name="사용량")
     async def usage_report(self, ctx, scope: str = ""):
-        """실제 발생 비용을 조회한다 (마스터 채널).
+        """실제 발생 비용과 실제 청구 잉크를 조회한다 (마스터 채널).
 
-        !사용량         현재 세션의 누적 사용량
+        !사용량         현재 세션
         !사용량 전체     전 세션 합계 (오너 전용)
 
-        원화는 조회 시점 환율로 환산한 참고값이다. 청구 근거는 달러다.
+        WP-G(AUD-033): 서로 다른 우주를 분리해 표시한다.
+          · 제공자 비용 — CostLedger 기록값(기록 당시 KRW/USD, 현재 환율로 재해석하지 않음)
+          · 플레이어 잉크 — Settlement(턴) + 캐시 창 저널(선불/환급) + 해석 청구 저널
+        레거시 total_cost/total_usd 미러는 조회 근거로 쓰지 않는다.
         """
         if scope == "전체":
             if not await self.bot.is_owner(ctx.author):
@@ -436,35 +451,32 @@ class SystemCog(commands.Cog):
             await ctx.send("이 채널에는 세션이 없습니다. 전체는 `!사용량 전체`.")
             return
 
-        usd = float(getattr(session, "total_usd", 0.0) or 0.0)
-        krw = float(getattr(session, "total_cost", 0.0) or 0.0)
-        ink = int(getattr(session, "total_ink_spent", 0) or 0)
-
         e = discord.Embed(title="📊 세션 사용량", color=0xE67E22)
+        try:
+            prov = core.provider_cost_summary(self.bot, session.session_id)
+        except Exception as ex:  # noqa: BLE001
+            prov = None
+            e.add_field(name="⚠️ 제공자 비용", value=f"CostLedger 읽기 실패: {ex}"[:1020], inline=False)
+        if prov is not None:
+            lines = [f"**{core.format_cost(prov['krw'])}** · {core.format_usd(prov['usd'])} "
+                     f"(기록값 · {prov['count']}건)"]
+            for hint, b in sorted(prov["by_hint"].items()):
+                lines.append(f"· {_HINT_LABEL.get(hint, hint)} {core.format_cost(b['krw'])} "
+                             f"({b['count']}건)")
+            e.add_field(name="제공자 비용 (CostLedger)", value="\n".join(lines)[:1020], inline=False)
+
+        ink = core.player_ink_summary(session)
+
+        def _v(x):
+            return "읽기 실패" if x is None else f"{x:,}잉크"
+
         e.add_field(
-            name="누적",
-            value=(f"**{core.format_usd(usd)}**\n"
-                   f"= {core.usd_to_krw(usd):,.2f}원 (환율 {core.EXCHANGE_RATE:,.0f})\n"
-                   f"= 결제 **{ink:,}잉크**"),
+            name="플레이어 청구 잉크 (전 참가자 합)",
+            value=(f"· 턴 청구(Settlement) {_v(ink['turn_ink'])}\n"
+                   f"· 캐시 선불 {_v(ink['cache_prepaid'])} · 환급 {_v(ink['cache_refunded'])}\n"
+                   f"· 유지 시간 해석 {_v(ink['interpretation'])}\n"
+                   f"= 순 청구 **{_v(ink['net'])}**"),
             inline=False)
-
-        # 원화 누적과 달러 환산이 어긋나면 환율이 바뀐 것이다.
-        gap = abs(core.usd_to_krw(usd) - krw)
-        if gap > 1.0:
-            e.add_field(
-                name="⚠️ 환율 변동",
-                value=(f"기록된 원화 {krw:,.2f}원과 현재 환산값이 "
-                       f"{gap:,.2f}원 차이납니다.\n"
-                       f"청구 근거는 달러이므로 위 값을 따릅니다."),
-                inline=False)
-
-        # 이번 턴 내역
-        log = getattr(session, "turn_cost_log", None) or []
-        if log:
-            lines = [f"· {x.get('label', '?')} {core.format_cost(x.get('cost', 0))}"
-                     for x in log[:8]]
-            e.add_field(name=f"직전 턴 호출 {len(log)}건",
-                        value="\n".join(lines)[:1020], inline=False)
 
         # 무료 제공분 — 잉크를 차감하지 않으나 실제 비용은 발생한다.
         free_krw = float(getattr(session, "profile_ai_cost_krw", 0.0) or 0.0)
@@ -475,6 +487,14 @@ class SystemCog(commands.Cog):
                        f"> 잉크 차감 없음. 운영 비용으로 발생합니다."),
                 inline=False)
 
+        # 진행 중 턴의 호출 내역 — 호환 전용 표시 버퍼(금액 권위 아님).
+        log = getattr(session, "turn_cost_log", None) or []
+        if log:
+            lines = [f"· {x.get('label', '?')} {core.format_cost(x.get('cost', 0))}"
+                     for x in log[:8]]
+            e.add_field(name=f"진행 중 턴 호출 {len(log)}건 (참고)",
+                        value="\n".join(lines)[:1020], inline=False)
+
         cache_t = int(getattr(session, "cache_tokens", 0) or 0)
         if cache_t:
             e.add_field(name="캐시", value=f"{cache_t:,} 토큰", inline=True)
@@ -482,51 +502,52 @@ class SystemCog(commands.Cog):
         await ctx.send(embed=e)
 
     async def _usage_all(self, ctx):
-        """전 세션 합계. 디스크의 세션 파일을 훑는다."""
+        """전 세션 합계. 제공자 비용은 CostLedger, 턴 청구 잉크는 세션 스냅샷(Settlement 미러)."""
         import os
         import json as _json
 
-        total_usd = total_krw = 0.0
-        total_ink = 0
-        rows = []
-        base = "sessions"
-        if not os.path.isdir(base):
-            await ctx.send("세션 기록이 없습니다.")
+        try:
+            per_sid, n_rows = core.provider_cost_by_session(self.bot)
+        except Exception as ex:  # noqa: BLE001
+            await ctx.send(f"⚠️ CostLedger 읽기 실패 — 합계를 낼 수 없습니다: {ex}")
             return
 
-        for sid in sorted(os.listdir(base)):
-            path = os.path.join(base, sid, "data.json")
-            if not os.path.exists(path):
-                continue
-            try:
-                with open(path, "r", encoding="utf-8") as f:
-                    d = _json.load(f)
-            except Exception:
-                continue
-            u = float(d.get("total_usd", 0.0) or 0.0)
-            k = float(d.get("total_cost", 0.0) or 0.0)
-            i = int(d.get("total_ink_spent", 0) or 0)
-            # USD 기록이 없는 구세션은 원화에서 역산한다.
-            if not u and k:
-                u = k / core.EXCHANGE_RATE
-            total_usd += u
-            total_krw += k
-            total_ink += i
-            rows.append((sid, u, i, int(d.get("turn_count", 0) or 0)))
+        total_ink = 0
+        turns: dict = {}
+        base = "sessions"
+        if os.path.isdir(base):
+            for sid in sorted(os.listdir(base)):
+                path = os.path.join(base, sid, "data.json")
+                if not os.path.exists(path):
+                    continue
+                try:
+                    with open(path, "r", encoding="utf-8") as f:
+                        d = _json.load(f)
+                except Exception:
+                    continue
+                i = int(d.get("total_ink_spent", 0) or 0)
+                total_ink += i
+                turns[sid] = (i, int(d.get("turn_count", 0) or 0))
 
+        all_usd = sum(b["usd"] for b in per_sid.values())
+        all_krw = sum(b["krw"] for b in per_sid.values())
         e = discord.Embed(title="📊 전체 사용량", color=0xE67E22)
         e.add_field(
-            name=f"합계 · 세션 {len(rows)}개",
-            value=(f"**{core.format_usd(total_usd)}**\n"
-                   f"= {core.usd_to_krw(total_usd):,.0f}원\n"
-                   f"= 결제 {total_ink:,}잉크"),
+            name=f"제공자 비용 (CostLedger · {n_rows}건)",
+            value=(f"**{core.format_cost(all_krw)}** · {core.format_usd(all_usd)} (기록값)\n"
+                   f"> 세션 밖 비용(`None`)·WP-02 이전 호출은 원장에 없거나 세션 미귀속입니다."),
             inline=False)
+        e.add_field(name=f"턴 청구 잉크 (세션 {len(turns)}개 · Settlement 미러)",
+                    value=f"**{total_ink:,}잉크** (캐시 선불·해석 청구는 세션별 `!사용량`)",
+                    inline=False)
 
-        # 비용이 큰 순으로
-        rows.sort(key=lambda r: -r[1])
-        if rows:
-            lines = [f"`{sid[:22]}` {core.format_usd(u)} · {t}턴 · {i}잉크"
-                     for sid, u, i, t in rows[:10]]
+        # 제공자 비용이 큰 순으로
+        top = sorted(((sid, b) for sid, b in per_sid.items() if sid),
+                     key=lambda kv: -kv[1]["krw"])[:10]
+        if top:
+            lines = [f"`{str(sid)[:22]}` {core.format_cost(b['krw'])} · "
+                     f"{turns.get(sid, (0, 0))[1]}턴 · 턴 청구 {turns.get(sid, (0, 0))[0]}잉크"
+                     for sid, b in top]
             e.add_field(name="상위 세션", value="\n".join(lines)[:1020], inline=False)
         await ctx.send(embed=e)
 
@@ -552,7 +573,11 @@ class SystemCog(commands.Cog):
         uid = str(member.id)
 
         if amount is None:
-            acc = core.accounts.load_account(uid)
+            try:
+                acc = core.accounts.load_account_strict(uid)
+            except core.accounts.AccountError as ex:
+                await ctx.send(f"⚠️ 계정을 읽을 수 없습니다(손상·읽기 실패): {ex}")
+                return
             bal = int(acc.get("ink_balance", 0))
             hist = (acc.get("history") or [])[-5:]
             lines = [f"💰 {member.mention} 잔액 **{bal:,}잉크**"]
@@ -572,13 +597,13 @@ class SystemCog(commands.Cog):
             await ctx.send("잔액은 음수로 설정할 수 없습니다. 회수는 `!지급 @유저 -100`을 쓰십시오.")
             return
 
-        if not core.accounts.is_registered(uid):
-            await core.accounts.register_account(uid)
-            await ctx.send(f"ℹ️ {member.mention} 계정을 새로 등록했습니다.")
-
-        res = await core.accounts.set_balance(uid, amount, reason=reason)
-        if not res["ok"]:
-            await ctx.send("⚠️ 저장에 실패했습니다.")
+        try:
+            if not core.accounts.is_registered(uid):
+                await core.accounts.register_account_strict(uid)
+                await ctx.send(f"ℹ️ {member.mention} 계정을 새로 등록했습니다.")
+            res = await core.accounts.set_balance_strict(uid, amount, reason=reason)
+        except core.accounts.AccountError as ex:
+            await ctx.send(f"⚠️ 저장에 실패했습니다 — 반영되지 않았습니다: {ex}")
             return
 
         d = res["delta"]

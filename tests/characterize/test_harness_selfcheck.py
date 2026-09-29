@@ -24,35 +24,27 @@ def test_session_is_real_trpgsession(session_auto_ready):
     assert not hasattr(session_auto_ready, "존재하지않는속성")
 
 
-# v5.33.0 현재 생성자에 없는 SESSION_FIELDS 키.
-# cache.py:151(update_session_cache_state)이 나중에 설정하므로, 캐시를 한 번도
-# 올리지 않은 세션에서는 속성이 존재하지 않는다.
-# save_session_data는 getattr 기본값으로 넘어가므로 저장은 되지만,
-# 그 전에 session.cached_worldview_sections를 직접 읽는 코드가 생기면
-# AttributeError가 난다.
-KNOWN_MISSING_AT_CONSTRUCTION = {"cached_worldview_sections"}
+# WP-G(AUD-053): v5.33.0에는 생성자에 cached_worldview_sections가 없었다(cache.py:151이
+# 캐시 발급 때 비로소 설정). 이제 생성자가 초기화하므로 알려진 예외는 없다.
+KNOWN_MISSING_AT_CONSTRUCTION: set = set()
 
 
 def test_session_fields_registry_matches_model(session_auto_ready):
     """SESSION_FIELDS와 모델 속성이 어긋나면 저장·복구가 조용히 깨진다.
 
-    특성화 — v5.33.0의 현재 상태를 고정한다. 알려진 예외 외에 새로운
-    불일치가 생기면 실패한다.
+    알려진 예외 없이 모든 영속 필드가 생성 시점에 존재해야 한다.
     """
     import core
     missing = {k for k in core.SESSION_FIELDS
                if not hasattr(session_auto_ready, k)}
-    unexpected = missing - KNOWN_MISSING_AT_CONSTRUCTION
-    assert unexpected == set(), f"새로운 불일치: {sorted(unexpected)}"
-    # 알려진 예외가 고쳐지면 이 단언이 깨져 목록 갱신을 강제한다.
     assert missing == KNOWN_MISSING_AT_CONSTRUCTION, (
-        f"알려진 불일치 목록이 낡았습니다. 실제: {sorted(missing)}")
+        f"SESSION_FIELDS에 있으나 생성자에 없는 필드: {sorted(missing)}")
 
 
-def test_missing_field_is_tolerated_by_save(session_auto_ready):
-    """특성화 — 생성자에 없는 필드도 저장은 통과한다(getattr 기본값)."""
+def test_aud053_cached_worldview_sections_initialized_at_construction(session_auto_ready):
+    """AUD-053 — 새 세션도 영속 필드 기본값을 갖는다(이전: 속성 부재, 저장만 getattr로 통과)."""
     import core
-    assert not hasattr(session_auto_ready, "cached_worldview_sections")
+    assert session_auto_ready.cached_worldview_sections == []
     assert core.SESSION_FIELDS["cached_worldview_sections"] == []
 
 

@@ -229,32 +229,19 @@ class GameCog(commands.Cog):
         return None
 
 
-    @commands.command(name="진행")
-    async def proceed_turn(self, ctx, *, instruction: str = ""):
-        """
-        입력된 지시사항과 현재 누적된 로그를 기반으로 다음 게임 턴의 상황을 생성 및 연출.
-
-        NOTE: 본체 로직은 _execute_proceed 헬퍼로 추출되어 있어, GM(GMCog)도
-        동일한 코어를 공유한다. 이 명령 진입점은 컨텍스트 검증 후 헬퍼를 호출하는 얇은 래퍼.
-        """
-        session = self.bot.active_sessions.get(ctx.channel.id)
-        if not session or ctx.channel.id != session.master_ch_id:
-            return await ctx.send("이 명령어는 마스터 채널에서만 사용할 수 있습니다.")
-
-        await self._execute_proceed(session, instruction, master_guild=ctx.guild)
-
     async def _execute_proceed(self, session, instruction: str = "", *, master_guild=None,
                                 cost_log_prefix: str = "", transaction_id: str | None = None,
                                 preparation=None, on_finalized=None) -> dict:
         """
-        !진행 본체 — 명령 진입점과 GM(GMCog)가 공유하는 코어 로직.
+        공유 묘사 엔진 — 자동 GM 턴(_dispatch_proceed)과 인트로(play_intro)가 쓴다.
 
-        명령 컨텍스트(ctx)에 의존하지 않으며, 세션과 봇 객체만으로 동작.
+        WP-G: 수동 `!진행` 명령은 은퇴했다(AUD-016). 명령 컨텍스트(ctx)에 의존하지 않으며,
+        세션과 봇 객체만으로 동작.
         상태 메시지는 마스터 채널, 묘사는 게임 채널로 송출.
 
         Args:
             session: TRPGSession
-            instruction (str): GM 지시사항 (이미지/자원/상태 태그 포함 가능)
+            instruction (str): 지시사항 (이미지 태그 상/중/하: 포함 가능. 자:/태: 는 권위 없이 제거만 된다)
             master_guild: 게임 채널 채팅 권한 토글용 guild (None이면 마스터 채널에서 추출)
             cost_log_prefix (str): cost_log.txt 라벨에 부착할 접두사 (예: "[AUTO] ")
             preparation: WP-C 자동 턴 준비 객체(core.turn_preparation.TurnPreparation).
@@ -262,7 +249,7 @@ class GameCog(commands.Cog):
                   · canonical 로그/카운터를 적용하지 않고 스테이징한다(READY 이후 적용),
                   · 확정 묘사 직후 on_finalized(narr)로 동시 준비 작업을 발사한다,
                   · is_processing/채널 잠금 해제를 owner(배리어 이후)에게 넘긴다.
-                None(인트로·수동)이면 기존 동작 그대로다(자동 READY 의미 미상속).
+                None(인트로)이면 즉시 적용한다(자동 READY 의미 미상속).
 
         Returns:
             dict: {"ok": bool, "ai_text": str, "error": str|None, "finalized": bool}
@@ -314,19 +301,12 @@ class GameCog(commands.Cog):
                 self._run_auto_compression(session, _source, cost_log_prefix)
             )
 
+        # WP-G: 턴 앵커(last_turn_anchor_id) 기록은 유일한 소비자였던 `!수정`과 함께 은퇴했다.
         try:
-            anchor = None
-            async for msg in game_channel.history(limit=1):
-                anchor = msg
-            session.last_turn_anchor_id = anchor.id if anchor else None
-
-            try:
-                if master_guild:
-                    await game_channel.set_permissions(master_guild.default_role, send_messages=False)
-            except Exception as e:
-                print(f"⚠️ 자동 채팅 잠금 실패: {e}")
+            if master_guild:
+                await game_channel.set_permissions(master_guild.default_role, send_messages=False)
         except Exception as e:
-            print(f"⚠️ 앵커 획득 실패: {e}")
+            print(f"⚠️ 자동 채팅 잠금 실패: {e}")
 
         try:
             # NOTE: 패턴에서 .,!?;: 를 캡처 대상에서 제외 — AI가 태그 뒤에 마침표 등을 붙여도 정확히 분리됨.
@@ -358,8 +338,8 @@ class GameCog(commands.Cog):
 
             # ── WP-B: 레거시 자:/태: 태그의 직접 상태 변이 권위 제거 (AUD-001) ──
             #   공유 AI-결과 처리 경로(_execute_proceed)에서 자:/태: 태그로 canonical
-            #   resources/statuses를 직접 바꾸던 두 루프를 제거한다. 자동 턴이든 수동
-            #   !진행이든 이 태그는 더 이상 상태 권위가 아니다(중복 권위 제거).
+            #   resources/statuses를 직접 바꾸던 두 루프를 제거한다. 어떤 경로에서도
+            #   이 태그는 더 이상 상태 권위가 아니다(중복 권위 제거).
             #   상태 변경 권위는 추출층위 + 코드 검증(core.extraction.apply_extraction,
             #   merged-status validation 포함)으로 단일화된다.
             #   태그 자체는 아래 방어적 strip으로 clean_instruction/묘사 출력에서 제거되어
@@ -370,21 +350,8 @@ class GameCog(commands.Cog):
             clean_instruction = re.sub(status_pattern, '', clean_instruction)
             clean_instruction = re.sub(r'\s+', ' ', clean_instruction).strip()
 
-            if not clean_instruction:
-                # NOTE: Auto-GM 모드(cost_log_prefix가 있는 경우)는 항상 proceed_instruction이
-                # 채워진 채로 호출되므로 여기에 도달하지 않음. 수동 GM 모드 전용 분기.
-                if not cost_log_prefix:
-                    gm_cog = self.bot.get_cog("GMCog")
-                    if gm_cog:
-                        await m_send("⏳ 지시사항 없음 — 지시층위가 현재 상황을 분석하여 진행 지시사항을 자동 생성합니다...")
-                        decision = await gm_cog._call_gm_logic(session, "", [], master_ch)
-                        if decision:
-                            from cogs.gm import _clean_proceed_instruction
-                            auto_instr = _clean_proceed_instruction(decision.get("proceed_instruction", ""))
-                            if auto_instr:
-                                clean_instruction = auto_instr
-                                await m_send(f"📋 **[자동 생성 지시사항]**\n> {clean_instruction[:300]}")
-
+            # WP-G: 지시 없음 → 지시층위 자동 생성 분기는 수동 `!진행` 전용이라 함께 은퇴했다.
+            #   자동 턴은 항상 proceed_instruction을, 인트로는 비어 있지 않은 지시문을 넘긴다.
             if not clean_instruction:
                 clean_instruction = "현재까지의 상황, 세계관, 누적된 기억, 그리고 플레이어의 직전 행동을 바탕으로 물리적 인과율에 맞춰 개연성 있게 다음 상황을 진행하고 묘사하십시오."
 
@@ -434,7 +401,7 @@ class GameCog(commands.Cog):
                     required_success=True, required_player_output=True,
                     blocks_cost_closure=False, turn_cost_membership=False)
             else:
-                # 인트로·수동: 기존 timing/순서 그대로 즉시 적용.
+                # 인트로: 기존 timing/순서 그대로 즉시 적용.
                 session.raw_logs.extend(_raw_entries)
                 session.uncompressed_logs.extend(_unc_entries)
                 session.current_turn_logs.clear()
@@ -809,7 +776,7 @@ class GameCog(commands.Cog):
         transient_ids = list(transient_ids or [])
 
         try:
-            # TTS 더빙(실험): 수동 !진행에서 토글 ON + 보이스 연결 시 '음성-텍스트 동기' 경로 사용.
+            # TTS 더빙(실험): 인트로에서 토글 ON + 보이스 연결 시 '음성-텍스트 동기' 경로 사용.
             # (문단별 음성 길이에 텍스트 스트리밍 속도를 맞춤.) GM(cost_log_prefix)·미연결 제외.
             # dub: 더빙 합성 누적 결과 dict (비용·경고 처리는 출력 완료 후 일원화).
             dub = None
@@ -917,7 +884,7 @@ class GameCog(commands.Cog):
             # 턴 비용 보고 임베드 송출 (PROCEED + 지시층위 등 누적 + TTS 더빙 합산)
             _turn_no = session.turn_count if turn_no is None else turn_no
             if preparation is None:
-                # 인트로·수동 — 기존 의미 그대로.
+                # 인트로 — 기존 의미 그대로.
                 _turn_embed = core.build_turn_cost_embed(
                     _turn_no, session.turn_cost_log, session.total_cost,
                     total_ink=int(getattr(session, "total_ink_spent", 0) or 0),
@@ -1231,7 +1198,7 @@ class GameCog(commands.Cog):
     @commands.command(name="더빙테스트")
     async def test_tts(self, ctx, voice: str = None):
         """
-        직전 `!진행` 묘사의 마지막 문단을 TTS로 다시 읽어준다. 스타일 프롬프트는 그대로 유지.
+        직전 묘사(가장 최근 model 출력)의 마지막 문단을 TTS로 다시 읽어준다. 스타일 프롬프트는 그대로 유지.
 
         !더빙테스트            — 기본 나레이터 보이스로 낭독
         !더빙테스트 [보이스]   — 지정한 보이스로 낭독 (예: `!더빙테스트 Gacrux`)
@@ -1258,7 +1225,7 @@ class GameCog(commands.Cog):
                 last_text = content.parts[0].text
                 break
         if not last_text:
-            return await ctx.send("⚠️ 직전 진행 묘사를 찾을 수 없습니다. 먼저 `!진행`을 실행하세요.")
+            return await ctx.send("⚠️ 직전 진행 묘사를 찾을 수 없습니다.")
 
         # 상태창 코드블럭을 제외한 마지막 문단 추출
         m = re.search(r'(.*)(```.*?```)\s*$', last_text, re.DOTALL)
@@ -1334,140 +1301,12 @@ class GameCog(commands.Cog):
         if not last_model_text:
             return await ctx.send("⚠️ 출력할 직전 턴의 묘사가 존재하지 않습니다.")
 
-        await ctx.send(f"📄 **[직전 턴 출력물 — {session.turn_count}턴]** (아래 텍스트를 수정 후 `!수정`으로 반영)")
+        # WP-G: 출력물 직접 편집(`!수정`)은 은퇴했다 — 다시 쓰려면 `!재생성`(커밋 이력 재서술).
+        await ctx.send(f"📄 **[직전 턴 출력물 — {session.turn_count}턴]** (읽기 전용 · 다시 쓰려면 `!재생성`)")
 
         chunk_size = 1950
         for i in range(0, len(last_model_text), chunk_size):
             await ctx.send(last_model_text[i:i + chunk_size])
-
-
-    @commands.command(name="수정")
-    async def edit_last_output(self, ctx, *, new_text: str):
-        """
-        직전 턴의 게임 채널 출력물을 입력된 텍스트로 수정.
-
-        디스코드 메시지 수정 API(edit)를 사용해 기존 메시지를 덮어쓰고,
-        raw_logs·uncompressed_logs·game_chat 로그 파일도 함께 동기화.
-        모든 알림은 마스터 채널에만 전송.
-        """
-        session = self.bot.active_sessions.get(ctx.channel.id)
-        if not session or ctx.channel.id != session.master_ch_id:
-            return await ctx.send("이 명령어는 마스터 채널에서만 사용할 수 있습니다.")
-
-        game_channel = self.bot.get_channel(session.game_ch_id)
-        if not game_channel:
-            return await ctx.send("⚠️ 게임 채널을 찾을 수 없습니다.")
-
-        if getattr(session, "is_processing", False):
-            return await ctx.send("⏳ 시스템이 다른 명령을 처리 중입니다. 잠시만 기다려주십시오.")
-
-        # 수정 대상 model 로그 위치 탐색
-        last_model_idx = None
-        for i in range(len(session.raw_logs) - 1, -1, -1):
-            if session.raw_logs[i].role == "model":
-                last_model_idx = i
-                break
-
-        if last_model_idx is None:
-            return await ctx.send("⚠️ 수정할 직전 턴의 묘사가 존재하지 않습니다.")
-
-        if not getattr(session, "last_turn_anchor_id", None):
-            return await ctx.send("⚠️ 앵커 정보가 없어 게임 채널 메시지를 특정할 수 없습니다.\n(세션 복구 직후이거나 `!진행` 이전 상태입니다.)")
-
-        # ── 0. 수정 전 원본을 텍스트 로그에 먼저 보존 ──
-        original_text = session.raw_logs[last_model_idx].parts[0].text
-        core.write_log(
-            session.session_id, "game_chat",
-            f"[GM 수정 전 원본 ({session.turn_count}턴)]: {original_text}"
-        )
-
-        session.is_processing = True
-        try:
-            # ── 1. 앵커 이후 봇 텍스트 메시지 수집 (이미지·파일 제외) ──
-            try:
-                anchor_msg = await game_channel.fetch_message(session.last_turn_anchor_id)
-            except discord.NotFound:
-                await ctx.send("⚠️ 앵커 메시지를 찾을 수 없습니다. 메시지가 삭제되었을 수 있습니다.")
-                return
-
-            bot_text_msgs = []
-            async for msg in game_channel.history(after=anchor_msg, limit=100):
-                if msg.author == self.bot.user and not msg.attachments:
-                    bot_text_msgs.append(msg)
-            bot_text_msgs.sort(key=lambda m: m.created_at)
-
-            # ── 2. 새 텍스트에서 서술부와 코드블럭 분리 (proceed_turn 동일 로직) ──
-            code_block_match = re.search(r'(.*)(```.*?```)\s*$', new_text, re.DOTALL)
-            if code_block_match:
-                new_narrative = code_block_match.group(1).strip()
-                new_code_block = code_block_match.group(2).strip()
-            else:
-                new_narrative = new_text.strip()
-                new_code_block = ""
-
-            # 문단 단위로 분리 → 연속 동일 화자 통합 → 대사 마커 여부에 따라 포맷 분기 → 1950자 초과 시 추가 분할
-            new_paragraphs = core.merge_consecutive_dialogues(
-                [p.strip() for p in new_narrative.split('\n\n') if p.strip()]
-            )
-            new_chunks = []
-            for p in new_paragraphs:
-                dialogue = core.parse_dialogue_paragraph(p)
-                if dialogue:
-                    speaker, content = dialogue
-                    formatted = core.format_dialogue_block(speaker, content)
-                else:
-                    formatted = p if p.startswith(">") else f"> {p}"
-                for j in range(0, len(formatted), 1950):
-                    new_chunks.append(formatted[j:j + 1950])
-            if new_code_block:
-                new_chunks.append(new_code_block)
-
-            if not new_chunks:
-                await ctx.send("⚠️ 수정할 내용이 없습니다.")
-                return
-
-            # ── 3. 기존 메시지 수정 / 초과분 삭제 / 부족분 추가 ──
-            for i, msg in enumerate(bot_text_msgs):
-                if i < len(new_chunks):
-                    try:
-                        await msg.edit(content=new_chunks[i])
-                    except Exception as e:
-                        print(f"⚠️ 메시지 수정 실패 (id={msg.id}): {e}")
-                else:
-                    try:
-                        await msg.delete()
-                    except Exception as e:
-                        print(f"⚠️ 초과 메시지 삭제 실패 (id={msg.id}): {e}")
-
-            # 기존 메시지보다 새 청크가 많을 경우 추가 전송
-            if len(new_chunks) > len(bot_text_msgs):
-                for chunk in new_chunks[len(bot_text_msgs):]:
-                    await game_channel.send(chunk)
-
-            # ── 4. raw_logs 갱신 ──
-            session.raw_logs[last_model_idx] = types.Content(
-                role="model",
-                parts=[types.Part.from_text(text=new_text.strip())]
-            )
-
-            # ── 5. uncompressed_logs에서 마지막 [GM 묘사] 항목 교체 ──
-            for i in range(len(session.uncompressed_logs) - 1, -1, -1):
-                if session.uncompressed_logs[i].startswith("[GM 묘사]:"):
-                    session.uncompressed_logs[i] = f"[GM 묘사]: {new_text.strip()}"
-                    break
-
-            # ── 6. 채팅 로그 기록 및 세션 저장 (수정 후 내용) ──
-            core.write_log(
-                session.session_id, "game_chat",
-                f"[GM 수정 후 ({session.turn_count}턴)]: {new_text.strip()}"
-            )
-            await core.save_session_data(self.bot, session)
-            await ctx.send(f"✅ {session.turn_count}턴 출력물이 수정되었습니다.")
-
-        except Exception as e:
-            await ctx.send(f"⚠️ 수정 중 오류가 발생했습니다: {e}")
-        finally:
-            session.is_processing = False
 
 
     @commands.command(name="기억압축")
