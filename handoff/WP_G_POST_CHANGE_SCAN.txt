@@ -1,0 +1,266 @@
+# WP-G POST-CHANGE SCAN
+HEAD(scan time) 003fff1d82bbee30a6abe9356e2af3393f7eb132  start c508ce76afef3c66182d879a18e91fb501a1ae0e
+
+## A1 command definitions (cogs)  (53)
+  cogs/character.py:314: 참가
+  cogs/character.py:362: 캐릭터가져오기
+  cogs/character.py:453: 설정
+  cogs/character.py:489: 증감
+  cogs/character.py:653: 외형
+  cogs/character.py:684: 프로필
+  cogs/character.py:784: 엔피씨
+  cogs/character.py:1055: 능력치
+  cogs/character.py:1123: 설정생성
+  cogs/game.py:133: 주사위
+  cogs/game.py:1192: 더빙테스트
+  cogs/game.py:1257: 재생성
+  cogs/game.py:1278: 출력물
+  cogs/game.py:1306: 기억압축
+  cogs/game.py:1402: 노트
+  cogs/game.py:1440: 캐시노트
+  cogs/gm.py:1027: 자동
+  cogs/gm.py:1051: 시작
+  cogs/gm.py:1114: 중단
+  cogs/gm.py:1140: 상태
+  cogs/gm.py:1171: 개입
+  cogs/gm.py:1187: 턴제한
+  cogs/gm.py:1210: 비용제한
+  cogs/gm.py:2765: 퀘스트
+  cogs/gm.py:2843: 되감기
+  cogs/gm.py:4985: 서사
+  cogs/gm.py:5053: 원장
+  cogs/gm.py:5085: 재계획
+  cogs/media.py:22: 이미지
+  cogs/media.py:266: 브금
+  cogs/media.py:552: 플리
+  cogs/media.py:634: 볼륨
+  cogs/media.py:672: 채팅
+  cogs/media.py:707: 더빙
+  cogs/permissions.py:55: 권한부여
+  cogs/permissions.py:68: 권한회수
+  cogs/permissions.py:79: 권한목록
+  cogs/session.py:378: 새세션
+  cogs/session.py:391: 시작
+  cogs/session.py:559: 소개
+  cogs/system.py:31: 명령어
+  cogs/system.py:154: 채널정리
+  cogs/system.py:194: 세션종료
+  cogs/system.py:250: 캐시
+  cogs/system.py:348: 리로드
+  cogs/system.py:368: 지급
+  cogs/system.py:430: 사용량
+  cogs/system.py:554: 잉크
+  cogs/system.py:623: 재시작
+  cogs/system.py:641: 스페이스초기화
+  cogs/system.py:691: 스페이스
+  cogs/system.py:709: tts생성
+  cogs/system.py:757: 배포
+
+## A2 _execute_proceed call sites (production)  (2)
+  cogs/gm.py:3741: _execute_proceed (in _dispatch_proceed)
+  cogs/session.py:534: _execute_proceed (in play_intro)
+
+## A3 rerender_latest defs/calls  (3)
+  cogs/game.py:1273: started, reason = await gm_cog.rerender_latest(session, addendum=instruction.strip())
+  cogs/gm.py:651: asyncio.create_task(cog.rerender_latest(self.session, addendum=self.addendum))
+  cogs/gm.py:2244: async def rerender_latest(self, session, *, addendum: str = "") -> tuple:
+
+## A4 retired command residue (!진행/!수정/proceed_turn/edit_last_output/last_turn_anchor_id writes)  (3)
+  cogs/game.py:238: WP-G: 수동 `!진행` 명령은 은퇴했다(AUD-016). 명령 컨텍스트(ctx)에 의존하지 않으며,
+  cogs/media.py:718: (WP-G: 수동 `!진행`은 은퇴했다.)
+  core/models.py:57: self.last_turn_anchor_id = None   # WP-G: 비활성 호환 필드(유일 소비자 `!수정` 은퇴) — 구세션 로드 호환용으로만 유지
+
+## A5 _call_gm_logic call sites  (5)
+  cogs/gm.py:2903: _call_gm_logic (in _forced_proceed_instruction)
+  cogs/gm.py:2266: _call_gm_logic (in rerender_latest)
+  cogs/gm.py:3480: _call_gm_logic (in _continue_with_roll_results)
+  cogs/gm.py:2615: _call_gm_logic (in _run_gm_logic_loop)
+  cogs/gm.py:2610: _call_gm_logic (in _run_gm_logic_loop)
+
+## A6 legacy 자:/태: tag literals in prompts/cache/context/help (non-comment)  (0)
+
+## A7 defensive strip / image tag patterns kept (cogs/game.py)  (5)
+  cogs/game.py:315: img_pattern  = r'(상|중|하):(' + _TAG_END + r'+)'
+  cogs/game.py:316: res_pattern  = r'자:(' + _TAG_END + r'+);(' + _TAG_END + r'+);([-+]?\d+)'
+  cogs/game.py:317: status_pattern = r'태:(' + _TAG_END + r'+);(-?' + _TAG_END + r'+)'
+  cogs/game.py:529: res_pattern    = r'자:(' + _TAG_END + r'+);(' + _TAG_END + r'+);([-+]?\d+)'
+  cogs/game.py:530: status_pattern = r'태:(' + _TAG_END + r'+);(-?' + _TAG_END + r'+)'
+
+## B1 total_cost/total_usd reads used in comparisons or arithmetic (rule candidates)  (0)
+
+## B2 accrue() sites  (18)
+  cogs/character.py:1203: accrue (in generate_character_cmd)
+  cogs/game.py:651: accrue (in _generate_narration)
+  cogs/game.py:1000: accrue (in _run_auto_compression)
+  cogs/game.py:1251: accrue (in test_tts)
+  cogs/game.py:1361: accrue (in compress_memory)
+  cogs/game.py:877: accrue (in _deliver_narration)
+  cogs/gm.py:3169: accrue (in _call_gm_logic)
+  cogs/gm.py:3635: accrue (in _dispatch_narrate)
+  cogs/gm.py:4006: accrue (in _generate_npc_detail)
+  cogs/gm.py:4172: accrue (in _resolve_irregular_npcs)
+  cogs/gm.py:4784: accrue (in _verify_proceed_instruction)
+  cogs/gm.py:4925: accrue (in _simulate_narrative_directions)
+  cogs/gm.py:5538: accrue (in _generate_narrative_plan_candidate)
+  cogs/gm.py:2981: accrue (in _call_judgment)
+  cogs/gm.py:4617: accrue (in _run_extraction)
+  cogs/media.py:196: accrue (in send_media)
+  core/cache_lifecycle.py:455: accrue (in _create_locked)
+  core/cache_lifecycle.py:519: accrue (in _finalize_lifecycle_locked)
+
+## B3 auto cost cap sites  (17)
+  cogs/gm.py:1084: core.mark_auto_mode_start(self.bot, session)   # WP-G: CostLedger 기준(AUD-033)
+  cogs/gm.py:1129: used = core.auto_mode_used_krw(self.bot, session)
+  cogs/gm.py:1148: used = core.auto_mode_used_krw(self.bot, session)   # WP-G: CostLedger provider 비용
+  cogs/gm.py:1439: if core.auto_cost_cap_reached(self.bot, session):
+  cogs/gm.py:1476: if core.auto_cost_cap_reached(self.bot, session):
+  cogs/gm.py:2311: if core.auto_cost_cap_reached(self.bot, session):   # WP-G: CostLedger 기준 운영 예산
+  cogs/gm.py:3468: if core.auto_cost_cap_reached(self.bot, session):
+  core/__init__.py:238: mark_auto_mode_start,
+  core/__init__.py:239: auto_mode_used_krw,
+  core/__init__.py:240: auto_cost_cap_reached,
+  core/__init__.py:363: "provider_cost_summary", "provider_cost_by_session", "player_ink_summary", "mark_auto_mode_start", "auto_mode_used_krw", "auto_cost_cap_reached", "usd
+  core/cost.py:653: def mark_auto_mode_start(bot, session) -> None:
+  core/cost.py:666: def auto_mode_used_krw(bot, session) -> float:
+  core/cost.py:680: def auto_cost_cap_reached(bot, session) -> bool:
+  core/cost.py:686: return auto_mode_used_krw(bot, session) >= cap
+  core/session_flow.py:684: from .cost import mark_auto_mode_start
+  core/session_flow.py:685: mark_auto_mode_start(bot, session)   # WP-G: CostLedger 기준(AUD-033)
+
+## B4 legacy tolerant account writers — production callers (outside accounts.py)  (0)
+
+## B5 strict operator account functions — callers  (11)
+  cogs/system.py:405: await core.accounts.register_account_strict(uid)
+  cogs/system.py:409: new_bal = await core.accounts.grant_ink_strict(uid, amount, reason=reason)
+  cogs/system.py:412: result = await core.accounts.reclaim_ink_strict(uid, -amount, reason=reason)
+  cogs/system.py:602: await core.accounts.register_account_strict(uid)
+  cogs/system.py:604: res = await core.accounts.set_balance_strict(uid, amount, reason=reason)
+  core/accounts.py:434: async def register_account_strict(user_id, terms_version: int = None) -> dict:
+  core/accounts.py:451: async def grant_ink_strict(user_id, amount: int, reason: str = "충전") -> int:
+  core/accounts.py:466: async def reclaim_ink_strict(user_id, amount: int, reason: str = "운영자 회수") -> dict:
+  core/accounts.py:488: async def set_balance_strict(user_id, amount: int, reason: str = "운영자 조정") -> dict:
+  core/terms.py:111: await accounts.register_account_strict(self.user_id)
+  core/terms.py:122: await accounts.grant_ink_strict(self.user_id, SIGNUP_GIFT_INK, reason="가입선물")
+
+## B6 tolerant CostLedger readers (list_cost_events/sum_cost_events) — production  (1)
+  core/cost_ledger.py:393: for obj in self.list_cost_events(session_id=session_id,
+
+## B7 strict CostLedger readers — production  (8)
+  core/commit_coordinator.py:321: def get_cost_events_by_ids_strict(self, event_ids, **_k):
+  core/commit_coordinator.py:1101: for row in led.list_cost_events_strict(session_id=session_id):
+  core/cost.py:581: rows = ledger.list_cost_events_strict(session_id=session_id)
+  core/cost.py:601: rows = ledger.list_cost_events_strict() if ledger is not None else []
+  core/cost_ledger.py:516: def list_cost_events_strict(self, *, session_id=None,
+  core/cost_ledger.py:530: def get_cost_events_by_ids_strict(self, event_ids, *, session_id=None,
+  core/interpretation_billing.py:167: for ev in ledger.list_cost_events_strict(session_id=sid):
+  core/settlement.py:297: events = cost_ledger.get_cost_events_by_ids_strict(list(canonical_ids))
+
+## B8 compression prepayment residue  (0)
+
+## B9 turn_cost_log writers/readers  (38)
+  cogs/game.py:678: if not hasattr(session, "turn_cost_log"):
+  cogs/game.py:679: session.turn_cost_log = []
+  cogs/game.py:680: session.turn_cost_log.append({
+  cogs/game.py:880: session.turn_cost_log.append(
+  cogs/game.py:889: _turn_no, session.turn_cost_log, session.total_cost,
+  cogs/game.py:893: session.turn_cost_log.clear()
+  cogs/gm.py:2046: log = list(getattr(session, "turn_cost_log", None) or [])
+  cogs/gm.py:2047: session.turn_cost_log = []
+  cogs/gm.py:2064: session.turn_cost_log = []
+  cogs/gm.py:2119: session.turn_cost_log = []
+  cogs/gm.py:2997: if not hasattr(session, "turn_cost_log"):
+  cogs/gm.py:2998: session.turn_cost_log = []
+  cogs/gm.py:2999: session.turn_cost_log.append({
+  cogs/gm.py:3187: if not hasattr(session, "turn_cost_log"):
+  cogs/gm.py:3188: session.turn_cost_log = []
+  cogs/gm.py:3189: session.turn_cost_log.append({
+  cogs/gm.py:3653: if not hasattr(session, "turn_cost_log"):
+  cogs/gm.py:3654: session.turn_cost_log = []
+  cogs/gm.py:3655: session.turn_cost_log.append({"label": "묘사층위(NARRATE)", "cost": cost,
+  cogs/gm.py:4016: if not hasattr(session, "turn_cost_log"):
+  cogs/gm.py:4017: session.turn_cost_log = []
+  cogs/gm.py:4018: session.turn_cost_log.append({
+  cogs/gm.py:4182: if not hasattr(session, "turn_cost_log"):
+  cogs/gm.py:4183: session.turn_cost_log = []
+  cogs/gm.py:4184: session.turn_cost_log.append({
+  cogs/gm.py:4628: if not hasattr(session, "turn_cost_log"):
+  cogs/gm.py:4629: session.turn_cost_log = []
+  cogs/gm.py:4630: session.turn_cost_log.append({
+  cogs/gm.py:4933: if not hasattr(session, "turn_cost_log"):
+  cogs/gm.py:4934: session.turn_cost_log = []
+  cogs/gm.py:4937: session.turn_cost_log.append({"label": "개연성 시뮬레이션", "cost": cost,
+  cogs/gm.py:5369: (CostLedger operation, accrue, turn_cost_log)은 기존 의미 그대로 수행하고,
+  cogs/gm.py:5554: if not hasattr(session, "turn_cost_log"):
+  cogs/gm.py:5555: session.turn_cost_log = []
+  cogs/gm.py:5556: session.turn_cost_log.append({"label": "서사 설계자(계획)", "cost": cost,
+  cogs/system.py:491: log = getattr(session, "turn_cost_log", None) or []
+  core/cost.py:378: — WP-G: session.turn_cost_log(호환 전용 표시 버퍼). 금액 권위가 아니다.
+  core/models.py:70: self.turn_cost_log: list = []
+
+## C1 prompt authority phrase checks  (7)
+  narration: kind-based authority (가)~(바): present
+  narration: OLD linear chain '① 룰북 > ② GM 지시 > ③ 기억 > ④ 플레이어': absent
+  instruction: note cannot void prohibitions: present
+  instruction: relay = GM direction: present
+  instruction: image tag rule kept: present
+  judgment: relay not player declaration: present
+  extraction: report-only: present
+
+## D1 SESSION_FIELDS  (4)
+  count=82
+  cached_worldview_sections in ctor: True
+  compression_prepaid_krw registered: False
+  gm_cost_basis registered: True
+
+## D2 scenario field snapshot  (5)
+  scenario.example.json: media_dir='./media' location_images=2 job_guides=no
+  다크판타지.json: media_dir='./media' location_images=0 job_guides=no
+  무협.json: media_dir='./media' location_images=0 job_guides=no
+  빈시나리오.json: media_dir='./media' location_images=0 job_guides=no
+  영도.json: media_dir='./media' location_images=6 job_guides=yes
+
+## D3 scenario diff vs start  (2)
+  "scenarios/\353\254\264\355\230\221.json" | 5 +----
+   1 file changed, 1 insertion(+), 4 deletions(-)
+
+## D4 prompts.py diff vs start  (2)
+  prompts.py | 35 +++++++++++++++++++++--------------
+   1 file changed, 21 insertions(+), 14 deletions(-)
+
+## E changed files vs start  (36)
+  CLAUDE.md                                          |  60 +++-
+   cogs/errors.py                                     |   2 -
+   cogs/game.py                                       | 225 ++-----------
+   cogs/gm.py                                         |  57 ++--
+   cogs/media.py                                      |   5 +-
+   cogs/system.py                                     | 207 +++++++-----
+   core/__init__.py                                   |  16 +-
+   core/accounts.py                                   |  83 +++++
+   core/cache.py                                      |  19 +-
+   core/cost.py                                       | 155 ++++++++-
+   core/display.py                                    |   4 +-
+   core/estimate.py                                   |  87 +----
+   core/io.py                                         |   2 +-
+   core/memory_plan.py                                |   7 +-
+   core/models.py                                     |  17 +-
+   core/prompt.py                                     |   9 +-
+   core/session_flow.py                               |   3 +-
+   core/terms.py                                      |  17 +-
+   core/turn_preparation.py                           |   2 +-
+   core/ui.py                                         |  13 +-
+   handoff/WP_G_DECISION_GATES.md                     |  94 ++++++
+   handoff/WP_G_FINAL_AUDIT_MATRIX.md                 |  79 +++++
+   handoff/WP_G_FINAL_SCENARIO_MATRIX.md              |  85 +++++
+   handoff/WP_G_PRE_EDIT_INVENTORY.md                 | 271 +++++++++++++++
+   prompts.py                                         |  35 +-
+   "scenarios/\353\254\264\355\230\221.json"          |   5 +-
+   specs/00_INDEX.md                                  |   4 +
+   .../test_execute_proceed_shared_paths.py           |  16 +-
+   tests/characterize/test_harness_selfcheck.py       |  24 +-
+   tests/policy/test_accounts_strict.py               |   8 +-
+   tests/policy/test_compression_safety.py            |  58 +++-
+   tests/policy/test_ink_transactions.py              |   7 +-
+   tests/policy/test_wp_d_patch.py                    |   3 +-
+   tests/policy/test_wp_g_prompt_authority.py         | 145 ++++++++
+   tests/policy/test_wp_g_retirement.py               | 369 +++++++++++++++++++++
+   35 files changed, 1675 insertions(+), 518 deletions(-)
