@@ -8,7 +8,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 AI가 4개 층위로 나뉘어 판단·지시·묘사·추출을 분담한다. 플레이어는 서버 GM 스페이스에서 버튼으로 세션을 열고, 캐릭터를 만들고, 턴을 진행한다. **명령어는 GM의 수동 개입·복구 수단이며 일반 플레이에는 쓰지 않는다.**
 
-현재 버전: **v5.33.0** · `SCHEMA_VERSION` 3 · 총 ~25,660줄
+현재 버전: **v5.33.0** · `SCHEMA_VERSION` 3 · 총 운영 코드 ~36,680줄(main·prompts·cogs·core) · 테스트 ~14,727줄
+
+리팩터링: **7-WP 프로그램(WP-A~WP-G)** — 턴 트랜잭션·커밋·재무·이력·파생 시스템을 단일 권위로 재구성했다. WP-A~F는 독립 게이트 VERIFIED, WP-G는 최종 후보 제출 후 독립 게이트 대기(`handoff/WP_G_COMPLETION_BUNDLE.md`). 버전 번호는 리팩터링 기간 동안 올리지 않았다(배포 시 결정).
 
 ---
 
@@ -85,10 +87,12 @@ python main.py
 | 파일 | 역할 |
 |---|---|
 | `main.py` | `TRPGBot`, `active_sessions`, cog 자동 로드, 세션 복구, 초대 링크 생성, GM 홈 갱신 |
-| `prompts.py` (1,700줄) | 시스템 지시문 + 응답 스키마 12종 |
+| `prompts.py` (1,693줄) | 시스템 지시문 + 응답 스키마 12종. 권위 서술은 WP-G D1(아래 '프롬프트 권위') |
 | `scenarios/*.json` | 시나리오 데이터. 퀘스트는 `{이름}.quests.json`으로 분리 |
 | `media/{시나리오명}/` | 인물 이미지·BGM. **폴더명은 시나리오 id와 같아야 한다** |
 | `tools/verify_docs.py` | 문서 수치 정합 검증 |
+| `handoff/` | WP별 완료 번들·스캔·매트릭스(과거 번들은 HISTORICAL 증거, 수정 금지) |
+| `tests/` | 특성화·결함·정책 테스트 하네스(WP-00~G) |
 
 `prompts.py`와 `scenarios/*.json`은 **임의 수정 금지**. 수정안을 제시하고 승인받은 뒤 적용한다.
 
@@ -96,54 +100,71 @@ python main.py
 
 | 파일 | 줄 | 명령어 |
 |---|---|---|
-| `gm.py` | 4,000+ | `!자동` 그룹(시작·중단·상태·개입·재계획·서사·원장·**퀘스트**·턴제한·비용제한), `!되감기` |
-| `game.py` | 1,500+ | `!재생성` `!출력물` `!주사위` `!기억압축` `!노트` `!캐시노트` `!더빙테스트` (WP-G: 수동 `!진행`·`!수정` 은퇴) |
+| `gm.py` | 5,564 | `!자동` 그룹(시작·중단·상태·개입·재계획·서사·원장·**퀘스트**·턴제한·비용제한), `!되감기` |
+| `game.py` | 1,491 | `!재생성` `!출력물` `!주사위` `!기억압축` `!노트` `!캐시노트` `!더빙테스트` (WP-G: 수동 `!진행`·`!수정` 은퇴) |
 | `character.py` | 1,249 | `!참가` `!설정` `!증감` `!외형` `!프로필` `!엔피씨` `!능력치` `!설정생성` `!캐릭터가져오기` |
-| `system.py` | 800+ | `!명령어` `!배포` `!재시작` `!지급` **`!잉크`** **`!사용량`** `!스페이스` `!캐시` `!리로드` `!세션종료` `!채널정리` `!tts생성` |
-| `media.py` | 733 | `!이미지` `!브금` `!플리` `!볼륨` `!채팅` `!더빙` |
-| `session.py` | 650+ | `!새세션` `!시작` `!소개` + `JoinView` + `on_voice_state_update` |
-| `errors.py` | 154 | 명령어 오류 핸들러 |
+| `system.py` | 872 | `!명령어` `!배포` `!재시작` `!지급` **`!잉크`** **`!사용량`** `!스페이스` `!캐시` `!리로드` `!세션종료` `!채널정리` `!tts생성` |
+| `media.py` | 756 | `!이미지` `!브금` `!플리` `!볼륨` `!채팅` `!더빙` |
+| `session.py` | 632 | `!새세션` `!시작` `!소개` + `JoinView` + `on_voice_state_update` |
+| `errors.py` | 152 | 명령어 오류 핸들러 |
 | `permissions.py` | 98 | `!권한부여` `!권한회수` `!권한목록` |
-| `presence.py` | 110+ | 상태 메시지 순환 + **캐시 만료 감지**(15초 주기) |
+| `presence.py` | 122 | 상태 메시지 순환 + **캐시 만료 감지**(15초 주기) |
 
 ### core/ — 57개 서브모듈
 
 `core/__init__.py`가 전 심볼을 re-export하므로 외부에서는 `core.XYZ`로 접근한다.
+
+#### 턴·커밋·재무 권위 (WP-02~G)
+
+| 모듈 | 줄 | 내용 |
+|---|---|---|
+| `turn_transaction.py` | 345 | `TurnTransaction` — 자동 논리 턴 시도의 런타임 정체성 |
+| `turn_preparation.py` | 1,419 | `TurnPreparation` — 결과 스테이징, 작업 레지스트리, `READY_TO_COMMIT` 배리어, 추출 계획 |
+| `commit_coordinator.py` | 1,171 | `CommitCoordinator` — 유일한 정본 커밋·복구, 재시도 breadcrumb·구 컨텍스트 은퇴 |
+| `commit_journal.py` | 548 | `CommitJournal` — 커밋 단계 append-only 내구 기록·복구 분류 |
+| `settlement.py` | 562 | `TurnSettlement` — 정상 턴 플레이어 부담·보고의 단일 출처 |
+| `ink_transactions.py` | 602 | `InkTransaction`/`LifecycleInkTransaction` — 정확히 한 번 계정 효과 |
+| `cost_ledger.py` | 960 | `CostLedger` — provider 사실 append-only(`data/cost_ledger.jsonl`), strict 조회 |
+| `turn_history.py` | 1,182 | 커밋된 턴 이력 — 되감기·재생성 선택, 출력 정리 부채 |
+| `cache_lifecycle.py` | 878 | 캐시 생애주기 단일 finalizer — 창 선불·환급·보관비 |
+| `interpretation_billing.py` | 258 | 유지 시간 해석 비용의 strict 사실 → 청구 |
+| `message_lifecycle.py` | 323 | 플레이어 채널 메시지 5분류 소유·정리 |
+| `narration_result.py` | 82 | 묘사 생성/전달 결과 DTO |
 
 #### 기반
 
 | 모듈 | 줄 | 내용 |
 |---|---|---|
 | `constants.py` | 143 | 모델 ID, `EXCHANGE_RATE`, `PRICING_1M`, `TTS_VOICES`, `__version__` |
-| `models.py` | 245 | `TRPGSession` — 단일 세션의 모든 상태 |
-| `io.py` | 430 | `SCHEMA_VERSION`, `SESSION_FIELDS`(82), `migrate_session_data`, 직렬화·로그 |
-| `cache.py` | 531 | 룰북 캐시 빌드, `remaining_ttl`, `is_cache_expired`, `is_session_open`, 세션 복구 |
-| `resilience.py` | 107 | `call_with_retry` — 재시도·타임아웃·오류 로그 분리 |
+| `models.py` | 293 | `TRPGSession` — 단일 세션의 모든 상태 |
+| `io.py` | 528 | `SCHEMA_VERSION`, `SESSION_FIELDS`(82), `migrate_session_data`, 직렬화·로그 |
+| `cache.py` | 561 | 룰북 캐시 빌드, `remaining_ttl`, `is_cache_expired`, `is_session_open`, 세션 복구 |
+| `resilience.py` | 207 | `call_with_retry` — 재시도·타임아웃·오류 로그 분리 |
 
 #### 프롬프트·AI
 
 | 모듈 | 줄 | 내용 |
 |---|---|---|
-| `prompt.py` | 332 | `PromptBuilder` — 체이닝으로 블록 조립 |
-| `extraction.py` | 564 | 추출 스키마·파싱·적용, 동행 갱신, **소지품 반영**, `build_extraction_limits` |
-| `dialogue.py` | 458 | `@대사:이름\|본문` 파싱, 인물 이미지 송출, 스트리밍, `WaitingStatus` |
+| `prompt.py` | 343 | `PromptBuilder` — 체이닝으로 블록 조립 |
+| `extraction.py` | 664 | 추출 스키마·파싱·적용, 동행 갱신, **소지품 반영**, `build_extraction_limits` |
+| `dialogue.py` | 516 | `@대사:이름\|본문` 파싱, 인물 이미지 송출, 스트리밍, `WaitingStatus` |
 
 #### 비용·결제
 
 | 모듈 | 줄 | 내용 |
 |---|---|---|
-| `cost.py` | 482 | 토큰 단가 계산, `accrue`(KRW+USD), `format_breakdown`, 비용 임베드 |
-| `estimate.py` | 455 | 턴·세션오픈·TTS 예상, `approx_cache_tokens` |
+| `cost.py` | 689 | 토큰 단가 계산, 호환 미러 `accrue`, 비용 임베드, CostLedger 조회(`provider_cost_summary`·`player_ink_summary`·`auto_cost_cap_reached`) |
+| `estimate.py` | 380 | 턴·세션오픈·TTS 예상, `approx_cache_tokens` (압축 선결제는 WP-G에서 은퇴) |
 | `ink.py` | 85 | 잉크 환산 (1잉크 = 10원) |
-| `accounts.py` | 211 | 계정 등록, 약관 버전, 잔액, `set_balance` |
-| `terms.py` | 191 | 약관 동의 DM |
+| `accounts.py` | 576 | 계정 등록·약관·잔액. strict 금전 프리미티브(Settlement CHARGE·Lifecycle 조정 마커) + 운영자 `*_strict`(WP-G). 레거시 tolerant writer는 테스트 시드 전용 |
+| `terms.py` | 202 | 약관 동의 DM |
 | `stats.py` | 196 | 누적 플레이 기록 |
 
 #### 세션 생성
 
 | 모듈 | 줄 | 내용 |
 |---|---|---|
-| `session_flow.py` | 688 | **17단계 통합 플로우** — 단일 메시지 임베드로 갱신 |
+| `session_flow.py` | 698 | **17단계 통합 플로우** — 단일 메시지 임베드로 갱신 |
 | `intro.py` | 276 | **소개 — 인지 수준 3단계, 항목별 바리에이션** |
 | `creation.py` | 176 | 단계 상태 기계 |
 | `session_open.py` | 134 | 유지 시간 입력 해석 |
@@ -156,7 +177,7 @@ python main.py
 | `profile_gen.py` | 668 | 생성 모듈 10종, 능력치 등급·랜덤 배분, `swap_to_top`, `starting_items` |
 | `profile_runner.py` | 347 | 시나리오 알고리즘 해독·실행 |
 | `profile_creation_ui.py` | 613 | 풀오토 생성 UI — 단일 메시지 임베드 |
-| `profile_ai.py` | 178 | AI 검증·병합 (무료) |
+| `profile_ai.py` | 215 | AI 검증·병합 (무료) |
 | `profiles.py` · `profile_ui.py` | 649 | 사전 저장 프로필과 DM 관리 |
 
 #### 세계
@@ -164,32 +185,32 @@ python main.py
 | 모듈 | 줄 | 내용 |
 |---|---|---|
 | `places.py` | 401 | **장소 계층 그래프** — 이동 개연성, 가시성, 이미지 상속 |
-| `quest.py` | 749 | 퀘스트 트리, 이면정보, 메인 해금, `apply_grants`, 인피니티 플랜 |
+| `quest.py` | 815 | 퀘스트 트리, 이면정보, 메인 해금, `apply_grants`, 인피니티 플랜 |
 | `quest_filter.py` | 326 | **필터 매칭 — 통과한 값이 곧 슬롯** |
 | `start_frame.py` | 239 | 시작 상황 틀 |
 | `timeline.py` | 184 | 작중 시간 정량화 |
 | `growth.py` | 215 | 능력치 성장·행운 |
-| `irregular_npc.py` | 230 | 비정규 NPC 이미지·목소리 |
+| `irregular_npc.py` | 244 | 비정규 NPC 이미지·목소리 |
 | `koreantext.py` | 144 | 슬롯 치환·조사 보정 |
 
 #### 기억
 
 | 모듈 | 줄 | 내용 |
 |---|---|---|
-| `memory_plan.py` | 202 | 압축 플랜 4종 |
-| `rewind.py` | 340 | 되감기 델타 로그 (`TRACKED_PATHS` 14개) |
+| `memory_plan.py` | 306 | 압축 플랜 4종 |
+| `rewind.py` | 231 | 레거시 델타 로그(비권위, `TRACKED_PATHS` 14개). 되감기 권위는 `turn_history` |
 
 #### 미디어·UI
 
 | 모듈 | 줄 | 내용 |
 |---|---|---|
-| `display.py` | 623 | **디스플레이 채널** — 상태·UI 단일 메시지, `notify`/`close_notice` |
+| `display.py` | 655 | **디스플레이 채널** — 상태·UI 단일 메시지, `notify`/`close_notice` |
 | `audio_mixer.py` | 393 | BGM/플리 + 효과음 + 음성 합산 |
-| `tts.py` · `tts_preset.py` | 397 | Gemini TTS, 시스템 문구 사전 합성 |
-| `media.py` · `media_control.py` | 302 | 이미지 전송, 플레이리스트, BGM 선택 |
-| `ui.py` | 293 | 주사위 뷰, 채널 삭제 뷰 |
+| `tts.py` · `tts_preset.py` | 436 | Gemini TTS, 시스템 문구 사전 합성 |
+| `media.py` · `media_control.py` | 316 | 이미지 전송, 플레이리스트, BGM 선택 |
+| `ui.py` | 282 | 주사위 뷰, 채널 삭제 뷰 |
 | `chat_guard.py` | 82 | 채널별 권한 검증 (단일 훅) |
-| `utils.py` | 283 | 캐릭터 검색, AI 설정 생성 |
+| `utils.py` | 310 | 캐릭터 검색, AI 설정 생성 |
 
 ---
 
@@ -206,11 +227,19 @@ sessions/{session_id}/
 ├── cost_log.txt           비용 내역
 ├── error_log.txt          오류
 ├── full_logs.jsonl        전 턴 대화 원본
-├── rewind_log.jsonl       턴별 델타
+├── turn_commit_journal.jsonl   커밋 단계 저널 (CommitJournal)
+├── turn_settlements.jsonl      턴 Settlement
+├── turn_history.jsonl          커밋 턴 이력 인덱스 (+ 턴별 레코드 디렉터리)
+├── history_op.json · history_pending_messages.json   되감기/재생성 진행·정리 부채
+├── transient_messages.json     임시 안내 메시지 레지스트리
+├── cache_lifecycle.jsonl       캐시 창·생애주기 저널
+├── interpretation_billing.jsonl 유지 시간 해석 청구 저널
+├── retry_claims.jsonl          추출 재시도 provider claim
+├── rewind_log.jsonl       레거시 턴별 델타 (비권위)
 └── rewind_archive.jsonl   되감기로 제거된 정보
 ```
 
-세션 외부: `profiles/{uid}.json` · `accounts/{uid}.json` · `stats/{uid}.json`
+세션 외부: `profiles/{uid}.json` · `accounts/{uid}.json` · `accounts/ink_transactions/{uid}.jsonl` · `stats/{uid}.json` · `data/cost_ledger.jsonl`(전 세션 provider 비용 원장)
 
 ### 스키마 마이그레이션
 
@@ -399,13 +428,15 @@ pip install -r requirements-dev.txt
 python3 -m pytest tests/ -q
 ```
 
-`tests/`는 **현재 동작을 고정**한다. 바람직한 동작이 아니다.
+`tests/`는 **현재 동작과 권위 불변식을 고정**한다. 현재 637건(특성화 37 · 결함 27 · 정책 573)이 모두 통과하며 strict xfail은 0건이다.
 
 | 분류 | 의미 |
 |---|---|
-| `characterize` | v5.33.0의 관측된 동작. 의도적 변경 시 함께 바뀐다 |
-| `defect` | 알려진 결함 재현. 바람직한 단언은 `xfail(strict=True)` |
-| `policy` | 목표 정책. 프로덕션 프리미티브 부재 시 skip |
+| `characterize` | 관측된 동작 고정. 의도적 변경 시 함께 바뀐다(예: `_execute_proceed` 호출자 = 자동·인트로) |
+| `defect` | 알려진 결함 재현. 바람직한 단언은 `xfail(strict=True)` — WP-B~F에서 전부 해소돼 현재 0건 |
+| `policy` | 목표 정책·권위 불변식(WP별 `test_wp_*`, 커밋·청구·이력·캐시·메시지·프롬프트 권위) |
+
+권위 불변식 테스트는 소스 스캔으로 "누가 부르는가"를 고정한다(예: strict 저장은 `commit_coordinator`만, 추출 정본 적용은 커밋 경로만, 레거시 tolerant 계정 writer 프로덕션 호출자 0). **테스트를 완화해서 통과시키지 말고 설계를 맞춘다.**
 
 **strict xfail이 XPASS로 바뀌면 실패한다.** 결함이 고쳐졌다는 뜻이므로
 리뷰 후 xfail을 제거해야 한다.
@@ -413,7 +444,7 @@ python3 -m pytest tests/ -q
 라이브 디스코드·Gemini·네트워크·자격증명을 쓰지 않는다.
 `tests/conftest.py`의 autouse 픽스처가 자격증명을 지우고 SDK 생성을 막는다.
 
-인도 번들: `handoff/WP00_*`
+인도 번들: `handoff/WP00_*` ~ `handoff/WP_G_*` (WP-G: 완료 번들·사후 스캔·AUD-001~063 최종 매트릭스·시나리오 매트릭스·제어 동기화 제안)
 
 ---
 
@@ -604,3 +635,5 @@ asyncio.run(t())
 | 오디오 자산 | 공통 소개 TTS·테마곡 |
 | 소개 미디어 | `intro_images` 연결부만 있고 자산 없음 |
 | 디스코드 결제 | SKU 한국 미지원. `!지급`·`!잉크`로 대체 |
+| 운영 반영 | WP-G 머지·배포 후 `!캐시 재발급` 필요(프롬프트 D1·무협 `location_images` 변경). 버전 번호 상향 여부 결정 |
+| 자동 턴 TTS | 더빙은 인트로에만 적용된다(자동 턴 미적용은 기존 동작). 확장은 별도 기능 |

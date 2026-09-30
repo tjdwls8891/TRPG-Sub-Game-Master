@@ -1,393 +1,238 @@
 ==============================================================
-TRPG Sub Game Master — Claude 세션 온보딩 레퍼런스 (v1.9)
+INDAIM (TRPG Sub Game Master) — Claude 세션 온보딩 레퍼런스
+v5.33.0 · SCHEMA_VERSION 3 · 7-WP 리팩터링(WP-A~G) 반영 · 2026-09-30 갱신
 ==============================================================
 Gemini API + discord.py 기반 한국어 TRPG 보조 GM 디스코드 봇.
-GM이 마스터 채널에서 명령어를 입력하면 AI가 묘사를 생성하고
-비용 추적·캐시 관리·기억 압축·BGM/이미지 연출·자동 GM 진행·
-TTS 음성 더빙을 자동화한다.
+플레이어는 서버 GM 스페이스의 버튼으로 세션을 열고, 캐릭터를 만들고,
+게임 채널에 행동을 선언한다. AI가 4개 층위(판단·지시·묘사·추출)로
+턴을 진행한다. 명령어는 GM의 수동 개입·복구 수단이며 일반 플레이에는
+쓰지 않는다.
 
-> 상세·최신 아키텍처 설명은 CLAUDE.md를 우선 참조. 본 문서는 빠른 온보딩 요약.
+> 상세·최신 설명의 정본은 CLAUDE.md. 설계 이유·이력은 DEVLOG.md.
+> 이 문서는 빠른 온보딩 요약이다. 수치는 tools/verify_docs.py로 대조한다.
+> (v1.9 시절 이 문서의 !진행 태그·!수정·!재생성 롤백·압축 선결제 설명은
+>  모두 폐기됐다. 과거 설명이 필요하면 git 이력을 본다.)
 
 ==============================================================
 1. 파일 맵
 ==============================================================
-main.py         TRPGBot(commands.Bot 상속). active_sessions{ch_id: session},
-                session_io_locks{sid: Lock}, playlist_sessions{guild_id: mgr},
-                genai_client, system_instruction, intro_text.
-                setup_hook()에서 cogs/*.py 자동 로드.
-                on_ready()에서 restore_sessions_from_disk(bot) 호출.
+main.py          TRPGBot. active_sessions{ch_id: session}(게임·마스터·디스플레이
+                 채널 id 모두 같은 세션을 가리킴), cost_ledger, cog 자동 로드,
+                 세션 복구, GM 홈 갱신.
+prompts.py       층위별 시스템 지시문 + 응답 스키마. 임의 수정 금지(승인 후 적용).
+scenarios/*.json 시나리오 데이터(영도·무협·다크판타지·빈시나리오·example).
+                 퀘스트는 {이름}.quests.json. 임의 수정 금지.
+media/{시나리오id}/  인물 이미지·BGM. 폴더명 = 시나리오 id.
+cogs/            명령어 계층 9개(gm·game·character·system·media·session·
+                 errors·permissions·presence). 핫스왑 가능(!리로드).
+core/            57개 파일. core/__init__.py가 전 심볼을 re-export → core.XYZ.
+                 핫스왑 불가(재시작 필요).
+tests/           특성화 37 · 결함 27 · 정책 573 = 637건(전부 통과, xfail 0).
+handoff/         WP별 완료 번들·스캔·매트릭스(과거 번들은 수정 금지).
+tools/verify_docs.py  CLAUDE.md·DEVLOG.md 수치 자동 대조(--fix로 반영).
+specs/           v5.29.1 기준 역추출 명세 — HISTORICAL 스냅샷.
 
-core/           10개 서브모듈 패키지. __init__.py가 전 심볼 re-export하므로
-                외부에서는 기존처럼 `import core` / `core.XYZ` 사용.
-                의존성 단방향: constants→models→cost→io→cache (순환 없음).
-  constants.py   모델 ID, 환율, 안전 설정, PRICING_1M, TTS 상수
-  models.py      TRPGSession 데이터 모델
-  cost.py        format_cost, calculate_*_cost 함수군
-  io.py          SCHEMA_VERSION, SESSION_FIELDS, save_session_data, write_*_log,
-                 load_scenario_from_file, process_cache_deletion
-  cache.py       build_scenario_cache_text, update_session_cache_state,
-                 restore_sessions_from_disk
-  prompt.py      PromptBuilder, build_compression_prompt
-  dialogue.py    대사 마커 파싱·포맷, maybe_send_speaker_image, stream_text_to_channel
-  media.py       send_image_by_keyword, PlaylistManager
-  audio_mixer.py MixerAudioSource(BGM/플리 base + 효과음 + 음성 큐 합산),
-                 ensure_mixer/get_mixer/active_volume_source, preload_sfx/play_dice_sfx
-  tts.py         synthesize_tts_pcm (Gemini native TTS → 48kHz stereo PCM)
-  ui.py          ChannelDeleteView, GeneralDiceView, DiceView, _cleanup_session_memory
-  utils.py       get_uid_by_char_name, generate_character_details, resolve_pc/resolve_char_name
-core_legacy.py  분리 이전 단일 core.py 백업 (롤백용, 운영 미사용).
-
-cogs/session.py  !새세션, !시작, !소개
-cogs/game.py     !진행, !주사위, !재생성, !출력물, !수정, !기억압축, !노트,
-                 !캐시노트, !더빙테스트
-                 on_message(자동 로그), on_typing(GM 타이핑 동기화)
-cogs/character.py !참가, !설정, !증감, !외형, !프로필, !엔피씨, !능력치, !설정생성
-cogs/media.py    !이미지, !브금, !플리, !볼륨, !채팅, !더빙
-cogs/system.py   !명령어, !채널정리, !세션종료, !캐시, !리로드
-cogs/gm.py  !자동 그룹 (시작/중단/상태/개입/턴제한/비용제한/서사/재계획)
-                 2-티어 AI 루프, 서사 계획·시뮬레이션·세계 타임라인
-
-scenarios/       *.json — 읽기 전용 정적 시나리오 데이터
-media/           media/{scenario_id}/*.mp3, *.png — 오프라인 에셋
-sessions/        sessions/{8자리UUID}/ — 동적 세션 데이터 (런타임에 생성됨)
-                  data.json, api_log.txt, game_chat_log.txt,
-                  master_chat_log.txt, cost_log.txt
-paused_session/  수동으로 이동해 둔 세션 백업본 (자동으로 복구되지 않음)
+core 주요 묶음(자세한 표는 CLAUDE.md):
+  기반        constants · models(TRPGSession) · io(SESSION_FIELDS 82) · cache · resilience
+  턴 권위     turn_transaction · turn_preparation · commit_coordinator · commit_journal
+  재무        cost_ledger · settlement · ink_transactions · accounts · cost · estimate · ink
+  이력·파생   turn_history · message_lifecycle · cache_lifecycle · interpretation_billing
+              · memory_plan · rewind(레거시 비권위)
+  프롬프트·AI prompt(PromptBuilder) · extraction · dialogue · narration_result
+  세계·프로필 places · quest · quest_filter · start_frame · timeline · growth ·
+              irregular_npc · profile_* · session_flow · intro · gm_space
+  미디어·UI   display · audio_mixer · tts · tts_preset · media · media_control · ui
 
 ==============================================================
-2. TRPGSession 필드 레퍼런스 (core/models.py)
+2. 턴 흐름
 ==============================================================
-※ 저장·복구 대상 선택적 필드는 core/io.py의 SESSION_FIELDS 레지스트리가
-  단일 진실 공급원. 새 필드는 거기 등록하면 저장·복구 자동 반영.
-  핵심 필드(session_id/game_ch_id/master_ch_id/players 등)는 직접 처리.
-# 채널/시나리오 식별
-session_id       str  — uuid4()[:8]
-game_ch_id       int  — 플레이어 채널 ID
-master_ch_id     int  — GM 전용 채널 ID
-scenario_id      str  — JSON 파일명 (확장자 제외)
-scenario_data    dict — 로드된 시나리오 JSON 원본
+플레이어 선언(게임 채널)
+ → TurnTransaction 시작(자동 논리 턴 1개 = 트랜잭션 1개. 재시도는 새 시도 아님)
+ → [판단층위] ASK / NARRATE / ROLL / PROCEED — 캐시를 읽지 않는다
+ → [개연성 시뮬레이션] → [지시층위] 묘사 지시문 + 퀘스트 선택(캐시 읽음)
+ → [묘사층위] 스트리밍 송출과 동시에 [추출층위] 실행
+ → 모든 결과는 TurnPreparation에 스테이징(정본 미변경)
+ → 필수 작업 합류 → READY_TO_COMMIT
+ → CommitCoordinator가 정본 적용 + strict 저장 + CommitJournal + Settlement 청구
+ → 커밋 이후에만 파생 알림 송출, 다음 라운드 개방
 
-# 캐시 메타데이터
-cache_name       str | None  — 구글 서버 캐시 ID
-cache_obj        Cache | None
-cache_created_at float       — time.time() 기록 시점 (스토리지 비용 계산용)
-cache_tokens     int         — 캐시 토큰 수
-cache_note       str         — !캐시 재발급 시 룰북 하단에 지연 병합될 내용
+실패한 턴은 FAILED_SYSTEM으로 정산되고 플레이어 청구는 0이다(provider 비용은 사실로 남음).
+추출 결과의 정본 적용 경로는 CommitCoordinator → _apply_commit_effects →
+_apply_prepared_extraction → _apply_extraction_plan 하나뿐이다. 준비 객체 없이
+_run_extraction을 부르면 provider 호출 전에 거부된다.
 
-# 캐릭터 데이터
-players          dict  — {uid_str: {name, profile: {}, appearance: ""}}
-npcs             dict  — {npc_name: {name, details}}  ← 정적 default_npcs 오버라이드용
-resources        dict  — {char_name: {item_name: int}}
-statuses         dict  — {char_name: [str, ...]}
-
-# 기억 / 로그
-compressed_memory str       — 압축된 장기 기억 (5턴마다 누적 append)
-raw_logs          list[Content] — API에 그대로 전송되는 대화 배열 (최대 20개 유지)
-current_turn_logs list[str] — 현재 턴 행동 누적 (진행 후 clear)
-uncompressed_logs list[str] — 압축 대기 로그 (5턴마다 LOGIC_MODEL에 전송 후 del)
-note              str       — 매 턴 프롬프트 최상단에 주입되는 GM 실시간 노트
-
-# 상태 플래그
-turn_count        int   — 완료된 턴 수
-is_started        bool  — !시작 실행 여부 (한 번만 허용)
-is_processing     bool  — 턴 진행 중 동시 요청 차단
-last_turn_anchor_id int | None — !재생성 롤백 기준점 메시지 ID
-total_cost        float — 세션 누적 비용 (KRW, 반올림 없는 원형)
-
-# 미디어 상태 (직렬화 제외)
-volume            float — BGM/플리 볼륨 (0.0~2.0, 기본 0.3)
-voice_client      VoiceClient | None
-current_bgm       str | None
-is_bgm_looping    bool
-gm_typing_task    Task | None  — on_typing에서 20초 유지
-tts_enabled       bool  — !더빙 토글 (SESSION_FIELDS 등록)
-
-# 캐시 스냅샷 / 자동 GM / 서사 (주요 추가 필드, SESSION_FIELDS 참조)
-cached_session_npcs    dict — 캐시 시점 세션 NPC 스냅샷 (델타 비교 기준)
-cached_compressed_memory str — 캐시 [9]에 수록된 과거 기억
-auto_gm_active         bool — !자동 시작 여부
-auto_gm_turn_cap       int | None — 자동 턴 한도 (None=무제한)
-auto_gm_cost_cap_krw   float | None — 자동 비용 한도 (None=무제한)
-auto_gm_proceed_history list — 최근 3회 PROCEED 이력 (반복 방지)
-narrative_plan         dict — 사건 단위 서사 계획 (current_event/next_event)
-world_timeline         dict — 위치·시간대·세력 배치·위협 (시뮬레이터 기준)
+공유 묘사 엔진 GameCog._execute_proceed의 호출자는 자동 턴(_dispatch_proceed)과
+인트로(play_intro) 둘뿐이다(수동 !진행·!수정은 WP-G에서 은퇴).
 
 ==============================================================
-3. 핵심 알고리즘 / 패턴
+3. 핵심 권위와 패턴
 ==============================================================
+[A] 재무 권위 3분할
+  provider 사용량·비용  → CostLedger(data/cost_ledger.jsonl, append-only,
+                          기록 당시 KRW/USD). strict 조회는 list_cost_events_strict.
+  정상 턴 플레이어 부담 → Settlement → InkTransaction(정확히 한 번, 계정 마커)
+  캐시 창 선불·환급      → cache_lifecycle 저널 + LifecycleInkTransaction
+  유지 시간 해석 청구    → interpretation_billing 저널(strict CostEvent 이후에만)
+  total_cost / total_usd / turn_cost_log 는 표시용 호환 미러. 규칙 입력 금지.
+  둘은 집계 범위가 달라(무료 프로필 AI는 usd에만) 환율 등식으로 잇지 않는다.
+  자동 GM 비용 상한 = CostLedger 세션 합계 − 활성화 스냅샷(fail-closed).
+  압축 provider 비용 = 운영자 부담 유지비(선결제 개념 없음).
 
-[A] PromptBuilder.build_prompt() 주입 순서 (core/prompt.py)
-  ① add_memory_block()      — compressed_memory (절대 참조용 누적 기억)
-  ② add_note_block()        — session.note (GM 하드코딩 노트)
-  ③ add_player_block()      — players 전체 스탯·외형·resources·statuses
-  ④ add_triggered_npc_block() — 최근 10개 raw_logs + current_turn_logs + gm_instruction
-                               에 이름이 등장 AND default_npcs와 details가 다를 때만 주입
-  ⑤ add_keyword_memory_block() — keyword_memory의 keywords가 위 combined에 있을 때만 주입
-  ⑥ add_recent_action_block() — current_turn_logs 전체
-  ⑦ add_gm_instruction_block() — clean_instruction
-  ⑧ add_rule_enforcement_block() — 최종 룰 강제 + status_code_block 출력 지시
+[B] 되감기·재생성 (turn_history)
+  커밋된 턴마다 전후 상태를 기록하고 "선택"을 바꾼다. !되감기·disp:rewind*.
+  !재생성 = 같은 논리 턴의 새 시도(rerender_latest). 새 시도가 COMMITTED된
+  뒤에만 선택이 넘어가며, 기존 청구는 유지되고 실패한 재생성은 청구 0.
+  재무 사실은 되감지 않는다.
 
-[B] 캐시 패딩 해킹 (build_scenario_cache_text)
-  Gemini 캐싱 최소 32,768토큰 요건 우회.
-  base_tokens < 32768 → missing_tokens * 4개의 '.'을 "[System Data Padding Area - DO NOT READ]"
-  헤더와 함께 룰북 끝에 삽입. cache_note는 룰북 [6] 섹션 하단에 지연 병합.
+[C] 프롬프트 권위 (WP-G D1, 정보 종류별)
+  플레이어 주권: PC 행위에 대한 최상위 제약
+  룰북 고정 사실·금지사항: note·GM 지시로 무효화 불가
+  런타임 상태: 변하는 항목(NPC 현재 위치·상태)만 초기값보다 우선
+  session.note·캐시 노트: 추가·범위 축소. 충돌 시 자동 override 안 함
+  GM 지시·[진행자] 중계·사이드 노트: 위 범위 안의 진행 지시
+  압축 기억: 파생 기억 / 플레이어의 외부 세계 주장: 미확인 주장
+  자원·상태 변화: 묘사 → 추출 → 코드 검증으로만 적용. 자:/태: 태그는 권위 없음
+  (방어적 strip만), 상:/중:/하: 장소 이미지 태그는 유지.
 
-[C] !진행 태그 파싱 (game.py — proceed_turn)
-  정규식으로 태그 추출 후 instruction에서 제거한 clean_instruction만 AI에 전달.
-  - 상/중/하:키워드  → top_imgs / mid_imgs / bottom_imgs 큐에 적재
-    상: 첫 문단 출력 후 전송 | 중: 텍스트에 키워드 등장 시 동적 삽입 | 하: 묘사 끝 후 전송
-  - 자:이름;아이템;수치  → session.resources[이름][아이템] += 수치
-  - 태:이름;상태  → session.statuses[이름].append(상태)
-  - 태:이름;-상태 → session.statuses[이름].remove(상태)
+[D] 캐시 룰북 조립 (core/cache.py)
+  [1]세계관 → [1-B]연고지 상세(keyword_memory) → [2]스토리 가이드 → [3]NPC 사전
+  → [4]스탯·판정 → [4.5]상태이상 목록 → [5]묘사 가이드 → [6]금지사항
+  → [7]상태창 양식 → [8]세션 추가 NPC → [9]압축 기억 → 캐시 노트
+  → GM 의사결정 엔진 전용 지시문(묘사 시 무시하도록 라벨)
+  → MIN_CACHE_TOKENS(기본 1024) 미달 시 패딩.
+  캐시 생성·교체·삭제·보관비는 cache_lifecycle 단일 finalizer를 거친다.
 
-[D] !시작 role 조작 해킹 (session.py)
-  start_message를 types.Content(role="model") 로 raw_logs에 삽입.
-  → AI가 "내가 이 묘사를 했다"고 인식 → 이후 GM 스탠스 자동 유지.
-  is_started = True 로 중복 실행 차단.
+[E] 기억 압축 (memory_plan)
+  플랜별 주기(노멀 5 / 하이 3 / 로우 5 / 울트라 1). 백그라운드 실행.
+  출발 시점의 출처 식별(세대·접두 지문)이 여전히 정본일 때만 적용하고,
+  아니면 결과를 폐기한다(비용은 사실로 남음). 적용된 모든 압축이
+  last_compressed_turn·compression_count를 갱신한다.
 
-[E] 기억 압축 (game.py — proceed_turn / compress_memory)
-  turn_count % 5 == 0 시 자동 트리거. !기억압축으로 강제 실행 가능.
-  uncompressed_logs → build_compression_prompt(session, log_text) → LOGIC_MODEL
-  → 응답을 compressed_memory에 append, uncompressed_logs에서 del.
+[F] 메시지 생애주기 (message_lifecycle)
+  CANONICAL_DISPLAY / INTERACTION_PROMPT / TRANSIENT_GAME_STATUS /
+  CANONICAL_GAME_EVENT / OPERATOR_LOG. 대기 안내 등 임시 메시지는
+  성공·실패·취소 어느 경로든 정리된다. 운영 로그는 플레이어 채널로 새지 않는다.
 
-[F] !재생성 롤백 (game.py — regenerate_turn)
-  ① game_channel.purge(after=anchor_msg, check=bot.user) — 이전 턴 봇 출력 삭제
-  ② raw_logs[-2:]에서 user 콘텐츠 분석 → "\n[GM 지시]:" 기준 split → current_turn_logs 복원
-  ③ raw_logs = raw_logs[:-2] / uncompressed_logs = uncompressed_logs[:-2]
-  ④ turn_count -= 1 / last_turn_anchor_id = None
-  turn_count % 5 == 0인 경우(압축 직후) 롤백 차단.
-
-[G] 캐시 자가복구 (game.py — generate_with_retry)
-  APIError(400/404, "cache" in str) 발생 → process_cache_deletion(보관비 정산)
-  → build_scenario_cache_text → caches.create → retry_count=1로 재귀 호출.
-  retry_count=1 상태에서 재실패 시 예외 그대로 raise.
-
-[H] 스트리밍 연출 (core/dialogue.py — stream_text_to_channel)
-  text.split('\n\n') → 문단별 새 메시지 전송 → words_per_tick(기본 5)단어씩
-  asyncio.sleep(tick_interval=1.5) 후 message.edit() → 타이핑 연출.
-  문단이 1950자 초과 시 break. game_chat_log에 최종 텍스트 기록.
-
-[I] 세션 직렬화/복구
-  save_session_data: raw_logs → [{role, text}] 변환 후 data.json 덮어씌움.
-                     asyncio.Lock으로 동시 쓰기 방지.
-  restore_sessions_from_disk: data.json → TRPGSession 재조립 → cache_name ping 테스트
-                               → 만료 시 자동 재발급 → active_sessions[game_ch_id/master_ch_id] = session.
-
-[J] PCM 오디오 믹서 (core/audio_mixer.py — MixerAudioSource)
-  VoiceClient.play()는 동시에 한 소스만 재생 → 봇이 PCM을 직접 합산.
-  매 20ms 프레임마다 base(BGM/플리) + effects(효과음 중첩) + voice(순차 큐)를
-  audioop.add로 합산. 효과음 재생 중 base 0.55, 음성 재생 중 0.30 덕킹.
-  세 레이어 모두 비면 무음 프레임 반환해 연결 유지(트랙 종료 ≠ 소스 종료).
-  주사위 효과음: preload_sfx("dice")(on_ready) → 버튼 콜백서 play_dice_sfx 논블로킹.
-
-[K] TTS 음성 더빙 (core/tts.py — synthesize_tts_pcm / game.py 동기 출력)
-  !더빙 ON + 보이스 연결 시 수동 !진행 묘사를 단일 나레이터 보이스로 낭독.
-  Gemini native TTS → 24kHz mono → audioop 48kHz stereo 리샘플 → bytes.
-  _stream_paragraphs_synced: 문단별 PCM 합성(다음 문단 prefetch) → voice 큐 적재
-  → 텍스트를 음성 길이에 맞춰 스트리밍(문단 단위 lock-step). OFF/미연결 시 폴백.
-  비용은 턴 비용 임베드에 "TTS 더빙(n/m문단)"으로 합산.
+[G] 오디오 (audio_mixer · tts)
+  BGM/플리 + 효과음 + 음성을 20ms 프레임마다 합산(덕킹). TTS 더빙은
+  인트로 묘사에만 적용된다(자동 턴 미적용).
 
 ==============================================================
-4. 비용 모델 (core/cost.py · core/constants.py)
+4. 비용 모델
 ==============================================================
-EXCHANGE_RATE = 1500.0  (KRW/USD 고정)
+EXCHANGE_RATE = 1500.0 (KRW/USD) · 1잉크 = 10원 (INK_UNIT_KRW)
+DEFAULT_MODEL = LOGIC_MODEL = EXTRACTION_MODEL = "gemini-3-flash-preview"
+IMAGE_MODEL = "gemini-3.1-flash-image-preview" · TTS_MODEL = "gemini-2.5-flash-preview-tts"
 
-PRICING_1M 모델별 단가 (USD/100만 토큰):
-  gemini-3-flash-preview:        INPUT=0.50, OUTPUT=3.00,  CACHE_READ=0.05, STORAGE/hr=1.00
-  gemini-3.1-pro-preview:        INPUT=2.00, OUTPUT=12.00, CACHE_READ=0.20, STORAGE/hr=4.50
-  gemini-2.5-pro:                INPUT=1.25, OUTPUT=10.00, CACHE_READ=0.20, STORAGE/hr=4.50
-  gemini-3.1-flash-image-preview: INPUT=0.50, OUTPUT=3.00, OUTPUT_IMAGE=60.00, CACHE_READ=0.05, STORAGE/hr=1.00
-  gemini-2.5-flash-preview-tts:  INPUT=0.50, OUTPUT(오디오)=10.00, CACHE_READ=0.05, STORAGE/hr=1.00
+PRICING_1M (USD / 100만 토큰):
+  gemini-3-flash-preview          IN 0.50 · OUT 3.00  · CACHE_READ 0.05 · STORAGE/h 1.00
+  gemini-3.1-pro-preview          IN 2.00 · OUT 12.00 · CACHE_READ 0.20 · STORAGE/h 4.50
+  gemini-2.5-pro                  IN 1.25 · OUT 10.00 · CACHE_READ 0.20 · STORAGE/h 4.50
+  gemini-3.1-flash-image-preview  IN 0.50 · OUT 3.00 · OUT_IMAGE 60.00 · CACHE_READ 0.05
+  gemini-2.5-flash-preview-tts    IN 0.50 · OUT(오디오) 10.00
 
-이미지: 출력 이미지 토큰 과금 (IMAGE_OUTPUT_TOKENS_BY_RES 해상도별 폴백 표).
-  예: 1024x1024 ≈ 1120 토큰 ≈ $0.067.
-TTS: 출력 오디오 토큰 과금. 턴 비용 임베드에 "TTS 더빙(n/m문단)"으로 합산.
-
-calculate_upload_cost(model, in, out, cached_read):
-  actual_input = in - cached_read
-  → (actual_input * INPUT + out * OUTPUT + cached_read * CACHE_READ) / 1M * EXCHANGE_RATE
-
-calculate_storage_cost(model, tokens, duration_seconds):
-  minutes = round(duration_seconds / 60)  ← 초→분 반올림
-  → tokens / 1M * (STORAGE/hr / 60) * minutes * EXCHANGE_RATE
-  max cap: 21600초(6시간)
-
-process_cache_deletion(bot, session):
-  보관비 정산 → session.cache_name/obj/model/created_at/tokens 초기화 → save
-
-write_cost_log → sessions/{id}/cost_log.txt 에 타임스탬프+사용처+토큰+비용 기록
+주의:
+  - thinking 모델은 thoughts_token_count를 출력에 합산해야 한다(누락 시 과소 계상).
+  - 캐시 비용은 단위가 키워드 인자로 드러나는 cache_create_cost_usd · cache_storage_cost_usd
+    · cache_window_* · cache_usd_to_ink만 쓴다(초·시간 혼동 방지).
+  - 플레이어에게는 잉크만 보인다. 원·달러는 마스터 전용.
+  - !사용량: CostLedger 기록값(billing_hint별) + 플레이어 잉크(턴·캐시 선불/환급·해석)를
+    분리 표시한다.
 
 ==============================================================
-5. 시나리오 JSON 스키마
+5. 시나리오 JSON
 ==============================================================
-필수/주요 키:
-  worldview          세계관 (캐시 [1])
-  story_guide        스토리 가이드 (캐시 [2])
-  default_npcs       {이름: {...}} (캐시 [3]). npc_template.info_fields 정의 시 구조화 필드
-  stat_system        스탯/판정 룰 (캐시 [4])
-  desc_guide         묘사 가이드라인 (캐시 [5])
-  prohibitions       GM 절대 금지 사항 list|str (캐시 [6], 정의 시에만)
-  status_code_block  상태창 코드블럭 양식 (캐시 [7], 매 턴 AI 출력)
-  scenario_intro     !소개 출력 텍스트
-  start_message      !시작 출력 텍스트 → raw_logs role="model" 주입
-  pc_template        {스탯명: ""} — !참가 시 .copy()로 복제
-  ability_stats      !능력치 굴림 대상 항목 리스트 (Hamilton 배분)
-  ability_stat_max   int | {스탯명:상한} — 굴림 결과 개별 상한
-  stat_descriptions  {스탯명:설명} — 자동 GM GM-Logic ROLL 판정 스탯 선택용
-  keyword_memory     [{keywords:[...], description:"..."}] — 트리거 동적 컨텍스트
-  media_keywords     {한글키워드: "파일명.확장자"} — !이미지 출력
-  image_prompts      {형식키: {prompt, aspect_ratio}} — !이미지 생성
+공통 주요 키:
+  worldview · story_guide · default_npcs(+npc_template.info_fields) · stat_system
+  · desc_guide · prohibitions · status_code_block · status_effects
+  · scenario_intro · start_message · pc_template · ability_stats · ability_stat_max
+  · stat_descriptions · keyword_memory · media_keywords · image_prompts
+  · location_images · bgm_map
+영도 전용(세대 차이 — 정규화 대상 아님):
+  places(122, parent 계층) · start_frames(8) · profile_creation(10단계) · jobs(16)
+  · starting_items · affiliations · briefing_formats · intro_* · job_guides(비활성)
+  퀘스트: 영도.quests.json 44종(필터가 곧 슬롯)
 
-캐시 텍스트 조립 순서 (build_scenario_cache_text):
-  [1]worldview → [2]story_guide → [3]NPC사전 → [4]stat_system → [5]desc_guide
-  → [6]prohibitions(있을 시) → [7]status_code_block
-  → [8]세션 추가 NPC(session 인자 시) → [9]세션 진행 기억(압축 요약, session 인자 시)
-  → cache_note(있을 시) → 최소 32,768토큰 미달 시 '.' 패딩
-  ※ session 인자가 None이면 [8][9] 생략. 캐시 생성 후 반드시
-    update_session_cache_state(session) 호출 (세션 NPC·기억 중복 주입 방지).
+필드 메모:
+  keyword_memory   연고지 섹션을 캐시 [1-B]에 편입하는 원천(턴별 주입은 폐지)
+  media_dir        런타임 미사용. 경로는 항상 media/{시나리오 id}
+  location_images  지시층위에 "사용 가능한 장소 이미지 목록"으로 주입 — 실재 키워드만
+  무협             places·profile_creation·퀘스트 없음. location_images는 비어 있음,
+                   image_prompts는 예시 문구 그대로(대체 문구 필요)
+
+세부 수치·인물 설정은 시나리오 파일 자체를 본다(이 문서에 복제하지 않는다).
 
 ==============================================================
-6. 명령어 레퍼런스 (전체)
+6. 명령어 레퍼런스 (44개)
 ==============================================================
-※ 별도 표기 없으면 마스터 채널 전용. (게임)=게임 채널 전용.
+※ 대부분 마스터 채널 전용. 오너 전용은 (오너).
 
-[세션 관리]
-!새세션 [시나리오명]       채널/디렉토리 프로비저닝 + 캐시 발급
-!시작                      start_message 스트리밍 + raw_logs 주입 (1회 한정, 관리자)
-!소개                      intro_text + scenario_intro + pc_template 키 안내 스트리밍
-!세션종료                  게임 채널 잠금 + 캐시 파기 + 정산 보고
+[세션]
+!새세션 (시나리오명)      수동 세션 생성(보통은 GM 스페이스 버튼)
+!시작                     시작 상황 선택 → 인트로(1회)
+!소개                     소개 화면
+!세션종료                 게임 채널 잠금 · 캐시 종료 · 정산
+!채널정리                 세션 채널 일괄 삭제 UI
 
-[캐릭터]
-!참가 [이름]               (게임) pc_template.copy() → players 등록, 닉네임 변경
-!설정 [이름] [항목] [내용] profile[항목] 덮어쓰기 (whitelist 검증)
-!증감 [이름] [스탯명] [±수치]      스탯 수치 int 덧셈 연산
-!증감 [이름] 자원 [아이템] [±수치] resources 증감 (NPC 이름도 가능)
-!증감 [이름] 상태 [상태명]         statuses 추가 / -[상태]로 제거 (NPC도 가능)
-!외형 [이름] (내용)        appearance 설정(Setter) / 확인(Getter)
-!프로필 [이름] (게임)      Embed 카드 출력 (기본 마스터 채널 / 게임=게임 채널)
-!엔피씨 [설정/확인/삭제/목록] (이름) (내용)   session.npcs 조작
-  설정: 전체 덮어쓰기 / 단일 필드 수정(info_fields) / **필드**:값 형식 자동 파싱
-!능력치 [이름] [주사위눈] [총합]   ability_stats 순차 D20 굴림 → Hamilton 비례 배분
-  (마스터 채널 전용, ability_stat_max 개별 상한 자동 적용)
-!설정생성 [pc/npc] [이름] [지시사항]
-  엔:[npc이름,npc이름] 태그로 참조 NPC 지정 가능. LOGIC_MODEL 호출
+[캐릭터·NPC] — 운영자 보정 수단(커밋 경로 밖 직접 변경)
+!참가 [이름]  !캐릭터가져오기 [원본세션ID] [원본이름] (대상이름)
+!설정 [캐릭터] [항목] [값]
+!증감 [캐릭터] [항목|자원|상태] [값]   (띄어쓰기는 _ 로)
+!외형 [캐릭터] (내용)  !프로필 [캐릭터] (게임)  !능력치 [캐릭터] [눈] [총합]
+!엔피씨 [목록|설정|확인|삭제] (이름) (내용)
+!설정생성 [pc|npc] [이름] [지시]      (엔:이름 = 참조 NPC)
 
-[게임 진행]
-!진행 (지시사항)
-  태그: 상/중/하:키워드  자:이름;아이템;수치  태:이름;[-]상태
-!주사위 [이름] [눈수] (가중치) (목표값)   GeneralDiceView — 일반 N면체
-!주사위 [이름] [스탯명] [눈수] (가중치)  DiceView — 능력치 판정
-!재생성 (새 지시사항)                     직전 턴 롤백 + 재진행
-!출력물                                   직전 턴 AI 출력 텍스트를 마스터 채널 전송
-!수정 [텍스트 전체]                       직전 턴 게임 채널 출력물 edit() 덮어쓰기 + 로그 동기화
-!기억압축                                 uncompressed_logs 수동 압축
-!노트 [누적/갱신/출력] (내용)             session.note 조작 (매 턴 프롬프트 주입)
-!캐시노트 [누적/갱신/출력] (내용)         session.cache_note 조작 (캐시 재발급 시 병합)
-!더빙테스트 (보이스)                      직전 묘사 마지막 문단 TTS 즉시 재생
+[진행·판정] — 턴 진행 자체는 자동 GM이 맡는다
+!재생성 (지시)            직전 커밋 턴을 같은 선언·판단으로 다시 서술(기존 청구 유지)
+!되감기 [턴번호]          커밋 이력 기준 되감기
+!출력물                   직전 턴 AI 텍스트(읽기 전용)
+!주사위 [캐릭터] [항목|눈] ...
+!기억압축                 수동 압축
+!노트 [누적|갱신|출력]    session.note(세션 한정 사실·제약)
+!캐시노트 [누적|갱신|출력] 다음 캐시에 병합될 추가 사실
+
+[자동 GM] !자동 그룹
+시작 (대상PC) · 중단 · 상태 · 개입 [메모] · 턴제한 [N|해제] · 비용제한 [원|해제]
+· 서사 · 재계획 (메모) · 원장(정보 인지 원장) · 퀘스트 [열기 <id>|닫기|진전 <케이스>]
 
 [미디어]
-!이미지 [키워드]                           media_keywords 매핑 → 게임 채널 전송
-!이미지 목록                               등록된 키워드 Embed 출력
-!이미지 생성 [형식키] [키워드/파일명] [프롬프트] (레:레퍼런스키)
-  IMAGE_MODEL 호출 → PNG 저장 → scenario.json media_keywords 갱신 (영구 저장)
-!브금 [파일명/목록/정지]                   단일 트랙 무한 루프 / 페이드아웃 정지
-!플리 [시작/종료/다음/이전/일시정지/재생] (시나리오명)  PlaylistManager 백그라운드 셔플
-!볼륨 [0.0~2.0]                           세션 BGM + 플리 볼륨 동시 적용
-!채팅 [잠금/해제]                          @everyone send_messages 토글
-!더빙 [켜기/끄기]                          AI 묘사 TTS 음성 더빙 토글 (실험·!진행 한정)
-
-[자동 GM] (!자동 그룹, invoke_without_command)
-!자동                      하위명령 목록 출력
-!자동 시작 (대상PC)        게임 채널 발언을 AI GM이 자동 처리 (단일 PC면 자동 선택)
-!자동 중단                 자동 모드 정지 → 인간 GM 명령 모드 복귀
-!자동 상태                 활성 여부 / 자동 처리 턴 수 / 누적 비용
-!자동 개입 [텍스트]        다음 PROCEED까지 마스터 사이드 노트 유지
-!자동 턴제한 [N|해제]      자동 진행 최대 턴 (기본 무제한)
-!자동 비용제한 [원|해제]   자동 누적 비용 상한 (기본 무제한)
-!자동 서사                 현재 서사 계획 Embed 출력
-!자동 재계획 [메모]        서사 계획 강제 재수립
-  (GM-Logic 판단: ASK 명확화 / NARRATE 경량 즉답 / ROLL 주사위 / PROCEED 턴 진행)
+!이미지 [키워드|목록|생성 ...]  !브금 [파일명|목록|정지]  !플리 [...]
+!볼륨 [값]  !채팅 [잠금|해제]  !더빙 (켜기|끄기)  !더빙테스트 (보이스)
 
 [시스템]
-!명령어                    전체 가이드 Embed 출력
-!채널정리                  TRPG/game-/master- 채널 Select UI 일괄 삭제 + 메모리 해제
-!캐시 재발급               기존 정산 + build_scenario_cache_text + caches.create
-!캐시 삭제                 caches.delete + 보관비 정산
-!캐시 출력                 업로드된 캐시 룰북 원본 텍스트 디버그 출력 (1950자 분할)
-!리로드 [모듈명]           bot.reload_extension("cogs.{모듈명}") 핫스왑 (관리자)
-  (리로드 가능: game, character, media, session, system, auto_gm)
+!명령어  !캐시 [재발급|삭제]  !리로드 [모듈]  !배포 [리로드|재시작]
+!재시작(오너)  !지급 @유저 [±잉크](오너)  !잉크 @유저 [잔액](오너)
+!사용량 (전체)  !스페이스  !스페이스초기화  !tts생성(오너)
+!권한부여 @유저 · !권한회수 @유저 · !권한목록 (오너)
+
+UI 진입점(버튼): gmspace:* (GM 홈) · disp:* (디스플레이 채널: 미디어 토글·볼륨·
+되감기·재시작·세션 열기/닫기·결제) · session:join · extraction:retry · rewind:one
 
 ==============================================================
-7. 현행 시나리오: shadow_island (영도 — 고립된 낙원)
+7. 저장 구조
 ==============================================================
-현재 버전: v1.7 개발 진행 중 (v1.6 기반)
-
-설정 개요:
-  배경: 2016년 부산 영도구. 바이러스로 이성을 잃은 '살아있는 인간' 감염자.
-  모든 교량 차단, 해로 차단. PC는 쪽배를 타고 영도에 막 상륙한 본토 생존자.
-
-pc_template: {능력, 체력, 근력, 민첩, 기술, 소지품(기본값: "생수 1병, 과자 약간, 쇠파이프")}
-
-판정 시스템: D20 롤 언더 (결과 ≤ 스탯+가중치 = 성공). 평균 능력치=10, PC범위 5~15.
-  대성공(1,2) / 대실패(19,20) — 기준치 4이하 or 17이상 시 예외조항 적용.
-
-4대 세력 및 핵심 NPC:
-  남항 중공업 연대 (조선소, 북서쪽)
-    강철수(58, 의장) 김영호(26, 천재기술자/희망호 제작중) 정미란(46, 병참국장)
-    한태식(50대, 수습대장) 박두식(40대, 현장의사/해부연구)
-
-  해련 자치 마을 (봉래산 해련사+빌라촌)
-    지홍(60대, 주지/창고관리) 강현식(50대, 스카이웨이 설계자) 박주현(50대, 경작대/농업교수)
-    이민수(20대, 청년수송대장)
-
-  조도 방위 사령부 (한국해양대 조도캠퍼스)
-    박진우(40대, 함장/원칙주의) 서하준(20대, 육상작전대장/내적갈등) 정은주(50대, 생명공학교수/치료파)
-    최기철(50대, 군수담당관/밀거래)
-
-  중리 교역소 (동삼1동, 중립 회색지대)
-    송미숙(40대, 중재자/정보통) 잭(30대, 송 마담 직속 수거꾼/묵묵) 오창석(60대, 장부/신용평가)
-    김수진(20대, 해안경비팀 리더/작살)
-
-감염자 특성: 살아있는 인간. 잔존 행동(문고리 흔들기, 열쇠 찾기 등). 소리/빛에 반응.
-              세계관상 치료 가능성 연구 중(정은주).
-
-status_code_block: ```css #턴수 날짜 시간대 / 현재 장소 / 상황 20자 요약```
-
-media_keywords (현재 등록):
-  "김수진프로필" → 김수진프로필.png
-  "영도지도"     → 영도지도.png
-  "마을"         → creepy_village.png
-
-image_prompts (형식키):
-  "캐릭터전신삼면도" — 전신 3면도 (4:3, 흰 배경, 오일페인팅)
-  "상반신프로필"     — 상반신 초상 (5:2, 시네마틱 조명)
-  "단순이미지"       — 상황/사물 단일 이미지 (1:1)
+sessions/{id}/  data.json(원자적 쓰기) · 각종 로그(api/game_chat/master_chat/cost/error)
+                · full_logs.jsonl · turn_commit_journal.jsonl · turn_settlements.jsonl
+                · turn_history.jsonl(+턴 레코드) · history_op.json
+                · history_pending_messages.json · transient_messages.json
+                · cache_lifecycle.jsonl · interpretation_billing.jsonl · retry_claims.jsonl
+                · rewind_log.jsonl / rewind_archive.jsonl(레거시)
+세션 외부: accounts/{uid}.json · accounts/ink_transactions/{uid}.jsonl
+           · profiles/{uid}.json · stats/{uid}.json · data/cost_ledger.jsonl
+저장·복구 대상 세션 필드는 core/io.py의 SESSION_FIELDS(82) 레지스트리가 정본이다.
+새 필드는 models.py 생성자와 SESSION_FIELDS 양쪽에 둔다(검증 루틴 ②).
 
 ==============================================================
-8. 개발 주의사항 / Gotchas
+8. 개발 주의사항
 ==============================================================
-- DEFAULT_MODEL = LOGIC_MODEL = "gemini-3-flash-preview" (Pro는 주석 처리됨)
-  비용 계산은 PRICING_1M 딕셔너리 기준이므로 모델 변경 시 pricing 키도 확인 필요.
-
-- bot.active_sessions에 game_ch_id 와 master_ch_id 양쪽 모두 같은 session 객체를 등록함.
-  채널정리 시 _cleanup_session_memory()가 두 키 모두 pop 해야 메모리 누수 없음.
-
-- !이미지 생성은 scenario.json 파일을 직접 덮어씀 (media_keywords 영구 추가).
-  이미지 생성 시 scenario_data 메모리와 파일 모두 동시 갱신.
-
-- !재생성은 turn_count % 5 == 0 일 때 차단 (압축 직후 롤백 불가).
-  압축이 이미 uncompressed_logs를 지웠으므로 롤백 기준이 없음.
-
-- stream_text_to_channel은 "> " prefix 자동 추가. paragraph가 ">"로 시작하면 prefix 생략.
-  game_chat_log에 최종 텍스트(final_text[:2000])만 기록됨.
-
-- on_typing: is_processing=True 중에는 타이핑 동기화 스킵. 마스터 메시지 전송 시 gm_typing_task.cancel().
-
-- 캐시 model 속성: session.cache_model = core.DEFAULT_MODEL 로 저장.
-  process_cache_deletion에서 getattr(session, "cache_model", DEFAULT_MODEL)로 안전 접근.
-
-- !세션종료와 !캐시 삭제 모두 genai_client.caches.delete 실패해도 process_cache_deletion으로
-  내부 메타데이터는 반드시 초기화 (try-except Fallback 구조).
-
-- paused_session/은 자동 복구 대상이 아님. sessions/ 로 옮겨야 restore_sessions_from_disk 적용.
+- 커밋 전 CLAUDE.md의 검증 루틴 ①~④(+⑤ 봇 로딩)을 돌린다.
+  기준값: cogs 9 · 명령어 44 · views 5.
+- prompts.py·scenarios/*.json은 수정안 → 승인 → 적용. 변경 후 운영에서 !캐시 재발급.
+- 권위 불변식 테스트가 실패하면 테스트를 완화하지 말고 설계를 맞춘다
+  (예: strict 세션 저장은 commit_coordinator에만).
+- 정본 상태를 바꾸는 새 경로를 만들지 않는다. 턴 결과는 준비 → READY → 커밋.
+- 레거시 tolerant 계정 writer(add_ink/deduct_ink/set_balance/register_account)는
+  테스트 시드 전용. 프로덕션은 *_strict와 InkTransaction만 쓴다.
+- core/·main.py 변경은 핫스왑 불가 → !재시작 또는 !배포 재시작.
+- 인계 문서의 추정도 코드로 확인하고, 데이터 불일치는 임의로 판정하지 말고 묻는다.
 ==============================================================
