@@ -3,7 +3,7 @@
 > 현재 버전: **v5.33.0** · `SCHEMA_VERSION` 3
 > 스택: Gemini API + discord.py / 한국어 TRPG 보조 GM 봇
 > 저장소: `tjdwls8891/TRPG-Sub-Game-Master`
-> 리팩터링: 7-WP 프로그램(WP-A~G, 2026-09-12~09-29) — WP-A~F VERIFIED, WP-G 최종 후보 독립 게이트 대기
+> 리팩터링: 7-WP 프로그램(WP-A~G, 2026-09-12~09-29) — WP-A~G 전부 VERIFIED, 프로그램 완료(WP-G 최종 `f0fd69e`)
 
 ---
 
@@ -292,7 +292,7 @@ core 서브모듈 57 · 테스트 637건(특성화 37 · 결함 27 · 정책 573
 | **메인라인 퀘스트** | 구 15종 폐기 시 `고립된 낙원`이 사라졌다. 서브 클리어 조건을 채워도 갈 곳이 없다 |
 | **소속군 퀘스트** | 가입 16경로는 있으나 가입 후 할 일이 없다 |
 | **무협 시나리오** | `places`·`profile_creation`·퀘스트 전무. 문파·경지 체계라 별도 설계 필요. `image_prompts`는 예시 문구 그대로(대체 문구 필요) |
-| **WP-G 마무리** | 독립 게이트 PASS 후 제어 문서 동기화(`handoff/WP_G_CONTROL_SYNC_PROPOSAL.md`), 머지·배포, `!캐시 재발급`, 버전 번호 결정 |
+| **운영 반영** | WP-G VERIFIED·main 반영 완료. 남은 일: 제어 문서 동기화(`handoff/WP_G_CONTROL_SYNC_PROPOSAL.md`), 운영 데이터 백업 후 배포, `!캐시 재발급`, 버전 번호 결정 |
 | 자동 턴 TTS | 더빙이 인트로에만 적용된다. 자동 턴 확장은 별도 기능 |
 
 ### 설계 보류
