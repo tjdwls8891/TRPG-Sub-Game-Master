@@ -4,7 +4,8 @@
 - 프로그램: INDAIM 동적 세계 구현 — 통합 로드맵(H01~H07). 패킷 `INDAIM_H03_TIME_SPATIAL_PACKET_v0.1_2026-10-06_49c8dcc`
 - **BASE SHA:** `49c8dcc9c8881786643d60fa2caa97134aa76f31` (H02 승인본, clean)
 - **H03-A checkpoint SHA:** `1045e00c2ab2b340b732f0a12e0d2d8ac6739a6d`
-- **FINAL SHA (코드·문서):** `cc48d1e7ea9b30207772b8a6585be3e0b9c16633` — 이 번들은 그 위의 문서 전용 커밋에 담긴다(브랜치 `claude/h03-time-spatial`)
+- **FINAL SHA (코드·문서, 보정 반영):** `c05d6330b7e1fcab2f01f02fc898dd38e20af379` — 이 번들은 그 위의 문서 전용 커밋에 담긴다(브랜치 `claude/h03-time-spatial`). 실제 최종 HEAD는 완료 보고에 기재
+- 이력: 1차 FINAL 후보 `cc48d1e`(번들 커밋 `ca3c07f`) → 사용자 보정 요구 1~6 반영(§16)
 - 제품 버전: **7.1.0** (7.0.0 → 7.1.0 — 하위호환 기능 추가 = MINOR, 결정 게이트 A2)
 - `SCHEMA_VERSION`: **4** · turn-history: **3** · CommitPlan: **2** — 전부 유지
 - compiler semantic version: **1 → 2** · `DEFINITION_FORMAT_VERSION`: 1 유지(추가형 형태 변경, B7)
@@ -29,6 +30,7 @@ production 효과는 하나다: **READY와 `canonical_mutation`이 투영 결과
 
 | 파일 | 변경 |
 |---|---|
+| `core/movement.py`·`core/spatial.py`·`core/world_clock.py`·`core/world_schedule.py` | §16 보정(인식 경계·행동 단위 CONFIRM·정본 검증·TRANSIT·provenance) |
 | `core/world_mutation.py` | 병합 의미 `DELETE` 추가(값 None 강제, 같은 계층 멱등, 혼용·없는 키 = `MERGE_CONFLICT`, 인과 없는 교차 계층 = `UNORDERED_INDEPENDENT_WRITES`), `ProjectedWorld.has`, 파일 끝 `_register_production_handlers()`가 시간·공간 handler 등록 |
 | `core/turn_preparation.py` | `_freeze_and_project_world`가 투영 성공 뒤 `base_quiescence_of(result.world)` 증명 → 실패 시 `world_conflicts=[{code: NOT_QUIESCENT,...}]`, `failure_code=WORLD_PROJECTION_CONFLICT`, READY 사유 `world:not_quiescent`. `prep.world_quiescence`, `ReadyProof.base_quiescence`(기본값 None — 구 증명 호환) |
 | `core/canonical_mutation.py` | 투영 성공 뒤 quiescence 실패 → `OUTCOME_CONFLICT`(reason `NOT_QUIESCENT: ...`) |
@@ -49,6 +51,7 @@ production 효과는 하나다: **READY와 `canonical_mutation`이 투영 결과
 | `tests/policy/test_h03a_time_schedule.py` | 479 | H03-A 28건 |
 | `tests/policy/test_h03b_spatial_movement.py` | 733 | H03-B 54건 |
 | `tests/characterize/test_h03_no_cutover.py` | — | 무배선 경계 4건 |
+| `tests/policy/test_h03_corrections.py` | 347 | 보정 회귀 26건(§16) |
 | `tests/fakes/spatial_fixture.py` | — | 테스트 전용 합성 공간 시나리오(시나리오 원본 아님) |
 
 의도적으로 갱신한 기존 테스트(§12 D11·D12): `test_h01_definition_compiler.py`(3곳), `test_h02a_world_state.py`(시계 형태), `test_h02b_world_mutation.py`·`test_h02b_corrections.py`(합성 handler 도메인 `world_clock` → `information_state`, 레지스트리 단언), `test_h02_no_cutover.py`(H03 도메인 모듈 허용·레지스트리 기대값).
@@ -76,7 +79,7 @@ production 효과는 하나다: **READY와 `canonical_mutation`이 투영 결과
 {"minute_index": int, "start_minute_index": int}      // 미초기화(레거시) = {}
 ```
 
-`minute_index = day_ordinal × 1440 + hour × 60 + minute`. 정본은 이 두 정수뿐이며 날짜·시각·시간대는 파생한다. `advance_to`는 후퇴를 거부하고 0분 진행을 허용한다. wall-clock을 읽지 않는다.
+`minute_index = day_ordinal × 1440 + hour × 60 + minute`. 정본은 이 두 정수뿐이며 날짜·시각·시간대는 파생한다. **두 값 모두 ≥ `MIN_MINUTE_INDEX`(1440)** — 달력 일련번호 ≥ 1과 같은 계약이며 `validate_clock`·`initial_clock`·`CLOCK_INITIALIZE`가 모두 강제한다(보정 4). `advance_to`는 후퇴를 거부하고 0분 진행을 허용한다. wall-clock을 읽지 않는다.
 
 ### 4.3 `world_schedule`
 
@@ -87,6 +90,7 @@ production 효과는 하나다: **READY와 `canonical_mutation`이 투영 결과
 ```
 
 - **pending만** 담는다. 취소·소비는 `DELETE`로 큐에서 지운다(tombstone 없음).
+- 정본 검증(보정 3): 큐는 dict여야 하고 빈 큐는 `{}`뿐(`[]`·`None`·`()`·`0`·`""`는 무효 — 빈 큐로 바꾸지 않는다). 키는 비어 있지 않은 문자열, 항목은 **정확히 7키**, `schedule_id` = 키, `due_minute` 정수(bool 제외), `kind` 열거값, `order_key` 비어 있지 않은 문자열, `owner_ref`·`payload_ref`·`created_by_version`은 문자열 또는 null. `SCHEDULE_CREATE`도 같은 규칙으로 만든 항목을 `validate_entry`로 재검증한다.
 - 순서 = `(due_minute, order_key, schedule_id)` — dict 삽입 순서 무관. `order_key` 기본값 = id.
 - `created_by_version` = 생성 묶음의 source `world_version.version_id`(초기 상태면 None).
 - 과거 시각 예약 생성 거부, 미초기화 시계에서 생성 거부.
@@ -95,7 +99,7 @@ production 효과는 하나다: **READY와 `canonical_mutation`이 투영 결과
 
 | op | payload | 규칙 |
 |---|---|---|
-| `CLOCK_INITIALIZE` | `minute_index` | 시계가 `{}`일 때만 — 두 정수를 같은 값으로 |
+| `CLOCK_INITIALIZE` | `minute_index` | 시계가 `{}`일 때만, 값 ≥ 1440 — 두 정수를 같은 값으로 |
 | `CLOCK_ADVANCE_TO` | `target_minute` | 초기화 필요, target ≥ now |
 | `SCHEDULE_CREATE` | `schedule_id, due_minute, kind` (+`owner_ref, payload_ref, order_key`) | 초기화 필요, due ≥ now, 중복 id 거부 |
 | `SCHEDULE_CANCEL` | `schedule_id` | 존재 필요 → DELETE |
@@ -116,7 +120,7 @@ production 효과는 하나다: **READY와 `canonical_mutation`이 투영 결과
 | 시계 `{}` + 예약 있음 | NOT — 무효 상태 |
 | 초기화 + 모든 pending due > now | quiescent |
 | 초기화 + due ≤ now pending 존재 | NOT — `overdue_ids` 정렬 순서로 보고 |
-| 시계·예약 형태 오류 | NOT |
+| 시계·예약 형태 오류(범위 밖 분, 비-dict 큐, 항목 타입 위반 포함) | NOT |
 
 NOT이면 READY는 `WORLD_PROJECTION_CONFLICT`(conflict code `NOT_QUIESCENT`)로 결정적 종료 실패한다 — `RETRY_PENDING`이 아니고 PREPARED도 쓰지 않는다. 증명은 **투영된(커밋될) 세계**에 대해 한다.
 
@@ -182,15 +186,19 @@ spatial_state = {"scene_place": PlaceId?, "placements": {actor_id: Placement}}
 spatial_knowledge = {actor_id: {
     "places": {place_id: {"knows_name": bool, "visited": bool, "rough_location", "acquisitions": []}},
     "edges":  {edge_id:  {"connection_known": true, "distance_estimate_m", "distance_precision",
-                          "last_confirmed_at", "acquisition_sources": []}},
+                          "last_confirmed_at", "acquisition_sources": [],
+                          "known_allowed_modes": [..]|null, "known_movement_tags": [..]|null,
+                          "known_time_factor": "1.2"|null, "known_fixed_delay_minutes": int|null}},
     "access": {control_id | edge_id: {"observed_result", "observed_state", "action_policy",
                                       "confirmed_at_minute", "source"}},
     "revision": int}}                                                     # 지식 upsert마다 +1(ADDITIVE)
 ```
 
 - 희소: 기록 없음 = 모름. `connection_known=false` 기록은 만들 수 없다(upsert가 true로 고정).
+- 인지 통과 정보(보정 1): `known_*`는 행위자가 아는 구간 성질이다. null = 모름(경로 계획은 중립값). 실제 구간 정의를 대신 읽지 않는다.
+- provenance(보정 6): `acquisitions`·`acquisition_sources`는 upsert 때 기존 목록 + 새 목록을 **append+dedupe**(정규 직렬화 기준, 순서 보존)한다. 나머지 필드는 언급한 것만 바뀐다.
 - `visited ⇒ knows_name`을 강제하지 않는다.
-- TRANSIT 진행률은 `transit_progress(pl, now)`로 파생(0분 구간은 None). `progress_ratio` 키는 형태 검증·op payload 양쪽에서 거부.
+- TRANSIT은 `edge_started_at_minute < edge_expected_end_minute`(보정 5 — 0분 이동은 TRANSIT을 만들지 않는다). 진행률은 `transit_progress(pl, now)`로 파생. `progress_ratio` 키는 형태 검증·op payload 양쪽에서 거부.
 
 ### 5.6 공간 typed 연산
 
@@ -198,7 +206,7 @@ spatial_knowledge = {actor_id: {
 |---|---|
 | `SCENE_PLACE_SET` | `spatial_state.scene_place` SINGLE_VALUE |
 | `ACTOR_PLACEMENT_SET` | `spatial_state.placements.<actor>` = AT_PLACE |
-| `ACTOR_TRANSIT_SET` | 같은 칸 = TRANSIT. 초기화된 시계 + `start ≤ now ≤ end` 필요(시계 진행을 인과 부모로) |
+| `ACTOR_TRANSIT_SET` | 같은 칸 = TRANSIT. 정본 시계 + `start < end` + `start ≤ now < end`(now = end면 도착 = AT_PLACE; 시계 진행을 인과 부모로) |
 | `ACCESS_STATE_SET` | `access_control_state.<control>` = `{"state"}` — 지식은 건드리지 않는다 |
 | `SPATIAL_PLACE_KNOWLEDGE_UPSERT` | `spatial_knowledge.<actor>.places.<pid>`(기존 레코드에 필드 병합한 전체 값) + `revision` +1 |
 | `SPATIAL_EDGE_KNOWLEDGE_UPSERT` | `...edges.<eid>` + `revision` +1 |
@@ -226,8 +234,9 @@ Ti        = T0 + ROUND_HALF_UP(누적_us_i / (60×10^6))               # checkpo
 ### 6.2 KnownRoutePlanner
 
 - 입력: 정의, **행위자 지식**, 출발·도착, 이동 방식·배수, 설정. 실제 `access_control_state`는 인자에 없다(서명 고정 테스트 + `actual_access`를 예외로 바꿔도 통과).
-- 지식 그래프: `connection_known` 구간 ∩ 이동 방식 허용 − 지식상 막힘(`PERCEIVED_BLOCKED`). 모르는 봉쇄는 남긴다.
-- 구간 비용: 지식의 `distance_estimate_m`이 있으면 같은 공식(정수 μs), 없으면 중립 상수 `unknown_edge_cost_us`(기본 10분).
+- **인식 경계(보정 1):** 정의에서는 아는 연결의 위상(from/to)과 저작 `route_hint`만 쓴다. 실제 구간의 `allowed_modes`·`movement_tags`·`base_time_factor`·`fixed_delay_minutes`는 읽지 않는다(`mode_allows_edge` 호출 0 — 테스트 고정).
+- 지식 그래프: `connection_known` 구간 − 지식상 이동 방식 불가(`known_allowed_modes`에 없음, 또는 `known_movement_tags`가 방식의 금지 태그와 겹치거나 허용 태그와 안 겹침) − 지식상 막힘(`PERCEIVED_BLOCKED`). 모르는 제한·봉쇄는 남긴다.
+- 구간 비용: `distance_estimate_m`이 있으면 `moving_us(추정 거리, 방식 속도, known_time_factor(모름 = 1) × stance × actor × environment) + known_fixed_delay_minutes(모름 = 0)`, 없으면 중립 상수 `unknown_edge_cost_us`(기본 10분).
 - **Yen K-shortest simple paths**(방향, raw_k 기본 10). 내부 Dijkstra는 `(비용, edge_id 서명 튜플)` 최소를 꺼내므로 **동률은 경로 서명 사전순**. 인접 목록은 edge_id 정렬 — dict 삽입 순서·`PYTHONHASHSEED` 무관(별도 프로세스 2개 비교 테스트).
 - 다양성: 비용 순으로 최단을 고르고, 이후 후보는 `비용 ≤ 최단 × max_cost_ratio(기본 2)`이고 기존 선택들과의 **가중 Jaccard 중첩**(공유 구간 비용 / 합집합 비용, Fraction)이 `max_overlap(기본 7/10)` 이하일 때만 채택, 최대 `max_displayed(기본 3)`.
 - 후보: `option_id`(transient `route_n`), `edge_ids`, `place_ids`, `perceived_cost_us`, `perceived_duration_minutes`(모든 구간 추정치가 있을 때만), `perceived_distance_m`, `cost_known`, `first_divergence_edge`, `route_label`(① 첫 분기 구간 `route_hint` ② 최단 경로에 없는 첫 경유지 ③ 분기 구간 도착지 방향), `known_constraints`(지식상 접근 제약만), `knowledge_basis`(ESTIMATED·PARTIAL·UNKNOWN).
@@ -236,7 +245,8 @@ Ti        = T0 + ROUND_HALF_UP(누적_us_i / (60×10^6))               # checkpo
 
 ### 6.3 ActualTraversalPlanner
 
-- 선택된 구간 순서를 그대로 따라간다. 구간마다: 이동 방식 불가 → `BLOCKED`; 실제 접근 `IMPASSABLE` → `BLOCKED`; `ACTION_REQUIRED`는 `IMPLICIT`(항상)·`CONFIRM`(호출자가 확인했을 때만)이면 `ACCESS_ACTION` checkpoint + 지연, 아니면 `ACCESS_ACTION_REQUIRED`로 중단; `SEPARATE_ACTION`은 언제나 중단. **막힌 지점에서 멈추고 다른 길로 우회하지 않는다.**
+- 실제 구간 진실(이동 방식·태그·배수·지연·접근)은 여기서만 쓴다. 선택된 구간 순서를 그대로 따라간다. 구간마다: 이동 방식 불가 → `BLOCKED`; 실제 접근 `IMPASSABLE` → `BLOCKED`; `ACTION_REQUIRED`는 `IMPLICIT`(항상) 또는 `CONFIRM`이면서 **그 행동 id가 `confirmed_actions`에 있을 때만** `ACCESS_ACTION` checkpoint + 지연, 아니면 `ACCESS_ACTION_REQUIRED`(행동 id 포함)로 중단; `SEPARATE_ACTION`은 확인 목록에 있어도 언제나 중단.
+- 접근 행동 id(보정 2) = `access_action_id(edge_id, control_id, state, action_policy)` = `"edge|control|state|policy"`. 정책 전체 승인(`confirmed_policies`)은 제거했다 — 숨은 두 번째 CONFIRM은 첫 승인으로 통과하지 않는다. **막힌 지점에서 멈추고 다른 길로 우회하지 않는다.**
 - 출력 `ActualTraversalPlan`: `actor_id, selected_option_id, intended_destination, edge_sequence, traversed_edges, mode, stance, start_minute, raw_total_us, canonical_total_minutes, end_minute, expected_arrival_minute(완주 시), completed, end_place, interruption, access_checks, checkpoint_times, source_world_version, definition_revision`.
 - checkpoint 종류: `EDGE_START`·`EDGE_END`·`ACCESS_ACTION`·`DESTINATION`(H04 사건·예약 checkpoint는 미결합).
 - `placement_at(plan, minute, movement_id)` — `[EDGE_START, EDGE_END)` 안이면 TRANSIT, 아니면 AT_PLACE(파생).
@@ -260,7 +270,7 @@ SPATIAL_ACCESS_KNOWLEDGE_UPSERT  SPATIAL_EDGE_KNOWLEDGE_UPSERT  SPATIAL_PLACE_KN
 
 ## 8. legacy 동작 불변 증거
 
-- `git diff 49c8dcc cc48d1e -- scenarios prompts.py core/places.py core/timeline.py cogs main.py` → **빈 출력**.
+- `git diff 49c8dcc c05d633 -- scenarios prompts.py core/places.py core/timeline.py cogs main.py` → **빈 출력**.
 - `core/places.py`·`core/timeline.py`·`cogs/gm.py`·`cogs/game.py`·`core/extraction.py`는 H03 모듈을 import하지 않고 새 도메인 필드(`world_clock`·`world_schedule`·`spatial_state`·`spatial_knowledge`·`access_control_state`)에 접근하지 않는다(테스트 고정).
 - 정적 가시성: 영도 122개 장소 전 쌍(14,884)에서 `SpatialGraph.is_visible_from` == `places.is_visible_from`.
 - 레거시 세션 READY: `base_quiescence = {quiescent: true, clock_initialized: false, ...}` — 기존 턴 그대로 커밋(테스트).
@@ -275,7 +285,11 @@ SPATIAL_ACCESS_KNOWLEDGE_UPSERT  SPATIAL_EDGE_KNOWLEDGE_UPSERT  SPATIAL_PLACE_KN
 | H03-A 게이트 전체 회귀(`1045e00`) | **746 passed** |
 | H03-B 전용(`test_h03b_spatial_movement.py`) | 54 passed |
 | H03 경계 특성화(`test_h03_no_cutover.py`) | 4 passed |
-| **FINAL 전체**(`cc48d1e`) | **804 passed** · 0 failed · 0 xfailed · 0 XPASS (특성화 50 · 결함 27 · 정책 727) |
+| 1차 FINAL 전체(`cc48d1e`) | 804 passed |
+| 보정 회귀(`test_h03_corrections.py`) — **보정 전 코드** | **22 failed · 4 passed**(§16) |
+| 보정 회귀 — 보정 후 | 26 passed |
+| H03 targeted(H03-A·H03-B·보정·경계 4파일) | **112 passed** |
+| **FINAL 전체**(`c05d633`) | **830 passed** · 0 failed · 0 xfailed · 0 XPASS (특성화 50 · 결함 27 · 정책 753) |
 | `python3 -m compileall` | OK |
 | 검증 루틴 ① 구문·미정의 self | OK |
 | ② 재수출·세션 필드 | OK · OK (`SESSION_FIELDS` 95 불변) |
@@ -304,6 +318,7 @@ SPATIAL_ACCESS_KNOWLEDGE_UPSERT  SPATIAL_EDGE_KNOWLEDGE_UPSERT  SPATIAL_PLACE_KN
 | R38 | `test_static_visibility_is_authored_not_distance_derived`·영도 전 쌍 대조 |
 | R39·R40 | `test_production_registry_is_typed_time_and_spatial_only`·`test_h02_no_cutover::test_production_registry_holds_only_h03_typed_handlers`·`test_h03_no_cutover` 4건 |
 | R41~R44 | §8 diff·특성화, §10 provider 스캔, 전체 회귀 |
+| 보정 1~6 | `test_h03_corrections.py` C1~C6(§16 표) |
 
 ## 10. 스캔
 
@@ -311,11 +326,14 @@ SPATIAL_ACCESS_KNOWLEDGE_UPSERT  SPATIAL_EDGE_KNOWLEDGE_UPSERT  SPATIAL_PLACE_KN
 
 **provider**: H03 모듈 import는 표준 라이브러리(`re`·`dataclasses`·`heapq`·`decimal`·`fractions`)와 H03/H02 core 모듈뿐(google·discord·aiohttp·requests·prompts·재무·캐시·io 금지 — 테스트 고정). `generate_content` 출현 수(.py) BASE 18 = FINAL 18, provider 호출 파일 집합 동일.
 
-**scenario**: `git diff 49c8dcc cc48d1e -- scenarios prompts.py` 빈 출력. 테스트용 공간 데이터는 `tests/fakes/spatial_fixture.py`(합성)에만 있다.
+**scenario**: `git diff 49c8dcc c05d633 -- scenarios prompts.py` 빈 출력. 테스트용 공간 데이터는 `tests/fakes/spatial_fixture.py`(합성)에만 있다.
 
 ## 11. definition revision — compiler v1 → v2
 
-| 시나리오 | v1 (`49c8dcc`, H02) | v2 H03-A (`1045e00`, 달력만) | **v2 FINAL** (`cc48d1e`) |
+보정 후(`c05d633`)에도 5개 시나리오 revision은 아래 FINAL 열과 **동일**하다 — 보정의 컴파일러 변경(seed 접근 사실 참조 정규화)은 `spatial_knowledge_seeds`를 저작한 시나리오에만 영향이 있고, 현재 5개는 모두 미저작이다. compiler semantic version은 사용자 지시대로 2를 유지했다(v2는 아직 승인·배포 전).
+
+
+| 시나리오 | v1 (`49c8dcc`, H02) | v2 H03-A (`1045e00`, 달력만) | **v2 FINAL** (`cc48d1e` = `c05d633`) |
 |---|---|---|---|
 | 영도 | `0d8255bc118b7423da81b1f604fe7887f31c43c91198ca8724c69bc58b0999cb` | `6e17849c5a01deec7d7404e38b6b131c8e1378aaf1d1d4537f671fbd51ed11ef` | `72985bbdbd5758d64d1678de9c8b0a721100e455d8b056b958f4336d2942d995` |
 | 무협 | `1fafeb86ca5cd45fd88de82cdbcce0a92459dea34e335c913e186dad7ed07e6f` | `871b154e49a04fc7bcc69aae1632c3e306555fae6e4a03a137d9a30c22539225` | `994e4105c8a2febb7b8c075c5ead1236ca3f57e90a8cab808a979c5cbf01b425` |
@@ -346,6 +364,10 @@ SPATIAL_ACCESS_KNOWLEDGE_UPSERT  SPATIAL_EDGE_KNOWLEDGE_UPSERT  SPATIAL_PLACE_KN
 | D13 | `MODES_REQUIRED`는 `structured_places` + 구간이 있을 때만 | 구간 없는 선언(장소 무결성만)도 유효해야 함 |
 | D14 | 지식상 막힌 구간(`PERCEIVED_BLOCKED`)만 후보 그래프에서 제외, 지식상 ACTION_REQUIRED 지연은 인지 비용에 넣지 않음 | 숨은 봉쇄 비노출(§30)과 플레이어가 아는 제약 표시(§62)를 동시에 만족 |
 | D15 | `ACTOR_TRANSIT_SET`은 초기화된 시계와 `start ≤ now ≤ end`를 요구 | 시계와 모순되는 TRANSIT 정본을 막음. 시간 점프와 함께 쓸 때는 `CLOCK_ADVANCE_TO`를 인과 부모로 |
+| D17 | (보정) 인지 통과 정보는 EdgeKnowledge `known_*` 4필드, 모르면 중립(제한 없음·배수 1·지연 0) | 실제 성질로 후보가 사라지거나 재정렬되면 숨은 정보 누출. 중립값은 순위에 실제 진실을 섞지 않는 유일한 선택 |
+| D18 | (보정) 접근 행동 id에 관찰 상태를 포함 | 같은 문이라도 상태가 바뀌면(LOCKED → BARRED 등) 다른 행동이다 — 이전 승인이 다른 행동을 통과시키지 않게 |
+| D19 | (보정) seed 접근 사실의 edge_id 참조는 런타임 사실 키(`access_fact_key`)로 정규화, 같은 키 중복은 ERROR(`SEED_ACCESS_FACT_DUPLICATE`), 원 참조는 `authored_ref`로 보존 | 제어가 있는 구간의 사실을 edge_id로 저장하면 런타임 `perceived_access`가 control_id로 찾아 못 읽는다 |
+| D20 | (보정) 시계 하한만 강제(상한 없음) | `Calendar`는 연도 상한이 없다(일련번호 ≥ 1만 계약). 달력 계약과 정확히 같은 범위 |
 | D16 | 달력 dayparts 저작 순서는 revision에 영향을 준다(컴파일된 `calendar`는 순서 무관) | H01 `legacy_source_order_digest`가 원문 dict 순서를 정의에 묶는 기존 설계 그대로 |
 
 STOP 조건(C절)에 해당하는 상황은 없었다: connected 자동 승격 불필요, 숨은 경로 노출 불필요, 사건 엔진 없이 pending 큐 표현 가능, `world_timeline`과 이중 writer 없음(새 시계 writer는 production에 없음), provider 불필요, 새 세션 필드 없음(SCHEMA 4 유지), H02 불변식 유지.
@@ -370,7 +392,11 @@ STOP 조건(C절)에 해당하는 상황은 없었다: connected 자동 승격 �
 8. KnownRoutePlanner는 행위자 지식만 읽는다(실제 접근 상태가 서명에 없음). NPC 오프스크린 이동(H04)도 같은 planner와 seed 지식을 써야 한다(DESIGN 09 §9).
 9. ActualTraversalPlanner는 선택 경로를 우회하지 않는다. 사건·예약 checkpoint는 H04가 `checkpoint_times`에 끼워 넣는다(현재 종류 4개).
 10. 실제 세계 변화는 지식을 자동 갱신하지 않는다. 지식은 관찰·통과·정보 획득 연산으로만 바뀐다.
-11. TRANSIT은 7키 고정, 진행률은 파생값이다.
+11. TRANSIT은 7키 고정, `start < end`, 정본 기록 시 `start ≤ now < end`. 진행률은 파생값이다. 0분 구간은 TRANSIT이 없다.
+11a. 정본 시계 값은 ≥ 1440. 예약 큐는 dict, 항목은 7키·타입 고정 — H04가 예약 kind·필드를 늘리면 `validate_entry`와 함께 바꾼다.
+11b. KnownRoutePlanner·NPC 경로 계획은 실제 구간 성질을 읽지 않는다. 행위자에게 알려 줄 통과 성질은 `SPATIAL_EDGE_KNOWLEDGE_UPSERT`의 `known_*`로만 기록한다.
+11c. CONFIRM 승인은 접근 행동 id 단위다(H05 확인 UX는 중단 결과의 `action_id`를 받아 그 id만 확인한다).
+11d. 지식 provenance는 누적된다(upsert가 지우지 않는다).
 12. 공간 handler는 정의 참조를 검증하지 않는다 → H04/H05/H06 producer는 정의(스냅샷)를 들고 PlaceId·EdgeId·control·actor 실재를 검증한 뒤 연산을 만든다.
 13. legacy `places.py`·`world_timeline`은 여전히 플레이 권위다. 두 권위를 동시에 쓰는 writer를 만들지 않는다(전환은 H05/H07).
 14. H02 불변식 전부 유지: 묶음 불변·인과 계층·삽입 순서 무권위·커밋 직렬화 락·PLAYER_TURN owner = CommitCoordinator·모든 PLAYER_TURN world_version 전진·결정적 충돌 ≠ 재시도·정체성 필드 비가역·CommitPlan v1/v2·turn-history v2/v3 호환.
@@ -378,11 +404,31 @@ STOP 조건(C절)에 해당하는 상황은 없었다: connected 자동 승격 �
 ## 15. 재현
 
 ```bash
-git checkout cc48d1e7ea9b30207772b8a6585be3e0b9c16633
+git checkout c05d6330b7e1fcab2f01f02fc898dd38e20af379
 pip install -r requirements-dev.txt
 python3 -m compileall -q core cogs main.py prompts.py tools tests
-python3 -m pytest tests/ -q                      # 804 passed
+python3 -m pytest tests/ -q                      # 830 passed
 python3 tools/scenario_check.py --all            # 5 × compiler v2, ERROR 0
 python3 tools/verify_docs.py                     # 문서 수치 OK
-git diff 49c8dcc cc48d1e -- scenarios prompts.py core/places.py core/timeline.py cogs main.py   # 빈 출력
+git diff 49c8dcc c05d633 -- scenarios prompts.py core/places.py core/timeline.py cogs main.py   # 빈 출력
 ```
+
+## 16. 보정 이력 (1차 FINAL 후보 `cc48d1e` 이후)
+
+사용자 보정 요구 1~6. 회귀 테스트(`tests/policy/test_h03_corrections.py`, 26건)를 먼저 작성해 **보정 전 코드(`ca3c07f`)에서 22건 실패**를 확인한 뒤 수정했다. 보정 전에도 통과한 4건은 이미 막혀 있던 보조 단언이다(비어 있지 않은 리스트 큐, schedule_id 불일치, bool due, 0분 구간 placement_at) — 각 요구마다 실패하던 핵심 테스트가 하나 이상 있다.
+
+| # | 요구 | 수정 | 보정 전 실패 테스트 |
+|---|---|---|---|
+| 1 | KnownRoutePlanner 인식 경계 | `known_graph`가 실제 구간 성질을 읽지 않고 EdgeKnowledge `known_*`만 사용(`perceived_mode_allows`·`perceived_edge_cost_us`). `EDGE_KNOWLEDGE_KEYS` 확장·검증 | `test_c1_hidden_mode_restriction_does_not_remove_known_candidate`, `test_c1_hidden_time_factor_and_delay_do_not_reorder`, `test_c1_perceived_traversal_info_lives_in_edge_knowledge`, `test_c1_known_graph_never_reads_actual_edge_truth` |
+| 2 | CONFIRM 행동 단위 | `confirmed_policies` 제거 → `confirmed_actions`(행동 id), `access_action_id`, 중단 결과·ACCESS_ACTION checkpoint에 `action_id` | `test_c2_confirm_is_per_action_not_per_policy`, `test_c2_separate_action_never_auto_and_implicit_always` |
+| 3 | world_schedule 정본 검증 | `validate_entry`(7키·타입), 비-dict 큐 무효(falsey 포함), `base_quiescence`가 입력을 빈 값으로 바꾸지 않음, `SCHEDULE_CREATE` 타입 검증 | `test_c3_falsey_or_non_mapping_schedule_is_invalid[[]·None·()·0·""]`, `test_c3_entry_field_types_are_validated[order_key 5·""·None, owner_ref, payload_ref, created_by_version]`, `test_c3_entry_shape_must_be_complete_and_keys_strings` |
+| 4 | world_clock 범위 | `MIN_MINUTE_INDEX = 1440`; `validate_clock`·`initial_clock`·`CLOCK_INITIALIZE` 강제, 시계를 쓰는 handler는 범위 밖 시계 거부 | `test_c4_clock_minute_range_matches_calendar_ordinals` |
+| 5 | TRANSIT 구간 | `validate_placement`: start < end; `ACTOR_TRANSIT_SET`: start ≤ now < end | `test_c5_transit_requires_positive_duration_and_half_open_window` |
+| 6 | provenance · 초기 접근 사실 | upsert append+dedupe(`_append_dedupe`); 컴파일러 seed 사실이 control_id/edge_id 참조 → 런타임 사실 키 정규화, 중복 ERROR | `test_c6_upsert_appends_and_dedupes_provenance`, `test_c6_seed_access_facts_accept_control_or_edge_refs` |
+
+의도적으로 갱신한 기존 테스트(새 계약에 맞춤, 완화 아님):
+- `test_h03a_time_schedule.py`: 정본 시계를 쓰는 테스트의 분 값을 기준 `K = 1440×1000` 위로 이동(상대 관계 동일). 순수 정렬 테스트는 그대로.
+- `test_h03b_spatial_movement.py`: 인지 비용 기대값(경로 C 945 → 750초 = 실제 1.2배·2분 지연을 모름, 13분)과 비용 상한 예시(3/2 → 7/5); 이동 방식 필터 예시는 지식 `known_movement_tags`를 명시; CONFIRM 예시는 `confirmed_actions`·`action_id`; 시계를 쓰는 3개 테스트의 분 값을 `K` 위로 이동.
+- `test_h02a_world_state.py`: 되감기 테스트 시계 42 → 1440+42.
+
+보정 후: 전체 830 passed, H03 targeted 112 passed, compileall·검증 루틴 ①~⑥ OK, `scenario_check --all` ERROR 0(revision 불변), `verify_docs` OK, 호출자 스캔 0건(`access_action_id`·`confirmed_actions` 포함), 새 도메인 직접 writer = `models.py` 생성자뿐(동적 setattr 경로는 H02와 동일), provider `generate_content` 18 = 18·호출 파일 집합 동일, 시나리오·프롬프트·legacy·cogs·main diff 0. 버전 7.1.0 / compiler v2 / SCHEMA 4 / history 3 / CommitPlan 2 유지. H04 미시작, push 안 함.
