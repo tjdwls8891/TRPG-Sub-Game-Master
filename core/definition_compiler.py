@@ -45,7 +45,9 @@ from .world_ids import (
 # 컴파일러 규칙 버전. 같은 입력의 컴파일 출력이 바뀌는 변경을 하면 올린다.
 # 시나리오 스키마 버전·세션 SCHEMA_VERSION·정의 revision과는 별개 의미다(DESIGN 08 §94).
 # v2(H03): quantitative_time(달력)·structured_places(이동 구간·이동 방식·접근) 도메인 검증.
-COMPILER_VERSION = 2
+# v3(H04): 행위자 profile_base·명시 정보 registry·인라인 info_ref·정보 계열(H04-A),
+#          사건 템플릿·조건·진행 검증·접근 override 안정 variant id(H04-B).
+COMPILER_VERSION = 3
 
 DEFINITION_FORMAT = "indaim.world_definition"
 DEFINITION_FORMAT_VERSION = 1
@@ -69,7 +71,8 @@ KNOWN_CAPABILITIES = {
 
 # 이 컴파일러 버전이 도메인 검증까지 끝내는 capability. 나머지는 선언을 기록하되
 # WARNING(CAP_VALIDATION_DEFERRED)으로 표시한다 — 해당 WP가 검증기를 넣을 때 옮긴다.
-VALIDATED_CAPABILITIES = frozenset({"stable_actors", "quantitative_time", "structured_places"})
+VALIDATED_CAPABILITIES = frozenset({"stable_actors", "quantitative_time", "structured_places",
+                                    "information_registry", "actor_cognition", "dynamic_actor_location"})
 
 # capability 의존성(DESIGN 08 §4). (요구 capability, 심각도)
 # dynamic_actor_location → structured_places 는 사용자 결정(H01 보정)으로 ERROR.
@@ -84,12 +87,14 @@ CAPABILITY_DEPENDENCIES = {
 # (v2/H03: calendar·movement_modes·access_control_definitions·spatial_knowledge_seeds는 컴파일 대상)
 # (legacy_source 에 원문으로 남지만 어떤 엔진도 읽지 않는다는 뜻).
 RESERVED_UNCOMPILED_KEYS = (
-    "information_definitions", "event_templates", "visibility_relations",
-    "initialization_definitions",
+    "event_templates", "visibility_relations", "initialization_definitions",
 )
 
 # NPC 인라인 비밀 필드(npc_template.info_fields의 '비밀').
 INLINE_SECRET_FIELD = "비밀"
+# profile_base에서 빼는 필드: 구조화된 별도 권위(actor_id·name·비밀) + 레거시 런타임 초기값.
+PROFILE_BASE_EXCLUDED = ("actor_id", "name", INLINE_SECRET_FIELD, "resources", "statuses")
+INFO_EXPLICIT_KEYS = ("proposition", "summary", "subject_refs", "tags", "fragments", "sensitivity")
 
 ERROR, WARNING, INFO = "ERROR", "WARNING", "INFO"
 _SEVERITY_RANK = {ERROR: 0, WARNING: 1, INFO: 2}
@@ -316,7 +321,11 @@ def _compile_actors(scenario_id, raw, d):
             "legacy_key": key,
             "display_name": name if isinstance(name, str) and name else key,
             "explicit_id": explicit is not None,
-            "has_inline_secret": isinstance(secret, str) and bool(secret.strip()),
+            "has_inline_secret": (isinstance(secret, str) and bool(secret.strip())) or isinstance(secret, dict),
+            "secret_info_id": None,          # _compile_inline_secrets가 채운다(생성 id 또는 info_ref)
+            # v3: 새 엔진(CurrentNpcProjection)이 legacy_source를 읽지 않도록 정제된 저작 프로필.
+            # 별도 권위가 있는 필드(정체성·비밀)와 레거시 런타임 초기값(resources·statuses)은 제외한다.
+            "profile_base": {k: copy.deepcopy(v) for k, v in prof.items() if k not in PROFILE_BASE_EXCLUDED},
             "source_ref": ["default_npcs", key],
         }
         order.append(actor_id)
@@ -324,13 +333,33 @@ def _compile_actors(scenario_id, raw, d):
     return defs, order, index
 
 
-def _compile_inline_secrets(raw, actors, d):
+def _info_record(info_id, kind, proposition, source_ref, *, summary=None, subject_refs=(), tags=(),
+                 fragments=(), sensitivity=None, **extra):
+    rec = {"info_id": info_id, "kind": kind, "proposition": proposition, "summary": summary,
+           "subject_refs": list(subject_refs), "tags": list(tags), "fragments": list(fragments),
+           "sensitivity": sensitivity, "source_ref": source_ref}
+    rec.update(extra)
+    return rec
+
+
+def _compile_inline_secrets(raw, actors, d, explicit_infos=None):
+    """NPC '비밀' sugar. 문자열 → 구조 위치 기반 생성 InfoId, {info_ref: id} → 명시 정보 참조(v3)."""
     out = {}
+    explicit_infos = explicit_infos or {}
     npcs = raw.get("default_npcs") if isinstance(raw.get("default_npcs"), dict) else {}
     for actor_id, a in actors.items():
         secret = npcs.get(a["legacy_key"], {}).get(INLINE_SECRET_FIELD)
         path = f"default_npcs.{a['legacy_key']}.{INLINE_SECRET_FIELD}"
         if secret is None:
+            continue
+        if isinstance(secret, dict):
+            ref = secret.get("info_ref")
+            if set(secret) != {"info_ref"} or not isinstance(ref, str):
+                d.add(ERROR, "NPC_SECRET_REF_INVALID", path, "비밀 객체는 {\"info_ref\": <InfoId>}만 허용합니다")
+            elif ref not in explicit_infos:
+                d.add(ERROR, "NPC_SECRET_REF_UNKNOWN", path, f"info_ref {ref!r}가 information_definitions에 없습니다")
+            else:
+                a["secret_info_id"] = ref
             continue
         if not isinstance(secret, str):
             d.add(WARNING, "NPC_SECRET_NOT_TEXT", path, "비밀 필드가 문자열이 아니어서 컴파일하지 않습니다")
@@ -338,13 +367,135 @@ def _compile_inline_secrets(raw, actors, d):
         if not secret.strip():
             continue
         info_id = npc_inline_secret_info_id(actor_id)
-        out[info_id] = {
-            "info_id": info_id,
-            "kind": "NPC_INLINE_SECRET",
-            "owner_actor_id": actor_id,
-            "proposition": secret,
-            "source_ref": ["default_npcs", a["legacy_key"], INLINE_SECRET_FIELD],
-        }
+        a["secret_info_id"] = info_id
+        out[info_id] = _info_record(info_id, "NPC_INLINE_SECRET", secret,
+                                    ["default_npcs", a["legacy_key"], INLINE_SECRET_FIELD],
+                                    subject_refs=[f"actor:{actor_id}"], owner_actor_id=actor_id)
+    return out
+
+
+def _compile_explicit_infos(raw, actors, places, d):
+    """top-level information_definitions {InfoId: {proposition, summary?, subject_refs?, tags?,
+    fragments?: [{fragment_id, proposition}], sensitivity?}} (v3)."""
+    src = raw.get("information_definitions")
+    out = {}
+    if src is None:
+        return out
+    if not isinstance(src, dict):
+        d.add(ERROR, "INFO_DEFINITIONS_INVALID", "information_definitions", "{InfoId: 정의} 객체여야 합니다")
+        return out
+    for iid, body in src.items():
+        p = f"information_definitions.{iid}"
+        if not is_valid_explicit_id(iid):
+            d.add(ERROR, "INFO_ID_INVALID", p, "InfoId는 명시 id 형식이어야 합니다")
+            continue
+        if not isinstance(body, dict) or not isinstance(body.get("proposition"), str) \
+                or not body["proposition"].strip():
+            d.add(ERROR, "INFO_PROPOSITION_REQUIRED", p, "proposition(비어 있지 않은 문자열)이 필요합니다")
+            continue
+        for k in body:
+            if k not in INFO_EXPLICIT_KEYS:
+                d.add(WARNING, "INFO_UNKNOWN_KEY", f"{p}.{k}", "알 수 없는 정보 키(무시)")
+        ok = True
+        refs = body.get("subject_refs") or []
+        if not isinstance(refs, list):
+            d.add(ERROR, "INFO_SUBJECT_REFS_INVALID", f"{p}.subject_refs", "목록이어야 합니다")
+            ok, refs = False, []
+        for r in refs:
+            kind, _, ident = (r.partition(":") if isinstance(r, str) else ("", "", ""))
+            pool = {"actor": actors, "place": places}.get(kind)
+            if pool is None or ident not in pool:
+                d.add(ERROR, "INFO_SUBJECT_REF_UNKNOWN", f"{p}.subject_refs",
+                      f"subject_ref {r!r}는 'actor:<ActorId>'·'place:<PlaceId>' 실재 참조여야 합니다")
+                ok = False
+        tags = _str_list(body.get("tags"))
+        if tags is None or isinstance(body.get("tags"), str):
+            d.add(ERROR, "INFO_TAGS_INVALID", f"{p}.tags", "문자열 목록이어야 합니다")
+            ok, tags = False, []
+        frags, seen = [], set()
+        for j, f in enumerate(body.get("fragments") or []):
+            if not isinstance(f, dict) or set(f) != {"fragment_id", "proposition"} \
+                    or not is_valid_explicit_id(f.get("fragment_id")) or not isinstance(f.get("proposition"), str):
+                d.add(ERROR, "INFO_FRAGMENT_INVALID", f"{p}.fragments[{j}]",
+                      "fragment는 {fragment_id(명시 id), proposition}")
+                ok = False
+                continue
+            if f["fragment_id"] in seen:
+                d.add(ERROR, "INFO_FRAGMENT_DUPLICATE", f"{p}.fragments[{j}]", f"fragment_id {f['fragment_id']} 중복")
+                ok = False
+                continue
+            seen.add(f["fragment_id"])
+            frags.append(dict(f))
+        sens = body.get("sensitivity")
+        if sens is not None and not isinstance(sens, str):
+            d.add(ERROR, "INFO_SENSITIVITY_INVALID", f"{p}.sensitivity", "문자열 또는 null")
+            ok = False
+        if ok:
+            out[iid] = _info_record(iid, "EXPLICIT", body["proposition"], ["information_definitions", iid],
+                                    summary=body.get("summary"), subject_refs=refs, tags=sorted(set(tags)),
+                                    fragments=frags, sensitivity=sens)
+    return out
+
+
+_SERIES_KEYS = ("value_ref", "proposition_template", "tracking_policy", "subject_refs", "tags", "sensitivity")
+SERIES_TRACKING_POLICIES = ("ON_CHANGE",)
+
+
+def _ref_scope(actors, places, infos, access, modes, *, slots=None, allow_self=False, templates=(), calendar=None):
+    from . import world_refs as _refs
+    return _refs.RefScope(actors=set(actors), places=set(places), infos=set(infos),
+                          controls=set((access or {}).get("controls", {})), modes=set(modes),
+                          slots=dict(slots or {}), allow_self=allow_self, templates=set(templates),
+                          has_calendar=calendar is not None)
+
+
+def _compile_info_series(raw, scope, d):
+    """information_series {SeriesId: {value_ref, proposition_template('{value}' 포함), tracking_policy?,
+    subject_refs?, tags?, sensitivity?}} (v3). 초기 상태 적용은 H06."""
+    from . import world_refs as _refs
+    src = raw.get("information_series")
+    out = {}
+    if src is None:
+        return out
+    if not isinstance(src, dict):
+        d.add(ERROR, "INFO_SERIES_INVALID", "information_series", "{SeriesId: 정의} 객체여야 합니다")
+        return out
+    for sid, body in src.items():
+        p = f"information_series.{sid}"
+        if not is_valid_explicit_id(sid) or not isinstance(body, dict):
+            d.add(ERROR, "INFO_SERIES_INVALID", p, "SeriesId는 명시 id, 정의는 객체")
+            continue
+        for k in body:
+            if k not in _SERIES_KEYS:
+                d.add(WARNING, "INFO_SERIES_UNKNOWN_KEY", f"{p}.{k}", "알 수 없는 계열 키(무시)")
+        errs = _refs.validate_ref(body.get("value_ref"), scope, f"{p}.value_ref")
+        if body.get("value_ref", {}).get("ref") in ("CLOCK_MINUTE", "OBSERVER_ACTIVITY", "SCENE_PLACE") \
+                if isinstance(body.get("value_ref"), dict) else False:
+            errs.append((f"{p}.value_ref", "계열 값은 추적 가능한 정본 사실이어야 합니다(시간·관찰 문맥 불가)"))
+        for ep, msg in errs:
+            d.add(ERROR, "INFO_SERIES_VALUE_REF_INVALID", ep, msg)
+        tpl = body.get("proposition_template")
+        if not isinstance(tpl, str) or "{value}" not in tpl:
+            d.add(ERROR, "INFO_SERIES_TEMPLATE_INVALID", f"{p}.proposition_template",
+                  "proposition_template은 '{value}'를 포함한 문자열이어야 합니다")
+            errs.append(None)
+        pol = body.get("tracking_policy", "ON_CHANGE")
+        if pol not in SERIES_TRACKING_POLICIES:
+            d.add(ERROR, "INFO_SERIES_POLICY_INVALID", f"{p}.tracking_policy",
+                  f"tracking_policy는 {list(SERIES_TRACKING_POLICIES)}")
+            errs.append(None)
+        refs = body.get("subject_refs") or []
+        tags = _str_list(body.get("tags"))
+        if not isinstance(refs, list) or tags is None:
+            d.add(ERROR, "INFO_SERIES_INVALID", p, "subject_refs·tags는 목록")
+            errs.append(None)
+        if errs:
+            continue
+        out[sid] = {"series_id": sid, "value_ref": copy.deepcopy(body["value_ref"]),
+                    "proposition_template": tpl, "tracking_policy": pol, "subject_refs": list(refs),
+                    "tags": sorted(set(tags)), "sensitivity": body.get("sensitivity"),
+                    "dependency_keys": sorted(set(_refs.dependency_keys(body["value_ref"]))),
+                    "source_ref": ["information_series", sid]}
     return out
 
 
@@ -387,14 +538,8 @@ def _compile_quest_hidden(scenario_id, quests, places, d):
             d.add(WARNING, "QUEST_HIDDEN_NO_TRUTH", f"{path}.hidden", "hidden.truth가 없어 정보로 컴파일하지 않습니다")
             continue
         info_id = quest_hidden_info_id(scenario_id, q["id"])
-        out[info_id] = {
-            "info_id": info_id,
-            "kind": "QUEST_HIDDEN_TRUTH",
-            "quest_id": q["id"],
-            "quest_version": q.get("version"),
-            "proposition": hidden["truth"],
-            "source_ref": ["quests", i, "hidden"],
-        }
+        out[info_id] = _info_record(info_id, "QUEST_HIDDEN_TRUTH", hidden["truth"], ["quests", i, "hidden"],
+                                    quest_id=q["id"], quest_version=q.get("version"))
     return out
 
 
@@ -1190,8 +1335,9 @@ def compile_scenario(raw: dict, scenario_id: str, quests: dict | None = None) ->
     seeds = _compile_spatial_seeds(raw, places, edges, access, cap["capabilities"], d)
     init = _compile_initialization(raw, places, d)
     calendar = _compile_calendar(raw, cap["capabilities"], d)
+    explicit = _compile_explicit_infos(raw, actors, places, d)
     infos = {}
-    for src in (_compile_inline_secrets(raw, actors, d),
+    for src in (explicit, _compile_inline_secrets(raw, actors, d, explicit),
                 _compile_quest_hidden(scenario_id, quests, places, d)):
         for iid, rec in src.items():
             if iid in infos:
@@ -1199,6 +1345,15 @@ def compile_scenario(raw: dict, scenario_id: str, quests: dict | None = None) ->
                       f"InfoId '{iid}'가 겹칩니다")
                 continue
             infos[iid] = rec
+    # 같은 사실의 이중 정의를 조용히 합치지 않는다 — 같은 명제 문장이면 경고(info_ref 사용 권장).
+    by_text = {}
+    for iid in sorted(infos):
+        by_text.setdefault(infos[iid]["proposition"].strip(), []).append(iid)
+    for text, ids in sorted(by_text.items()):
+        if len(ids) > 1:
+            d.add(WARNING, "INFO_DUPLICATE_PROPOSITION", "information_definitions",
+                  f"같은 명제가 여러 InfoId로 정의됐습니다: {', '.join(ids)} — 합치지 않습니다(info_ref 사용 권장)")
+    series = _compile_info_series(raw, _ref_scope(actors, places, infos, access, modes, calendar=calendar), d)
 
     diagnostics = d.sorted()
     if any(x.severity == ERROR for x in diagnostics):
@@ -1230,6 +1385,8 @@ def compile_scenario(raw: dict, scenario_id: str, quests: dict | None = None) ->
         "access_control_definitions": access,
         "spatial_knowledge_seeds": seeds,
         "information_definitions": infos,
+        # H04(compiler v3): 정보 계열 정의. 초기 상태 적용은 H06.
+        "information_series": series,
         "initialization_definitions": init,
         # H03(compiler v2): 정량 시간 달력. 레거시는 None(새 시간 엔진 근거 아님).
         "calendar": calendar,

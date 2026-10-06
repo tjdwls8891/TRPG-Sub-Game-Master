@@ -53,6 +53,9 @@
 #   spatial — (H03) 방향 이동 그래프·정적 가시성·배치/TRANSIT·공간 지식·공간 typed 연산
 #   access — (H03) 접근 규칙 평가기·실제 접근/인지 접근 분리
 #   movement — (H03) 고정 정밀도 소요시간·KnownRoutePlanner·ActualTraversalPlanner
+#   world_refs — (H04) 타입 값 참조·의존 키
+#   actors · information · cognition · relationships — (H04) 행위자·정보·인지·관계 정본 + typed 연산
+#   npc_projection — (H04) 읽기 전용 CurrentNpcProjection
 
 from .constants import (
     __version__,
@@ -236,6 +239,12 @@ from . import world_schedule  # H03: pending schedule + base quiescence + time t
 from . import access  # H03: access rule registry + actual vs perceived access
 from . import spatial  # H03: directed movement graph + static visibility + spatial knowledge + typed ops
 from . import movement  # H03: fixed-precision duration + known/actual route planners
+from . import world_refs  # H04: typed ValueRef registry + dependency keys
+from . import actors  # H04: ActorRegistry + legacy name resolver + typed ops
+from . import information  # H04: InformationState validity/lineage/series + typed ops
+from . import cognition  # H04: sparse cognition + acquisition provenance + belief authority
+from . import relationships  # H04: sparse relationship deltas
+from . import npc_projection  # H04: read-only CurrentNpcProjection
 from .cost import (
     extract_token_usage,
     format_cost,

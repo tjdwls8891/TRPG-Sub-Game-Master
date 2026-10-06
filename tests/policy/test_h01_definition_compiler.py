@@ -236,10 +236,11 @@ def test_capability_declaration_validation():
     assert dc.capability_matrix(ok)["stable_actors"] == "v1 validated"
 
     # compiler v2(H03): structured_places·quantitative_time은 검증 대상 — 아직 유예인 capability로 확인
+    # compiler v3(H04-A): information_registry·actor_cognition·dynamic_actor_location도 검증 대상
     deferred = dc.compile_scenario(_mini(scenario_schema={"version": 1, "capabilities": {
-        "information_registry": 1}}), "t")
+        "dynamic_events": 1, "stable_actors": 1}}), "t")
     assert deferred.ok and "CAP_VALIDATION_DEFERRED" in _codes(deferred, "WARNING")
-    assert deferred.definition["scenario_meta"]["deferred_capabilities"] == ["information_registry"]
+    assert deferred.definition["scenario_meta"]["deferred_capabilities"] == ["dynamic_events"]
 
     cases = {
         "CAP_UNKNOWN": {"version": 1, "capabilities": {"teleport": 1}},

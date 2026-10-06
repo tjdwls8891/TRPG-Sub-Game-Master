@@ -63,12 +63,14 @@ def _imports_module(tree, module) -> bool:
 def test_h03_modules_are_used_only_by_allowed_core_modules():
     # 허용: 도메인 모듈끼리, 재수출, 등록(world_mutation), READY·정본 변이의 quiescence 증명,
     # 컴파일러의 달력 검증(world_clock).
+    from tests.characterize.h04_scope import H04_DOMAIN_FILES
+    h04 = set(H04_DOMAIN_FILES)                    # H04 도메인 모듈(자체 경계는 test_h04_no_cutover)
     allowed = {
-        "world_clock": {"world_schedule.py", "spatial.py", "definition_compiler.py"},
-        "world_schedule": {"world_mutation.py", "turn_preparation.py", "canonical_mutation.py", "movement.py"},
-        "spatial": {"world_mutation.py", "movement.py"},
-        "access": {"movement.py", "spatial.py"},
-        "movement": set(),
+        "world_clock": {"world_schedule.py", "spatial.py", "definition_compiler.py"} | h04,
+        "world_schedule": {"world_mutation.py", "turn_preparation.py", "canonical_mutation.py", "movement.py"} | h04,
+        "spatial": {"world_mutation.py", "movement.py"} | h04,
+        "access": {"movement.py", "spatial.py"} | h04,
+        "movement": set() | h04,
     }
     hits = []
     for p in _production_files():
@@ -84,7 +86,8 @@ def test_h03_modules_are_used_only_by_allowed_core_modules():
 
 def test_no_production_producer_of_h03_operations():
     """플레이어·cogs·main·기존 core 경로가 H03 연산을 만들거나 이동 계획을 세우지 않는다."""
-    domain = {f"{m}.py" for m in H03_MODULES} | {"world_mutation.py", "__init__.py"}
+    from tests.characterize.h04_scope import H04_DOMAIN_FILES
+    domain = {f"{m}.py" for m in H03_MODULES} | {"world_mutation.py", "__init__.py"} | set(H04_DOMAIN_FILES)
     hits = []
     for p in _production_files():
         if p.startswith(os.path.join(REPO_ROOT, "core")) and os.path.basename(p) in domain:

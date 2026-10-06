@@ -424,7 +424,7 @@ def _qt(**extra):
 
 
 def test_compiler_version_2_and_quantitative_time_is_validated():
-    assert dc.COMPILER_VERSION == 2
+    assert dc.COMPILER_VERSION >= 2               # v2(H03)에서 도입, 이후 버전에서 유지
     assert "quantitative_time" in dc.VALIDATED_CAPABILITIES
     assert "calendar" not in dc.RESERVED_UNCOMPILED_KEYS
     res = dc.compile_scenario(_qt(), "t")

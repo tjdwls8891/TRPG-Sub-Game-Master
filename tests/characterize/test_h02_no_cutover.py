@@ -28,6 +28,9 @@ pytestmark = pytest.mark.characterize
 NEW_MODULES = ("world_state", "world_mutation", "canonical_mutation")
 # H03 시간·공간 도메인 모듈(typed handler·순수 질의) — world_mutation을 import한다
 H03_DOMAIN_MODULES = ("world_clock.py", "world_schedule.py", "spatial.py", "access.py", "movement.py")
+# H04 행위자·정보·인지·관계·사건·진행 도메인 모듈(typed handler·순수 질의·순수 투영)
+from tests.characterize.h04_scope import H04_DOMAIN_FILES  # noqa: E402
+H03_DOMAIN_MODULES = H03_DOMAIN_MODULES + H04_DOMAIN_FILES
 
 
 def _production_files():
@@ -91,7 +94,8 @@ def test_world_version_direct_writers():
 
 def test_production_registry_holds_only_h03_typed_handlers():
     import core
-    expected = set(core.world_schedule.TIME_OP_TYPES) | set(core.spatial.SPATIAL_OP_TYPES)
+    from tests.characterize.h04_scope import expected_production_ops
+    expected = expected_production_ops()           # H03 시간·공간 + H04 행위자·정보·인지·관계·사건
     assert set(WM.PRODUCTION_REGISTRY.op_types()) == expected
     # 등록은 world_mutation의 단일 등록 함수만 한다(도메인 모듈 register(registry) 위임)
     for p in _production_files():

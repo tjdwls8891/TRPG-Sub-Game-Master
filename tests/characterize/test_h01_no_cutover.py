@@ -39,8 +39,10 @@ def _production_files():
 
 
 # H02: world_ids를 재사용해도 되는 정본 기반 모듈(정의 컴파일러·스냅샷은 여전히 금지)
+# H04: 행위자·정보·사건 도메인 모듈도 안정 digest(ActorId·InfoId·EventInstanceId)를 재사용한다.
+from tests.characterize.h04_scope import H04_DOMAIN_MODULES  # noqa: E402
 WORLD_IDS_REUSERS = {os.path.join("core", f"{m}.py")
-                     for m in ("world_state", "world_mutation", "canonical_mutation")}
+                     for m in ("world_state", "world_mutation", "canonical_mutation") + H04_DOMAIN_MODULES}
 
 
 def test_no_production_caller_of_h01_modules():

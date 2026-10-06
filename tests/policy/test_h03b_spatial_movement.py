@@ -103,7 +103,7 @@ def _sigs(plan):
 
 def test_structured_places_is_validated_and_edges_normalized():
     res = dc.compile_scenario(spatial_raw(), "t")
-    assert res.ok and res.compiler_version == 2
+    assert res.ok and res.compiler_version >= 2
     assert "structured_places" in dc.VALIDATED_CAPABILITIES
     assert res.definition["scenario_meta"]["validated_capabilities"] == ["structured_places"]
     for k in ("movement_modes", "access_control_definitions", "spatial_knowledge_seeds"):
@@ -598,7 +598,9 @@ def _op(i, t, p, **kw):
 
 def test_production_registry_is_typed_time_and_spatial_only():
     names = set(WM.PRODUCTION_REGISTRY.op_types())
-    assert names == set(SC.TIME_OP_TYPES) | set(SP.SPATIAL_OP_TYPES)
+    from tests.characterize.h04_scope import expected_production_ops
+    assert set(SC.TIME_OP_TYPES) | set(SP.SPATIAL_OP_TYPES) <= names
+    assert names == expected_production_ops()                      # H04 도메인 typed 연산 포함
     assert set(SP.SPATIAL_OP_TYPES) == {
         "SCENE_PLACE_SET", "ACTOR_PLACEMENT_SET", "ACTOR_TRANSIT_SET", "ACCESS_STATE_SET",
         "SPATIAL_PLACE_KNOWLEDGE_UPSERT", "SPATIAL_EDGE_KNOWLEDGE_UPSERT", "SPATIAL_ACCESS_KNOWLEDGE_UPSERT"}

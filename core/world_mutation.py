@@ -369,7 +369,8 @@ class OperationRegistry:
         return tuple(sorted(self._handlers))
 
 
-# production 레지스트리 — H03부터 시간·예약·공간·접근 typed handler가 등록된다(파일 끝).
+# production 레지스트리 — H03 시간·예약·공간·접근, H04 행위자·정보·인지·관계·사건 typed handler가
+#   등록된다(파일 끝).
 #   등록 ≠ 사용: H03에서 이 연산을 만드는 production 플레이어 경로(producer)는 없다.
 PRODUCTION_REGISTRY = OperationRegistry("production")
 
@@ -679,10 +680,19 @@ def apply_projection(session, result: ProjectionResult, source: ProjectedWorld) 
 
 # ── H03: production typed handler 등록(도메인 모듈이 world_mutation을 import하므로 맨 끝) ──
 def _register_production_handlers() -> None:
+    from . import actors as _actors
+    from . import cognition as _cognition
+    from . import information as _information
+    from . import relationships as _relationships
     from . import spatial as _spatial
     from . import world_schedule as _sched
     _sched.register(PRODUCTION_REGISTRY)
     _spatial.register(PRODUCTION_REGISTRY)
+    # H04-A: 행위자·정보·인지·관계(등록 ≠ 사용 — production producer 0)
+    _actors.register(PRODUCTION_REGISTRY)
+    _information.register(PRODUCTION_REGISTRY)
+    _cognition.register(PRODUCTION_REGISTRY)
+    _relationships.register(PRODUCTION_REGISTRY)
 
 
 _register_production_handlers()
