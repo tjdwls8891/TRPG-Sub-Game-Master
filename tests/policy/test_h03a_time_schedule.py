@@ -37,6 +37,8 @@ from tests.policy.test_h01_definition_compiler import _codes, _mini
 
 pytestmark = pytest.mark.policy
 
+K = 1440 * 1000          # 정본 분 기준(H03 보정 4: minute_index ≥ 1440 = 달력 일련번호 ≥ 1)
+
 GREG = {"calendar_id": "cal_main", "calendar_type": "GREGORIAN", "month_lengths": None,
         "dayparts": {"dawn": {"start": "05:00", "end": "09:00", "representative": "06:00"},
                      "day": {"start": "09:00", "end": "18:00", "representative": "12:00"},
@@ -149,14 +151,14 @@ def test_clock_never_moves_backward_and_zero_minute_is_allowed():
     with pytest.raises(WC.ClockError):
         WC.add_minutes(100, -1)
     assert WC.add_minutes(100, 0) == 100
-    c = WC.initial_clock(500)
-    assert c == {"minute_index": 500, "start_minute_index": 500}
+    c = WC.initial_clock(K + 500)
+    assert c == {"minute_index": K + 500, "start_minute_index": K + 500}
     assert WC.is_initialized(c) and not WC.is_initialized({})
     assert WC.validate_clock({}) == [] and WC.validate_clock(c) == []
-    assert WC.validate_clock({"minute_index": 1})
-    assert WC.validate_clock({"minute_index": 1, "start_minute_index": 2})
-    assert WC.validate_clock({"minute_index": True, "start_minute_index": 0})
-    assert WC.elapsed_since_start({"minute_index": 530, "start_minute_index": 500}) == 30
+    assert WC.validate_clock({"minute_index": K + 1})
+    assert WC.validate_clock({"minute_index": K + 1, "start_minute_index": K + 2})
+    assert WC.validate_clock({"minute_index": True, "start_minute_index": K + 0})
+    assert WC.elapsed_since_start({"minute_index": K + 530, "start_minute_index": K + 500}) == 30
     with pytest.raises(WC.ClockError):
         WC.current_minute({})
 
@@ -181,16 +183,16 @@ def test_schedule_order_is_independent_of_insertion_order():
 
 
 def test_base_quiescence_truth_table():
-    clk = WC.initial_clock(100)
+    clk = WC.initial_clock(K + 100)
     q = SC.base_quiescence({}, {})
     assert q.quiescent and not q.clock_initialized and q.current_minute is None
-    q = SC.base_quiescence({}, {"e": _entry("e", 200)})
+    q = SC.base_quiescence({}, {"e": _entry("e", K + 200)})
     assert not q.quiescent and "미초기화" in q.reasons[0]
     assert SC.base_quiescence(clk, {}).quiescent
-    assert SC.base_quiescence(clk, {"e": _entry("e", 101)}).quiescent
-    q = SC.base_quiescence(clk, {"e": _entry("e", 100), "f": _entry("f", 99), "g": _entry("g", 300)})
+    assert SC.base_quiescence(clk, {"e": _entry("e", K + 101)}).quiescent
+    q = SC.base_quiescence(clk, {"e": _entry("e", K + 100), "f": _entry("f", K + 99), "g": _entry("g", K + 300)})
     assert not q.quiescent and q.overdue_ids == ("f", "e") and q.pending_count == 3
-    assert not SC.base_quiescence({"minute_index": 5}, {}).quiescent        # 잘못된 시계
+    assert not SC.base_quiescence({"minute_index": K + 5}, {}).quiescent        # 잘못된 시계
     d = q.to_dict()
     assert d["quiescent"] is False and d["overdue_ids"] == ["f", "e"]
     # 세션·투영 세계 모두에서 증명
@@ -213,33 +215,33 @@ def test_production_registry_holds_only_typed_ops():
 def test_time_ops_initialize_advance_and_schedule_lifecycle():
     s = _sess()
     # 미초기화 시계에는 예약도 진행도 없다
-    res = _project(s, _op("s", SC.OP_SCHEDULE_CREATE, {"schedule_id": "e1", "due_minute": 5,
+    res = _project(s, _op("s", SC.OP_SCHEDULE_CREATE, {"schedule_id": "e1", "due_minute": K + 5,
                                                        "kind": SC.KIND_EVENT_WAKEUP}))
     assert res.conflicts[0].code == "HANDLER_REJECTED"
-    assert _project(s, _op("a", SC.OP_CLOCK_ADVANCE_TO, {"target_minute": 5})).conflicts
-    res = _project(s, _op("i", SC.OP_CLOCK_INITIALIZE, {"minute_index": 1000}))
-    assert res.ok and res.world.domain("world_clock") == WC.initial_clock(1000)
+    assert _project(s, _op("a", SC.OP_CLOCK_ADVANCE_TO, {"target_minute": K + 5})).conflicts
+    res = _project(s, _op("i", SC.OP_CLOCK_INITIALIZE, {"minute_index": K + 1000}))
+    assert res.ok and res.world.domain("world_clock") == WC.initial_clock(K + 1000)
     assert s.world_clock == {}                                    # 투영은 세션 불변
-    s.world_clock = WC.initial_clock(1000)
-    assert _project(s, _op("i", SC.OP_CLOCK_INITIALIZE, {"minute_index": 5})).conflicts   # 재초기화 금지
+    s.world_clock = WC.initial_clock(K + 1000)
+    assert _project(s, _op("i", SC.OP_CLOCK_INITIALIZE, {"minute_index": K + 5})).conflicts   # 재초기화 금지
     # 후퇴 거부 · 0분 허용
-    assert _project(s, _op("a", SC.OP_CLOCK_ADVANCE_TO, {"target_minute": 999})).conflicts
-    assert _project(s, _op("a", SC.OP_CLOCK_ADVANCE_TO, {"target_minute": 1000})).ok
+    assert _project(s, _op("a", SC.OP_CLOCK_ADVANCE_TO, {"target_minute": K + 999})).conflicts
+    assert _project(s, _op("a", SC.OP_CLOCK_ADVANCE_TO, {"target_minute": K + 1000})).ok
     # 과거 예약 거부, 같은 분 예약은 생성 가능(단 READY에서 quiescence 실패)
-    assert _project(s, _op("c", SC.OP_SCHEDULE_CREATE, {"schedule_id": "e0", "due_minute": 999,
+    assert _project(s, _op("c", SC.OP_SCHEDULE_CREATE, {"schedule_id": "e0", "due_minute": K + 999,
                                                         "kind": SC.KIND_EVENT_WAKEUP})).conflicts
-    res = _project(s, _op("c", SC.OP_SCHEDULE_CREATE, {"schedule_id": "e1", "due_minute": 1060,
+    res = _project(s, _op("c", SC.OP_SCHEDULE_CREATE, {"schedule_id": "e1", "due_minute": K + 1060,
                                                        "kind": SC.KIND_MOVEMENT_WAKEUP,
                                                        "owner_ref": "actor:pc"}))
     assert res.ok
     e = res.world.domain("world_schedule")["e1"]
-    assert e == {"schedule_id": "e1", "due_minute": 1060, "kind": "MOVEMENT_WAKEUP",
+    assert e == {"schedule_id": "e1", "due_minute": K + 1060, "kind": "MOVEMENT_WAKEUP",
                  "owner_ref": "actor:pc", "payload_ref": None, "created_by_version": None,
                  "order_key": "e1"}
     s.world_schedule = {"e1": e}
-    assert _project(s, _op("c", SC.OP_SCHEDULE_CREATE, {"schedule_id": "e1", "due_minute": 1070,
+    assert _project(s, _op("c", SC.OP_SCHEDULE_CREATE, {"schedule_id": "e1", "due_minute": K + 1070,
                                                         "kind": SC.KIND_EVENT_WAKEUP})).conflicts
-    assert _project(s, _op("c", SC.OP_SCHEDULE_CREATE, {"schedule_id": "e2", "due_minute": 1070,
+    assert _project(s, _op("c", SC.OP_SCHEDULE_CREATE, {"schedule_id": "e2", "due_minute": K + 1070,
                                                         "kind": "BOGUS"})).conflicts
     # 취소 → live 큐에서 삭제(tombstone 없음)
     res = _project(s, _op("x", SC.OP_SCHEDULE_CANCEL, {"schedule_id": "e1"}))
@@ -247,14 +249,14 @@ def test_time_ops_initialize_advance_and_schedule_lifecycle():
     assert _project(s, _op("x", SC.OP_SCHEDULE_CANCEL, {"schedule_id": "nope"})).conflicts
     # 소비 — 도래 전 거부, 진행(부모) 후 자식이 소비
     assert _project(s, _op("u", SC.OP_SCHEDULE_CONSUME, {"schedule_id": "e1"})).conflicts
-    res = _project(s, _op("adv", SC.OP_CLOCK_ADVANCE_TO, {"target_minute": 1060}),
+    res = _project(s, _op("adv", SC.OP_CLOCK_ADVANCE_TO, {"target_minute": K + 1060}),
                    _op("use", SC.OP_SCHEDULE_CONSUME, {"schedule_id": "e1"},
                        causal_parent_op_ids=("adv",)))
     assert res.ok, res.conflicts
-    assert res.world.domain("world_schedule") == {} and res.world.domain("world_clock")["minute_index"] == 1060
+    assert res.world.domain("world_schedule") == {} and res.world.domain("world_clock")["minute_index"] == K + 1060
     assert SC.base_quiescence_of(res.world).quiescent
     # 부모 없이 진행만 하면 due==now 예약이 남아 quiescent가 아니다
-    res = _project(s, _op("adv", SC.OP_CLOCK_ADVANCE_TO, {"target_minute": 1060}))
+    res = _project(s, _op("adv", SC.OP_CLOCK_ADVANCE_TO, {"target_minute": K + 1060}))
     assert res.ok and not SC.base_quiescence_of(res.world).quiescent
     # payload 키 검증
     assert _project(s, _op("x", SC.OP_SCHEDULE_CANCEL, {"schedule_id": "e1", "zz": 1})).conflicts
@@ -262,8 +264,8 @@ def test_time_ops_initialize_advance_and_schedule_lifecycle():
 
 def test_delete_semantic_conflicts_and_insertion_order():
     s = _sess()
-    s.world_clock = WC.initial_clock(0)
-    s.world_schedule = {"a": _entry("a", 10), "b": _entry("b", 20)}
+    s.world_clock = WC.initial_clock(K + 0)
+    s.world_schedule = {"a": _entry("a", K + 10), "b": _entry("b", K + 20)}
     reg = WM.OperationRegistry("t")
     reg.register("DEL", lambda v, op, p: [WM.write(op, "world_schedule", (p["id"],), WM.MERGE_DELETE, None)])
     reg.register("PUT", lambda v, op, p: [WM.write(op, "world_schedule", (p["id"],),
@@ -326,44 +328,44 @@ async def test_typed_time_ops_commit_and_rewind_in_player_turn(rig, inject):
     r = rig
     s = r.sess
     await _fund(PLAYER_UID, 100)
-    s.world_clock = WC.initial_clock(1000)
+    s.world_clock = WC.initial_clock(K + 1000)
     _hook_ops(inject,
-              _op("adv", SC.OP_CLOCK_ADVANCE_TO, {"target_minute": 1030}),
-              _op("mk", SC.OP_SCHEDULE_CREATE, {"schedule_id": "w1", "due_minute": 1100,
+              _op("adv", SC.OP_CLOCK_ADVANCE_TO, {"target_minute": K + 1030}),
+              _op("mk", SC.OP_SCHEDULE_CREATE, {"schedule_id": "w1", "due_minute": K + 1100,
                                                 "kind": SC.KIND_EVENT_WAKEUP},
                   causal_parent_op_ids=("adv",)))
     tx1 = await _run_turn(r)
     inject.undo()
     assert tx1.status == tt.TurnStatus.COMMITTED
-    assert s.world_clock == {"minute_index": 1030, "start_minute_index": 1000}
-    assert s.world_schedule["w1"]["due_minute"] == 1100
+    assert s.world_clock == {"minute_index": K + 1030, "start_minute_index": K + 1000}
+    assert s.world_schedule["w1"]["due_minute"] == K + 1100
     assert s.world_schedule["w1"]["created_by_version"] is None or isinstance(
         s.world_schedule["w1"]["created_by_version"], str)
-    assert _disk(s)["world_clock"]["minute_index"] == 1030
+    assert _disk(s)["world_clock"]["minute_index"] == K + 1030
     assert set(tx1.preparation.ready_proof.world_changed_domains) == {"world_clock", "world_schedule"}
     assert tx1.preparation.ready_proof.base_quiescence["quiescent"] is True
     # 두 번째 턴: 도래까지 진행 + 소비
     _hook_ops(inject,
-              _op("adv", SC.OP_CLOCK_ADVANCE_TO, {"target_minute": 1100}),
+              _op("adv", SC.OP_CLOCK_ADVANCE_TO, {"target_minute": K + 1100}),
               _op("use", SC.OP_SCHEDULE_CONSUME, {"schedule_id": "w1"}, causal_parent_op_ids=("adv",)))
     tx2 = await _run_turn(r)
     inject.undo()
     assert tx2.status == tt.TurnStatus.COMMITTED
-    assert s.world_clock["minute_index"] == 1100 and s.world_schedule == {}
+    assert s.world_clock["minute_index"] == K + 1100 and s.world_schedule == {}
     # 되감기 → 턴 1 상태(예약 복원, 시계 복원)
     res = await r.gm.history_rewind(s, 1)
     assert res["ok"], res
-    assert s.world_clock["minute_index"] == 1030 and set(s.world_schedule) == {"w1"}
+    assert s.world_clock["minute_index"] == K + 1030 and set(s.world_schedule) == {"w1"}
 
 
 async def test_due_now_pending_blocks_ready_as_projection_conflict(rig, inject):
     r = rig
     s = r.sess
     await _fund(PLAYER_UID, 100)
-    s.world_clock = WC.initial_clock(1000)
-    s.world_schedule = {"w1": _entry("w1", 1050)}
+    s.world_clock = WC.initial_clock(K + 1000)
+    s.world_schedule = {"w1": _entry("w1", K + 1050)}
     # 소비 없이 도래 시각까지 진행 → READY의 base quiescence 실패
-    _hook_ops(inject, _op("adv", SC.OP_CLOCK_ADVANCE_TO, {"target_minute": 1050}))
+    _hook_ops(inject, _op("adv", SC.OP_CLOCK_ADVANCE_TO, {"target_minute": K + 1050}))
     turn_before, wv_before = s.turn_count, s.world_version
     tx = await _run_turn(r)
     prep = tx.preparation
@@ -374,14 +376,14 @@ async def test_due_now_pending_blocks_ready_as_projection_conflict(rig, inject):
     assert tx.status == tt.TurnStatus.FAILED_SYSTEM and tx.failure_code == "WORLD_PROJECTION_CONFLICT"
     assert not s.extraction_retry_ctx and "PREPARED" not in _phases(s, tx)
     assert s.turn_count == turn_before and s.world_version == wv_before
-    assert s.world_clock["minute_index"] == 1000 and set(s.world_schedule) == {"w1"}
+    assert s.world_clock["minute_index"] == K + 1000 and set(s.world_schedule) == {"w1"}
 
 
 async def test_invalid_base_state_blocks_ready(rig):
     r = rig
     s = r.sess
     await _fund(PLAYER_UID, 100)
-    s.world_schedule = {"w1": _entry("w1", 10)}               # 미초기화 시계 + 예약
+    s.world_schedule = {"w1": _entry("w1", K + 10)}               # 미초기화 시계 + 예약
     tx = await _run_turn(r)
     assert tx.status == tt.TurnStatus.FAILED_SYSTEM
     assert tx.preparation.world_conflicts[0]["code"] == "NOT_QUIESCENT"
@@ -392,19 +394,19 @@ async def test_canonical_mutation_requires_quiescence():
     s = _sess("cm-h03a")
     coord = CM.CanonicalMutationCoordinator(bot)              # production 레지스트리
     b = CM.new_batch(s, cause_kind=WS.CAUSE_INITIALIZATION, cause_id="init")
-    b.add(_op("i", SC.OP_CLOCK_INITIALIZE, {"minute_index": 600}))
-    b.add(_op("w", SC.OP_SCHEDULE_CREATE, {"schedule_id": "w1", "due_minute": 600,
+    b.add(_op("i", SC.OP_CLOCK_INITIALIZE, {"minute_index": K + 600}))
+    b.add(_op("w", SC.OP_SCHEDULE_CREATE, {"schedule_id": "w1", "due_minute": K + 600,
                                            "kind": SC.KIND_EVENT_WAKEUP}, causal_parent_op_ids=("i",)))
     res = await coord.apply(s, b, cause_kind=WS.CAUSE_INITIALIZATION, cause_id="init")
     assert res.outcome == CM.OUTCOME_CONFLICT and res.reason.startswith("NOT_QUIESCENT")
     assert s.world_clock == {} and s.world_version is None
     b = CM.new_batch(s, cause_kind=WS.CAUSE_INITIALIZATION, cause_id="init2")
-    b.add(_op("i", SC.OP_CLOCK_INITIALIZE, {"minute_index": 600}))
-    b.add(_op("w", SC.OP_SCHEDULE_CREATE, {"schedule_id": "w1", "due_minute": 660,
+    b.add(_op("i", SC.OP_CLOCK_INITIALIZE, {"minute_index": K + 600}))
+    b.add(_op("w", SC.OP_SCHEDULE_CREATE, {"schedule_id": "w1", "due_minute": K + 660,
                                            "kind": SC.KIND_EVENT_WAKEUP}, causal_parent_op_ids=("i",)))
     res = await coord.apply(s, b, cause_kind=WS.CAUSE_INITIALIZATION, cause_id="init2")
     assert res.outcome == CM.OUTCOME_COMMITTED, res
-    assert s.world_clock == WC.initial_clock(600) and set(s.world_schedule) == {"w1"}
+    assert s.world_clock == WC.initial_clock(K + 600) and set(s.world_schedule) == {"w1"}
     assert s.world_schedule["w1"]["created_by_version"] is None    # 생성 시점 source version(초기 = 없음)
 
 

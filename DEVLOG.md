@@ -328,6 +328,12 @@ H02 승인 기준(`49c8dcc`) 위에서 두 내부 게이트(H03-A 시간·예약
 
 compiler semantic version 2로 5개 시나리오 revision이 바뀌었다(스냅샷 바인딩 0 — 이행 불필요). 세부·증거는 `handoff/H03_COMPLETION_BUNDLE.md`.
 
+#### H03 보정 (1차 FINAL `cc48d1e` 이후, 버전 유지)
+
+- **알려진 경로의 인식 경계** — KnownRoutePlanner가 실제 구간의 이동 방식 제한·태그·시간 배수·고정 지연을 읽고 있었다. 행위자가 모르는 실제 성질 때문에 후보가 사라지거나 순위가 바뀌면 숨은 정보가 새는 것과 같다. 인지 통과 정보는 EdgeKnowledge의 `known_allowed_modes`·`known_movement_tags`·`known_time_factor`·`known_fixed_delay_minutes`에 명시하고, 모르면 중립(제한 없음·배수 1·지연 0)으로 둔다. 실제 구간 진실은 실제 통과에서만 쓴다.
+- **CONFIRM은 행동 단위** — 정책 전체 승인(`confirmed_policies`)을 없애고 접근 행동 id(구간·제어·상태·정책) 목록으로 바꿨다. 숨은 두 번째 CONFIRM이 첫 승인으로 자동 통과하지 않는다.
+- **정본 검증 강화** — 예약 항목은 7키·타입을 엄격히 보고 빈 큐는 `{}`뿐(`[]`·`None`을 빈 큐로 보지 않음). 시계 값은 달력 계약대로 1440 이상(일련번호 ≥ 1). TRANSIT은 `start < end`, `start ≤ now < end`(0분 이동은 TRANSIT 없음). 지식 provenance는 upsert 때 append+dedupe로 보존하고, seed 초기 접근 사실은 control_id·edge_id 참조를 받아 런타임 사실 키로 정규화한다.
+
 ---
 
 ## 실측 데이터

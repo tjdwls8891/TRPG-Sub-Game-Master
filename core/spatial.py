@@ -37,8 +37,12 @@ TRANSIT_KEYS = ("kind", "movement_id", "edge_id", "from_place", "to_place",
 FAMILIARITY_VISIBILITY = ("PUBLIC", "LOCAL")      # familiarity로 획득 가능한 구간 분류
 
 PLACE_KNOWLEDGE_KEYS = ("knows_name", "visited", "rough_location", "acquisitions")
+# 인지 통과 정보(known_*)는 행위자가 아는 것만 — 없으면(None) KnownRoutePlanner가 중립값을 쓴다.
+# 실제 구간 정의(allowed_modes·movement_tags·base_time_factor·fixed_delay_minutes)를 대신 읽지 않는다.
 EDGE_KNOWLEDGE_KEYS = ("connection_known", "distance_estimate_m", "distance_precision",
-                       "last_confirmed_at", "acquisition_sources")
+                       "last_confirmed_at", "acquisition_sources", "known_allowed_modes",
+                       "known_movement_tags", "known_time_factor", "known_fixed_delay_minutes")
+PROVENANCE_KEYS = ("acquisitions", "acquisition_sources")      # upsert 시 append + dedupe
 ACCESS_FACT_KEYS = ("observed_result", "observed_state", "action_policy",
                     "confirmed_at_minute", "source")
 
@@ -166,8 +170,9 @@ def validate_placement(pl) -> list:
                 for k in ("movement_id", "edge_id", "from_place", "to_place")
                 if not isinstance(pl[k], str) or not pl[k]]
         s, e = pl["edge_started_at_minute"], pl["edge_expected_end_minute"]
-        if not (_is_int(s) and _is_int(e)) or e < s:
-            errs.append("edge_started_at_minute ≤ edge_expected_end_minute 정수여야 합니다")
+        if not (_is_int(s) and _is_int(e)) or e <= s:
+            errs.append("edge_started_at_minute < edge_expected_end_minute 정수여야 합니다"
+                        "(0분 이동은 TRANSIT을 만들지 않는다)")
         if pl["from_place"] == pl["to_place"]:
             errs.append("TRANSIT 양 끝이 같습니다")
         return errs
@@ -175,10 +180,10 @@ def validate_placement(pl) -> list:
 
 
 def transit_progress(pl: dict, now: int):
-    """파생 진행률(Fraction 0~1). 0분 구간은 None — 저장하지 않는다."""
+    """파생 진행률(Fraction 0~1, 저장하지 않는다). TRANSIT은 start < end가 보장된다."""
     from fractions import Fraction
     s, e = pl["edge_started_at_minute"], pl["edge_expected_end_minute"]
-    if e == s:
+    if e <= s:
         return None
     return min(Fraction(1), max(Fraction(0), Fraction(now - s, e - s)))
 
@@ -237,8 +242,8 @@ def seed_knowledge(definition: dict, seed_id: str, *, source: str = "SEED") -> d
     return {
         "places": {p: {"knows_name": True, "visited": False, "rough_location": None,
                        "acquisitions": [source]} for p in sorted(places)},
-        "edges": {e: {"connection_known": True, "distance_estimate_m": None, "distance_precision": None,
-                      "last_confirmed_at": None, "acquisition_sources": [source]} for e in sorted(edges)},
+        "edges": {e: dict({k: None for k in EDGE_KNOWLEDGE_KEYS}, connection_known=True,
+                          acquisition_sources=[source]) for e in sorted(edges)},
         "access": {f["ref"]: {"observed_result": f["observed_result"], "observed_state": f["observed_state"],
                               "action_policy": None, "confirmed_at_minute": None, "source": source}
                    for f in seed["known_access_facts"]},
@@ -302,12 +307,13 @@ def h_actor_transit_set(view, op, payload):
     if errs:
         _reject(op, "; ".join(errs))
     clock = view.domain("world_clock")
-    if not _wc.is_initialized(clock):
-        _reject(op, "TRANSIT은 초기화된 world_clock이 필요합니다")
+    if not _wc.is_initialized(clock) or _wc.validate_clock(clock):
+        _reject(op, "TRANSIT은 초기화된 정본 world_clock이 필요합니다")
     now = clock["minute_index"]
-    if not pl["edge_started_at_minute"] <= now <= pl["edge_expected_end_minute"]:
+    if not pl["edge_started_at_minute"] <= now < pl["edge_expected_end_minute"]:
         _reject(op, f"현재 시각 {now}이 구간 [{pl['edge_started_at_minute']}, "
-                    f"{pl['edge_expected_end_minute']}] 밖입니다(시계 진행을 인과 부모로 두십시오)")
+                    f"{pl['edge_expected_end_minute']}) 밖입니다(도착 시각이면 AT_PLACE — "
+                    f"시계 진행을 인과 부모로 두십시오)")
     return [_wm.write(op, "spatial_state", ("placements", actor), _wm.MERGE_SINGLE_VALUE, pl)]
 
 
@@ -323,7 +329,13 @@ def _upsert(view, op, actor, section, key, fields, allowed, validate):
         _reject(op, f"알 수 없는 지식 필드 {sorted(extra)}")
     cur = view.get("spatial_knowledge", (actor, section, key)) or {}
     rec = dict(cur)
-    rec.update(fields)
+    for k, v in fields.items():
+        if k in PROVENANCE_KEYS:
+            if v is not None and not isinstance(v, list):
+                _reject(op, f"{k}는 목록이어야 합니다")
+            rec[k] = _append_dedupe(cur.get(k) or [], v or [])     # 기존 출처 보존
+        else:
+            rec[k] = v
     for k in allowed:
         rec.setdefault(k, None)
     err = validate(rec)
@@ -331,6 +343,30 @@ def _upsert(view, op, actor, section, key, fields, allowed, validate):
         _reject(op, err)
     return [_wm.write(op, "spatial_knowledge", (actor, section, key), _wm.MERGE_SINGLE_VALUE, rec),
             _wm.write(op, "spatial_knowledge", (actor, "revision"), _wm.MERGE_ADDITIVE, 1)]
+
+
+def _fixed_decimal(v):
+    """양의 소수 6자리 이내 십진수 → 정규 문자열(컴파일러 fixed_decimal과 같은 규칙)."""
+    from decimal import Decimal, InvalidOperation
+    if isinstance(v, bool) or not isinstance(v, (int, float, str)):
+        return None
+    try:
+        dv = Decimal(str(v))
+    except InvalidOperation:
+        return None
+    if not dv.is_finite() or dv <= 0 or dv.as_tuple().exponent < -6:
+        return None
+    return format(dv.normalize(), "f")
+
+
+def _append_dedupe(old: list, new: list) -> list:
+    out, seen = [], set()
+    for x in list(old) + list(new):
+        k = _wm.canonical_json(x)                  # 정규 직렬화로 중복 판정(삽입 순서 보존)
+        if k not in seen:
+            seen.add(k)
+            out.append(x)
+    return out
 
 
 def _v_place(rec):
@@ -356,6 +392,19 @@ def _v_edge(rec):
         rec["acquisition_sources"] = []
     if not isinstance(rec["acquisition_sources"], list):
         return "acquisition_sources는 목록이어야 합니다"
+    for k in ("known_allowed_modes", "known_movement_tags"):
+        v = rec[k]
+        if v is not None and not (isinstance(v, list) and all(isinstance(x, str) for x in v)):
+            return f"{k}는 문자열 목록 또는 null이어야 합니다"
+    f = rec["known_time_factor"]
+    if f is not None:
+        norm = _fixed_decimal(f)
+        if norm is None:
+            return "known_time_factor는 0보다 큰 소수 6자리 이내 수여야 합니다"
+        rec["known_time_factor"] = norm
+    dl = rec["known_fixed_delay_minutes"]
+    if dl is not None and (not _is_int(dl) or dl < 0):
+        return "known_fixed_delay_minutes는 0 이상의 정수여야 합니다"
     return None
 
 

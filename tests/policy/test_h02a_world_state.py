@@ -156,7 +156,7 @@ async def test_rewind_restores_world_fields_but_not_identity(rig):
     assert rec1["schema_version"] == TH.HISTORY_SCHEMA_VERSION == 3
     assert set(GAMEPLAY) <= set(rec1["post"]) and not set(IDENTITY) & set(rec1["post"])
     # 턴 사이 외부 변화(테스트 시드) — 턴 2 post에 실린다
-    s.world_clock = {"minute_index": 42, "start_minute_index": 42}   # 정식 형태(H03 quiescence 검증)
+    s.world_clock = {"minute_index": 1440 + 42, "start_minute_index": 1440 + 42}   # 정식 형태·정본 범위(H03 quiescence 검증)
     s.event_instances = {"ev1": {"phase": "A"}}
     await _commit(r, "동굴", "동굴로 간다")
     seed = s.narrative_seed

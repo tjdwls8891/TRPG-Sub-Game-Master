@@ -53,6 +53,8 @@ from tests.policy.test_authoritative_commit import _disk, _fund
 
 pytestmark = pytest.mark.policy
 
+K = 1440 * 1000          # 정본 분 기준(H03 보정 4: minute_index ≥ 1440)
+
 ROUTE_A = ("e_hm#fwd", "e_mc#fwd")          # 시장 경유(문)
 ROUTE_B = ("e_hh#fwd", "e_hc#fwd")          # 산복도로
 ROUTE_C = ("e_hs#fwd", "e_sc#fwd")          # 해안
@@ -385,14 +387,15 @@ def test_known_routes_rank_diverse_candidates_with_labels():
     assert plan.status == MV.ROUTE_OK and _sigs(plan) == [ROUTE_A, ROUTE_B, ROUTE_C]
     a, b, c = plan.candidates
     assert [x.option_id for x in plan.candidates] == ["route_1", "route_2", "route_3"]
-    assert (a.perceived_cost_us, b.perceived_cost_us, c.perceived_cost_us) == (525_000_000, 675_000_000, 945_000_000)
-    assert (a.perceived_duration_minutes, b.perceived_duration_minutes, c.perceived_duration_minutes) == (9, 11, 16)
+    # 인지 비용 = 지식 거리 × 지식 배수(모름 = 1) + 지식 지연(모름 = 0) — 실제 e_hs 1.2배·e_sc 2분 지연은 모른다(H03 보정 1)
+    assert (a.perceived_cost_us, b.perceived_cost_us, c.perceived_cost_us) == (525_000_000, 675_000_000, 750_000_000)
+    assert (a.perceived_duration_minutes, b.perceived_duration_minutes, c.perceived_duration_minutes) == (9, 11, 13)
     assert a.perceived_distance_m == 700 and a.knowledge_basis == "ESTIMATED"
     assert (b.route_label, c.route_label) == ("산복도로 쪽", "해안도로 쪽")       # route_hint 우선
     assert a.place_ids == ("항구", "시장", "성당") and b.first_divergence_edge == "e_hh#fwd"
     # 비용 상한
     tight = MV.plan_known_routes(D, _know(ALL_ABC, EXACT), "항구", "성당", "walk",
-                                 config=MV.RoutePlannerConfig(max_cost_ratio=Fraction(3, 2)))
+                                 config=MV.RoutePlannerConfig(max_cost_ratio=Fraction(7, 5)))
     assert _sigs(tight) == [ROUTE_A, ROUTE_B]
     assert MV.plan_known_routes(D, _know(), "항구", "항구", "walk").status == MV.SAME_PLACE
 
@@ -485,8 +488,10 @@ def test_secret_edges_need_explicit_knowledge_and_modes_filter_graph():
                for c in MV.plan_known_routes(D, local, "항구", "성당", "walk").candidates)
     smuggler = _know(ALL_ABC + ("e_secret#fwd",), dict(EXACT, **{"e_secret#fwd": 100}))
     assert _sigs(MV.plan_known_routes(D, smuggler, "항구", "성당", "walk"))[0] == ("e_secret#fwd",)
-    # 이동 방식: 수로는 boat만, 도로는 walk만
+    # 이동 방식: 행위자가 아는 구간 태그로만 거른다(수로는 boat만, 도로는 walk만)
     k = _know(("e_hs#fwd", "e_ferry#fwd"), {"e_hs#fwd": 500, "e_ferry#fwd": 1000})
+    k["edges"]["e_hs#fwd"]["known_movement_tags"] = ["road"]
+    k["edges"]["e_ferry#fwd"]["known_movement_tags"] = ["water"]
     assert _sigs(MV.plan_known_routes(D, k, "항구", "해안", "walk")) == [("e_hs#fwd",)]
     assert _sigs(MV.plan_known_routes(D, k, "항구", "해안", "boat")) == [("e_ferry#fwd",)]
     assert SP.mode_allows_edge(D["movement_modes"]["boat"], D["movement_edges"]["e_hm#fwd"]) == \
@@ -534,15 +539,18 @@ def test_traversal_access_policies():
     assert closed.completed
     assert [c["kind"] for c in closed.checkpoint_times][2] == "ACCESS_ACTION"
     keyed = _go(D, actor_capabilities=("key_door",))                # CONFIRM → 확인 없으면 중단
+    aid = MV.access_action_id("e_mc#fwd", "door_1", "LOCKED", "CONFIRM")
     assert not keyed.completed and keyed.interruption == {
-        "kind": "ACCESS_ACTION_REQUIRED", "edge_id": "e_mc#fwd", "action_policy": "CONFIRM", "minute": 1005}
-    ok = _go(D, actor_capabilities=("key_door",), confirmed_policies=("CONFIRM",))
+        "kind": "ACCESS_ACTION_REQUIRED", "edge_id": "e_mc#fwd", "action_policy": "CONFIRM",
+        "action_id": aid, "minute": 1005}
+    ok = _go(D, actor_capabilities=("key_door",), confirmed_actions=(aid,))   # 그 행동만 확인
     assert ok.completed and ok.raw_total_us == 585_000_000 and ok.expected_arrival_minute == 1010   # +1분 행동
     acc = [c for c in ok.checkpoint_times if c["kind"] == "ACCESS_ACTION"]
     assert acc == [{"kind": "ACCESS_ACTION", "edge_id": "e_mc#fwd", "place_id": "시장", "minute": 1005,
-                    "raw_offset_us": 300_000_000, "action_policy": "CONFIRM"}]
+                    "raw_offset_us": 300_000_000, "action_policy": "CONFIRM", "action_id": aid}]
     barred = _go(D, state={"door_1": {"state": "BARRED"}},
-                 confirmed_policies=("CONFIRM", "SEPARATE_ACTION"))    # SEPARATE_ACTION은 언제나 중단
+                 confirmed_actions=(MV.access_action_id("e_mc#fwd", "door_1", "BARRED", "SEPARATE_ACTION"),))
+    # SEPARATE_ACTION은 확인 목록에 있어도 언제나 중단
     assert barred.interruption["action_policy"] == "SEPARATE_ACTION" and not barred.completed
     boat = _go(D, mode="boat")
     assert boat.interruption["reason"] == "MODE_TAG_NOT_ALLOWED" and boat.traversed_edges == ()
@@ -650,17 +658,17 @@ def test_actual_access_change_does_not_update_knowledge():
 def test_transit_op_requires_clock_window_and_rejects_progress_ratio():
     s = _sess()
     p = {"actor_id": "pc", "movement_id": "mv1", "edge_id": "e_hm#fwd", "from_place": "항구",
-         "to_place": "시장", "edge_started_at_minute": 1000, "edge_expected_end_minute": 1005}
+         "to_place": "시장", "edge_started_at_minute": K + 1000, "edge_expected_end_minute": K + 1005}
     assert _project(s, _op("t", SP.OP_ACTOR_TRANSIT_SET, p)).conflicts            # 시계 미초기화
-    s.world_clock = WC.initial_clock(1002)
+    s.world_clock = WC.initial_clock(K + 1002)
     r = _project(s, _op("t", SP.OP_ACTOR_TRANSIT_SET, p))
     assert r.ok and r.world.domain("spatial_state")["placements"]["pc"]["kind"] == "TRANSIT"
     assert _project(s, _op("t", SP.OP_ACTOR_TRANSIT_SET, dict(p, progress_ratio=0.4))).conflicts
-    assert _project(s, _op("t", SP.OP_ACTOR_TRANSIT_SET, dict(p, edge_started_at_minute=1003))).conflicts
-    assert _project(s, _op("t", SP.OP_ACTOR_TRANSIT_SET, dict(p, edge_expected_end_minute=999))).conflicts
+    assert _project(s, _op("t", SP.OP_ACTOR_TRANSIT_SET, dict(p, edge_started_at_minute=K + 1003))).conflicts
+    assert _project(s, _op("t", SP.OP_ACTOR_TRANSIT_SET, dict(p, edge_expected_end_minute=K + 999))).conflicts
     # 시계 진행을 인과 부모로 두면 자식이 진행된 시각을 본다
-    s.world_clock = WC.initial_clock(990)
-    r = _project(s, _op("c", SC.OP_CLOCK_ADVANCE_TO, {"target_minute": 1003}),
+    s.world_clock = WC.initial_clock(K + 990)
+    r = _project(s, _op("c", SC.OP_CLOCK_ADVANCE_TO, {"target_minute": K + 1003}),
                  _op("t", SP.OP_ACTOR_TRANSIT_SET, p, causal_parent_op_ids=("c",)))
     assert r.ok, r.conflicts
 
@@ -670,7 +678,7 @@ async def test_traversal_ops_commit_and_rewind_in_player_turn(rig, inject):
     r = rig
     s = r.sess
     await _fund(PLAYER_UID, 100)
-    s.world_clock = WC.initial_clock(1000)
+    s.world_clock = WC.initial_clock(K + 1000)
     s.access_control_state = {"door_1": {"state": "OPEN"}}
     await _run_turn(r)                                                   # 기준 턴(빈 묶음)
     t = MV.plan_actual_traversal(D, actor_id="pc", edge_sequence=ROUTE_A, mode_id="walk",
@@ -687,11 +695,11 @@ async def test_traversal_ops_commit_and_rewind_in_player_turn(rig, inject):
     tx = await _run_turn(r)
     inject.undo()
     assert tx.status == tt.TurnStatus.COMMITTED
-    assert s.world_clock["minute_index"] == 1009
+    assert s.world_clock["minute_index"] == K + 1009
     assert s.spatial_state["placements"]["pc"] == SP.at_place("성당")
     k = SP.actor_knowledge(s, "pc")
     assert SP.known_edge_ids(k) == ROUTE_A
-    assert k["edges"]["e_mc#fwd"]["last_confirmed_at"] == 1009
+    assert k["edges"]["e_mc#fwd"]["last_confirmed_at"] == K + 1009
     assert k["edges"]["e_mc#fwd"]["acquisition_sources"] == ["TRAVERSED"]
     assert k["places"]["시장"]["visited"] and k["places"]["성당"]["visited"]
     assert k["places"]["성당"]["knows_name"] is False                   # visited ⇒ knows_name 강제 없음
@@ -700,7 +708,7 @@ async def test_traversal_ops_commit_and_rewind_in_player_turn(rig, inject):
     assert tx.preparation.ready_proof.base_quiescence["quiescent"] is True
     res = await r.gm.history_rewind(s, 1)
     assert res["ok"], res
-    assert s.world_clock["minute_index"] == 1000 and s.spatial_state == {} and s.spatial_knowledge == {}
+    assert s.world_clock["minute_index"] == K + 1000 and s.spatial_state == {} and s.spatial_knowledge == {}
 
 
 async def test_blocked_traversal_learns_block_only_by_observation(rig, inject):
@@ -708,12 +716,12 @@ async def test_blocked_traversal_learns_block_only_by_observation(rig, inject):
     r = rig
     s = r.sess
     await _fund(PLAYER_UID, 100)
-    s.world_clock = WC.initial_clock(1000)
+    s.world_clock = WC.initial_clock(K + 1000)
     s.spatial_knowledge = {"pc": _know(ALL_ABC, EXACT)}
     plan0 = MV.plan_known_routes(D, SP.actor_knowledge(s, "pc"), "항구", "성당", "walk")
     assert _sigs(plan0)[0] == ROUTE_A                                     # 숨은 봉쇄 비노출
     t = MV.plan_actual_traversal(D, actor_id="pc", edge_sequence=plan0.candidates[0].edge_ids,
-                                 mode_id="walk", start_minute=1000, access_state=s.access_control_state)
+                                 mode_id="walk", start_minute=K + 1000, access_state=s.access_control_state)
     assert not t.completed
     ops = MV.traversal_ops(t, op_prefix="mv2")
     orig = TP.capture_world_baseline
@@ -726,7 +734,7 @@ async def test_blocked_traversal_learns_block_only_by_observation(rig, inject):
     tx = await _run_turn(r)
     inject.undo()
     assert tx.status == tt.TurnStatus.COMMITTED
-    assert s.spatial_state["placements"]["pc"] == SP.at_place("시장") and s.world_clock["minute_index"] == 1005
+    assert s.spatial_state["placements"]["pc"] == SP.at_place("시장") and s.world_clock["minute_index"] == K + 1005
     k = SP.actor_knowledge(s, "pc")
     assert k["access"]["door_1"]["observed_result"] == "IMPASSABLE"     # 직접 관찰 → 지식
     plan1 = MV.plan_known_routes(D, k, "시장", "성당", "walk")

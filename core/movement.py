@@ -11,14 +11,17 @@
 #   경유 checkpoint Ti = T0 + ROUND_HALF_UP(누적_i / 60e6). 구간마다 분으로 반올림하지 않는다.
 #
 #   KnownRoutePlanner — 행위자의 공간 지식만으로 후보를 만든다. 실제 접근 상태를 인자로
-#     받지 않는다(서명 차단). 지식에 없는 구간은 그래프에 없다. NO_KNOWN_ROUTE를 실제
+#     받지 않는다(서명 차단). 실제 구간의 이동 방식 제한·태그·시간 배수·고정 지연도 읽지 않고,
+#     EdgeKnowledge의 known_*(모르면 중립: 제한 없음·배수 1·지연 0)만 쓴다(H03 보정 1).
+#     정의에서 쓰는 것은 아는 연결의 위상(from/to)과 저작 route_hint뿐이다. 지식에 없는 구간은 그래프에 없다. NO_KNOWN_ROUTE를 실제
 #     그래프로 보완하지 않는다. 지식상 막힘(PERCEIVED_BLOCKED)만 제외하고, 모르는 봉쇄는
 #     후보에 남긴다(숨은 봉쇄 비노출).
 #     알고리즘: 방향 Yen K-shortest simple paths(정수 마이크로초 비용, 동률은 edge_id
 #     서명 사전순) → 비용 상한(최단 × max_cost_ratio) → 가중 Jaccard 중첩 다양성(Fraction)
 #     → 최대 max_displayed 개. dict 삽입 순서·PYTHONHASHSEED와 무관하다.
-#   ActualTraversalPlanner — 선택된 구간 순서를 그대로 따라간다. 숨은 봉쇄에서 멈추고
-#     다른 길로 우회하지 않는다.
+#   ActualTraversalPlanner — 선택된 구간 순서를 그대로 따라간다. 실제 구간 진실은 여기서만 쓴다.
+#     숨은 봉쇄에서 멈추고 다른 길로 우회하지 않는다. CONFIRM 승인은 접근 행동 id
+#     (구간·제어·상태·정책) 단위다 — 정책 전체 승인은 없다(H03 보정 2).
 #
 # [하지 않는 것]
 #   · ASK 임계값(시간·거리)을 정하지 않는다(MovementAskPolicy 구조만 — 값은 H05 calibration).
@@ -113,8 +116,11 @@ class MovementProfile:
                    as_factor(environment_factor))
 
     def edge_factor(self, edge: dict) -> Fraction:
-        return as_factor(edge["base_time_factor"]) * self.stance_factor * self.actor_factor \
-            * self.environment_factor
+        """실제 구간 배수 × 행위자 측 배수(실제 통과 전용)."""
+        return self.with_edge_factor(as_factor(edge["base_time_factor"]))
+
+    def with_edge_factor(self, edge_factor: Fraction) -> Fraction:
+        return edge_factor * self.stance_factor * self.actor_factor * self.environment_factor
 
 
 def edge_duration_us(edge: dict, profile: MovementProfile, *, distance_m=None,
@@ -261,25 +267,55 @@ class KnownRoutePlan:
                 "candidates": [c.to_dict() for c in self.candidates]}
 
 
+def perceived_mode_allows(mode: dict, edge_knowledge: dict) -> bool:
+    """행위자가 아는 이동 방식 제한·구간 태그만으로 판정. 모르면(None) 거르지 않는다."""
+    known_modes = edge_knowledge.get("known_allowed_modes")
+    if known_modes is not None and mode["mode_id"] not in known_modes:
+        return False
+    tags = edge_knowledge.get("known_movement_tags")
+    if tags is None:
+        return True
+    tags = set(tags)
+    if tags & set(mode.get("forbidden_edge_tags") or ()):
+        return False
+    allowed = mode.get("allowed_edge_tags")
+    return allowed is None or bool(tags & set(allowed))
+
+
+def perceived_edge_cost_us(edge_knowledge: dict, profile: MovementProfile):
+    """지식 거리 × 지식 배수(모름 = 1) + 지식 지연(모름 = 0). 거리 모름이면 None."""
+    est = edge_knowledge.get("distance_estimate_m")
+    if est is None:
+        return None
+    factor = profile.with_edge_factor(as_factor(edge_knowledge.get("known_time_factor") or 1))
+    delay = edge_knowledge.get("known_fixed_delay_minutes") or 0
+    return moving_us(est, profile.mode["base_speed_m_per_min"], factor) + delay * US_PER_MINUTE
+
+
 def known_graph(definition: dict, knowledge: dict, profile: MovementProfile, config: RoutePlannerConfig):
-    """행위자 지식 그래프: (adj, cost, to_of, meta). 실제 접근 상태를 읽지 않는다."""
+    """행위자 지식 그래프: (adj, cost, to_of, meta).
+
+    인식 경계: 실제 접근 상태뿐 아니라 실제 구간의 이동 방식 제한·태그·시간 배수·고정 지연도
+    읽지 않는다. 정의에서 쓰는 것은 행위자가 아는 연결의 위상(from/to)뿐이고, 통과 성질은
+    EdgeKnowledge의 known_* 필드에서만 온다.
+    """
     edges = definition.get("movement_edges") or {}
     adj, cost, to_of, meta = {}, {}, {}, {}
     for eid in _sp.known_edge_ids(knowledge):
         e = edges.get(eid)
         if e is None:
             continue                                   # 정의에서 사라진 구간 지식(무시)
-        ok, _ = _sp.mode_allows_edge(profile.mode, e)
-        if not ok:
-            continue
+        ek = knowledge["edges"][eid] or {}
+        if not perceived_mode_allows(profile.mode, ek):
+            continue                                   # 행위자가 '이 방식으론 못 간다'고 아는 길
         perc = _acc.perceived_access(knowledge, e)
         if perc["perceived"] == _acc.PERCEIVED_BLOCKED:
             continue                                   # 행위자가 막혔다고 아는 길만 제외
-        est = (knowledge["edges"][eid] or {}).get("distance_estimate_m")
-        if est is not None:
-            c, known = edge_duration_us(e, profile, distance_m=est), True
-        else:
-            c, known = config.unknown_edge_cost_us, False
+        est = ek.get("distance_estimate_m")
+        c = perceived_edge_cost_us(ek, profile)
+        known = c is not None
+        if not known:
+            c = config.unknown_edge_cost_us
         adj.setdefault(e["from"], []).append((eid, e["to"]))
         cost[eid], to_of[eid] = c, e["to"]
         meta[eid] = {"cost_known": known, "distance_estimate_m": est, "perceived": perc}
@@ -377,16 +413,22 @@ class ActualTraversalPlan:
         return {k: (list(v) if isinstance(v, tuple) else v) for k, v in self.__dict__.items()}
 
 
+def access_action_id(edge_id: str, control_id, state, action_policy) -> str:
+    """접근 행동의 정체성 — 구간·제어·관찰 상태·정책. CONFIRM 승인은 이 id 단위로만 유효하다."""
+    return f"{edge_id}|{control_id or '-'}|{state or '-'}|{action_policy}"
+
+
 def plan_actual_traversal(definition: dict, *, actor_id: str, edge_sequence, mode_id: str,
                           start_minute: int, access_state: dict, actor_capabilities=(),
                           stance_id=None, stance_factor=1, actor_factor=1, environment_factor=1,
-                          confirmed_policies=(_acc.IMPLICIT,), selected_option_id=None,
+                          confirmed_actions=(), selected_option_id=None,
                           source_world_version=None, definition_revision=None,
                           registry: _acc.AccessRuleRegistry = _acc.DEFAULT_REGISTRY) -> ActualTraversalPlan:
     """선택된 구간 순서를 실제 세계에서 따라간다. 막히면 그 구간 시작점에서 멈춘다(우회 없음).
 
-    confirmed_policies: 자동 수행할 ACTION_REQUIRED 정책. IMPLICIT는 항상 포함,
-    CONFIRM은 플레이어 확인이 있을 때만(H05), SEPARATE_ACTION은 언제나 중단.
+    confirmed_actions: 플레이어가 확인한 접근 행동 id(access_action_id) 목록. IMPLICIT는 항상
+    자동 수행, CONFIRM은 **그 행동 id**가 확인됐을 때만(정책 전체 승인 없음 — 숨은 두 번째 CONFIRM은
+    첫 승인으로 통과하지 않는다), SEPARATE_ACTION은 언제나 중단. 확인 UX는 H05.
     """
     edges = definition.get("movement_edges") or {}
     seq = tuple(edge_sequence)
@@ -400,8 +442,7 @@ def plan_actual_traversal(definition: dict, *, actor_id: str, edge_sequence, mod
             raise MovementError(f"끊긴 경로: {a} → {b}")
     profile = MovementProfile.build(definition, mode_id, stance_id=stance_id, stance_factor=stance_factor,
                                     actor_factor=actor_factor, environment_factor=environment_factor)
-    auto = set(confirmed_policies) | {_acc.IMPLICIT}
-    auto.discard(_acc.SEPARATE_ACTION)
+    confirmed = frozenset(confirmed_actions or ())
     cum, cps, checks, done = 0, [], [], []
     interruption = None
     at = lambda: start_minute + us_to_minutes(cum)
@@ -419,12 +460,16 @@ def plan_actual_traversal(definition: dict, *, actor_id: str, edge_sequence, mod
             interruption = {"kind": "BLOCKED", "edge_id": eid, "reason": dec.reason, "minute": at()}
             break
         if dec.result == _acc.ACTION_REQUIRED:
-            if dec.action_policy not in auto:
+            aid = access_action_id(eid, dec.control_id, dec.state, dec.action_policy)
+            auto = dec.action_policy == _acc.IMPLICIT or (
+                dec.action_policy == _acc.CONFIRM and aid in confirmed)
+            if not auto:
                 interruption = {"kind": "ACCESS_ACTION_REQUIRED", "edge_id": eid,
-                                "action_policy": dec.action_policy, "minute": at()}
+                                "action_policy": dec.action_policy, "action_id": aid, "minute": at()}
                 break
             cps.append({"kind": ACCESS_ACTION, "edge_id": eid, "place_id": e["from"],
-                        "minute": at(), "raw_offset_us": cum, "action_policy": dec.action_policy})
+                        "minute": at(), "raw_offset_us": cum, "action_policy": dec.action_policy,
+                        "action_id": aid})
             delay = dec.action_delay_minutes
         cum += delay * US_PER_MINUTE
         cps.append({"kind": EDGE_START, "edge_id": eid, "place_id": e["from"], "minute": at(), "raw_offset_us": cum})

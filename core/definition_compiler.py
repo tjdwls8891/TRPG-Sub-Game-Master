@@ -964,15 +964,31 @@ def _compile_spatial_seeds(raw, place_defs, edges, access, caps, d):
         if not isinstance(facts, list):
             d.add(ERROR, "SEED_FIELD_INVALID", f"{p}.known_access_facts", "목록이어야 합니다")
             ok, facts = False, []
+        seen_refs = {}
         for j, f in enumerate(facts):
             fp = f"{p}.known_access_facts[{j}]"
-            if not isinstance(f, dict) or f.get("ref") not in access["controls"] \
-                    or f.get("observed_result") not in ACCESS_RESULTS:
+            ref = f.get("ref") if isinstance(f, dict) else None
+            # 참조 = control_id 또는 edge_id(DESIGN 02 §81). 런타임 사실 키(access.access_fact_key)로
+            # 정규화한다: 제어가 있는 구간의 edge_id → 그 control_id, 제어 없는 구간 → edge_id.
+            if isinstance(ref, str) and ref in access["controls"]:
+                key = ref
+            elif isinstance(ref, str) and ref in edges:
+                key = edges[ref].get("access_ref") or ref
+            else:
+                key = None
+            if key is None or f.get("observed_result") not in ACCESS_RESULTS or \
+                    not (f.get("observed_state") is None or isinstance(f.get("observed_state"), str)):
                 d.add(ERROR, "SEED_ACCESS_FACT_INVALID", fp,
-                      "{ref: control_id, observed_result, observed_state?}가 필요합니다")
+                      "{ref: control_id|edge_id, observed_result, observed_state?}가 필요합니다")
                 ok = False
                 continue
-            norm.append({"ref": f["ref"], "observed_result": f["observed_result"],
+            if key in seen_refs:
+                d.add(ERROR, "SEED_ACCESS_FACT_DUPLICATE", fp,
+                      f"같은 접근 사실 키 '{key}'가 known_access_facts[{seen_refs[key]}]와 겹칩니다")
+                ok = False
+                continue
+            seen_refs[key] = j
+            norm.append({"ref": key, "authored_ref": ref, "observed_result": f["observed_result"],
                          "observed_state": f.get("observed_state")})
         rec["known_access_facts"] = sorted(norm, key=lambda x: x["ref"])
         if ok:

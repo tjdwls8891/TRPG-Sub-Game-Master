@@ -73,22 +73,46 @@ def same_minute_batch(schedule: dict, minute: int) -> list:
     return [e for e in ordered(schedule) if e["due_minute"] == minute]
 
 
+def _is_id(v) -> bool:
+    return isinstance(v, str) and bool(v)
+
+
+def _is_opt_str(v) -> bool:
+    return v is None or isinstance(v, str)
+
+
+def validate_entry(sid, e) -> list:
+    """정본 예약 항목 하나의 형태·타입(키 집합 정확히 일치)."""
+    if not _is_id(sid):
+        return [f"예약 키 {sid!r}: 비어 있지 않은 문자열이어야 합니다"]
+    if not isinstance(e, dict):
+        return [f"예약 {sid!r}: 항목은 객체여야 합니다"]
+    errs = []
+    if set(e) != set(_ENTRY_KEYS):
+        errs.append(f"예약 {sid!r}: 필드는 정확히 {list(_ENTRY_KEYS)}여야 합니다"
+                    f"(누락 {sorted(set(_ENTRY_KEYS) - set(e))}, 초과 {sorted(set(e) - set(_ENTRY_KEYS))})")
+        return errs
+    if e["schedule_id"] != sid:
+        errs.append(f"예약 {sid!r}: 키와 schedule_id가 다릅니다")
+    if not _is_int(e["due_minute"]):
+        errs.append(f"예약 {sid!r}: due_minute가 정수가 아닙니다")
+    if e["kind"] not in SCHEDULE_KINDS:
+        errs.append(f"예약 {sid!r}: 알 수 없는 kind {e['kind']!r}")
+    if not _is_id(e["order_key"]):
+        errs.append(f"예약 {sid!r}: order_key는 비어 있지 않은 문자열이어야 합니다")
+    for k in ("owner_ref", "payload_ref", "created_by_version"):
+        if not _is_opt_str(e[k]):
+            errs.append(f"예약 {sid!r}: {k}는 문자열 또는 null이어야 합니다")
+    return errs
+
+
 def validate_schedule(schedule) -> list:
-    if schedule == {}:
-        return []
+    """정본 world_schedule 검사. 빈 큐는 {}뿐이다 — []·None 등 falsey 비-객체를 빈 큐로 보지 않는다."""
     if not isinstance(schedule, dict):
-        return ["world_schedule은 객체여야 합니다"]
+        return [f"world_schedule은 객체여야 합니다: {type(schedule).__name__}"]
     errs = []
     for sid, e in schedule.items():
-        if not isinstance(e, dict) or e.get("schedule_id") != sid:
-            errs.append(f"예약 {sid!r}: 키와 schedule_id가 다릅니다")
-            continue
-        if not _is_int(e.get("due_minute")):
-            errs.append(f"예약 {sid!r}: due_minute가 정수가 아닙니다")
-        if e.get("kind") not in SCHEDULE_KINDS:
-            errs.append(f"예약 {sid!r}: 알 수 없는 kind {e.get('kind')!r}")
-        if set(e) - set(_ENTRY_KEYS):
-            errs.append(f"예약 {sid!r}: 알 수 없는 필드 {sorted(set(e) - set(_ENTRY_KEYS))}")
+        errs += validate_entry(sid, e)
     return errs
 
 
@@ -109,9 +133,11 @@ class BaseQuiescenceReport:
 
 
 def base_quiescence(world_clock, world_schedule) -> BaseQuiescenceReport:
-    schedule = world_schedule or {}
-    reasons = list(_wc.validate_clock(world_clock if world_clock is not None else {}))
-    reasons += validate_schedule(schedule)
+    """입력을 그대로 검증한다(None·[]를 빈 값으로 바꾸지 않는다)."""
+    reasons = list(_wc.validate_clock(world_clock))
+    sched_errs = validate_schedule(world_schedule)
+    reasons += sched_errs
+    schedule = world_schedule if isinstance(world_schedule, dict) else {}
     init = _wc.is_initialized(world_clock)
     now = world_clock["minute_index"] if init else None
     overdue = ()
@@ -121,7 +147,8 @@ def base_quiescence(world_clock, world_schedule) -> BaseQuiescenceReport:
         overdue = tuple(e["schedule_id"] for e in due_at_or_before(schedule, now))
         if overdue:
             reasons.append(f"현재 시각({now}) 이하로 도래한 pending 예약 {len(overdue)}건")
-    return BaseQuiescenceReport(not reasons, init, now, len(schedule), overdue, tuple(reasons))
+    count = len(world_schedule) if isinstance(world_schedule, dict) else 0
+    return BaseQuiescenceReport(not reasons, init, now, count, overdue, tuple(reasons))
 
 
 def base_quiescence_of(world) -> BaseQuiescenceReport:
@@ -152,11 +179,21 @@ def _view_clock(view):
     return view.domain("world_clock")
 
 
+def _ready_clock(op, view, what):
+    """초기화됐고 정본 범위 안인 시계(아니면 거부)."""
+    clock = _view_clock(view)
+    if not _wc.is_initialized(clock) or _wc.validate_clock(clock):
+        _reject(op, f"world_clock이 초기화되지 않았거나 정본 범위 밖이라 {what}할 수 없습니다")
+    return clock
+
+
 def h_clock_initialize(view, op, payload):
     """미초기화 시계에 시작 시각을 둔다(H06 초기화 전용 — H03 production caller 0)."""
     _require_keys(op, payload, ("minute_index",))
     if not _is_int(payload["minute_index"]):
         _reject(op, "minute_index는 정수여야 합니다")
+    if payload["minute_index"] < _wc.MIN_MINUTE_INDEX:
+        _reject(op, f"minute_index가 달력 범위 밖입니다(≥ {_wc.MIN_MINUTE_INDEX}, 일련번호 ≥ 1)")
     if _view_clock(view) != {}:
         _reject(op, "world_clock이 이미 초기화돼 있습니다")
     m = payload["minute_index"]
@@ -166,9 +203,7 @@ def h_clock_initialize(view, op, payload):
 
 def h_clock_advance_to(view, op, payload):
     _require_keys(op, payload, ("target_minute",))
-    clock = _view_clock(view)
-    if not _wc.is_initialized(clock):
-        _reject(op, "world_clock이 초기화되지 않았습니다")
+    clock = _ready_clock(op, view, "진행")
     try:
         target = _wc.advance_to(clock["minute_index"], payload["target_minute"])
     except _wc.ClockError as e:
@@ -186,9 +221,12 @@ def h_schedule_create(view, op, payload):
         _reject(op, f"알 수 없는 예약 kind {payload['kind']!r}")
     if not _is_int(payload["due_minute"]):
         _reject(op, "due_minute는 정수여야 합니다")
-    clock = _view_clock(view)
-    if not _wc.is_initialized(clock):
-        _reject(op, "world_clock 미초기화 상태에서는 예약을 만들 수 없습니다")
+    if "order_key" in payload and not _is_id(payload["order_key"]):
+        _reject(op, "order_key는 비어 있지 않은 문자열이어야 합니다")
+    for k in ("owner_ref", "payload_ref"):
+        if not _is_opt_str(payload.get(k)):
+            _reject(op, f"{k}는 문자열 또는 null이어야 합니다")
+    clock = _ready_clock(op, view, "예약")
     if payload["due_minute"] < clock["minute_index"]:
         _reject(op, "과거 시각 예약은 만들 수 없습니다(DESIGN 11 §4)")
     if view.has("world_schedule", (sid,)):
@@ -196,7 +234,10 @@ def h_schedule_create(view, op, payload):
     entry = {"schedule_id": sid, "due_minute": payload["due_minute"], "kind": payload["kind"],
              "owner_ref": payload.get("owner_ref"), "payload_ref": payload.get("payload_ref"),
              "created_by_version": view.get("world_version", ("version_id",)),
-             "order_key": payload.get("order_key") or sid}
+             "order_key": payload.get("order_key", sid)}
+    errs = validate_entry(sid, entry)
+    if errs:
+        _reject(op, "; ".join(errs))
     return [_wm.write(op, "world_schedule", (sid,), _wm.MERGE_SINGLE_VALUE, entry)]
 
 

@@ -27,7 +27,7 @@ cogs/            명령어 계층 9개(gm·game·character·system·media·sessi
                  errors·permissions·presence). 핫스왑 가능(!리로드).
 core/            68개 파일. core/__init__.py가 전 심볼을 re-export → core.XYZ.
                  핫스왑 불가(재시작 필요).
-tests/           특성화 50 · 결함 27 · 정책 727 = 804건(전부 통과, xfail 0).
+tests/           특성화 50 · 결함 27 · 정책 753 = 830건(전부 통과, xfail 0).
 handoff/         WP별 완료 번들·스캔·매트릭스(과거 번들은 수정 금지).
 tools/verify_docs.py  CLAUDE.md·DEVLOG.md 수치 자동 대조(--fix로 반영).
 tools/scenario_check.py  시나리오 정의 컴파일·진단·이행 보고(H01, 원본 읽기 전용).

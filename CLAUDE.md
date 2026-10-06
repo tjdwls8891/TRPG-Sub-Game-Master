@@ -8,7 +8,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 AI가 4개 층위로 나뉘어 판단·지시·묘사·추출을 분담한다. 플레이어는 서버 GM 스페이스에서 버튼으로 세션을 열고, 캐릭터를 만들고, 턴을 진행한다. **명령어는 GM의 수동 개입·복구 수단이며 일반 플레이에는 쓰지 않는다.**
 
-현재 버전: **v7.1.0** · `SCHEMA_VERSION` 4 · 총 운영 코드 ~38,790줄(main·prompts·cogs·core) · 테스트 ~16,145줄
+현재 버전: **v7.1.0** · `SCHEMA_VERSION` 4 · 총 운영 코드 ~38,950줄(main·prompts·cogs·core) · 테스트 ~16,500줄
 
 리팩터링: **7-WP 프로그램(WP-A~WP-G)** — 턴 트랜잭션·커밋·재무·이력·파생 시스템을 단일 권위로 재구성했다. WP-A~G 전부 독립 게이트 VERIFIED — **프로그램 완료**(WP-G 최종 후보 `f0fd69e`, 증거 `handoff/WP_G_COMPLETION_BUNDLE.md`). 다음 WP는 없다. 버전은 이 비호환 전환 전체를 **단일 MAJOR v6.0.0**으로 채택했다(2026-10-06, 이력 보정은 DEVLOG '버전 기록').
 
@@ -213,7 +213,7 @@ python main.py
 | 모듈 | 줄 | 내용 |
 |---|---|---|
 | `world_ids.py` | 157 | 정규 직렬화·순서 지문·안정 digest, 저작 ActorId/InfoId/구간 id 파생 |
-| `definition_compiler.py` | 1,375 | capability 감지(`scenario_schema`)·legacy 통과·저작 sugar 컴파일·검증 진단·revision·이행 보고. **compiler v2(H03)**: 달력(`quantitative_time`)·구간 속성·이동 방식·접근 정의·공간 지식 seed(`structured_places`) 검증 |
+| `definition_compiler.py` | 1,391 | capability 감지(`scenario_schema`)·legacy 통과·저작 sugar 컴파일·검증 진단·revision·이행 보고. **compiler v2(H03)**: 달력(`quantitative_time`)·구간 속성·이동 방식·접근 정의·공간 지식 seed(`structured_places`) 검증 |
 | `definition_snapshot.py` | 235 | `sessions/{id}/definition_snapshot.json` 원자적 쓰기·해시 검증·덮어쓰기 거부 |
 
 호출자는 `tools/scenario_check.py`와 테스트뿐이다. 런타임은 여전히 raw `scenario_data`를 쓴다(세션 바인딩은 H06).
@@ -233,11 +233,11 @@ compiler v2(H03)로 5개 시나리오의 definition revision이 모두 바뀌었
 
 | 모듈 | 줄 | 내용 |
 |---|---|---|
-| `world_clock.py` | 244 | 달력(GREGORIAN·FIXED_CUSTOM)·시간대 `[start,end)`(자정 넘김)·canonical 분 시계 `{"minute_index","start_minute_index"}`(미초기화 `{}`). 후퇴 거부·0분 허용 |
-| `world_schedule.py` | 235 | pending 전용 예약 큐(순서 = due·order_key·id)·`BaseQuiescenceReport`·시간/예약 typed 연산 5종 |
-| `spatial.py` | 401 | 방향 구간 그래프(계층·connected는 구간 아님)·정적 가시성(저작 `visible_within`)·배치/TRANSIT(진행률 미저장)·희소 공간 지식·familiarity seed·공간 typed 연산 7종 |
+| `world_clock.py` | 251 | 달력(GREGORIAN·FIXED_CUSTOM)·시간대 `[start,end)`(자정 넘김)·canonical 분 시계 `{"minute_index","start_minute_index"}`(미초기화 `{}`, 값 ≥ 1440 = 달력 일련번호 ≥ 1). 후퇴 거부·0분 허용 |
+| `world_schedule.py` | 276 | pending 전용 예약 큐(순서 = due·order_key·id, 항목 7키·타입 엄격 검증, 빈 큐는 `{}`뿐)·`BaseQuiescenceReport`·시간/예약 typed 연산 5종 |
+| `spatial.py` | 450 | 방향 구간 그래프(계층·connected는 구간 아님)·정적 가시성(저작 `visible_within`)·배치/TRANSIT(`start < end`, `start ≤ now < end`, 진행률 미저장)·희소 공간 지식(인지 통과 정보 `known_*`, provenance append+dedupe)·familiarity seed·공간 typed 연산 7종 |
 | `access.py` | 166 | `AccessRuleRegistry`(STATE_TABLE)·실제 접근 3결과/3정책 · 인지 접근(KnownAccessFact, 없으면 UNKNOWN) 분리 |
-| `movement.py` | 495 | 고정 정밀도 소요시간(Fraction → 구간 정수 μs → 경로 전체 HALF_UP 분)·`KnownRoutePlanner`(Yen K-shortest·서명 동률·가중 Jaccard 다양성)·`ActualTraversalPlanner`(우회 없음)·`traversal_ops` |
+| `movement.py` | 540 | 고정 정밀도 소요시간(Fraction → 구간 정수 μs → 경로 전체 HALF_UP 분)·`KnownRoutePlanner`(지식만 — 실제 접근·구간 성질 미사용, Yen K-shortest·서명 동률·가중 Jaccard 다양성)·`ActualTraversalPlanner`(실제 구간 진실, 우회 없음, CONFIRM은 접근 행동 id 단위)·`traversal_ops` |
 
 READY와 `canonical_mutation`은 투영 결과의 **base quiescence**를 증명한다 — 초기화된 시계에 `due ≤ now` pending 예약이 남거나, 미초기화 시계에 예약이 있으면 `WORLD_PROJECTION_CONFLICT`(코드 `NOT_QUIESCENT`, 재시도 아님). 레거시 빈 시계·빈 예약은 quiescent다. H03 연산의 production producer는 0이며 legacy `places.py` 이동·`world_timeline` 시간은 그대로 권위다(H05·H07에서 전환).
 
@@ -478,7 +478,7 @@ pip install -r requirements-dev.txt
 python3 -m pytest tests/ -q
 ```
 
-`tests/`는 **현재 동작과 권위 불변식을 고정**한다. 현재 804건(특성화 50 · 결함 27 · 정책 727)이 모두 통과하며 strict xfail은 0건이다.
+`tests/`는 **현재 동작과 권위 불변식을 고정**한다. 현재 830건(특성화 50 · 결함 27 · 정책 753)이 모두 통과하며 strict xfail은 0건이다.
 
 | 분류 | 의미 |
 |---|---|

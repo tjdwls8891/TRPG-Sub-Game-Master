@@ -18,6 +18,8 @@ import re
 from dataclasses import dataclass
 
 MINUTES_PER_DAY = 1440
+# 정본 분의 하한 = 달력 일련번호 1(1년 1월 1일 00:00). Calendar.from_minute_index와 같은 계약.
+MIN_MINUTE_INDEX = MINUTES_PER_DAY
 
 CALENDAR_GREGORIAN = "GREGORIAN"
 CALENDAR_FIXED_CUSTOM = "FIXED_CUSTOM"
@@ -190,6 +192,7 @@ def daypart_contains(start: int, end: int, minute_of_day: int) -> bool:
 # ══════════════════════════════════════════════════════════════
 
 def is_initialized(clock) -> bool:
+    """초기화 '형태'인가(값 범위는 validate_clock이 본다)."""
     return (isinstance(clock, dict) and isinstance(clock.get("minute_index"), int)
             and isinstance(clock.get("start_minute_index"), int))
 
@@ -204,6 +207,8 @@ def validate_clock(clock) -> list:
     for k in ("minute_index", "start_minute_index"):
         if not isinstance(clock[k], int) or isinstance(clock[k], bool):
             errs.append(f"{k}는 정수여야 합니다")
+        elif clock[k] < MIN_MINUTE_INDEX:
+            errs.append(f"{k}={clock[k]}가 달력 범위 밖입니다(≥ {MIN_MINUTE_INDEX}, 일련번호 ≥ 1)")
     if not errs and clock["minute_index"] < clock["start_minute_index"]:
         errs.append("minute_index가 start_minute_index보다 이릅니다")
     return errs
@@ -212,6 +217,8 @@ def validate_clock(clock) -> list:
 def initial_clock(minute_index: int) -> dict:
     if not isinstance(minute_index, int) or isinstance(minute_index, bool):
         raise ClockError("시작 minute_index는 정수여야 합니다")
+    if minute_index < MIN_MINUTE_INDEX:
+        raise ClockError(f"시작 minute_index {minute_index}가 달력 범위 밖입니다(≥ {MIN_MINUTE_INDEX})")
     return {"minute_index": minute_index, "start_minute_index": minute_index}
 
 
