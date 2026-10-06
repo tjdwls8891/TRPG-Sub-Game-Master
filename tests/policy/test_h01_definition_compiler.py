@@ -236,9 +236,16 @@ def test_capability_declaration_validation():
     assert dc.capability_matrix(ok)["stable_actors"] == "v1 validated"
 
     # compiler v2(H03): structured_places·quantitative_time은 검증 대상 — 아직 유예인 capability로 확인
-    # compiler v3(H04-A): information_registry·actor_cognition·dynamic_actor_location도 검증 대상
-    deferred = dc.compile_scenario(_mini(scenario_schema={"version": 1, "capabilities": {
-        "dynamic_events": 1, "stable_actors": 1}}), "t")
+    # compiler v3(H04): 인식하는 8개 capability가 모두 검증 대상 — 유예 메커니즘은 그대로 남는다
+    assert set(dc.KNOWN_CAPABILITIES) <= dc.VALIDATED_CAPABILITIES
+    import pytest as _pt
+    mp = _pt.MonkeyPatch()
+    mp.setattr(dc, "VALIDATED_CAPABILITIES", dc.VALIDATED_CAPABILITIES - {"dynamic_events"})
+    try:
+        deferred = dc.compile_scenario(_mini(scenario_schema={"version": 1, "capabilities": {
+            "dynamic_events": 1, "stable_actors": 1}}), "t")
+    finally:
+        mp.undo()
     assert deferred.ok and "CAP_VALIDATION_DEFERRED" in _codes(deferred, "WARNING")
     assert deferred.definition["scenario_meta"]["deferred_capabilities"] == ["dynamic_events"]
 
@@ -269,7 +276,7 @@ def test_dynamic_actor_location_requires_structured_places_as_error():
 
 
 def test_reserved_dynamic_keys_warn_not_silently_ignored():
-    res = dc.compile_scenario(_mini(event_templates={"ev": {"note": "x"}}), "t")
+    res = dc.compile_scenario(_mini(visibility_relations={"ev": {"note": "x"}}), "t")   # v3: 남은 예약 키
     assert res.ok and "RESERVED_KEY_UNCOMPILED" in _codes(res, "WARNING")
 
 

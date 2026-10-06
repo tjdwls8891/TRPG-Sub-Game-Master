@@ -170,8 +170,10 @@ def test_c2_confirm_is_per_action_not_per_policy():
     assert second.traversed_edges == ("e_hh#fwd",)
     assert go((a1, a2)).completed
     # 행동 id는 구간·제어·상태·정책을 묶는다 — 다른 구간의 승인은 통하지 않는다
-    assert a1 == MV.access_action_id("e_hh#fwd", "door_2", "LOCKED", AC.CONFIRM)
-    assert not go((MV.access_action_id("e_hh#fwd", "door_2", "CLOSED", AC.CONFIRM),)).traversed_edges
+    # H04 A25: 행동 id에 일치한 override variant가 들어간다
+    assert a1 == MV.access_action_id("e_hh#fwd", "door_2", "LOCKED", AC.CONFIRM, "door_rule:LOCKED:override:0")
+    assert not go((MV.access_action_id("e_hh#fwd", "door_2", "CLOSED", AC.CONFIRM,
+                                       "door_rule:LOCKED:override:0"),)).traversed_edges
 
 
 def test_c2_separate_action_never_auto_and_implicit_always():

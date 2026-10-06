@@ -343,6 +343,8 @@ class RefScope:
     allow_self: bool = False
     templates: set = field(default_factory=set)
     has_calendar: bool = False
+    dayparts: set = field(default_factory=set)
+    calendar_obj: object = None
 
 
 def _check_id(kind, v, pool, scope, slot_type, errs, path):

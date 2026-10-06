@@ -413,9 +413,13 @@ class ActualTraversalPlan:
         return {k: (list(v) if isinstance(v, tuple) else v) for k, v in self.__dict__.items()}
 
 
-def access_action_id(edge_id: str, control_id, state, action_policy) -> str:
-    """접근 행동의 정체성 — 구간·제어·관찰 상태·정책. CONFIRM 승인은 이 id 단위로만 유효하다."""
-    return f"{edge_id}|{control_id or '-'}|{state or '-'}|{action_policy}"
+def access_action_id(edge_id: str, control_id, state, action_policy, matched_variant) -> str:
+    """접근 행동의 정체성 — 구간·제어·관찰 상태·정책·일치한 variant(H04 A25).
+
+    같은 문·상태·정책이라도 서로 다른 capability override(열쇠 vs 통행증)는 다른 행동이다.
+    CONFIRM 승인은 이 id 단위로만 유효하다(H05 확인 토큰이 그대로 쓴다).
+    """
+    return f"{edge_id}|{control_id or '-'}|{state or '-'}|{action_policy}|{matched_variant or '-'}"
 
 
 def plan_actual_traversal(definition: dict, *, actor_id: str, edge_sequence, mode_id: str,
@@ -460,7 +464,7 @@ def plan_actual_traversal(definition: dict, *, actor_id: str, edge_sequence, mod
             interruption = {"kind": "BLOCKED", "edge_id": eid, "reason": dec.reason, "minute": at()}
             break
         if dec.result == _acc.ACTION_REQUIRED:
-            aid = access_action_id(eid, dec.control_id, dec.state, dec.action_policy)
+            aid = access_action_id(eid, dec.control_id, dec.state, dec.action_policy, dec.matched_variant)
             auto = dec.action_policy == _acc.IMPLICIT or (
                 dec.action_policy == _acc.CONFIRM and aid in confirmed)
             if not auto:

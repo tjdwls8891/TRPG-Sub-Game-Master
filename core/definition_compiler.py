@@ -25,6 +25,7 @@
 #   통과한다. 안전한 sugar(안정 ActorId·NPC 인라인 비밀·퀘스트 hidden)는 legacy
 #   에서도 컴파일되지만 런타임 효과는 없다(DESIGN 08 §27~29).
 import copy
+import itertools
 import json
 import os
 from dataclasses import dataclass, field
@@ -72,7 +73,10 @@ KNOWN_CAPABILITIES = {
 # 이 컴파일러 버전이 도메인 검증까지 끝내는 capability. 나머지는 선언을 기록하되
 # WARNING(CAP_VALIDATION_DEFERRED)으로 표시한다 — 해당 WP가 검증기를 넣을 때 옮긴다.
 VALIDATED_CAPABILITIES = frozenset({"stable_actors", "quantitative_time", "structured_places",
-                                    "information_registry", "actor_cognition", "dynamic_actor_location"})
+                                    "information_registry", "actor_cognition", "dynamic_actor_location",
+                                    "dynamic_events", "scheduled_world_progression"})
+# 주의: '검증됨'은 저작 정의의 컴파일·정적 검증이 끝났다는 뜻이다. 세션 초기화(H06)·플레이어 턴
+# 배선(H05)·프롬프트 공개 경계(H05)·시나리오 실제 저작 완성도(H07)는 별도 게이트다.
 
 # capability 의존성(DESIGN 08 §4). (요구 capability, 심각도)
 # dynamic_actor_location → structured_places 는 사용자 결정(H01 보정)으로 ERROR.
@@ -87,7 +91,7 @@ CAPABILITY_DEPENDENCIES = {
 # (v2/H03: calendar·movement_modes·access_control_definitions·spatial_knowledge_seeds는 컴파일 대상)
 # (legacy_source 에 원문으로 남지만 어떤 엔진도 읽지 않는다는 뜻).
 RESERVED_UNCOMPILED_KEYS = (
-    "event_templates", "visibility_relations", "initialization_definitions",
+    "visibility_relations", "initialization_definitions",
 )
 
 # NPC 인라인 비밀 필드(npc_template.info_fields의 '비밀').
@@ -443,10 +447,13 @@ SERIES_TRACKING_POLICIES = ("ON_CHANGE",)
 
 def _ref_scope(actors, places, infos, access, modes, *, slots=None, allow_self=False, templates=(), calendar=None):
     from . import world_refs as _refs
+    from . import world_clock as _wc
     return _refs.RefScope(actors=set(actors), places=set(places), infos=set(infos),
                           controls=set((access or {}).get("controls", {})), modes=set(modes),
                           slots=dict(slots or {}), allow_self=allow_self, templates=set(templates),
-                          has_calendar=calendar is not None)
+                          has_calendar=calendar is not None,
+                          dayparts=set((calendar or {}).get("dayparts") or {}),
+                          calendar_obj=_wc.Calendar(calendar) if calendar else None)
 
 
 def _compile_info_series(raw, scope, d):
@@ -980,6 +987,17 @@ def _compile_access(raw, caps, d):
             if norm is None:
                 ok = False
                 continue
+            # v3(H04): 안정 variant id — 같은 문·상태·정책의 서로 다른 capability 행동을 구분한다(A25)
+            norm["variant_id"] = f"{rid}:{st}:base"
+            seen_ov = set()
+            for j, ov in enumerate(norm["actor_overrides"]):
+                vid = ov.pop("override_id", None) or f"{rid}:{st}:override:{j}"
+                if vid in seen_ov or vid == norm["variant_id"]:
+                    d.add(ERROR, "ACCESS_OVERRIDE_ID_DUPLICATE", f"{sp}.actor_overrides[{j}]",
+                          f"override variant id {vid!r} 중복")
+                    ok = False
+                seen_ov.add(vid)
+                ov["variant_id"] = vid
             out_states[st] = norm
         if ok:
             rules[rid] = {"rule_id": rid, "rule_type": r["rule_type"], "states": out_states}
@@ -1006,7 +1024,7 @@ def _compile_access(raw, caps, d):
 
 def _access_outcome(oc, p, d, *, allow_overrides):
     keys = {"result", "action_policy", "action_delay_minutes"} | (
-        {"actor_overrides"} if allow_overrides else {"requires_capability"})
+        {"actor_overrides"} if allow_overrides else {"requires_capability", "override_id"})
     if not isinstance(oc, dict) or set(oc) - keys:
         d.add(ERROR, "ACCESS_OUTCOME_INVALID", p, f"결과 정의 키는 {sorted(keys)} 안이어야 합니다")
         return None
@@ -1049,6 +1067,12 @@ def _access_outcome(oc, p, d, *, allow_overrides):
         out["actor_overrides"] = norm          # 저작 순서 = 평가 순서(첫 일치)
     else:
         out["requires_capability"] = oc.get("requires_capability")
+        oid = oc.get("override_id")
+        if oid is not None and not is_valid_explicit_id(oid):
+            d.add(ERROR, "ACCESS_OVERRIDE_ID_INVALID", f"{p}.override_id", "override_id는 명시 id 형식")
+            return None
+        if oid is not None:
+            out["override_id"] = oid
     return out
 
 
@@ -1138,6 +1162,395 @@ def _compile_spatial_seeds(raw, place_defs, edges, access, caps, d):
         rec["known_access_facts"] = sorted(norm, key=lambda x: x["ref"])
         if ok:
             out[sid] = rec
+    return out
+
+
+# ── 사건 템플릿 (H04-B — dynamic_events) ─────────────────────
+
+_TPL_KEYS = ("version", "name", "slots", "distinct", "spawn_when", "repeat_policy", "max_occurrences",
+             "access_when", "phase_selector", "phases", "transition_cases", "case_selection", "case_required",
+             "resolve_when", "cancel_when")
+_PHASE_KEYS = ("eligible_when", "retain_when", "priority", "base_score", "score_terms", "rank", "terminal")
+_CASE_KEYS = ("case_id", "from", "to", "valid_when", "weight", "steps")
+_STEP_PARAMS = {
+    "SET_ACCESS_STATE": (("control", "state"), ()),
+    "SET_ACTOR_PLACEMENT": (("actor", "place"), ()),
+    "START_MOVEMENT": (("actor", "destination", "mode"), ("stance", "stance_factor", "capabilities", "route")),
+    "CREATE_INFORMATION": (("proposition",), ("summary", "subject_refs", "tags")),
+    "SUPERSEDE_INFORMATION": (("info", "proposition"), ("summary", "validity")),
+    "ACQUIRE_INFORMATION": (("holder", "info"), ("awareness", "route", "fragments")),
+    "SET_COGNITION_BELIEF": (("holder", "info", "belief"), ("authority",)),
+    "APPEND_RELATIONSHIP_DELTA": (("from", "to", "kind"), ("summary",)),
+    "SET_EVENT_LOCAL": (("key", "value"), ()),
+    "SCHEDULE_WAKEUP": (("after_minutes",), ()),
+    "SCHEDULE_EFFECT": (("after_minutes", "effect"), ("guard", "epoch_bound")),
+    "EMIT_SIGNAL": (("signal_id", "cue"), ("interrupt_policy", "observable_when")),
+}
+_EFFECT_STEP_TYPES = ("SET_ACCESS_STATE", "SET_ACTOR_PLACEMENT", "START_MOVEMENT", "CREATE_INFORMATION",
+                      "SUPERSEDE_INFORMATION", "ACQUIRE_INFORMATION", "SET_COGNITION_BELIEF",
+                      "APPEND_RELATIONSHIP_DELTA", "SET_EVENT_LOCAL", "EMIT_SIGNAL")
+
+
+def _pred_check(pred, scope, path, d, *, phase_time):
+    from . import predicates as _pr
+    errs = _pr.validate(pred, scope, path, allow_phase_time=phase_time)
+    for code, ep, msg in errs:
+        d.add(ERROR, code, ep, msg)
+    return not errs
+
+
+def _is_int_ge(v, lo):
+    return isinstance(v, int) and not isinstance(v, bool) and v >= lo
+
+
+def _compile_step(st, p, scope, access, edges, created, d, *, nested=False):
+    """typed step 하나 검증·정규화. 일반 dotted mutation step 없음."""
+    from . import cognition as _cog
+    from . import events as _ev
+    from . import world_refs as _refs
+    if not isinstance(st, dict) or st.get("type") not in _STEP_PARAMS:
+        d.add(ERROR, "STEP_TYPE_UNKNOWN", p, f"step type은 {sorted(_STEP_PARAMS)} 중 하나(자유 변이 step 없음)")
+        return None
+    t = st["type"]
+    if nested and t not in _EFFECT_STEP_TYPES:
+        d.add(ERROR, "STEP_EFFECT_TYPE_INVALID", p, f"예약 효과로 쓸 수 없는 step {t}")
+        return None
+    req, opt = _STEP_PARAMS[t]
+    sid = st.get("step_id")
+    if not is_valid_explicit_id(sid):
+        d.add(ERROR, "STEP_ID_INVALID", f"{p}.step_id", "step_id는 명시 id 형식")
+        return None
+    extra = set(st) - {"type", "step_id", "conflict_priority"} - set(req) - set(opt)
+    missing = [k for k in req if k not in st]
+    if extra or missing:
+        d.add(ERROR, "STEP_PARAMS_INVALID", p, f"{t}: 알 수 없는 {sorted(extra)} / 누락 {missing}")
+        return None
+    ok = True
+
+    def bad(code, msg):
+        nonlocal ok
+        d.add(ERROR, code, p, msg)
+        ok = False
+
+    def ref_id(v, kind, pool, slot_type, allow_step=False):
+        if isinstance(v, str) and v.startswith("$step:") and allow_step:
+            if v[6:] not in created:
+                bad("STEP_REF_UNKNOWN", f"$step:{v[6:]}는 같은 케이스의 앞선 정보 생성 step이어야 합니다")
+            return
+        if isinstance(v, str) and v.startswith(_refs.SLOT_PREFIX):
+            name = v[len(_refs.SLOT_PREFIX):]
+            if scope.slots.get(name) != slot_type:
+                bad("STEP_REF_UNKNOWN", f"{kind} 슬롯 {name!r}이 없거나 타입이 {slot_type}이 아닙니다")
+            return
+        if not isinstance(v, str) or v not in pool:
+            bad("STEP_REF_UNKNOWN", f"정의되지 않은 {kind} {v!r}")
+
+    def holder(v):
+        if isinstance(v, str) and v.startswith(_refs.SLOT_PREFIX):
+            ref_id(v, "holder", None, "ACTOR")
+        elif _cog.parse_holder(v) is None:
+            bad("STEP_REF_UNKNOWN", f"holder {v!r}는 'actor:<id>'·'group:<id>'·'$slot:<name>'")
+        elif v.startswith("actor:") and v[6:] not in scope.actors:
+            bad("STEP_REF_UNKNOWN", f"정의되지 않은 ActorId {v[6:]!r}")
+
+    pr = st.get("conflict_priority", 0)
+    if not isinstance(pr, int) or isinstance(pr, bool):
+        bad("STEP_PRIORITY_INVALID", "conflict_priority는 정수")
+    out = {k: copy.deepcopy(v) for k, v in st.items()}
+    out["conflict_priority"] = pr if isinstance(pr, int) else 0
+    if t == "SET_ACCESS_STATE":
+        c = (access.get("controls") or {}).get(st["control"])
+        if c is None:
+            bad("STEP_REF_UNKNOWN", f"정의되지 않은 접근 제어 {st['control']!r}")
+        elif st["state"] not in access["rules"][c["rule_ref"]]["states"]:
+            bad("STEP_REF_UNKNOWN", f"제어 {st['control']}의 규칙에 없는 상태 {st['state']!r}")
+    elif t == "SET_ACTOR_PLACEMENT":
+        ref_id(st["actor"], "ActorId", scope.actors, "ACTOR")
+        ref_id(st["place"], "PlaceId", scope.places, "PLACE")
+    elif t == "START_MOVEMENT":
+        ref_id(st["actor"], "ActorId", scope.actors, "ACTOR")
+        ref_id(st["destination"], "PlaceId", scope.places, "PLACE")
+        ref_id(st["mode"], "mode_id", scope.modes, None)
+        if "stance_factor" in st and fixed_decimal(st["stance_factor"]) is None:
+            bad("STEP_PARAMS_INVALID", "stance_factor는 양의 소수 6자리 이내")
+        for e in st.get("route") or []:
+            if e not in edges:
+                bad("STEP_REF_UNKNOWN", f"정의되지 않은 구간 {e!r}")
+    elif t in ("CREATE_INFORMATION", "SUPERSEDE_INFORMATION"):
+        if not isinstance(st["proposition"], str) or not st["proposition"].strip():
+            bad("STEP_PARAMS_INVALID", "proposition은 비어 있지 않은 문자열")
+        for r in st.get("subject_refs") or []:
+            kind, _, ident = r.partition(":") if isinstance(r, str) else ("", "", "")
+            if not ((kind == "actor" and ident in scope.actors) or (kind == "place" and ident in scope.places)):
+                bad("STEP_REF_UNKNOWN", f"subject_ref {r!r}는 실재 'actor:'·'place:' 참조")
+        if t == "SUPERSEDE_INFORMATION":
+            ref_id(st["info"], "InfoId", scope.infos, "INFO", allow_step=True)
+            if st.get("validity", "SUPERSEDED") not in ("SUPERSEDED", "REFUTED"):
+                bad("STEP_PARAMS_INVALID", "validity는 SUPERSEDED|REFUTED")
+        created.add(sid)
+    elif t == "ACQUIRE_INFORMATION":
+        holder(st["holder"])
+        ref_id(st["info"], "InfoId", scope.infos, "INFO", allow_step=True)
+        if st.get("awareness", "CONTENT") not in _cog.AWARENESS:
+            bad("STEP_PARAMS_INVALID", f"awareness는 {list(_cog.AWARENESS)}")
+        if st.get("route", "PARTICIPATION") not in _cog.ROUTES:
+            bad("STEP_PARAMS_INVALID", f"route는 {list(_cog.ROUTES)}")
+    elif t == "SET_COGNITION_BELIEF":
+        holder(st["holder"])
+        ref_id(st["info"], "InfoId", scope.infos, "INFO", allow_step=True)
+        if st["belief"] is not None and st["belief"] not in _cog.BELIEFS:
+            bad("STEP_PARAMS_INVALID", f"belief는 null 또는 {list(_cog.BELIEFS)}")
+        auth = st.get("authority", "RULE")
+        if auth not in _cog.BELIEF_AUTHORITIES:
+            bad("STEP_PARAMS_INVALID", f"authority는 {list(_cog.BELIEF_AUTHORITIES)}")
+        elif isinstance(st["holder"], str) and st["holder"].startswith("actor:pc_") \
+                and auth not in _cog.PC_BELIEF_AUTHORITIES:
+            bad("STEP_PC_BELIEF_AUTHORITY", "PC 믿음은 PLAYER_EXPLICIT·RULE_FORCED로만 바꿉니다(사건 노출 불가)")
+    elif t == "APPEND_RELATIONSHIP_DELTA":
+        holder(st["from"])
+        holder(st["to"])
+        if not isinstance(st["kind"], str) or not st["kind"]:
+            bad("STEP_PARAMS_INVALID", "kind는 비어 있지 않은 문자열")
+    elif t == "SET_EVENT_LOCAL":
+        if not isinstance(st["key"], str) or not st["key"]:
+            bad("STEP_PARAMS_INVALID", "key는 비어 있지 않은 문자열")
+        try:
+            canonical_json(st["value"])
+        except CanonicalSerializationError:
+            bad("STEP_PARAMS_INVALID", "value는 정규 JSON 값")
+    elif t in ("SCHEDULE_WAKEUP", "SCHEDULE_EFFECT"):
+        if not _is_int_ge(st["after_minutes"], 1):
+            bad("STEP_PARAMS_INVALID", "after_minutes는 1 이상의 정수(같은 분 효과는 즉시 step으로)")
+        if t == "SCHEDULE_EFFECT":
+            eff = dict(st["effect"]) if isinstance(st["effect"], dict) else st["effect"]
+            if isinstance(eff, dict):
+                eff.setdefault("step_id", f"{sid}.effect")
+            ne = _compile_step(eff, f"{p}.effect", scope, access, edges, set(created), d, nested=True)
+            if ne is None:
+                ok = False
+            out["effect"] = ne
+            if st.get("guard") is not None and not _pred_check(st["guard"], scope, f"{p}.guard", d, phase_time=True):
+                ok = False
+            if "epoch_bound" in st and not isinstance(st["epoch_bound"], bool):
+                bad("STEP_PARAMS_INVALID", "epoch_bound는 true/false")
+    elif t == "EMIT_SIGNAL":
+        if not is_valid_explicit_id(st["signal_id"]) or not isinstance(st["cue"], str) or not st["cue"].strip():
+            bad("STEP_PARAMS_INVALID", "signal_id(명시 id)·cue(문자열) 필요")
+        if st.get("interrupt_policy", "NONE") not in _ev.INTERRUPT_POLICIES:
+            bad("STEP_PARAMS_INVALID", f"interrupt_policy는 {list(_ev.INTERRUPT_POLICIES)}")
+        if st.get("observable_when") is not None and not _pred_check(
+                st["observable_when"], scope, f"{p}.observable_when", d, phase_time=True):
+            ok = False
+    return out if ok else None
+
+
+def _fixed_write_key(st):
+    t = st["type"]
+    if t == "SET_ACCESS_STATE":
+        return ("access", st["control"]), st["state"]
+    if t == "SET_ACTOR_PLACEMENT" and not str(st["actor"]).startswith("$"):
+        return ("placement", st["actor"]), st["place"]
+    if t == "SET_EVENT_LOCAL":
+        return ("local", st["key"]), canonical_json(st["value"])
+    return None, None
+
+
+def _compile_event_templates(raw, caps, actors, actor_index, places, infos, access, modes, edges, calendar, d):
+    from . import events as _ev
+    from . import predicates as _pr
+    from . import world_refs as _refs
+    src = raw.get("event_templates")
+    out = {}
+    if src is None:
+        return out
+    if not isinstance(src, dict):
+        d.add(ERROR, "EVENT_TEMPLATES_INVALID", "event_templates", "{template_id: 템플릿} 객체여야 합니다")
+        return out
+    if "dynamic_events" not in caps:
+        d.add(WARNING, "EVENTS_WITHOUT_CAPABILITY", "event_templates",
+              "dynamic_events capability 없이 사건 템플릿이 저작됐습니다")
+    tids = set(src)
+    for tid, body in src.items():
+        p = f"event_templates.{tid}"
+        if not is_valid_explicit_id(tid) or not isinstance(body, dict):
+            d.add(ERROR, "EVENT_TEMPLATE_INVALID", p, "template_id는 명시 id, 템플릿은 객체")
+            continue
+        n_err = len([x for x in d.items if x.severity == ERROR])
+        for k in body:
+            if k not in _TPL_KEYS:
+                d.add(ERROR, "EVENT_TEMPLATE_UNKNOWN_KEY", f"{p}.{k}", "알 수 없는 템플릿 키(자유 스크립트 없음)")
+        ver = body.get("version", 1)
+        if not _is_int_ge(ver, 1):
+            d.add(ERROR, "EVENT_VERSION_INVALID", f"{p}.version", "version은 1 이상의 정수")
+        # 슬롯
+        slots, slot_types = {}, {}
+        for name, sd in (body.get("slots") or {}).items():
+            sp = f"{p}.slots.{name}"
+            if not is_valid_explicit_id(name) or not isinstance(sd, dict) or set(sd) != {"type", "candidates"} \
+                    or sd.get("type") not in _ev.SLOT_TYPES or not isinstance(sd.get("candidates"), list) \
+                    or not sd["candidates"]:
+                d.add(ERROR, "EVENT_SLOT_INVALID", sp,
+                      f"슬롯은 {{type: {list(_ev.SLOT_TYPES)}, candidates: [비어 있지 않은 목록]}} (LLM binding 없음)")
+                continue
+            pool = {"ACTOR": actors, "PLACE": places, "INFO": infos}[sd["type"]]
+            cands = []
+            for c in sd["candidates"]:
+                cid = actor_index.get(c, c) if sd["type"] == "ACTOR" else c
+                if cid not in pool:
+                    d.add(ERROR, "EVENT_SLOT_CANDIDATE_UNKNOWN", sp, f"정의되지 않은 {sd['type']} 후보 {c!r}")
+                    continue
+                cands.append(cid)
+            slots[name] = {"type": sd["type"], "candidates": sorted(set(cands))}
+            slot_types[name] = sd["type"]
+        distinct = []
+        dist = body.get("distinct") or []
+        if dist == "all":
+            dist = [list(x) for x in itertools.combinations(sorted(slots), 2)]
+        for pair in dist if isinstance(dist, list) else [None]:
+            if not (isinstance(pair, list) and len(pair) == 2 and all(x in slots for x in pair) and pair[0] != pair[1]):
+                d.add(ERROR, "EVENT_DISTINCT_INVALID", f"{p}.distinct", "distinct는 서로 다른 슬롯 이름 쌍 목록 또는 'all'")
+                continue
+            distinct.append(sorted(pair))
+        scope = _ref_scope(actors, places, infos, access, modes, slots=slot_types, allow_self=True,
+                           templates=tids, calendar=calendar)
+        if "spawn_when" not in body:
+            d.add(ERROR, "EVENT_SPAWN_REQUIRED", p, "spawn_when(타입 조건)이 필요합니다")
+        else:
+            _pred_check(body["spawn_when"], scope, f"{p}.spawn_when", d, phase_time=False)
+        pol = body.get("repeat_policy", "ONCE_PER_SESSION")
+        if pol not in _ev.REPEAT_POLICIES:
+            d.add(ERROR, "EVENT_REPEAT_INVALID", f"{p}.repeat_policy", f"repeat_policy는 {list(_ev.REPEAT_POLICIES)}")
+        mx = body.get("max_occurrences")
+        if mx is not None and (pol != "REPEATABLE" or not _is_int_ge(mx, 1)):
+            d.add(ERROR, "EVENT_MAX_OCCURRENCES_INVALID", f"{p}.max_occurrences",
+                  "max_occurrences는 REPEATABLE의 1 이상 정수")
+        for k in ("access_when", "resolve_when", "cancel_when"):
+            if body.get(k) is not None:
+                _pred_check(body[k], scope, f"{p}.{k}", d, phase_time=True)
+        sel = body.get("phase_selector") or {}
+        if not isinstance(sel, dict) or set(sel) - {"mode", "stability", "fallback_phase"}:
+            d.add(ERROR, "EVENT_SELECTOR_INVALID", f"{p}.phase_selector", "phase_selector는 {mode, stability, fallback_phase}")
+            sel = {}
+        mode = sel.get("mode", "PRIORITY")
+        stab = sel.get("stability", "STICKY")                 # 사용자 결정: 기본 STICKY
+        if mode not in _ev.SELECTOR_MODES:
+            d.add(ERROR, "EVENT_SELECTOR_INVALID", f"{p}.phase_selector.mode", f"mode는 {list(_ev.SELECTOR_MODES)}")
+        if stab not in _ev.STABILITIES:
+            d.add(ERROR, "EVENT_SELECTOR_INVALID", f"{p}.phase_selector.stability", f"stability는 {list(_ev.STABILITIES)}")
+        phases_raw = body.get("phases")
+        phases = {}
+        if not isinstance(phases_raw, dict) or not phases_raw:
+            d.add(ERROR, "EVENT_PHASES_REQUIRED", f"{p}.phases", "phases가 필요합니다")
+            phases_raw = {}
+        for pid, ph in phases_raw.items():
+            pp = f"{p}.phases.{pid}"
+            if not is_valid_explicit_id(pid) or not isinstance(ph, dict) or set(ph) - set(_PHASE_KEYS):
+                d.add(ERROR, "EVENT_PHASE_INVALID", pp, f"국면 키는 {list(_PHASE_KEYS)}")
+                continue
+            if "eligible_when" not in ph:
+                d.add(ERROR, "EVENT_PHASE_INVALID", pp, "eligible_when이 필요합니다")
+                continue
+            _pred_check(ph["eligible_when"], scope, f"{pp}.eligible_when", d, phase_time=True)
+            if ph.get("retain_when") is not None:
+                _pred_check(ph["retain_when"], scope, f"{pp}.retain_when", d, phase_time=True)
+            if not isinstance(ph.get("priority"), int) or isinstance(ph.get("priority"), bool):
+                d.add(ERROR, "EVENT_PHASE_PRIORITY_REQUIRED", pp, "priority(정수)가 필요합니다 — 동점 해소에 JSON 순서를 쓰지 않습니다")
+            terms = []
+            for j, tm in enumerate(ph.get("score_terms") or []):
+                if not isinstance(tm, dict) or set(tm) != {"when", "points"} or not isinstance(tm["points"], int) \
+                        or isinstance(tm["points"], bool):
+                    d.add(ERROR, "EVENT_SCORE_TERM_INVALID", f"{pp}.score_terms[{j}]", "{when, points(정수)}")
+                    continue
+                _pred_check(tm["when"], scope, f"{pp}.score_terms[{j}].when", d, phase_time=True)
+                terms.append(copy.deepcopy(tm))
+            if terms and mode != "SCORE":
+                d.add(WARNING, "EVENT_SCORE_TERMS_UNUSED", pp, "PRIORITY 모드에서 score_terms는 쓰이지 않습니다")
+            if ph.get("base_score") is not None and (not isinstance(ph["base_score"], int) or isinstance(ph["base_score"], bool)):
+                d.add(ERROR, "EVENT_SCORE_TERM_INVALID", f"{pp}.base_score", "base_score는 정수")
+            if stab == "MONOTONIC" and not isinstance(ph.get("rank"), int):
+                d.add(ERROR, "EVENT_PHASE_RANK_REQUIRED", pp, "MONOTONIC 안정성에는 모든 국면의 rank가 필요합니다")
+            if "terminal" in ph and not isinstance(ph["terminal"], bool):
+                d.add(ERROR, "EVENT_PHASE_INVALID", f"{pp}.terminal", "terminal은 true/false")
+            phases[pid] = {"eligible_when": copy.deepcopy(ph["eligible_when"]),
+                           "retain_when": copy.deepcopy(ph.get("retain_when")),
+                           "priority": ph.get("priority"), "base_score": ph.get("base_score") or 0,
+                           "score_terms": terms, "rank": ph.get("rank"), "terminal": bool(ph.get("terminal"))}
+        prios = {}
+        for pid in sorted(phases):
+            pr = phases[pid]["priority"]
+            if isinstance(pr, int) and pr in prios:
+                d.add(ERROR, "EVENT_PHASE_PRIORITY_TIE", f"{p}.phases",
+                      f"국면 {prios[pr]}·{pid}의 priority {pr} 동점 — 삽입 순서로 결정하지 않습니다")
+            prios.setdefault(pr, pid)
+        fb = sel.get("fallback_phase")
+        if fb is not None and fb not in phases:
+            d.add(ERROR, "EVENT_FALLBACK_UNKNOWN", f"{p}.phase_selector.fallback_phase", f"없는 국면 {fb!r}")
+        if fb is None and not any(ph["eligible_when"] == {"const": True} for ph in phases.values()):
+            d.add(WARNING, "EVENT_NO_FALLBACK", p, "fallback_phase·항상 참 국면이 없어 실행 중 '선택 불가' 진단이 날 수 있습니다")
+        # 케이스
+        cases, seen = [], set()
+        for j, c in enumerate(body.get("transition_cases") or []):
+            cp = f"{p}.transition_cases[{j}]"
+            if not isinstance(c, dict) or set(c) - set(_CASE_KEYS) or not is_valid_explicit_id(c.get("case_id")):
+                d.add(ERROR, "EVENT_CASE_INVALID", cp, f"케이스 키는 {list(_CASE_KEYS)}, case_id는 명시 id")
+                continue
+            if c["case_id"] in seen:
+                d.add(ERROR, "EVENT_CASE_DUPLICATE", cp, f"case_id {c['case_id']} 중복")
+                continue
+            seen.add(c["case_id"])
+            frm, to = c.get("from", "*"), c.get("to")
+            if to not in phases or not (frm is None or frm == "*" or frm in phases):
+                d.add(ERROR, "EVENT_CASE_PHASE_UNKNOWN", cp, f"from {frm!r}/to {to!r}가 국면이 아닙니다(from null = spawn 진입)")
+                continue
+            w = c.get("weight", 1)
+            if not _is_int_ge(w, 1):
+                d.add(ERROR, "EVENT_CASE_WEIGHT_INVALID", cp, "weight는 양의 정수(0으로 비활성화하지 말고 valid_when 사용)")
+                continue
+            if c.get("valid_when") is not None:
+                _pred_check(c["valid_when"], scope, f"{cp}.valid_when", d, phase_time=True)
+            steps, ids, created, fixed = [], set(), set(), {}
+            for k, st in enumerate(c.get("steps") or []):
+                ns = _compile_step(st, f"{cp}.steps[{k}]", scope, access, edges, created, d)
+                if ns is None:
+                    continue
+                if ns["step_id"] in ids:
+                    d.add(ERROR, "STEP_ID_DUPLICATE", f"{cp}.steps[{k}]", f"step_id {ns['step_id']} 중복")
+                    continue
+                ids.add(ns["step_id"])
+                key, val = _fixed_write_key(ns)
+                if key is not None:
+                    if key in fixed and fixed[key] != val:
+                        d.add(ERROR, "STEP_FIXED_WRITE_CONFLICT", f"{cp}.steps[{k}]",
+                              f"같은 케이스에서 {key[0]} {key[1]!r}에 서로 다른 고정값을 씁니다")
+                    fixed.setdefault(key, val)
+                steps.append(ns)
+            cases.append({"case_id": c["case_id"], "from": frm, "to": to,
+                          "valid_when": copy.deepcopy(c.get("valid_when")), "weight": w, "steps": steps})
+        case_sel = body.get("case_selection", "DETERMINISTIC_WEIGHTED")
+        if case_sel not in _ev.CASE_SELECTIONS:
+            d.add(ERROR, "EVENT_CASE_SELECTION_INVALID", f"{p}.case_selection", f"{list(_ev.CASE_SELECTIONS)}")
+        if len([x for x in d.items if x.severity == ERROR]) > n_err:
+            continue
+        inst_preds = [body.get("resolve_when"), body.get("cancel_when")]
+        for ph in phases.values():
+            inst_preds += [ph["eligible_when"], ph["retain_when"]] + [t["when"] for t in ph["score_terms"]]
+        inst_preds += [c["valid_when"] for c in cases]
+        inst_keys = sorted({k for pr in inst_preds if pr for k in _pr.dependency_keys(pr)})
+        spawn_keys = _pr.dependency_keys(body["spawn_when"])
+        wild = sorted({k for k in inst_keys + spawn_keys if _refs.is_wildcard(k)})
+        if wild:
+            d.add(WARNING, "DEPENDENCY_WILDCARD", p, f"넓은 의존 키 {wild} — 영향 범위가 커집니다")
+        out[tid] = {"template_id": tid, "version": ver, "name": body.get("name"), "slots": slots,
+                    "distinct": distinct, "spawn_when": copy.deepcopy(body["spawn_when"]), "repeat_policy": pol,
+                    "max_occurrences": mx, "access_when": copy.deepcopy(body.get("access_when")),
+                    "phase_selector": {"mode": mode, "stability": stab, "fallback_phase": fb},
+                    "phases": phases, "transition_cases": cases, "case_selection": case_sel,
+                    "case_required": bool(body.get("case_required")),
+                    "resolve_when": copy.deepcopy(body.get("resolve_when")),
+                    "cancel_when": copy.deepcopy(body.get("cancel_when")),
+                    "dependency": {"spawn": spawn_keys, "instance": inst_keys, "wildcards": wild},
+                    "has_time_predicates": any(_pr.time_atoms(x) for x in inst_preds + [body["spawn_when"]] if x),
+                    "source_ref": ["event_templates", tid]}
     return out
 
 
@@ -1354,6 +1767,8 @@ def compile_scenario(raw: dict, scenario_id: str, quests: dict | None = None) ->
             d.add(WARNING, "INFO_DUPLICATE_PROPOSITION", "information_definitions",
                   f"같은 명제가 여러 InfoId로 정의됐습니다: {', '.join(ids)} — 합치지 않습니다(info_ref 사용 권장)")
     series = _compile_info_series(raw, _ref_scope(actors, places, infos, access, modes, calendar=calendar), d)
+    event_tpls = _compile_event_templates(raw, cap["capabilities"], actors, actor_index, places, infos, access,
+                                          modes, edges, calendar, d)
 
     diagnostics = d.sorted()
     if any(x.severity == ERROR for x in diagnostics):
@@ -1387,6 +1802,8 @@ def compile_scenario(raw: dict, scenario_id: str, quests: dict | None = None) ->
         "information_definitions": infos,
         # H04(compiler v3): 정보 계열 정의. 초기 상태 적용은 H06.
         "information_series": series,
+        # H04(compiler v3): 사건 템플릿(구조화·정적 검증 완료). 퀘스트를 자동 변환하지 않는다.
+        "event_templates": event_tpls,
         "initialization_definitions": init,
         # H03(compiler v2): 정량 시간 달력. 레거시는 None(새 시간 엔진 근거 아님).
         "calendar": calendar,

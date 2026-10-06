@@ -539,7 +539,7 @@ def test_traversal_access_policies():
     assert closed.completed
     assert [c["kind"] for c in closed.checkpoint_times][2] == "ACCESS_ACTION"
     keyed = _go(D, actor_capabilities=("key_door",))                # CONFIRM → 확인 없으면 중단
-    aid = MV.access_action_id("e_mc#fwd", "door_1", "LOCKED", "CONFIRM")
+    aid = MV.access_action_id("e_mc#fwd", "door_1", "LOCKED", "CONFIRM", "door_rule:LOCKED:override:0")
     assert not keyed.completed and keyed.interruption == {
         "kind": "ACCESS_ACTION_REQUIRED", "edge_id": "e_mc#fwd", "action_policy": "CONFIRM",
         "action_id": aid, "minute": 1005}
@@ -549,7 +549,7 @@ def test_traversal_access_policies():
     assert acc == [{"kind": "ACCESS_ACTION", "edge_id": "e_mc#fwd", "place_id": "시장", "minute": 1005,
                     "raw_offset_us": 300_000_000, "action_policy": "CONFIRM", "action_id": aid}]
     barred = _go(D, state={"door_1": {"state": "BARRED"}},
-                 confirmed_actions=(MV.access_action_id("e_mc#fwd", "door_1", "BARRED", "SEPARATE_ACTION"),))
+                 confirmed_actions=(MV.access_action_id("e_mc#fwd", "door_1", "BARRED", "SEPARATE_ACTION", "door_rule:BARRED:base"),))
     # SEPARATE_ACTION은 확인 목록에 있어도 언제나 중단
     assert barred.interruption["action_policy"] == "SEPARATE_ACTION" and not barred.completed
     boat = _go(D, mode="boat")

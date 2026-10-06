@@ -39,6 +39,14 @@ TIME_OP_TYPES = (OP_CLOCK_INITIALIZE, OP_CLOCK_ADVANCE_TO, OP_SCHEDULE_CREATE,
 
 _ENTRY_KEYS = ("schedule_id", "due_minute", "kind", "owner_ref", "payload_ref",
                "created_by_version", "order_key")
+# H04 예약 v2 확장(결정 게이트 A18). H03 7키 항목은 그대로 읽고 소비한다(강제 재작성 없음).
+#   payload           kind별 typed JSON(MOVEMENT_WAKEUP 이동 의도 등) | null
+#   guard_ref         컴파일된 guard 조건 정체성 | null — due 시 FALSE/UNKNOWN이면 소비·no-op
+#   owner_epoch       소유 사건 국면 epoch("<instance>:<transition_ordinal>") | null — 낡으면 소비·no-op
+#   conflict_priority 같은 분 비호환 효과의 명시 우선순위(기본 0)
+#   created_by_version = 그 예약을 만든 투영의 source/baseline world version(대상 커밋 version 아님).
+EXT_KEYS = ("payload", "guard_ref", "owner_epoch", "conflict_priority")
+V2_KEYS = _ENTRY_KEYS + EXT_KEYS
 
 
 def _is_int(v) -> bool:
@@ -88,10 +96,18 @@ def validate_entry(sid, e) -> list:
     if not isinstance(e, dict):
         return [f"예약 {sid!r}: 항목은 객체여야 합니다"]
     errs = []
-    if set(e) != set(_ENTRY_KEYS):
-        errs.append(f"예약 {sid!r}: 필드는 정확히 {list(_ENTRY_KEYS)}여야 합니다"
-                    f"(누락 {sorted(set(_ENTRY_KEYS) - set(e))}, 초과 {sorted(set(e) - set(_ENTRY_KEYS))})")
+    if set(e) != set(_ENTRY_KEYS) and set(e) != set(V2_KEYS):
+        errs.append(f"예약 {sid!r}: 필드는 정확히 H03 7키 {list(_ENTRY_KEYS)} 또는 v2 11키여야 합니다"
+                    f"(누락 {sorted(set(_ENTRY_KEYS) - set(e))}, 초과 {sorted(set(e) - set(V2_KEYS))})")
         return errs
+    if len(e) == len(V2_KEYS):
+        if e["payload"] is not None and not isinstance(e["payload"], dict):
+            errs.append(f"예약 {sid!r}: payload는 객체 또는 null")
+        for k in ("guard_ref", "owner_epoch"):
+            if not _is_opt_str(e[k]):
+                errs.append(f"예약 {sid!r}: {k}는 문자열 또는 null")
+        if not _is_int(e["conflict_priority"]):
+            errs.append(f"예약 {sid!r}: conflict_priority는 정수")
     if e["schedule_id"] != sid:
         errs.append(f"예약 {sid!r}: 키와 schedule_id가 다릅니다")
     if not _is_int(e["due_minute"]):
@@ -104,6 +120,14 @@ def validate_entry(sid, e) -> list:
         if not _is_opt_str(e[k]):
             errs.append(f"예약 {sid!r}: {k}는 문자열 또는 null이어야 합니다")
     return errs
+
+
+def normalized_entry(e: dict) -> dict:
+    """7키(H03)·11키(v2) 항목을 11키 보기로(구 항목: payload·guard_ref·owner_epoch = null, priority 0)."""
+    out = dict(e)
+    for k in EXT_KEYS:
+        out.setdefault(k, 0 if k == "conflict_priority" else None)
+    return out
 
 
 def validate_schedule(schedule) -> list:
@@ -213,7 +237,7 @@ def h_clock_advance_to(view, op, payload):
 
 def h_schedule_create(view, op, payload):
     _require_keys(op, payload, ("schedule_id", "due_minute", "kind"),
-                  ("owner_ref", "payload_ref", "order_key"))
+                  ("owner_ref", "payload_ref", "order_key") + EXT_KEYS)
     sid = payload["schedule_id"]
     if not isinstance(sid, str) or not sid:
         _reject(op, "schedule_id는 비어 있지 않은 문자열이어야 합니다")
@@ -234,7 +258,11 @@ def h_schedule_create(view, op, payload):
     entry = {"schedule_id": sid, "due_minute": payload["due_minute"], "kind": payload["kind"],
              "owner_ref": payload.get("owner_ref"), "payload_ref": payload.get("payload_ref"),
              "created_by_version": view.get("world_version", ("version_id",)),
-             "order_key": payload.get("order_key", sid)}
+             "order_key": payload.get("order_key", sid),
+             # v2(H04): 신규 항목은 11키를 정규 작성한다
+             "payload": payload.get("payload"), "guard_ref": payload.get("guard_ref"),
+             "owner_epoch": payload.get("owner_epoch"),
+             "conflict_priority": payload.get("conflict_priority", 0)}
     errs = validate_entry(sid, entry)
     if errs:
         _reject(op, "; ".join(errs))

@@ -56,6 +56,7 @@
 #   world_refs — (H04) 타입 값 참조·의존 키
 #   actors · information · cognition · relationships — (H04) 행위자·정보·인지·관계 정본 + typed 연산
 #   npc_projection — (H04) 읽기 전용 CurrentNpcProjection
+#   predicates · events · world_progression — (H04) 3값 조건·사건 엔진·순수 세계 진행 투영
 
 from .constants import (
     __version__,
@@ -245,6 +246,9 @@ from . import information  # H04: InformationState validity/lineage/series + typ
 from . import cognition  # H04: sparse cognition + acquisition provenance + belief authority
 from . import relationships  # H04: sparse relationship deltas
 from . import npc_projection  # H04: read-only CurrentNpcProjection
+from . import predicates  # H04: tri-state typed predicates + time wakeups
+from . import events  # H04: event templates/instances, phase/case selection, typed steps
+from . import world_progression  # H04: DependencyIndex + pure WorldProgressionProjection
 from .cost import (
     extract_token_usage,
     format_cost,

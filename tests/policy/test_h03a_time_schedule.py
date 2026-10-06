@@ -237,7 +237,9 @@ def test_time_ops_initialize_advance_and_schedule_lifecycle():
     e = res.world.domain("world_schedule")["e1"]
     assert e == {"schedule_id": "e1", "due_minute": K + 1060, "kind": "MOVEMENT_WAKEUP",
                  "owner_ref": "actor:pc", "payload_ref": None, "created_by_version": None,
-                 "order_key": "e1"}
+                 "order_key": "e1",
+                 # H04 예약 v2: 신규 항목은 11키 정규 작성(구 7키 항목도 계속 유효 — test_h04b)
+                 "payload": None, "guard_ref": None, "owner_epoch": None, "conflict_priority": 0}
     s.world_schedule = {"e1": e}
     assert _project(s, _op("c", SC.OP_SCHEDULE_CREATE, {"schedule_id": "e1", "due_minute": K + 1070,
                                                         "kind": SC.KIND_EVENT_WAKEUP})).conflicts

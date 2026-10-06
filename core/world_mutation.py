@@ -693,6 +693,9 @@ def _register_production_handlers() -> None:
     _information.register(PRODUCTION_REGISTRY)
     _cognition.register(PRODUCTION_REGISTRY)
     _relationships.register(PRODUCTION_REGISTRY)
+    # H04-B: 사건 인스턴스 연산
+    from . import events as _events
+    _events.register(PRODUCTION_REGISTRY)
 
 
 _register_production_handlers()

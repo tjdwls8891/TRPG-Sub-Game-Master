@@ -53,12 +53,14 @@ class AccessDecision:
     rule_id: str | None = None
     matched_capability: str | None = None
     reason: str = ""
+    matched_variant: str | None = None        # H04: 안정 variant id(기본 "<rule>:<state>:base")
 
     def to_dict(self) -> dict:
         return {"result": self.result, "action_policy": self.action_policy,
                 "action_delay_minutes": self.action_delay_minutes, "control_id": self.control_id,
                 "state": self.state, "rule_id": self.rule_id,
-                "matched_capability": self.matched_capability, "reason": self.reason}
+                "matched_capability": self.matched_capability, "reason": self.reason,
+                "matched_variant": self.matched_variant}
 
 
 # ══════════════════════════════════════════════════════════════
@@ -133,7 +135,7 @@ def actual_access(definition: dict, access_state: dict, edge: dict, actor_capabi
     out = registry.evaluator_for(rule["rule_type"])(rule, state, actor_capabilities)
     return AccessDecision(out["result"], out.get("action_policy"), out.get("action_delay_minutes", 0),
                           cid, state, rid, out.get("requires_capability"),
-                          f"{cid}={state}")
+                          f"{cid}={state}", out.get("variant_id") or f"{rid}:{state}:base")
 
 
 # ══════════════════════════════════════════════════════════════

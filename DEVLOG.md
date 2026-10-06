@@ -1,10 +1,10 @@
 # INDAIM — 개발 로그 (DEVLOG)
 
-> 현재 버전: **v7.1.0** · `SCHEMA_VERSION` 4
+> 현재 버전: **v7.2.0** · `SCHEMA_VERSION` 4
 > 스택: Gemini API + discord.py / 한국어 TRPG 보조 GM 봇
 > 저장소: `tjdwls8891/TRPG-Sub-Game-Master`
 > 리팩터링: 7-WP 프로그램(WP-A~G, 2026-09-12~09-29) — WP-A~G 전부 VERIFIED, 프로그램 완료(WP-G 최종 `f0fd69e`) → **v6.0.0**
-> 동적 세계 프로그램: 통합 로드맵 H01~H07 — H01·H02 완료 → **v7.0.0**, H03 완료 → **v7.1.0**, H04~H07 예정
+> 동적 세계 프로그램: 통합 로드맵 H01~H07 — H01·H02 완료 → **v7.0.0**, H03 완료 → **v7.1.0**, H04 완료 → **v7.2.0**, H05~H07 예정
 
 ---
 
@@ -258,6 +258,7 @@
 | (흡수) | H01 `28cad87` | 정의 컴파일러·도구 — 하위호환 기능(MINOR감). 당시 출시 단위 규칙으로 번호 없음, 7.0.0에 흡수 |
 | **7.0.0** | H02 | `SCHEMA_VERSION` 3→4(세션 저장 형식 비호환) = MAJOR. 이 시점부터 번호는 개발 패키지마다 내용 기준으로 갱신한다(사용자 결정) |
 | **7.1.0** | H03 | 시간·공간 서비스와 typed 연산 추가 — 하위호환 기능 = MINOR. `SCHEMA_VERSION` 4·turn-history 3·CommitPlan 2 유지, compiler semantic version 1→2 |
+| **7.2.0** | H04 | 행위자·정보·인지·사건·세계 진행 엔진 추가 — 하위호환 기능 = MINOR. 스키마·이력·CommitPlan 유지, compiler semantic version 2→3 |
 
 **전환점 분석** — 첫 비호환 변경은 WP-B(`967263e`, `자:/태:` 태그의 자원·상태 변경 기능 정지)였다. 그 앞의 7개 패키지(WP-01·02·PERSIST·ACCOUNTING·JOURNAL·SETTLEMENT-01·WP-A)는 하위호환 추가였으나 개별 출시되지 않았으므로 MAJOR에 흡수된다. 이후 WP-D(청구 권위 전환)·WP-E(되감기 의미 변경)·WP-G(명령어 은퇴)의 비호환 변경도 같은 출시에 함께 실렸다. `SCHEMA_VERSION`은 3을 유지했고, 구세션 데이터는 로드된다(호환 처리 포함).
 
@@ -334,6 +335,30 @@ compiler semantic version 2로 5개 시나리오 revision이 바뀌었다(스냅
 - **CONFIRM은 행동 단위** — 정책 전체 승인(`confirmed_policies`)을 없애고 접근 행동 id(구간·제어·상태·정책) 목록으로 바꿨다. 숨은 두 번째 CONFIRM이 첫 승인으로 자동 통과하지 않는다.
 - **정본 검증 강화** — 예약 항목은 7키·타입을 엄격히 보고 빈 큐는 `{}`뿐(`[]`·`None`을 빈 큐로 보지 않음). 시계 값은 달력 계약대로 1440 이상(일련번호 ≥ 1). TRANSIT은 `start < end`, `start ≤ now < end`(0분 이동은 TRANSIT 없음). 지식 provenance는 upsert 때 append+dedupe로 보존하고, seed 초기 접근 사실은 control_id·edge_id 참조를 받아 런타임 사실 키로 정규화한다.
 
+
+### v7.2.0 — 동적 세계 H04: 행위자·정보·인지·NPC 투영 + 사건·DependencyIndex·WorldProgression (2026-10-06)
+
+H03 승인 기준(`567f262`) 위에서 H04-A(행위자·정보·인지·관계·NPC 투영) → 전체 회귀 → H04-B(조건식·사건·예약 v2·세계 진행)로 진행했다. **플레이어 턴은 이 엔진을 부르지 않는다** — 정본 도메인·typed 연산·순수 투영까지만 만들고, 결과를 플레이어 턴에 적용하는 orchestration은 H05다.
+
+#### H04-A — 행위자·정보·인지·관계·NPC 투영
+
+- **ActorId가 외래 키** — 이름 키 레거시(`session.npcs`·resources·companions)는 일괄 변환하지 않고, 이름 → ActorId 해석기가 결정적으로 답한다(모호하면 후보만 돌려주고 고르지 않는다). 개명은 id를 유지하고 옛 이름을 alias로 누적한다.
+- **정보는 정의와 상태를 나눈다** — 런타임 명제는 갱신 연산 자체가 없다. 세계가 바뀌면 새 InfoId를 만들고 옛 정보를 SUPERSEDED로 남긴다(옛 정보를 믿는 NPC가 있을 수 있기 때문). 계열 값이 A→B→A로 돌아와도 새 revision InfoId다.
+- **노출 ≠ 믿음, PC 믿음은 플레이어 것** — 획득은 인지 수준과 provenance만 바꾸고 믿음을 올리지 않는다. PC 믿음은 PLAYER_EXPLICIT·RULE_FORCED 권위로만 바뀐다(handler가 거부, 컴파일러도 사건 step을 정적으로 거부). 정보가 반박돼도 믿음을 자동 교정하지 않는다(거짓 믿음 허용).
+- **NPC 현재 상태는 조립한다** — `CurrentNpcProjection`은 정의 profile_base·배치·레거시 읽기 adapter·사건 역할·지정한 정보의 인지·관계 delta를 그때그때 모으고 저장하지 않는다. 장소 연관은 현재 위치가 아니다.
+
+#### H04-B — 사건·예약 v2·세계 진행
+
+- **조건은 타입 AST, 결과는 3값** — 자유 문자열·eval 없음. UNKNOWN을 FALSE로 축약하지 않는다(충족은 TRUE뿐, 모름을 조건으로 쓰려면 `is_unknown`). 시간 조건은 의존 키가 아니라 다음 경계 wakeup 1건으로 컴파일한다 — 매분 polling을 하지 않는다.
+- **변경 키 → 영향받는 것만** — DependencyIndex가 바뀐 정본 키로 해당 템플릿 spawn·사건·정보 계열만 재평가한다. 와일드카드는 허용하되 컴파일 경고.
+- **국면은 STICKY 기본, 케이스는 결정적 가중** — resolve/cancel이 국면 선택보다 먼저다. 전이가 케이스보다 먼저 확정된다. 케이스는 세션 시드·인스턴스·전이 순번·국면·후보 집합의 안정 digest로 고르고 history에 저장한다(재추첨 없음, Python hash·random 없음).
+- **예약 v2는 H03 7키를 그대로 읽는다** — 신규 항목만 11키(payload·guard_ref·owner_epoch·conflict_priority). `created_by_version`은 예약을 만든 투영의 source/baseline version이다. 낡은 epoch·FALSE/UNKNOWN guard는 소비·no-op이며 재예약 polling을 하지 않는다.
+- **같은 분은 같은 기준 상태에서** — due 항목을 같은 기준으로 평가하고, 비호환 쓰기는 우선순위가 다르면 높은 쪽, 같으면 현재 장면 관련일 때만 `SameMinuteNarrativeTie`로 돌려준다(H04는 순서를 고르지 않는다 — H05 묘사 관찰). 장면 밖이면 안전 중단(WORLD_PROJECTION_CONFLICT).
+- **즉시 연쇄에 안전 상한** — 라운드 32·사건당 분당 전이 8·같은 분 세계 상태 반복 검출. 서사 규칙이 아니라 무한 연쇄 방지 장치다.
+- **NPC 이동도 행위자 지식으로** — 사건 START_MOVEMENT·이동 wakeup은 H03의 KnownRoutePlanner·ActualTraversalPlanner를 그대로 쓴다. 아는 길이 없으면 전지적 경로로 대체하지 않고, 최종 도착으로 순간이동하지 않으며 구간마다 checkpoint wakeup에서 실제 상태를 다시 본다.
+- **접근 행동 id에 override variant** — 같은 문·상태·정책이라도 열쇠와 통행증은 다른 확인 토큰이다(H03 행동 단위 CONFIRM 강화).
+
+compiler semantic version 3으로 5개 시나리오 revision이 다시 바뀌었다(스냅샷 바인딩 0 — 이행 불필요). 세부·증거는 `handoff/H04_COMPLETION_BUNDLE.md`.
 ---
 
 ## 실측 데이터
