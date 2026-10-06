@@ -299,7 +299,9 @@ v6.0.0(`de367c7`) 위에서 시작한 동적 세계 구현 프로그램(통합 �
 - **turn-history v3** — v2 레코드를 버리지 않는다. 새 필드가 없으면 레거시 기본값으로 합성해 복원한다(현재 값이 새지 않게).
 - **world_version** — 모든 커밋된 PLAYER_TURN이 빈 묶음이어도 전진한다. id = stable_digest(세션, 부모, 원인, tx). CommitPlan v2가 PREPARED 전에 동결하고 복구는 재생성하지 않는다. v1 PREPARED는 정상 구버전으로 복구된다(지문 재현 동일).
 - **WorldMutationBatch·ProjectedWorld** — 연산은 등록된 typed handler만 쓰기를 만들고, 단일값·집합·가산·추가중복제거 의미로 병합한다. 서로 다른 단일값은 마지막 쓰기 채택 대신 `WORLD_PROJECTION_CONFLICT`로 막는다. 투영 충돌은 결정적 종료 실패이며 추출 재시도가 아니다. production 레지스트리는 비어 있다(임의 경로 setter 없음).
-- **공통 정본 변이 primitive** `core/canonical_mutation.py` — INITIALIZATION·ADMIN_EDIT용 원자 적용·작은 저널. production 호출자 0(배선은 H06).
+- **공통 정본 변이 primitive** `core/canonical_mutation.py` — INITIALIZATION·ADMIN_EDIT용 원자 적용·작은 저널. 검증(stale·활성 턴)부터 저장까지 커밋 직렬화 락 안에서 수행해, 검증 뒤 끼어든 PLAYER_TURN·다른 변이를 오래된 투영이 덮어쓰지 못한다. production 호출자 0(배선은 H06).
+- **인과 계층 투영** — `causal_parent_op_ids`가 실제 적용 순서다. 같은 계층은 같은 기준 상태를 읽고 병합·충돌 판정, 다음 계층은 이전 결과를 읽는다. 인과 관계없는 쓰기의 삽입·계층 순서가 결과를 정하지 않는다(순서 의존이면 충돌).
+- **묶음 실질 불변성** — 묶음은 정규 사본만 보관하고 돌려준다. 외부 연산·반환 연산을 고쳐도 묶음·digest가 바뀌지 않는다.
 - legacy `core.rewind` `TRACKED_PATHS`는 늘리지 않았다 — 델타 로그를 읽어 복원하는 경로가 없고, 되감기 권위는 turn_history다.
 
 세부·호환 증거는 `handoff/H02_COMPLETION_BUNDLE.md`.
@@ -338,7 +340,7 @@ v6.0.0(`de367c7`) 위에서 시작한 동적 세계 구현 프로그램(통합 �
 장소 122 · NPC 47(32명 배치) · 직업 16 · 퀘스트 44
 시작 틀 8 · 프로필 단계 10 · SESSION_FIELDS 95 · TRACKED_PATHS 14
 명령어 44 · persistent view 5종 22버튼
-core 서브모듈 63 · 테스트 707건(특성화 46 · 결함 27 · 정책 634)
+core 서브모듈 63 · 테스트 718건(특성화 46 · 결함 27 · 정책 645)
 ```
 
 ---

@@ -329,6 +329,8 @@ async def test_projection_conflict_is_deterministic_failure_not_retry(rig, injec
     assert prep.world_conflicts and prep.world_conflicts[0]["code"] == "MERGE_CONFLICT"
     assert prep.phase != TP.PREP_RETRY_PENDING
     assert tx.status == tt.TurnStatus.FAILED_SYSTEM
+    # H02 보정 4: READY 실패 처리가 준비 객체의 원인 코드를 트랜잭션에 보존한다
+    assert tx.failure_code == "WORLD_PROJECTION_CONFLICT" and tx.failure_stage == "READY_PREDICATE"
     assert not s.extraction_retry_ctx
     assert s.turn_count == turn_before and s.world_version == wv_before and s.world_clock == {}
     assert "PREPARED" not in _phases(s, tx)
@@ -357,6 +359,7 @@ async def test_baseline_guard_blocks_ready(rig, inject, field, value, reason):
     assert reason in seen["reasons"], seen
     assert tx.status == tt.TurnStatus.FAILED_SYSTEM
     assert tx.preparation.phase != TP.PREP_RETRY_PENDING
+    assert tx.failure_code == "COMMIT_VALIDATION_FAILURE"     # 원인 코드 없는 술어 실패는 기존 분류
 
 
 async def test_pre_persist_failure_rolls_back_world_version_and_domains(rig, inject):

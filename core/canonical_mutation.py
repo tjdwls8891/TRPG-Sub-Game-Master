@@ -11,10 +11,13 @@
 #   재무(CostEvent·Settlement·Ink)를 만들지 않는다. provider를 부르지 않는다.
 #
 # [원자 경계]
+#   [커밋 직렬화 락 — CommitCoordinator와 같은 락·같은 순서: 직렬화 락 → io 락]
 #   검증(활성 턴·복구 대기 없음, 기준 world_version·definition_revision 일치)
 #   → 묶음 동결·투영(충돌 = WORLD_PROJECTION_CONFLICT, 정본 불변)
-#   → 저널 PREPARED(대상 version을 여기서 동결 — 복구에서 재생성하지 않는다)
-#   → 커밋 직렬화 락 + io 락: 롤백 스냅샷 → 투영 반영 + world_version 전진 → strict 저장
+#   → 대상 version 결정 → 저널 PREPARED(복구에서 재생성하지 않는다)
+#   → io 락: 롤백 스냅샷 → 투영 반영 + world_version 전진 → strict 저장
+#   검증부터 저장까지 한 직렬화 구간이므로, 검증 뒤 다른 변이(PLAYER_TURN 커밋·다른
+#   INIT/ADMIN)가 끼어들어 오래된 투영이 더 최신 정본을 덮어쓸 수 없다.
 #       · 영속 전 실패: 스냅샷 복원 + ABORTED
 #   → PERSISTED → COMMITTED (영속 후 실패는 RECOVERY_PENDING — 이야기는 정본)
 #
@@ -212,6 +215,12 @@ class CanonicalMutationCoordinator:
     async def apply(self, session, batch: _wm.WorldMutationBatch, *, cause_kind: str,
                     cause_id: str) -> CanonicalMutationResult:
         from .commit_coordinator import commit_serialization_lock
+        async with commit_serialization_lock(session.session_id):
+            return await self._apply_serialized(session, batch, cause_kind=cause_kind,
+                                                cause_id=cause_id)
+
+    async def _apply_serialized(self, session, batch, *, cause_kind, cause_id):
+        """커밋 직렬화 락 보유 상태 전용. 검증~저장이 한 구간."""
         reason = self._precheck(session, batch, cause_kind)
         if reason:
             return CanonicalMutationResult(OUTCOME_REJECTED, reason=reason)
@@ -240,18 +249,17 @@ class CanonicalMutationCoordinator:
             return CanonicalMutationResult(OUTCOME_FAILED_PRE_PERSIST, mid, reason=str(e),
                                            batch_digest=digest)
         persisted, err = False, None
-        async with commit_serialization_lock(sid):
-            async with _io.session_io_lock(self.bot, session):
-                snap = {k: copy.deepcopy(getattr(session, k)) for k in _ws.GAMEPLAY_WORLD_FIELDS}
-                try:
-                    _wm.apply_projection(session, result, source_world)
-                    session.world_version = copy.deepcopy(target_wv)
-                    await _io.write_session_strict_locked(session)
-                    persisted = True
-                except Exception as e:  # noqa: BLE001
-                    err = f"{type(e).__name__}: {e}"
-                    for k, v in snap.items():
-                        setattr(session, k, v)
+        async with _io.session_io_lock(self.bot, session):
+            snap = {k: copy.deepcopy(getattr(session, k)) for k in _ws.GAMEPLAY_WORLD_FIELDS}
+            try:
+                _wm.apply_projection(session, result, source_world)
+                session.world_version = copy.deepcopy(target_wv)
+                await _io.write_session_strict_locked(session)
+                persisted = True
+            except Exception as e:  # noqa: BLE001
+                err = f"{type(e).__name__}: {e}"
+                for k, v in snap.items():
+                    setattr(session, k, v)
         if not persisted:
             try:
                 _append(sid, {"mutation_id": mid, "phase": PHASE_ABORTED, "reason": err})

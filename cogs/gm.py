@@ -1871,9 +1871,14 @@ class GMCog(commands.Cog):
         else:
             if master_ch:
                 await master_ch.send("⚠️ 턴 준비 검증 실패 — 턴을 확정하지 않습니다.")
+            # H02: READY 술어가 구체 원인을 남겼으면(예: WORLD_PROJECTION_CONFLICT — 결정적 세계
+            #   충돌, 재시도 대상 아님) 그 코드를 트랜잭션에 보존한다. 없으면 기존 분류.
+            try:
+                code = TT.FailureCode(getattr(prep, "failure_code", None))
+            except ValueError:
+                code = TT.FailureCode.COMMIT_VALIDATION_FAILURE
             TT.finalize(session, tid, TT.TurnStatus.FAILED_SYSTEM,
-                        failure_stage="READY_PREDICATE",
-                        failure_code=TT.FailureCode.COMMIT_VALIDATION_FAILURE)
+                        failure_stage="READY_PREDICATE", failure_code=code)
         # WP-D(§10): 종료 실패 — 동결된 exact 멤버십으로 FAILED_SYSTEM Settlement(청구 0).
         #   영속 실패 시 fail-closed(D-D2): 백로그 + commit_recovery 차단 → 라운드 미개방.
         await self._settle_failed_turn(session, prep, master_ch)

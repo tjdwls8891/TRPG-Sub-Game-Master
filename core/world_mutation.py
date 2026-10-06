@@ -20,6 +20,7 @@
 from __future__ import annotations
 
 import copy
+import json
 from dataclasses import dataclass, field
 
 from . import world_state as _ws
@@ -158,7 +159,16 @@ def make_op(op_id, op_type, source_kind, payload=None, *, source_ref=None,
 
 
 class WorldMutationBatch:
-    """한 인과 단위의 정본 변이 묶음. 동결 후에는 바꿀 수 없다."""
+    """한 인과 단위의 정본 변이 묶음. 동결 후에는 바꿀 수 없다.
+
+    [실질적 불변성]
+      · add()는 받은 연산을 정규 dict 스냅샷(깊은 사본)으로 저장한다 — 호출자가 이후 원래
+        연산의 payload를 고쳐도 묶음은 바뀌지 않는다.
+      · operations는 매번 새 사본을 돌려준다 — 돌려받은 연산을 고쳐도 묶음은 바뀌지 않는다.
+      · 묶음 정체성(batch_id·origin·기준 version·정의 revision·tx)은 읽기 전용이다.
+      · 투영은 내부 스냅샷만 읽고(resolved_payload는 op_id로 내부 스냅샷을 찾는다),
+        동결 digest와 현재 내용의 일치를 확인한다(digest_matches).
+    """
 
     def __init__(self, *, batch_id: str, outer_origin: str, source_world_version_id,
                  definition_revision, transaction_id: str | None = None):
@@ -166,16 +176,23 @@ class WorldMutationBatch:
             raise WorldMutationError(f"알 수 없는 outer_origin: {outer_origin!r}")
         if not isinstance(batch_id, str) or not batch_id:
             raise WorldMutationError("batch_id가 필요합니다")
-        self.batch_id = batch_id
-        self.outer_origin = outer_origin
-        self.transaction_id = transaction_id
-        self.source_world_version_id = source_world_version_id
-        self.definition_revision = definition_revision
-        self._ops: list = []
-        self.diagnostics: list = []
+        self._meta = _canonical_copy({
+            "batch_id": batch_id, "outer_origin": outer_origin,
+            "transaction_id": transaction_id,
+            "source_world_version_id": source_world_version_id,
+            "definition_revision": definition_revision}, "batch identity")
+        self._ops: list = []                 # 정규 dict 스냅샷(WorldMutationOp.to_dict 형식)
+        self.diagnostics: list = []          # 진단 전용 — digest·투영에 쓰지 않는다
         self._frozen = False
         self._digest = None
         self._resolved_locals: dict = {}
+
+    # ── 읽기 전용 정체성 ──
+    batch_id = property(lambda self: self._meta["batch_id"])
+    outer_origin = property(lambda self: self._meta["outer_origin"])
+    transaction_id = property(lambda self: self._meta["transaction_id"])
+    source_world_version_id = property(lambda self: self._meta["source_world_version_id"])
+    definition_revision = property(lambda self: self._meta["definition_revision"])
 
     # ── 구성 ──
     @property
@@ -184,37 +201,41 @@ class WorldMutationBatch:
 
     @property
     def operations(self) -> tuple:
-        return tuple(self._ops)
+        """연산의 새 사본(호출자 수정이 묶음에 닿지 않는다)."""
+        return tuple(WorldMutationOp.from_dict(d) for d in self._ops)
 
     def add(self, op: WorldMutationOp) -> None:
         if self._frozen:
             raise BatchFrozenError(f"동결된 묶음 {self.batch_id}에 연산을 더할 수 없습니다")
         if not isinstance(op, WorldMutationOp):
             raise WorldMutationError("WorldMutationOp만 더할 수 있습니다")
-        self._ops.append(op)
+        # make_op 재검증을 거친 깊은 사본 — 생성 뒤 바뀐 payload(비정규 값 포함)도 여기서 걸린다
+        self._ops.append(WorldMutationOp.from_dict(op.to_dict()).to_dict())
 
     # ── 동결 ──
     def validate(self) -> list:
         """구조 규칙 위반 목록(비면 정상). 연산 의미는 handler 몫이라 보지 않는다."""
         errs, seen, defined = [], set(), {}
-        for i, op in enumerate(self._ops):
+        ops = self.operations
+        for op in ops:
             if op.op_id in seen:
                 errs.append(f"OP_ID_DUPLICATE:{op.op_id}")
-            for p in op.causal_parent_op_ids:
-                if p not in seen:
-                    errs.append(f"CAUSAL_PARENT_NOT_EARLIER:{op.op_id}->{p}")
+            for par in op.causal_parent_op_ids:
+                if par not in seen:
+                    errs.append(f"CAUSAL_PARENT_NOT_EARLIER:{op.op_id}->{par}")
             seen.add(op.op_id)
             for name in op.defines_locals:
                 if name in defined:
                     errs.append(f"LOCAL_REF_REDEFINED:{name}")
                 defined[name] = op.op_id
-        for op in self._ops:
+        anc = causal_ancestors(ops) if not errs else {}
+        for op in ops:
             refs = []
             _collect_local_refs(op.payload, refs)
             for name in refs:
                 if name not in defined:
                     errs.append(f"LOCAL_REF_UNDEFINED:{op.op_id}->{name}")
-                elif defined[name] != op.op_id and defined[name] not in op.causal_parent_op_ids:
+                elif defined[name] != op.op_id and defined[name] not in anc.get(op.op_id, ()):
                     errs.append(f"LOCAL_REF_NOT_CAUSAL:{op.op_id}->{name}")
         return errs
 
@@ -227,7 +248,7 @@ class WorldMutationBatch:
             raise WorldMutationError(f"{self.batch_id}: 묶음 구조 오류 — " + ", ".join(errs))
         self._resolved_locals = {
             name: "local_" + stable_digest("world_mutation.local_ref.v1", self.batch_id, name)
-            for op in self._ops for name in op.defines_locals}
+            for d in self._ops for name in d["defines_locals"]}
         self._frozen = True
         self._digest = content_digest(self.to_dict())
         return self._digest
@@ -236,17 +257,23 @@ class WorldMutationBatch:
     def digest(self) -> str | None:
         return self._digest
 
-    def resolved_payload(self, op: WorldMutationOp) -> dict:
+    def digest_matches(self) -> bool:
+        """동결 digest가 현재 내부 내용과 같은가(내부 상태 변조 방어)."""
+        return self._frozen and content_digest(self.to_dict()) == self._digest
+
+    def resolved_payload(self, op) -> dict:
+        """op_id의 내부 스냅샷 payload를 LocalRef 해석해 돌려준다(전달된 객체 내용은 무시)."""
         if not self._frozen:
             raise WorldMutationError("동결 전에는 LocalRef를 해석하지 않습니다")
-        return _resolve_local_refs(op.payload, self._resolved_locals)
+        op_id = op.op_id if isinstance(op, WorldMutationOp) else op
+        for d in self._ops:
+            if d["op_id"] == op_id:
+                return _resolve_local_refs(copy.deepcopy(d["payload"]), self._resolved_locals)
+        raise WorldMutationError(f"묶음에 없는 연산: {op_id}")
 
     def to_dict(self) -> dict:
-        return {"batch_schema_version": BATCH_SCHEMA_VERSION, "batch_id": self.batch_id,
-                "outer_origin": self.outer_origin, "transaction_id": self.transaction_id,
-                "source_world_version_id": self.source_world_version_id,
-                "definition_revision": self.definition_revision,
-                "operations": [op.to_dict() for op in self._ops],
+        return {"batch_schema_version": BATCH_SCHEMA_VERSION, **copy.deepcopy(self._meta),
+                "operations": copy.deepcopy(self._ops),
                 "resolved_locals": dict(sorted(self._resolved_locals.items()))}
 
     @classmethod
@@ -261,6 +288,27 @@ class WorldMutationBatch:
 
     def is_empty(self) -> bool:
         return not self._ops
+
+
+def causal_ancestors(ops) -> dict:
+    """op_id → 전이적 인과 조상 집합(부모는 항상 앞선 연산 — validate가 보장)."""
+    anc = {}
+    for op in ops:
+        a = set()
+        for par in op.causal_parent_op_ids:
+            a.add(par)
+            a |= anc.get(par, set())
+        anc[op.op_id] = a
+    return anc
+
+
+def causal_layers(ops) -> dict:
+    """op_id → 인과 계층(부모 없음 0, 그 외 1 + 부모 계층 최대). 삽입 순서와 무관한 의미."""
+    layer = {}
+    for op in ops:
+        layer[op.op_id] = (1 + max(layer[par] for par in op.causal_parent_op_ids)
+                           if op.causal_parent_op_ids else 0)
+    return layer
 
 
 def player_turn_batch(session, transaction_id: str) -> WorldMutationBatch:
@@ -420,12 +468,21 @@ class ProjectionResult:
                      if content_digest(self.world.domain(k)) != content_digest(source.domain(k)))
 
 
+def _canon_order(writes: list) -> list:
+    """같은 계층 쓰기의 삽입 순서를 의미에서 지운다 — 값의 정규 직렬화 순으로 정렬."""
+    return sorted(writes, key=lambda w: (canonical_json(w.value), w.op_id))
+
+
 def _merge(writes: list, base):
-    """같은 (domain, path)의 쓰기들을 병합한다. 반환: (값, 충돌 메시지|None)."""
+    """같은 계층·같은 (domain, path)의 쓰기들을 병합한다. 반환: (값, 충돌 메시지|None).
+
+    결과는 쓰기 삽입 순서와 무관하다(정규 순서로 처리).
+    """
     sems = {w.semantics for w in writes}
     if len(sems) > 1:
         return None, f"병합 의미 혼용 {sorted(sems)}"
     sem = sems.pop()
+    writes = _canon_order(writes)
     if sem == MERGE_SINGLE_VALUE:
         vals = {canonical_json(w.value) for w in writes}
         if len(vals) > 1:
@@ -440,23 +497,19 @@ def _merge(writes: list, base):
         for w in writes:
             adds += [canonical_json(x) for x in w.value.get("add", [])]
             removes |= {canonical_json(x) for x in w.value.get("remove", [])}
-        both = set(adds) & removes
-        if both:
+        if set(adds) & removes:
             return None, "같은 원소의 추가와 제거가 동시에 있습니다"
         cur = list(base or []) if isinstance(base, list) or base is None else None
         if cur is None:
             return None, "SET_LIKE 대상의 기존 값이 목록이 아닙니다"
-        keys = [canonical_json(x) for x in cur]
-        out = [x for x, k in zip(cur, keys) if k not in removes]
+        out = [x for x in cur if canonical_json(x) not in removes]
         have = {canonical_json(x) for x in out}
-        for w in writes:
-            for x in w.value.get("add", []):
-                k = canonical_json(x)
-                if k not in have:
-                    out.append(copy.deepcopy(x))
-                    have.add(k)
+        for k in sorted(set(adds)):
+            if k not in have:
+                out.append(json.loads(k))
+                have.add(k)
         return out, None
-    # APPEND_DEDUPE
+    # APPEND_DEDUPE — 같은 계층의 독립 추가는 정규 순서로 덧붙인다
     cur = list(base or []) if isinstance(base, list) or base is None else None
     if cur is None:
         return None, "APPEND_DEDUPE 대상의 기존 값이 목록이 아닙니다"
@@ -469,64 +522,118 @@ def _merge(writes: list, base):
     return cur, None
 
 
+def _overlaps(p1: tuple, p2: tuple) -> bool:
+    return p1[:len(p2)] == p2 or p2[:len(p1)] == p1
+
+
+def _cross_layer_compatible(w1: WorldWrite, w2: WorldWrite) -> bool:
+    """인과 관계없는 두 쓰기가 다른 계층에서 같은 칸을 써도 순서와 무관한 결과인가."""
+    if w1.domain != w2.domain or w1.path != w2.path or w1.semantics != w2.semantics:
+        return False
+    if w1.semantics == MERGE_ADDITIVE:
+        return True
+    if w1.semantics == MERGE_SINGLE_VALUE:
+        return canonical_json(w1.value) == canonical_json(w2.value)
+    if w1.semantics == MERGE_SET_LIKE:
+        a = {canonical_json(x) for x in w1.value.get("add", []) + w2.value.get("add", [])}
+        r = {canonical_json(x) for x in w1.value.get("remove", []) + w2.value.get("remove", [])}
+        return not (a & r)
+    return False      # APPEND_DEDUPE: 독립 추가의 계층 순서가 결과 순서가 되므로 금지
+
+
 def project(source, batch: WorldMutationBatch, registry: OperationRegistry) -> ProjectionResult:
-    """동결된 묶음을 원본 투영 사본 위에 적용한다. 원본(세션·ProjectedWorld)은 바뀌지 않는다.
+    """동결된 묶음을 원본 투영 사본 위에 인과 계층 순서로 적용한다. 원본은 바뀌지 않는다.
+
+    [인과 순서 — causal_parent_op_ids]
+      · 계층 0 = 부모 없는 연산, 계층 k = 1 + 부모 계층 최대.
+      · 같은 계층의 연산은 모두 같은 계층 기준 투영(이전 계층까지 적용된 상태)을 읽고,
+        그 쓰기들은 선언된 병합 의미로 합쳐진다(충돌 판정 포함). 삽입 순서는 의미가 없다.
+      · 다음 계층은 이전 계층의 결과를 읽는다 — 자식은 부모의 결과를 본다.
+      · 인과 관계없는(조상이 아닌) 두 연산이 다른 계층에서 같은 칸(또는 겹치는 경로)을
+        쓰면, 순서와 무관한 결과일 때(가산·동일 단일값·모순 없는 집합)만 허용하고 나머지는
+        WORLD_PROJECTION_CONFLICT(UNORDERED_INDEPENDENT_WRITES)다.
 
     source: TRPGSession 또는 ProjectedWorld. 충돌은 예외가 아니라 결과의 conflicts로 돌려준다.
     """
     if not batch.frozen:
         raise WorldMutationError("동결된 묶음만 투영할 수 있습니다")
+    if not batch.digest_matches():
+        raise WorldMutationError(f"{batch.batch_id}: 동결 digest와 내용이 다릅니다(변조)")
     base = source if isinstance(source, ProjectedWorld) else ProjectedWorld.capture(source)
     src_digest = base.digest()
     world = ProjectedWorld(base.to_dict())
-    conflicts, grouped, order = [], {}, []
-    for op in batch.operations:
-        handler = registry.handler_for(op.op_type)
-        if handler is None:
-            conflicts.append(Conflict("UNKNOWN_OPERATION", "", (), (op.op_id,),
-                                      f"{op.op_id}: 등록되지 않은 op_type {op.op_type!r}"))
-            continue
-        if op.expected is not None:
-            exp = op.expected
-            if canonical_json(base.get(exp["domain"], tuple(exp["path"]))) != canonical_json(exp.get("value")):
-                conflicts.append(Conflict("EXPECTATION_FAILED", exp["domain"], tuple(exp["path"]),
-                                          (op.op_id,), f"{op.op_id}: 기대값과 원본이 다릅니다"))
+    ops = batch.operations
+    layers = causal_layers(ops)
+    anc = causal_ancestors(ops)
+    conflicts, record = [], []          # record: (layer, WorldWrite)
+    for L in sorted(set(layers.values())):
+        layer_base = ProjectedWorld(world.to_dict())
+        grouped = {}
+        for op in (o for o in ops if layers[o.op_id] == L):
+            handler = registry.handler_for(op.op_type)
+            if handler is None:
+                conflicts.append(Conflict("UNKNOWN_OPERATION", "", (), (op.op_id,),
+                                          f"{op.op_id}: 등록되지 않은 op_type {op.op_type!r}"))
                 continue
-        try:
-            writes = list(handler(base, op, batch.resolved_payload(op)) or ())
-        except WorldMutationError as e:
-            conflicts.append(Conflict("HANDLER_REJECTED", "", (), (op.op_id,), str(e)))
-            continue
-        for w in writes:
-            if not isinstance(w, WorldWrite) or w.op_id != op.op_id:
-                conflicts.append(Conflict("FOREIGN_WRITE", "", (), (op.op_id,),
-                                          f"{op.op_id}: handler가 자기 연산의 쓰기만 낼 수 있습니다"))
+            if op.expected is not None:
+                exp = op.expected
+                if canonical_json(layer_base.get(exp["domain"], tuple(exp["path"]))) \
+                        != canonical_json(exp.get("value")):
+                    conflicts.append(Conflict("EXPECTATION_FAILED", exp["domain"], tuple(exp["path"]),
+                                              (op.op_id,), f"{op.op_id}: 기대값과 투영 상태가 다릅니다"))
+                    continue
+            view = ProjectedWorld(layer_base.to_dict())     # handler가 view를 고쳐도 무해
+            try:
+                writes = list(handler(view, op, batch.resolved_payload(op)) or ())
+            except WorldMutationError as e:
+                conflicts.append(Conflict("HANDLER_REJECTED", "", (), (op.op_id,), str(e)))
                 continue
-            key = (w.domain, w.path)
-            if key not in grouped:
-                grouped[key] = []
-                order.append(key)
-            grouped[key].append(w)
-    # 경로 접두 겹침(상위 칸과 하위 칸을 동시에 씀)은 순서 의존이므로 충돌로 본다
-    keys = sorted(order)
-    for i, (d1, p1) in enumerate(keys):
-        for d2, p2 in keys[i + 1:]:
-            if d1 == d2 and p2[:len(p1)] == p1:
-                ops = tuple(w.op_id for w in grouped[(d1, p1)] + grouped[(d2, p2)])
-                conflicts.append(Conflict("PATH_OVERLAP", d1, p2, ops,
-                                          f"{d1}: {'.'.join(p1)} 와 {'.'.join(p2)}를 동시에 씁니다"))
-    if not conflicts:
-        for key in order:
+            for w in writes:
+                if not isinstance(w, WorldWrite) or w.op_id != op.op_id:
+                    conflicts.append(Conflict("FOREIGN_WRITE", "", (), (op.op_id,),
+                                              f"{op.op_id}: handler가 자기 연산의 쓰기만 낼 수 있습니다"))
+                    continue
+                grouped.setdefault((w.domain, w.path), []).append(w)
+                record.append((L, w))
+        if conflicts:
+            break
+        keys = sorted(grouped)
+        for i, (d1, p1) in enumerate(keys):
+            for d2, p2 in keys[i + 1:]:
+                if d1 == d2 and _overlaps(p1, p2):
+                    ops_ = tuple(w.op_id for w in grouped[(d1, p1)] + grouped[(d2, p2)])
+                    conflicts.append(Conflict("PATH_OVERLAP", d1, p2, ops_,
+                                              f"{d1}: {'.'.join(p1)} 와 {'.'.join(p2)}를 같은 계층에서 씁니다"))
+        if conflicts:
+            break
+        for key in keys:
             ws = grouped[key]
-            value, err = _merge(ws, base.get(key[0], key[1]))
+            value, err = _merge(ws, layer_base.get(key[0], key[1]))
             if err:
                 conflicts.append(Conflict("MERGE_CONFLICT", key[0], key[1],
-                                          tuple(w.op_id for w in ws), f"{key[0]}.{'.'.join(key[1])}: {err}"))
+                                          tuple(sorted({w.op_id for w in ws})),
+                                          f"{key[0]}.{'.'.join(key[1])}: {err}"))
                 continue
             try:
                 world._set(key[0], key[1], value)
             except WorldProjectionConflict as e:
                 conflicts.extend(e.conflicts)
+        if conflicts:
+            break
+    if not conflicts:
+        for i, (l1, w1) in enumerate(record):
+            for l2, w2 in record[i + 1:]:
+                if l1 == l2 or w1.domain != w2.domain or not _overlaps(w1.path, w2.path):
+                    continue
+                first, second = (w1, w2) if l1 < l2 else (w2, w1)
+                if first.op_id in anc.get(second.op_id, ()):
+                    continue                                  # 인과 순서가 있는 쓰기
+                if not _cross_layer_compatible(first, second):
+                    conflicts.append(Conflict(
+                        "UNORDERED_INDEPENDENT_WRITES", second.domain, second.path,
+                        (first.op_id, second.op_id),
+                        f"{second.domain}.{'.'.join(second.path)}: 인과 관계없는 연산이 다른 계층에서 "
+                        f"같은 칸을 순서 의존적으로 씁니다"))
     if conflicts:
         return ProjectionResult(src_digest, None, tuple(conflicts), batch.digest)
     return ProjectionResult(src_digest, world, (), batch.digest)

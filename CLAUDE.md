@@ -115,7 +115,7 @@ python main.py
 
 | 파일 | 줄 | 명령어 |
 |---|---|---|
-| `gm.py` | 5,564 | `!자동` 그룹(시작·중단·상태·개입·재계획·서사·원장·**퀘스트**·턴제한·비용제한), `!되감기` |
+| `gm.py` | 5,569 | `!자동` 그룹(시작·중단·상태·개입·재계획·서사·원장·**퀘스트**·턴제한·비용제한), `!되감기` |
 | `game.py` | 1,491 | `!재생성` `!출력물` `!주사위` `!기억압축` `!노트` `!캐시노트` `!더빙테스트` (WP-G: 수동 `!진행`·`!수정` 은퇴) |
 | `character.py` | 1,249 | `!참가` `!설정` `!증감` `!외형` `!프로필` `!엔피씨` `!능력치` `!설정생성` `!캐릭터가져오기` |
 | `system.py` | 872 | `!명령어` `!배포` `!재시작` `!지급` **`!잉크`** **`!사용량`** `!스페이스` `!캐시` `!리로드` `!세션종료` `!채널정리` `!tts생성` |
@@ -223,8 +223,8 @@ python main.py
 | 모듈 | 줄 | 내용 |
 |---|---|---|
 | `world_state.py` | 124 | H02 세션 필드의 **단일 출처** — 가역 게임 정본 11필드·비가역 정체성 2필드(`definition_revision`·`narrative_seed`), `world_version` 인과 정체성 |
-| `world_mutation.py` | 546 | `WorldMutationBatch`(typed op·LocalRef·동결·digest)·`ProjectedWorld`·병합 의미 4종·`WORLD_PROJECTION_CONFLICT`. production 레지스트리는 비어 있다 |
-| `canonical_mutation.py` | 272 | INITIALIZATION·ADMIN_EDIT 공통 원자 적용·작은 내구 저널 — **production 호출자 0**(배선은 H06) |
+| `world_mutation.py` | 653 | `WorldMutationBatch`(typed op·LocalRef·동결·digest — 내부는 정규 사본이라 외부·반환 객체 변경과 분리)·`ProjectedWorld`·**인과 계층 투영**(`causal_parent_op_ids`)·병합 의미 4종·`WORLD_PROJECTION_CONFLICT`. production 레지스트리는 비어 있다 |
+| `canonical_mutation.py` | 280 | INITIALIZATION·ADMIN_EDIT 공통 원자 적용(검증~저장 전체가 커밋 직렬화 락 안 — 직렬화 락 → io 락)·작은 내구 저널 — **production 호출자 0**(배선은 H06) |
 
 모든 커밋된 PLAYER_TURN은 빈 묶음이어도 `world_version`을 전진시킨다(CommitPlan v2가 PREPARED 전에 대상 version을 동결). PLAYER_TURN 정본 owner는 여전히 `CommitCoordinator` 하나다.
 
@@ -465,7 +465,7 @@ pip install -r requirements-dev.txt
 python3 -m pytest tests/ -q
 ```
 
-`tests/`는 **현재 동작과 권위 불변식을 고정**한다. 현재 707건(특성화 46 · 결함 27 · 정책 634)이 모두 통과하며 strict xfail은 0건이다.
+`tests/`는 **현재 동작과 권위 불변식을 고정**한다. 현재 718건(특성화 46 · 결함 27 · 정책 645)이 모두 통과하며 strict xfail은 0건이다.
 
 | 분류 | 의미 |
 |---|---|

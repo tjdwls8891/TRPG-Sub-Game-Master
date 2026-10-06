@@ -4,7 +4,8 @@
 - 프로그램: INDAIM 동적 세계 구현 — 통합 로드맵 v0.3(H01~H07). 패킷 `INDAIM_H02_CANONICAL_MUTATION_PACKET_v0.1_2026-10-06_28cad87`
 - **BASE SHA:** `28cad8751076b2f02a8efc0048733f374d919832` (H01 승인본, clean)
 - **H02-A checkpoint SHA:** `fd44d6c1f748756d9902deb714bcc5ea7a9287a5`
-- **FINAL SHA:** 이 번들을 담은 커밋(브랜치 `claude/h02-canonical-mutation`). 정확한 값은 완료 보고에 기재한다.
+- **FINAL SHA:** 이 번들을 담은 보정 커밋(브랜치 `claude/h02-canonical-mutation`). 정확한 값은 완료 보고에 기재한다.
+- 이력: 1차 FINAL 후보 `955264b9381df26a57c14d166dd6ac9bdb79e01e` → 사용자 보정 요구 1~4 반영(§15).
 - 제품 버전: **7.0.0** (6.0.0 → 7.0.0 — §10 D1, 사용자 결정)
 - `SCHEMA_VERSION`: **4** · `HISTORY_SCHEMA_VERSION`: **3** · `COMMIT_PLAN_VERSION`: **2**(v1 읽기 지원) · H01 compiler version: 1(무변경)
 - 상태: H02 구현 완료 · 독립 검증 대기. **H03은 시작하지 않았다. push하지 않았다**(패킷 지시).
@@ -27,6 +28,7 @@ production 효과는 하나다: **모든 커밋된 PLAYER_TURN이 `world_version
 | `core/turn_history.py` | `HISTORY_SCHEMA_VERSION` 2→3, `REVERSIBLE_FIELDS += GAMEPLAY_WORLD_FIELDS`, v2 레코드 누락 필드 레거시 기본값 합성 복원 |
 | `core/commit_coordinator.py` | `CommitPlan` v2(+source/target world_version·definition_revision·world_mutation_digest, v1 지문 재현), `build_commit_plan` 대상 version 결정적 생성, Phase A world 가드, Phase C 안 투영 반영 + world_version 전진, 복구 시 v2 대상 version 대조 |
 | `core/turn_transaction.py` | `FailureCode.WORLD_PROJECTION_CONFLICT` |
+| `cogs/gm.py` | (보정 4) READY 술어 실패 처리에서 `prep.failure_code`가 유효한 `FailureCode`면 트랜잭션에 보존, 없으면 기존 `COMMIT_VALIDATION_FAILURE` |
 | `core/constants.py` | `__version__` 7.0.0 |
 | `core/__init__.py` | H02 모듈 3개 import(+헤더 주석) |
 | `tests/characterize/test_h01_no_cutover.py` | H01 경계 갱신(§8) |
@@ -37,8 +39,9 @@ production 효과는 하나다: **모든 커밋된 PLAYER_TURN이 `world_version
 | 파일 | 줄 | 내용 |
 |---|---|---|
 | `core/world_state.py` | 124 | H02 필드 **단일 출처**(가역 11 + 정체성 2), 시드 도출, v3→v4 이행, `world_version` 인과 정체성(`next_world_version`) |
-| `core/world_mutation.py` | 546 | `WorldMutationOp`·`WorldMutationBatch`(LocalRef·검증·동결·digest·직렬화)·`OperationRegistry`(production 비어 있음)·`ProjectedWorld`·`project`·병합 4종·충돌 분류·`apply_projection` |
-| `core/canonical_mutation.py` | 272 | INITIALIZATION·ADMIN_EDIT 공통 원자 적용 + `canonical_mutation_journal.jsonl` + 복구 분류. production 호출자 0 |
+| `core/world_mutation.py` | 653 | `WorldMutationOp`·`WorldMutationBatch`(정규 사본 보관·읽기 전용 정체성·LocalRef·검증·동결·digest·`digest_matches`)·`OperationRegistry`(production 비어 있음)·`ProjectedWorld`·인과 계층 `project`·병합 4종·충돌 분류·`apply_projection` |
+| `core/canonical_mutation.py` | 280 | INITIALIZATION·ADMIN_EDIT 공통 원자 적용(검증~저장 전체 직렬화) + `canonical_mutation_journal.jsonl` + 복구 분류. production 호출자 0 |
+| `tests/policy/test_h02b_corrections.py` | — | 보정 1~3 정책 11건 |
 | `tests/policy/test_h02a_world_state.py` | — | H02-A 정책 10건 |
 | `tests/policy/test_h02b_world_mutation.py` | — | H02-B 정책 20건 |
 | `tests/characterize/test_h02_no_cutover.py` | — | H02 경계 특성화 5건 |
@@ -96,11 +99,14 @@ production 효과는 하나다: **모든 커밋된 PLAYER_TURN이 `world_version
 baseline(28cad87, 이 환경 재현)            672 passed
 H02-A checkpoint(fd44d6c)                 682 passed (H02-A +10)
 python -m compileall -q core cogs tests main.py prompts.py tools  → OK
-pytest -q (FINAL)                          707 passed, 0 failed, 0 xfailed, 0 XPASS (1 warning: discord audioop — 기준과 동일)
-  · 분류: 특성화 46 · 결함 27 · 정책 634
+1차 FINAL 후보(955264b)                    707 passed
+pytest -q (FINAL)                          718 passed, 0 failed, 0 xfailed, 0 XPASS (1 warning: discord audioop — 기준과 동일)
+  · 분류: 특성화 46 · 결함 27 · 정책 645
   · H02-A 대상 tests/policy/test_h02a_world_state.py       10 passed
-  · H02-B 대상 tests/policy/test_h02b_world_mutation.py    20 passed
+  · H02-B 대상 tests/policy/test_h02b_world_mutation.py    20 passed (보정 4 단언 추가)
+  · H02 보정  tests/policy/test_h02b_corrections.py        11 passed
   · H02 경계  tests/characterize/test_h02_no_cutover.py    5 passed
+  · H02 대상 합계 46 passed
 python tools/scenario_check.py --all       → 종료 코드 0 (5종 ERROR 0, revision 무변경 — H01 compiler 무변경)
 python tools/verify_docs.py                → 문서 수치 OK (21항목)
 검증 루틴 ① OK · ② 재수출 OK / 필드 OK · ③ OK · ⑤ cogs 9 · 명령어 44 · views 5
@@ -132,8 +138,8 @@ python tools/verify_docs.py                → 문서 수치 OK (21항목)
 | D3 | 대상 world_version = stable digest(세션·부모·원인·tx) | 패킷 B2 선택지 중 결정적 생성. 동시에 PREPARED에도 동결(이중 안전) |
 | D4 | CommitPlan만 v2, 저널 형식은 무변경 | 패킷 §8 "최소 backward-compatible". v1 지문 재현으로 구버전 레코드를 손상으로 오인하지 않음 |
 | D5 | `TRACKED_PATHS` 미확장 | 패킷 §4.7·B5 — §5.4 조사 근거 |
-| D6 | 투영 충돌은 READY 술어 실패로 표면화 → 기존 NOT_READY 종료 실패(FAILED_SYSTEM, 청구 0) 경로 | 새 실패 경로·cogs 변경 없이 "RETRY_PENDING 아님"을 만족. `prep.failure_code`와 `FailureCode.WORLD_PROJECTION_CONFLICT`, `prep.world_conflicts` 진단 기록. cogs/gm.py의 사용자 안내 문구는 기존 일반 실패 안내 그대로(별도 GM 개입 안내는 H05/H06에서 결정) |
-| D7 | 경로 접두 겹침(상위 칸과 하위 칸 동시 쓰기)도 충돌로 분류 | 적용 순서 의존을 막기 위한 결정적 규칙. 같은 칸 단일값 동일 쓰기는 허용 |
+| D6 | 투영 충돌은 READY 술어 실패로 표면화 → 기존 NOT_READY 종료 실패(FAILED_SYSTEM, 청구 0) 경로 | "RETRY_PENDING 아님"을 만족. (보정 4) READY 실패 처리가 `prep.failure_code`를 트랜잭션 `failure_code`로 보존한다(`WORLD_PROJECTION_CONFLICT`). 사용자 안내 문구는 기존 일반 실패 안내 그대로(별도 GM 개입 안내는 H05/H06에서 결정) |
+| D7 | 같은 계층의 경로 접두 겹침, 그리고 인과 관계없는 연산의 계층 간 순서 의존 쓰기(`UNORDERED_INDEPENDENT_WRITES`)를 충돌로 분류 | 독립 쓰기의 순서가 결과를 정하지 않게 하는 결정적 규칙. 순서와 무관한 결과(가산·동일 단일값·모순 없는 집합)는 허용. 같은 계층의 APPEND·SET 추가는 정규 순서로 처리(삽입 순서 무의미) |
 | D8 | ADMIN_EDIT no-op = NOOP(새 version 없음), INITIALIZATION = 항상 genesis | DESIGN 11 §8·§9 |
 | D9 | `canonical_mutation`은 활성 턴·커밋 복구 대기·미종결 변이가 있으면 거부 | 통합 설계 §53.4 · DESIGN 07 |
 | D10 | H01 특성화 테스트 2건 의도적 갱신 | H02가 계획대로 세션 필드를 만들고 `world_ids`를 재사용하므로. 컴파일러·스냅샷 호출자 0 단언은 유지·강화 |
@@ -154,12 +160,16 @@ STOP 조건(패킷 §12·결정 게이트 C)은 하나도 발생하지 않았다
 
 - production 묶음은 항상 비어 있다 — 실제 연산·quiescence 증명은 H03(시간·공간)부터. `ReadyProof`에 quiescent 플래그를 넣지 않았다(가짜 증명 금지).
 - `canonical_mutation`은 저널 미종결 시 이후 적용을 막지만, 재시작 시 자동 `recover()` 호출 배선은 없다(호출자 0이므로 H06에서 세션 복구 순서와 함께 배선).
+- `CommitCoordinator`의 세션별 직렬화 락은 모듈 수준 캐시(`_COMMIT_LOCKS`)라 이벤트 루프가 바뀌면 재사용할 수 없다. 운영은 단일 루프라 무관하며, 테스트는 루프마다 캐시를 비운다(기존 동작, 이번에 경합 테스트에서 드러남).
 - 투영 충돌 시 플레이어 안내는 기존 일반 실패 문구다.
 
 ## 13. H03가 믿어도 되는 불변식
 
 1. H02 세션 필드의 이름·기본값·분류는 `core.world_state`가 단일 출처다. 새 정본 도메인을 추가하려면 `GAMEPLAY_WORLD_FIELDS`에 넣는다 — 저장·READY 지문·롤백·턴 이력이 자동으로 따라온다(생성자에 명시 대입 한 줄 추가).
 2. 정본 도메인 변경은 등록된 typed handler가 `world_mutation.write()`로 낸 쓰기만, 선언된 병합 의미로 합쳐져 owner 원자 경계 안의 `apply_projection`으로 반영된다. 임의 경로 setter는 없다. `world_version`은 연산이 쓰지 못한다.
+2-1. 연산 적용 순서는 `causal_parent_op_ids`가 정한다(인과 계층). handler의 `view`는 자기 계층 기준 상태(이전 계층 결과 포함, 같은 계층 형제 결과 미포함)다. 형제의 결과를 읽어야 하면 부모로 선언한다. 인과 관계없는 연산이 같은 칸을 순서 의존적으로 쓰면 충돌이다.
+2-2. 묶음은 정규 사본만 보관·반환한다. 외부·반환 객체를 고쳐도 묶음·digest는 바뀌지 않고, 투영은 `digest_matches()`를 확인한다.
+2-3. INITIALIZATION·ADMIN_EDIT 정본 변이는 검증부터 저장까지 커밋 직렬화 락 안에서 한다(락 순서: 직렬화 락 → io 락 — PLAYER_TURN과 같다).
 3. PLAYER_TURN 정본 owner는 `CommitCoordinator`다. 플레이어 턴 연산은 `prep.world_mutation_batch`에 `capture_world_baseline` 이후·READY 이전에만 더한다. READY에서 동결되며 이후 추가는 `BatchFrozenError`.
 4. 모든 커밋된 PLAYER_TURN은 world_version을 전진시킨다. 대상 version은 PREPARED 전에 동결되고 복구는 재생성하지 않는다.
 5. 서로 다른 단일값 쓰기는 `WORLD_PROJECTION_CONFLICT`이고 재시도 대상이 아니다. 충돌 시 정본 불변·FAILED_SYSTEM(청구 0).
@@ -176,8 +186,23 @@ STOP 조건(패킷 §12·결정 게이트 C)은 하나도 발생하지 않았다
 git checkout <FINAL SHA>
 pip install -r requirements.txt -r requirements-dev.txt
 python -m compileall -q core cogs tests main.py prompts.py tools
-python -m pytest -q                                                     # 707 passed
-python -m pytest -q tests/policy/test_h02a_world_state.py tests/policy/test_h02b_world_mutation.py tests/characterize/test_h02_no_cutover.py   # 35 passed
+python -m pytest -q                                                     # 718 passed
+python -m pytest -q tests/policy/test_h02a_world_state.py tests/policy/test_h02b_world_mutation.py tests/policy/test_h02b_corrections.py tests/characterize/test_h02_no_cutover.py   # 46 passed
 python tools/scenario_check.py --all                                    # exit 0
 python tools/verify_docs.py                                             # OK (21항목)
 ```
+
+## 15. 보정 이력 (1차 FINAL 후보 `955264b` 이후)
+
+버전 7.0.0 · `SCHEMA_VERSION` 4 · history v3 · CommitPlan v2 유지. H02-A 재설계 없음.
+
+| 요구 | 반영 | 검증(보정 전 코드에서 실패 → 보정 후 통과 확인) |
+|---|---|---|
+| 1. CanonicalMutationCoordinator 경쟁 조건 | `apply()`가 **커밋 직렬화 락을 먼저 획득**한 뒤 그 안에서 검증(활성 턴·복구 대기·미종결 변이·stale 기준 version/정의 revision) → 동결·투영 → 대상 version 결정 → PREPARED → io 락(롤백 스냅샷·반영·strict 저장) → PERSISTED/COMMITTED. 락 순서는 CommitCoordinator와 같은 직렬화 락 → io 락 | `test_two_concurrent_canonical_mutations_cannot_overwrite_newer_state`(첫 변이를 strict 저장 지점에 묶어 두고 둘째 변이 시작 → 둘째는 검증·동결 전 대기, 해제 후 stale REJECTED, 첫 변이 결과 보존), `test_precheck_runs_under_commit_serialization_lock`(락 보유 중 정본 전진 → 해제 후 최신 상태로 검증), `test_canonical_mutation_racing_a_player_turn_commit`(실제 자동 턴 커밋을 strict 저장 지점에 묶은 채 ADMIN 변이 시작 → 턴 COMMITTED, ADMIN REJECTED, `world_clock` 덮어쓰기 없음, PREPARED 저널조차 없음) |
+| 2. 묶음 실질 불변성 | 내부는 `WorldMutationOp.to_dict()` 정규 사본(make_op 재검증)으로 저장, `operations`는 매번 새 사본, 정체성 5필드는 읽기 전용 property, `to_dict()`도 사본, `resolved_payload`는 op_id로 내부 스냅샷을 찾음, `digest_matches()` 추가·`project()`가 확인 | `test_external_op_mutation_after_add_does_not_reach_batch`, `test_returned_operations_are_copies_and_identity_is_read_only`, `test_internal_tamper_is_detected_and_non_canonical_late_mutation_rejected` |
+| 3. causal_parent_op_ids = 투영 인과 순서 | `causal_layers`·`causal_ancestors`. 계층 단위 평가: 같은 계층은 같은 기준 투영을 읽고 병합/충돌, 다음 계층은 이전 결과를 읽음. 같은 계층 APPEND·SET 추가는 정규 순서. 인과 관계없는 연산의 계층 간 같은 칸 쓰기는 순서 무관(가산·동일 단일값·모순 없는 집합)일 때만 허용, 아니면 `UNORDERED_INDEPENDENT_WRITES`. LocalRef 인과 검사는 전이적 조상 기준 | `test_child_sees_parent_result`, `test_independent_ops_read_the_same_base_regardless_of_insertion_order`, `test_causal_same_key_write_is_ordered_not_conflict`, `test_independent_same_key_conflicts_in_same_and_different_layers`, `test_same_layer_append_and_set_results_do_not_depend_on_insertion_order` |
+| 4. WORLD_PROJECTION_CONFLICT failure code 전달 | `cogs/gm.py` READY 술어 실패 분기: `TT.FailureCode(prep.failure_code)`가 유효하면 그 코드, 아니면 `COMMIT_VALIDATION_FAILURE` | `test_projection_conflict_is_deterministic_failure_not_retry`(tx `failure_code == WORLD_PROJECTION_CONFLICT`, `failure_stage == READY_PREDICATE`, FAILED_SYSTEM, RETRY_PENDING 아님), `test_baseline_guard_blocks_ready`(원인 코드 없는 술어 실패는 `COMMIT_VALIDATION_FAILURE` 유지) |
+
+- 비공허성 확인: 보정 테스트 11건(보정 3의 "같은 기준" 회귀 방지 1건 제외 10건 + 보정 4 단언 1건)을 보정 전 `world_mutation.py`·`canonical_mutation.py`·`cogs/gm.py`(955264b)로 되돌려 실행 → 11 failed. 보정 코드 복원 후 전부 통과.
+- 범위: `prompts.py`·`scenarios/`·재무·캐시·추출·H01 모듈 무변경. `cogs/gm.py` 변경은 실패 코드 보존 한 분기뿐.
+
