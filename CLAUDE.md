@@ -8,7 +8,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 AI가 4개 층위로 나뉘어 판단·지시·묘사·추출을 분담한다. 플레이어는 서버 GM 스페이스에서 버튼으로 세션을 열고, 캐릭터를 만들고, 턴을 진행한다. **명령어는 GM의 수동 개입·복구 수단이며 일반 플레이에는 쓰지 않는다.**
 
-현재 버전: **v6.0.0** · `SCHEMA_VERSION` 3 · 총 운영 코드 ~36,680줄(main·prompts·cogs·core) · 테스트 ~14,727줄
+현재 버전: **v6.0.0** · `SCHEMA_VERSION` 4 · 총 운영 코드 ~36,680줄(main·prompts·cogs·core) · 테스트 ~14,727줄
 
 리팩터링: **7-WP 프로그램(WP-A~WP-G)** — 턴 트랜잭션·커밋·재무·이력·파생 시스템을 단일 권위로 재구성했다. WP-A~G 전부 독립 게이트 VERIFIED — **프로그램 완료**(WP-G 최종 후보 `f0fd69e`, 증거 `handoff/WP_G_COMPLETION_BUNDLE.md`). 다음 WP는 없다. 버전은 이 비호환 전환 전체를 **단일 MAJOR v6.0.0**으로 채택했다(2026-10-06, 이력 보정은 DEVLOG '버전 기록').
 
@@ -113,7 +113,7 @@ python main.py
 | `permissions.py` | 98 | `!권한부여` `!권한회수` `!권한목록` |
 | `presence.py` | 122 | 상태 메시지 순환 + **캐시 만료 감지**(15초 주기) |
 
-### core/ — 60개 서브모듈
+### core/ — 61개 서브모듈
 
 `core/__init__.py`가 전 심볼을 re-export하므로 외부에서는 `core.XYZ`로 접근한다.
 
@@ -140,7 +140,7 @@ python main.py
 |---|---|---|
 | `constants.py` | 143 | 모델 ID, `EXCHANGE_RATE`, `PRICING_1M`, `TTS_VOICES`, `__version__` |
 | `models.py` | 293 | `TRPGSession` — 단일 세션의 모든 상태 |
-| `io.py` | 528 | `SCHEMA_VERSION`, `SESSION_FIELDS`(82), `migrate_session_data`, 직렬화·로그 |
+| `io.py` | 528 | `SCHEMA_VERSION`, `SESSION_FIELDS`(95), `migrate_session_data`, 직렬화·로그 |
 | `cache.py` | 561 | 룰북 캐시 빌드, `remaining_ttl`, `is_cache_expired`, `is_session_open`, 세션 복구 |
 | `resilience.py` | 207 | `call_with_retry` — 재시도·타임아웃·오류 로그 분리 |
 

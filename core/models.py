@@ -1,4 +1,5 @@
 # 데이터 모델 — TRPGSession (단일 세션의 모든 상태를 담는 중앙 컨테이너)
+from .world_state import init_session_world_fields
 
 
 # ========== [데이터 모델(Data Models)] ==========
@@ -242,6 +243,12 @@ class TRPGSession:
         #       재시작/역직렬화 시 진행 중 트랜잭션은 항상 없음(None)이어야 한다.
         self.active_turn_transaction = None   # TurnTransaction | None (활성 1개)
         self.turn_attempt_counters = {}       # logical_turn -> 최신 attempt (런타임 전이 필드)
+
+        # ========== [H02 동적 세계 정본·정체성 — 단일 출처 core.world_state] ==========
+        # world_version·world_clock·actor_registry·spatial_*·access_control_state·event_instances·
+        # world_schedule·information_state·cognition_state·relationship_state(되감기 대상) +
+        # definition_revision(None)·narrative_seed(세션 id 도출, 불변). 빈 값은 엔진 활성화가 아니다.
+        init_session_world_fields(self)
 
         self.expand_default_npcs()
 

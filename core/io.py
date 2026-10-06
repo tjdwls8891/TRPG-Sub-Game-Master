@@ -10,6 +10,7 @@ from .constants import DEFAULT_MODEL
 from .cost import calculate_storage_cost
 from .constants import EXCHANGE_RATE, CACHE_TTL_SECONDS, MIN_CACHE_TOKENS
 from .models import TRPGSession
+from . import world_state as _world_state
 
 
 # ========== [명령어 권한: 허가 계정 목록] ==========
@@ -48,8 +49,9 @@ def save_authorized_users(data: dict):
 # ========== [직렬화 스키마 버전] ==========
 # 세션 데이터 JSON 구조가 변경될 때 증가. restore 시 구버전 경고 출력에 사용.
 # SCHEMA_VERSION 3 — auto_gm_* 13필드를 gm_*로 이관 (5.0.0)
+# SCHEMA_VERSION 4 — H02 동적 세계 정본 11필드 + definition_revision·narrative_seed 신설 (7.0.0)
 # 필드명이 바뀌었으므로 구버전 저장 파일은 migrate_session_data로 변환해야 한다.
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 4
 
 # 구버전 → 현행 필드명 매핑. 로드 시 자동 변환된다.
 FIELD_MIGRATIONS = {
@@ -94,9 +96,12 @@ def migrate_session_data(data: dict) -> dict:
                     moved += 1
                 data.pop(old, None)
 
+    # v3 → v4 (H02): 새 정본 필드는 안전한 빈 기본값, narrative_seed는 session_id 도출(멱등).
+    filled = _world_state.migrate_world_fields(data) if ver < 4 else 0
+
     data["schema_version"] = SCHEMA_VERSION
-    if moved:
-        print(f"[마이그레이션] v{ver} → v{SCHEMA_VERSION}: {moved}개 필드 이관")
+    if moved or filled:
+        print(f"[마이그레이션] v{ver} → v{SCHEMA_VERSION}: {moved}개 필드 이관 · {filled}개 필드 신설")
     return data
 
 
@@ -196,6 +201,8 @@ SESSION_FIELDS: dict = {
     "gm_collected_actions": {},
     "gm_waiting_for": None,
 }
+# H02: 동적 세계 정본(되감기 대상) 11필드 + 정체성(비가역) 2필드 — 단일 출처 core.world_state
+SESSION_FIELDS.update(_world_state.ALL_WORLD_FIELDS)
 
 # 저장은 되지만 봇 재시작 시 항상 초기값으로 리셋되는 필드
 SESSION_RESET_FIELDS: dict = {

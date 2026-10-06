@@ -1,6 +1,6 @@
 # INDAIM — 개발 로그 (DEVLOG)
 
-> 현재 버전: **v6.0.0** · `SCHEMA_VERSION` 3
+> 현재 버전: **v6.0.0** · `SCHEMA_VERSION` 4
 > 스택: Gemini API + discord.py / 한국어 TRPG 보조 GM 봇
 > 저장소: `tjdwls8891/TRPG-Sub-Game-Master`
 > 리팩터링: 7-WP 프로그램(WP-A~G, 2026-09-12~09-29) — WP-A~G 전부 VERIFIED, 프로그램 완료(WP-G 최종 `f0fd69e`) → **v6.0.0**
@@ -315,7 +315,7 @@ v6.0.0(`de367c7`) 위에서 시작한 동적 세계 구현 프로그램(H01~H11)
 
 ```
 장소 122 · NPC 47(32명 배치) · 직업 16 · 퀘스트 44
-시작 틀 8 · 프로필 단계 10 · SESSION_FIELDS 82 · TRACKED_PATHS 14
+시작 틀 8 · 프로필 단계 10 · SESSION_FIELDS 95 · TRACKED_PATHS 14
 명령어 44 · persistent view 5종 22버튼
 core 서브모듈 60 · 테스트 672건(특성화 41 · 결함 27 · 정책 604)
 ```

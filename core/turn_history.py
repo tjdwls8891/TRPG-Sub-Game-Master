@@ -48,8 +48,11 @@ import time
 import uuid
 
 from . import io as _io
+from . import world_state as _world_state
 
-HISTORY_SCHEMA_VERSION = 2          # v2: 캐시 파생 필드 포함(E-E3) — v1 레코드는 복원 대상 불가
+# v2: 캐시 파생 필드 포함(E-E3) — v1 레코드는 복원 대상 불가
+# v3: H02 동적 세계 정본 11필드 포함 — v2 레코드는 누락 필드를 레거시 기본값으로 합성해 복원
+HISTORY_SCHEMA_VERSION = 3
 RECORD_DIR = "turn_history"
 INDEX_FILE = "turn_history.jsonl"
 OP_FILE = "history_op.json"
@@ -69,7 +72,11 @@ REVERSIBLE_FIELDS = (
     "gm_side_note", "gm_clarify_count", "gm_narrate_count",
     # E-E3: 캐시 파생 필드 — 프롬프트(캐시 없는 폴백 포함)가 읽으므로 선택 이력과 함께 복원
     "cached_compressed_memory", "cached_session_npcs", "cached_worldview_sections",
-)
+) + tuple(_world_state.GAMEPLAY_WORLD_FIELDS)
+# H02: 동적 세계 게임 정본은 가역. definition_revision·narrative_seed는 가역이 아니다(세션 정체성).
+WORLD_REVERSIBLE_FIELDS = tuple(_world_state.GAMEPLAY_WORLD_FIELDS)
+NON_REVERSIBLE_IDENTITY_FIELDS = tuple(_world_state.IDENTITY_FIELDS)
+assert not set(REVERSIBLE_FIELDS) & set(NON_REVERSIBLE_IDENTITY_FIELDS)
 CACHE_DERIVED_FIELDS = ("cached_compressed_memory", "cached_session_npcs",
                         "cached_worldview_sections")
 OPERATIONAL_FIELDS = ("total_cost", "total_usd", "total_ink_spent",
@@ -257,10 +264,18 @@ def capture_reversible(session) -> dict:
 
 
 def restore_reversible(session, state: dict) -> None:
-    """가역 정본 필드만 복원한다. 운영/재무 필드는 건드리지 않는다."""
+    """가역 정본 필드만 복원한다. 운영/재무 필드는 건드리지 않는다.
+
+    H02(v3): v2 레코드에는 동적 세계 정본 필드가 없다. 현재 값을 남기지 않고 레거시
+    기본값(world_version None·빈 도메인)으로 합성한다 — v2 시점에는 그 도메인이 없었다.
+    definition_revision·narrative_seed는 가역 집합 밖이라 어떤 레코드로도 바뀌지 않는다.
+    """
     from .cache import _deserialize_log_entry
+    world_defaults = _world_state.gameplay_defaults()
     for f in REVERSIBLE_FIELDS:
         if f not in state:
+            if f in world_defaults:
+                setattr(session, f, world_defaults[f])
             continue
         v = copy.deepcopy(state[f])
         if f == "raw_logs":

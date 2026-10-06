@@ -28,6 +28,7 @@ from dataclasses import dataclass, field
 
 from . import quest as _quest
 from . import turn_transaction as _tx
+from . import world_state as _world_state
 
 
 # quest_state 투영 뷰·복제는 core.quest가 소유한다(순환 임포트 회피):
@@ -852,7 +853,9 @@ CANONICAL_DOMAINS = (
     "_rewind_snapshot",         # 되감기 델타 기준 스냅샷(continuation)
     # WP-D — CommitCoordinator만 쓰는 커밋 소유 필드
     "commit_marker", "last_turn_ink", "rewind_degraded_turns",
-)
+) + tuple(_world_state.GAMEPLAY_WORLD_FIELDS)
+# H02 — 동적 세계 게임 정본(world_version 포함) 11필드. definition_revision·narrative_seed는
+#   되감기 대상이 아닌 세션 정체성이라 넣지 않는다(definition_revision은 별도 명시 가드).
 # 명시적 제외(배경/운영) — 근거는 completion bundle §23 필드 커버리지 매트릭스:
 #   compressed_memory / last_compressed_turn / compression_count
 #   (SESSION_BACKGROUND 압축), total_cost / total_usd / turn_cost_log (append-only 운영 집계),
