@@ -45,6 +45,9 @@
 #   world_ids  — (H01) 정규 직렬화·안정 digest·저작 ID 파생
 #   definition_compiler — (H01) 시나리오 → 컴파일된 세계 정의·revision·이행 보고 (production 미배선)
 #   definition_snapshot — (H01) 세션 정의 스냅샷 쓰기·검증 프리미티브 (production 미배선)
+#   world_state — (H02) 동적 세계 정본 필드 레지스트리·world_version 정체성
+#   world_mutation — (H02) 세계 변이 묶음·투영 세계·병합/충돌
+#   canonical_mutation — (H02) INITIALIZATION/ADMIN_EDIT 공통 원자 적용 (production 호출자 0)
 
 from .constants import (
     __version__,
@@ -220,6 +223,9 @@ from . import interpretation_billing  # WP-F: cache-time interpretation billing 
 from . import world_ids  # H01: canonical serialization / stable digest / authored IDs (production 미배선)
 from . import definition_compiler  # H01: scenario → compiled world definition + revision (production 미배선)
 from . import definition_snapshot  # H01: session-bound definition snapshot primitives (production 미배선)
+from . import world_state  # H02: dynamic-world canonical field registry + world_version identity
+from . import world_mutation  # H02: WorldMutationBatch / ProjectedWorld / merge-conflict foundation
+from . import canonical_mutation  # H02: INITIALIZATION/ADMIN_EDIT common primitive (production 호출자 0)
 from .cost import (
     extract_token_usage,
     format_cost,

@@ -1,5 +1,5 @@
 # 데이터 모델 — TRPGSession (단일 세션의 모든 상태를 담는 중앙 컨테이너)
-from .world_state import init_session_world_fields
+from .world_state import derive_narrative_seed, gameplay_defaults
 
 
 # ========== [데이터 모델(Data Models)] ==========
@@ -248,7 +248,21 @@ class TRPGSession:
         # world_version·world_clock·actor_registry·spatial_*·access_control_state·event_instances·
         # world_schedule·information_state·cognition_state·relationship_state(되감기 대상) +
         # definition_revision(None)·narrative_seed(세션 id 도출, 불변). 빈 값은 엔진 활성화가 아니다.
-        init_session_world_fields(self)
+        #   기본값은 레지스트리에서 읽는다(키가 바뀌면 KeyError로 즉시 드러난다).
+        _wd = gameplay_defaults()
+        self.world_version = _wd["world_version"]
+        self.world_clock = _wd["world_clock"]
+        self.actor_registry = _wd["actor_registry"]
+        self.spatial_state = _wd["spatial_state"]
+        self.spatial_knowledge = _wd["spatial_knowledge"]
+        self.access_control_state = _wd["access_control_state"]
+        self.event_instances = _wd["event_instances"]
+        self.world_schedule = _wd["world_schedule"]
+        self.information_state = _wd["information_state"]
+        self.cognition_state = _wd["cognition_state"]
+        self.relationship_state = _wd["relationship_state"]
+        self.definition_revision = None
+        self.narrative_seed = derive_narrative_seed(session_id)
 
         self.expand_default_npcs()
 

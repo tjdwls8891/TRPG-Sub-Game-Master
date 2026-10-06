@@ -8,11 +8,23 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 AI가 4개 층위로 나뉘어 판단·지시·묘사·추출을 분담한다. 플레이어는 서버 GM 스페이스에서 버튼으로 세션을 열고, 캐릭터를 만들고, 턴을 진행한다. **명령어는 GM의 수동 개입·복구 수단이며 일반 플레이에는 쓰지 않는다.**
 
-현재 버전: **v6.0.0** · `SCHEMA_VERSION` 4 · 총 운영 코드 ~36,680줄(main·prompts·cogs·core) · 테스트 ~14,727줄
+현재 버전: **v7.0.0** · `SCHEMA_VERSION` 4 · 총 운영 코드 ~36,680줄(main·prompts·cogs·core) · 테스트 ~14,727줄
 
 리팩터링: **7-WP 프로그램(WP-A~WP-G)** — 턴 트랜잭션·커밋·재무·이력·파생 시스템을 단일 권위로 재구성했다. WP-A~G 전부 독립 게이트 VERIFIED — **프로그램 완료**(WP-G 최종 후보 `f0fd69e`, 증거 `handoff/WP_G_COMPLETION_BUNDLE.md`). 다음 WP는 없다. 버전은 이 비호환 전환 전체를 **단일 MAJOR v6.0.0**으로 채택했다(2026-10-06, 이력 보정은 DEVLOG '버전 기록').
 
-동적 세계 구현 프로그램(**H01~H11**, v6.0.0 `de367c7` 기준)이 진행 중이다. H 번호는 개발 패키지명이며 제품 버전이 아니다(버전은 출시 단위). **H01 정의 컴파일러·정체성·스냅샷 기반** 완료 — production 미배선(플레이 경로·캐시·청구 변화 없음), 증거 `handoff/H01_COMPLETION_BUNDLE.md`.
+동적 세계 구현 프로그램(통합 로드맵 v0.3, **H01~H07**, `de367c7` 기준)이 진행 중이다. H 번호는 개발 패키지명이다.
+
+| WP | 범위 | 상태 |
+|---|---|---|
+| H01 | 정의 컴파일러·정체성·스냅샷 기반 | **완료** — production 미배선, `handoff/H01_COMPLETION_BUNDLE.md` |
+| H02 | canonical 상태·영속·이력 + WorldMutationBatch·ProjectedWorld·정본 변이 기반 | **완료** — 빈 변이 lane 배선, `handoff/H02_COMPLETION_BUNDLE.md` |
+| H03 | 정량 시간·예약 + 공간·이동·접근·공간인지 | 예정 |
+| H04 | Actor·정보·인지·NPC 투영 + 사건·DependencyIndex·WorldProgression | 예정 |
+| H05 | 구조화 행동 의도·턴 계획 + 프롬프트·추출·후속묘사·미디어 | 예정 |
+| H06 | 초기화·캐시·관리자·복구·재서술·세션 종료 | 예정 |
+| H07 | 영도 실제 이행·legacy 권위 은퇴·production cutover·최종 게이트 | 예정 |
+
+H01 완료 번들은 통합 전 번호(H01~H11)를 쓴다 — 구 H02+H03→H02, H04+H05→H03, H06+H07→H04, H08+H09→H05, H10→H06, H11→H07로 읽는다.
 
 ---
 
@@ -113,7 +125,7 @@ python main.py
 | `permissions.py` | 98 | `!권한부여` `!권한회수` `!권한목록` |
 | `presence.py` | 122 | 상태 메시지 순환 + **캐시 만료 감지**(15초 주기) |
 
-### core/ — 61개 서브모듈
+### core/ — 63개 서브모듈
 
 `core/__init__.py`가 전 심볼을 re-export하므로 외부에서는 `core.XYZ`로 접근한다.
 
@@ -204,7 +216,17 @@ python main.py
 | `definition_compiler.py` | 872 | capability 감지(`scenario_schema`)·legacy 통과·저작 sugar 컴파일·검증 진단·revision·이행 보고 |
 | `definition_snapshot.py` | 235 | `sessions/{id}/definition_snapshot.json` 원자적 쓰기·해시 검증·덮어쓰기 거부 |
 
-호출자는 `tools/scenario_check.py`와 테스트뿐이다. 런타임은 여전히 raw `scenario_data`를 쓴다(세션 바인딩은 H10).
+호출자는 `tools/scenario_check.py`와 테스트뿐이다. 런타임은 여전히 raw `scenario_data`를 쓴다(세션 바인딩은 H06).
+
+#### 동적 세계 정본·변이 (H02)
+
+| 모듈 | 줄 | 내용 |
+|---|---|---|
+| `world_state.py` | 124 | H02 세션 필드의 **단일 출처** — 가역 게임 정본 11필드·비가역 정체성 2필드(`definition_revision`·`narrative_seed`), `world_version` 인과 정체성 |
+| `world_mutation.py` | 546 | `WorldMutationBatch`(typed op·LocalRef·동결·digest)·`ProjectedWorld`·병합 의미 4종·`WORLD_PROJECTION_CONFLICT`. production 레지스트리는 비어 있다 |
+| `canonical_mutation.py` | 272 | INITIALIZATION·ADMIN_EDIT 공통 원자 적용·작은 내구 저널 — **production 호출자 0**(배선은 H06) |
+
+모든 커밋된 PLAYER_TURN은 빈 묶음이어도 `world_version`을 전진시킨다(CommitPlan v2가 PREPARED 전에 대상 version을 동결). PLAYER_TURN 정본 owner는 여전히 `CommitCoordinator` 하나다.
 
 #### 기억
 
@@ -248,6 +270,7 @@ sessions/{session_id}/
 ├── cache_lifecycle.jsonl       캐시 창·생애주기 저널
 ├── interpretation_billing.jsonl 유지 시간 해석 청구 저널
 ├── retry_claims.jsonl          추출 재시도 provider claim
+├── canonical_mutation_journal.jsonl  INITIALIZATION/ADMIN_EDIT 정본 변이 저널 (H02 — 아직 production 미생성)
 ├── rewind_log.jsonl       레거시 턴별 델타 (비권위)
 └── rewind_archive.jsonl   되감기로 제거된 정보
 ```
@@ -256,7 +279,7 @@ sessions/{session_id}/
 
 ### 스키마 마이그레이션
 
-`SCHEMA_VERSION` 3. 필드명이 바뀐 버전은 `migrate_session_data`가 로드 시 자동 변환한다.
+`SCHEMA_VERSION` 4. 필드명이 바뀐 버전은 `migrate_session_data`가 로드 시 자동 변환한다. v3 → v4(H02)는 새 정본 필드를 안전한 빈 기본값으로, `narrative_seed`를 session_id에서 결정적으로 채운다(멱등, 기존 시드 불변). turn-history는 v3이며 v2 레코드는 새 필드를 레거시 기본값으로 합성해 복원한다.
 
 ---
 
@@ -297,6 +320,7 @@ sessions/{session_id}/
 ### 턴 확정 권위 (WP-A~F)
 
 자동 턴 하나 = `TurnTransaction` 하나. AI 결과는 준비(`turn_preparation`)에 스테이징되고, 필수 작업이 모두 합류한 `READY_TO_COMMIT` 뒤에 `CommitCoordinator`만 정본 상태를 커밋한다(`CommitJournal`로 복구). 게임 채널 출력은 `message_lifecycle` 5분류로 소유되며, 백그라운드 압축은 출처 식별이 맞을 때만 적용된다. 수동 `!진행`·`!수정`은 WP-G에서 은퇴했다 — 공유 묘사 엔진(`_execute_proceed`)의 호출자는 자동 턴과 인트로뿐이다.
+H02: `TurnPreparation`은 world_version·definition_revision 기준선과 (현재 항상 빈) `WorldMutationBatch`를 소유하고, READY에서 묶음을 동결·투영한다. 투영 충돌(`WORLD_PROJECTION_CONFLICT`)은 결정적 종료 실패이며 추출 재시도(RETRY_PENDING)가 아니다. `CommitPlan` v2는 source/target world_version·definition_revision·mutation digest를 PREPARED에 동결하고, v1 PREPARED는 정상 구버전으로 복구한다.
 추출 결과의 정본 적용은 커밋 경로 하나뿐이다(`CommitCoordinator` → `_apply_commit_effects` → `_apply_prepared_extraction` → `_apply_extraction_plan`). `_run_extraction`은 준비 객체 없이 호출하면 provider 호출 전에 거부된다. WP-C 이전 형식의 추출 재시도 컨텍스트는 재추출·정본 변이 없이 은퇴된다(`commit_coordinator.retire_legacy_retry_context`).
 
 ### 프롬프트 권위 (WP-G D1)
@@ -441,7 +465,7 @@ pip install -r requirements-dev.txt
 python3 -m pytest tests/ -q
 ```
 
-`tests/`는 **현재 동작과 권위 불변식을 고정**한다. 현재 672건(특성화 41 · 결함 27 · 정책 604)이 모두 통과하며 strict xfail은 0건이다.
+`tests/`는 **현재 동작과 권위 불변식을 고정**한다. 현재 707건(특성화 46 · 결함 27 · 정책 634)이 모두 통과하며 strict xfail은 0건이다.
 
 | 분류 | 의미 |
 |---|---|
@@ -457,7 +481,7 @@ python3 -m pytest tests/ -q
 라이브 디스코드·Gemini·네트워크·자격증명을 쓰지 않는다.
 `tests/conftest.py`의 autouse 픽스처가 자격증명을 지우고 SDK 생성을 막는다.
 
-인도 번들: `handoff/WP00_*` ~ `handoff/WP_G_*` (WP-G: 완료 번들·사후 스캔·AUD-001~063 최종 매트릭스·시나리오 매트릭스·제어 동기화 제안) · `handoff/H01_*`(동적 세계 H01)
+인도 번들: `handoff/WP00_*` ~ `handoff/WP_G_*` (WP-G: 완료 번들·사후 스캔·AUD-001~063 최종 매트릭스·시나리오 매트릭스·제어 동기화 제안) · `handoff/H01_*`·`handoff/H02_*`(동적 세계 H01·H02)
 
 ---
 
@@ -513,7 +537,7 @@ python3 -m pytest tests/ -q
 
 `MAJOR.MINOR.PATCH` — MAJOR는 `SCHEMA_VERSION` 증가 등 비호환 변경, MINOR는 하위호환 기능 추가·프롬프트 변경, PATCH는 버그 수정.
 
-번호는 **출시(main 반영) 단위**로 매긴다. 출시되지 않은 중간 패키지에는 번호를 붙이지 않으며, MAJOR 전환에 앞서 쌓인 MINOR는 MAJOR에 흡수된다. 되돌린 번호(5.34.0)는 재사용하지 않는다. 버전 값은 `core/constants.py`의 `__version__` 하나에서만 읽는다(작업 원칙 ⑦).
+번호는 **개발 패키지(WP 완료)마다, 그 내용과 기능에 맞춰** 갱신한다(2026-10-06 사용자 결정 — 이전의 '출시 단위' 규칙을 대체). 갱신 횟수가 아니라 변경 성격이 기준이다: 세션 스키마·저장 형식 비호환은 MAJOR, 하위호환 기능은 MINOR, 버그 수정은 PATCH. 같은 패키지 안의 하위 등급 변경은 상위 등급에 흡수된다. 되돌린 번호(5.34.0)는 재사용하지 않는다. 버전 값은 `core/constants.py`의 `__version__` 하나에서만 읽는다(작업 원칙 ⑦).
 
 ---
 
@@ -658,5 +682,6 @@ python3 tools/scenario_check.py --all     # 전 시나리오 컴파일·진단(E
 | 오디오 자산 | 공통 소개 TTS·테마곡 |
 | 소개 미디어 | `intro_images` 연결부만 있고 자산 없음 |
 | 디스코드 결제 | SKU 한국 미지원. `!지급`·`!잉크`로 대체 |
+| v7.0.0 반영 | `SCHEMA_VERSION` 4·turn-history v3·CommitPlan v2. 배포 전 `sessions/`·`accounts/` 백업. 기존 세션은 로드 시 자동 마이그레이션되며, 배포 후 6.x로 되돌리면 plan v2 PREPARED 복구를 읽지 못한다 |
 | 운영 반영 | v6.0.0이 main에 반영됨. 배포 전 운영 `sessions/`·`accounts/` 백업, 배포 후 `!캐시 재발급`(프롬프트 D1·무협 `location_images` 변경) |
 | 자동 턴 TTS | 더빙은 인트로에만 적용된다(자동 턴 미적용은 기존 동작). 확장은 별도 기능 |

@@ -100,6 +100,8 @@ def test_definition_revision_field_exists_but_is_not_bound():
         for node in ast.walk(ast.parse(open(path, encoding="utf-8").read())):
             if isinstance(node, ast.Assign):
                 for t in node.targets:
-                    if isinstance(t, ast.Attribute) and t.attr == "definition_revision":
+                    # 세션 대상 쓰기만 본다(묶음·DTO 자기 속성 self.definition_revision 제외)
+                    if (isinstance(t, ast.Attribute) and t.attr == "definition_revision"
+                            and not (isinstance(t.value, ast.Name) and t.value.id == "self")):
                         writers.append(rel)
     assert writers == [], writers

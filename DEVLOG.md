@@ -1,9 +1,10 @@
 # INDAIM — 개발 로그 (DEVLOG)
 
-> 현재 버전: **v6.0.0** · `SCHEMA_VERSION` 4
+> 현재 버전: **v7.0.0** · `SCHEMA_VERSION` 4
 > 스택: Gemini API + discord.py / 한국어 TRPG 보조 GM 봇
 > 저장소: `tjdwls8891/TRPG-Sub-Game-Master`
 > 리팩터링: 7-WP 프로그램(WP-A~G, 2026-09-12~09-29) — WP-A~G 전부 VERIFIED, 프로그램 완료(WP-G 최종 `f0fd69e`) → **v6.0.0**
+> 동적 세계 프로그램: 통합 로드맵 H01~H07 — H01·H02 완료 → **v7.0.0**, H03~H07 예정
 
 ---
 
@@ -254,6 +255,8 @@
 | ~~5.34.0~~ | `a5cc828` → `482ffc0` | 퀘스트 선택 일원화. 커밋 후 되돌려 WP-00 베이스라인을 5.33.0으로 복원. **재사용하지 않는 번호** |
 | (미기록) | `9404e4b` | main에 WP-00(테스트 하네스)·WP-01(TurnTransaction)이 반영됐으나 `__version__`은 5.33.0 그대로였다. 하위호환 추가분이라 MINOR감이었지만 번호를 매기지 않았고, v6.0.0에 흡수한다 |
 | **6.0.0** | `f0fd69e`(VERIFIED) → main | WP-00~WP-G 전체를 단일 MAJOR로 채택 |
+| (흡수) | H01 `28cad87` | 정의 컴파일러·도구 — 하위호환 기능(MINOR감). 당시 출시 단위 규칙으로 번호 없음, 7.0.0에 흡수 |
+| **7.0.0** | H02 | `SCHEMA_VERSION` 3→4(세션 저장 형식 비호환) = MAJOR. 이 시점부터 번호는 개발 패키지마다 내용 기준으로 갱신한다(사용자 결정) |
 
 **전환점 분석** — 첫 비호환 변경은 WP-B(`967263e`, `자:/태:` 태그의 자원·상태 변경 기능 정지)였다. 그 앞의 7개 패키지(WP-01·02·PERSIST·ACCOUNTING·JOURNAL·SETTLEMENT-01·WP-A)는 하위호환 추가였으나 개별 출시되지 않았으므로 MAJOR에 흡수된다. 이후 WP-D(청구 권위 전환)·WP-E(되감기 의미 변경)·WP-G(명령어 은퇴)의 비호환 변경도 같은 출시에 함께 실렸다. `SCHEMA_VERSION`은 3을 유지했고, 구세션 데이터는 로드된다(호환 처리 포함).
 
@@ -272,16 +275,34 @@
 
 WP별 원격 브랜치(`claude/wp-*`)는 모두 main에 포함됐다. `claude/wp-g-legacy-retirement-final-stabilization`은 main과 같은 커밋을 가리킨다. `claude/competent-mestorf-639cc9`은 2026-04 초기 개발 계열로 main과 공통 조상이 없는 별도 이력이며, 손대지 않았다.
 
-### 미출시 — 동적 세계 H01: 정의 컴파일러·정체성·스냅샷 기반 (개발 패키지, 버전 번호 없음)
+### v7.0.0 — 동적 세계 H01·H02 (2026-10-06)
 
-v6.0.0(`de367c7`) 위에서 시작한 동적 세계 구현 프로그램(H01~H11)의 첫 패키지다. **플레이 경로는 바뀌지 않는다.**
+v6.0.0(`de367c7`) 위에서 시작한 동적 세계 구현 프로그램(통합 로드맵 H01~H07)의 첫 두 패키지다. 원래 H01~H11 11단계였으나 검증 경계를 유지한 채 7단계로 통합했다(구 H02+H03→H02, H04+H05→H03, H06+H07→H04, H08+H09→H05, H10→H06, H11→H07).
+
+#### H01 — 정의 컴파일러·정체성·스냅샷 기반
+
+**플레이 경로는 바뀌지 않는다.**
 
 - `core/world_ids.py` — 정규 직렬화(키 정렬·문자열 키·NaN 금지)와 안정 digest. 저작 NPC ActorId는 명시 `actor_id`가 있으면 그것, 없으면 시나리오 id + 사전 키로 결정적 생성. 표시 이름 변경은 ID를 유지하지만, 명시 ID 없는 NPC의 사전 키 변경은 ID migration이다. 퀘스트 hidden InfoId는 퀘스트 id만으로 만든다(version은 메타데이터).
 - `core/definition_compiler.py` — `scenario_schema` 메타데이터가 없으면 legacy capability(빈 집합)로 통과. 안전한 저작 sugar(NPC `비밀`·퀘스트 `hidden.truth` → InfoDefinition, `movement_edges` 양방향 → 방향 구간 2개, 시작 틀 슬롯)만 컴파일한다. connected를 구간으로 승격하거나 비대칭을 보정하거나 산문에서 거리·위치를 추론하지 않는다. revision = `compiler_version`을 포함한 정의 전체의 정규 직렬화 SHA-256(원본 dict 순서 지문 포함). 같은 퀘스트 id 중복(version이 달라도)은 ERROR, `dynamic_actor_location`은 `structured_places` 없이 ERROR.
-- `core/definition_snapshot.py` — 세션 정의 스냅샷의 원자적 쓰기·해시 검증·다른 revision 덮어쓰기 거부. 세션 바인딩·재시작 권위 전환은 H10.
+- `core/definition_snapshot.py` — 세션 정의 스냅샷의 원자적 쓰기·해시 검증·다른 revision 덮어쓰기 거부. 세션 바인딩·재시작 권위 전환은 H06.
 - `tools/scenario_check.py` — 요약·진단·capability 표·`--compile-out`·`--migration-report`·`--verify-snapshot`.
 
 세션 필드(`definition_revision`·`narrative_seed`)는 이력 분류(REVERSIBLE/OPERATIONAL)가 함께 필요해 H02로 넘겼다. 세부는 `handoff/H01_COMPLETION_BUNDLE.md`.
+
+#### H02 — canonical 상태·영속·이력 + WorldMutationBatch·ProjectedWorld·정본 변이 기반
+
+새 세계 도메인을 저장·복원·되감기할 수 있게 하고, 실제 연산이 없어도 typed 변이 묶음이 정본을 건드리지 않고 투영·동결·검증된 뒤 기존 CommitCoordinator 단일 권위 아래 적용되는 lane을 비워 둔 채 배선했다.
+
+- **필드 단일 출처** `core/world_state.py` — 가역 게임 정본 11필드(world_version·world_clock·actor_registry·spatial_state·spatial_knowledge·access_control_state·event_instances·world_schedule·information_state·cognition_state·relationship_state)와 비가역 정체성 2필드(definition_revision None·narrative_seed). 생성자·`SESSION_FIELDS`·`CANONICAL_DOMAINS`·`REVERSIBLE_FIELDS`가 모두 여기서 읽는다. 목록을 손으로 둘 두면 한쪽이 빠져 저장·롤백·되감기 중 하나가 조용히 깨지기 때문이다.
+- **SCHEMA_VERSION 4** — v3 저장분은 빈 기본값 + session_id 도출 시드로 자동 이행(멱등). `hash()` 대신 H01 `stable_digest`를 쓴다.
+- **turn-history v3** — v2 레코드를 버리지 않는다. 새 필드가 없으면 레거시 기본값으로 합성해 복원한다(현재 값이 새지 않게).
+- **world_version** — 모든 커밋된 PLAYER_TURN이 빈 묶음이어도 전진한다. id = stable_digest(세션, 부모, 원인, tx). CommitPlan v2가 PREPARED 전에 동결하고 복구는 재생성하지 않는다. v1 PREPARED는 정상 구버전으로 복구된다(지문 재현 동일).
+- **WorldMutationBatch·ProjectedWorld** — 연산은 등록된 typed handler만 쓰기를 만들고, 단일값·집합·가산·추가중복제거 의미로 병합한다. 서로 다른 단일값은 마지막 쓰기 채택 대신 `WORLD_PROJECTION_CONFLICT`로 막는다. 투영 충돌은 결정적 종료 실패이며 추출 재시도가 아니다. production 레지스트리는 비어 있다(임의 경로 setter 없음).
+- **공통 정본 변이 primitive** `core/canonical_mutation.py` — INITIALIZATION·ADMIN_EDIT용 원자 적용·작은 저널. production 호출자 0(배선은 H06).
+- legacy `core.rewind` `TRACKED_PATHS`는 늘리지 않았다 — 델타 로그를 읽어 복원하는 경로가 없고, 되감기 권위는 turn_history다.
+
+세부·호환 증거는 `handoff/H02_COMPLETION_BUNDLE.md`.
 
 ---
 
@@ -317,7 +338,7 @@ v6.0.0(`de367c7`) 위에서 시작한 동적 세계 구현 프로그램(H01~H11)
 장소 122 · NPC 47(32명 배치) · 직업 16 · 퀘스트 44
 시작 틀 8 · 프로필 단계 10 · SESSION_FIELDS 95 · TRACKED_PATHS 14
 명령어 44 · persistent view 5종 22버튼
-core 서브모듈 60 · 테스트 672건(특성화 41 · 결함 27 · 정책 604)
+core 서브모듈 63 · 테스트 707건(특성화 46 · 결함 27 · 정책 634)
 ```
 
 ---

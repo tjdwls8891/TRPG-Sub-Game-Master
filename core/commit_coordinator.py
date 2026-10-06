@@ -44,11 +44,16 @@ from . import settlement as _st
 from . import turn_preparation as TP
 from . import turn_transaction as TT
 from . import turn_history as _th
+from . import world_mutation as _wm
+from . import world_state as _ws
 
 # 추출 재시도 컨텍스트 표식(cogs/gm.py와 공유) — 이 표식이 있으면 같은 tx 준비 owner로 재개.
 RETRY_MODE_PREPARATION = "wp_c_preparation"
 
-COMMIT_PLAN_VERSION = 1
+# v1: WP-D 원형. v2(H02-B): source/target world_version · definition_revision ·
+#   world_mutation_digest 추가. v1 PREPARED 레코드는 정상 구버전으로 읽는다(지문 재현 동일).
+COMMIT_PLAN_VERSION = 2
+SUPPORTED_PLAN_VERSIONS = (1, 2)
 
 
 # ══════════════════════════════════════════════════════════════
@@ -139,10 +144,16 @@ class CommitPlan:
     media_message_ids: tuple
     ready_fingerprint_digest: str
     task_states: tuple
+    # ── H02-B (plan v2) — PREPARED 전에 한 번 동결, 복구에서 재생성하지 않는다 ──
+    plan_version: int = COMMIT_PLAN_VERSION
+    source_world_version: object = None      # 커밋 전 world_version(dict|None)
+    target_world_version: object = None      # 이 시도가 만드는 world_version(dict) — v1은 None
+    definition_revision: str | None = None
+    world_mutation_digest: str | None = None
 
     def to_dict(self) -> dict:
-        return {
-            "plan_version": COMMIT_PLAN_VERSION,
+        d = {
+            "plan_version": self.plan_version,
             "session_id": self.session_id,
             "transaction_id": self.transaction_id,
             "logical_turn": self.logical_turn,
@@ -161,6 +172,13 @@ class CommitPlan:
             "ready_fingerprint_digest": self.ready_fingerprint_digest,
             "task_states": [list(t) for t in self.task_states],
         }
+        if self.plan_version >= 2:
+            # v1 지문은 이 키들 없이 계산됐다 — v1 레코드 재현 시 넣지 않는다.
+            d["source_world_version"] = copy.deepcopy(self.source_world_version)
+            d["target_world_version"] = copy.deepcopy(self.target_world_version)
+            d["definition_revision"] = self.definition_revision
+            d["world_mutation_digest"] = self.world_mutation_digest
+        return d
 
     @property
     def fingerprint(self) -> str:
@@ -185,8 +203,16 @@ class CommitPlan:
 
     @classmethod
     def from_journal_metadata(cls, md: dict) -> "CommitPlan":
-        if not isinstance(md, dict) or md.get("plan_version") != COMMIT_PLAN_VERSION:
+        if not isinstance(md, dict) or md.get("plan_version") not in SUPPORTED_PLAN_VERSIONS:
             raise ValueError("PREPARED metadata가 CommitPlan이 아님")
+        ver = md["plan_version"]
+        if ver >= 2:
+            for k in ("source_world_version", "target_world_version", "definition_revision",
+                      "world_mutation_digest"):
+                if k not in md:
+                    raise ValueError(f"plan v2 PREPARED에 {k} 없음(손상)")
+            if not _ws.is_world_version(md["target_world_version"]):
+                raise ValueError("plan v2 target_world_version 형식 손상")
         plan = cls(
             session_id=md["session_id"],
             transaction_id=md["transaction_id"],
@@ -205,6 +231,11 @@ class CommitPlan:
             media_message_ids=tuple(md.get("media_message_ids") or ()),
             ready_fingerprint_digest=md.get("ready_fingerprint_digest", ""),
             task_states=tuple(tuple(t) for t in (md.get("task_states") or ())),
+            plan_version=ver,
+            source_world_version=copy.deepcopy(md.get("source_world_version")) if ver >= 2 else None,
+            target_world_version=copy.deepcopy(md.get("target_world_version")) if ver >= 2 else None,
+            definition_revision=md.get("definition_revision") if ver >= 2 else None,
+            world_mutation_digest=md.get("world_mutation_digest") if ver >= 2 else None,
         )
         if md.get("plan_fingerprint") != plan.fingerprint:
             raise ValueError("PREPARED plan_fingerprint 불일치(손상)")
@@ -223,6 +254,11 @@ def build_commit_plan(session, tx, prep) -> CommitPlan:
     staged = prep.staged_log if isinstance(prep.staged_log, dict) else {}
     users = _st.normalize_billing_user_ids(list((getattr(session, "players", {}) or {}).keys()))
     jr = getattr(tx, "judgment_result", None)
+    # H02-B: 대상 world_version은 (세션, 부모, PLAYER_TURN, tx)에서 결정적 — 빈 묶음이어도 전진.
+    source_wv = copy.deepcopy(getattr(session, "world_version", None))
+    target_wv = _ws.next_world_version(session.session_id, source_wv,
+                                       cause_kind=_ws.CAUSE_PLAYER_TURN,
+                                       cause_id=str(prep.transaction_id))
     return CommitPlan(
         session_id=session.session_id,
         transaction_id=prep.transaction_id,
@@ -241,6 +277,11 @@ def build_commit_plan(session, tx, prep) -> CommitPlan:
         media_message_ids=tuple(getattr(prep.delivery, "media_message_ids", ()) or ()),
         ready_fingerprint_digest=_digest(proof.canonical_ready_fingerprint),
         task_states=tuple(proof.task_states),
+        plan_version=COMMIT_PLAN_VERSION,
+        source_world_version=source_wv,
+        target_world_version=target_wv,
+        definition_revision=getattr(session, "definition_revision", None),
+        world_mutation_digest=prep.world_mutation_digest,
     )
 
 
@@ -514,6 +555,15 @@ class CommitCoordinator:
             reasons.append("canonical_changed_since_ready:" + ",".join(changed))
         if prep.frozen_cost_event_ids is None:
             reasons.append("cost_membership_not_frozen")
+        # H02-B: 세계 변이 lane — 동결·투영 완료 + 기준선 불변(정의 revision 포함)
+        batch = getattr(prep, "world_mutation_batch", None)
+        if batch is None or not batch.frozen or getattr(prep, "world_projection", None) is None \
+                or prep.world_mutation_digest != batch.digest:
+            reasons.append("world_mutation_not_frozen")
+        if getattr(session, "world_version", None) != getattr(prep, "baseline_world_version", None):
+            reasons.append("world_version_changed_since_baseline")
+        if getattr(session, "definition_revision", None) != getattr(prep, "baseline_definition_revision", None):
+            reasons.append("definition_revision_changed_since_baseline")
         if reasons:
             return await self._fail_pre_persist(session, prep, stage="COMMIT_VALIDATION",
                                                 error="; ".join(reasons), prepared=False)
@@ -597,6 +647,11 @@ class CommitCoordinator:
         TP.apply_staged_narration_log(session, prep.staged_log)
         TP.apply_staged_growth(session, prep)
         await apply_effects(session, prep, derived)
+        # H02-B: 세계 변이 투영 반영 + world_version 전진 — 같은 롤백 스냅샷·strict 저장 경계 안.
+        #   영속 전 실패 → 스냅샷이 이전 world_version·도메인을 복원. 영속 후 → 대상 version이 정본.
+        if plan.plan_version >= 2:
+            _wm.apply_projection(session, prep.world_projection, prep.world_projection_source)
+            session.world_version = copy.deepcopy(plan.target_world_version)
         session.gm_clarify_count = 0
         session.gm_narrate_count = 0
         session.gm_turns_done = int(getattr(session, "gm_turns_done", 0) or 0) + 1
@@ -923,6 +978,10 @@ async def recover_session(bot, session, *, context: str = "restart") -> Recovery
         # 여기부터 SESSION_PERSISTED — 이야기는 정본. 대상 신원을 재확인한다.
         if not _markers_equal(marker, target):
             raise _RecoveryRequired("SESSION_PERSISTED인데 data.json 표식이 대상과 불일치")
+        # H02-B: plan v2는 영속된 world_version이 동결된 대상과 같아야 한다(재생성하지 않는다).
+        #   v1(H02 이전) 레코드는 world_version 정보가 없다 — 레거시 계보(None 등) 그대로 완료.
+        if plan.plan_version >= 2 and getattr(session, "world_version", None) != plan.target_world_version:
+            raise _RecoveryRequired("SESSION_PERSISTED인데 world_version이 동결된 대상과 불일치")
         settlement = None
         if cj.CommitPhase.BILLING_APPLIED in phases:
             try:

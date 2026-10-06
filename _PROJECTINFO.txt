@@ -1,6 +1,6 @@
 ==============================================================
 INDAIM (TRPG Sub Game Master) — Claude 세션 온보딩 레퍼런스
-v6.0.0 · SCHEMA_VERSION 3 · 7-WP 리팩터링(WP-00~G) 완료 반영 · 2026-10-06 갱신
+v7.0.0 · SCHEMA_VERSION 4 · 7-WP 리팩터링 완료 + 동적 세계 H01·H02 반영 · 2026-10-06 갱신
 ==============================================================
 Gemini API + discord.py 기반 한국어 TRPG 보조 GM 디스코드 봇.
 플레이어는 서버 GM 스페이스의 버튼으로 세션을 열고, 캐릭터를 만들고,
@@ -25,16 +25,16 @@ scenarios/*.json 시나리오 데이터(영도·무협·다크판타지·빈시�
 media/{시나리오id}/  인물 이미지·BGM. 폴더명 = 시나리오 id.
 cogs/            명령어 계층 9개(gm·game·character·system·media·session·
                  errors·permissions·presence). 핫스왑 가능(!리로드).
-core/            60개 파일. core/__init__.py가 전 심볼을 re-export → core.XYZ.
+core/            63개 파일. core/__init__.py가 전 심볼을 re-export → core.XYZ.
                  핫스왑 불가(재시작 필요).
-tests/           특성화 41 · 결함 27 · 정책 604 = 672건(전부 통과, xfail 0).
+tests/           특성화 46 · 결함 27 · 정책 634 = 707건(전부 통과, xfail 0).
 handoff/         WP별 완료 번들·스캔·매트릭스(과거 번들은 수정 금지).
 tools/verify_docs.py  CLAUDE.md·DEVLOG.md 수치 자동 대조(--fix로 반영).
 tools/scenario_check.py  시나리오 정의 컴파일·진단·이행 보고(H01, 원본 읽기 전용).
 specs/           v5.29.1 기준 역추출 명세 — HISTORICAL 스냅샷.
 
 core 주요 묶음(자세한 표는 CLAUDE.md):
-  기반        constants · models(TRPGSession) · io(SESSION_FIELDS 82) · cache · resilience
+  기반        constants · models(TRPGSession) · io(SESSION_FIELDS 95) · cache · resilience
   턴 권위     turn_transaction · turn_preparation · commit_coordinator · commit_journal
   재무        cost_ledger · settlement · ink_transactions · accounts · cost · estimate · ink
   이력·파생   turn_history · message_lifecycle · cache_lifecycle · interpretation_billing
@@ -45,6 +45,9 @@ core 주요 묶음(자세한 표는 CLAUDE.md):
   미디어·UI   display · audio_mixer · tts · tts_preset · media · media_control · ui
   세계 정의   world_ids · definition_compiler · definition_snapshot
               (동적 세계 H01 — production 미배선. 호출자는 scenario_check 도구·테스트뿐)
+  세계 정본   world_state(H02 필드 단일 출처) · world_mutation(변이 묶음·투영) ·
+              canonical_mutation(INIT/ADMIN 공통 primitive — production 호출자 0)
+  동적 세계 프로그램: 통합 로드맵 H01~H07 — H01·H02 완료, H03~H07 예정
 
 ==============================================================
 2. 턴 흐름
@@ -222,7 +225,8 @@ sessions/{id}/  data.json(원자적 쓰기) · 각종 로그(api/game_chat/maste
                 · rewind_log.jsonl / rewind_archive.jsonl(레거시)
 세션 외부: accounts/{uid}.json · accounts/ink_transactions/{uid}.jsonl
            · profiles/{uid}.json · stats/{uid}.json · data/cost_ledger.jsonl
-저장·복구 대상 세션 필드는 core/io.py의 SESSION_FIELDS(82) 레지스트리가 정본이다.
+저장·복구 대상 세션 필드는 core/io.py의 SESSION_FIELDS(95) 레지스트리가 정본이다.
+H02 필드(world_* 11 · definition_revision · narrative_seed)는 core/world_state.py가 단일 출처다.
 새 필드는 models.py 생성자와 SESSION_FIELDS 양쪽에 둔다(검증 루틴 ②).
 
 ==============================================================

@@ -832,6 +832,11 @@ class ReadyProof:
     changed_domains: tuple
     delivered_message_ids: tuple
     extraction_entries: int
+    # H02-B: 동결된 세계 변이 묶음 증명(빈 묶음 포함). quiescence 증명은 H03 몫 — 여기 없다.
+    world_mutation_digest: str | None = None
+    baseline_world_version_id: str | None = None
+    definition_revision: str | None = None
+    world_changed_domains: tuple = ()
 
 
 # 되감기/커밋 소유 정본 도메인(§27). 백그라운드 압축 도메인(compressed_memory,
@@ -992,6 +997,17 @@ class TurnPreparation:
         # WP-D(D-D3): 재시도 중 새 provider 오퍼레이션 claim을 provider 호출 전에 내구 기록하는
         #   훅(op) -> None. 실패 시 예외로 claim(=호출)을 막는다. 재시도 동안에만 설정된다.
         self.durable_claim = None
+        # ── H02-B: 세계 변이 lane(정본 미변경 투영) ──
+        #   기준선은 ensure_preparation이 캡처한다. production 묶음은 H02에서 항상 비어 있다.
+        self.world_baseline_captured = False
+        self.baseline_world_version = None       # 준비 시작 시 world_version(dict|None)
+        self.baseline_definition_revision = None
+        self.world_mutation_batch = None         # WorldMutationBatch(PLAYER_TURN)
+        self.world_registry = None               # None = production 레지스트리
+        self.world_projection = None             # ProjectionResult(READY에서 동결·투영)
+        self.world_projection_source = None      # 투영 원본 ProjectedWorld
+        self.world_mutation_digest = None
+        self.world_conflicts: list = []          # WORLD_PROJECTION_CONFLICT 진단(재시도 대상 아님)
 
     # ── 정체성 ──
     def identity(self) -> tuple:
@@ -1192,6 +1208,7 @@ def ensure_preparation(session, transaction_id):
         prep = TurnPreparation(tx, baseline=canonical_fingerprint(session))
         prep.baseline_uncompressed_ids = tuple(
             id(x) for x in (getattr(session, "uncompressed_logs", None) or []))
+        capture_world_baseline(session, prep)
         tx.preparation = prep
     return prep
 
@@ -1281,6 +1298,53 @@ def projected_players(session):
     return getattr(session, "players", {}) or {}
 
 
+# ── H02-B: 세계 변이 lane ──
+def capture_world_baseline(session, prep) -> None:
+    """준비 시작 시 world_version·definition_revision 기준선과 (빈) PLAYER_TURN 묶음을 붙인다."""
+    from . import world_mutation as _wm
+    prep.baseline_world_version = copy.deepcopy(getattr(session, "world_version", None))
+    prep.baseline_definition_revision = getattr(session, "definition_revision", None)
+    prep.world_mutation_batch = _wm.player_turn_batch(session, prep.transaction_id)
+    prep.world_baseline_captured = True
+
+
+def _world_ready_reasons(session, prep) -> list:
+    """READY 전 세계 가드(부수효과 없음): 기준선 대조 + 묶음 구조 검증."""
+    reasons = []
+    if not prep.world_baseline_captured or prep.world_mutation_batch is None:
+        reasons.append("world:baseline_not_captured")
+        return reasons
+    if getattr(session, "world_version", None) != prep.baseline_world_version:
+        reasons.append("world:version_changed")
+    if getattr(session, "definition_revision", None) != prep.baseline_definition_revision:
+        reasons.append("world:definition_revision_changed")
+    b = prep.world_mutation_batch
+    if b.source_world_version_id != _world_state.version_id_of(prep.baseline_world_version):
+        reasons.append("world:batch_source_mismatch")
+    if not b.frozen:
+        errs = b.validate()
+        if errs:
+            reasons.append("world:batch_invalid:" + ",".join(errs))
+    return reasons
+
+
+def _freeze_and_project_world(session, prep) -> list:
+    """묶음 동결 + 정본 미변경 투영. 충돌은 WORLD_PROJECTION_CONFLICT(재시도 대상 아님)."""
+    from . import world_mutation as _wm
+    registry = prep.world_registry or _wm.PRODUCTION_REGISTRY
+    digest = prep.world_mutation_batch.freeze()
+    source = _wm.ProjectedWorld.capture(session)
+    result = _wm.project(source, prep.world_mutation_batch, registry)
+    if not result.ok:
+        prep.world_conflicts = [c.to_dict() for c in result.conflicts]
+        prep.failure_code = _wm.WORLD_PROJECTION_CONFLICT
+        return ["world:projection_conflict:" + ",".join(c.code for c in result.conflicts)]
+    prep.world_projection = result
+    prep.world_projection_source = source
+    prep.world_mutation_digest = digest
+    return []
+
+
 # ── READY 술어 / 전이 (단일 owner, §26) ──
 def evaluate_ready(session, prep) -> list:
     """READY_TO_COMMIT 조건을 검사하고 미충족 사유 목록을 반환한다(비면 충족)."""
@@ -1350,6 +1414,8 @@ def evaluate_ready(session, prep) -> list:
         reasons.append("cost:membership_not_closed")
     if prep.violations:
         reasons.append("violations:" + ",".join(prep.violations))
+    # H02-B: 세계 기준선(world_version·definition_revision)·묶음 구조
+    reasons.extend(_world_ready_reasons(session, prep))
     return reasons
 
 
@@ -1359,6 +1425,11 @@ def transition_to_ready(session, prep):
     Returns: (ReadyProof | None, reasons)
     """
     reasons = evaluate_ready(session, prep)
+    if reasons:
+        return None, reasons
+    # H02-B: 세계 변이 묶음 동결·투영(정본 미변경). 충돌이면 READY 불가 — 결정적 실패이므로
+    #   호출자는 NOT_READY(종료 실패)로 처리한다(추출 RETRY_PENDING 경로가 아니다).
+    reasons = _freeze_and_project_world(session, prep)
     if reasons:
         return None, reasons
     ready_fp = canonical_fingerprint(session)
@@ -1375,6 +1446,10 @@ def transition_to_ready(session, prep):
         canonical_unchanged=not changed, changed_domains=changed,
         delivered_message_ids=delivered,
         extraction_entries=len(getattr(prep.extraction_plan, "entries", ()) or ()),
+        world_mutation_digest=prep.world_mutation_digest,
+        baseline_world_version_id=_world_state.version_id_of(prep.baseline_world_version),
+        definition_revision=prep.baseline_definition_revision,
+        world_changed_domains=prep.world_projection.changed_domains(prep.world_projection_source),
     )
     assert not changed, "evaluate_ready가 정본 변화를 거부했어야 함"   # B-C1 방어
     _tx.mark_transaction_status(session, prep.transaction_id,

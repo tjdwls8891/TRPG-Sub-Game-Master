@@ -57,14 +57,6 @@ def derive_narrative_seed(session_id) -> str:
     return "seed_" + stable_digest(NARRATIVE_SEED_NAMESPACE, str(session_id), length=32)
 
 
-def init_session_world_fields(session) -> None:
-    """새 TRPGSession에 H02 필드를 기본값으로 붙인다(생성자 전용)."""
-    for name, default in GAMEPLAY_WORLD_FIELDS.items():
-        setattr(session, name, copy.deepcopy(default))
-    session.definition_revision = None
-    session.narrative_seed = derive_narrative_seed(session.session_id)
-
-
 def migrate_world_fields(data: dict) -> int:
     """저장 dict에 H02 필드를 채운다(v3 → v4). 멱등. 채운 필드 수를 반환.
 
