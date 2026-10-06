@@ -12,6 +12,8 @@ AI가 4개 층위로 나뉘어 판단·지시·묘사·추출을 분담한다. �
 
 리팩터링: **7-WP 프로그램(WP-A~WP-G)** — 턴 트랜잭션·커밋·재무·이력·파생 시스템을 단일 권위로 재구성했다. WP-A~G 전부 독립 게이트 VERIFIED — **프로그램 완료**(WP-G 최종 후보 `f0fd69e`, 증거 `handoff/WP_G_COMPLETION_BUNDLE.md`). 다음 WP는 없다. 버전은 이 비호환 전환 전체를 **단일 MAJOR v6.0.0**으로 채택했다(2026-10-06, 이력 보정은 DEVLOG '버전 기록').
 
+동적 세계 구현 프로그램(**H01~H11**, v6.0.0 `de367c7` 기준)이 진행 중이다. H 번호는 개발 패키지명이며 제품 버전이 아니다(버전은 출시 단위). **H01 정의 컴파일러·정체성·스냅샷 기반** 완료 — production 미배선(플레이 경로·캐시·청구 변화 없음), 증거 `handoff/H01_COMPLETION_BUNDLE.md`.
+
 ---
 
 ## 실행 및 환경
@@ -91,6 +93,7 @@ python main.py
 | `scenarios/*.json` | 시나리오 데이터. 퀘스트는 `{이름}.quests.json`으로 분리 |
 | `media/{시나리오명}/` | 인물 이미지·BGM. **폴더명은 시나리오 id와 같아야 한다** |
 | `tools/verify_docs.py` | 문서 수치 정합 검증 |
+| `tools/scenario_check.py` | 시나리오 정의 검사·컴파일·이행 보고(H01, 원본 읽기 전용) |
 | `handoff/` | WP별 완료 번들·스캔·매트릭스(과거 번들은 HISTORICAL 증거, 수정 금지) |
 | `tests/` | 특성화·결함·정책 테스트 하네스(WP-00~G) |
 
@@ -110,7 +113,7 @@ python main.py
 | `permissions.py` | 98 | `!권한부여` `!권한회수` `!권한목록` |
 | `presence.py` | 122 | 상태 메시지 순환 + **캐시 만료 감지**(15초 주기) |
 
-### core/ — 57개 서브모듈
+### core/ — 60개 서브모듈
 
 `core/__init__.py`가 전 심볼을 re-export하므로 외부에서는 `core.XYZ`로 접근한다.
 
@@ -192,6 +195,16 @@ python main.py
 | `growth.py` | 215 | 능력치 성장·행운 |
 | `irregular_npc.py` | 244 | 비정규 NPC 이미지·목소리 |
 | `koreantext.py` | 144 | 슬롯 치환·조사 보정 |
+
+#### 세계 정의 (H01 — production 미배선)
+
+| 모듈 | 줄 | 내용 |
+|---|---|---|
+| `world_ids.py` | 150 | 정규 직렬화·순서 지문·안정 digest, 저작 ActorId/InfoId/구간 id 파생 |
+| `definition_compiler.py` | 867 | capability 감지(`scenario_schema`)·legacy 통과·저작 sugar 컴파일·검증 진단·revision·이행 보고 |
+| `definition_snapshot.py` | 214 | `sessions/{id}/definition_snapshot.json` 원자적 쓰기·해시 검증·덮어쓰기 거부 |
+
+호출자는 `tools/scenario_check.py`와 테스트뿐이다. 런타임은 여전히 raw `scenario_data`를 쓴다(세션 바인딩은 H10).
 
 #### 기억
 
@@ -428,7 +441,7 @@ pip install -r requirements-dev.txt
 python3 -m pytest tests/ -q
 ```
 
-`tests/`는 **현재 동작과 권위 불변식을 고정**한다. 현재 637건(특성화 37 · 결함 27 · 정책 573)이 모두 통과하며 strict xfail은 0건이다.
+`tests/`는 **현재 동작과 권위 불변식을 고정**한다. 현재 668건(특성화 41 · 결함 27 · 정책 600)이 모두 통과하며 strict xfail은 0건이다.
 
 | 분류 | 의미 |
 |---|---|
@@ -444,7 +457,7 @@ python3 -m pytest tests/ -q
 라이브 디스코드·Gemini·네트워크·자격증명을 쓰지 않는다.
 `tests/conftest.py`의 autouse 픽스처가 자격증명을 지우고 SDK 생성을 막는다.
 
-인도 번들: `handoff/WP00_*` ~ `handoff/WP_G_*` (WP-G: 완료 번들·사후 스캔·AUD-001~063 최종 매트릭스·시나리오 매트릭스·제어 동기화 제안)
+인도 번들: `handoff/WP00_*` ~ `handoff/WP_G_*` (WP-G: 완료 번들·사후 스캔·AUD-001~063 최종 매트릭스·시나리오 매트릭스·제어 동기화 제안) · `handoff/H01_*`(동적 세계 H01)
 
 ---
 
@@ -622,6 +635,14 @@ asyncio.run(t())
 ```
 
 기준값 — cogs 9 · 명령어 44 · views 5 (WP-G: `!진행`·`!수정` 은퇴로 46 → 44)
+
+### ⑥ 시나리오 정의 검사 (H01)
+
+```bash
+python3 tools/scenario_check.py --all     # 전 시나리오 컴파일·진단(ERROR 0이어야 함)
+```
+
+원본을 고치지 않는다. 시나리오를 수정했다면 함께 돌린다.
 
 ---
 

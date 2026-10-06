@@ -272,6 +272,17 @@
 
 WP별 원격 브랜치(`claude/wp-*`)는 모두 main에 포함됐다. `claude/wp-g-legacy-retirement-final-stabilization`은 main과 같은 커밋을 가리킨다. `claude/competent-mestorf-639cc9`은 2026-04 초기 개발 계열로 main과 공통 조상이 없는 별도 이력이며, 손대지 않았다.
 
+### 미출시 — 동적 세계 H01: 정의 컴파일러·정체성·스냅샷 기반 (개발 패키지, 버전 번호 없음)
+
+v6.0.0(`de367c7`) 위에서 시작한 동적 세계 구현 프로그램(H01~H11)의 첫 패키지다. **플레이 경로는 바뀌지 않는다.**
+
+- `core/world_ids.py` — 정규 직렬화(키 정렬·문자열 키·NaN 금지)와 안정 digest. 저작 NPC ActorId는 명시 `actor_id`가 있으면 그것, 없으면 시나리오 id + 사전 키로 결정적 생성(이름과 분리).
+- `core/definition_compiler.py` — `scenario_schema` 메타데이터가 없으면 legacy capability(빈 집합)로 통과. 안전한 저작 sugar(NPC `비밀`·퀘스트 `hidden.truth` → InfoDefinition, `movement_edges` 양방향 → 방향 구간 2개, 시작 틀 슬롯)만 컴파일한다. connected를 구간으로 승격하거나 비대칭을 보정하거나 산문에서 거리·위치를 추론하지 않는다. revision = 정의의 정규 직렬화 SHA-256(원본 dict 순서 지문 포함).
+- `core/definition_snapshot.py` — 세션 정의 스냅샷의 원자적 쓰기·해시 검증·다른 revision 덮어쓰기 거부. 세션 바인딩·재시작 권위 전환은 H10.
+- `tools/scenario_check.py` — 요약·진단·capability 표·`--compile-out`·`--migration-report`·`--verify-snapshot`.
+
+세션 필드(`definition_revision`·`narrative_seed`)는 이력 분류(REVERSIBLE/OPERATIONAL)가 함께 필요해 H02로 넘겼다. 세부는 `handoff/H01_COMPLETION_BUNDLE.md`.
+
 ---
 
 ## 실측 데이터
@@ -306,7 +317,7 @@ WP별 원격 브랜치(`claude/wp-*`)는 모두 main에 포함됐다. `claude/wp
 장소 122 · NPC 47(32명 배치) · 직업 16 · 퀘스트 44
 시작 틀 8 · 프로필 단계 10 · SESSION_FIELDS 82 · TRACKED_PATHS 14
 명령어 44 · persistent view 5종 22버튼
-core 서브모듈 57 · 테스트 637건(특성화 37 · 결함 27 · 정책 573)
+core 서브모듈 60 · 테스트 668건(특성화 41 · 결함 27 · 정책 600)
 ```
 
 ---

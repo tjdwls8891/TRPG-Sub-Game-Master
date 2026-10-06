@@ -42,6 +42,9 @@
 #   media      — 이미지 키워드 전송, PlaylistManager
 #   ui         — 디스코드 UI 컴포넌트 (DiceView, ChannelDeleteView 등)
 #   utils      — 캐릭터 이름 검색, AI 설정 생성
+#   world_ids  — (H01) 정규 직렬화·안정 digest·저작 ID 파생
+#   definition_compiler — (H01) 시나리오 → 컴파일된 세계 정의·revision·이행 보고 (production 미배선)
+#   definition_snapshot — (H01) 세션 정의 스냅샷 쓰기·검증 프리미티브 (production 미배선)
 
 from .constants import (
     __version__,
@@ -214,6 +217,9 @@ from . import turn_history  # WP-E: selected committed-attempt history / rewind 
 from . import cache_lifecycle  # WP-F: cache lifecycle finance single owner
 from . import message_lifecycle  # WP-F: player-channel message lifecycle owner
 from . import interpretation_billing  # WP-F: cache-time interpretation billing (separate from cache window)
+from . import world_ids  # H01: canonical serialization / stable digest / authored IDs (production 미배선)
+from . import definition_compiler  # H01: scenario → compiled world definition + revision (production 미배선)
+from . import definition_snapshot  # H01: session-bound definition snapshot primitives (production 미배선)
 from .cost import (
     extract_token_usage,
     format_cost,

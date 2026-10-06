@@ -25,11 +25,12 @@ scenarios/*.json 시나리오 데이터(영도·무협·다크판타지·빈시�
 media/{시나리오id}/  인물 이미지·BGM. 폴더명 = 시나리오 id.
 cogs/            명령어 계층 9개(gm·game·character·system·media·session·
                  errors·permissions·presence). 핫스왑 가능(!리로드).
-core/            57개 파일. core/__init__.py가 전 심볼을 re-export → core.XYZ.
+core/            60개 파일. core/__init__.py가 전 심볼을 re-export → core.XYZ.
                  핫스왑 불가(재시작 필요).
-tests/           특성화 37 · 결함 27 · 정책 573 = 637건(전부 통과, xfail 0).
+tests/           특성화 41 · 결함 27 · 정책 600 = 668건(전부 통과, xfail 0).
 handoff/         WP별 완료 번들·스캔·매트릭스(과거 번들은 수정 금지).
 tools/verify_docs.py  CLAUDE.md·DEVLOG.md 수치 자동 대조(--fix로 반영).
+tools/scenario_check.py  시나리오 정의 컴파일·진단·이행 보고(H01, 원본 읽기 전용).
 specs/           v5.29.1 기준 역추출 명세 — HISTORICAL 스냅샷.
 
 core 주요 묶음(자세한 표는 CLAUDE.md):
@@ -42,6 +43,8 @@ core 주요 묶음(자세한 표는 CLAUDE.md):
   세계·프로필 places · quest · quest_filter · start_frame · timeline · growth ·
               irregular_npc · profile_* · session_flow · intro · gm_space
   미디어·UI   display · audio_mixer · tts · tts_preset · media · media_control · ui
+  세계 정의   world_ids · definition_compiler · definition_snapshot
+              (동적 세계 H01 — production 미배선. 호출자는 scenario_check 도구·테스트뿐)
 
 ==============================================================
 2. 턴 흐름

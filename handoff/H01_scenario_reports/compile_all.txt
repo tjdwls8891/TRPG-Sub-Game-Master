@@ -1,0 +1,73 @@
+== scenario.example  (compiler v1)
+   revision : sha256:91207fd05585ed30019af0f6db00bf2b2e59a2a2fc1bc43c2c842dfa4b3d1202
+   진단     : ERROR 0 · WARNING 0 · INFO 0
+   모드     : legacy
+   규모     : actors 2 · places 0 · movement_edges 0 · info_npc_inline_secret 1 · info_quest_hidden 0 · start_frames 0 · start_points 0
+   capability:
+     structured_places            absent
+     quantitative_time            absent
+     stable_actors                absent
+     dynamic_actor_location       absent
+     information_registry         absent
+     actor_cognition              absent
+     dynamic_events               absent
+     scheduled_world_progression  absent
+== 다크판타지  (compiler v1)
+   revision : sha256:ab4b29b47622e301286c2cb4f8da9d5656aece70532b529947af55630eda519b
+   진단     : ERROR 0 · WARNING 0 · INFO 0
+   모드     : legacy
+   규모     : actors 21 · places 0 · movement_edges 0 · info_npc_inline_secret 0 · info_quest_hidden 0 · start_frames 0 · start_points 0
+   capability:
+     structured_places            absent
+     quantitative_time            absent
+     stable_actors                absent
+     dynamic_actor_location       absent
+     information_registry         absent
+     actor_cognition              absent
+     dynamic_events               absent
+     scheduled_world_progression  absent
+== 무협  (compiler v1)
+   revision : sha256:6ce0aa480ba41df24a70f0da7d5035ac028616f01302118e8d6b162c4ecd7bbb
+   진단     : ERROR 0 · WARNING 0 · INFO 0
+   모드     : legacy
+   규모     : actors 233 · places 0 · movement_edges 0 · info_npc_inline_secret 24 · info_quest_hidden 0 · start_frames 0 · start_points 0
+   capability:
+     structured_places            absent
+     quantitative_time            absent
+     stable_actors                absent
+     dynamic_actor_location       absent
+     information_registry         absent
+     actor_cognition              absent
+     dynamic_events               absent
+     scheduled_world_progression  absent
+== 빈시나리오  (compiler v1)
+   revision : sha256:720d219f04b78a55efb7de558fac07c19a16630c0cb83e08f80fe5953dad6485
+   진단     : ERROR 0 · WARNING 0 · INFO 0
+   모드     : legacy
+   규모     : actors 0 · places 0 · movement_edges 0 · info_npc_inline_secret 0 · info_quest_hidden 0 · start_frames 0 · start_points 0
+   capability:
+     structured_places            absent
+     quantitative_time            absent
+     stable_actors                absent
+     dynamic_actor_location       absent
+     information_registry         absent
+     actor_cognition              absent
+     dynamic_events               absent
+     scheduled_world_progression  absent
+== 영도  (compiler v1)
+   revision : sha256:fd89a8217c0a084fc40d0fb71fc95eb4f79058fce931af806c6b06196939a660
+   진단     : ERROR 0 · WARNING 3 · INFO 0
+   모드     : legacy
+   규모     : actors 47 · places 122 · movement_edges 0 · info_npc_inline_secret 47 · info_quest_hidden 42 · start_frames 8 · start_points 7
+   capability:
+     structured_places            absent
+     quantitative_time            absent
+     stable_actors                absent
+     dynamic_actor_location       absent
+     information_registry         absent
+     actor_cognition              absent
+     dynamic_events               absent
+     scheduled_world_progression  absent
+   [WARNING] PLACE_ALIAS_SHADOWED @ places.해련 자치 마을.aliases — 별칭 '해련사'이 다른 장소 키와 같아 해석되지 않습니다(정확 일치가 우선)
+   [WARNING] PLACE_ALIAS_SHADOWED @ places.저지대 상업지구.aliases — 별칭 '봉래시장'이 다른 장소 키와 같아 해석되지 않습니다(정확 일치가 우선)
+   [WARNING] PLACE_CONNECTED_ASYMMETRIC @ places — 한쪽 방향만 적힌 connected 71쌍 — 자동 보정하지 않음(--migration-report 참고)

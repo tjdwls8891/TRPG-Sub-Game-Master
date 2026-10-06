@@ -1,0 +1,234 @@
+[
+  {
+    "scenario_id": "scenario.example",
+    "compiler_version": 1,
+    "ok": true,
+    "revision": "sha256:91207fd05585ed30019af0f6db00bf2b2e59a2a2fc1bc43c2c842dfa4b3d1202",
+    "counts": {
+      "ERROR": 0,
+      "WARNING": 0,
+      "INFO": 0
+    },
+    "schema_mode": "legacy",
+    "capabilities": {},
+    "validated_capabilities": [],
+    "deferred_capabilities": [],
+    "sizes": {
+      "actors": 2,
+      "places": 0,
+      "movement_edges": 0,
+      "info_npc_inline_secret": 1,
+      "info_quest_hidden": 0,
+      "start_frames": 0,
+      "start_points": 0
+    },
+    "capability_matrix": {
+      "structured_places": "absent",
+      "quantitative_time": "absent",
+      "stable_actors": "absent",
+      "dynamic_actor_location": "absent",
+      "information_registry": "absent",
+      "actor_cognition": "absent",
+      "dynamic_events": "absent",
+      "scheduled_world_progression": "absent"
+    },
+    "source": {
+      "scenario": {
+        "file": "scenario.example.json",
+        "sha256": "14f700eb5fa6625a9f5b137fe1e6ef41674104516633ce5311a8c2d5b57354ed"
+      },
+      "quests": null
+    },
+    "diagnostics": []
+  },
+  {
+    "scenario_id": "다크판타지",
+    "compiler_version": 1,
+    "ok": true,
+    "revision": "sha256:ab4b29b47622e301286c2cb4f8da9d5656aece70532b529947af55630eda519b",
+    "counts": {
+      "ERROR": 0,
+      "WARNING": 0,
+      "INFO": 0
+    },
+    "schema_mode": "legacy",
+    "capabilities": {},
+    "validated_capabilities": [],
+    "deferred_capabilities": [],
+    "sizes": {
+      "actors": 21,
+      "places": 0,
+      "movement_edges": 0,
+      "info_npc_inline_secret": 0,
+      "info_quest_hidden": 0,
+      "start_frames": 0,
+      "start_points": 0
+    },
+    "capability_matrix": {
+      "structured_places": "absent",
+      "quantitative_time": "absent",
+      "stable_actors": "absent",
+      "dynamic_actor_location": "absent",
+      "information_registry": "absent",
+      "actor_cognition": "absent",
+      "dynamic_events": "absent",
+      "scheduled_world_progression": "absent"
+    },
+    "source": {
+      "scenario": {
+        "file": "다크판타지.json",
+        "sha256": "e946b5774317dc74f7b08ae34ff6eabe194f947b9856c1254f96ed8c4511c376"
+      },
+      "quests": null
+    },
+    "diagnostics": []
+  },
+  {
+    "scenario_id": "무협",
+    "compiler_version": 1,
+    "ok": true,
+    "revision": "sha256:6ce0aa480ba41df24a70f0da7d5035ac028616f01302118e8d6b162c4ecd7bbb",
+    "counts": {
+      "ERROR": 0,
+      "WARNING": 0,
+      "INFO": 0
+    },
+    "schema_mode": "legacy",
+    "capabilities": {},
+    "validated_capabilities": [],
+    "deferred_capabilities": [],
+    "sizes": {
+      "actors": 233,
+      "places": 0,
+      "movement_edges": 0,
+      "info_npc_inline_secret": 24,
+      "info_quest_hidden": 0,
+      "start_frames": 0,
+      "start_points": 0
+    },
+    "capability_matrix": {
+      "structured_places": "absent",
+      "quantitative_time": "absent",
+      "stable_actors": "absent",
+      "dynamic_actor_location": "absent",
+      "information_registry": "absent",
+      "actor_cognition": "absent",
+      "dynamic_events": "absent",
+      "scheduled_world_progression": "absent"
+    },
+    "source": {
+      "scenario": {
+        "file": "무협.json",
+        "sha256": "4848ac99e59a21bac3948816ab39cbeae9669ebe86aa52af2d9f753317ba81dd"
+      },
+      "quests": null
+    },
+    "diagnostics": []
+  },
+  {
+    "scenario_id": "빈시나리오",
+    "compiler_version": 1,
+    "ok": true,
+    "revision": "sha256:720d219f04b78a55efb7de558fac07c19a16630c0cb83e08f80fe5953dad6485",
+    "counts": {
+      "ERROR": 0,
+      "WARNING": 0,
+      "INFO": 0
+    },
+    "schema_mode": "legacy",
+    "capabilities": {},
+    "validated_capabilities": [],
+    "deferred_capabilities": [],
+    "sizes": {
+      "actors": 0,
+      "places": 0,
+      "movement_edges": 0,
+      "info_npc_inline_secret": 0,
+      "info_quest_hidden": 0,
+      "start_frames": 0,
+      "start_points": 0
+    },
+    "capability_matrix": {
+      "structured_places": "absent",
+      "quantitative_time": "absent",
+      "stable_actors": "absent",
+      "dynamic_actor_location": "absent",
+      "information_registry": "absent",
+      "actor_cognition": "absent",
+      "dynamic_events": "absent",
+      "scheduled_world_progression": "absent"
+    },
+    "source": {
+      "scenario": {
+        "file": "빈시나리오.json",
+        "sha256": "a6680816a4e96cda1543307e6688425be0c9b3f45573712c2b4c1a8aa8d19bfe"
+      },
+      "quests": null
+    },
+    "diagnostics": []
+  },
+  {
+    "scenario_id": "영도",
+    "compiler_version": 1,
+    "ok": true,
+    "revision": "sha256:fd89a8217c0a084fc40d0fb71fc95eb4f79058fce931af806c6b06196939a660",
+    "counts": {
+      "ERROR": 0,
+      "WARNING": 3,
+      "INFO": 0
+    },
+    "schema_mode": "legacy",
+    "capabilities": {},
+    "validated_capabilities": [],
+    "deferred_capabilities": [],
+    "sizes": {
+      "actors": 47,
+      "places": 122,
+      "movement_edges": 0,
+      "info_npc_inline_secret": 47,
+      "info_quest_hidden": 42,
+      "start_frames": 8,
+      "start_points": 7
+    },
+    "capability_matrix": {
+      "structured_places": "absent",
+      "quantitative_time": "absent",
+      "stable_actors": "absent",
+      "dynamic_actor_location": "absent",
+      "information_registry": "absent",
+      "actor_cognition": "absent",
+      "dynamic_events": "absent",
+      "scheduled_world_progression": "absent"
+    },
+    "source": {
+      "scenario": {
+        "file": "영도.json",
+        "sha256": "3deb2f1b3971679857f9062a346147aa0c0dfec43056312e2f511053dabc4581"
+      },
+      "quests": {
+        "file": "영도.quests.json",
+        "sha256": "d458d9145f0ec9f02967b074792ab458be236342b97a0359e52f0defb7632e9c"
+      }
+    },
+    "diagnostics": [
+      {
+        "severity": "WARNING",
+        "code": "PLACE_ALIAS_SHADOWED",
+        "path": "places.해련 자치 마을.aliases",
+        "message": "별칭 '해련사'이 다른 장소 키와 같아 해석되지 않습니다(정확 일치가 우선)"
+      },
+      {
+        "severity": "WARNING",
+        "code": "PLACE_ALIAS_SHADOWED",
+        "path": "places.저지대 상업지구.aliases",
+        "message": "별칭 '봉래시장'이 다른 장소 키와 같아 해석되지 않습니다(정확 일치가 우선)"
+      },
+      {
+        "severity": "WARNING",
+        "code": "PLACE_CONNECTED_ASYMMETRIC",
+        "path": "places",
+        "message": "한쪽 방향만 적힌 connected 71쌍 — 자동 보정하지 않음(--migration-report 참고)"
+      }
+    ]
+  }
+]
