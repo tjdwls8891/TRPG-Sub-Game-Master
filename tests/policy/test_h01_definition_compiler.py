@@ -235,10 +235,11 @@ def test_capability_declaration_validation():
     assert ok.definition["scenario_meta"]["validated_capabilities"] == ["stable_actors"]
     assert dc.capability_matrix(ok)["stable_actors"] == "v1 validated"
 
+    # compiler v2(H03): structured_places·quantitative_time은 검증 대상 — 아직 유예인 capability로 확인
     deferred = dc.compile_scenario(_mini(scenario_schema={"version": 1, "capabilities": {
-        "structured_places": 1}}), "t")
+        "information_registry": 1}}), "t")
     assert deferred.ok and "CAP_VALIDATION_DEFERRED" in _codes(deferred, "WARNING")
-    assert deferred.definition["scenario_meta"]["deferred_capabilities"] == ["structured_places"]
+    assert deferred.definition["scenario_meta"]["deferred_capabilities"] == ["information_registry"]
 
     cases = {
         "CAP_UNKNOWN": {"version": 1, "capabilities": {"teleport": 1}},
@@ -394,8 +395,9 @@ def test_bidirectional_edge_sugar_compiles_to_directed_edges_without_inventing_n
     raw = _mini(movement_edges=[
         {"from": "항구", "to": "시장", "bidirectional": True, "distance_m": 400,
          "reverse": {"route_hint": "오르막"}},
-        {"id": "ferry", "from": "시장", "to": "항구"},
-    ], scenario_schema={"version": 1, "capabilities": {"structured_places": 1}})
+        {"id": "ferry", "from": "시장", "to": "항구", "distance_m": 0},
+    ], movement_modes={"walk": {"base_speed_m_per_min": 80}},
+        scenario_schema={"version": 1, "capabilities": {"structured_places": 1}})
     res = dc.compile_scenario(raw, "t")
     assert res.ok, _codes(res)
     e = res.definition["movement_edges"]
@@ -404,7 +406,9 @@ def test_bidirectional_edge_sugar_compiles_to_directed_edges_without_inventing_n
     assert (fwd["from"], fwd["to"], rev["from"], rev["to"]) == ("항구", "시장", "시장", "항구")
     assert fwd["properties"] == {"distance_m": 400}
     assert rev["properties"] == {"distance_m": 400, "route_hint": "오르막"}
-    assert e["ferry#fwd"]["properties"] == {} and "ferry#rev" not in e
+    assert e["ferry#fwd"]["properties"] == {"distance_m": 0} and "ferry#rev" not in e
+    # compiler v2: 방향별 정규화(역방향 덮어쓰기 반영), 숫자 생성 없음
+    assert (fwd["distance_m"], fwd["route_hint"], rev["route_hint"]) == (400, None, "오르막")
     assert len(e) == 3
 
     for code, edges in {

@@ -8,7 +8,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 AI가 4개 층위로 나뉘어 판단·지시·묘사·추출을 분담한다. 플레이어는 서버 GM 스페이스에서 버튼으로 세션을 열고, 캐릭터를 만들고, 턴을 진행한다. **명령어는 GM의 수동 개입·복구 수단이며 일반 플레이에는 쓰지 않는다.**
 
-현재 버전: **v7.0.0** · `SCHEMA_VERSION` 4 · 총 운영 코드 ~36,680줄(main·prompts·cogs·core) · 테스트 ~14,727줄
+현재 버전: **v7.1.0** · `SCHEMA_VERSION` 4 · 총 운영 코드 ~38,790줄(main·prompts·cogs·core) · 테스트 ~16,145줄
 
 리팩터링: **7-WP 프로그램(WP-A~WP-G)** — 턴 트랜잭션·커밋·재무·이력·파생 시스템을 단일 권위로 재구성했다. WP-A~G 전부 독립 게이트 VERIFIED — **프로그램 완료**(WP-G 최종 후보 `f0fd69e`, 증거 `handoff/WP_G_COMPLETION_BUNDLE.md`). 다음 WP는 없다. 버전은 이 비호환 전환 전체를 **단일 MAJOR v6.0.0**으로 채택했다(2026-10-06, 이력 보정은 DEVLOG '버전 기록').
 
@@ -18,8 +18,8 @@ AI가 4개 층위로 나뉘어 판단·지시·묘사·추출을 분담한다. �
 |---|---|---|
 | H01 | 정의 컴파일러·정체성·스냅샷 기반 | **완료** — production 미배선, `handoff/H01_COMPLETION_BUNDLE.md` |
 | H02 | canonical 상태·영속·이력 + WorldMutationBatch·ProjectedWorld·정본 변이 기반 | **완료** — 빈 변이 lane 배선, `handoff/H02_COMPLETION_BUNDLE.md` |
-| H03 | 정량 시간·예약 + 공간·이동·접근·공간인지 | 예정 |
-| H04 | Actor·정보·인지·NPC 투영 + 사건·DependencyIndex·WorldProgression | 예정 |
+| H03 | 정량 시간·예약 + 공간·이동·접근·공간인지 | **완료** — 서비스·typed 연산 등록, 플레이어 경로 미배선, `handoff/H03_COMPLETION_BUNDLE.md` |
+| H04 | Actor·정보·인지·NPC 투영 + 사건·DependencyIndex·WorldProgression | **READY**(H03 승인 후 시작) |
 | H05 | 구조화 행동 의도·턴 계획 + 프롬프트·추출·후속묘사·미디어 | 예정 |
 | H06 | 초기화·캐시·관리자·복구·재서술·세션 종료 | 예정 |
 | H07 | 영도 실제 이행·legacy 권위 은퇴·production cutover·최종 게이트 | 예정 |
@@ -125,7 +125,7 @@ python main.py
 | `permissions.py` | 98 | `!권한부여` `!권한회수` `!권한목록` |
 | `presence.py` | 122 | 상태 메시지 순환 + **캐시 만료 감지**(15초 주기) |
 
-### core/ — 63개 서브모듈
+### core/ — 68개 서브모듈
 
 `core/__init__.py`가 전 심볼을 re-export하므로 외부에서는 `core.XYZ`로 접근한다.
 
@@ -134,7 +134,7 @@ python main.py
 | 모듈 | 줄 | 내용 |
 |---|---|---|
 | `turn_transaction.py` | 345 | `TurnTransaction` — 자동 논리 턴 시도의 런타임 정체성 |
-| `turn_preparation.py` | 1,419 | `TurnPreparation` — 결과 스테이징, 작업 레지스트리, `READY_TO_COMMIT` 배리어, 추출 계획 |
+| `turn_preparation.py` | 1,512 | `TurnPreparation` — 결과 스테이징, 작업 레지스트리, `READY_TO_COMMIT` 배리어, 추출 계획 |
 | `commit_coordinator.py` | 1,171 | `CommitCoordinator` — 유일한 정본 커밋·복구, 재시도 breadcrumb·구 컨텍스트 은퇴 |
 | `commit_journal.py` | 548 | `CommitJournal` — 커밋 단계 append-only 내구 기록·복구 분류 |
 | `settlement.py` | 562 | `TurnSettlement` — 정상 턴 플레이어 부담·보고의 단일 출처 |
@@ -213,20 +213,33 @@ python main.py
 | 모듈 | 줄 | 내용 |
 |---|---|---|
 | `world_ids.py` | 157 | 정규 직렬화·순서 지문·안정 digest, 저작 ActorId/InfoId/구간 id 파생 |
-| `definition_compiler.py` | 872 | capability 감지(`scenario_schema`)·legacy 통과·저작 sugar 컴파일·검증 진단·revision·이행 보고 |
+| `definition_compiler.py` | 1,375 | capability 감지(`scenario_schema`)·legacy 통과·저작 sugar 컴파일·검증 진단·revision·이행 보고. **compiler v2(H03)**: 달력(`quantitative_time`)·구간 속성·이동 방식·접근 정의·공간 지식 seed(`structured_places`) 검증 |
 | `definition_snapshot.py` | 235 | `sessions/{id}/definition_snapshot.json` 원자적 쓰기·해시 검증·덮어쓰기 거부 |
 
 호출자는 `tools/scenario_check.py`와 테스트뿐이다. 런타임은 여전히 raw `scenario_data`를 쓴다(세션 바인딩은 H06).
+compiler v2(H03)로 5개 시나리오의 definition revision이 모두 바뀌었다 — 운영 스냅샷 바인딩이 0이라 이행 작업은 없다.
 
 #### 동적 세계 정본·변이 (H02)
 
 | 모듈 | 줄 | 내용 |
 |---|---|---|
 | `world_state.py` | 124 | H02 세션 필드의 **단일 출처** — 가역 게임 정본 11필드·비가역 정체성 2필드(`definition_revision`·`narrative_seed`), `world_version` 인과 정체성 |
-| `world_mutation.py` | 653 | `WorldMutationBatch`(typed op·LocalRef·동결·digest — 내부는 정규 사본이라 외부·반환 객체 변경과 분리)·`ProjectedWorld`·**인과 계층 투영**(`causal_parent_op_ids`)·병합 의미 4종·`WORLD_PROJECTION_CONFLICT`. production 레지스트리는 비어 있다 |
-| `canonical_mutation.py` | 280 | INITIALIZATION·ADMIN_EDIT 공통 원자 적용(검증~저장 전체가 커밋 직렬화 락 안 — 직렬화 락 → io 락)·작은 내구 저널 — **production 호출자 0**(배선은 H06) |
+| `world_mutation.py` | 688 | `WorldMutationBatch`(typed op·LocalRef·동결·digest — 내부는 정규 사본이라 외부·반환 객체 변경과 분리)·`ProjectedWorld`·**인과 계층 투영**(`causal_parent_op_ids`)·병합 의미 5종(H03: typed `DELETE` — 같은 계층 멱등, 혼용·없는 키·인과 없는 교차 계층은 충돌)·`WORLD_PROJECTION_CONFLICT`. production 레지스트리 = H03 시간·공간 typed 연산 12종(임의 경로 setter 없음) |
+| `canonical_mutation.py` | 286 | INITIALIZATION·ADMIN_EDIT 공통 원자 적용(검증~저장 전체가 커밋 직렬화 락 안 — 직렬화 락 → io 락)·작은 내구 저널·base quiescence 증명(H03) — **production 호출자 0**(배선은 H06) |
 
 모든 커밋된 PLAYER_TURN은 빈 묶음이어도 `world_version`을 전진시킨다(CommitPlan v2가 PREPARED 전에 대상 version을 동결). PLAYER_TURN 정본 owner는 여전히 `CommitCoordinator` 하나다.
+
+#### 동적 세계 시간·공간 (H03 — 서비스·typed 연산, 플레이어 경로 미배선)
+
+| 모듈 | 줄 | 내용 |
+|---|---|---|
+| `world_clock.py` | 244 | 달력(GREGORIAN·FIXED_CUSTOM)·시간대 `[start,end)`(자정 넘김)·canonical 분 시계 `{"minute_index","start_minute_index"}`(미초기화 `{}`). 후퇴 거부·0분 허용 |
+| `world_schedule.py` | 235 | pending 전용 예약 큐(순서 = due·order_key·id)·`BaseQuiescenceReport`·시간/예약 typed 연산 5종 |
+| `spatial.py` | 401 | 방향 구간 그래프(계층·connected는 구간 아님)·정적 가시성(저작 `visible_within`)·배치/TRANSIT(진행률 미저장)·희소 공간 지식·familiarity seed·공간 typed 연산 7종 |
+| `access.py` | 166 | `AccessRuleRegistry`(STATE_TABLE)·실제 접근 3결과/3정책 · 인지 접근(KnownAccessFact, 없으면 UNKNOWN) 분리 |
+| `movement.py` | 495 | 고정 정밀도 소요시간(Fraction → 구간 정수 μs → 경로 전체 HALF_UP 분)·`KnownRoutePlanner`(Yen K-shortest·서명 동률·가중 Jaccard 다양성)·`ActualTraversalPlanner`(우회 없음)·`traversal_ops` |
+
+READY와 `canonical_mutation`은 투영 결과의 **base quiescence**를 증명한다 — 초기화된 시계에 `due ≤ now` pending 예약이 남거나, 미초기화 시계에 예약이 있으면 `WORLD_PROJECTION_CONFLICT`(코드 `NOT_QUIESCENT`, 재시도 아님). 레거시 빈 시계·빈 예약은 quiescent다. H03 연산의 production producer는 0이며 legacy `places.py` 이동·`world_timeline` 시간은 그대로 권위다(H05·H07에서 전환).
 
 #### 기억
 
@@ -320,7 +333,7 @@ sessions/{session_id}/
 ### 턴 확정 권위 (WP-A~F)
 
 자동 턴 하나 = `TurnTransaction` 하나. AI 결과는 준비(`turn_preparation`)에 스테이징되고, 필수 작업이 모두 합류한 `READY_TO_COMMIT` 뒤에 `CommitCoordinator`만 정본 상태를 커밋한다(`CommitJournal`로 복구). 게임 채널 출력은 `message_lifecycle` 5분류로 소유되며, 백그라운드 압축은 출처 식별이 맞을 때만 적용된다. 수동 `!진행`·`!수정`은 WP-G에서 은퇴했다 — 공유 묘사 엔진(`_execute_proceed`)의 호출자는 자동 턴과 인트로뿐이다.
-H02: `TurnPreparation`은 world_version·definition_revision 기준선과 (현재 항상 빈) `WorldMutationBatch`를 소유하고, READY에서 묶음을 동결·투영한다. 투영 충돌(`WORLD_PROJECTION_CONFLICT`)은 결정적 종료 실패이며 추출 재시도(RETRY_PENDING)가 아니다. `CommitPlan` v2는 source/target world_version·definition_revision·mutation digest를 PREPARED에 동결하고, v1 PREPARED는 정상 구버전으로 복구한다.
+H02: `TurnPreparation`은 world_version·definition_revision 기준선과 (production에서는 항상 빈) `WorldMutationBatch`를 소유하고, READY에서 묶음을 동결·투영한다. H03: 투영 뒤 base quiescence를 증명해 `ReadyProof.base_quiescence`에 남긴다. 투영 충돌(`WORLD_PROJECTION_CONFLICT`)은 결정적 종료 실패이며 추출 재시도(RETRY_PENDING)가 아니다. `CommitPlan` v2는 source/target world_version·definition_revision·mutation digest를 PREPARED에 동결하고, v1 PREPARED는 정상 구버전으로 복구한다.
 추출 결과의 정본 적용은 커밋 경로 하나뿐이다(`CommitCoordinator` → `_apply_commit_effects` → `_apply_prepared_extraction` → `_apply_extraction_plan`). `_run_extraction`은 준비 객체 없이 호출하면 provider 호출 전에 거부된다. WP-C 이전 형식의 추출 재시도 컨텍스트는 재추출·정본 변이 없이 은퇴된다(`commit_coordinator.retire_legacy_retry_context`).
 
 ### 프롬프트 권위 (WP-G D1)
@@ -465,7 +478,7 @@ pip install -r requirements-dev.txt
 python3 -m pytest tests/ -q
 ```
 
-`tests/`는 **현재 동작과 권위 불변식을 고정**한다. 현재 718건(특성화 46 · 결함 27 · 정책 645)이 모두 통과하며 strict xfail은 0건이다.
+`tests/`는 **현재 동작과 권위 불변식을 고정**한다. 현재 804건(특성화 50 · 결함 27 · 정책 727)이 모두 통과하며 strict xfail은 0건이다.
 
 | 분류 | 의미 |
 |---|---|
@@ -481,7 +494,7 @@ python3 -m pytest tests/ -q
 라이브 디스코드·Gemini·네트워크·자격증명을 쓰지 않는다.
 `tests/conftest.py`의 autouse 픽스처가 자격증명을 지우고 SDK 생성을 막는다.
 
-인도 번들: `handoff/WP00_*` ~ `handoff/WP_G_*` (WP-G: 완료 번들·사후 스캔·AUD-001~063 최종 매트릭스·시나리오 매트릭스·제어 동기화 제안) · `handoff/H01_*`·`handoff/H02_*`(동적 세계 H01·H02)
+인도 번들: `handoff/WP00_*` ~ `handoff/WP_G_*` (WP-G: 완료 번들·사후 스캔·AUD-001~063 최종 매트릭스·시나리오 매트릭스·제어 동기화 제안) · `handoff/H01_*`·`handoff/H02_*`·`handoff/H03_*`(동적 세계 H01~H03)
 
 ---
 
@@ -682,6 +695,7 @@ python3 tools/scenario_check.py --all     # 전 시나리오 컴파일·진단(E
 | 오디오 자산 | 공통 소개 TTS·테마곡 |
 | 소개 미디어 | `intro_images` 연결부만 있고 자산 없음 |
 | 디스코드 결제 | SKU 한국 미지원. `!지급`·`!잉크`로 대체 |
-| v7.0.0 반영 | `SCHEMA_VERSION` 4·turn-history v3·CommitPlan v2. 배포 전 `sessions/`·`accounts/` 백업. 기존 세션은 로드 시 자동 마이그레이션되며, 배포 후 6.x로 되돌리면 plan v2 PREPARED 복구를 읽지 못한다 |
+| v7.x 반영 | `SCHEMA_VERSION` 4·turn-history v3·CommitPlan v2(7.1.0도 유지). 배포 전 `sessions/`·`accounts/` 백업. 기존 세션은 로드 시 자동 마이그레이션되며, 배포 후 6.x로 되돌리면 plan v2 PREPARED 복구를 읽지 못한다 |
+| 영도 정량 공간 저작 | 구간 거리·접근·공간 지식 seed 미저작(비대칭 connected 71·거리 없는 연결 234·가려진 별칭 2). 자동 생성 금지 — H07 사람 저작 이행 |
 | 운영 반영 | v6.0.0이 main에 반영됨. 배포 전 운영 `sessions/`·`accounts/` 백업, 배포 후 `!캐시 재발급`(프롬프트 D1·무협 `location_images` 변경) |
 | 자동 턴 TTS | 더빙은 인트로에만 적용된다(자동 턴 미적용은 기존 동작). 확장은 별도 기능 |

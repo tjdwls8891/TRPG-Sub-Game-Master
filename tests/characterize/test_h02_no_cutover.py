@@ -91,7 +91,7 @@ def test_world_version_direct_writers():
 
 def test_production_registry_holds_only_h03_typed_handlers():
     import core
-    expected = set(core.world_schedule.TIME_OP_TYPES) | set(getattr(core, "spatial_ops_types", ()))
+    expected = set(core.world_schedule.TIME_OP_TYPES) | set(core.spatial.SPATIAL_OP_TYPES)
     assert set(WM.PRODUCTION_REGISTRY.op_types()) == expected
     # 등록은 world_mutation의 단일 등록 함수만 한다(도메인 모듈 register(registry) 위임)
     for p in _production_files():

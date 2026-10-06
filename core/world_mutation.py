@@ -679,8 +679,10 @@ def apply_projection(session, result: ProjectionResult, source: ProjectedWorld) 
 
 # ── H03: production typed handler 등록(도메인 모듈이 world_mutation을 import하므로 맨 끝) ──
 def _register_production_handlers() -> None:
+    from . import spatial as _spatial
     from . import world_schedule as _sched
     _sched.register(PRODUCTION_REGISTRY)
+    _spatial.register(PRODUCTION_REGISTRY)
 
 
 _register_production_handlers()

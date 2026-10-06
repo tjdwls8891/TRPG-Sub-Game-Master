@@ -1,10 +1,10 @@
 # INDAIM — 개발 로그 (DEVLOG)
 
-> 현재 버전: **v7.0.0** · `SCHEMA_VERSION` 4
+> 현재 버전: **v7.1.0** · `SCHEMA_VERSION` 4
 > 스택: Gemini API + discord.py / 한국어 TRPG 보조 GM 봇
 > 저장소: `tjdwls8891/TRPG-Sub-Game-Master`
 > 리팩터링: 7-WP 프로그램(WP-A~G, 2026-09-12~09-29) — WP-A~G 전부 VERIFIED, 프로그램 완료(WP-G 최종 `f0fd69e`) → **v6.0.0**
-> 동적 세계 프로그램: 통합 로드맵 H01~H07 — H01·H02 완료 → **v7.0.0**, H03~H07 예정
+> 동적 세계 프로그램: 통합 로드맵 H01~H07 — H01·H02 완료 → **v7.0.0**, H03 완료 → **v7.1.0**, H04~H07 예정
 
 ---
 
@@ -257,6 +257,7 @@
 | **6.0.0** | `f0fd69e`(VERIFIED) → main | WP-00~WP-G 전체를 단일 MAJOR로 채택 |
 | (흡수) | H01 `28cad87` | 정의 컴파일러·도구 — 하위호환 기능(MINOR감). 당시 출시 단위 규칙으로 번호 없음, 7.0.0에 흡수 |
 | **7.0.0** | H02 | `SCHEMA_VERSION` 3→4(세션 저장 형식 비호환) = MAJOR. 이 시점부터 번호는 개발 패키지마다 내용 기준으로 갱신한다(사용자 결정) |
+| **7.1.0** | H03 | 시간·공간 서비스와 typed 연산 추가 — 하위호환 기능 = MINOR. `SCHEMA_VERSION` 4·turn-history 3·CommitPlan 2 유지, compiler semantic version 1→2 |
 
 **전환점 분석** — 첫 비호환 변경은 WP-B(`967263e`, `자:/태:` 태그의 자원·상태 변경 기능 정지)였다. 그 앞의 7개 패키지(WP-01·02·PERSIST·ACCOUNTING·JOURNAL·SETTLEMENT-01·WP-A)는 하위호환 추가였으나 개별 출시되지 않았으므로 MAJOR에 흡수된다. 이후 WP-D(청구 권위 전환)·WP-E(되감기 의미 변경)·WP-G(명령어 은퇴)의 비호환 변경도 같은 출시에 함께 실렸다. `SCHEMA_VERSION`은 3을 유지했고, 구세션 데이터는 로드된다(호환 처리 포함).
 
@@ -305,6 +306,27 @@ v6.0.0(`de367c7`) 위에서 시작한 동적 세계 구현 프로그램(통합 �
 - legacy `core.rewind` `TRACKED_PATHS`는 늘리지 않았다 — 델타 로그를 읽어 복원하는 경로가 없고, 되감기 권위는 turn_history다.
 
 세부·호환 증거는 `handoff/H02_COMPLETION_BUNDLE.md`.
+
+### v7.1.0 — 동적 세계 H03: 정량 시간·예약 + 공간·이동·접근·공간인지 (2026-10-06)
+
+H02 승인 기준(`49c8dcc`) 위에서 두 내부 게이트(H03-A 시간·예약 → 전체 회귀 → H03-B 공간)로 진행했다. **플레이어 자연어 턴은 새 이동·시간으로 전환하지 않았다** — 서비스와 typed 연산이 존재하고 production 레지스트리에 등록됐지만, 그 연산을 만드는 플레이어 경로는 0이다. legacy `places.py` BFS 이동과 `world_timeline` 시간은 그대로 권위다.
+
+#### H03-A — 달력·WorldClock·pending 예약·base quiescence
+
+- **정본 시계는 정수 두 개뿐** — `{"minute_index","start_minute_index"}`. 날짜·시각·시간대는 시나리오 달력에서 파생한다. 사람이 보는 표현을 저장하면 달력이 바뀔 때 두 진실이 생기기 때문이다. legacy 12×30 달력을 새 capability의 암묵 달력으로 쓰지 않는다 — `quantitative_time`은 달력 명시가 필수(컴파일러 ERROR).
+- **예약 큐는 pending만** — 취소·소비된 항목은 큐에서 지운다(tombstone 없음). 같은 분 순서는 (due, order_key, id)로 정해 삽입 순서가 의미를 갖지 않는다. 지우기 위해 H02 병합 의미에 typed `DELETE`를 더했다(임의 경로 변이 기능이 아니다 — 같은 계층 이중 삭제는 멱등, 다른 의미와 섞이거나 없는 키를 지우거나 인과 없이 계층을 건너 쓰면 충돌).
+- **base quiescence를 READY의 실제 증명으로** — 커밋될 안정 세계에 `due ≤ now` 예약이 남으면 READY 불가(`WORLD_PROJECTION_CONFLICT`·`NOT_QUIESCENT`, 재시도 아님). 같은 증명을 `canonical_mutation`도 한다. 사건 cascade 조건은 H04가 확장한다.
+
+#### H03-B — 방향 그래프·이동 방식·접근·정적 가시성·공간 지식·경로·TRANSIT
+
+- **구간은 저작된 방향 arc뿐** — parent/child 계층과 legacy connected는 구간이 아니다. 거리는 정수 m를 저작해야 한다(`structured_places`에서 누락은 ERROR). 거리·역방향·별칭을 자동 생성하지 않는다. 가시성은 저작 `visible_within` 정적 관계이며 거리로 계산하지 않는다(영도 전 장소 쌍에서 기존 `places.is_visible_from`과 동일함을 테스트로 고정).
+- **배수는 모두 시간 배수, 반올림은 경로 끝에서 한 번** — 저작 배수·속도는 소수 6자리 이내로 제한하고 Fraction으로 계산한 뒤 구간마다 정수 마이크로초로 양자화, 경로 누적에서만 HALF_UP 분 정규화한다. 구간마다 분으로 올리면 20초 × 6이 6분이 된다.
+- **알려진 경로와 실제 통과를 분리** — KnownRoutePlanner는 행위자 지식만 받는다(실제 접근 상태가 서명에 없다). 모르는 봉쇄는 후보에서 지우지 않는다 — 후보가 사라지는 것 자체가 숨은 정보 누출이기 때문이다. 아는 길이 없으면 NO_KNOWN_ROUTE이며 실제 그래프로 보완하지 않는다. ActualTraversalPlanner는 선택 경로를 그대로 따라가다 막힌 곳에서 멈추고 다른 길로 우회하지 않는다.
+- **접근 = 세계 상태 ≠ 행위자 결과** — 같은 '잠김'도 열쇠 capability가 있으면 ACTION_REQUIRED(CONFIRM)다. 상태·결과는 STATE_TABLE 저작값이며 core에 장르별 문 상태가 없다. 실제 접근 변화는 행위자 지식을 자동 갱신하지 않는다 — 관찰(통과·확인)만 지식이 된다.
+- **TRANSIT은 구간과 시각만** — 진행률은 시계에서 파생하고 저장하지 않는다.
+- typed 연산 12종(시간 5·공간 7)만 production 레지스트리에 있다.
+
+compiler semantic version 2로 5개 시나리오 revision이 바뀌었다(스냅샷 바인딩 0 — 이행 불필요). 세부·증거는 `handoff/H03_COMPLETION_BUNDLE.md`.
 
 ---
 

@@ -1,6 +1,6 @@
 ==============================================================
 INDAIM (TRPG Sub Game Master) — Claude 세션 온보딩 레퍼런스
-v7.0.0 · SCHEMA_VERSION 4 · 7-WP 리팩터링 완료 + 동적 세계 H01·H02 반영 · 2026-10-06 갱신
+v7.1.0 · SCHEMA_VERSION 4 · 7-WP 리팩터링 완료 + 동적 세계 H01~H03 반영 · 2026-10-06 갱신
 ==============================================================
 Gemini API + discord.py 기반 한국어 TRPG 보조 GM 디스코드 봇.
 플레이어는 서버 GM 스페이스의 버튼으로 세션을 열고, 캐릭터를 만들고,
@@ -25,9 +25,9 @@ scenarios/*.json 시나리오 데이터(영도·무협·다크판타지·빈시�
 media/{시나리오id}/  인물 이미지·BGM. 폴더명 = 시나리오 id.
 cogs/            명령어 계층 9개(gm·game·character·system·media·session·
                  errors·permissions·presence). 핫스왑 가능(!리로드).
-core/            63개 파일. core/__init__.py가 전 심볼을 re-export → core.XYZ.
+core/            68개 파일. core/__init__.py가 전 심볼을 re-export → core.XYZ.
                  핫스왑 불가(재시작 필요).
-tests/           특성화 46 · 결함 27 · 정책 645 = 718건(전부 통과, xfail 0).
+tests/           특성화 50 · 결함 27 · 정책 727 = 804건(전부 통과, xfail 0).
 handoff/         WP별 완료 번들·스캔·매트릭스(과거 번들은 수정 금지).
 tools/verify_docs.py  CLAUDE.md·DEVLOG.md 수치 자동 대조(--fix로 반영).
 tools/scenario_check.py  시나리오 정의 컴파일·진단·이행 보고(H01, 원본 읽기 전용).
@@ -47,7 +47,11 @@ core 주요 묶음(자세한 표는 CLAUDE.md):
               (동적 세계 H01 — production 미배선. 호출자는 scenario_check 도구·테스트뿐)
   세계 정본   world_state(H02 필드 단일 출처) · world_mutation(변이 묶음·투영) ·
               canonical_mutation(INIT/ADMIN 공통 primitive — production 호출자 0)
-  동적 세계 프로그램: 통합 로드맵 H01~H07 — H01·H02 완료, H03~H07 예정
+  시간·공간   world_clock(달력·분 시계) · world_schedule(pending 예약·base quiescence) ·
+              spatial(방향 그래프·가시성·배치/TRANSIT·공간 지식) · access(실제/인지 접근) ·
+              movement(소요시간·알려진 경로·실제 통과)
+              (H03 — typed 연산 12종 등록, 플레이어 경로 미배선. legacy places/timeline이 권위)
+  동적 세계 프로그램: 통합 로드맵 H01~H07 — H01·H02·H03 완료, H04 READY, H05~H07 예정
 
 ==============================================================
 2. 턴 흐름

@@ -69,7 +69,7 @@ KNOWN_CAPABILITIES = {
 
 # 이 컴파일러 버전이 도메인 검증까지 끝내는 capability. 나머지는 선언을 기록하되
 # WARNING(CAP_VALIDATION_DEFERRED)으로 표시한다 — 해당 WP가 검증기를 넣을 때 옮긴다.
-VALIDATED_CAPABILITIES = frozenset({"stable_actors", "quantitative_time"})
+VALIDATED_CAPABILITIES = frozenset({"stable_actors", "quantitative_time", "structured_places"})
 
 # capability 의존성(DESIGN 08 §4). (요구 capability, 심각도)
 # dynamic_actor_location → structured_places 는 사용자 결정(H01 보정)으로 ERROR.
@@ -80,12 +80,12 @@ CAPABILITY_DEPENDENCIES = {
     "dynamic_actor_location": (("structured_places", "ERROR"),),
 }
 
-# 새 스키마용으로 예약된 키. 컴파일러 v1은 구조화하지 않으므로, 있으면 경고한다
+# 새 스키마용으로 예약된 키. 이 컴파일러가 구조화하지 않으므로, 있으면 경고한다
+# (v2/H03: calendar·movement_modes·access_control_definitions·spatial_knowledge_seeds는 컴파일 대상)
 # (legacy_source 에 원문으로 남지만 어떤 엔진도 읽지 않는다는 뜻).
 RESERVED_UNCOMPILED_KEYS = (
-    "information_definitions", "event_templates", "movement_modes",
-    "access_control_definitions", "visibility_relations", "initialization_definitions",
-    "spatial_knowledge_seeds",
+    "information_definitions", "event_templates", "visibility_relations",
+    "initialization_definitions",
 )
 
 # NPC 인라인 비밀 필드(npc_template.info_fields의 '비밀').
@@ -509,11 +509,12 @@ def asymmetric_connected(place_defs: dict) -> list:
 _EDGE_CONTROL_KEYS = ("id", "from", "to", "bidirectional", "reverse")
 
 
-def _compile_edges(scenario_id, raw, place_defs, caps, d):
+def _compile_edges(scenario_id, raw, place_defs, caps, d, modes=None, access=None):
     """movement_edges 저작 sugar → 방향 구간. 거리·방향 의미는 저작값을 그대로 옮긴다.
 
     connected 에서 구간을 만들지 않는다. 숫자를 생성하지 않는다(DESIGN 08 §17).
-    구간 속성의 의미 검증(거리 단위·모드·접근)은 H05 몫이다.
+    v2(H03): 방향 구간마다 속성을 검증·정규화한다(_normalize_edge_props). 원 저작
+    속성은 properties 에 그대로 남는다.
     """
     edges = raw.get("movement_edges")
     out = {}
@@ -575,9 +576,407 @@ def _compile_edges(scenario_id, raw, place_defs, caps, d):
             if eid in out:
                 d.add(ERROR, "EDGE_ID_DUPLICATE", path, f"구간 id '{eid}'가 겹칩니다")
                 continue
-            out[eid] = {"edge_id": eid, "pair_id": pair_id, "from": f, "to": t,
-                        "authored_bidirectional": bidir, "properties": pr,
-                        "source_ref": ["movement_edges", i]}
+            rec = {"edge_id": eid, "pair_id": pair_id, "from": f, "to": t,
+                   "authored_bidirectional": bidir, "properties": pr,
+                   "source_ref": ["movement_edges", i]}
+            rec.update(_normalize_edge_props(pr, f"{path}" + ("(rev)" if eid.endswith("#rev") else ""),
+                                             caps, modes or {}, access, d))
+            out[eid] = rec
+    if out and "structured_places" in caps:
+        _check_zero_cost_cycles(out, d)
+    return out
+
+
+# ── 구간 속성 · 이동 방식 · 접근 (H03 — structured_places) ────
+
+EDGE_PROPERTY_KEYS = ("distance_m", "movement_tags", "allowed_modes", "base_time_factor",
+                      "fixed_delay_minutes", "access_ref", "access_rule_ref", "route_hint",
+                      "authored_notes", "knowledge_visibility")
+KNOWLEDGE_VISIBILITY = ("PUBLIC", "LOCAL", "RESTRICTED", "SECRET")
+DEFAULT_KNOWLEDGE_VISIBILITY = "LOCAL"
+FIXED_DECIMAL_PLACES = 6          # 배수·속도의 고정 정밀도(소수 6자리 — 정수 마이크로 단위로 계산)
+ACCESS_RESULTS = ("PASSABLE", "ACTION_REQUIRED", "IMPASSABLE")
+ACCESS_ACTION_POLICIES = ("IMPLICIT", "CONFIRM", "SEPARATE_ACTION")
+ACCESS_RULE_TYPES = ("STATE_TABLE",)
+
+
+def _is_nonneg_int(v) -> bool:
+    return isinstance(v, int) and not isinstance(v, bool) and v >= 0
+
+
+def fixed_decimal(v):
+    """양의 고정 정밀도 십진수 → 정규 문자열('1.2', '80'). 부적합하면 None.
+
+    float 입력도 str()로 십진 표기를 고정한 뒤 해석한다 — 이진 부동소수 오차가
+    정의·경로 순위를 정하지 않게 한다.
+    """
+    from decimal import Decimal, InvalidOperation
+    if isinstance(v, bool) or not isinstance(v, (int, float, str)):
+        return None
+    try:
+        dv = Decimal(str(v))
+    except InvalidOperation:
+        return None
+    if not dv.is_finite() or dv <= 0 or dv.as_tuple().exponent < -FIXED_DECIMAL_PLACES:
+        return None
+    return format(dv.normalize(), "f")
+
+
+def _normalize_edge_props(pr, path, caps, modes, access, d):
+    structured = "structured_places" in caps
+    for k in pr:
+        if k not in EDGE_PROPERTY_KEYS:
+            d.add(WARNING, "EDGE_UNKNOWN_PROPERTY", f"{path}.{k}", "알 수 없는 구간 속성(무시)")
+    out = {}
+    dist = pr.get("distance_m")
+    if dist is None:
+        if structured:
+            d.add(ERROR, "EDGE_DISTANCE_REQUIRED", path,
+                  "structured_places 구간에는 distance_m(정수 m) 저작이 필요합니다 — 추론하지 않습니다")
+    elif not _is_nonneg_int(dist):
+        d.add(ERROR, "EDGE_DISTANCE_INVALID", f"{path}.distance_m", "distance_m은 0 이상의 정수(m)여야 합니다")
+        dist = None
+    out["distance_m"] = dist
+    tags = _str_list(pr.get("movement_tags"))
+    if tags is None or isinstance(pr.get("movement_tags"), str):
+        d.add(ERROR, "EDGE_TAGS_INVALID", f"{path}.movement_tags", "movement_tags는 문자열 목록이어야 합니다")
+        tags = []
+    out["movement_tags"] = sorted(set(tags))
+    am = pr.get("allowed_modes")
+    if am is None:
+        out["allowed_modes"] = None
+    else:
+        vals = _str_list(am)
+        if vals is None or isinstance(am, str):
+            d.add(ERROR, "EDGE_ALLOWED_MODES_INVALID", f"{path}.allowed_modes", "allowed_modes는 목록이어야 합니다")
+            vals = []
+        for m in vals:
+            if m not in modes:
+                d.add(ERROR, "EDGE_MODE_UNKNOWN", f"{path}.allowed_modes", f"정의되지 않은 이동 방식 '{m}'")
+        out["allowed_modes"] = sorted(set(vals))
+    f = pr.get("base_time_factor", 1)
+    fd = fixed_decimal(f)
+    if fd is None:
+        d.add(ERROR, "EDGE_FACTOR_INVALID", f"{path}.base_time_factor",
+              f"base_time_factor는 0보다 큰 소수 {FIXED_DECIMAL_PLACES}자리 이내 수여야 합니다(시간 배수)")
+        fd = "1"
+    out["base_time_factor"] = fd
+    delay = pr.get("fixed_delay_minutes", 0)
+    if not _is_nonneg_int(delay):
+        d.add(ERROR, "EDGE_DELAY_INVALID", f"{path}.fixed_delay_minutes", "fixed_delay_minutes는 0 이상의 정수여야 합니다")
+        delay = 0
+    out["fixed_delay_minutes"] = delay
+    controls = (access or {}).get("controls", {})
+    rules = (access or {}).get("rules", {})
+    aref, rref = pr.get("access_ref"), pr.get("access_rule_ref")
+    if aref is not None and (not isinstance(aref, str) or aref not in controls):
+        d.add(ERROR, "EDGE_ACCESS_REF_UNKNOWN", f"{path}.access_ref", f"정의되지 않은 접근 제어 {aref!r}")
+        aref = None
+    if rref is not None:
+        if not isinstance(rref, str) or rref not in rules:
+            d.add(ERROR, "EDGE_ACCESS_RULE_UNKNOWN", f"{path}.access_rule_ref", f"정의되지 않은 접근 규칙 {rref!r}")
+            rref = None
+        elif pr.get("access_ref") is None:
+            d.add(ERROR, "EDGE_ACCESS_RULE_WITHOUT_CONTROL", f"{path}.access_rule_ref",
+                  "access_rule_ref는 access_ref(상태를 가진 접근 제어)와 함께 써야 합니다")
+            rref = None
+        elif aref is not None:
+            need = set(rules[controls[aref]["rule_ref"]]["states"])
+            if not need <= set(rules[rref]["states"]):
+                d.add(ERROR, "ACCESS_RULE_STATE_MISMATCH", f"{path}.access_rule_ref",
+                      f"규칙 '{rref}'이 제어 '{aref}'의 상태 {sorted(need - set(rules[rref]['states']))}를 다루지 않습니다")
+                rref = None
+    out["access_ref"], out["access_rule_ref"] = aref, rref
+    for k, code in (("route_hint", "EDGE_ROUTE_HINT_INVALID"), ("authored_notes", "EDGE_NOTES_INVALID")):
+        v = pr.get(k)
+        if v is not None and (not isinstance(v, str) or not v.strip()):
+            d.add(ERROR, code, f"{path}.{k}", f"{k}는 비어 있지 않은 문자열이어야 합니다")
+            v = None
+        out[k] = v
+    kv = pr.get("knowledge_visibility", DEFAULT_KNOWLEDGE_VISIBILITY)
+    if kv not in KNOWLEDGE_VISIBILITY:
+        d.add(ERROR, "EDGE_KNOWLEDGE_VISIBILITY_INVALID", f"{path}.knowledge_visibility",
+              f"knowledge_visibility는 {list(KNOWLEDGE_VISIBILITY)} 중 하나여야 합니다")
+        kv = DEFAULT_KNOWLEDGE_VISIBILITY
+    out["knowledge_visibility"] = kv
+    return out
+
+
+def _check_zero_cost_cycles(edges, d):
+    """distance 0·지연 0 구간만으로 닫히는 방향 순환(경로 알고리즘은 단순 경로라 안전하지만 저작 오류 신호)."""
+    adj = {}
+    for eid in sorted(edges):
+        e = edges[eid]
+        if e.get("distance_m") == 0 and e.get("fixed_delay_minutes") == 0:
+            adj.setdefault(e["from"], []).append(e["to"])
+    color, found = {}, []
+
+    def visit(u, stack):
+        color[u] = 1
+        stack.append(u)
+        for v in adj.get(u, ()):
+            if color.get(v) == 1 and not found:
+                found.append(stack[stack.index(v):] + [v])
+            elif v not in color:
+                visit(v, stack)
+        stack.pop()
+        color[u] = 2
+
+    for u in sorted(adj):
+        if u not in color:
+            visit(u, [])
+    if found:
+        d.add(WARNING, "ZERO_COST_CYCLE", "movement_edges",
+              "거리·지연 0 구간만으로 순환합니다: " + " → ".join(found[0]))
+
+
+_MODE_KEYS = ("base_speed_m_per_min", "allowed_edge_tags", "forbidden_edge_tags")
+
+
+def _compile_movement_modes(raw, caps, d):
+    """raw movement_modes {mode_id: {base_speed_m_per_min, allowed_edge_tags?, forbidden_edge_tags?}}.
+
+    속도 숫자는 저작값만 쓴다 — core에 장르별 보행 속도를 두지 않는다.
+    allowed_edge_tags가 있으면 구간 태그가 그중 하나 이상을 가져야 하고,
+    forbidden_edge_tags와 하나라도 겹치면 그 방식으로 통과할 수 없다.
+    """
+    modes = raw.get("movement_modes")
+    if modes is None:
+        return {}
+    if not isinstance(modes, dict):
+        d.add(ERROR, "MODES_INVALID", "movement_modes", "movement_modes는 {mode_id: 정의} 객체여야 합니다")
+        return {}
+    if "structured_places" not in caps:
+        d.add(WARNING, "MODES_WITHOUT_CAPABILITY", "movement_modes",
+              "structured_places capability 없이 이동 방식이 저작됐습니다")
+    out = {}
+    for mid, m in modes.items():
+        p = f"movement_modes.{mid}"
+        if not is_valid_explicit_id(mid):
+            d.add(ERROR, "MODE_ID_INVALID", p, "mode_id는 명시 id 형식이어야 합니다")
+            continue
+        if not isinstance(m, dict):
+            d.add(ERROR, "MODE_INVALID", p, "이동 방식은 객체여야 합니다")
+            continue
+        for k in m:
+            if k not in _MODE_KEYS:
+                d.add(WARNING, "MODE_UNKNOWN_KEY", f"{p}.{k}", "알 수 없는 이동 방식 키(무시)")
+        speed = fixed_decimal(m.get("base_speed_m_per_min"))
+        if speed is None:
+            d.add(ERROR, "MODE_SPEED_INVALID", f"{p}.base_speed_m_per_min",
+                  f"base_speed_m_per_min은 0보다 큰 소수 {FIXED_DECIMAL_PLACES}자리 이내 수여야 합니다")
+            continue
+        rec = {"mode_id": mid, "base_speed_m_per_min": speed}
+        bad = False
+        for k in ("allowed_edge_tags", "forbidden_edge_tags"):
+            v = m.get(k)
+            vals = _str_list(v)
+            if vals is None or isinstance(v, str):
+                d.add(ERROR, "MODE_TAGS_INVALID", f"{p}.{k}", f"{k}는 문자열 목록이어야 합니다")
+                bad = True
+                continue
+            rec[k] = sorted(set(vals)) if (v is not None or k == "forbidden_edge_tags") else None
+        if bad:
+            continue
+        if rec["allowed_edge_tags"] is not None and set(rec["allowed_edge_tags"]) & set(rec["forbidden_edge_tags"]):
+            d.add(ERROR, "MODE_TAGS_CONTRADICT", p, "같은 태그가 allowed와 forbidden에 모두 있습니다")
+            continue
+        out[mid] = rec
+    return out
+
+
+def _compile_access(raw, caps, d):
+    """raw access_control_definitions → {"rules": {...}, "controls": {...}}.
+
+    rules:    {rule_id: {"rule_type": "STATE_TABLE", "states": {state: Outcome}}}
+              Outcome = {"result", "action_policy"(ACTION_REQUIRED 필수),
+                         "action_delay_minutes"?, "actor_overrides"?: [Outcome + "requires_capability"]}
+    controls: {control_id: {"rule_ref": rule_id, "initial_state": state}}
+    장르별 문 상태를 core에 두지 않는다 — 상태 이름·결과는 전부 저작값이다.
+    actor_overrides 의 capability 이름은 시나리오 어댑터가 행위자에게 부여한다(열쇠·통행증 등).
+    """
+    acd = raw.get("access_control_definitions")
+    empty = {"rules": {}, "controls": {}}
+    if acd is None:
+        return empty
+    if not isinstance(acd, dict) or set(acd) - {"rules", "controls"}:
+        d.add(ERROR, "ACCESS_DEFINITIONS_INVALID", "access_control_definitions",
+              "access_control_definitions는 {rules, controls} 객체여야 합니다")
+        return empty
+    if "structured_places" not in caps:
+        d.add(WARNING, "ACCESS_WITHOUT_CAPABILITY", "access_control_definitions",
+              "structured_places capability 없이 접근 정의가 저작됐습니다")
+    rules, controls = {}, {}
+    raw_rules = acd.get("rules") or {}
+    if not isinstance(raw_rules, dict):
+        d.add(ERROR, "ACCESS_RULES_INVALID", "access_control_definitions.rules", "rules는 객체여야 합니다")
+        raw_rules = {}
+    for rid, r in raw_rules.items():
+        p = f"access_control_definitions.rules.{rid}"
+        if not is_valid_explicit_id(rid) or not isinstance(r, dict):
+            d.add(ERROR, "ACCESS_RULE_INVALID", p, "rule_id는 명시 id, 규칙은 객체여야 합니다")
+            continue
+        if r.get("rule_type") not in ACCESS_RULE_TYPES:
+            d.add(ERROR, "ACCESS_RULE_TYPE_UNKNOWN", f"{p}.rule_type",
+                  f"평가기가 없는 rule_type {r.get('rule_type')!r} — 지원: {list(ACCESS_RULE_TYPES)}")
+            continue
+        states = r.get("states")
+        if not isinstance(states, dict) or not states:
+            d.add(ERROR, "ACCESS_RULE_STATES_REQUIRED", f"{p}.states", "STATE_TABLE에는 states가 필요합니다")
+            continue
+        out_states, ok = {}, True
+        for st, oc in states.items():
+            sp = f"{p}.states.{st}"
+            if not isinstance(st, str) or not st:
+                d.add(ERROR, "ACCESS_STATE_INVALID", sp, "상태 이름은 비어 있지 않은 문자열이어야 합니다")
+                ok = False
+                continue
+            norm = _access_outcome(oc, sp, d, allow_overrides=True)
+            if norm is None:
+                ok = False
+                continue
+            out_states[st] = norm
+        if ok:
+            rules[rid] = {"rule_id": rid, "rule_type": r["rule_type"], "states": out_states}
+    raw_controls = acd.get("controls") or {}
+    if not isinstance(raw_controls, dict):
+        d.add(ERROR, "ACCESS_CONTROLS_INVALID", "access_control_definitions.controls", "controls는 객체여야 합니다")
+        raw_controls = {}
+    for cid, c in raw_controls.items():
+        p = f"access_control_definitions.controls.{cid}"
+        if not is_valid_explicit_id(cid) or not isinstance(c, dict) or set(c) - {"rule_ref", "initial_state"}:
+            d.add(ERROR, "ACCESS_CONTROL_INVALID", p, "control_id는 명시 id, 제어는 {rule_ref, initial_state}여야 합니다")
+            continue
+        rr = c.get("rule_ref")
+        if rr not in rules:
+            d.add(ERROR, "ACCESS_CONTROL_RULE_UNKNOWN", f"{p}.rule_ref", f"정의되지 않은 규칙 {rr!r}")
+            continue
+        if c.get("initial_state") not in rules[rr]["states"]:
+            d.add(ERROR, "ACCESS_INITIAL_STATE_INVALID", f"{p}.initial_state",
+                  f"초기 상태 {c.get('initial_state')!r}가 규칙 '{rr}'의 상태가 아닙니다")
+            continue
+        controls[cid] = {"control_id": cid, "rule_ref": rr, "initial_state": c["initial_state"]}
+    return {"rules": rules, "controls": controls}
+
+
+def _access_outcome(oc, p, d, *, allow_overrides):
+    keys = {"result", "action_policy", "action_delay_minutes"} | (
+        {"actor_overrides"} if allow_overrides else {"requires_capability"})
+    if not isinstance(oc, dict) or set(oc) - keys:
+        d.add(ERROR, "ACCESS_OUTCOME_INVALID", p, f"결과 정의 키는 {sorted(keys)} 안이어야 합니다")
+        return None
+    res = oc.get("result")
+    if res not in ACCESS_RESULTS:
+        d.add(ERROR, "ACCESS_RESULT_INVALID", f"{p}.result", f"result는 {list(ACCESS_RESULTS)} 중 하나")
+        return None
+    pol = oc.get("action_policy")
+    if res == "ACTION_REQUIRED":
+        if pol not in ACCESS_ACTION_POLICIES:
+            d.add(ERROR, "ACCESS_POLICY_INVALID", f"{p}.action_policy",
+                  f"ACTION_REQUIRED에는 action_policy {list(ACCESS_ACTION_POLICIES)}가 필요합니다")
+            return None
+    elif pol is not None:
+        d.add(ERROR, "ACCESS_POLICY_UNEXPECTED", f"{p}.action_policy", "action_policy는 ACTION_REQUIRED에만 씁니다")
+        return None
+    delay = oc.get("action_delay_minutes", 0)
+    if not _is_nonneg_int(delay) or (delay and res != "ACTION_REQUIRED"):
+        d.add(ERROR, "ACCESS_DELAY_INVALID", f"{p}.action_delay_minutes",
+              "action_delay_minutes는 ACTION_REQUIRED의 0 이상 정수여야 합니다")
+        return None
+    out = {"result": res, "action_policy": pol, "action_delay_minutes": delay}
+    if allow_overrides:
+        ovs = oc.get("actor_overrides") or []
+        if not isinstance(ovs, list):
+            d.add(ERROR, "ACCESS_OVERRIDES_INVALID", f"{p}.actor_overrides", "actor_overrides는 목록이어야 합니다")
+            return None
+        norm = []
+        for j, ov in enumerate(ovs):
+            op = f"{p}.actor_overrides[{j}]"
+            cap = ov.get("requires_capability") if isinstance(ov, dict) else None
+            if not isinstance(cap, str) or not cap:
+                d.add(ERROR, "ACCESS_OVERRIDE_CAPABILITY_REQUIRED", op, "requires_capability가 필요합니다")
+                return None
+            n = _access_outcome(ov, op, d, allow_overrides=False)
+            if n is None:
+                return None
+            n["requires_capability"] = cap
+            norm.append(n)
+        out["actor_overrides"] = norm          # 저작 순서 = 평가 순서(첫 일치)
+    else:
+        out["requires_capability"] = oc.get("requires_capability")
+    return out
+
+
+_SEED_KEYS = ("known_places", "known_edges", "familiarity_scopes", "known_access_facts", "route_sets")
+
+
+def _compile_spatial_seeds(raw, place_defs, edges, access, caps, d):
+    """raw spatial_knowledge_seeds {seed_id: SpatialKnowledgeSeed} — 참조 검증만(적용은 H06)."""
+    seeds = raw.get("spatial_knowledge_seeds")
+    if seeds is None:
+        return {}
+    if not isinstance(seeds, dict):
+        d.add(ERROR, "SEEDS_INVALID", "spatial_knowledge_seeds", "spatial_knowledge_seeds는 객체여야 합니다")
+        return {}
+    pair_index = {}
+    for eid, e in edges.items():
+        pair_index.setdefault(e["pair_id"], []).append(eid)
+    out = {}
+    for sid, sd in seeds.items():
+        p = f"spatial_knowledge_seeds.{sid}"
+        if not is_valid_explicit_id(sid) or not isinstance(sd, dict):
+            d.add(ERROR, "SEED_INVALID", p, "seed_id는 명시 id, seed는 객체여야 합니다")
+            continue
+        for k in sd:
+            if k not in _SEED_KEYS:
+                d.add(WARNING, "SEED_UNKNOWN_KEY", f"{p}.{k}", "알 수 없는 seed 키(무시)")
+        if sd.get("route_sets"):
+            d.add(WARNING, "SEED_ROUTE_SETS_DEFERRED", f"{p}.route_sets", "route_sets는 아직 컴파일하지 않습니다")
+        rec, ok = {"seed_id": sid}, True
+        for k, pool, code in (("known_places", place_defs, "SEED_PLACE_UNKNOWN"),
+                              ("familiarity_scopes", place_defs, "SEED_PLACE_UNKNOWN")):
+            vals = _str_list(sd.get(k))
+            if vals is None:
+                d.add(ERROR, "SEED_FIELD_INVALID", f"{p}.{k}", f"{k}는 문자열 목록이어야 합니다")
+                ok = False
+                continue
+            for v in vals:
+                if v not in pool:
+                    d.add(ERROR, code, f"{p}.{k}", f"'{v}'가 places에 없습니다")
+                    ok = False
+            rec[k] = sorted(set(vals))
+        ke = _str_list(sd.get("known_edges"))
+        if ke is None:
+            d.add(ERROR, "SEED_FIELD_INVALID", f"{p}.known_edges", "known_edges는 문자열 목록이어야 합니다")
+            ok, ke = False, []
+        expanded = set()
+        for v in ke:
+            if v in edges:
+                expanded.add(v)
+            elif v in pair_index:
+                expanded.update(pair_index[v])           # pair id = 저작된 양방향 모두
+            else:
+                d.add(ERROR, "SEED_EDGE_UNKNOWN", f"{p}.known_edges", f"정의되지 않은 구간 '{v}'")
+                ok = False
+        rec["known_edges"] = sorted(expanded)
+        facts = sd.get("known_access_facts") or []
+        norm = []
+        if not isinstance(facts, list):
+            d.add(ERROR, "SEED_FIELD_INVALID", f"{p}.known_access_facts", "목록이어야 합니다")
+            ok, facts = False, []
+        for j, f in enumerate(facts):
+            fp = f"{p}.known_access_facts[{j}]"
+            if not isinstance(f, dict) or f.get("ref") not in access["controls"] \
+                    or f.get("observed_result") not in ACCESS_RESULTS:
+                d.add(ERROR, "SEED_ACCESS_FACT_INVALID", fp,
+                      "{ref: control_id, observed_result, observed_state?}가 필요합니다")
+                ok = False
+                continue
+            norm.append({"ref": f["ref"], "observed_result": f["observed_result"],
+                         "observed_state": f.get("observed_state")})
+        rec["known_access_facts"] = sorted(norm, key=lambda x: x["ref"])
+        if ok:
+            out[sid] = rec
     return out
 
 
@@ -766,7 +1165,13 @@ def compile_scenario(raw: dict, scenario_id: str, quests: dict | None = None) ->
 
     actors, actor_order, actor_index = _compile_actors(scenario_id, raw, d)
     places, place_order = _compile_places(raw, actor_index, d)
-    edges = _compile_edges(scenario_id, raw, places, cap["capabilities"], d)
+    modes = _compile_movement_modes(raw, cap["capabilities"], d)
+    access = _compile_access(raw, cap["capabilities"], d)
+    edges = _compile_edges(scenario_id, raw, places, cap["capabilities"], d, modes, access)
+    if edges and "structured_places" in cap["capabilities"] and not modes:
+        d.add(ERROR, "MODES_REQUIRED", "movement_modes",
+              "structured_places 구간을 쓰려면 movement_modes(속도 저작)가 필요합니다")
+    seeds = _compile_spatial_seeds(raw, places, edges, access, cap["capabilities"], d)
     init = _compile_initialization(raw, places, d)
     calendar = _compile_calendar(raw, cap["capabilities"], d)
     infos = {}
@@ -804,6 +1209,10 @@ def compile_scenario(raw: dict, scenario_id: str, quests: dict | None = None) ->
         "place_definitions": places,
         "place_order": place_order,
         "movement_edges": edges,
+        # H03(compiler v2): 이동 방식·접근 정의·공간 지식 seed. 없으면 빈 값.
+        "movement_modes": modes,
+        "access_control_definitions": access,
+        "spatial_knowledge_seeds": seeds,
         "information_definitions": infos,
         "initialization_definitions": init,
         # H03(compiler v2): 정량 시간 달력. 레거시는 None(새 시간 엔진 근거 아님).
@@ -856,6 +1265,8 @@ def summarize(result: CompileResult) -> dict:
             "actors": len(df["actor_definitions"]),
             "places": len(df["place_definitions"]),
             "movement_edges": len(df["movement_edges"]),
+            "movement_modes": len(df["movement_modes"]),
+            "access_controls": len(df["access_control_definitions"]["controls"]),
             "info_npc_inline_secret": sum(1 for i in infos if i["kind"] == "NPC_INLINE_SECRET"),
             "info_quest_hidden": sum(1 for i in infos if i["kind"] == "QUEST_HIDDEN_TRUTH"),
             "start_frames": len(df["initialization_definitions"]["start_frames"]),

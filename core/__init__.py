@@ -50,6 +50,9 @@
 #   canonical_mutation — (H02) INITIALIZATION/ADMIN_EDIT 공통 원자 적용 (production 호출자 0)
 #   world_clock — (H03) 달력·canonical 분 시계
 #   world_schedule — (H03) pending 예약·base quiescence·시간/예약 typed 연산
+#   spatial — (H03) 방향 이동 그래프·정적 가시성·배치/TRANSIT·공간 지식·공간 typed 연산
+#   access — (H03) 접근 규칙 평가기·실제 접근/인지 접근 분리
+#   movement — (H03) 고정 정밀도 소요시간·KnownRoutePlanner·ActualTraversalPlanner
 
 from .constants import (
     __version__,
@@ -230,6 +233,9 @@ from . import world_mutation  # H02: WorldMutationBatch / ProjectedWorld / merge
 from . import canonical_mutation  # H02: INITIALIZATION/ADMIN_EDIT common primitive (production 호출자 0)
 from . import world_clock  # H03: calendar + canonical minute clock
 from . import world_schedule  # H03: pending schedule + base quiescence + time typed ops
+from . import access  # H03: access rule registry + actual vs perceived access
+from . import spatial  # H03: directed movement graph + static visibility + spatial knowledge + typed ops
+from . import movement  # H03: fixed-precision duration + known/actual route planners
 from .cost import (
     extract_token_usage,
     format_cost,
