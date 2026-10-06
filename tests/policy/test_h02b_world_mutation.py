@@ -54,7 +54,7 @@ def _registry():
     reg = WM.OperationRegistry("test")
 
     def set_clock(view, op, payload):
-        return [WM.write(op, "world_clock", ("minute_index",), WM.MERGE_SINGLE_VALUE,
+        return [WM.write(op, "information_state", ("probe",), WM.MERGE_SINGLE_VALUE,
                          payload["minute"])]
 
     def bump_rel(view, op, payload):
@@ -73,7 +73,7 @@ def _registry():
                          payload["id"])]
 
     def set_clock_root(view, op, payload):
-        return [WM.write(op, "world_clock", ("minute_index", "sub"), WM.MERGE_SINGLE_VALUE, 1)]
+        return [WM.write(op, "information_state", ("probe", "sub"), WM.MERGE_SINGLE_VALUE, 1)]
 
     for name, fn in (("set_clock", set_clock), ("bump_rel", bump_rel), ("tag_place", tag_place),
                      ("log_event", log_event), ("spawn", spawn), ("set_clock_sub", set_clock_root)):
@@ -112,13 +112,13 @@ def test_projection_never_mutates_session_and_merges_by_declared_semantics():
     res = WM.project(s, b, _registry())
     assert res.ok, res.conflicts
     w = res.world
-    assert w.get("world_clock", ("minute_index",)) == 30
+    assert w.get("information_state", ("probe",)) == 30
     assert w.get("relationship_state", ("pc", "npc")) == 2
     assert w.get("spatial_state", ("tags",)) == ["lit"]
     assert w.get("event_instances", ("log",)) == [{"e": 1}]
     assert {k: json.dumps(getattr(s, k), sort_keys=True) for k in WS.GAMEPLAY_WORLD_FIELDS} == before
     assert set(res.changed_domains(WM.ProjectedWorld.capture(s))) == {
-        "world_clock", "relationship_state", "spatial_state", "event_instances"}
+        "information_state", "relationship_state", "spatial_state", "event_instances"}
 
 
 def test_single_value_conflict_rejects_without_last_write_wins():
@@ -134,7 +134,7 @@ def test_single_value_conflict_rejects_without_last_write_wins():
     assert set(c.op_ids) == {"o1", "o2"}
     with pytest.raises(WM.WorldProjectionConflict):
         WM.apply_projection(s, res, WM.ProjectedWorld.capture(s))
-    assert s.world_clock == {}
+    assert s.information_state == {}
 
 
 def test_other_conflict_classes():
@@ -152,7 +152,7 @@ def test_other_conflict_classes():
         assert not res.ok and res.conflicts[0].code == code, (code, res.conflicts)
     b = _batch(s, "exp")
     b.add(WM.make_op("o1", "set_clock", "TEST", {"minute": 5},
-                     expected={"domain": "world_clock", "path": ["minute_index"], "value": 99}))
+                     expected={"domain": "information_state", "path": ["probe"], "value": 99}))
     b.freeze()
     assert WM.project(s, b, _registry()).conflicts[0].code == "EXPECTATION_FAILED"
     b = _batch(s, "set")
@@ -169,8 +169,10 @@ def test_world_version_and_unknown_domains_are_not_writable_and_registry_is_empt
     with pytest.raises(WM.WorldMutationError):
         WM.write(op, "npcs", ("a",), WM.MERGE_SINGLE_VALUE, "x")
     with pytest.raises(WM.WorldMutationError):
-        WM.write(op, "world_clock", (), WM.MERGE_SINGLE_VALUE, 1)
-    assert WM.PRODUCTION_REGISTRY.op_types() == ()
+        WM.write(op, "information_state", (), WM.MERGE_SINGLE_VALUE, 1)
+    # H03: production 레지스트리는 등록된 typed 시간·공간 연산만 담는다(범용 경로 setter 없음)
+    assert all(t.isupper() and "PATH" not in t and "SET_ANY" not in t
+               for t in WM.PRODUCTION_REGISTRY.op_types())
     for bad in ({"f": lambda: 1}, {"s": {1, 2}}, {1: "x"}):
         with pytest.raises(WM.WorldMutationError):
             WM.make_op("o", "t", "TEST", bad)
@@ -301,13 +303,13 @@ async def test_non_empty_typed_batch_applies_inside_commit_and_rewinds(rig, inje
     tx = await _run_turn(r)
     inject.undo()
     assert tx.status == tt.TurnStatus.COMMITTED
-    assert s.world_clock == {"minute_index": 45}
-    assert tx.preparation.ready_proof.world_changed_domains == ("world_clock",)
-    assert _disk(s)["world_clock"] == {"minute_index": 45}
+    assert s.information_state == {"probe": 45}
+    assert tx.preparation.ready_proof.world_changed_domains == ("information_state",)
+    assert _disk(s)["information_state"] == {"probe": 45}
     await _run_turn(r)                                     # 빈 묶음 턴
-    assert s.world_clock == {"minute_index": 45}
+    assert s.information_state == {"probe": 45}
     res = await r.gm.history_rewind(s, 1)
-    assert res["ok"] and s.world_clock == {"minute_index": 45} and s.world_version["ordinal"] == 1
+    assert res["ok"] and s.information_state == {"probe": 45} and s.world_version["ordinal"] == 1
 
 
 async def test_projection_conflict_is_deterministic_failure_not_retry(rig, inject):
@@ -332,7 +334,7 @@ async def test_projection_conflict_is_deterministic_failure_not_retry(rig, injec
     # H02 보정 4: READY 실패 처리가 준비 객체의 원인 코드를 트랜잭션에 보존한다
     assert tx.failure_code == "WORLD_PROJECTION_CONFLICT" and tx.failure_stage == "READY_PREDICATE"
     assert not s.extraction_retry_ctx
-    assert s.turn_count == turn_before and s.world_version == wv_before and s.world_clock == {}
+    assert s.turn_count == turn_before and s.world_version == wv_before and s.information_state == {}
     assert "PREPARED" not in _phases(s, tx)
     assert tt.FailureCode.WORLD_PROJECTION_CONFLICT.value == "WORLD_PROJECTION_CONFLICT"
 
@@ -382,7 +384,7 @@ async def test_pre_persist_failure_rolls_back_world_version_and_domains(rig, inj
     tx = await _run_turn(r)
     inject.undo()
     assert tx.status == tt.TurnStatus.FAILED_SYSTEM
-    assert s.world_version == v1 and s.world_clock == {}
+    assert s.world_version == v1 and s.information_state == {}
     assert _disk(s)["world_version"] == v1
 
 
@@ -491,7 +493,7 @@ async def test_canonical_mutation_initialization_and_admin_edit():
     res = await coord.apply(s, b, cause_kind=WS.CAUSE_INITIALIZATION, cause_id="init")
     assert res.outcome == CM.OUTCOME_COMMITTED, res
     assert s.world_version["cause_kind"] == "INITIALIZATION" and s.world_version["ordinal"] == 1
-    assert s.world_clock == {"minute_index": 480}
+    assert s.information_state == {"probe": 480}
     assert json.load(open("sessions/cm-1/data.json", encoding="utf-8"))["world_version"] == s.world_version
     assert [e["phase"] for e in CM.read_journal("cm-1")] == ["PREPARED", "PERSISTED", "COMMITTED"]
     # ADMIN no-op: 같은 값 → mutation·version 없음
@@ -535,7 +537,7 @@ async def test_canonical_mutation_rejects_during_active_turn_and_rolls_back(monk
     monkeypatch.setattr(core.io, "write_session_strict_locked", _boom)
     res = await coord.apply(s, b, cause_kind=WS.CAUSE_ADMIN_EDIT, cause_id="a")
     assert res.outcome == CM.OUTCOME_FAILED_PRE_PERSIST
-    assert s.world_version is None and s.world_clock == {}
+    assert s.world_version is None and s.information_state == {}
     assert [e["phase"] for e in CM.read_journal("cm-2")] == ["PREPARED", "ABORTED"]
 
 

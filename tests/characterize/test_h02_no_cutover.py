@@ -7,7 +7,10 @@ ADMIN_EDIT 배선(H06)이 들어올 때 이 테스트를 함께 갱신한다.
 H02-R24  공통 정본 변이 primitive(canonical_mutation)의 production 호출자 0
 H02-R26  새 모듈은 provider·Discord를 쓰지 않는다(판단층위 캐시·provider 호출 수 불변)
          + world_version 직접 writer = CommitCoordinator·canonical_mutation(·world_state 초기화)뿐
-         + production 연산 레지스트리는 비어 있다(임의 경로 setter 없음)
+         + production 연산 레지스트리는 H03 typed handler만 담는다(임의 경로 setter 없음)
+H03 갱신: 시간·예약·공간 handler가 production 레지스트리에 등록되고 도메인 모듈이
+         world_mutation을 쓴다. 그 연산을 만드는 production 플레이어 경로(producer)는 여전히 0
+         (tests/characterize/test_h03_no_cutover.py).
 """
 from __future__ import annotations
 
@@ -23,6 +26,8 @@ from tests.conftest import REPO_ROOT, source_of
 pytestmark = pytest.mark.characterize
 
 NEW_MODULES = ("world_state", "world_mutation", "canonical_mutation")
+# H03 시간·공간 도메인 모듈(typed handler·순수 질의) — world_mutation을 import한다
+H03_DOMAIN_MODULES = ("world_clock.py", "world_schedule.py", "spatial.py", "access.py", "movement.py")
 
 
 def _production_files():
@@ -63,7 +68,7 @@ def test_canonical_mutation_has_no_production_caller():
 def test_world_mutation_users_are_the_commit_owners_only():
     allowed = {os.path.join("core", f) for f in (
         "world_mutation.py", "canonical_mutation.py", "turn_preparation.py",
-        "commit_coordinator.py", "__init__.py")}
+        "commit_coordinator.py", "__init__.py") + H03_DOMAIN_MODULES}
     hits = [_rel(p) for p in _production_files()
             if _rel(p) not in allowed and _references(p, "world_mutation")]
     assert hits == [], hits
@@ -84,9 +89,14 @@ def test_world_version_direct_writers():
     assert {f for p, f in writers} <= {"world_version"}, writers   # 다른 도메인은 apply_projection만
 
 
-def test_production_registry_is_empty_and_never_registered():
-    assert WM.PRODUCTION_REGISTRY.op_types() == ()
+def test_production_registry_holds_only_h03_typed_handlers():
+    import core
+    expected = set(core.world_schedule.TIME_OP_TYPES) | set(getattr(core, "spatial_ops_types", ()))
+    assert set(WM.PRODUCTION_REGISTRY.op_types()) == expected
+    # 등록은 world_mutation의 단일 등록 함수만 한다(도메인 모듈 register(registry) 위임)
     for p in _production_files():
+        if _rel(p) == os.path.join("core", "world_mutation.py"):
+            continue
         assert "PRODUCTION_REGISTRY.register" not in open(p, encoding="utf-8").read(), _rel(p)
 
 

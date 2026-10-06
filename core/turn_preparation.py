@@ -837,6 +837,8 @@ class ReadyProof:
     baseline_world_version_id: str | None = None
     definition_revision: str | None = None
     world_changed_domains: tuple = ()
+    # H03: 투영된 세계의 base quiescence 증명(시계·예약). 사건 cascade 조건은 H04가 확장.
+    base_quiescence: dict | None = None
 
 
 # 되감기/커밋 소유 정본 도메인(§27). 백그라운드 압축 도메인(compressed_memory,
@@ -1008,6 +1010,7 @@ class TurnPreparation:
         self.world_projection_source = None      # 투영 원본 ProjectedWorld
         self.world_mutation_digest = None
         self.world_conflicts: list = []          # WORLD_PROJECTION_CONFLICT 진단(재시도 대상 아님)
+        self.world_quiescence = None             # H03: BaseQuiescenceReport(READY 증명)
 
     # ── 정체성 ──
     def identity(self) -> tuple:
@@ -1339,6 +1342,17 @@ def _freeze_and_project_world(session, prep) -> list:
         prep.world_conflicts = [c.to_dict() for c in result.conflicts]
         prep.failure_code = _wm.WORLD_PROJECTION_CONFLICT
         return ["world:projection_conflict:" + ",".join(c.code for c in result.conflicts)]
+    # H03: 실제 base quiescence 증명 — 투영된 세계에 due ≤ now pending 예약이 남으면 READY 불가.
+    #   결정적 세계 상태 문제이므로 WORLD_PROJECTION_CONFLICT 계열(재시도 대상 아님).
+    from . import world_schedule as _sched
+    q = _sched.base_quiescence_of(result.world)
+    prep.world_quiescence = q
+    if not q.quiescent:
+        prep.world_conflicts = [{"failure_class": _wm.WORLD_PROJECTION_CONFLICT,
+                                 "code": "NOT_QUIESCENT", "reasons": list(q.reasons),
+                                 "overdue_ids": list(q.overdue_ids)}]
+        prep.failure_code = _wm.WORLD_PROJECTION_CONFLICT
+        return ["world:not_quiescent"]
     prep.world_projection = result
     prep.world_projection_source = source
     prep.world_mutation_digest = digest
@@ -1450,6 +1464,7 @@ def transition_to_ready(session, prep):
         baseline_world_version_id=_world_state.version_id_of(prep.baseline_world_version),
         definition_revision=prep.baseline_definition_revision,
         world_changed_domains=prep.world_projection.changed_domains(prep.world_projection_source),
+        base_quiescence=prep.world_quiescence.to_dict() if prep.world_quiescence else None,
     )
     assert not changed, "evaluate_ready가 정본 변화를 거부했어야 함"   # B-C1 방어
     _tx.mark_transaction_status(session, prep.transaction_id,

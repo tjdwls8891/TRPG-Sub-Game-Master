@@ -37,7 +37,13 @@ MERGE_SINGLE_VALUE = "SINGLE_VALUE"     # 같은 칸의 서로 다른 값 = 충�
 MERGE_SET_LIKE = "SET_LIKE"             # 원소 추가/제거 — 같은 원소의 추가·제거 동시 = 충돌
 MERGE_ADDITIVE = "ADDITIVE"             # 수치 증분의 합
 MERGE_APPEND_DEDUPE = "APPEND_DEDUPE"   # 묶음 순서대로 덧붙이되 정규 동일값은 한 번
-MERGE_SEMANTICS = (MERGE_SINGLE_VALUE, MERGE_SET_LIKE, MERGE_ADDITIVE, MERGE_APPEND_DEDUPE)
+# H03: 키 삭제(예약 취소·소비 등 live 집합에서 제거). handler만 낼 수 있는 typed 의미이며
+#   임의 경로 삭제 기능이 아니다. 같은 칸의 삭제끼리는 멱등, 삭제와 다른 쓰기의 혼용은 충돌,
+#   없는 키의 삭제도 충돌이다(조용한 무시 금지).
+MERGE_DELETE = "DELETE"
+MERGE_SEMANTICS = (MERGE_SINGLE_VALUE, MERGE_SET_LIKE, MERGE_ADDITIVE, MERGE_APPEND_DEDUPE,
+                   MERGE_DELETE)
+_DELETED = object()
 
 # 충돌·실패 분류 — provider 일시 실패와 다른 결정적 세계 충돌 계열
 WORLD_PROJECTION_CONFLICT = "WORLD_PROJECTION_CONFLICT"
@@ -363,7 +369,8 @@ class OperationRegistry:
         return tuple(sorted(self._handlers))
 
 
-# H02 production 레지스트리 — 비어 있다. 실제 도메인 연산은 H03 이후 typed handler로 등록.
+# production 레지스트리 — H03부터 시간·예약·공간·접근 typed handler가 등록된다(파일 끝).
+#   등록 ≠ 사용: H03에서 이 연산을 만드는 production 플레이어 경로(producer)는 없다.
 PRODUCTION_REGISTRY = OperationRegistry("production")
 
 
@@ -378,6 +385,8 @@ def write(op: WorldMutationOp, domain: str, path, semantics: str, value) -> Worl
         raise WorldMutationError(f"{op.op_id}: 경로는 비어 있지 않은 문자열 키의 나열이어야 합니다")
     if semantics == MERGE_ADDITIVE and (not isinstance(value, (int, float)) or isinstance(value, bool)):
         raise WorldMutationError(f"{op.op_id}: ADDITIVE 값은 수치여야 합니다")
+    if semantics == MERGE_DELETE and value is not None:
+        raise WorldMutationError(f"{op.op_id}: DELETE 값은 None이어야 합니다")
     if semantics == MERGE_SET_LIKE and not (isinstance(value, dict) and set(value) <= {"add", "remove"}):
         raise WorldMutationError(f"{op.op_id}: SET_LIKE 값은 {{add:[...], remove:[...]}} 이어야 합니다")
     return WorldWrite(domain, path, semantics, _canonical_copy(value, f"{op.op_id}.write"), op.op_id)
@@ -407,6 +416,14 @@ class ProjectedWorld:
             cur = cur[p]
         return copy.deepcopy(cur)
 
+    def has(self, domain: str, path=()) -> bool:
+        cur = self._d[domain]
+        for p in path:
+            if not isinstance(cur, dict) or p not in cur:
+                return False
+            cur = cur[p]
+        return True
+
     def domain(self, name: str):
         return copy.deepcopy(self._d[name])
 
@@ -429,7 +446,10 @@ class ProjectedWorld:
                 raise WorldProjectionConflict([Conflict(
                     "PATH_NOT_MAPPING", domain, path, (), f"{domain}.{'.'.join(path)} 중간이 객체가 아닙니다")])
             cur = nxt
-        cur[path[-1]] = value
+        if value is _DELETED:
+            cur.pop(path[-1], None)
+        else:
+            cur[path[-1]] = value
 
 
 @dataclass(frozen=True)
@@ -483,6 +503,8 @@ def _merge(writes: list, base):
         return None, f"병합 의미 혼용 {sorted(sems)}"
     sem = sems.pop()
     writes = _canon_order(writes)
+    if sem == MERGE_DELETE:
+        return _DELETED, None
     if sem == MERGE_SINGLE_VALUE:
         vals = {canonical_json(w.value) for w in writes}
         if len(vals) > 1:
@@ -609,6 +631,8 @@ def project(source, batch: WorldMutationBatch, registry: OperationRegistry) -> P
         for key in keys:
             ws = grouped[key]
             value, err = _merge(ws, layer_base.get(key[0], key[1]))
+            if value is _DELETED and not layer_base.has(key[0], key[1]):
+                value, err = None, "없는 키를 삭제하려 합니다"
             if err:
                 conflicts.append(Conflict("MERGE_CONFLICT", key[0], key[1],
                                           tuple(sorted({w.op_id for w in ws})),
@@ -651,3 +675,12 @@ def apply_projection(session, result: ProjectionResult, source: ProjectedWorld) 
     for k in changed:
         setattr(session, k, result.world.domain(k))
     return changed
+
+
+# ── H03: production typed handler 등록(도메인 모듈이 world_mutation을 import하므로 맨 끝) ──
+def _register_production_handlers() -> None:
+    from . import world_schedule as _sched
+    _sched.register(PRODUCTION_REGISTRY)
+
+
+_register_production_handlers()

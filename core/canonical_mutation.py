@@ -230,6 +230,12 @@ class CanonicalMutationCoordinator:
         if not result.ok:
             return CanonicalMutationResult(OUTCOME_CONFLICT, reason=_wm.WORLD_PROJECTION_CONFLICT,
                                            conflicts=result.conflicts, batch_digest=digest)
+        # H03: 안정 세계 불변식 — INIT/ADMIN 결과도 base quiescent여야 한다.
+        from . import world_schedule as _sched
+        q = _sched.base_quiescence_of(result.world)
+        if not q.quiescent:
+            return CanonicalMutationResult(OUTCOME_CONFLICT, reason="NOT_QUIESCENT: " + "; ".join(q.reasons),
+                                           batch_digest=digest)
         changed = result.changed_domains(source_world)
         source_wv = copy.deepcopy(getattr(session, "world_version", None))
         if cause_kind == _ws.CAUSE_ADMIN_EDIT and not changed:

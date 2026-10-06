@@ -267,7 +267,7 @@ def test_dynamic_actor_location_requires_structured_places_as_error():
 
 
 def test_reserved_dynamic_keys_warn_not_silently_ignored():
-    res = dc.compile_scenario(_mini(calendar={"start": "2031-03-01"}), "t")
+    res = dc.compile_scenario(_mini(event_templates={"ev": {"note": "x"}}), "t")
     assert res.ok and "RESERVED_KEY_UNCOMPILED" in _codes(res, "WARNING")
 
 

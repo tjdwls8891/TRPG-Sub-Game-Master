@@ -44,7 +44,8 @@ from .world_ids import (
 
 # 컴파일러 규칙 버전. 같은 입력의 컴파일 출력이 바뀌는 변경을 하면 올린다.
 # 시나리오 스키마 버전·세션 SCHEMA_VERSION·정의 revision과는 별개 의미다(DESIGN 08 §94).
-COMPILER_VERSION = 1
+# v2(H03): quantitative_time(달력)·structured_places(이동 구간·이동 방식·접근) 도메인 검증.
+COMPILER_VERSION = 2
 
 DEFINITION_FORMAT = "indaim.world_definition"
 DEFINITION_FORMAT_VERSION = 1
@@ -68,7 +69,7 @@ KNOWN_CAPABILITIES = {
 
 # 이 컴파일러 버전이 도메인 검증까지 끝내는 capability. 나머지는 선언을 기록하되
 # WARNING(CAP_VALIDATION_DEFERRED)으로 표시한다 — 해당 WP가 검증기를 넣을 때 옮긴다.
-VALIDATED_CAPABILITIES = frozenset({"stable_actors"})
+VALIDATED_CAPABILITIES = frozenset({"stable_actors", "quantitative_time"})
 
 # capability 의존성(DESIGN 08 §4). (요구 capability, 심각도)
 # dynamic_actor_location → structured_places 는 사용자 결정(H01 보정)으로 ERROR.
@@ -82,7 +83,7 @@ CAPABILITY_DEPENDENCIES = {
 # 새 스키마용으로 예약된 키. 컴파일러 v1은 구조화하지 않으므로, 있으면 경고한다
 # (legacy_source 에 원문으로 남지만 어떤 엔진도 읽지 않는다는 뜻).
 RESERVED_UNCOMPILED_KEYS = (
-    "information_definitions", "event_templates", "calendar", "movement_modes",
+    "information_definitions", "event_templates", "movement_modes",
     "access_control_definitions", "visibility_relations", "initialization_definitions",
     "spatial_knowledge_seeds",
 )
@@ -591,6 +592,94 @@ def _parse_slot(spec):
     return {"spec": spec, "source": "literal", "ref": None}
 
 
+# ── 달력 (H03 — quantitative_time) ───────────────────────────
+
+_CALENDAR_KEYS = ("calendar_id", "type", "month_lengths", "dayparts")
+
+
+def _compile_calendar(raw, caps, d):
+    """raw `calendar` → 컴파일된 달력. quantitative_time 선언 시 필수 — 12×30 암묵 달력 없음.
+
+    {"calendar_id": str, "type": "GREGORIAN"|"FIXED_CUSTOM", "month_lengths": [int,...](FIXED_CUSTOM),
+     "dayparts": {id: {"start": "HH:MM", "end": "HH:MM", "representative": "HH:MM"}}}
+    시간대 구간은 [start, end) 반열림, start > end는 자정을 넘는다. 구간 겹침은 ERROR.
+    시작 날짜·시각의 세션 적용은 초기화(H06) 몫이다.
+    """
+    from . import world_clock as _wc
+    cal = raw.get("calendar")
+    if cal is None:
+        if "quantitative_time" in caps:
+            d.add(ERROR, "CALENDAR_REQUIRED", "calendar",
+                  "quantitative_time에는 명시 달력이 필요합니다(legacy 12×30을 암묵 달력으로 쓰지 않음)")
+        return None
+    p = "calendar"
+    if not isinstance(cal, dict):
+        d.add(ERROR, "CALENDAR_INVALID", p, "calendar는 객체여야 합니다")
+        return None
+    for k in cal:
+        if k not in _CALENDAR_KEYS:
+            d.add(WARNING, "CALENDAR_UNKNOWN_KEY", f"{p}.{k}", "알 수 없는 달력 키")
+    errs_before = len([x for x in d.items if x.severity == ERROR])
+    cid = cal.get("calendar_id")
+    if not is_valid_explicit_id(cid):
+        d.add(ERROR, "CALENDAR_ID_INVALID", f"{p}.calendar_id", "calendar_id가 필요합니다(명시 id 형식)")
+    ctype = cal.get("type")
+    if ctype not in _wc.CALENDAR_TYPES:
+        d.add(ERROR, "CALENDAR_TYPE_INVALID", f"{p}.type", f"type은 {list(_wc.CALENDAR_TYPES)} 중 하나여야 합니다")
+    ml = cal.get("month_lengths")
+    if ctype == _wc.CALENDAR_FIXED_CUSTOM:
+        if not (isinstance(ml, list) and ml and all(_is_pos_int(x) for x in ml)):
+            d.add(ERROR, "CALENDAR_MONTH_LENGTHS_INVALID", f"{p}.month_lengths",
+                  "FIXED_CUSTOM은 양의 정수 month_lengths 목록이 필요합니다")
+    elif ml is not None:
+        d.add(ERROR, "CALENDAR_MONTH_LENGTHS_UNEXPECTED", f"{p}.month_lengths",
+              "GREGORIAN 달력에는 month_lengths를 쓰지 않습니다")
+    dayparts = cal.get("dayparts")
+    compiled_dp, covered = {}, {}
+    if not isinstance(dayparts, dict) or not dayparts:
+        d.add(ERROR, "CALENDAR_DAYPARTS_REQUIRED", f"{p}.dayparts", "시간대(dayparts) 정의가 필요합니다")
+    else:
+        for dp_id, dp in dayparts.items():
+            dpp = f"{p}.dayparts.{dp_id}"
+            if not isinstance(dp, dict) or set(dp) != {"start", "end", "representative"}:
+                d.add(ERROR, "DAYPART_INVALID", dpp, "start·end·representative('HH:MM')가 필요합니다")
+                continue
+            try:
+                st, en, rep = (_wc.parse_hhmm(dp["start"]), _wc.parse_hhmm(dp["end"]),
+                               _wc.parse_hhmm(dp["representative"]))
+            except _wc.ClockError as e:
+                d.add(ERROR, "DAYPART_INVALID", dpp, str(e))
+                continue
+            if st == en:
+                d.add(ERROR, "DAYPART_EMPTY", dpp, "start와 end가 같습니다")
+                continue
+            if not _wc.daypart_contains(st, en, rep):
+                d.add(ERROR, "DAYPART_REPRESENTATIVE_OUTSIDE", dpp, "대표 시각이 구간 밖입니다")
+            for minute in range(1440):
+                if _wc.daypart_contains(st, en, minute):
+                    if minute in covered:
+                        d.add(ERROR, "DAYPART_OVERLAP", dpp,
+                              f"'{covered[minute]}'과 {_wc.format_hhmm(minute)}에서 겹칩니다")
+                        break
+                    covered[minute] = dp_id
+            compiled_dp[dp_id] = {"start": dp["start"], "end": dp["end"],
+                                  "representative": dp["representative"]}
+    if len([x for x in d.items if x.severity == ERROR]) > errs_before:
+        return None
+    if "quantitative_time" not in caps:
+        d.add(WARNING, "CALENDAR_WITHOUT_CAPABILITY", p,
+              "quantitative_time capability 없이 달력이 저작됐습니다(컴파일되지만 런타임 근거 아님)")
+    compiled = {
+        "calendar_id": cid,
+        "calendar_type": ctype,
+        "month_lengths": list(ml) if ctype == _wc.CALENDAR_FIXED_CUSTOM else None,
+        "dayparts": compiled_dp,
+        "daypart_order": sorted(compiled_dp, key=lambda k: (_wc.parse_hhmm(compiled_dp[k]["start"]), k)),
+    }
+    _wc.Calendar(compiled)          # 런타임 계약으로 생성 가능한지(실패 시 컴파일러 버그)
+    return compiled
+
+
 def _compile_initialization(raw, place_defs, d):
     """start_frames/start_points → 초기화 정의.
 
@@ -679,6 +768,7 @@ def compile_scenario(raw: dict, scenario_id: str, quests: dict | None = None) ->
     places, place_order = _compile_places(raw, actor_index, d)
     edges = _compile_edges(scenario_id, raw, places, cap["capabilities"], d)
     init = _compile_initialization(raw, places, d)
+    calendar = _compile_calendar(raw, cap["capabilities"], d)
     infos = {}
     for src in (_compile_inline_secrets(raw, actors, d),
                 _compile_quest_hidden(scenario_id, quests, places, d)):
@@ -716,6 +806,8 @@ def compile_scenario(raw: dict, scenario_id: str, quests: dict | None = None) ->
         "movement_edges": edges,
         "information_definitions": infos,
         "initialization_definitions": init,
+        # H03(compiler v2): 정량 시간 달력. 레거시는 None(새 시간 엔진 근거 아님).
+        "calendar": calendar,
         # 현행 런타임은 raw 모양을 직접 소비한다. 세션 바인딩(H10) 뒤에도 정의 하나로
         # 그 모양을 복원할 수 있도록 원문을 보존하고, dict 순서(장소 순회·NPC 전개
         # 순서가 의존)까지 순서 지문으로 정의에 묶는다.

@@ -39,7 +39,7 @@ def _reg_with_reader():
     reg = _registry()
 
     def read_clock(view, op, payload):
-        seen = view.get("world_clock", ("minute_index",))
+        seen = view.get("information_state", ("probe",))
         return [WM.write(op, "event_instances", ("seen", payload["slot"]), WM.MERGE_SINGLE_VALUE,
                          "none" if seen is None else seen)]
     reg.register("read_clock", read_clock)
@@ -62,7 +62,7 @@ def _project(ops, base=None):
 
 def test_external_op_mutation_after_add_does_not_reach_batch():
     op = WM.make_op("o1", "set_clock", "T", {"minute": 10},
-                    expected={"domain": "world_clock", "path": ["minute_index"], "value": None})
+                    expected={"domain": "information_state", "path": ["probe"], "value": None})
     b = WM.WorldMutationBatch(batch_id="b", outer_origin=WS.CAUSE_ADMIN_EDIT,
                               source_world_version_id=None, definition_revision=None)
     b.add(op)
@@ -74,7 +74,7 @@ def test_external_op_mutation_after_add_does_not_reach_batch():
     op.payload["minute"] = 77
     assert b.digest_matches() and b.digest == d
     res = WM.project(_sess("e"), b, _registry())
-    assert res.ok and res.world.get("world_clock", ("minute_index",)) == 10
+    assert res.ok and res.world.get("information_state", ("probe",)) == 10
 
 
 def test_returned_operations_are_copies_and_identity_is_read_only():
@@ -87,7 +87,7 @@ def test_returned_operations_are_copies_and_identity_is_read_only():
     ops = b.operations
     ops[0].payload["minute"] = 55
     assert b.operations[0].payload == {"minute": 10} and b.digest_matches() and b.digest == d
-    assert WM.project(_sess("r"), b, _registry()).world.get("world_clock", ("minute_index",)) == 10
+    assert WM.project(_sess("r"), b, _registry()).world.get("information_state", ("probe",)) == 10
     # resolved_payload는 전달된 객체 내용이 아니라 내부 스냅샷을 쓴다
     assert b.resolved_payload(ops[0]) == {"minute": 10}
     for attr in ("batch_id", "outer_origin", "transaction_id", "source_world_version_id",
@@ -133,14 +133,14 @@ def test_independent_ops_read_the_same_base_regardless_of_insertion_order():
     for res in (res1, res2):
         assert res.ok
         assert res.world.get("event_instances", ("seen", "r")) == "none"   # 형제의 쓰기를 못 본다
-        assert res.world.get("world_clock", ("minute_index",)) == 10
+        assert res.world.get("information_state", ("probe",)) == 10
     assert res1.world.digest() == res2.world.digest()
 
 
 def test_causal_same_key_write_is_ordered_not_conflict():
     res = _project([WM.make_op("p", "set_clock", "T", {"minute": 10}),
                     WM.make_op("c", "set_clock", "T", {"minute": 20}, causal_parent_op_ids=("p",))])
-    assert res.ok and res.world.get("world_clock", ("minute_index",)) == 20
+    assert res.ok and res.world.get("information_state", ("probe",)) == 20
 
 
 def test_independent_same_key_conflicts_in_same_and_different_layers():
@@ -228,7 +228,7 @@ async def test_two_concurrent_canonical_mutations_cannot_overwrite_newer_state(m
     ra, rb = await asyncio.gather(ta, tb)
     assert ra.outcome == CM.OUTCOME_COMMITTED
     assert rb.outcome == CM.OUTCOME_REJECTED and "stale" in rb.reason
-    assert s.world_clock == {"minute_index": 100}
+    assert s.information_state == {"probe": 100}
     assert s.world_version == ra.target_world_version
 
 
@@ -249,7 +249,7 @@ async def test_precheck_runs_under_commit_serialization_lock():
     lock.release()
     res = await t
     assert res.outcome == CM.OUTCOME_REJECTED and "stale" in res.reason
-    assert s.world_clock == {}
+    assert s.information_state == {}
 
 
 async def test_canonical_mutation_racing_a_player_turn_commit(rig, monkeypatch):
@@ -270,6 +270,6 @@ async def test_canonical_mutation_racing_a_player_turn_commit(rig, monkeypatch):
     res = await admin
     assert tx.status == tt.TurnStatus.COMMITTED
     assert res.outcome == CM.OUTCOME_REJECTED
-    assert s.world_clock == {}                    # 오래된 투영이 커밋을 덮어쓰지 않았다
+    assert s.information_state == {}                    # 오래된 투영이 커밋을 덮어쓰지 않았다
     assert s.world_version["cause_kind"] == "PLAYER_TURN" and s.world_version["cause_id"] == tx.transaction_id
     assert CM.read_journal(s.session_id) == []    # PREPARED조차 남기지 않음
