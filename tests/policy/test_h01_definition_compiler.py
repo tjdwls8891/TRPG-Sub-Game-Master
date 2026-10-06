@@ -252,9 +252,18 @@ def test_capability_declaration_validation():
         res = dc.compile_scenario(_mini(scenario_schema=meta), "t")
         assert not res.ok and res.revision is None, code
         assert code in _codes(res, "ERROR"), (code, _codes(res))
-    soft = dc.compile_scenario(_mini(scenario_schema={"version": 1, "capabilities": {
+
+
+def test_dynamic_actor_location_requires_structured_places_as_error():
+    """H01 보정: dynamic_actor_location → structured_places 의존은 ERROR."""
+    bad = dc.compile_scenario(_mini(scenario_schema={"version": 1, "capabilities": {
         "dynamic_actor_location": 1}}), "t")
-    assert soft.ok and "CAP_DEPENDENCY_MISSING" in _codes(soft, "WARNING")
+    assert not bad.ok and bad.revision is None
+    assert "CAP_DEPENDENCY_MISSING" in _codes(bad, "ERROR")
+    assert "CAP_DEPENDENCY_MISSING" not in _codes(bad, "WARNING")
+    good = dc.compile_scenario(_mini(scenario_schema={"version": 1, "capabilities": {
+        "dynamic_actor_location": 1, "structured_places": 1}}), "t")
+    assert good.ok and "CAP_DEPENDENCY_MISSING" not in _codes(good)
 
 
 def test_reserved_dynamic_keys_warn_not_silently_ignored():
@@ -275,6 +284,27 @@ def test_actor_identity_is_separate_from_display_name():
     sec = [i for i in df["information_definitions"].values() if i["kind"] == "NPC_INLINE_SECRET"]
     assert len(sec) == 1 and sec[0]["owner_actor_id"] == aid
     assert sec[0]["info_id"] == wid.npc_inline_secret_info_id(aid)
+
+
+def test_default_npcs_key_rename_without_explicit_id_is_id_migration():
+    """명시 ID 없는 저작 NPC의 사전 키 변경은 ActorId 변경(= ID migration)이다.
+
+    표시 이름(name) 변경은 ID를 유지하지만, 키는 정체성 입력이다. 명시 actor_id가
+    있으면 키를 바꿔도 ID가 유지된다.
+    """
+    base = dc.compile_scenario(_mini(), "t").definition
+    rekeyed = _mini()
+    rekeyed["default_npcs"] = {("강철수_개명" if k == "강철수" else k): v
+                               for k, v in rekeyed["default_npcs"].items()}
+    df = dc.compile_scenario(rekeyed, "t").definition
+    assert df["actor_index"]["강철수_개명"] != base["actor_index"]["강철수"]
+    assert "강철수" not in df["actor_index"]
+
+    pinned, pinned_rekeyed = _mini(), _mini()
+    pinned["default_npcs"]["강철수"]["actor_id"] = "npc.kang"
+    pinned_rekeyed["default_npcs"] = {("강철수_개명" if k == "강철수" else k): v
+                                      for k, v in pinned["default_npcs"].items()}
+    assert dc.compile_scenario(pinned_rekeyed, "t").definition["actor_index"]["강철수_개명"] == "npc.kang"
 
 
 def test_explicit_actor_id_rules():
@@ -304,11 +334,46 @@ def test_quest_hidden_compile_and_identity():
     infos = [i for i in res.definition["information_definitions"].values()
              if i["kind"] == "QUEST_HIDDEN_TRUTH"]
     assert len(infos) == 1 and infos[0]["quest_id"] == "q1"
-    assert infos[0]["info_id"] == wid.quest_hidden_info_id("t", "q1", "a")
+    assert infos[0]["info_id"] == wid.quest_hidden_info_id("t", "q1")
+    assert infos[0]["quest_version"] == "a"                # version은 메타데이터로만 남는다
     assert "QUEST_HIDDEN_NO_TRUTH" not in _codes(res)      # 빈 hidden은 '없음'(quest.py와 동일)
 
-    dup = {"quests": [{"id": "q1", "version": "a"}, {"id": "q1", "version": "a"}]}
-    assert "QUEST_IDENTITY_DUPLICATE" in _codes(dc.compile_scenario(_mini(), "t", dup), "ERROR")
+    # 현행 런타임(quest._find_quest)은 id만으로 찾는다 → 같은 id의 다른 version도 ERROR
+    for dup in ({"quests": [{"id": "q1", "version": "a"}, {"id": "q1", "version": "a"}]},
+                {"quests": [{"id": "q1", "version": "a"}, {"id": "q1", "version": "b"}]}):
+        res = dc.compile_scenario(_mini(), "t", dup)
+        assert not res.ok and "QUEST_ID_DUPLICATE" in _codes(res, "ERROR")
+
+
+def test_quest_hidden_info_id_survives_version_and_text_change():
+    def _id(version, truth):
+        q = {"quests": [{"id": "q1", "version": version, "filters": {}, "hidden": {"truth": truth}}]}
+        df = dc.compile_scenario(_mini(), "t", q).definition
+        (iid, rec), = [(k, v) for k, v in df["information_definitions"].items()
+                       if v["kind"] == "QUEST_HIDDEN_TRUTH"]
+        return iid, rec
+    a, ra = _id("a", "물가는 위험하다")
+    b, rb = _id("b", "물가는 감염자가 모이는 자리다")
+    c, _ = _id(None, "물가는 위험하다")
+    assert a == b == c == wid.quest_hidden_info_id("t", "q1")
+    assert (ra["quest_version"], rb["quest_version"]) == ("a", "b")
+    assert ra["proposition"] != rb["proposition"]
+    assert a != wid.quest_hidden_info_id("t", "q2")
+
+
+def test_compiler_version_is_bound_into_revision(monkeypatch):
+    raw = _mini()
+    r1 = dc.compile_scenario(copy.deepcopy(raw), "t")
+    assert r1.definition["compiler_version"] == dc.COMPILER_VERSION == r1.compiler_version
+    monkeypatch.setattr(dc, "COMPILER_VERSION", dc.COMPILER_VERSION + 1)
+    r2 = dc.compile_scenario(copy.deepcopy(raw), "t")
+    assert r2.definition["compiler_version"] == r1.definition["compiler_version"] + 1
+    assert r2.revision != r1.revision                       # 같은 원본, 다른 컴파일 의미 → 다른 revision
+    assert r2.revision == dc.definition_revision(r2.definition)
+    # 바뀐 부분은 compiler_version 하나뿐이다
+    d1, d2 = dict(r1.definition), dict(r2.definition)
+    d1.pop("compiler_version"); d2.pop("compiler_version")
+    assert d1 == d2
 
 
 # ── 장소·구간 sugar ─────────────────────────────────────────
@@ -369,6 +434,7 @@ def test_snapshot_roundtrip_atomic_and_hash_verified():
     assert path == os.path.join("sessions", "s1", "definition_snapshot.json") and os.path.isfile(path)
     assert not [f for f in os.listdir("sessions/s1") if f.endswith(".tmp")]
     assert snap.definition_revision == res.revision and snap.scenario_id == "다크판타지"
+    assert snap.compiler_version == res.definition["compiler_version"] == dc.COMPILER_VERSION
     back = ds.read_snapshot("s1", expected_revision=res.revision)
     assert back.definition == res.definition
     scen, _ = dc.legacy_scenario_view(back.definition)
@@ -426,6 +492,20 @@ def test_snapshot_corruption_mismatch_missing_are_loud():
     # 손상 파일 위에 조용히 재생성하지 않는다
     with pytest.raises(ds.DefinitionSnapshotCorruption):
         ds.write_snapshot("c3", res)
+
+    # 봉투 compiler_version ≠ 정의 compiler_version
+    ds.write_snapshot("c5", res)
+    _tamper("c5", lambda env: env.update({"compiler_version": env["compiler_version"] + 1}))
+    with pytest.raises(ds.DefinitionSnapshotCompilerVersionMismatch):
+        ds.read_snapshot("c5")
+    # 정의 안의 compiler_version을 바꾸면 revision 재계산이 어긋난다
+    ds.write_snapshot("c6", res)
+    _tamper("c6", lambda env: env["definition"].update(
+        {"compiler_version": env["definition"]["compiler_version"] + 1}))
+    with pytest.raises(ds.DefinitionSnapshotCorruption):
+        ds.read_snapshot("c6")
+    with pytest.raises(ds.DefinitionSnapshotCompilerVersionMismatch):
+        ds.build_envelope(res.definition, compiler_version=res.compiler_version + 1)
 
     os.makedirs("sessions/c4")
     open(ds.snapshot_path("c4"), "w").write("{broken")

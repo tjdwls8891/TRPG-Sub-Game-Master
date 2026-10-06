@@ -18,7 +18,8 @@
 #   · 읽기는 형식·revision·순서 지문을 모두 재계산해 대조한다. 하나라도 어긋나면
 #     조용히 넘어가지 않고 예외를 던진다.
 #   · provider cache 객체·비용 사실은 넣지 않는다(DESIGN 06 §18).
-#   · revision 은 정의(definition)만 덮는다. 원본 파일 해시·컴파일러 버전·기록 시각은
+#   · revision 은 정의(definition) 전체를 덮는다 — 정의에 든 compiler_version 포함.
+#     봉투의 compiler_version은 그 값과 같아야 한다. 원본 파일 해시·기록 시각은
 #     출처(provenance) — 같은 정의를 다른 공백의 원본에서 만들어도 revision은 같다.
 import json
 import os
@@ -26,7 +27,6 @@ import time
 from dataclasses import dataclass
 
 from .definition_compiler import (
-    COMPILER_VERSION,
     DEFINITION_FORMAT,
     DEFINITION_FORMAT_VERSION,
     CompileResult,
@@ -49,6 +49,10 @@ class DefinitionSnapshotMissing(DefinitionSnapshotError):
 
 class DefinitionSnapshotCorruption(DefinitionSnapshotError):
     """파일을 해석할 수 없거나 형식·해시가 내용과 맞지 않는다."""
+
+
+class DefinitionSnapshotCompilerVersionMismatch(DefinitionSnapshotCorruption):
+    """봉투의 compiler_version이 정의(revision이 덮는 값)의 compiler_version과 다르다."""
 
 
 class DefinitionSnapshotMismatch(DefinitionSnapshotError):
@@ -90,6 +94,9 @@ def _verify_definition(definition) -> str:
     if definition.get("format_version") != DEFINITION_FORMAT_VERSION:
         raise DefinitionSnapshotCorruption(
             f"지원하지 않는 정의 형식 버전: {definition.get('format_version')!r}")
+    cv = definition.get("compiler_version")
+    if not isinstance(cv, int) or isinstance(cv, bool) or cv <= 0:
+        raise DefinitionSnapshotCorruption(f"정의에 compiler_version이 없거나 잘못됐습니다: {cv!r}")
     try:
         if order_digest(definition.get("legacy_source")) != definition.get("legacy_source_order_digest"):
             raise DefinitionSnapshotCorruption("legacy_source 순서 지문이 내용과 다릅니다")
@@ -99,9 +106,19 @@ def _verify_definition(definition) -> str:
 
 
 def build_envelope(definition: dict, *, source: dict | None = None,
-                   compiler_version: int = COMPILER_VERSION) -> dict:
-    """스냅샷 파일 봉투. revision은 정의에서 재계산한다(호출자 값을 믿지 않는다)."""
+                   compiler_version: int | None = None) -> dict:
+    """스냅샷 파일 봉투. revision은 정의에서 재계산한다(호출자 값을 믿지 않는다).
+
+    봉투의 compiler_version은 정의의 compiler_version(revision이 덮는 값)과 같아야 한다.
+    호출자가 다른 값을 주면 거부한다.
+    """
     rev = _verify_definition(definition)
+    if compiler_version is None:
+        compiler_version = definition["compiler_version"]
+    elif compiler_version != definition["compiler_version"]:
+        raise DefinitionSnapshotCompilerVersionMismatch(
+            f"봉투 compiler_version {compiler_version!r} ≠ 정의 compiler_version "
+            f"{definition['compiler_version']!r}")
     return {
         "format": SNAPSHOT_FORMAT,
         "format_version": SNAPSHOT_FORMAT_VERSION,
@@ -146,7 +163,7 @@ def write_snapshot(session_id: str, compiled, *, source: dict | None = None) -> 
         compiler_version = compiled.compiler_version
     else:
         definition = compiled
-        compiler_version = COMPILER_VERSION
+        compiler_version = None          # 정의에서 읽는다
     envelope = build_envelope(definition, source=source, compiler_version=compiler_version)
     path = snapshot_path(session_id)
     if os.path.exists(path):
@@ -184,6 +201,10 @@ def read_snapshot(session_id: str, *, expected_revision: str | None = None) -> S
     if stored != actual:
         raise DefinitionSnapshotCorruption(
             f"{session_id}: 저장된 revision {stored} ≠ 내용 재계산 {actual}")
+    if env.get("compiler_version") != env["definition"]["compiler_version"]:
+        raise DefinitionSnapshotCompilerVersionMismatch(
+            f"{session_id}: 봉투 compiler_version {env.get('compiler_version')!r} ≠ 정의 "
+            f"compiler_version {env['definition']['compiler_version']!r}")
     if expected_revision is not None and actual != expected_revision:
         raise DefinitionSnapshotMismatch(
             f"{session_id}: 스냅샷 revision {actual} ≠ 기대 {expected_revision}")

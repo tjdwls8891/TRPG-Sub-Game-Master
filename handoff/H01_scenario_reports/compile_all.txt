@@ -1,5 +1,5 @@
 == scenario.example  (compiler v1)
-   revision : sha256:91207fd05585ed30019af0f6db00bf2b2e59a2a2fc1bc43c2c842dfa4b3d1202
+   revision : sha256:29be07e0b058a23752b856448fbd798046020198c686a86e207a12470036ed64
    진단     : ERROR 0 · WARNING 0 · INFO 0
    모드     : legacy
    규모     : actors 2 · places 0 · movement_edges 0 · info_npc_inline_secret 1 · info_quest_hidden 0 · start_frames 0 · start_points 0
@@ -13,7 +13,7 @@
      dynamic_events               absent
      scheduled_world_progression  absent
 == 다크판타지  (compiler v1)
-   revision : sha256:ab4b29b47622e301286c2cb4f8da9d5656aece70532b529947af55630eda519b
+   revision : sha256:570f1d14156568f20ed45889d1e4960b574a559f203ea13ef1966ab21d7010e6
    진단     : ERROR 0 · WARNING 0 · INFO 0
    모드     : legacy
    규모     : actors 21 · places 0 · movement_edges 0 · info_npc_inline_secret 0 · info_quest_hidden 0 · start_frames 0 · start_points 0
@@ -27,7 +27,7 @@
      dynamic_events               absent
      scheduled_world_progression  absent
 == 무협  (compiler v1)
-   revision : sha256:6ce0aa480ba41df24a70f0da7d5035ac028616f01302118e8d6b162c4ecd7bbb
+   revision : sha256:1fafeb86ca5cd45fd88de82cdbcce0a92459dea34e335c913e186dad7ed07e6f
    진단     : ERROR 0 · WARNING 0 · INFO 0
    모드     : legacy
    규모     : actors 233 · places 0 · movement_edges 0 · info_npc_inline_secret 24 · info_quest_hidden 0 · start_frames 0 · start_points 0
@@ -41,7 +41,7 @@
      dynamic_events               absent
      scheduled_world_progression  absent
 == 빈시나리오  (compiler v1)
-   revision : sha256:720d219f04b78a55efb7de558fac07c19a16630c0cb83e08f80fe5953dad6485
+   revision : sha256:07c2ef195719d64eb15259f4f3c32f0dd34a84ecad433e7072a0f2d1bd3cc15f
    진단     : ERROR 0 · WARNING 0 · INFO 0
    모드     : legacy
    규모     : actors 0 · places 0 · movement_edges 0 · info_npc_inline_secret 0 · info_quest_hidden 0 · start_frames 0 · start_points 0
@@ -55,7 +55,7 @@
      dynamic_events               absent
      scheduled_world_progression  absent
 == 영도  (compiler v1)
-   revision : sha256:fd89a8217c0a084fc40d0fb71fc95eb4f79058fce931af806c6b06196939a660
+   revision : sha256:0d8255bc118b7423da81b1f604fe7887f31c43c91198ca8724c69bc58b0999cb
    진단     : ERROR 0 · WARNING 3 · INFO 0
    모드     : legacy
    규모     : actors 47 · places 122 · movement_edges 0 · info_npc_inline_secret 47 · info_quest_hidden 42 · start_frames 8 · start_points 7

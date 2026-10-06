@@ -71,12 +71,12 @@ KNOWN_CAPABILITIES = {
 VALIDATED_CAPABILITIES = frozenset({"stable_actors"})
 
 # capability 의존성(DESIGN 08 §4). (요구 capability, 심각도)
-# dynamic_actor_location → structured_places 는 설계가 "권장/필수"로 열어 두어 WARNING.
+# dynamic_actor_location → structured_places 는 사용자 결정(H01 보정)으로 ERROR.
 CAPABILITY_DEPENDENCIES = {
     "scheduled_world_progression": (("quantitative_time", "ERROR"),),
     "actor_cognition": (("stable_actors", "ERROR"), ("information_registry", "ERROR")),
     "dynamic_events": (("stable_actors", "ERROR"),),
-    "dynamic_actor_location": (("structured_places", "WARNING"),),
+    "dynamic_actor_location": (("structured_places", "ERROR"),),
 }
 
 # 새 스키마용으로 예약된 키. 컴파일러 v1은 구조화하지 않으므로, 있으면 경고한다
@@ -361,12 +361,15 @@ def _compile_quest_hidden(scenario_id, quests, places, d):
         if not isinstance(q, dict) or not isinstance(q.get("id"), str) or not q.get("id"):
             d.add(ERROR, "QUEST_ID_MISSING", path, "퀘스트 id가 없습니다")
             continue
-        ident = (q["id"], q.get("version"))
-        if ident in seen:
-            d.add(ERROR, "QUEST_IDENTITY_DUPLICATE", path,
-                  f"퀘스트 (id={ident[0]}, version={ident[1]})가 quests[{seen[ident]}]와 겹칩니다")
+        # 현행 런타임(quest._find_quest)은 id만으로 첫 항목을 찾는다. 같은 id의 다른
+        # version은 도달 불가·모호하므로 정체성 충돌로 막는다. version은 메타데이터다.
+        qid = q["id"]
+        if qid in seen:
+            d.add(ERROR, "QUEST_ID_DUPLICATE", path,
+                  f"퀘스트 id '{qid}'가 quests[{seen[qid]}]와 겹칩니다"
+                  f"(version {quests['quests'][seen[qid]].get('version')!r} / {q.get('version')!r})")
             continue
-        seen[ident] = i
+        seen[qid] = i
         filters = q.get("filters") if isinstance(q.get("filters"), dict) else {}
         for fk in ("place", "within"):
             f = filters.get(fk)
@@ -382,7 +385,7 @@ def _compile_quest_hidden(scenario_id, quests, places, d):
                 or not hidden["truth"].strip():
             d.add(WARNING, "QUEST_HIDDEN_NO_TRUTH", f"{path}.hidden", "hidden.truth가 없어 정보로 컴파일하지 않습니다")
             continue
-        info_id = quest_hidden_info_id(scenario_id, q["id"], q.get("version"))
+        info_id = quest_hidden_info_id(scenario_id, q["id"])
         out[info_id] = {
             "info_id": info_id,
             "kind": "QUEST_HIDDEN_TRUTH",
@@ -694,6 +697,8 @@ def compile_scenario(raw: dict, scenario_id: str, quests: dict | None = None) ->
     definition = {
         "format": DEFINITION_FORMAT,
         "format_version": DEFINITION_FORMAT_VERSION,
+        # 컴파일 의미 버전은 정의의 일부다 — 규칙이 바뀌면 같은 원본도 다른 revision.
+        "compiler_version": COMPILER_VERSION,
         "scenario_meta": {
             "scenario_id": scenario_id,
             "schema_mode": cap["mode"],
@@ -717,7 +722,7 @@ def compile_scenario(raw: dict, scenario_id: str, quests: dict | None = None) ->
         "legacy_source": src_copy,
         "legacy_source_order_digest": order_digest(src_copy),
     }
-    return CompileResult(scenario_id, COMPILER_VERSION, definition,
+    return CompileResult(scenario_id, definition["compiler_version"], definition,
                          definition_revision(definition), diagnostics)
 
 
@@ -726,7 +731,7 @@ def compile_sources(sources: ScenarioSources) -> CompileResult:
 
 
 def definition_revision(definition: dict) -> str:
-    """정의의 정규 직렬화 SHA-256(DESIGN 06 §19)."""
+    """정의의 정규 직렬화 SHA-256(DESIGN 06 §19). compiler_version을 포함한 정의 전체."""
     return content_digest(definition)
 
 

@@ -276,8 +276,8 @@ WP별 원격 브랜치(`claude/wp-*`)는 모두 main에 포함됐다. `claude/wp
 
 v6.0.0(`de367c7`) 위에서 시작한 동적 세계 구현 프로그램(H01~H11)의 첫 패키지다. **플레이 경로는 바뀌지 않는다.**
 
-- `core/world_ids.py` — 정규 직렬화(키 정렬·문자열 키·NaN 금지)와 안정 digest. 저작 NPC ActorId는 명시 `actor_id`가 있으면 그것, 없으면 시나리오 id + 사전 키로 결정적 생성(이름과 분리).
-- `core/definition_compiler.py` — `scenario_schema` 메타데이터가 없으면 legacy capability(빈 집합)로 통과. 안전한 저작 sugar(NPC `비밀`·퀘스트 `hidden.truth` → InfoDefinition, `movement_edges` 양방향 → 방향 구간 2개, 시작 틀 슬롯)만 컴파일한다. connected를 구간으로 승격하거나 비대칭을 보정하거나 산문에서 거리·위치를 추론하지 않는다. revision = 정의의 정규 직렬화 SHA-256(원본 dict 순서 지문 포함).
+- `core/world_ids.py` — 정규 직렬화(키 정렬·문자열 키·NaN 금지)와 안정 digest. 저작 NPC ActorId는 명시 `actor_id`가 있으면 그것, 없으면 시나리오 id + 사전 키로 결정적 생성. 표시 이름 변경은 ID를 유지하지만, 명시 ID 없는 NPC의 사전 키 변경은 ID migration이다. 퀘스트 hidden InfoId는 퀘스트 id만으로 만든다(version은 메타데이터).
+- `core/definition_compiler.py` — `scenario_schema` 메타데이터가 없으면 legacy capability(빈 집합)로 통과. 안전한 저작 sugar(NPC `비밀`·퀘스트 `hidden.truth` → InfoDefinition, `movement_edges` 양방향 → 방향 구간 2개, 시작 틀 슬롯)만 컴파일한다. connected를 구간으로 승격하거나 비대칭을 보정하거나 산문에서 거리·위치를 추론하지 않는다. revision = `compiler_version`을 포함한 정의 전체의 정규 직렬화 SHA-256(원본 dict 순서 지문 포함). 같은 퀘스트 id 중복(version이 달라도)은 ERROR, `dynamic_actor_location`은 `structured_places` 없이 ERROR.
 - `core/definition_snapshot.py` — 세션 정의 스냅샷의 원자적 쓰기·해시 검증·다른 revision 덮어쓰기 거부. 세션 바인딩·재시작 권위 전환은 H10.
 - `tools/scenario_check.py` — 요약·진단·capability 표·`--compile-out`·`--migration-report`·`--verify-snapshot`.
 
@@ -317,7 +317,7 @@ v6.0.0(`de367c7`) 위에서 시작한 동적 세계 구현 프로그램(H01~H11)
 장소 122 · NPC 47(32명 배치) · 직업 16 · 퀘스트 44
 시작 틀 8 · 프로필 단계 10 · SESSION_FIELDS 82 · TRACKED_PATHS 14
 명령어 44 · persistent view 5종 22버튼
-core 서브모듈 60 · 테스트 668건(특성화 41 · 결함 27 · 정책 600)
+core 서브모듈 60 · 테스트 672건(특성화 41 · 결함 27 · 정책 604)
 ```
 
 ---

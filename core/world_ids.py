@@ -116,7 +116,11 @@ def is_valid_explicit_id(value) -> bool:
 # DESIGN 11 §13: persistent authored identity = scenario + structural source key.
 
 def authored_npc_actor_id(scenario_id: str, npc_key: str, explicit_id=None) -> str:
-    """저작 NPC의 ActorId. explicit_id 유효성 검사는 컴파일러가 진단으로 보고한다."""
+    """저작 NPC의 ActorId. explicit_id 유효성 검사는 컴파일러가 진단으로 보고한다.
+
+    표시 이름(name) 변경은 ID를 바꾸지 않는다. 그러나 명시 ID가 없으면
+    default_npcs 사전 키(또는 시나리오 id)를 바꾸는 것은 ID 변경 = ID migration이다.
+    """
     if explicit_id is not None and is_valid_explicit_id(explicit_id):
         return explicit_id
     return "npc_" + stable_digest("actor.authored_npc.v1", scenario_id, npc_key)
@@ -135,10 +139,13 @@ def npc_inline_secret_info_id(actor_id: str) -> str:
     return "info_" + stable_digest("info.npc_inline_secret.v1", actor_id)
 
 
-def quest_hidden_info_id(scenario_id: str, quest_id: str, quest_version) -> str:
-    """퀘스트 hidden.truth(저작 sugar)가 컴파일되는 InfoId."""
-    return "info_" + stable_digest("info.quest_hidden.v1", scenario_id, quest_id,
-                                   "" if quest_version is None else str(quest_version))
+def quest_hidden_info_id(scenario_id: str, quest_id: str) -> str:
+    """퀘스트 hidden.truth(저작 sugar)가 컴파일되는 InfoId.
+
+    정체성 입력은 퀘스트 id뿐이다. version·hidden 본문은 메타데이터라 바뀌어도
+    InfoId가 유지된다(현행 런타임 quest._find_quest 도 id만으로 찾는다).
+    """
+    return "info_" + stable_digest("info.quest_hidden.v2", scenario_id, quest_id)
 
 
 def movement_edge_pair_id(scenario_id: str, from_place: str, to_place: str) -> str:

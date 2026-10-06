@@ -200,9 +200,9 @@ python main.py
 
 | 모듈 | 줄 | 내용 |
 |---|---|---|
-| `world_ids.py` | 150 | 정규 직렬화·순서 지문·안정 digest, 저작 ActorId/InfoId/구간 id 파생 |
-| `definition_compiler.py` | 867 | capability 감지(`scenario_schema`)·legacy 통과·저작 sugar 컴파일·검증 진단·revision·이행 보고 |
-| `definition_snapshot.py` | 214 | `sessions/{id}/definition_snapshot.json` 원자적 쓰기·해시 검증·덮어쓰기 거부 |
+| `world_ids.py` | 157 | 정규 직렬화·순서 지문·안정 digest, 저작 ActorId/InfoId/구간 id 파생 |
+| `definition_compiler.py` | 872 | capability 감지(`scenario_schema`)·legacy 통과·저작 sugar 컴파일·검증 진단·revision·이행 보고 |
+| `definition_snapshot.py` | 235 | `sessions/{id}/definition_snapshot.json` 원자적 쓰기·해시 검증·덮어쓰기 거부 |
 
 호출자는 `tools/scenario_check.py`와 테스트뿐이다. 런타임은 여전히 raw `scenario_data`를 쓴다(세션 바인딩은 H10).
 
@@ -441,7 +441,7 @@ pip install -r requirements-dev.txt
 python3 -m pytest tests/ -q
 ```
 
-`tests/`는 **현재 동작과 권위 불변식을 고정**한다. 현재 668건(특성화 41 · 결함 27 · 정책 600)이 모두 통과하며 strict xfail은 0건이다.
+`tests/`는 **현재 동작과 권위 불변식을 고정**한다. 현재 672건(특성화 41 · 결함 27 · 정책 604)이 모두 통과하며 strict xfail은 0건이다.
 
 | 분류 | 의미 |
 |---|---|
