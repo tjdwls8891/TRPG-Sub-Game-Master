@@ -8,9 +8,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 AI가 4개 층위로 나뉘어 판단·지시·묘사·추출을 분담한다. 플레이어는 서버 GM 스페이스에서 버튼으로 세션을 열고, 캐릭터를 만들고, 턴을 진행한다. **명령어는 GM의 수동 개입·복구 수단이며 일반 플레이에는 쓰지 않는다.**
 
-현재 버전: **v5.33.0** · `SCHEMA_VERSION` 3 · 총 운영 코드 ~36,680줄(main·prompts·cogs·core) · 테스트 ~14,727줄
+현재 버전: **v6.0.0** · `SCHEMA_VERSION` 3 · 총 운영 코드 ~36,680줄(main·prompts·cogs·core) · 테스트 ~14,727줄
 
-리팩터링: **7-WP 프로그램(WP-A~WP-G)** — 턴 트랜잭션·커밋·재무·이력·파생 시스템을 단일 권위로 재구성했다. WP-A~G 전부 독립 게이트 VERIFIED — **프로그램 완료**(WP-G 최종 후보 `f0fd69e`, 증거 `handoff/WP_G_COMPLETION_BUNDLE.md`). 다음 WP는 없다. 버전 번호는 리팩터링 기간 동안 올리지 않았다(배포 시 결정).
+리팩터링: **7-WP 프로그램(WP-A~WP-G)** — 턴 트랜잭션·커밋·재무·이력·파생 시스템을 단일 권위로 재구성했다. WP-A~G 전부 독립 게이트 VERIFIED — **프로그램 완료**(WP-G 최종 후보 `f0fd69e`, 증거 `handoff/WP_G_COMPLETION_BUNDLE.md`). 다음 WP는 없다. 버전은 이 비호환 전환 전체를 **단일 MAJOR v6.0.0**으로 채택했다(2026-10-06, 이력 보정은 DEVLOG '버전 기록').
 
 ---
 
@@ -500,6 +500,8 @@ python3 -m pytest tests/ -q
 
 `MAJOR.MINOR.PATCH` — MAJOR는 `SCHEMA_VERSION` 증가 등 비호환 변경, MINOR는 하위호환 기능 추가·프롬프트 변경, PATCH는 버그 수정.
 
+번호는 **출시(main 반영) 단위**로 매긴다. 출시되지 않은 중간 패키지에는 번호를 붙이지 않으며, MAJOR 전환에 앞서 쌓인 MINOR는 MAJOR에 흡수된다. 되돌린 번호(5.34.0)는 재사용하지 않는다. 버전 값은 `core/constants.py`의 `__version__` 하나에서만 읽는다(작업 원칙 ⑦).
+
 ---
 
 ## 검증 루틴
@@ -635,5 +637,5 @@ asyncio.run(t())
 | 오디오 자산 | 공통 소개 TTS·테마곡 |
 | 소개 미디어 | `intro_images` 연결부만 있고 자산 없음 |
 | 디스코드 결제 | SKU 한국 미지원. `!지급`·`!잉크`로 대체 |
-| 운영 반영 | WP-G는 main에 반영됨. 배포 전 운영 `sessions/`·`accounts/` 백업, 배포 후 `!캐시 재발급`(프롬프트 D1·무협 `location_images` 변경). 버전 번호 상향 여부 결정 |
+| 운영 반영 | v6.0.0이 main에 반영됨. 배포 전 운영 `sessions/`·`accounts/` 백업, 배포 후 `!캐시 재발급`(프롬프트 D1·무협 `location_images` 변경) |
 | 자동 턴 TTS | 더빙은 인트로에만 적용된다(자동 턴 미적용은 기존 동작). 확장은 별도 기능 |
