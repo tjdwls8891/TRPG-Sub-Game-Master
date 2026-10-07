@@ -257,8 +257,12 @@ def format_name(places: dict, name: str, current: str = None) -> str:
 
 
 # ── 온디맨드 주입 ─────────────────────────────────────────
-def _describe(places: dict, name: str, *, full: bool) -> str:
-    """장소 설명. full이면 내외부·분위기·NPC까지."""
+def _describe(places: dict, name: str, *, full: bool, static_npcs: bool = True) -> str:
+    """장소 설명. full이면 내외부·분위기·NPC까지.
+
+    static_npcs=False(H05 DYNAMIC) — 저작 연고 인물(places[*].npcs)을 싣지 않는다. 연고는 현재 위치가
+    아니며, 현재 장면 인물은 정본 배치 투영 블록(turn_world.scene_npc_block)이 따로 준다.
+    """
     node = get(places, name) or {}
     if not full:
         return node.get("known_brief") or node.get("location_desc") or ""
@@ -270,7 +274,7 @@ def _describe(places: dict, name: str, *, full: bool) -> str:
         if node.get(key):
             mood = node.get(f"mood_{key}")
             lines.append(f"{label}: {node[key]}" + (f" ({mood})" if mood else ""))
-    npcs = node.get("npcs") or []
+    npcs = (node.get("npcs") or []) if static_npcs else []
     if npcs:
         parts = []
         for n in npcs[:8]:
@@ -281,7 +285,7 @@ def _describe(places: dict, name: str, *, full: bool) -> str:
     return "\n".join(lines)
 
 
-def build_place_block(session) -> str:
+def build_place_block(session, *, static_npcs=None) -> str:
     """지시·묘사층위에 주입할 장소 정보.
 
     현재 장소는 풀 정보, inherit 상위는 풀 정보, 갈 수 있는 곳은 얕게.
@@ -290,6 +294,8 @@ def build_place_block(session) -> str:
     places = load_places(getattr(session, "scenario_data", {}) or {})
     if not places:
         return ""
+    if static_npcs is None:
+        static_npcs = not getattr(session, "world_static_npcs_suppressed", False)
 
     tl = getattr(session, "world_timeline", {}) or {}
     cur = resolve(places, tl.get("current_location") or "")
@@ -300,7 +306,7 @@ def build_place_block(session) -> str:
     comp = list(getattr(session, "companions", []) or [])
     if comp:
         lines.append(f"동행: {', '.join(comp)}")
-    desc = _describe(places, cur, full=True)
+    desc = _describe(places, cur, full=True, static_npcs=static_npcs)
     if desc:
         lines.append(desc)
 
@@ -308,7 +314,7 @@ def build_place_block(session) -> str:
     node = get(places, cur) or {}
     for up in (node.get("inherit") or []):
         if up in places:
-            up_desc = _describe(places, up, full=True)
+            up_desc = _describe(places, up, full=True, static_npcs=static_npcs)
             if up_desc:
                 lines.append(f"\n[상위 맥락 — {up}]")
                 lines.append(up_desc)
@@ -348,6 +354,8 @@ def build_move_hint(session, goal_text: str) -> str:
     places = load_places(getattr(session, "scenario_data", {}) or {})
     if not places:
         return ""
+    if static_npcs is None:
+        static_npcs = not getattr(session, "world_static_npcs_suppressed", False)
 
     tl = getattr(session, "world_timeline", {}) or {}
     cur = resolve(places, tl.get("current_location") or "")

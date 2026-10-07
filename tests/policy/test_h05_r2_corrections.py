@@ -215,7 +215,7 @@ async def test_r2_3_tie_options_name_competing_observable_facts(drig):
     r.prov.routes["extraction"] = [extraction({"tie_order": "NONE"})]
     await turn(r, "10분 기다린다")
     sec = _tie_section(r.prov.prompts["narration"][0][0])
-    opts = dict(re.findall(r"(O\d+): (.+?)(?= - O\d+:|\n|$)", sec))
+    opts = dict(re.findall(r"(O\d+): (.+?)(?= - O\d+:| \[|\n|$)", sec))
     assert set(opts) == {"O1", "O2"}
     for label in opts.values():
         assert "열" in label and "막" in label                         # 두 경쟁 사실이 각각 식별된다

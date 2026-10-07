@@ -154,6 +154,75 @@ def projected_scene(plan) -> dict:
 
 
 # ══════════════════════════════════════════════════════════════
+#  현재 장면 NPC — 정본 배치 + H04 CurrentNpcProjection (H05 R3)
+#   · 현재 위치 권위 = spatial_state.placements. place.npcs(연고)·session.npcs는 존재 권위가 아니다.
+#   · AT_PLACE == 장면 장소인 NPC만. 기록 없음(추적 안 함)·TRANSIT은 장면에 있다고 추론하지 않는다.
+#   · 투영은 project_npc(읽기 전용) — relevant_info_ids=()로 인지·명제는 싣지 않는다(공개 규칙 유지).
+# ══════════════════════════════════════════════════════════════
+
+def _scene_world_and_place(ctx, plan, session):
+    """(world, scene_place). 묘사 전 계획이 PLANNED면 투영 장면, 아니면 정본 PC 위치."""
+    if plan is not None and plan.status == _pw.PLAN_PLANNED and plan.projected_world is not None:
+        return plan.projected_world, plan.scene_place                  # TRANSIT 중단이면 None(장소 없음)
+    pl = _sp.placement_of(session, ctx.lead_pc) or {}
+    return session, (pl.get("place_id") if pl.get("kind") == _sp.AT_PLACE else None)
+
+
+def scene_npc_projections(ctx, plan, session) -> tuple:
+    """(scene_place, [CurrentNpcProjection]) — 정본 배치가 장면 장소인 NPC만(정렬)."""
+    from . import npc_projection as _np
+    world, scene = _scene_world_and_place(ctx, plan, session)
+    if scene is None:
+        return None, []
+    pls = ((world.domain("spatial_state") if isinstance(world, _wm.ProjectedWorld)
+            else getattr(world, "spatial_state", None)) or {}).get("placements") or {}
+    legacy = _np.LegacyRuntime.from_session(session)
+    out = []
+    for aid in sorted(pls):
+        pl = pls[aid] or {}
+        if aid in ctx.pcs or pl.get("kind") != _sp.AT_PLACE or pl.get("place_id") != scene:
+            continue
+        proj = _np.project_npc(aid, ctx.definition, world, relevant_info_ids=(), legacy_runtime=legacy)
+        if proj is not None and proj.get("kind") != "PC":
+            out.append(proj)
+    return scene, out
+
+
+def scene_npc_names(ctx, plan, session) -> tuple:
+    scene, projs = scene_npc_projections(ctx, plan, session)
+    return scene, [p["display_name"] for p in projs]
+
+
+def _npc_line(p) -> str:
+    bits = []
+    if p.get("relevant_statuses"):
+        bits.append("상태 " + ", ".join(map(str, p["relevant_statuses"])))
+    if p.get("relevant_resources"):
+        bits.append("자원 " + ", ".join(f"{k} {v}" for k, v in p["relevant_resources"].items()))
+    if (p.get("companionship") or {}).get("is_companion"):
+        bits.append("PC 동행")
+    for r in p.get("event_roles") or ():
+        bits.append(f"사건 역할 {r.get('slot')}(국면 {r.get('phase')})")
+    deltas = [d.get("summary") for d in (p.get("relationship_deltas") or ()) if d.get("summary")]
+    if deltas:
+        bits.append("관계 변화 " + " / ".join(deltas[-3:]))
+    role = (p.get("authored_profile") or {}).get("role")
+    head = f"- {p['display_name']}" + (f"({role})" if role else "")
+    return head + (": " + " · ".join(bits) if bits else "")
+
+
+def scene_npc_block(ctx, plan, session) -> str:
+    """지시·묘사층위용 현재 장면 인물 블록(정본 배치 기준 · 현재 상태 투영)."""
+    scene, projs = scene_npc_projections(ctx, plan, session)
+    where = scene or "이동 중(장소 밖)"
+    lines = [f"\n[현재 장면 인물 — 정본 위치 기준 · 장면: {where}]",
+             "※ 정의된 NPC 중 이 목록의 인물만 지금 이 장면에 있다. 장소의 연고 인물·NPC 사전의 거처는 "
+             "현재 위치가 아니다 — 목록에 없는 정의 NPC를 이 장면에 있다고 묘사하지 말 것."]
+    lines += [_npc_line(p) for p in projs] or ["(정본상 이 장면에 있는 정의 NPC 없음)"]
+    return "\n".join(lines) + "\n"
+
+
+# ══════════════════════════════════════════════════════════════
 #  같은 분 서사 선후
 # ══════════════════════════════════════════════════════════════
 

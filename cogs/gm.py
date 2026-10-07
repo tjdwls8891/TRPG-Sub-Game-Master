@@ -147,9 +147,15 @@ def _build_judgment_user_prompt(session, player_message: str, roll_results: list
     lines.append("[플레이어 프로필]\n" + ("\n".join(prof_lines) if prof_lines else "(없음)"))
 
     # ②-2 등장 NPC — 무대에 누가 있는지 알아야 ASK 대상과 판정 대상을 정할 수 있다
-    npc_names = list((session.npcs or {}).keys())
-    if npc_names:
-        lines.append("[세션 등장 NPC]\n" + ", ".join(npc_names[:30]))
+    # H05 R3: DYNAMIC 세션은 정본 배치(spatial_state.placements) 기준 현재 장면 NPC만 — session.npcs 전부를
+    #   현재 등장인물로 제시하지 않는다(판단층위는 세계 설정을 받지 않으므로 이름만).
+    if world_turn is not None:
+        _scene, _names = core.turn_world.scene_npc_names(world_turn.ctx, None, session)
+        lines.append("[현재 장면 NPC — 정본 위치 기준]\n" + (", ".join(_names[:30]) if _names else "(없음)"))
+    else:
+        npc_names = list((session.npcs or {}).keys())
+        if npc_names:
+            lines.append("[세션 등장 NPC]\n" + ", ".join(npc_names[:30]))
 
     # ②-3 현재 세계 상태 — 추출층위가 갱신한 위치·시간대
     tl = getattr(session, "world_timeline", {}) or {}
@@ -522,12 +528,19 @@ def _build_logic_user_prompt(session, player_message: str, roll_results: list,
     # "거기까지는 한 번에 못 간다"를 판정할 수 있다.
     place_block = ""
     try:
-        _pb = core.places.build_place_block(session)
+        _pb = core.places.build_place_block(session, static_npcs=world_turn is None)
         if _pb:
             place_block = "\n" + _pb
             manifest.append("장소 정보")
     except Exception as e:
         print(f"[지시층위] 장소 블록 실패: {e}")
+    # H05 R3: DYNAMIC — 현재 장면 인물은 정본 배치 + CurrentNpcProjection(읽기 전용)
+    if world_turn is not None:
+        try:
+            place_block += core.turn_world.scene_npc_block(world_turn.ctx, world_turn.plan, session)
+            manifest.append("현재 장면 인물")
+        except Exception as e:
+            print(f"[지시층위] 현재 장면 인물 블록 실패: {e}")
 
     # 퀘스트 — 후보 목록을 여기서 제시해야 quest_choice로 고를 수 있다.
     # build_quest_block이 session._quest_offered를 채우고, 코드가 그것으로
@@ -4064,6 +4077,9 @@ class GMCog(commands.Cog):
         _wt = getattr(preparation, "world_turn", None) if preparation is not None else None
         if _wt is not None and _wt.plan is not None:
             exec_instruction += core.turn_world.narration_overlay(_wt.plan, _wt.ctx.definition, _wt.ctx)
+        if _wt is not None:
+            # H05 R3: 묘사층위가 현재 장면에 실제 있는 NPC와 그 현재 상태를 안다(정본 배치 투영)
+            exec_instruction += core.turn_world.scene_npc_block(_wt.ctx, _wt.plan, session)
 
         async def _on_finalized(narr):
             if preparation is not None:

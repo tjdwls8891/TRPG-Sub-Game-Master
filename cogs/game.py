@@ -579,6 +579,8 @@ class GameCog(commands.Cog):
         #   정본 세션을 임시로 바꾸지 않는다(읽기 전용 투영 뷰).
         if _prep is not None and getattr(_prep, "world_prompt_timeline", None) is not None:
             _ov["world_timeline"] = _prep.world_prompt_timeline
+        if _prep is not None and getattr(_prep, "world_turn", None) is not None:
+            _ov["world_static_npcs_suppressed"] = True      # H05 R3: 연고 인물 ≠ 현재 존재(장면 인물은 투영 블록)
         if _ov:
             _prompt_session = core.turn_preparation.PreparationView(
                 session, overrides=_ov,
