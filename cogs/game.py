@@ -22,6 +22,38 @@ async def _asyncio_shield_wait(fut):
 
 
 # ========== [메인 게임 엔진 모듈(Game Cog)] ==========
+def _projected_media_filter(session, preparation, keywords, master_ch=None) -> list:
+    """H05(ProjectedMediaContext) — 묘사가 표현하는 투영 장면 밖의 장소 이미지를 막는다.
+
+    도착 전(중단·TRANSIT) 목적지 장소 이미지는 송출하지 않는다. 장소가 아닌 키워드(인물 등)는 그대로.
+    성공 이동으로 장면이 바뀌었는데 태그가 없으면 투영 장면 이미지를 자동 선택한다.
+    LEGACY 세션(world_turn 없음)은 변경 없음.
+    """
+    wt = getattr(preparation, "world_turn", None) if preparation is not None else None
+    plan = getattr(wt, "plan", None) if wt is not None else None
+    if plan is None:
+        return keywords
+    allowed = core.turn_world.media_allowed_places(wt.ctx.definition, plan)
+    if allowed is None:
+        return keywords
+    places = core.places.load_places(getattr(session, "scenario_data", {}) or {})
+    out = []
+    for kw in keywords:
+        pid = core.places.resolve(places, kw) if places else None
+        if pid is None and kw in (wt.ctx.definition.get("place_definitions") or {}):
+            pid = kw
+        if pid is not None and pid not in allowed:
+            print(f"[H05 미디어] 투영 장면 밖 장소 이미지 차단: {kw}")
+            continue
+        out.append(kw)
+    origin = (plan.outcome or {}).get("origin")
+    if not out and plan.scene_place and origin and plan.scene_place != origin:
+        auto = core.turn_world.image_for_scene(wt.ctx.definition, plan)
+        if auto:
+            out.append(plan.scene_place if (places and core.places.resolve(places, plan.scene_place)) else auto)
+    return out
+
+
 class GameCog(commands.Cog):
     """
     LLM 턴 묘사 엔진, 기억 압축, 주사위 판정 및 채팅 로깅 등
@@ -327,6 +359,7 @@ class GameCog(commands.Cog):
                 for pos, kw in img_tags:
                     if pos == '상':
                         top_imgs.append(kw)
+                top_imgs = _projected_media_filter(session, preparation, top_imgs, master_ch)
             else:
                 for pos, kw in img_tags:
                     if pos == '상':
@@ -539,11 +572,18 @@ class GameCog(commands.Cog):
         # WP-C: 같은 턴 ROLL 성장이 스테이징돼 있으면 PC 스탯을 투영으로 읽는다(정본 미변경).
         _prompt_session = session
         _prep = core.turn_preparation.get_preparation(session, transaction_id)
+        _ov = {}
         if _prep is not None and _prep.growth_players is not None:
+            _ov["players"] = _prep.growth_players
+        # H05: DYNAMIC 세션은 묘사가 표현할 투영 장면(도착지/중간 장소)으로 장소 블록을 만든다 —
+        #   정본 세션을 임시로 바꾸지 않는다(읽기 전용 투영 뷰).
+        if _prep is not None and getattr(_prep, "world_prompt_timeline", None) is not None:
+            _ov["world_timeline"] = _prep.world_prompt_timeline
+        if _ov:
             _prompt_session = core.turn_preparation.PreparationView(
-                session, overrides={"players": _prep.growth_players},
+                session, overrides=_ov,
                 # 기존 리더가 하는 운영/스크래치 쓰기(quest 지연 정규화·_quest_offered·
-                # manifest)는 실제 세션으로 그대로 전달한다 — players만 투영.
+                # manifest)는 실제 세션으로 그대로 전달한다 — 투영 키만 뷰 로컬.
                 forward_writes=("last_proceed_manifest", "quest_state", "_quest_offered"))
         prompt = core.PromptBuilder.build_prompt(
             _prompt_session, clean_instruction, quest_projection=_quest_proj)

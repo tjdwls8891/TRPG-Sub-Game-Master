@@ -3,6 +3,8 @@
 
 의도적으로 바뀌는 특성화 테스트다. 플레이어 턴 orchestration(H05), 초기화·관리자 배선(H06),
 legacy 퀘스트·info_ledger 권위 은퇴(H07)가 들어올 때 함께 갱신한다.
+H05 갱신: 플레이어 경로 소비자는 core.action_intent·player_world·turn_world뿐이며 cogs는 H04 모듈을
+직접 부르지 않는다(H05 경계는 test_h05_wiring).
 
 H04-R21  CurrentNpcProjection 정본 저장 없음(production 사용처 없음)
 H04-R25  자유 조건·eval 없음
@@ -55,7 +57,9 @@ def _imports(tree, module):
 
 
 def test_h04_modules_have_no_player_or_cogs_caller():
-    allowed = set(H04_DOMAIN_FILES) | {"__init__.py", "world_mutation.py", "definition_compiler.py"}
+    """cogs·main은 H04 모듈을 직접 부르지 않는다 — H05 플레이어 계획 모듈만 경유한다."""
+    from tests.characterize.h05_scope import H05_FILES
+    allowed = set(H04_DOMAIN_FILES) | {"__init__.py", "world_mutation.py", "definition_compiler.py"} | set(H05_FILES)
     hits = []
     for p in _files():
         base = os.path.basename(p)
@@ -71,7 +75,8 @@ def test_no_production_producer_of_h04_operations_or_progression():
     h04_ops = expected_production_ops() - set(core.world_schedule.TIME_OP_TYPES) - set(core.spatial.SPATIAL_OP_TYPES)
     names = {"project_world_progression", "build_dependency_index", "project_npc", "build_supersede_ops",
              "reevaluate_series", "build_series_init_ops", "initial_template_wakeups", "start_movement_step"}
-    domain = set(H04_DOMAIN_FILES) | {"__init__.py", "world_mutation.py", "definition_compiler.py"}
+    from tests.characterize.h05_scope import H05_FILES
+    domain = set(H04_DOMAIN_FILES) | {"__init__.py", "world_mutation.py", "definition_compiler.py"} | set(H05_FILES)
     hits = []
     for p in _files():
         if p.startswith(os.path.join(REPO_ROOT, "core")) and os.path.basename(p) in domain:

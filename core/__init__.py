@@ -57,6 +57,7 @@
 #   actors · information · cognition · relationships — (H04) 행위자·정보·인지·관계 정본 + typed 연산
 #   npc_projection — (H04) 읽기 전용 CurrentNpcProjection
 #   predicates · events · world_progression — (H04) 3값 조건·사건 엔진·순수 세계 진행 투영
+#   action_intent · player_world · turn_world — (H05) 구조화 의도·플레이어 세계 계획·턴 관찰/후속 묘사/투영 미디어
 
 from .constants import (
     __version__,
@@ -249,6 +250,9 @@ from . import npc_projection  # H04: read-only CurrentNpcProjection
 from . import predicates  # H04: tri-state typed predicates + time wakeups
 from . import events  # H04: event templates/instances, phase/case selection, typed steps
 from . import world_progression  # H04: DependencyIndex + pure WorldProgressionProjection
+from . import action_intent  # H05: ActionReferenceManifest + ResolvedActionIntent
+from . import player_world  # H05: session world mode + route policy + player movement/time planning
+from . import turn_world  # H05: narration overlay, observation, same-minute tie, continuation, projected media
 from .cost import (
     extract_token_usage,
     format_cost,

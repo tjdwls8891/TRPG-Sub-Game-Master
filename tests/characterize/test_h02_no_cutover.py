@@ -69,9 +69,11 @@ def test_canonical_mutation_has_no_production_caller():
 
 
 def test_world_mutation_users_are_the_commit_owners_only():
+    from tests.characterize.h05_scope import H05_FILES
+    # H05: 플레이어 세계 계획·관찰(순수)이 typed 연산·투영을 만든다 — 정본 적용은 여전히 커밋 owner뿐.
     allowed = {os.path.join("core", f) for f in (
         "world_mutation.py", "canonical_mutation.py", "turn_preparation.py",
-        "commit_coordinator.py", "__init__.py") + H03_DOMAIN_MODULES}
+        "commit_coordinator.py", "__init__.py") + H03_DOMAIN_MODULES + H05_FILES}
     hits = [_rel(p) for p in _production_files()
             if _rel(p) not in allowed and _references(p, "world_mutation")]
     assert hits == [], hits

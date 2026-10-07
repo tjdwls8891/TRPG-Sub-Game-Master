@@ -767,6 +767,7 @@ TASK_EXTRACTION = "EXTRACTION"
 TASK_IRREGULAR_NPC = "IRREGULAR_NPC_RESOLUTION"
 TASK_NPC_PROMOTION = "NPC_PROMOTION_DETAIL"
 TASK_NARRATIVE_REPLAN = "NARRATIVE_REPLAN"
+TASK_FOREGROUND_CONTINUATION = "FOREGROUND_CONTINUATION_NARRATION"   # H05(DESIGN 12 §7)
 
 # ── 작업 상태 ──
 TASK_RUNNING = "RUNNING"
@@ -1011,6 +1012,8 @@ class TurnPreparation:
         self.world_mutation_digest = None
         self.world_conflicts: list = []          # WORLD_PROJECTION_CONFLICT 진단(재시도 대상 아님)
         self.world_quiescence = None             # H03: BaseQuiescenceReport(READY 증명)
+        self.world_turn = None                   # H05: core.turn_world.WorldTurn(DYNAMIC 세션만)
+        self.world_observation_raw = None        # H05: 추출의 world_observation(원본 — 처리 전)
 
     # ── 정체성 ──
     def identity(self) -> tuple:
@@ -1309,6 +1312,20 @@ def capture_world_baseline(session, prep) -> None:
     prep.baseline_definition_revision = getattr(session, "definition_revision", None)
     prep.world_mutation_batch = _wm.player_turn_batch(session, prep.transaction_id)
     prep.world_baseline_captured = True
+
+
+def stage_world_ops(prep, ops) -> None:
+    """H05 — 이 시도의 PLAYER_TURN 묶음에 typed 연산을 담는다(READY 동결 전에만, 멱등).
+
+    준비 객체가 묶음의 유일한 owner다. 동결 이후 추가는 배리어 위반이다.
+    """
+    b = prep.world_mutation_batch
+    if b is None or b.frozen:
+        raise BarrierViolationError("동결됐거나 없는 세계 변이 묶음에는 연산을 담을 수 없습니다")
+    have = {op.op_id for op in b.operations}
+    for op in ops:
+        if op.op_id not in have:
+            b.add(op)
 
 
 def _world_ready_reasons(session, prep) -> list:

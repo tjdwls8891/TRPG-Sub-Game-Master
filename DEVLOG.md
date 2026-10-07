@@ -1,10 +1,10 @@
 # INDAIM — 개발 로그 (DEVLOG)
 
-> 현재 버전: **v7.2.0** · `SCHEMA_VERSION` 4
+> 현재 버전: **v7.3.0** · `SCHEMA_VERSION` 4
 > 스택: Gemini API + discord.py / 한국어 TRPG 보조 GM 봇
 > 저장소: `tjdwls8891/TRPG-Sub-Game-Master`
 > 리팩터링: 7-WP 프로그램(WP-A~G, 2026-09-12~09-29) — WP-A~G 전부 VERIFIED, 프로그램 완료(WP-G 최종 `f0fd69e`) → **v6.0.0**
-> 동적 세계 프로그램: 통합 로드맵 H01~H07 — H01·H02 완료 → **v7.0.0**, H03 완료 → **v7.1.0**, H04 완료 → **v7.2.0**, H05~H07 예정
+> 동적 세계 프로그램: 통합 로드맵 H01~H07 — H01·H02 완료 → **v7.0.0**, H03 완료 → **v7.1.0**, H04 완료 → **v7.2.0**, H05 → **v7.3.0**, H06·H07 예정
 
 ---
 
@@ -259,6 +259,7 @@
 | **7.0.0** | H02 | `SCHEMA_VERSION` 3→4(세션 저장 형식 비호환) = MAJOR. 이 시점부터 번호는 개발 패키지마다 내용 기준으로 갱신한다(사용자 결정) |
 | **7.1.0** | H03 | 시간·공간 서비스와 typed 연산 추가 — 하위호환 기능 = MINOR. `SCHEMA_VERSION` 4·turn-history 3·CommitPlan 2 유지, compiler semantic version 1→2 |
 | **7.2.0** | H04 | 행위자·정보·인지·사건·세계 진행 엔진 추가 — 하위호환 기능 = MINOR. 스키마·이력·CommitPlan 유지, compiler semantic version 2→3 |
+| **7.3.0** | H05 | 구조화 행동 의도·플레이어 세계 계획·관찰·같은 분 선후·후속 묘사·투영 미디어를 자동 턴에 배선 — 하위호환 기능 = MINOR. 스키마·이력·CommitPlan·compiler 유지, `prompts.py` 무변경(판단·추출 스키마는 런타임 확장). DYNAMIC 세션(정의 바인딩·시계·PC 배치)만 새 경로 — 바인딩·seed는 H06이라 현 운영 세션은 모두 기존 경로 |
 
 **전환점 분석** — 첫 비호환 변경은 WP-B(`967263e`, `자:/태:` 태그의 자원·상태 변경 기능 정지)였다. 그 앞의 7개 패키지(WP-01·02·PERSIST·ACCOUNTING·JOURNAL·SETTLEMENT-01·WP-A)는 하위호환 추가였으나 개별 출시되지 않았으므로 MAJOR에 흡수된다. 이후 WP-D(청구 권위 전환)·WP-E(되감기 의미 변경)·WP-G(명령어 은퇴)의 비호환 변경도 같은 출시에 함께 실렸다. `SCHEMA_VERSION`은 3을 유지했고, 구세션 데이터는 로드된다(호환 처리 포함).
 

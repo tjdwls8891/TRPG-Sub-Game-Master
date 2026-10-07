@@ -96,7 +96,8 @@ def _clean_proceed_instruction(instruction: str) -> str:
     return re.sub(r'\s+', ' ', result).strip()
 
 
-def _build_judgment_user_prompt(session, player_message: str, roll_results: list) -> str:
+def _build_judgment_user_prompt(session, player_message: str, roll_results: list,
+                                world_turn=None) -> str:
     """
     판단층위 호출용 사용자 프롬프트 조립.
 
@@ -181,19 +182,24 @@ def _build_judgment_user_prompt(session, player_message: str, roll_results: list
 
     # ④ 이동 안내 — 판단층위는 캐시를 읽지 않아 세계관을 모른다.
     # 코드가 경로를 계산해 재료로 넣어야 ASK로 거리를 안내할 수 있다.
-    try:
-        hint = core.places.build_move_hint(session, player_message)
-        if hint:
-            lines.append(hint)
-    except Exception as e:
-        print(f"[장소] 이동 안내 생성 실패: {e}")
+    # H05: DYNAMIC 세션은 레거시 장소 그래프 안내 대신 코드 후보 매니페스트(PC 지식 기반)를 준다 —
+    #   이동 가능성·경로는 판단층위가 아니라 KnownRoutePlanner가 정한다(평행 권위 없음).
+    if world_turn is not None and getattr(world_turn, "manifest", None) is not None:
+        lines.append(world_turn.manifest.render())
+    else:
+        try:
+            hint = core.places.build_move_hint(session, player_message)
+            if hint:
+                lines.append(hint)
+        except Exception as e:
+            print(f"[장소] 이동 안내 생성 실패: {e}")
 
     lines.append(f"[플레이어 신규 발언]\n{player_message}")
     return "\n\n".join(lines)
 
 
 def _build_logic_user_prompt(session, player_message: str, roll_results: list,
-                              sim_result: dict | None = None) -> str:
+                              sim_result: dict | None = None, world_turn=None) -> str:
     """
     지시층위 호출용 사용자 프롬프트 조립.
 
@@ -340,6 +346,13 @@ def _build_logic_user_prompt(session, player_message: str, roll_results: list,
             }
     except Exception:
         pass
+    # H05(ProjectedMediaContext): DYNAMIC 세션은 묘사가 표현할 투영 장면(+상위 상속)의 이미지만 후보 —
+    #   도착 전 목적지 이미지는 후보가 아니다.
+    _wplan = getattr(world_turn, "plan", None) if world_turn is not None else None
+    _allowed = core.turn_world.media_allowed_places(world_turn.ctx.definition, _wplan) \
+        if _wplan is not None else None
+    if _allowed is not None:
+        location_images = {k: v for k, v in location_images.items() if k in _allowed}
     if location_images:
         loc_lines = [f"  - {kw}: {desc}" for kw, desc in location_images.items()]
         location_images_block = (
@@ -1575,15 +1588,21 @@ class GMCog(commands.Cog):
                             "(before finalized narration)")
         prep.phase = core.turn_preparation.PREP_PREPARING
         prep.event_assessment = event_assessment
+        _wt = self._attach_world_turn(session, prep, transaction_id)
 
         outcome = None
         result = None
         open_round = False
         try:
             try:
-                await self._dispatch_proceed(
-                    session, instruction, transaction_id=transaction_id, preparation=prep)
-                outcome = await self._join_and_ready(session, prep)
+                if _wt is not None and _wt.plan is not None \
+                        and _wt.plan.status == core.player_world.PLAN_CONFLICT:
+                    # DESIGN 11 §30: 묘사 전 결정적 충돌 — provider 묘사 호출 없이 종결(재시도 없음).
+                    outcome = await self._world_conflict_outcome(session, prep, stage="pre_narration")
+                else:
+                    await self._dispatch_proceed(
+                        session, instruction, transaction_id=transaction_id, preparation=prep)
+                    outcome = await self._join_and_ready(session, prep)
             except Exception as e:
                 # 사전 READY 예기치 못한 예외 — 준비 작업을 합류시키고 실패로 처리한다.
                 print(f"[WP-C/{prep.transaction_id[:8]}] 준비 중 예외: {type(e).__name__}: {e}")
@@ -1607,6 +1626,229 @@ class GMCog(commands.Cog):
         # 다음 라운드: durable COMMITTED 또는 안전하게 종결된 실패만. 복구 대기(차단)면 금지.
         if open_round and session.gm_active and not getattr(session, "commit_recovery", None):
             await self._start_round(session)
+
+    # ─────────────────────────────────────────────────────────────
+    # H05 — 턴 세계(구조화 의도 · 플레이어 세계 계획 · 관찰 · 후속 묘사)
+    #   DYNAMIC 세션(정의 바인딩·시계 초기화·PC 배치)만. LEGACY 세션은 모두 None → 기존 경로 그대로.
+    # ─────────────────────────────────────────────────────────────
+
+    def _world_turn(self, session, transaction_id, *, create=False):
+        tx = core.turn_transaction.get_active_transaction(session)
+        if tx is None or transaction_id is None or tx.transaction_id != transaction_id:
+            return None
+        wt = getattr(tx, "world_turn", None)
+        if wt is None and create:
+            ctx = core.player_world.session_world_context(session)
+            if not ctx.dynamic:
+                return None
+            wt = core.turn_world.WorldTurn(ctx=ctx)
+            tx.world_turn = wt
+        return wt
+
+    def _build_world_manifest(self, session, wt) -> None:
+        ctx = wt.ctx
+        uid = ctx.uid_of.get(ctx.lead_pc)
+        routes = wt.plan.route_options if (wt.plan is not None and wt.plan.status
+                                           == core.player_world.PLAN_NEEDS_CHOICE) else ()
+        access = core.player_world.access_confirm_options(
+            ctx.definition, session, ctx.lead_pc, core.player_world.pc_capabilities(session, uid))
+        wt.manifest = core.action_intent.build_manifest(
+            ctx.definition, session, ctx.lead_pc, definition_revision=ctx.definition_revision,
+            route_options=routes, access_options=access)
+
+    def _plan_world(self, session, wt, transaction_id, *, resolved_tie_orders=None):
+        ctx = wt.ctx
+        intent = wt.intent or core.action_intent.ResolvedActionIntent()
+        return core.player_world.plan_player_turn(
+            ctx, session, intent, transaction_id=transaction_id,
+            narrative_seed=getattr(session, "narrative_seed", None) or session.session_id,
+            capabilities=core.player_world.pc_capabilities(session, ctx.uid_of.get(ctx.lead_pc)),
+            resolved_tie_orders=resolved_tie_orders)
+
+    def _ensure_world_plan(self, session, wt, transaction_id):
+        cur = core.action_intent.world_version_id(session)
+        if wt.plan is None or wt.plan.source_world_version_id != cur:
+            wt.plan = self._plan_world(session, wt, transaction_id)
+            wt.replan = lambda orders, _s=session, _w=wt, _t=transaction_id: self._plan_world(
+                _s, _w, _t, resolved_tie_orders=orders)
+            core.write_log(session.session_id, "api",
+                           f"[H05 계획] status={wt.plan.status} reason={wt.plan.reason} "
+                           f"outcome={json.dumps(wt.plan.outcome, ensure_ascii=False, default=str)[:600]}")
+        return wt.plan
+
+    async def _ask_route_choice(self, session, plan, transaction_id, master_ch) -> None:
+        """의미 있는 경로 차이 — 플레이어 지식 범위의 선택지를 묻는다(실제 숨은 상태 미포함)."""
+        lines = ["어느 길로 가시겠습니까?"]
+        for n, o in enumerate(plan.route_options, 1):
+            mins = f" (약 {o['minutes']}분)" if o.get("minutes") is not None else ""
+            lines.append(f"{n}) {o['label']}{mins}")
+        bridge = "\n".join(lines)
+        game_ch = self.bot.get_channel(session.game_ch_id)
+        if game_ch:
+            await core.stream_text_to_channel(self.bot, game_ch, bridge, words_per_tick=15, tick_interval=1.5)
+        session.current_turn_logs.append(f"[진행자 (GM)]: {bridge}")
+        if master_ch:
+            await master_ch.send(f"🧭 **[경로 선택]** 후보 {len(plan.route_options)}개 — 플레이어 선택 대기")
+        core.turn_transaction.mark_waiting_for_player(session, transaction_id)
+
+    def _attach_world_turn(self, session, prep, transaction_id):
+        """PROCEED 배리어 소유 시작 — 계획을 준비 객체에 붙이고 묘사용 투영 장면을 만든다."""
+        wt = self._world_turn(session, transaction_id)
+        if wt is None:
+            return None
+        plan = self._ensure_world_plan(session, wt, transaction_id)
+        if plan.status == core.player_world.PLAN_NEEDS_CHOICE:
+            # 선택을 물을 수 없는 경로(ROLL 후·강제 PROCEED) — 이동 없이 묘사(선택은 다음 선언에서).
+            plan.status, plan.reason = core.player_world.PLAN_REJECTED, "ROUTE_CHOICE_PENDING"
+        prep.world_turn = wt
+        if plan.projected_world is not None:
+            prep.world_prompt_timeline = core.turn_world.mirror_timeline(
+                getattr(session, "world_timeline", {}) or {}, wt.ctx.definition,
+                plan.projected_world, wt.ctx.lead_pc)
+        return wt
+
+    def _world_diagnostic(self, session, prep, code, detail) -> None:
+        """DESIGN 11 §32 — 마스터 진단(내구 로그). 숨은 정보는 플레이어 채널에 보내지 않는다."""
+        rec = {"code": code, "transaction_id": prep.transaction_id,
+               "world_version": core.action_intent.world_version_id(session),
+               "definition_revision": getattr(session, "definition_revision", None), "detail": detail}
+        try:
+            core.write_error_log(session.session_id, "world",
+                                 RuntimeError(json.dumps(rec, ensure_ascii=False, default=str)), 1)
+        except Exception as e:
+            print(f"[H05] 진단 기록 실패: {e}")
+
+    async def _world_conflict_outcome(self, session, prep, *, stage: str) -> str:
+        prep.seal()
+        try:
+            prep.close_cost_membership()
+        except core.turn_preparation.BarrierViolationError as e:
+            prep.violations.append(f"cost_close:{e}")
+        prep.failure_code = core.turn_transaction.FailureCode.WORLD_PROJECTION_CONFLICT.value
+        prep.failure_stage = f"WORLD_{stage.upper()}"
+        wt = getattr(prep, "world_turn", None)
+        self._world_diagnostic(session, prep, "WORLD_PROJECTION_CONFLICT",
+                               {"stage": stage, "diagnostics": getattr(getattr(wt, "plan", None), "diagnostics", None)})
+        return _OUTCOME_NOT_READY
+
+    def _process_world_observation(self, session, prep, plan, master_ch) -> None:
+        """추출 관찰 처리(순수) + 레거시 장소/시간 값을 정본 미러로 대체 + 후속 묘사 등록."""
+        wt = prep.world_turn
+        ctx = wt.ctx
+        res = core.turn_world.process_observation(
+            ctx, session, wt.plan, wt.obs_manifest or core.turn_world.ObservationManifest(),
+            prep.world_observation_raw, transaction_id=prep.transaction_id,
+            narrative_seed=getattr(session, "narrative_seed", None) or session.session_id,
+            replan=wt.replan)
+        wt.result = res
+        core.write_log(session.session_id, "api",
+                       f"[H05 관찰] status={res.status} exposures={list(res.exposures)} "
+                       f"extra={res.extra_minutes} continuation={len(res.continuation_signals)} "
+                       f"diag={json.dumps(res.diagnostics, ensure_ascii=False, default=str)[:600]}")
+        if res.status != core.turn_world.TW_READY:
+            return
+        # 장소·시간 권위 = 정본 세계. 레거시 적용부는 추출값이 아니라 정본 미러를 받는다.
+        prev_tl = getattr(session, "world_timeline", {}) or {}
+        new_tl = core.turn_world.mirror_timeline(prev_tl, ctx.definition, res.projected_world, ctx.lead_pc)
+        plan.world_new_tl = new_tl
+        plan.location_before = prev_tl.get("current_location")
+        plan.location_after = new_tl.get("current_location")
+        plan.location_moved = plan.location_before != plan.location_after
+        cplan = core.turn_world.continuation_plan(prep.transaction_id, res)
+        if cplan is not None:
+            prep.register_task(
+                "foreground_continuation", core.turn_preparation.TASK_FOREGROUND_CONTINUATION,
+                coro=self._generate_continuation(session, prep, cplan),
+                required_success=True, parent="extraction")
+
+    async def _generate_continuation(self, session, prep, cplan) -> str:
+        """후속 묘사 1회(provider) — 같은 턴 비용 멤버십. 실패하면 예외 → READY 불가."""
+        wt = prep.world_turn
+        main_text = getattr(prep.narration, "text", "") or ""
+        prompt = (f"[직전 본 묘사]\n{main_text[-1500:]}\n\n" + cplan.prompt()
+                  + "\n\n2~4문장으로만 쓴다.")
+        core.write_log(session.session_id, "api", f"[H05 후속 묘사 요청]\n{prompt}")
+        _cl_op = core.cost_ledger.begin_operation(
+            self.bot, core.cost_ledger.OP_TURN_FOREGROUND_CONTINUATION, session=session,
+            model=core.DEFAULT_MODEL, actor_kind=core.cost_ledger.ACTOR_PLAYER,
+            billing_hint=core.cost_ledger.HINT_PLAYER_CANDIDATE)
+        prep.claim_cost_operation(_cl_op)
+        if core.turn_history.cache_usable(session) and getattr(session, "cache_name", None):
+            config = types.GenerateContentConfig(
+                http_options=core.resilience.provider_http_options("narration"),
+                cached_content=session.cache_name, temperature=0.65,
+                safety_settings=core.TRPG_SAFETY_SETTINGS)
+        else:
+            config = types.GenerateContentConfig(
+                http_options=core.resilience.provider_http_options("narration"),
+                system_instruction=self.bot.system_instruction, temperature=0.65,
+                safety_settings=core.TRPG_SAFETY_SETTINGS)
+        ok, response = await core.call_with_retry(
+            lambda: asyncio.to_thread(
+                self.bot.genai_client.models.generate_content, model=core.DEFAULT_MODEL,
+                contents=[types.Content(role="user", parts=[types.Part.from_text(text=prompt)])],
+                config=config),
+            layer="narration", session_id=session.session_id,
+            on_attempt_result=_cl_op.on_attempt, operation_id=_cl_op.operation_id)
+        if not ok:
+            raise RuntimeError("후속 묘사 provider 실패")
+        try:
+            in_t, out_t, cached_t, th_t = core.extract_token_usage(response.usage_metadata)
+            bd = core.calculate_text_gen_cost_breakdown(core.DEFAULT_MODEL, input_tokens=in_t,
+                                                        output_tokens=out_t, cached_read_tokens=cached_t)
+            core.accrue(session, bd["total_krw"], bd["total_usd"])
+            _cl_op.record(input_tokens=in_t, cached_input_tokens=cached_t, output_tokens=out_t,
+                          thought_tokens=th_t, cost_usd=bd["total_usd"], cost_krw=bd["total_krw"],
+                          usage_source=core.cost_ledger.SOURCE_PROVIDER_METADATA)
+            session.turn_cost_log = list(getattr(session, "turn_cost_log", None) or []) + [{
+                "label": "후속 묘사", "cost": bd["total_krw"], "in": in_t, "cached": cached_t,
+                "out": out_t, "manifest": []}]
+        except Exception as e:
+            print(f"[H05] 후속 묘사 비용 정산 실패: {e}")
+        text = (getattr(response, "text", "") or "").strip()
+        if not text:
+            raise RuntimeError("후속 묘사 빈 응답")
+        wt.continuation_text = text
+        # 같은 시도의 대화 이력에 붙인다(다음 턴 맥락) — 재추출하지 않는다.
+        sl = prep.staged_log
+        if isinstance(sl, dict) and not sl.get("applied"):
+            raw = list(sl.get("raw_entries") or [])
+            if raw and getattr(raw[-1], "role", None) == "model":
+                raw[-1] = types.Content(role="model", parts=[types.Part.from_text(
+                    text=(raw[-1].parts[0].text or "") + "\n\n" + text)])
+                sl["raw_entries"] = raw
+            unc = list(sl.get("uncompressed_entries") or [])
+            if unc:
+                unc[-1] = unc[-1] + "\n\n" + text
+                sl["uncompressed_entries"] = unc
+        return text
+
+    def _stage_world_turn(self, session, prep):
+        """READY 직전 — 관찰 결과 검증 후 최종 연산을 PLAYER_TURN 묶음에 담는다. 실패 코드 또는 None."""
+        wt = getattr(prep, "world_turn", None)
+        if wt is None:
+            return None
+        FC = core.turn_transaction.FailureCode
+        res = wt.result
+        if res is None:
+            return FC.COMMIT_VALIDATION_FAILURE.value
+        if res.status == core.turn_world.TW_CONFLICT:
+            self._world_diagnostic(session, prep, "WORLD_PROJECTION_CONFLICT",
+                                   {"stage": "post_narration", "conflict": res.conflict,
+                                    "diagnostics": res.diagnostics})
+            return FC.WORLD_PROJECTION_CONFLICT.value
+        if res.status != core.turn_world.TW_READY:
+            self._world_diagnostic(session, prep, res.status, {"diagnostics": res.diagnostics})
+            return FC.COMMIT_VALIDATION_FAILURE.value
+        base = core.world_state.version_id_of(prep.baseline_world_version)
+        if res.plan is not None and res.plan.source_world_version_id != base:
+            return FC.COMMIT_VALIDATION_FAILURE.value
+        try:
+            core.turn_preparation.stage_world_ops(prep, res.ops)
+        except core.turn_preparation.BarrierViolationError as e:
+            prep.violations.append(f"world_stage:{e}")
+            return FC.COMMIT_VALIDATION_FAILURE.value
+        return None
 
     # ─────────────────────────────────────────────────────────────
     # WP-C — 동시 준비 / READY_TO_COMMIT 배리어 / legacy continuation
@@ -1678,6 +1920,9 @@ class GMCog(commands.Cog):
             attempt=prep.attempt, preparation=prep)
         if plan is None:
             raise RuntimeError("추출층위 실패(재시도 소진) 또는 stale")
+        # H05-B/C: 관찰 → 보충 typed 연산·세계 진행(순수) → 필요 시 후속 묘사 작업 등록(추출 종결 전).
+        if getattr(prep, "world_turn", None) is not None:
+            self._process_world_observation(session, prep, plan, master_ch)
         # B-C3: 이번 턴 계획의 quest_progress로 수치 재계획을 판정 — 자식 작업 등록은
         #   이 추출 작업이 terminal이 되기 전에 끝나므로 배리어 합류가 누락하지 않는다.
         await self._evaluate_numeric_replan(session, prep, plan, master_ch)
@@ -1767,6 +2012,10 @@ class GMCog(commands.Cog):
                     prep.close_cost_membership()
                 except TP.BarrierViolationError as e:
                     prep.violations.append(f"cost_close:{e}")
+                _wf = self._stage_world_turn(session, prep)
+                if _wf is not None:
+                    prep.failure_code, prep.failure_stage = _wf, "WORLD"
+                    return _OUTCOME_NOT_READY
                 proof, reasons = TP.transition_to_ready(session, prep)
                 if proof is not None:
                     print(f"[WP-C/{prep.transaction_id[:8]}] READY_TO_COMMIT "
@@ -1939,6 +2188,12 @@ class GMCog(commands.Cog):
         # WP-F: 커밋된 ROLL 성장의 확정 알림(CANONICAL_GAME_EVENT) — 성장은 코디네이터가
         #   이미 정본에 적용했다. derived 로만 쌓여 durable COMMITTED 이후 송출 의도와 함께 나간다.
         if derived is not None:
+            # H05-C: 후속 묘사(READY 전 생성) — durable COMMITTED 이후, 다음 행동 질문 전에 이 시도 소유로 송출.
+            _wt = getattr(prep, "world_turn", None)
+            _ct = getattr(_wt, "continuation_text", None) if _wt is not None else None
+            if _ct:
+                for _i in range(0, len(_ct), 1900):
+                    derived.game(_ct[_i:_i + 1900])
             for _line in list(getattr(prep, "growth_notices", None) or []):
                 derived.game(_line)
         if prep.irregular_plan is not None and not prep.irregular_plan.applied:
@@ -2617,9 +2872,24 @@ class GMCog(commands.Cog):
         if not judgment:
             return
         # WP-E: 재생성이 판단을 다시 돌리지 않도록 구조화 판단과 지시층위 입력을 tx에 기록한다.
+        # H05: 이력에는 transient 후보 키(P1·R2…)가 아니라 의미 기록(PlaceId·경로 서명·접근 토큰)을 남긴다.
+        _wt = self._world_turn(session, transaction_id)
+        _jnote = judgment
+        if _wt is not None and _wt.intent is not None:
+            _jnote = dict(judgment)
+            _jnote[core.action_intent.INTENT_FIELD] = {"semantic": _wt.intent.semantic_record()}
         core.turn_history.note_judgment(
-            session, transaction_id, judgment=judgment,
+            session, transaction_id, judgment=_jnote,
             player_message=player_message, roll_results=list(roll_results))
+
+        # H05-A: PROCEED면 지시층위 전에 코드 소유 세계 계획을 세운다(정본 불변). 의미 있는 경로 차이는
+        #   여기서 플레이어에게 묻는다(경로 선택은 판단층위가 아니라 코드 정책).
+        if _wt is not None and (judgment.get("action") or "").upper() == "PROCEED":
+            _plan = self._ensure_world_plan(session, _wt, transaction_id)
+            if _plan.status == core.player_world.PLAN_NEEDS_CHOICE:
+                await self._ask_route_choice(session, _plan, transaction_id, master_ch)
+                await core.save_session_data(self.bot, session)
+                return
 
         for iteration in range(MAX_ITERATIONS_PER_MESSAGE):
             action = (judgment.get("action") or "ASK").upper()
@@ -2955,7 +3225,13 @@ class GMCog(commands.Cog):
         # WP-01: 현재 트랜잭션이면 JUDGING으로 표기(수동/인트로 경로는 no-op).
         core.turn_transaction.mark_transaction_status(
             session, transaction_id, core.turn_transaction.TurnStatus.JUDGING)
-        user_prompt = _build_judgment_user_prompt(session, player_message, roll_results)
+        # H05-A: DYNAMIC 세션이면 코드 후보 매니페스트를 같은 판단 호출에 싣는다(추가 provider 호출 0).
+        _wt = self._world_turn(session, transaction_id, create=True)
+        _schema = JUDGMENT_RESPONSE_SCHEMA
+        if _wt is not None:
+            self._build_world_manifest(session, _wt)
+            _schema = core.action_intent.extend_judgment_schema(JUDGMENT_RESPONSE_SCHEMA, _wt.manifest)
+        user_prompt = _build_judgment_user_prompt(session, player_message, roll_results, world_turn=_wt)
         core.write_log(session.session_id, "api", f"[판단층위 요청 - Payload]\n{user_prompt}")
 
         contents = [types.Content(role="user", parts=[types.Part.from_text(text=user_prompt)])]
@@ -2964,7 +3240,7 @@ class GMCog(commands.Cog):
             system_instruction=JUDGMENT_SYSTEM_INSTRUCTION,
             temperature=0.4,
             response_mime_type="application/json",
-            response_schema=JUDGMENT_RESPONSE_SCHEMA,
+            response_schema=_schema,
             safety_settings=core.TRPG_SAFETY_SETTINGS,
         )
 
@@ -3050,6 +3326,14 @@ class GMCog(commands.Cog):
             session.session_id, "api",
             f"[판단층위 결정]\n{json.dumps(decision, ensure_ascii=False, indent=2)}"
         )
+        if _wt is not None and _wt.manifest is not None:
+            # 후보 키 → 정본 참조(코드 검증). raw 문자열은 정본이 되지 않는다. 새 의도 = 재계획.
+            _wt.intent = core.action_intent.resolve_intent(
+                _wt.manifest, decision.get(core.action_intent.INTENT_FIELD), world=session)
+            _wt.plan = None
+            core.write_log(session.session_id, "api",
+                           "[H05 의도]\n" + json.dumps(_wt.intent.semantic_record(), ensure_ascii=False)
+                           + f"\nunresolved={list(_wt.intent.unresolved)}")
         return decision
 
     async def _call_gm_logic(self, session, player_message: str, roll_results: list,
@@ -3076,8 +3360,11 @@ class GMCog(commands.Cog):
         # WP-01: 현재 트랜잭션이면 INSTRUCTING으로 표기(수동/인트로 경로는 no-op).
         core.turn_transaction.mark_transaction_status(
             session, transaction_id, core.turn_transaction.TurnStatus.INSTRUCTING)
+        _wt = self._world_turn(session, transaction_id)
         user_prompt = _build_logic_user_prompt(session, player_message, roll_results,
-                                                sim_result=sim_result)
+                                                sim_result=sim_result, world_turn=_wt)
+        if _wt is not None and _wt.plan is not None:
+            user_prompt += core.turn_world.narration_overlay(_wt.plan, _wt.ctx.definition)
         # 판단층위가 확정한 진행 유형을 지시층위에 전달한다. 지시층위는 이 유형을 바꾸지 않는다.
         user_prompt = (
             f"[확정된 진행 유형] {action}\n"
@@ -3758,6 +4045,10 @@ class GMCog(commands.Cog):
             "이미 완료되었거나 서술된 행동·장면 전환·이동을 되풀이하거나 시간을 되감지 말고, "
             "지나간 장면에 인물의 행동·대사를 소급 삽입하지 말 것."
         )
+
+        _wt = getattr(preparation, "world_turn", None) if preparation is not None else None
+        if _wt is not None and _wt.plan is not None:
+            exec_instruction += core.turn_world.narration_overlay(_wt.plan, _wt.ctx.definition)
 
         async def _on_finalized(narr):
             if preparation is not None:
@@ -4595,9 +4886,27 @@ class GMCog(commands.Cog):
         # WP-B(AUD-011): 추출 증거에는 완결된 전체 묘사가 들어가야 한다.
         #   추출 모델(Gemini)의 컨텍스트 한도는 묘사 길이(수천 자)를 크게 상회하므로
         #   청킹 없이 전문을 전달한다. 요약·앞부분 절단·꼬리 드롭을 하지 않는다.
+        _wt = getattr(preparation, "world_turn", None)
+        _ext_schema = core.EXTRACTION_RESPONSE_SCHEMA
+        _obs_block = ""
+        if _wt is not None:
+            # H05-B: 관찰 후보(장면 행위자가 아는 정보·장면 신호·선후 선택지)만 — 숨은 진실 미포함.
+            _wt.obs_manifest = core.turn_world.build_observation_manifest(
+                _wt.ctx.definition, _wt.ctx, _wt.plan, session)
+            _ext_schema = copy.deepcopy(core.EXTRACTION_RESPONSE_SCHEMA)
+            _ext_schema.setdefault("properties", {})[core.turn_world.OBS_FIELD] = _wt.obs_manifest.schema()
+            _obs_block = _wt.obs_manifest.render()
+            # 장소·시간 권위는 정본 세계다 — 레거시 요약 대신 정본 미러를 보여 준다.
+            _tl = core.turn_world.mirror_timeline(prev_tl, _wt.ctx.definition,
+                                                  _wt.plan.projected_world if _wt.plan is not None
+                                                  and _wt.plan.projected_world is not None else session,
+                                                  _wt.ctx.lead_pc)
+            prev_summary = (f"위치={_tl.get('current_location', '미확인')}, "
+                            f"시간대={_tl.get('time_of_day', '미확인')}, 날짜={_tl.get('current_date', '미확인')} "
+                            f"(코드 확정 — 장소·날짜 항목은 판정하지 말 것)")
         user_prompt = (
             "[추출 항목]\n" + "\n".join(f"- {t}" for t in targets) + "\n"
-            + limit_block + secret_block + "\n"
+            + limit_block + secret_block + _obs_block + "\n"
             f"[직전까지의 세계 상태]\n{prev_summary}\n\n"
             f"[이번 묘사문]\n{ai_output_text}"
         )
@@ -4609,7 +4918,7 @@ class GMCog(commands.Cog):
             system_instruction=EXTRACTION_SYSTEM_INSTRUCTION,
             temperature=0.2,
             response_mime_type="application/json",
-            response_schema=core.EXTRACTION_RESPONSE_SCHEMA,
+            response_schema=_ext_schema,
             safety_settings=core.TRPG_SAFETY_SETTINGS,
             # 추출은 묘사문에서 값을 읽어 옮기는 기계적 작업이다.
             # 실측 결과 출력의 90%가 사고 토큰이었고(1039/1148) 실제 JSON은
@@ -4695,6 +5004,7 @@ class GMCog(commands.Cog):
             session.session_id, "api",
             f"[추출층위 결과(준비·미적용)]\n{json.dumps(result, ensure_ascii=False, indent=2)}")
         preparation.extraction_plan = plan
+        preparation.world_observation_raw = result.get(core.turn_world.OBS_FIELD) if _wt is not None else None
         return plan
 
     async def _verify_proceed_instruction(self, session, instruction: str,

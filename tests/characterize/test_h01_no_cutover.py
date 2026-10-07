@@ -42,7 +42,10 @@ def _production_files():
 # H04: 행위자·정보·사건 도메인 모듈도 안정 digest(ActorId·InfoId·EventInstanceId)를 재사용한다.
 from tests.characterize.h04_scope import H04_DOMAIN_MODULES  # noqa: E402
 WORLD_IDS_REUSERS = {os.path.join("core", f"{m}.py")
-                     for m in ("world_state", "world_mutation", "canonical_mutation") + H04_DOMAIN_MODULES}
+                     for m in ("world_state", "world_mutation", "canonical_mutation") + H04_DOMAIN_MODULES
+                     + ("player_world", "turn_world")}
+# H05: 바인딩된 정의의 읽기 전용 소비자(쓰기·바인딩 없음 — 아래 writer 0 테스트가 계속 고정)
+DEFINITION_READERS = {os.path.join("core", "player_world.py")}
 
 
 def test_no_production_caller_of_h01_modules():
@@ -54,6 +57,8 @@ def test_no_production_caller_of_h01_modules():
         src = open(path, encoding="utf-8").read()
         for m in H01_MODULES:
             if m == "world_ids" and rel in WORLD_IDS_REUSERS:
+                continue
+            if m in ("definition_compiler", "definition_snapshot") and rel in DEFINITION_READERS:
                 continue
             if m in src:
                 hits.append((rel, m))
@@ -107,3 +112,11 @@ def test_definition_revision_field_exists_but_is_not_bound():
                             and not (isinstance(t.value, ast.Name) and t.value.id == "self")):
                         writers.append(rel)
     assert writers == [], writers
+
+
+def test_h05_definition_reader_is_read_only_and_gated_on_binding():
+    """H05 player_world는 스냅샷 쓰기 API를 부르지 않고, 바인딩 없는 세션은 LEGACY다."""
+    tree = ast.parse(source_of("core/player_world.py"))
+    called = {getattr(n.func, "attr", None) for n in ast.walk(tree) if isinstance(n, ast.Call)}
+    assert not called & {"write_snapshot", "build_envelope", "_write_json_durable"}
+    assert core.player_world.session_world_context(core.TRPGSession("s", 1, 2, "x", {})).mode == "LEGACY"

@@ -125,6 +125,8 @@ class TurnTransaction:
     # WP-C: 트랜잭션 소유 준비/배리어 상태(core.turn_preparation.TurnPreparation).
     #   런타임 전용 — 세션 JSON에 저장되지 않으며 durable commit 권위가 아니다(WP-D).
     preparation: object | None = None
+    # H05: 턴 세계 런타임 기록(core.turn_world.WorldTurn — 매니페스트·의도·계획·관찰). 런타임 전용.
+    world_turn: object | None = None
 
     @property
     def short_id(self) -> str:
