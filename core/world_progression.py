@@ -470,6 +470,7 @@ class _Engine:
                         u.ops = [] if any(c.op_ids and c.op_ids[0] in {o.op_id for o in consumes}
                                           for c in res.conflicts) else consumes
                         u.signals = []
+                        u.events = []                       # 사건 연산이 채택되지 않았다 — 변화 보고 없음
                 continue
             groups = self._conflict_groups(res.conflicts, owner)
             # ① 명확히 낮은 효과를 먼저 제거하고 재투영한다 — 같은 우선순위라는 이유만으로 tie를 만들지 않는다
@@ -502,6 +503,7 @@ class _Engine:
                     u.diagnostics.append({"code": "SUPERSEDED_BY_PRIORITY", "unit_id": u.unit_id})
                     u.ops = [op for op in u.ops if op.op_type == _sched.OP_SCHEDULE_CONSUME]
                     u.signals = []
+                    u.events = []                           # 탈락 — 소비만 남고 사건 변화는 채택되지 않는다
             if tries > 64:
                 raise _Stop(CONFLICT, detail="충돌 해소 반복 상한")
         before = self.world

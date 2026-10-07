@@ -154,14 +154,14 @@ def test_r23_r24_three_valued_logic_and_unknown_is_not_false():
     ({"all": []}, "PREDICATE_INVALID"),
 ])
 def test_r25_r26_freeform_and_polling_predicates_rejected(pred, code):
-    assert code in codes({"t1": dict(SIMPLE, spawn_when=pred)})
+    assert code in codes({"t1": dict(copy.deepcopy(SIMPLE), spawn_when=pred)})
 
 
 def test_r26_daypart_requires_calendar_and_time_compiles_to_wakeup():
     raw_codes = [d.code for d in dc.compile_scenario(ev_raw(
-        {"t1": dict(SIMPLE, spawn_when={"time": "DAYPART_IS", "daypart": "day"})}, calendar=None), "t").errors]
+        {"t1": dict(copy.deepcopy(SIMPLE), spawn_when={"time": "DAYPART_IS", "daypart": "day"})}, calendar=None), "t").errors]
     assert "PREDICATE_TIME_NO_CALENDAR" in raw_codes or "CALENDAR_REQUIRED" in raw_codes
-    D = defn({"t1": dict(SIMPLE, spawn_when={"all": [{"time": "DAYPART_IS", "daypart": "day"}, eq(DOOR, "LOCKED")]})})
+    D = defn({"t1": dict(copy.deepcopy(SIMPLE), spawn_when={"all": [{"time": "DAYPART_IS", "daypart": "day"}, eq(DOOR, "LOCKED")]})})
     tpl = D["event_templates"]["t1"]
     assert tpl["dependency"]["spawn"] == ["access:door_1:state"]        # 시간은 의존 키가 아니다
     assert tpl["has_time_predicates"]
@@ -175,7 +175,7 @@ def test_r26_daypart_requires_calendar_and_time_compiles_to_wakeup():
 
 def test_r26_time_spawn_is_woken_not_polled():
     """시간 조건 spawn: 매분 평가하지 않고 다음 경계 wakeup 1건으로 spawn."""
-    D = defn({"dawn": dict(SIMPLE, spawn_when={"time": "DAYPART_IS", "daypart": "day"})})
+    D = defn({"dawn": dict(copy.deepcopy(SIMPLE), spawn_when={"time": "DAYPART_IS", "daypart": "day"})})
     w = world()
     init = WP.initial_template_wakeups(D, w, narrative_seed=SEED)
     assert [o.payload["due_minute"] for o in init] == [K + 360]
@@ -192,15 +192,15 @@ def test_r26_time_spawn_is_woken_not_polled():
 # ══════════════════════════════════════════════════════════════
 
 def test_r27_r28_dependency_index_affected_only_and_wildcard_warning():
-    T = {"on_door1": dict(SIMPLE, spawn_when=eq(DOOR, "BARRED")),
-         "on_door2": dict(SIMPLE, spawn_when=eq({"ref": "ACCESS_STATE", "control": "door_2"}, "BARRED"))}
+    T = {"on_door1": dict(copy.deepcopy(SIMPLE), spawn_when=eq(DOOR, "BARRED")),
+         "on_door2": dict(copy.deepcopy(SIMPLE), spawn_when=eq({"ref": "ACCESS_STATE", "control": "door_2"}, "BARRED"))}
     D = defn(T)
     idx = WP.build_dependency_index(D, world())
     assert idx.affected({"access:door_1:state"})["spawn"] == ["on_door1"]
     assert idx.affected({"access:door_2:state"})["spawn"] == ["on_door2"]
     assert idx.affected({"actor:x:placement"}) == {"spawn": [], "instance": [], "series": []}
     assert idx.affected({f"actor:{KANG}:placement"})["series"] == ["kang_loc"]
-    W = {"after": dict(SIMPLE, spawn_when=eq({"ref": "EVENT_LIFECYCLE", "template": "on_door1"}, "RESOLVED"))}
+    W = {"after": dict(copy.deepcopy(SIMPLE), spawn_when=eq({"ref": "EVENT_LIFECYCLE", "template": "on_door1"}, "RESOLVED"))}
     assert "DEPENDENCY_WILDCARD" in codes(dict(T, **W), sev="WARNING")
     D2 = defn(dict(T, **W))
     idx2 = WP.build_dependency_index(D2, world())
@@ -221,7 +221,7 @@ def test_r29_repeat_policies():
     slot = {"who": {"type": "ACTOR", "candidates": ["강지수", "박노인"]}}
     barred = op("b", "ACCESS_STATE_SET", {"control_id": "door_1", "state": "BARRED"})
     for pol, expect in (("ONCE_PER_SESSION", 1), ("ONCE_PER_BINDING", 2)):
-        D = defn({"t": dict(SIMPLE, slots=slot, repeat_policy=pol)})
+        D = defn({"t": dict(copy.deepcopy(SIMPLE), slots=slot, repeat_policy=pol)})
         r = run(D, world(), K, base_ops=[barred])
         assert r.status == WP.COMPLETED and len(insts(r)) == expect, pol
         # 재진행해도 더 spawn하지 않는다
@@ -231,7 +231,7 @@ def test_r29_repeat_policies():
                                                            {"control_id": "door_1", "state": "BARRED"})])
         assert len(insts(r3)) == expect
     # REPEATABLE + max_occurrences: ACTIVE가 있으면 새로 만들지 않고, 해결 뒤 재발생(상한까지)
-    rep = dict(SIMPLE, repeat_policy="REPEATABLE", max_occurrences=2,
+    rep = dict(copy.deepcopy(SIMPLE), repeat_policy="REPEATABLE", max_occurrences=2,
                resolve_when=eq(DOOR, "OPEN"))
     D = defn({"t": rep})
     w = world()
@@ -337,7 +337,7 @@ def test_r34_r35_priority_tie_rejected_and_score_is_code_side():
     t = _phased()
     t["phases"]["panic"]["priority"] = 5
     assert "EVENT_PHASE_PRIORITY_TIE" in codes({"t": t})
-    assert "EVENT_PHASE_RANK_REQUIRED" in codes({"t": dict(SIMPLE, phase_selector={"stability": "MONOTONIC"})})
+    assert "EVENT_PHASE_RANK_REQUIRED" in codes({"t": dict(copy.deepcopy(SIMPLE), phase_selector={"stability": "MONOTONIC"})})
     sc = _phased("BEST_MATCH", "SCORE")
     sc["phases"]["watch"].update({"base_score": 10})
     sc["phases"]["breach"].update({"base_score": 0, "score_terms": [
@@ -350,7 +350,7 @@ def test_r34_r35_priority_tie_rejected_and_score_is_code_side():
 
 
 def test_spawn_without_eligible_phase_is_diagnosed_not_guessed():
-    t = dict(SIMPLE, phases={"p": {"eligible_when": {"const": False}, "priority": 1}})
+    t = dict(copy.deepcopy(SIMPLE), phases={"p": {"eligible_when": {"const": False}, "priority": 1}})
     D = defn({"t": t})
     r = run(D, world(), K, base_ops=[_set("b", "door_1", "BARRED")])
     assert insts(r) == {} and any(dg["code"] == "SPAWN_NO_ELIGIBLE_PHASE" for dg in r.diagnostics)
@@ -366,7 +366,7 @@ def _cased(selection="DETERMINISTIC_WEIGHTED", weights=(1, 1, 1), valid_c=True):
         cases.append({"case_id": cid, "from": None, "to": "open", "weight": w_,
                       "valid_when": {"const": True} if (cid != "cc" or valid_c) else {"const": False},
                       "steps": [{"step_id": "mark", "type": "SET_EVENT_LOCAL", "key": "case", "value": cid}]})
-    return dict(SIMPLE, case_selection=selection, transition_cases=cases)
+    return dict(copy.deepcopy(SIMPLE), case_selection=selection, transition_cases=cases)
 
 
 def test_r36_r37_transition_established_and_weighted_case_stable():
@@ -383,7 +383,7 @@ def test_r36_r37_transition_established_and_weighted_case_stable():
                                from_phase=None, to_phase="open")
     assert case["case_id"] == i1["local_state"]["case"]
     # 케이스가 모두 무효여도 전이(spawn 진입)는 성립한다
-    none = dict(SIMPLE, transition_cases=[{"case_id": "x", "from": None, "to": "open",
+    none = dict(copy.deepcopy(SIMPLE), transition_cases=[{"case_id": "x", "from": None, "to": "open",
                                            "valid_when": {"const": False}, "steps": []}])
     r = run(defn({"t": none}), world(), K, base_ops=[_set("b", "door_1", "BARRED")])
     assert one_inst(r)["current_phase"] == "open" and one_inst(r)["history"][0]["case_id"] is None
@@ -438,14 +438,14 @@ def test_r38_r39_weights_and_pool_and_first_valid():
     ({"step_id": "s", "type": "START_MOVEMENT", "actor": KANG, "destination": "성당", "mode": "fly"}, "STEP_REF_UNKNOWN"),
 ])
 def test_r40_typed_steps_only(step, code):
-    t = dict(SIMPLE, transition_cases=[{"case_id": "c", "from": None, "to": "open", "steps": [step]}])
+    t = dict(copy.deepcopy(SIMPLE), transition_cases=[{"case_id": "c", "from": None, "to": "open", "steps": [step]}])
     assert code in codes({"t": t})
 
 
 def test_r40_fixed_write_conflict_is_static_error():
     steps = [{"step_id": "a", "type": "SET_ACCESS_STATE", "control": "door_2", "state": "OPEN"},
              {"step_id": "b", "type": "SET_ACCESS_STATE", "control": "door_2", "state": "BARRED"}]
-    t = dict(SIMPLE, transition_cases=[{"case_id": "c", "from": None, "to": "open", "steps": steps}])
+    t = dict(copy.deepcopy(SIMPLE), transition_cases=[{"case_id": "c", "from": None, "to": "open", "steps": steps}])
     assert "STEP_FIXED_WRITE_CONFLICT" in codes({"t": t})
 
 
@@ -460,7 +460,7 @@ def test_event_steps_information_cognition_relationship_chain():
              {"step_id": "old", "type": "SUPERSEDE_INFORMATION", "info": "S40", "proposition": "기록이 옮겨졌다"},
              {"step_id": "rel", "type": "APPEND_RELATIONSHIP_DELTA", "from": "$slot:who", "to": "group:경비대",
               "kind": "SUSPICION"}]
-    t = dict(SIMPLE, slots={"who": {"type": "ACTOR", "candidates": ["강지수"]}},
+    t = dict(copy.deepcopy(SIMPLE), slots={"who": {"type": "ACTOR", "candidates": ["강지수"]}},
              transition_cases=[{"case_id": "c", "from": None, "to": "open", "steps": steps}])
     D = defn({"t": t})
     r = run(D, world(), K, base_ops=[_set("b", "door_1", "BARRED")])
@@ -491,7 +491,7 @@ def _eff_tpl(effect_steps, *, guard=None, priority=0, after=5, epoch_bound=True)
           "conflict_priority": priority, "epoch_bound": epoch_bound}
     if guard is not None:
         st["guard"] = guard
-    return dict(SIMPLE, transition_cases=[{"case_id": "c", "from": None, "to": "open", "steps": [st]}])
+    return dict(copy.deepcopy(SIMPLE), transition_cases=[{"case_id": "c", "from": None, "to": "open", "steps": [st]}])
 
 
 def test_r41_r42_r43_legacy_7key_readable_and_v2_normalized_with_source_version():
@@ -562,7 +562,7 @@ def _deferred(sid, due, ctl, state, prio=0):
 
 def _fx_world(entries, *, steps):
     """픽스처 사건 evt_fx(템플릿 fx)의 예약 효과들. steps: {step_id: effect}."""
-    t = dict(SIMPLE, spawn_when={"const": False},
+    t = dict(copy.deepcopy(SIMPLE), spawn_when={"const": False},
              transition_cases=[{"case_id": "c", "from": None, "to": "open", "steps": [
                  {"step_id": sid, "type": "SCHEDULE_EFFECT", "after_minutes": 1, "effect": eff,
                   "epoch_bound": False} for sid, eff in steps.items()]}])
@@ -629,10 +629,10 @@ def test_r48_priority_r49_offscreen_abort_r50_scene_tie_not_guessed():
 # ══════════════════════════════════════════════════════════════
 
 def test_r51_immediate_cascade_fixed_point_same_minute():
-    first = dict(SIMPLE, resolve_when=eq({"ref": "ACCESS_STATE", "control": "door_2"}, "OPEN"),
+    first = dict(copy.deepcopy(SIMPLE), resolve_when=eq({"ref": "ACCESS_STATE", "control": "door_2"}, "OPEN"),
                  transition_cases=[{"case_id": "c", "from": None, "to": "open", "steps": [
                      {"step_id": "s", "type": "SET_ACCESS_STATE", "control": "door_2", "state": "OPEN"}]}])
-    second = dict(SIMPLE, spawn_when=eq({"ref": "EVENT_LIFECYCLE", "template": "first"}, "RESOLVED"))
+    second = dict(copy.deepcopy(SIMPLE), spawn_when=eq({"ref": "EVENT_LIFECYCLE", "template": "first"}, "RESOLVED"))
     D = defn({"first": first, "second": second})
     r = run(D, world(), K, base_ops=[_set("b", "door_1", "BARRED")])
     assert r.status == WP.COMPLETED
@@ -663,7 +663,7 @@ def test_r52_oscillation_and_caps_abort():
 
 
 def test_r53_series_reevaluated_by_dependency_inside_progression():
-    move = dict(SIMPLE, transition_cases=[{"case_id": "c", "from": None, "to": "open", "steps": [
+    move = dict(copy.deepcopy(SIMPLE), transition_cases=[{"case_id": "c", "from": None, "to": "open", "steps": [
         {"step_id": "mv", "type": "SET_ACTOR_PLACEMENT", "actor": KANG, "place": "성당"}]}])
     D = defn({"move": move})
     w = world(spatial_state=at(KANG, "시장"))
@@ -692,7 +692,7 @@ def _know(edges, est=None):
 
 def _go_tpl(dest="성당", **extra):
     st = dict({"step_id": "go", "type": "START_MOVEMENT", "actor": KANG, "destination": dest, "mode": "walk"}, **extra)
-    return dict(SIMPLE, transition_cases=[{"case_id": "c", "from": None, "to": "open", "steps": [st]}])
+    return dict(copy.deepcopy(SIMPLE), transition_cases=[{"case_id": "c", "from": None, "to": "open", "steps": [st]}])
 
 
 ROUTE_B = ("e_hh#fwd", "e_hc#fwd")                                   # 600m(7.5분) + 300m(3.75분)
@@ -800,7 +800,7 @@ def test_r58_access_action_id_distinguishes_override_variants():
 def _signal_tpl(policy):
     eff = {"step_id": "boom", "type": "EMIT_SIGNAL", "signal_id": "alarm", "cue": "멀리서 경보가 울린다",
            "interrupt_policy": policy, "observable_when": eq({"ref": "SCENE_PLACE"}, "시장")}
-    return dict(SIMPLE, transition_cases=[{"case_id": "c", "from": None, "to": "open", "steps": [
+    return dict(copy.deepcopy(SIMPLE), transition_cases=[{"case_id": "c", "from": None, "to": "open", "steps": [
         {"step_id": "later", "type": "SCHEDULE_EFFECT", "after_minutes": 10, "effect": eff}]}])
 
 
@@ -875,7 +875,7 @@ def inject_h04b():
 def test_r26_phase_elapsed_timer_is_one_wakeup_with_owner_epoch():
     """국면 경과 조건은 국면 진입 때 wakeup 1건으로 컴파일 — 매분 재평가 없음, epoch 소유."""
     elapsed = {"time": "ELAPSED_SINCE_PHASE_GTE", "minutes": 30}
-    t = dict(SIMPLE, phases={"wait": {"eligible_when": {"const": True}, "priority": 1,
+    t = dict(copy.deepcopy(SIMPLE), phases={"wait": {"eligible_when": {"const": True}, "priority": 1,
                                       "retain_when": {"not": elapsed}},
                              "late": {"eligible_when": elapsed, "priority": 2, "retain_when": {"const": True}}})
     D = defn({"t": t})
@@ -894,7 +894,7 @@ def test_progress_context_activity_controls_observability():
            "interrupt_policy": "IF_OBSERVABLE",
            "observable_when": {"all": [eq({"ref": "SCENE_PLACE"}, "시장"),
                                        {"not": eq({"ref": "OBSERVER_ACTIVITY"}, "SLEEPING")}]}}
-    t = dict(SIMPLE, transition_cases=[{"case_id": "c", "from": None, "to": "open", "steps": [
+    t = dict(copy.deepcopy(SIMPLE), transition_cases=[{"case_id": "c", "from": None, "to": "open", "steps": [
         {"step_id": "later", "type": "SCHEDULE_EFFECT", "after_minutes": 5, "effect": eff}]}])
     D = defn({"t": t})
     r0 = run(D, world(), K, base_ops=[_set("b", "door_1", "BARRED")])
