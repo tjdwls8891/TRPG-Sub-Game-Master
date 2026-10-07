@@ -1637,6 +1637,12 @@ class GMCog(commands.Cog):
         if tx is None or transaction_id is None or tx.transaction_id != transaction_id:
             return None
         wt = getattr(tx, "world_turn", None)
+        if wt is not None and core.action_intent.is_definition_stale(wt.ctx.definition_revision, session):
+            # R2: 정의 revision이 바뀌었다 — 옛 매니페스트·계획·경로 선택을 같은 시도 재진입에서도 재사용하지 않는다
+            core.write_log(session.session_id, "api",
+                           f"[H05 정의 변경] 옛 WorldTurn 폐기 rev={wt.ctx.definition_revision} "
+                           f"→ {getattr(session, 'definition_revision', None)}")
+            tx.world_turn = wt = None
         if wt is None and create:
             ctx = core.player_world.session_world_context(session)
             if not ctx.dynamic:
@@ -1667,7 +1673,8 @@ class GMCog(commands.Cog):
 
     def _ensure_world_plan(self, session, wt, transaction_id):
         cur = core.action_intent.world_version_id(session)
-        if wt.plan is None or wt.plan.source_world_version_id != cur:
+        if wt.plan is None or wt.plan.source_world_version_id != cur or \
+                core.action_intent.is_definition_stale(wt.plan.definition_revision, session):
             wt.plan = self._plan_world(session, wt, transaction_id)
             wt.replan = lambda orders, _s=session, _w=wt, _t=transaction_id: self._plan_world(
                 _s, _w, _t, resolved_tie_orders=orders)
@@ -1842,6 +1849,14 @@ class GMCog(commands.Cog):
             return FC.COMMIT_VALIDATION_FAILURE.value
         base = core.world_state.version_id_of(prep.baseline_world_version)
         if res.plan is not None and res.plan.source_world_version_id != base:
+            return FC.COMMIT_VALIDATION_FAILURE.value
+        base_rev = getattr(prep, "baseline_definition_revision", None)
+        if wt.ctx.definition_revision != base_rev or (
+                res.plan is not None and res.plan.definition_revision != base_rev):
+            # R2: 옛 정의로 만든 계획은 새 revision 준비에 들어가지 않는다
+            self._world_diagnostic(session, prep, "DEFINITION_STALE",
+                                   {"plan_revision": getattr(res.plan, "definition_revision", None),
+                                    "context_revision": wt.ctx.definition_revision, "baseline_revision": base_rev})
             return FC.COMMIT_VALIDATION_FAILURE.value
         try:
             core.turn_preparation.stage_world_ops(prep, res.ops)
@@ -3364,7 +3379,7 @@ class GMCog(commands.Cog):
         user_prompt = _build_logic_user_prompt(session, player_message, roll_results,
                                                 sim_result=sim_result, world_turn=_wt)
         if _wt is not None and _wt.plan is not None:
-            user_prompt += core.turn_world.narration_overlay(_wt.plan, _wt.ctx.definition)
+            user_prompt += core.turn_world.narration_overlay(_wt.plan, _wt.ctx.definition, _wt.ctx)
         # 판단층위가 확정한 진행 유형을 지시층위에 전달한다. 지시층위는 이 유형을 바꾸지 않는다.
         user_prompt = (
             f"[확정된 진행 유형] {action}\n"
@@ -4048,7 +4063,7 @@ class GMCog(commands.Cog):
 
         _wt = getattr(preparation, "world_turn", None) if preparation is not None else None
         if _wt is not None and _wt.plan is not None:
-            exec_instruction += core.turn_world.narration_overlay(_wt.plan, _wt.ctx.definition)
+            exec_instruction += core.turn_world.narration_overlay(_wt.plan, _wt.ctx.definition, _wt.ctx)
 
         async def _on_finalized(narr):
             if preparation is not None:

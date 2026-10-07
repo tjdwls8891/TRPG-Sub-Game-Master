@@ -48,6 +48,22 @@ def world_version_id(world) -> str | None:
     return _ws.version_id_of(wv)
 
 
+UNKNOWN_REVISION = object()                 # ProjectedWorld는 정의 정체성을 싣지 않는다(판정 보류)
+
+
+def world_definition_revision(world):
+    """세션의 definition_revision(비가역 정체성). ProjectedWorld면 UNKNOWN_REVISION."""
+    if world is None or isinstance(world, _wm.ProjectedWorld) or not hasattr(world, "definition_revision"):
+        return UNKNOWN_REVISION
+    return getattr(world, "definition_revision", None)
+
+
+def is_definition_stale(bound_revision, world) -> bool:
+    """결속된 revision ≠ 현재 세션 revision ⇒ stale(R2). 판정할 수 없으면 False."""
+    rev = world_definition_revision(world)
+    return rev is not UNKNOWN_REVISION and rev != bound_revision
+
+
 @dataclass(frozen=True)
 class ActionReferenceManifest:
     """판단층위에 주는 플레이어 선택 가능 후보(transient 키 → 정본 참조)."""
@@ -220,6 +236,7 @@ class ResolvedActionIntent:
     access_action_ids: tuple = ()                 # H04 access_action_id(확인 토큰)
     unresolved: tuple = ()                        # (field, code)
     stale: bool = False
+    definition_revision: str | None = None        # 해석한 매니페스트의 revision(런타임 결속 — 의미 기록 아님)
 
     @property
     def empty(self) -> bool:
@@ -242,10 +259,12 @@ def _s(v):
 
 def resolve_intent(manifest: ActionReferenceManifest, raw, *, world=None) -> ResolvedActionIntent:
     """판단 결과의 action_intent → 검증된 의도. 후보 밖 키는 그 부분만 unresolved."""
-    if world is not None and world_version_id(world) != manifest.world_version_id:
-        return ResolvedActionIntent(stale=True, unresolved=(("manifest", "STALE"),))
+    rev = manifest.definition_revision
+    if world is not None and (world_version_id(world) != manifest.world_version_id
+                              or is_definition_stale(rev, world)):
+        return ResolvedActionIntent(stale=True, unresolved=(("manifest", "STALE"),), definition_revision=rev)
     if not isinstance(raw, dict):
-        return ResolvedActionIntent()
+        return ResolvedActionIntent(definition_revision=rev)
     bad = []
     movement = None
     mk = raw.get("movement_kind") or NONE
@@ -310,7 +329,7 @@ def resolve_intent(manifest: ActionReferenceManifest, raw, *, world=None) -> Res
             stance = CognitionStanceIntent(iid, None if sb == STANCE_CLEAR else sb)
     return ResolvedActionIntent(movement=movement, time_advance=time_adv, stance=stance,
                                 route_signature=route_sig, access_action_ids=access_ids,
-                                unresolved=tuple(bad))
+                                unresolved=tuple(bad), definition_revision=rev)
 
 
 def target_minute(calendar: dict, now: int, intent: TimeAdvanceIntent) -> int:

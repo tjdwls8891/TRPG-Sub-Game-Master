@@ -279,14 +279,32 @@ def _npc_knows_world():
                 "belief_provenance": [], "secrecy_awareness": None}}}}
 
 
+def _arm_evidence(r):
+    """이번 턴 노출 근거 — 활성 사건이 3분 뒤 장면(항구)에 벽보 정보를 만든다(R2: 사건이 만든 정보만 후보)."""
+    eff = {"type": "CREATE_INFORMATION", "proposition": "벽보: 오늘 밤 항구 폐쇄", "summary": "벽보의 공지",
+           "subject_refs": ["place:항구"]}
+    tpl = {"version": 1, "spawn_when": eq({"ref": "ACCESS_STATE", "control": "door_2"}, "BARRED"),
+           "phases": {"calm": {"eligible_when": {"const": True}, "priority": 1}},
+           "transition_cases": [{"case_id": "c", "from": None, "to": "calm", "steps": [
+               {"step_id": "post", "type": "SCHEDULE_EFFECT", "after_minutes": 3, "effect": eff}]}]}
+    D = r.make(templates={"ev": tpl}, extra_world=_npc_knows_world())
+    arm = core.world_progression.project_world_progression(
+        D, r.sess, K, base_ops=[core.world_mutation.make_op(
+            "arm", "ACCESS_STATE_SET", "TEST", {"control_id": "door_2", "state": "BARRED"})],
+        narrative_seed=r.sess.narrative_seed or r.sess.session_id)
+    for f in WS.GAMEPLAY_WORLD_FIELDS:
+        if f != "world_version":
+            setattr(r.sess, f, copy.deepcopy(arm.projected_world.domain(f)))
+    r.prov.routes["judgment"] = judgment(None, time_kind="DURATION", duration_minutes=10, activity="WAIT")
+
+
 async def test_observation_is_staged_until_commit_and_never_sets_pc_belief(drig, monkeypatch):
     r = drig
-    r.make(extra_world=_npc_knows_world())
-    r.prov.routes["judgment"] = judgment(None)
+    _arm_evidence(r)
 
     def ext(kwargs):
         text = H05Provider._text(kwargs)
-        x = re.search(r"(X\d+)=", text).group(1)
+        x = re.search(r"(X\d+)=벽보의 공지", text).group(1)
         return extraction({"info_exposed": [x]})
     r.prov.routes["extraction"] = ext
     seen = {}
@@ -296,9 +314,11 @@ async def test_observation_is_staged_until_commit_and_never_sets_pc_belief(drig,
         seen["cog_at_ready"] = copy.deepcopy(session.cognition_state)
         return orig(session, prep)
     monkeypatch.setattr(core.turn_preparation, "transition_to_ready", _ready)
-    await turn(r, "강지수의 이야기를 듣는다")
+    await turn(r, "벽보 앞에서 10분 기다린다")
     assert f"actor:{PC}" not in seen["cog_at_ready"]                     # READY까지 정본 미변경
-    rec = core.cognition.record_of(r.sess, f"actor:{PC}", "S40")
+    recs = r.sess.cognition_state.get(f"actor:{PC}") or {}
+    assert len(recs) == 1 and "S40" not in recs                           # 같은 장면 NPC의 정보는 노출 근거 아님
+    (rec,) = recs.values()
     assert rec["awareness"] == "CONTENT" and rec["belief"] is None       # 노출 ≠ 믿음
 
 
@@ -504,11 +524,16 @@ async def test_offscreen_transition_or_future_schedule_has_no_continuation(drig,
 
 
 async def test_already_represented_signal_has_no_duplicate_continuation(drig):
+    # R2: 표현된 신호 후보는 본 묘사에 실제로 준 신호뿐 — 미래 사건 신호는 후보가 아니다
     r = drig
     _arm_alert(r)
-    r.prov.routes["extraction"] = _expose(represent=True)
-    await turn(r, "한동안 강지수와 이야기한다")
+    r.prov.routes["judgment"] = judgment(None, time_kind="DURATION", duration_minutes=10, activity="WAIT")
+    r.prov.routes["extraction"] = _expose(represent=True, minutes=0)
+    await turn(r, "10분 기다린다")
+    assert "경비가 칼을 뽑아 든다" in r.prov.prompts["narration"][0][0]
+    assert re.search(r"S\d+=경비가", r.prov.prompts["extraction"][0][0])
     assert "continuation" not in r.prov.calls
+    assert r.sess.world_clock["minute_index"] == K + 5                   # 신호가 대기를 끊음 — 커밋됨(공허한 통과 아님)
 
 
 async def test_continuation_provider_failure_blocks_commit(drig):

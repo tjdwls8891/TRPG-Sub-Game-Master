@@ -25,18 +25,18 @@ def _session(kang_at="항구"):
     return s, D
 
 
-def test_exposure_candidates_only_from_actors_in_scene():
+def test_exposure_candidates_require_current_turn_grounds():
+    # R2: 장면 안팎 NPC가 내용을 안다는 사실만으로는 노출 후보가 아니다(이번 턴 노출 근거 없음)
     s, D = _session("항구")
-    m = TW.build_observation_manifest(D, ctx_of(s), None, s)
-    assert [iid for _, iid, _ in m.infos] == ["S40"]
-    s2, D2 = _session("외딴곳")                                           # 장면 밖 NPC가 아는 정보는 후보 아님
+    assert TW.build_observation_manifest(D, ctx_of(s), None, s).infos == ()
+    s2, D2 = _session("외딴곳")
     assert TW.build_observation_manifest(D2, ctx_of(s2), None, s2).infos == ()
 
 
 def test_observation_never_sets_pc_belief_and_ignores_invalid_keys():
     s, D = _session()
     c = ctx_of(s)
-    m = TW.build_observation_manifest(D, c, None, s)
+    m = TW.ObservationManifest(infos=(("X1", "S40", "공개 요약"),))      # 노출 근거가 있는 후보 1건
     res = TW.process_observation(c, s, None, m, {"info_exposed": ["X1", "X9"], "belief": "CERTAIN",
                                                  "stance_belief": "CERTAIN"},
                                  transaction_id="t", narrative_seed="seed")

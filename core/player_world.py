@@ -198,6 +198,7 @@ def choose_route(plan: _mv.KnownRoutePlan, *, chosen_signature=None,
 class PlayerWorldPlan:
     status: str
     source_world_version_id: str | None = None
+    definition_revision: str | None = None          # 계획을 만든 정의 revision(R2 — 준비 기준선과 대조)
     start_minute: int | None = None
     end_minute: int | None = None
     ops: tuple = ()
@@ -376,9 +377,13 @@ def plan_player_turn(ctx: WorldContext, world, intent: _ai.ResolvedActionIntent,
     here = (_sp.placement_of(src, lead) or {}).get("place_id")
     now = (src.domain("world_clock") or {}).get("minute_index")
     prefix = "h05." + stable_digest("player.turn.v1", transaction_id, length=10)
-    plan = PlayerWorldPlan(PLAN_NONE, _ai.world_version_id(src), now, now, scene_place=here)
+    plan = PlayerWorldPlan(PLAN_NONE, _ai.world_version_id(src), ctx.definition_revision, now, now, scene_place=here)
     if intent.stale:
         plan.status, plan.reason = PLAN_REJECTED, "MANIFEST_STALE"
+        return plan
+    if _ai.is_definition_stale(ctx.definition_revision, world) or (
+            intent.definition_revision is not None and intent.definition_revision != ctx.definition_revision):
+        plan.status, plan.reason = PLAN_REJECTED, "DEFINITION_STALE"     # 옛 정의 문맥·의도로 계획하지 않는다
         return plan
     run = _Run(D, src, seed=narrative_seed, tie_orders=resolved_tie_orders, prefix=prefix)
     pre_ops = []

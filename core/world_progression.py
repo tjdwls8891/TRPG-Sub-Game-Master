@@ -30,6 +30,7 @@
 #   checkpoint wakeup이며, wakeup에서 실제 상태·지식을 다시 검증한다. 0분 구간은 TRANSIT 없이 같은 분에 처리.
 from __future__ import annotations
 
+import copy
 import itertools
 from dataclasses import dataclass, field
 
@@ -178,11 +179,15 @@ class SameMinuteNarrativeTie:
     effect_ids: tuple
     allowed_orderings: tuple
     affected_targets: tuple
+    # 장면에서 관찰 가능한 경쟁 효과 사실(H05 R2 표시용 — tie 의미·정체성에 관여하지 않는다).
+    # 각 항목 {"effect_id", "op_type", "target": [domain, path], "payload"} — 장면 칸에 쓰는 연산만.
+    effect_facts: tuple = ()
 
     def to_dict(self):
         return {"tie_id": self.tie_id, "minute": self.minute, "effect_ids": list(self.effect_ids),
                 "allowed_orderings": [list(o) for o in self.allowed_orderings],
-                "affected_targets": [list(t) for t in self.affected_targets]}
+                "affected_targets": [list(t) for t in self.affected_targets],
+                "effect_facts": [copy.deepcopy(f) for f in self.effect_facts]}
 
 
 @dataclass
@@ -497,7 +502,8 @@ class _Engine:
                                 targets=[[d, list(p)] for d, p in targets])
                 orders = tuple(itertools.permutations(remain)) if len(remain) <= 4 else ()
                 raise _Stop(TIE_PENDING, tie=SameMinuteNarrativeTie(
-                    tie_id, self.now(), tuple(remain), orders, tuple((d, tuple(p)) for d, p in sorted(targets))))
+                    tie_id, self.now(), tuple(remain), orders, tuple((d, tuple(p)) for d, p in sorted(targets)),
+                    self._tie_facts(live, remain, targets, res.conflicts)))
             for u in units:
                 if u.unit_id in drop:
                     u.diagnostics.append({"code": "SUPERSEDED_BY_PRIORITY", "unit_id": u.unit_id})
@@ -542,6 +548,24 @@ class _Engine:
                                  causal_parent_op_ids=tuple(sorted(set(op.causal_parent_op_ids) | set(prev))),
                                  expected=op.expected, defines_locals=op.defines_locals) for op in u.ops]
             prev = tuple(op.op_id for op in u.ops)
+
+    def _tie_facts(self, live, remain, targets, conflicts):
+        """tie 성분의 경쟁 연산 중 장면 칸(scene_targets)에 쓰는 것만 — 장면 밖·숨은 효과는 싣지 않는다."""
+        ops = {op.op_id: (u.unit_id, op) for u in live if u.unit_id in remain for op in u.ops}
+        visible = set(targets) & self.scene_targets()
+        out, seen = [], set()
+        for c in conflicts:
+            tgt = (c.domain, tuple(c.path))
+            if tgt not in visible:
+                continue
+            for oid in c.op_ids:
+                if oid not in ops or (oid, tgt) in seen:
+                    continue
+                seen.add((oid, tgt))
+                uid, op = ops[oid]
+                out.append({"effect_id": uid, "op_type": op.op_type, "target": [tgt[0], list(tgt[1])],
+                            "payload": copy.deepcopy(dict(op.payload or {}))})
+        return tuple(sorted(out, key=lambda f: (f["effect_id"], f["target"][0], f["target"][1], f["op_type"])))
 
     def _conflict_groups(self, conflicts, owner):
         """충돌 연산 → 단위 그룹(연결 성분) + 대상 칸. 다리 충돌이 기존 두 그룹을 이으면 하나로 합친다."""

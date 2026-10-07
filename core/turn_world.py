@@ -90,7 +90,7 @@ def mirror_timeline(prev_tl: dict, definition: dict, world, pc: str) -> dict:
     return tl
 
 
-def narration_overlay(plan, definition: dict) -> str:
+def narration_overlay(plan, definition: dict, ctx=None) -> str:
     """묘사층위에 주는 코드 확정 세계 결과(PC가 관찰 가능한 것만)."""
     if plan is None:
         return ""
@@ -106,7 +106,7 @@ def narration_overlay(plan, definition: dict) -> str:
     if plan.status == _pw.PLAN_TIE:
         lines.append("· 같은 순간에 아래 일들이 겹친다. 어느 쪽이 먼저인지 **하나의 순서**로 정해 묘사하되 "
                      "결과 자체·시각은 바꾸지 말 것:")
-        for k, label in tie_option_labels(plan):
+        for k, label in tie_option_labels(plan, definition, ctx):
             lines.append(f"  - {k}: {label}")
         return "\n".join(lines) + "\n"
     if plan.status != _pw.PLAN_PLANNED:
@@ -157,24 +157,75 @@ def projected_scene(plan) -> dict:
 #  같은 분 서사 선후
 # ══════════════════════════════════════════════════════════════
 
-def _unit_label(uid: str) -> str:
-    if uid.startswith("due:"):
-        return f"예약된 일({uid[4:]})"
-    if uid.startswith("event:"):
-        return f"사건 전개({uid.split(':')[1]})"
-    if uid == "base":
-        return "PC의 행동"
-    return uid
+_ACCESS_STATE_WORDS = {"OPEN": "열린다", "UNLOCKED": "열린다", "CLOSED": "닫힌다", "LOCKED": "잠긴다",
+                       "BARRED": "막힌다", "BLOCKED": "막힌다", "SEALED": "봉쇄된다", "GUARDED": "경비가 선다"}
 
 
-def tie_option_labels(plan) -> list:
-    """[(O키, 설명)] — 허용 순서마다 하나. 키는 transient(영속하지 않는다)."""
+def _control_label(definition, cid, scene) -> str | None:
+    """접근 제어 → 장면에서 보이는 출입로 표현(내부 control id 미노출)."""
+    edges = [e for e in (definition.get("movement_edges") or {}).values() if e.get("access_ref") == cid]
+    if not edges:
+        return None
+    edges.sort(key=lambda e: (scene not in (e.get("from"), e.get("to")), e.get("from"), e.get("to")))
+    a, b = sorted((edges[0].get("from"), edges[0].get("to")))
+    return f"{a}–{b} 사이 출입로"
+
+
+def _actor_label(definition, world, actor_id, pcs) -> str:
+    from . import actors as _actors
+    entry = _actors.registry_of(world).get(actor_id) if world is not None else None
+    if actor_id in pcs or (isinstance(entry, dict) and entry.get("kind") == "PC"):
+        return "PC"                                            # 묘사·추출이 같은 라벨을 받는다
+    name = _actors.display_name(definition, world, actor_id) if world is not None else \
+        ((definition.get("actor_definitions") or {}).get(actor_id) or {}).get("display_name")
+    return name or "누군가"
+
+
+def _fact_label(fact, definition, world, scene, pcs) -> str | None:
+    """관찰 가능한 효과 사실 하나의 서술. 표현할 수 없는 효과는 None(내부 id로 대체하지 않는다)."""
+    t, p = fact.get("op_type"), fact.get("payload") or {}
+    if t == _sp.OP_ACCESS_STATE_SET:
+        where = _control_label(definition, p.get("control_id"), scene)
+        word = _ACCESS_STATE_WORDS.get(p.get("state"))
+        return f"{where}가 {word}" if where and word else None
+    if t == _sp.OP_ACTOR_PLACEMENT_SET:
+        who = _actor_label(definition, world, p.get("actor_id"), pcs)
+        return f"{who}이(가) {p.get('place_id')}에 도착한다" if p.get("place_id") else None
+    if t == _sp.OP_ACTOR_TRANSIT_SET:
+        who = _actor_label(definition, world, p.get("actor_id"), pcs)
+        return f"{who}이(가) {p.get('from_place')}에서 {p.get('to_place')} 쪽으로 떠난다"
+    if t == _sp.OP_SCENE_PLACE_SET:
+        return f"장면이 {p.get('place_id')}(으)로 옮겨진다" if p.get("place_id") else None
+    return None
+
+
+def _unit_fact_labels(tie, definition, world, scene, pcs) -> dict:
+    out = {}
+    for f in getattr(tie, "effect_facts", ()) or ():
+        lbl = _fact_label(f, definition or {}, world, scene, pcs)
+        if lbl and lbl not in out.setdefault(f["effect_id"], []):
+            out[f["effect_id"]].append(lbl)
+    return out
+
+
+def tie_option_labels(plan, definition=None, ctx=None) -> list:
+    """[(O키, 설명)] — 허용 순서마다 하나. 키는 transient(영속하지 않는다).
+
+    설명은 경쟁하는 **관찰 가능한 사실의 순서**다(예: "시장–성당 사이 출입로가 열린다 → … 막힌다").
+    사건·예약 내부 id와 숨은 효과는 싣지 않는다. 표현 가능한 사실이 없는 효과는 '장면 밖의 다른 변화'.
+    """
     out = []
     n = 0
+    pcs = set(getattr(ctx, "pcs", ()) or ())
+    world = getattr(plan, "projected_world", None)
+    scene = getattr(plan, "scene_place", None)
+    if scene is None and world is not None and ctx is not None:
+        scene = (_sp.placement_of(world, ctx.lead_pc) or {}).get("place_id")
     for tie in plan.ties or ():
+        facts = _unit_fact_labels(tie, definition, world, scene, pcs)
         for order in tie.allowed_orderings:
             n += 1
-            out.append((f"O{n}", " → ".join(_unit_label(u) for u in order)))
+            out.append((f"O{n}", " → ".join(" · ".join(facts.get(u) or ["장면 밖의 다른 변화"]) for u in order)))
     return out
 
 
@@ -237,64 +288,54 @@ class ObservationManifest:
         return next((r[1] for r in self.signals if r[0] == key), None)
 
 
-def _actors_at(world, place) -> list:
-    pls = (world.domain("spatial_state") or {}).get("placements") or {}
-    return sorted(a for a, p in pls.items() if p.get("kind") == _sp.AT_PLACE and p.get("place_id") == place)
+def _scene_relevant(g, scene, rec) -> bool:
+    """정보 정의의 장소 주제가 현재 장면(또는 그 상·하위)에 닿는가. 장소 주제가 없으면 장면 무관하게 허용."""
+    places = [r[len("place:"):] for r in (rec.get("subject_refs") or ()) if str(r).startswith("place:")]
+    if not places or not scene:
+        return not places
+    path = set(g.path_of(scene))
+    return any(p in path or scene in g.path_of(p) for p in places if p in g.places)
 
 
 def build_observation_manifest(definition: dict, ctx, plan, base_world) -> ObservationManifest:
-    """노출 후보 = 장면에 함께 있는 행위자가 내용을 아는 정보 중 PC가 아직 내용을 모르는 것.
+    """추출 관찰 후보 — **이번 턴 노출 근거가 있는 것만**(R2).
 
-    장면 밖·아무도 모르는 정보는 후보가 아니다(추출 문맥에 불필요한 숨은 진실을 주지 않는다).
+    정보: 이번 턴 코드 계획(stage-1)의 사건이 결정적으로 만든 정보 중 장면과 관련되고 공개 안전 요약
+          (summary)이 있는 것. 명제 전문·숨은 정보로 대체하지 않는다. 같은 장면 NPC가 내용을 안다는
+          사실만으로는 후보가 아니다(노출 계획 없음 = 후보 없음).
+    신호: 본 묘사에 실제로 준 관찰 신호만. ACTIVE 사건의 미래 EMIT_SIGNAL은 나열하지 않는다.
     """
     world = plan.projected_world if plan is not None and plan.projected_world is not None else (
         base_world if isinstance(base_world, _wm.ProjectedWorld) else _wm.ProjectedWorld.capture(base_world))
     lead = ctx.lead_pc
-    scene = (plan.scene_place if plan is not None and plan.status == _pw.PLAN_PLANNED else None) or \
-        (_sp.placement_of(world, lead) or {}).get("place_id")
-    cs = world.domain("cognition_state") or {}
-    pc_recs = cs.get(_cog.actor_holder(lead)) or {}
-    cand = set()
-    for a in _actors_at(world, scene) if scene else ():
-        if a in ctx.pcs:
+    planned = plan is not None and plan.status == _pw.PLAN_PLANNED
+    scene = (plan.scene_place if planned else None) or (_sp.placement_of(world, lead) or {}).get("place_id")
+    pc_recs = (world.domain("cognition_state") or {}).get(_cog.actor_holder(lead)) or {}
+    g = _sp.SpatialGraph(definition)
+    cand = {}
+    for op in (plan.ops if planned else ()):
+        if op.op_type != _info.OP_INFORMATION_CREATE:
             continue
-        for iid, rec in (cs.get(_cog.actor_holder(a)) or {}).items():
-            if isinstance(rec, dict) and rec.get("awareness") == _cog.CONTENT:
-                mine = pc_recs.get(iid)
-                if not mine or mine.get("awareness") != _cog.CONTENT:
-                    cand.add(iid)
-    st = world.domain("information_state") or {}
-    infos = tuple((f"X{n}", iid, ((_info.resolve_definition(definition, st, iid) or {}).get("summary")
-                                  or (_info.resolve_definition(definition, st, iid) or {}).get("proposition") or iid))
-                  for n, iid in enumerate(sorted(cand), 1))
-    sigs, seen = [], set()
-    for s in observable_signals(plan.signals if plan is not None else ()):
-        k = (s["signal_id"], s["instance_id"])
-        seen.add(k)
-        sigs.append((k, s["cue"]))
-    for k, cue in _active_signal_candidates(definition, world):
-        if k not in seen:
-            seen.add(k)
-            sigs.append((k, cue))
+        rec = (op.payload or {}).get("definition") or {}
+        iid, summary = rec.get("info_id"), rec.get("summary")
+        if not iid or not isinstance(summary, str) or not summary.strip():
+            continue                                               # 공개 안전 설명 없음 → 후보 아님
+        if (pc_recs.get(iid) or {}).get("awareness") == _cog.CONTENT or not _scene_relevant(g, scene, rec):
+            continue
+        cand[iid] = summary
+    infos = tuple((f"X{n}", iid, cand[iid]) for n, iid in enumerate(sorted(cand), 1))
+    sigs = [((s["signal_id"], s["instance_id"]), s["cue"])
+            for s in observable_signals(plan.signals if plan is not None else ())]
     signals = tuple((f"S{n}", k, cue) for n, (k, cue) in enumerate(sigs, 1))
-    ties = tuple(tie_option_labels(plan)) if plan is not None and plan.status == _pw.PLAN_TIE else ()
+    ties = tuple(tie_option_labels(plan, definition, ctx)) if plan is not None and plan.status == _pw.PLAN_TIE else ()
     extra = not (plan is not None and plan.code_owned_minutes)
     return ObservationManifest(infos, signals, ties, extra)
 
 
-def _active_signal_candidates(definition, world) -> list:
-    """현재 ACTIVE 사건 템플릿의 EMIT_SIGNAL(cue만) — 묘사가 이미 표현한 반응의 중복 방지용."""
-    out = []
-    for iid, inst in sorted((world.domain("event_instances") or {}).items()):
-        if inst.get("lifecycle") != "ACTIVE":
-            continue
-        tpl = (definition.get("event_templates") or {}).get(inst.get("template_id")) or {}
-        for case in tpl.get("transition_cases") or ():
-            for st in case.get("steps") or ():
-                eff = st.get("effect") if st.get("type") == "SCHEDULE_EFFECT" else st
-                if isinstance(eff, dict) and eff.get("type") == "EMIT_SIGNAL":
-                    out.append(((eff["signal_id"], iid), eff.get("cue") or ""))
-    return out
+def unrepresented_signals(signals, represented) -> list:
+    """관찰 가능 신호 중 아직 표현되지 않은 것(본 묘사에 준 신호·추출이 표시한 신호 제외)."""
+    rep = {tuple(k) for k in represented or ()}
+    return [s for s in observable_signals(signals) if (s["signal_id"], s["instance_id"]) not in rep]
 
 
 @dataclass
@@ -383,7 +424,7 @@ def process_observation(ctx, base_world, plan, obs_manifest: ObservationManifest
                                    conflict={"stage": "post_narration", "status": r.status})
         ops += _pw.namespace_ops(r.ops, f"{prefix}.sup", [o.op_id for o in stage1])
         world, sigs = r.projected_world, list(r.signals)
-    cont = [s for s in observable_signals(sigs) if (s["signal_id"], s["instance_id"]) not in represented]
+    cont = unrepresented_signals(sigs, represented)
     return TurnWorldResult(TW_READY, tuple(ops), world, plan, sigs, cont, tuple(sorted(represented)),
                            diags, tuple(exposures), extra)
 

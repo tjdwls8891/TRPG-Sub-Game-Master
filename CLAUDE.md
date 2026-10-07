@@ -20,7 +20,7 @@ AI가 4개 층위로 나뉘어 판단·지시·묘사·추출을 분담한다. �
 | H02 | canonical 상태·영속·이력 + WorldMutationBatch·ProjectedWorld·정본 변이 기반 | **완료** — 빈 변이 lane 배선, `handoff/H02_COMPLETION_BUNDLE.md` |
 | H03 | 정량 시간·예약 + 공간·이동·접근·공간인지 | **완료** — 서비스·typed 연산 등록, 플레이어 경로 미배선, `handoff/H03_COMPLETION_BUNDLE.md` |
 | H04 | Actor·정보·인지·NPC 투영 + 사건·DependencyIndex·WorldProgression | **완료**(VERIFIED `1906f1b`, R2·R3 보정 포함) — 순수 엔진·typed 연산, `handoff/H04_COMPLETION_BUNDLE.md` + `handoff/H04_R2_CORRECTION_BUNDLE.md` |
-| H05 | 구조화 행동 의도·턴 계획 + 프롬프트·추출·후속묘사·미디어 | **완료 제출(검수 대기)** — 자동 턴 배선(DYNAMIC 세션만, 현 운영 세션은 LEGACY), `handoff/H05_COMPLETION_BUNDLE.md` |
+| H05 | 구조화 행동 의도·턴 계획 + 프롬프트·추출·후속묘사·미디어 | **완료 제출(검수 대기, R2 보정 포함)** — 자동 턴 배선(DYNAMIC 세션만, 현 운영 세션은 LEGACY), `handoff/H05_COMPLETION_BUNDLE.md` |
 | H06 | 초기화·캐시·관리자·복구·재서술·세션 종료 | 예정 |
 | H07 | 영도 실제 이행·legacy 권위 은퇴·production cutover·최종 게이트 | 예정 |
 
@@ -504,7 +504,7 @@ pip install -r requirements-dev.txt
 python3 -m pytest tests/ -q
 ```
 
-`tests/`는 **현재 동작과 권위 불변식을 고정**한다. 현재 974건(특성화 56 · 결함 27 · 정책 891)이 모두 통과하며 strict xfail은 0건이다.
+`tests/`는 **현재 동작과 권위 불변식을 고정**한다. 현재 986건(특성화 56 · 결함 27 · 정책 903)이 모두 통과하며 strict xfail은 0건이다.
 
 | 분류 | 의미 |
 |---|---|
