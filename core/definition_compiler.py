@@ -1273,9 +1273,18 @@ def _compile_step(st, p, scope, access, edges, created, d, *, nested=False):
         ref_id(st["mode"], "mode_id", scope.modes, None)
         if "stance_factor" in st and fixed_decimal(st["stance_factor"]) is None:
             bad("STEP_PARAMS_INVALID", "stance_factor는 양의 소수 6자리 이내")
-        for e in st.get("route") or []:
+        route = st.get("route") or []
+        for e in route:
             if e not in edges:
                 bad("STEP_REF_UNKNOWN", f"정의되지 않은 구간 {e!r}")
+        if route and all(e in edges for e in route):
+            for a, b in zip(route, route[1:]):
+                if edges[a]["to"] != edges[b]["from"]:
+                    bad("STEP_ROUTE_DISCONTINUOUS", f"route가 끊겼습니다: {a}(→{edges[a]['to']}) 다음 "
+                                                    f"{b}({edges[b]['from']}→)")
+            dest = st["destination"]
+            if isinstance(dest, str) and not dest.startswith(_refs.SLOT_PREFIX) and edges[route[-1]]["to"] != dest:
+                bad("STEP_ROUTE_DISCONTINUOUS", f"route 끝 {edges[route[-1]]['to']!r}이 목적지 {dest!r}가 아닙니다")
     elif t in ("CREATE_INFORMATION", "SUPERSEDE_INFORMATION"):
         if not isinstance(st["proposition"], str) or not st["proposition"].strip():
             bad("STEP_PARAMS_INVALID", "proposition은 비어 있지 않은 문자열")
@@ -1529,6 +1538,10 @@ def _compile_event_templates(raw, caps, actors, actor_index, places, infos, acce
         case_sel = body.get("case_selection", "DETERMINISTIC_WEIGHTED")
         if case_sel not in _ev.CASE_SELECTIONS:
             d.add(ERROR, "EVENT_CASE_SELECTION_INVALID", f"{p}.case_selection", f"{list(_ev.CASE_SELECTIONS)}")
+        if body.get("case_required"):
+            for frm, to in _uncovered_transitions(phases, cases, stab):
+                d.add(ERROR, "EVENT_CASE_REQUIRED_UNSATISFIABLE", f"{p}.transition_cases",
+                      f"case_required인데 전이 {frm or 'spawn'} → {to}의 케이스 후보가 없습니다(충족 불가)")
         if len([x for x in d.items if x.severity == ERROR]) > n_err:
             continue
         inst_preds = [body.get("resolve_when"), body.get("cancel_when")]
@@ -1551,6 +1564,21 @@ def _compile_event_templates(raw, caps, actors, actor_index, places, infos, acce
                     "dependency": {"spawn": spawn_keys, "instance": inst_keys, "wildcards": wild},
                     "has_time_predicates": any(_pr.time_atoms(x) for x in inst_preds + [body["spawn_when"]] if x),
                     "source_ref": ["event_templates", tid]}
+    return out
+
+
+def _uncovered_transitions(phases: dict, cases: list, stability: str) -> list:
+    """구조상 일어날 수 있는 전이(spawn 진입 + 비종결 국면 → 다른 국면, MONOTONIC은 rank 비감소) 중
+    케이스 후보가 하나도 없는 (from, to). case_required에서 이런 전이는 런타임에 반드시 실패한다."""
+    out = []
+    for to in sorted(phases):
+        sources = [None] + [f for f in sorted(phases) if f != to and not phases[f]["terminal"]]
+        for frm in sources:
+            if frm is not None and stability == "MONOTONIC" and \
+                    (phases[to]["rank"] or 0) < (phases[frm]["rank"] or 0):
+                continue
+            if not any(c["to"] == to and (c["from"] == "*" or c["from"] == frm) for c in cases):
+                out.append((frm, to))
     return out
 
 

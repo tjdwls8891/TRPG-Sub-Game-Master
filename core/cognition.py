@@ -10,6 +10,7 @@
 #   · 노출·획득은 믿음을 자동으로 올리지 않는다(acquire는 belief를 건드리지 않는다).
 #   · 믿음은 진실(validity)과 별개 — REFUTED 정보를 CERTAIN으로 믿을 수 있다(자동 교정 없음).
 #   · PC 믿음 변경 권위는 PLAYER_EXPLICIT·RULE_FORCED뿐. 사건·묘사의 단순 노출로 PC 믿음을 바꾸지 않는다.
+#     믿음을 바꾸는 모든 연산(BELIEF_SET, 믿음을 지우는 UPSERT 인지 하향)이 같은 관문 _check_belief_authority를 지난다.
 #   · AcquisitionRecord는 안정 acquisition_id로 append+dedupe(같은 id 다른 내용은 거부). 임의 cap·삭제 없음.
 #   · group 인지는 저장·질의만 — 구성원에게 자동 전파하지 않는다(소속·역할 정책은 후속 adapter).
 from __future__ import annotations
@@ -194,10 +195,23 @@ def h_cognition_acquire(view, op, payload):
     return _write(op, holder, iid, rec)
 
 
+def _check_belief_authority(op, view, holder, auth):
+    """믿음 변경 권위의 단일 관문(A9) — PC는 PLAYER_EXPLICIT·RULE_FORCED만."""
+    if is_pc_holder(holder, view) and auth not in PC_BELIEF_AUTHORITIES:
+        _reject(op, f"PC 믿음은 {list(PC_BELIEF_AUTHORITIES)} 권위로만 바뀝니다(받은 권위 {auth})")
+    if auth not in BELIEF_AUTHORITIES:
+        _reject(op, f"authority는 {list(BELIEF_AUTHORITIES)} 중 하나")
+
+
 def h_cognition_upsert(view, op, payload):
-    """인지 수준·조각·비밀성 인지 갱신(믿음 제외). 하향도 허용하되 cause_ref를 요구한다."""
-    if not {"holder", "info_id", "fields"} <= set(payload) or set(payload) - {"holder", "info_id", "fields", "cause_ref"}:
-        _reject(op, "payload 키는 holder·info_id·fields(+cause_ref)")
+    """인지 수준·조각·비밀성 인지 갱신(믿음 제외). 하향도 허용하되 cause_ref를 요구한다.
+
+    하향으로 기존 믿음이 사라지면 그것도 믿음 변경이다 — PC는 authority(PLAYER_EXPLICIT·RULE_FORCED)를
+    함께 줘야 하고 provenance에 남는다. NPC는 기존 동작(cause_ref만, authority 생략 가능) 그대로.
+    """
+    if not {"holder", "info_id", "fields"} <= set(payload) or \
+            set(payload) - {"holder", "info_id", "fields", "cause_ref", "authority"}:
+        _reject(op, "payload 키는 holder·info_id·fields(+cause_ref, authority)")
     holder, iid = _target(op, payload)
     fields = payload["fields"]
     allowed = {"awareness", "fragments", "secrecy_awareness"}
@@ -212,8 +226,13 @@ def h_cognition_upsert(view, op, payload):
         if cur and _AWARE_RANK[aw] < _AWARE_RANK[rec["awareness"]]:
             if not payload.get("cause_ref"):
                 _reject(op, "인지 하향에는 cause_ref가 필요합니다")
-            if rec["belief"] is not None:
-                rec["belief"] = None                         # 내용을 잃으면 믿음 대상도 없다
+            if rec["belief"] is not None:                    # 내용을 잃으면 믿음 대상도 없다 = 믿음 변경
+                auth = payload.get("authority")
+                if auth is not None or is_pc_holder(holder, view):
+                    _check_belief_authority(op, view, holder, auth)
+                    prov = {"belief": None, "authority": auth, "cause_ref": payload["cause_ref"]}
+                    rec["belief_provenance"] = _dedupe(list(rec["belief_provenance"]) + [prov])
+                rec["belief"] = None
         rec["awareness"] = aw
     if "fragments" in fields:
         if not isinstance(fields["fragments"], list):
@@ -232,10 +251,7 @@ def h_cognition_belief_set(view, op, payload):
     belief, auth, cause = payload["belief"], payload["authority"], payload["cause_ref"]
     if belief is not None and belief not in BELIEFS:
         _reject(op, f"belief는 null 또는 {list(BELIEFS)}")
-    if auth not in BELIEF_AUTHORITIES:
-        _reject(op, f"authority는 {list(BELIEF_AUTHORITIES)} 중 하나")
-    if is_pc_holder(holder, view) and auth not in PC_BELIEF_AUTHORITIES:
-        _reject(op, f"PC 믿음은 {list(PC_BELIEF_AUTHORITIES)} 권위로만 바뀝니다(받은 권위 {auth})")
+    _check_belief_authority(op, view, holder, auth)
     if not isinstance(cause, str) or not cause:
         _reject(op, "cause_ref는 비어 있지 않은 문자열")
     cur = view.get("cognition_state", (holder, iid))

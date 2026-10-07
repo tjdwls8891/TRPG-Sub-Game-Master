@@ -25,6 +25,8 @@
 #   SET_EVENT_LOCAL · SCHEDULE_WAKEUP · SCHEDULE_EFFECT · EMIT_SIGNAL. 각 step은 안정 step_id를 가진다.
 from __future__ import annotations
 
+import copy
+
 import itertools
 from dataclasses import dataclass, field
 
@@ -266,10 +268,51 @@ def run_step(step: dict, sctx: StepContext, parents=()) -> StepResult:
     return fn(step, sctx, tuple(parents))
 
 
-def run_steps(steps, sctx: StepContext, parents=()) -> StepResult:
-    """케이스의 step을 저작 순서대로 인과 사슬로 실행(앞 step의 결과를 뒤 step이 본다)."""
+def _interim_world(world, ops):
+    """계획용 순수 임시 투영 — ops를 world 위에 한 번 적용(정본·최종 반환 연산 불변).
+
+    임시 묶음에는 연산 사본을 쓰되 부모는 같은 묶음 안의 것만 남긴다(바깥 부모는 이미 world에 반영됨).
+    실패하면 None — 최종 라운드 투영이 같은 충돌을 기존 정책(UNIT_REJECTED)으로 처리한다.
+    """
+    src = world if isinstance(world, _wm.ProjectedWorld) else _wm.ProjectedWorld.capture(world)
+    ids = {op.op_id for op in ops}
+    try:
+        b = _wm.WorldMutationBatch(batch_id="event.steps.interim", outer_origin="PLAYER_TURN",
+                                   source_world_version_id=None, definition_revision=None)
+        for op in ops:
+            b.add(_wm.make_op(op.op_id, op.op_type, op.source_kind, op.payload, source_ref=op.source_ref,
+                              causal_parent_op_ids=tuple(x for x in op.causal_parent_op_ids if x in ids),
+                              expected=op.expected, defines_locals=op.defines_locals))
+        b.freeze()
+        res = _wm.project(src, b, _wm.PRODUCTION_REGISTRY)
+    except _wm.WorldMutationError:
+        return None
+    return res.world if res.ok else None
+
+
+def _observe(sctx: StepContext, world) -> None:
+    """뒤 step의 계획 기준을 갱신 — 세계 + (step이 바꿀 수 있는) 인스턴스 지역 상태."""
+    sctx.world = world
+    inst = (world.domain("event_instances") or {}).get(sctx.iid)
+    if isinstance(inst, dict):
+        sctx.instance = dict(sctx.instance, local_state=copy.deepcopy(inst.get("local_state") or {}))
+
+
+def run_steps(steps, sctx: StepContext, parents=(), *, prelude_ops=()) -> StepResult:
+    """케이스의 step을 저작 순서대로 인과 사슬로 실행 — 뒤 step은 앞 step이 만든 세계를 계획 시점에 본다.
+
+    prelude_ops: 케이스보다 먼저 확정된 전이·생성 연산(최종 결과에는 포함하지 않는다 — 호출자 소유).
+    각 step의 연산을 sctx.world에 순수 임시 투영해 다음 step의 StepContext.world로 쓴다. 반환 연산의
+    op_id·인과 부모는 임시 투영과 무관하게 그대로다(최종 커밋 경계는 바깥 묶음).
+    """
     out = StepResult()
     prev = tuple(parents)
+    if prelude_ops:
+        w = _interim_world(sctx.world, prelude_ops)
+        if w is None:
+            out.diagnostics.append(_diag("STEP_PROJECTION_FAILED", sctx, {"step_id": None}))
+            return out
+        _observe(sctx, w)
     for step in steps or ():
         r = run_step(step, sctx, prev)
         out.ops += r.ops
@@ -277,6 +320,11 @@ def run_steps(steps, sctx: StepContext, parents=()) -> StepResult:
         out.diagnostics += r.diagnostics
         if r.ops:
             prev = tuple(parents) + tuple(op.op_id for op in r.ops)
+            w = _interim_world(sctx.world, r.ops)
+            if w is None:                                    # 이후 step의 계획 기준이 없다 — 중단
+                out.diagnostics.append(_diag("STEP_PROJECTION_FAILED", sctx, step))
+                break
+            _observe(sctx, w)
     return out
 
 

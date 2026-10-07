@@ -264,29 +264,43 @@ def _movement_ops(definition, world, *, actor, here, dest, mode, stance, stance_
         final = _sp.at_place(here)
     else:
         knowledge = _sp.actor_knowledge(world, actor)
-        plan = _mv.plan_known_routes(definition, knowledge, here, dest, mode, stance_id=stance,
-                                     stance_factor=stance_factor)
         seq = None
-        if plan.status == _mv.ROUTE_OK:
+        trav = None
+        try:
+            plan = _mv.plan_known_routes(definition, knowledge, here, dest, mode, stance_id=stance,
+                                         stance_factor=stance_factor)
+        except _mv.MovementError as exc:                 # 방어: 동적 데이터(없는 장소·배수) — API 밖으로 내보내지 않는다
+            plan = None
+            diags.append({"code": "MOVEMENT_PLAN_INVALID", "actor_id": actor, "detail": str(exc)})
+        if plan is None:
+            pass
+        elif plan.status == _mv.ROUTE_OK:
             if route:
-                ok = all(_sp.knows_edge(knowledge, e) for e in route)
-                edges = definition["movement_edges"]
-                ok = ok and route[0] in edges and edges[route[0]]["from"] == here and \
-                    edges[route[-1]]["to"] == dest
-                seq = tuple(route) if ok else None
-                if not ok:
-                    diags.append({"code": "MOVEMENT_ROUTE_CONSTRAINT_UNKNOWN", "actor_id": actor})
+                edges = definition.get("movement_edges") or {}
+                if not route_is_continuous(edges, route):
+                    seq = None                               # 끊긴 명시 경로 — 대체 경로로 바꾸지 않는다
+                    diags.append({"code": "MOVEMENT_ROUTE_INVALID", "actor_id": actor, "route": list(route)})
+                else:
+                    ok = all(_sp.knows_edge(knowledge, e) for e in route)
+                    ok = ok and edges[route[0]]["from"] == here and edges[route[-1]]["to"] == dest
+                    seq = tuple(route) if ok else None
+                    if not ok:
+                        diags.append({"code": "MOVEMENT_ROUTE_CONSTRAINT_UNKNOWN", "actor_id": actor})
             else:
                 seq = plan.candidates[0].edge_ids
         else:
             diags.append({"code": "MOVEMENT_NO_KNOWN_ROUTE", "actor_id": actor, "from": here, "to": dest})
-        if seq is None:
+        if seq is not None:
+            try:
+                trav = _mv.plan_actual_traversal(definition, actor_id=actor, edge_sequence=seq, mode_id=mode,
+                                                 start_minute=now, access_state=_d(world, "access_control_state"),
+                                                 actor_capabilities=tuple(capabilities or ()), stance_id=stance,
+                                                 stance_factor=stance_factor)
+            except _mv.MovementError as exc:             # 방어: 진행 API 밖으로 예외를 내보내지 않는다
+                diags.append({"code": "MOVEMENT_ROUTE_INVALID", "actor_id": actor, "detail": str(exc)})
+        if trav is None:
             final = _sp.at_place(here) if arrived_edge is not None else None
         else:
-            trav = _mv.plan_actual_traversal(definition, actor_id=actor, edge_sequence=seq, mode_id=mode,
-                                             start_minute=now, access_state=_d(world, "access_control_state"),
-                                             actor_capabilities=tuple(capabilities or ()), stance_id=stance,
-                                             stance_factor=stance_factor)
             ends = {c["edge_id"]: c["minute"] for c in trav.checkpoint_times if c["kind"] == _mv.EDGE_END}
             cur = here
             nxt = None
@@ -335,6 +349,14 @@ def _movement_ops(definition, world, *, actor, here, dest, mode, stance, stance_
         else:
             ops.append(mk(_sp.OP_ACTOR_PLACEMENT_SET, {"actor_id": actor, "place_id": final["place_id"]}))
     return ops, diags
+
+
+def route_is_continuous(edges: dict, route) -> bool:
+    """명시 route 구조 검증 — 비어 있지 않은 정의 구간 id 목록이고 edge[i].to == edge[i+1].from."""
+    if not isinstance(route, (list, tuple)) or not route or \
+            not all(isinstance(e, str) and e in edges for e in route):
+        return False
+    return all(edges[a]["to"] == edges[b]["from"] for a, b in zip(route, route[1:]))
 
 
 def start_movement_step(step, sctx, parents):
@@ -450,13 +472,13 @@ class _Engine:
                         u.signals = []
                 continue
             groups = self._conflict_groups(res.conflicts, owner)
-            drop, tie = set(), None
-            for g, targets in groups:
+            # ① 명확히 낮은 효과를 먼저 제거하고 재투영한다 — 같은 우선순위라는 이유만으로 tie를 만들지 않는다
+            drop = self._priority_drops(res.conflicts, owner, {u.unit_id: u.priority for u in live})
+            tie = None
+            for g, targets in groups if not drop else ():
+                # ② 제거할 것이 없을 때만: 남은 실제 비호환(성분 전체가 같은 최고 우선순위)이 tie 후보
                 gu = [u for u in live if u.unit_id in g]
-                top = max(u.priority for u in gu)
-                low = [u.unit_id for u in gu if u.priority < top]
-                drop |= set(low)
-                remain = sorted(u.unit_id for u in gu if u.priority == top)
+                remain = sorted(u.unit_id for u in gu)
                 if len(remain) > 1:
                     tie_id = "tie_" + stable_digest("progression.tie.v1", self.now(), remain)
                     if tie_id in self.tie_orders:
@@ -520,19 +542,34 @@ class _Engine:
             prev = tuple(op.op_id for op in u.ops)
 
     def _conflict_groups(self, conflicts, owner):
-        """충돌 연산 → 단위 그룹(연결 성분) + 대상 칸."""
+        """충돌 연산 → 단위 그룹(연결 성분) + 대상 칸. 다리 충돌이 기존 두 그룹을 이으면 하나로 합친다."""
         groups = []
         for c in conflicts:
             us = {owner[o] for o in c.op_ids if o in owner}
             tgt = {(c.domain, tuple(c.path))}
-            for g in groups:
-                if g[0] & us:
-                    g[0].update(us)
-                    g[1].update(tgt)
-                    break
-            else:
-                groups.append([set(us), set(tgt)])
+            hit = [g for g in groups if g[0] & us]
+            merged = [set(us), set(tgt)]
+            for g in hit:
+                merged[0] |= g[0]
+                merged[1] |= g[1]
+            groups = [g for g in groups if not any(g is h for h in hit)] + [merged]
         return [(frozenset(g[0]), g[1]) for g in groups]
+
+    @staticmethod
+    def _priority_drops(conflicts, owner, prio):
+        """이번 패스에 제거할 낮은 우선순위 단위.
+
+        단위 u는 직접 충돌 상대 중 더 높은 우선순위가 있으면 '지배됨'. 지배되지 않은 상대에게 지배되는
+        단위만 이번에 제거한다(그 상대는 확실히 남는다). 제거된 결과로 재투영해 충돌을 다시 계산하므로,
+        제거된 단위하고만 충돌하던 효과는 살아남는다. 동일 우선순위·동일 효과는 처음부터 충돌이 아니다.
+        """
+        partners = {}
+        for c in conflicts:
+            us = sorted({owner[o] for o in c.op_ids if o in owner})
+            for a in us:
+                partners.setdefault(a, set()).update(b for b in us if b != a)
+        dominated = {u for u, ps in partners.items() if any(prio[p] > prio[u] for p in ps)}
+        return {u for u in dominated if any(prio[p] > prio[u] and p not in dominated for p in partners[u])}
 
     # ── due 일괄 ──
     def process_due(self):
@@ -767,15 +804,18 @@ class _Engine:
                 "instance_id": iid, "from_phase": frm, "to_phase": to, "at_minute": self.now(),
                 "expected_ordinal": inst["transition_ordinal"]}), self._history(inst, prefix, entry)]
             head += self._cancel_epoch_ops(inst, prefix)
-        if case is None and tpl.get("case_required") and case_candidates_exist(tpl, frm, to):
-            u.diagnostics.append({"code": "CASE_REQUIRED_NONE_VALID", "instance_id": iid, "from": frm, "to": to})
-        elif case is None and case_candidates_exist(tpl, frm, to):
+        if case is None and tpl.get("case_required"):
+            # 필수 케이스를 고를 수 없으면 전이를 조용히 성립시키지 않는다 — 투영 전체 안전 중단(부분 변이 없음)
+            raise _Stop(CONFLICT, reason="CASE_REQUIRED_NONE_VALID", instance_id=iid, from_phase=frm, to_phase=to,
+                        case_candidates=cands)
+        if case is None and case_candidates_exist(tpl, frm, to):
             u.diagnostics.append({"code": "NO_VALID_CASE", "instance_id": iid, "from": frm, "to": to})
         steps = _ev.StepResult()
         if case is not None:
             sctx = _ev.StepContext(self.definition, self.world, virt, case["case_id"], self.now(), self.seed,
                                    op_prefix=f"{prefix}.case", progress=self.progress)
-            steps = _ev.run_steps(case.get("steps") or (), sctx, tuple(op.op_id for op in head[:1]))
+            steps = _ev.run_steps(case.get("steps") or (), sctx, tuple(op.op_id for op in head[:1]),
+                                  prelude_ops=head)
             u.priority = max([0] + [st.get("conflict_priority", 0) for st in case.get("steps") or ()])
         wake = self._wakeup_op(virt, tpl, prefix, vctx)
         wake = [_wm.make_op(op.op_id, op.op_type, op.source_kind, op.payload,
