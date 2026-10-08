@@ -263,6 +263,10 @@ class TRPGSession:
         self.relationship_state = _wd["relationship_state"]
         self.definition_revision = None
         self.narrative_seed = derive_narrative_seed(session_id)
+        # H06 동적 세계 생애주기(비가역 — 되감기 대상 아님). None = 미초기화(LEGACY).
+        self.world_lifecycle = None
+        self.world_initialization = {}
+        self.open_quoted_tokens = None   # H06 런타임 전용(비영속): 연기된 캐시 열기의 확인 화면 견적 토큰
 
         self.expand_default_npcs()
 

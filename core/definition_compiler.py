@@ -1739,6 +1739,50 @@ def _compile_initialization(raw, place_defs, d):
     return out
 
 
+_WORLD_START_KEYS = ("place", "date", "time", "knowledge_seed")
+
+
+def _compile_world_starts(raw, init, place_defs, seeds, calendar, caps, d):
+    """시작 틀의 저작 정량 시작점 `world_start` → 컴파일된 초기화 시작점(H06).
+
+    facts의 시간·장소는 슬롯 템플릿이라 기계 값으로 해석하지 않는다(DESIGN 08 §20). 동적 세계 초기화의
+    시작 장소·시각은 사람이 저작한 world_start에서만 온다:
+      {"place": 장소 id, "date": "YYYY-MM-DD", "time": "HH:MM", "knowledge_seed"?: seed id}
+    저작된 틀에만 world_start 키가 생긴다(미저작 시나리오의 컴파일 결과·revision은 그대로).
+    """
+    from . import world_clock as _wc
+    frames = raw.get("start_frames") if isinstance(raw.get("start_frames"), list) else []
+    by_id = {f["frame_id"]: f for f in init["start_frames"]}
+    for i, fr in enumerate(frames):
+        if not isinstance(fr, dict) or "world_start" not in fr or fr.get("id") not in by_id:
+            continue
+        p = f"start_frames[{i}].world_start"
+        ws = fr["world_start"]
+        if not ("quantitative_time" in caps and "structured_places" in caps) or calendar is None:
+            d.add(ERROR, "WORLD_START_WITHOUT_CAPABILITY", p,
+                  "world_start는 quantitative_time·structured_places(달력 포함) 선언이 필요합니다")
+            continue
+        if not isinstance(ws, dict) or set(ws) - set(_WORLD_START_KEYS) or not {"place", "date", "time"} <= set(ws):
+            d.add(ERROR, "WORLD_START_INVALID", p, "world_start는 {place, date, time, knowledge_seed?}여야 합니다")
+            continue
+        if ws["place"] not in place_defs:
+            d.add(ERROR, "WORLD_START_PLACE_UNKNOWN", f"{p}.place", f"정의되지 않은 장소 {ws['place']!r}")
+            continue
+        seed = ws.get("knowledge_seed")
+        if seed is not None and seed not in (seeds or {}):
+            d.add(ERROR, "WORLD_START_SEED_UNKNOWN", f"{p}.knowledge_seed", f"정의되지 않은 seed {seed!r}")
+            continue
+        try:
+            y, m, dd = (int(x) for x in str(ws["date"]).split("-"))
+            minute = _wc.Calendar(calendar).to_minute_index(y, m, dd) + _wc.parse_hhmm(ws["time"])
+            _wc.initial_clock(minute)
+        except Exception as e:  # noqa: BLE001
+            d.add(ERROR, "WORLD_START_TIME_INVALID", p, f"시작 날짜·시각을 달력으로 해석할 수 없습니다: {e}")
+            continue
+        by_id[fr["id"]]["world_start"] = {"place": ws["place"], "date": str(ws["date"]), "time": ws["time"],
+                                          "minute_index": minute, "knowledge_seed": seed}
+
+
 # ── 진입점 ────────────────────────────────────────────────────
 
 def compile_scenario(raw: dict, scenario_id: str, quests: dict | None = None) -> CompileResult:
@@ -1776,6 +1820,7 @@ def compile_scenario(raw: dict, scenario_id: str, quests: dict | None = None) ->
     seeds = _compile_spatial_seeds(raw, places, edges, access, cap["capabilities"], d)
     init = _compile_initialization(raw, places, d)
     calendar = _compile_calendar(raw, cap["capabilities"], d)
+    _compile_world_starts(raw, init, places, seeds, calendar, cap["capabilities"], d)
     explicit = _compile_explicit_infos(raw, actors, places, d)
     infos = {}
     for src in (explicit, _compile_inline_secrets(raw, actors, d, explicit),

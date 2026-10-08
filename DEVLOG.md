@@ -1,10 +1,10 @@
 # INDAIM — 개발 로그 (DEVLOG)
 
-> 현재 버전: **v7.3.0** · `SCHEMA_VERSION` 4
+> 현재 버전: **v7.4.0** · `SCHEMA_VERSION` 4
 > 스택: Gemini API + discord.py / 한국어 TRPG 보조 GM 봇
 > 저장소: `tjdwls8891/TRPG-Sub-Game-Master`
 > 리팩터링: 7-WP 프로그램(WP-A~G, 2026-09-12~09-29) — WP-A~G 전부 VERIFIED, 프로그램 완료(WP-G 최종 `f0fd69e`) → **v6.0.0**
-> 동적 세계 프로그램: 통합 로드맵 H01~H07 — H01·H02 완료 → **v7.0.0**, H03 완료 → **v7.1.0**, H04 완료 → **v7.2.0**, H05 → **v7.3.0**, H06·H07 예정
+> 동적 세계 프로그램: 통합 로드맵 H01~H07 — H01·H02 완료 → **v7.0.0**, H03 완료 → **v7.1.0**, H04 완료 → **v7.2.0**, H05 → **v7.3.0**, H06 → **v7.4.0**, H07 예정
 
 ---
 
@@ -260,6 +260,7 @@
 | **7.1.0** | H03 | 시간·공간 서비스와 typed 연산 추가 — 하위호환 기능 = MINOR. `SCHEMA_VERSION` 4·turn-history 3·CommitPlan 2 유지, compiler semantic version 1→2 |
 | **7.2.0** | H04 | 행위자·정보·인지·사건·세계 진행 엔진 추가 — 하위호환 기능 = MINOR. 스키마·이력·CommitPlan 유지, compiler semantic version 2→3 |
 | **7.3.0** | H05 | 구조화 행동 의도·플레이어 세계 계획·관찰·같은 분 선후·후속 묘사·투영 미디어를 자동 턴에 배선 — 하위호환 기능 = MINOR. 스키마·이력·CommitPlan·compiler 유지, `prompts.py` 무변경(판단·추출 스키마는 런타임 확장). DYNAMIC 세션(정의 바인딩·시계·PC 배치)만 새 경로 — 바인딩·seed는 H06이라 현 운영 세션은 모두 기존 경로 |
+| **7.4.0** | H06 | 동적 세계 생애주기 배선(정의 스냅샷 바인딩·genesis INITIALIZATION·캐시 고정 원천·재시작·재서술/되감기·typed ADMIN_EDIT·안전 종료) — 하위호환 기능 = MINOR. `SCHEMA_VERSION` 4·turn-history 3·CommitPlan 2·compiler 3 유지(새 영속 필드 2개는 기본값이 곧 레거시 의미). `prompts.py` 무변경 |
 
 **전환점 분석** — 첫 비호환 변경은 WP-B(`967263e`, `자:/태:` 태그의 자원·상태 변경 기능 정지)였다. 그 앞의 7개 패키지(WP-01·02·PERSIST·ACCOUNTING·JOURNAL·SETTLEMENT-01·WP-A)는 하위호환 추가였으나 개별 출시되지 않았으므로 MAJOR에 흡수된다. 이후 WP-D(청구 권위 전환)·WP-E(되감기 의미 변경)·WP-G(명령어 은퇴)의 비호환 변경도 같은 출시에 함께 실렸다. `SCHEMA_VERSION`은 3을 유지했고, 구세션 데이터는 로드된다(호환 처리 포함).
 
@@ -362,6 +363,20 @@ H03 승인 기준(`567f262`) 위에서 H04-A(행위자·정보·인지·관계·
 compiler semantic version 3으로 5개 시나리오 revision이 다시 바뀌었다(스냅샷 바인딩 0 — 이행 불필요). 세부·증거는 `handoff/H04_COMPLETION_BUNDLE.md`.
 ---
 
+### v7.4.0 — 동적 세계 H06: 생애주기 · 초기화 · 캐시 원천 · 복구 · 재서술 · 관리자 편집 · 종료 (2026-10-08)
+
+H05(`197a9ac`, 994 passed) 위에서 H06-A~G를 게이트별로 진행했다. **DYNAMIC은 단일 PC 전용**(사용자 결정 2026-10-08 — 다인 세션은 LEGACY), `prompts.py` 무변경, 세션 PC 인지는 awareness만 사건 조건이 될 수 있다.
+
+- **정의 바인딩·genesis (A)** — 새 모듈 `core/world_lifecycle.py`가 유일한 owner다. 시작 선택 직후 compile → durable 정의 스냅샷 → `definition_revision` 바인딩 → InitialWorldPlan(typed) → `CanonicalMutationCoordinator(INITIALIZATION)` → genesis. 시작 장소·시각은 시작 틀에 사람이 저작한 `world_start`에서만 온다(facts 슬롯 템플릿을 기계 값으로 해석하지 않음 — DESIGN 08 §20). 미저작 시나리오의 revision은 그대로다. 같은 초기화 정체성 재요청은 genesis를 다시 만들지 않는다. DYNAMIC 대상 세션은 캐시 업로드를 초기화 뒤로 미루고, 첫 캐시 실패는 INITIALIZED(인트로 없음)로 남아 재시도 버튼으로 이어 간다.
+- **세계 모드** — DYNAMIC = 단일 PC + 스냅샷 바인딩 + 필수 capability + 생애주기 OPEN + 시계 + PC 배치. 정의는 스냅샷만 읽는다(재컴파일 대체 제거). 초기화된 세션에서 정의를 읽을 수 없거나 PC가 늘면 BLOCKED(턴 거부, 조용한 LEGACY 전환 없음). 초기화 뒤 참가는 거부한다.
+- **세션 PC 인지 조건 (B)** — holder `$session_pc`(COGNITION_AWARENESS 전용). 정본 actor_registry의 단일 PC로만 해석하고 의존 키도 같은 규칙으로 구체화한다(선택적 깨우기). `COGNITION_BELIEF`에는 컴파일 오류.
+- **캐시 원천 (C)** — `core/cache_source.py` FrozenCacheBuildSource: 짧은 io 락에서 원천을 깊은 복사하고 락 밖에서 조립·생성한다. 생성 사실에 세대 메타(revision·base world version·이력 표식)를 남기고, 생성 중 revision이 바뀌면 활성화하지 않고 단일 finalizer로 정리한다. 바인딩 세션은 재발급·재시작에서 스냅샷 원문을 쓴다(`!캐시 재발급` 원본 재로드·NPC 재전개 생략).
+- **재시작 (D)** — 커밋 복구 뒤 INIT/ADMIN 저널 종결(`canonical_mutation.recover`)·스냅샷 검증. 오프라인 시간 진행 없음.
+- **재서술·되감기 (E)** — 판단 기록의 의미 기록에 그 턴의 revision을 함께 남기고, 재서술은 같은 revision에서만 보존된 의미 선택(경로 서명·접근 토큰)으로 세계 계획을 다시 세운다(재질문·판단 재호출 없음). 생애주기·바인딩·시드는 비가역.
+- **관리자 편집 (F)** — `core/admin_world_edit.py` typed ADMIN_EDIT 서비스(활성 턴·이력 조작·stale 거부, no-op은 version 없음, 턴 수·청구 불변). 턴 이후 편집이 있으면 그 턴의 재서술은 거부한다(편집을 조용히 지우지 않음). 운영자 명령은 추가하지 않았다.
+- **종료 (G)** — `close_session`: 정본 직렬화 락 → 안전 지점(진행 중 턴·재시도 대기·재서술/되감기·미종결 세계 변이면 거부, 강제 취소 없음) → 기존 캐시 단일 finalizer(환급 정확히 한 번) → CLOSED. 세계 상태는 그대로다. 플레이어 세션 닫기(`disp:close`)도 같은 안전 지점을 거친다.
+- **발견·수정** — 진행 엔진은 거부된 기반 연산 단위를 진단으로만 남긴다. 초기화에서는 이를 충돌로 판정하도록 했다(PC 등록 충돌 시 등록 없는 genesis가 만들어지던 반례).
+
 ## 실측 데이터
 
 ### 비용 (26,268토큰 캐시 기준)
@@ -392,7 +407,7 @@ compiler semantic version 3으로 5개 시나리오 revision이 다시 바뀌었
 
 ```
 장소 122 · NPC 47(32명 배치) · 직업 16 · 퀘스트 44
-시작 틀 8 · 프로필 단계 10 · SESSION_FIELDS 95 · TRACKED_PATHS 14
+시작 틀 8 · 프로필 단계 10 · SESSION_FIELDS 97 · TRACKED_PATHS 14
 명령어 44 · persistent view 5종 22버튼
 core 서브모듈 63 · 테스트 718건(특성화 46 · 결함 27 · 정책 645)
 ```

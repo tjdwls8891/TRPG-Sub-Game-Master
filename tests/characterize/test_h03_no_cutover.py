@@ -66,7 +66,8 @@ def test_h03_modules_are_used_only_by_allowed_core_modules():
     from tests.characterize.h04_scope import H04_DOMAIN_FILES
     from tests.characterize.h05_scope import H05_FILES
     # H04 도메인 모듈(자체 경계는 test_h04_no_cutover) + H05 플레이어 계획 모듈(유일한 플레이어 경로 소비자)
-    h04 = set(H04_DOMAIN_FILES) | set(H05_FILES)
+    # H06: 초기 세계 계획(world_lifecycle)이 시계·배치·공간 지식 seed 연산을 만든다(INITIALIZATION owner)
+    h04 = set(H04_DOMAIN_FILES) | set(H05_FILES) | {"world_lifecycle.py"}
     allowed = {
         "world_clock": {"world_schedule.py", "spatial.py", "definition_compiler.py"} | h04,
         "world_schedule": {"world_mutation.py", "turn_preparation.py", "canonical_mutation.py", "movement.py"} | h04,
@@ -91,7 +92,7 @@ def test_no_production_producer_of_h03_operations():
     from tests.characterize.h04_scope import H04_DOMAIN_FILES
     from tests.characterize.h05_scope import H05_FILES
     domain = ({f"{m}.py" for m in H03_MODULES} | {"world_mutation.py", "__init__.py"} | set(H04_DOMAIN_FILES)
-              | set(H05_FILES))
+              | set(H05_FILES) | {"world_lifecycle.py"})          # H06: INITIALIZATION producer
     hits = []
     for p in _production_files():
         if p.startswith(os.path.join(REPO_ROOT, "core")) and os.path.basename(p) in domain:

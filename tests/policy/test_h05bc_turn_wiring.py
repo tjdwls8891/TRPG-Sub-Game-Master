@@ -27,6 +27,8 @@ from tests.policy.test_h05a_intent_planning import knowledge
 from tests.policy.test_ready_barrier import _json, _usage, rig  # noqa: F401
 from tests.policy.test_authoritative_commit import _fund
 
+from tests.policy.world_bind import bind_open  # noqa: E402
+
 pytestmark = pytest.mark.policy
 
 PC = f"pc_{PLAYER_UID}"
@@ -139,7 +141,7 @@ def make_dynamic(s, *, templates=None, edges=("e_hm#fwd",), at="항구", extra_w
     s.scenario_data = raw
     res = core.definition_compiler.compile_scenario(raw, "t")
     assert res.ok, [(d.code, d.message) for d in res.errors]
-    s.definition_revision = res.revision
+    bind_open(s, res)                         # H06: 스냅샷 바인딩 + OPEN
     s.world_clock = WC.initial_clock(K)
     s.actor_registry = {PC: {"kind": "PC", "display_name": "테스터", "source_kind": "PLAYER",
                              "source_key": str(PLAYER_UID), "aliases": []}}

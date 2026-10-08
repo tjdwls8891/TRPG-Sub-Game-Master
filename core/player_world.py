@@ -28,6 +28,7 @@ from . import world_progression as _wp
 from .world_ids import stable_digest
 
 MODE_LEGACY, MODE_DYNAMIC = "LEGACY", "DYNAMIC"
+MODE_BLOCKED = "BLOCKED"           # H06: 동적 세계가 초기화된 세션인데 바인딩 정의를 읽을 수 없음 — 턴 거부(LEGACY 대체 금지)
 REQUIRED_CAPABILITIES = ("structured_places", "quantitative_time")
 
 PLAN_NONE = "NONE"                 # 코드 소유 세계 행동 없음(0분 턴)
@@ -73,27 +74,19 @@ _DEF_CACHE: dict = {}
 
 
 def load_definition(session, revision: str):
-    """바인딩된 정의(스냅샷 우선, 없으면 같은 revision으로 재컴파일되는 경우만). 실패 시 None."""
+    """바인딩된 정의 — 세션 정의 스냅샷만 읽는다(H06). 실패 시 None.
+
+    현재 원본 파일·scenario_data 재컴파일로 대체하지 않는다(원본 drift가 진행 중 세션의 의미를 바꾸지 못한다).
+    """
     key = (getattr(session, "session_id", None), revision)
     if key in _DEF_CACHE:
         return _DEF_CACHE[key]
     from . import definition_snapshot as _snap
-    d = None
     try:
         d = _snap.read_snapshot(session.session_id, expected_revision=revision).definition
     except Exception:
-        d = None
-    if d is None:
-        try:
-            from . import definition_compiler as _dc
-            res = _dc.compile_scenario(getattr(session, "scenario_data", {}) or {},
-                                       getattr(session, "scenario_id", None) or "scenario")
-            if res.ok and res.revision == revision:
-                d = res.definition
-        except Exception:
-            d = None
-    if d is not None:
-        _DEF_CACHE[key] = d
+        return None
+    _DEF_CACHE[key] = d
     return d
 
 
@@ -102,13 +95,24 @@ def pc_actor_for(uid) -> str:
 
 
 def session_world_context(session, world=None) -> WorldContext:
-    """세션의 세계 모드. DYNAMIC 조건을 하나라도 못 채우면 LEGACY(사유 기록)."""
+    """세션의 세계 모드. DYNAMIC 조건을 하나라도 못 채우면 LEGACY(사유 기록).
+
+    H06: DYNAMIC = 단일 PC + 정의 바인딩(스냅샷) + 필수 capability + 생애주기 OPEN + 초기화된 시계 + PC 배치.
+    동적 세계가 초기화된 세션에서 정의를 읽을 수 없으면 BLOCKED(조용히 LEGACY로 넘어가지 않는다).
+    """
+    from . import world_lifecycle as _lc
     rev = getattr(session, "definition_revision", None)
+    bound = _lc.world_bound(session)
     if not rev:
-        return WorldContext(MODE_LEGACY, "definition_unbound")
+        return WorldContext(MODE_BLOCKED if bound else MODE_LEGACY, "definition_unbound")
+    if len(getattr(session, "players", None) or {}) != 1:
+        return WorldContext(MODE_BLOCKED if bound else MODE_LEGACY, "not_single_pc", definition_revision=rev)
     definition = load_definition(session, rev)
     if definition is None:
-        return WorldContext(MODE_LEGACY, "definition_unavailable", definition_revision=rev)
+        return WorldContext(MODE_BLOCKED if bound else MODE_LEGACY, "definition_unavailable",
+                            definition_revision=rev)
+    if getattr(session, "world_lifecycle", None) != _lc.LIFECYCLE_OPEN:
+        return WorldContext(MODE_LEGACY, "lifecycle_not_open", definition, rev)
     caps = set((definition.get("scenario_meta") or {}).get("validated_capabilities") or ())
     if not set(REQUIRED_CAPABILITIES) <= caps:
         return WorldContext(MODE_LEGACY, "capability_absent", definition, rev)

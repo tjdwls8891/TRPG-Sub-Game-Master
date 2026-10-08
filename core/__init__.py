@@ -58,6 +58,8 @@
 #   npc_projection — (H04) 읽기 전용 CurrentNpcProjection
 #   predicates · events · world_progression — (H04) 3값 조건·사건 엔진·순수 세계 진행 투영
 #   action_intent · player_world · turn_world — (H05) 구조화 의도·플레이어 세계 계획·턴 관찰/후속 묘사/투영 미디어
+#   world_lifecycle — (H06) 정의 바인딩·초기 세계 계획·INITIALIZATION·동적 세계 생애주기
+#   cache_source · admin_world_edit — (H06) 캐시 고정 원천 · typed 관리자 세계 편집(ADMIN_EDIT)
 
 from .constants import (
     __version__,
@@ -253,6 +255,9 @@ from . import world_progression  # H04: DependencyIndex + pure WorldProgressionP
 from . import action_intent  # H05: ActionReferenceManifest + ResolvedActionIntent
 from . import player_world  # H05: session world mode + route policy + player movement/time planning
 from . import turn_world  # H05: narration overlay, observation, same-minute tie, continuation, projected media
+from . import world_lifecycle  # H06: definition bind + genesis initialization + lifecycle
+from . import cache_source  # H06: FrozenCacheBuildSource
+from . import admin_world_edit  # H06: typed ADMIN_EDIT service
 from .cost import (
     extract_token_usage,
     format_cost,

@@ -634,6 +634,10 @@ async def _offer_start_frames(bot, session, channel):
         await channel.send(embed=discord.Embed(
             description="시작 상황 틀이 없어 기본 인트로로 진행합니다.",
             color=0x5865F2))
+        # H06: 캐시를 연기했던 세션도 시작 선택이 없으면 기존(LEGACY) 의미로 지금 연다.
+        cog = bot.get_cog("SessionCog")
+        if cog and not getattr(session, "cache_name", None):
+            await cog.upload_cache(session, quoted_tokens=getattr(session, "open_quoted_tokens", None))
         return
 
     e = discord.Embed(
@@ -661,7 +665,13 @@ async def on_open_time_done(bot, session, channel, *, quoted_tokens=None):
     creation.record(session, "open", f"{getattr(session, 'open_minutes', 0)}분")
 
     cog = bot.get_cog("SessionCog")
-    if cog:
+    # H06: DYNAMIC 대상(단일 PC·필수 capability·시작 틀 있음) 세션은 캐시를 시작 선택 → 정의 바인딩 →
+    #   genesis 초기화 뒤로 미룬다(캐시 원천이 바인딩 정의 + genesis 세계여야 한다). 레거시는 그대로.
+    from . import world_lifecycle as _wl
+    defer_cache = bool((session.scenario_data or {}).get("start_frames")) and _wl.is_dynamic_candidate(session)
+    if defer_cache:
+        session.open_quoted_tokens = quoted_tokens
+    if cog and not defer_cache:
         from . import message_lifecycle as _ml
         await cog.upload_cache(session, notify=_ml.transient_notifier(bot, session, channel, ttl=60),
                                quoted_tokens=quoted_tokens)

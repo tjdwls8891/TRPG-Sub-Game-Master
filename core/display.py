@@ -450,6 +450,13 @@ class CloseConfirmView(LifecyclePromptView):
         # WP-F: 원격 삭제·보관 사실·선불 정산(환급)은 캐시 생애주기 단일 finalizer가
         #   정확히 한 번 수행한다(직접 caches.delete / add_ink 금지).
         from . import cache_lifecycle
+        from . import world_lifecycle
+        # H06-G: 안전 지점 — 진행 중인 턴·재서술/되감기·세계 변이 중에는 닫지 않는다(강제 취소 없음)
+        _why = world_lifecycle.close_blocked_reason(self.session)
+        if _why:
+            await close_notice(interaction, f"⏸️ 지금은 세션을 닫을 수 없습니다: {_why}")
+            self.stop()
+            return
         try:
             res = await cache_lifecycle.close_window(
                 self.bot, self.session, reason=cache_lifecycle.REASON_PLAYER_CLOSE,

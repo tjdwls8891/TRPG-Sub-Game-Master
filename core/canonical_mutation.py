@@ -149,6 +149,11 @@ def classify_recovery(session) -> list:
     return out
 
 
+def has_unfinished(session) -> bool:
+    """미종결(PREPARED만 있고 종결 안 된) INITIALIZATION·ADMIN_EDIT가 있는가 — 생애주기 안전 지점용(H06)."""
+    return bool(classify_recovery(session))
+
+
 def recover(session) -> list:
     """미종결 변이를 저널에 종결한다. 정본 상태는 건드리지 않는다(이미 영속된 쪽이 정본)."""
     done = []

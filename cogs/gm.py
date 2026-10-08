@@ -1519,6 +1519,19 @@ class GMCog(commands.Cog):
                 await master_ch.send("⏸️ 이전 턴 준비가 끝나지 않아 새 선언을 처리하지 않습니다.")
             return
 
+        # H06: 동적 세계 세션이 열리지 않았거나(INITIALIZED) 바인딩 정의를 읽을 수 없으면(BLOCKED) 턴을
+        #   받지 않는다 — 조용히 LEGACY 경로로 진행하지 않는다(운영자 확인).
+        _blocked = core.world_lifecycle.blocked_reason(session)
+        if _blocked:
+            _atx = core.turn_transaction.get_active_transaction(session)
+            if _atx is not None and getattr(_atx, "world_turn", None) is not None and \
+                    core.action_intent.is_definition_stale(_atx.world_turn.ctx.definition_revision, session):
+                _atx.world_turn = None                     # 옛 정의 WorldTurn 재사용 금지(R2)
+            print(f"[H06/{session.session_id}] 턴 차단: {_blocked}")
+            if master_ch:
+                await master_ch.send(f"⏸️ [동적 세계] {_blocked}")
+            return
+
         # WP-01: 자동 턴 수렴 경계. 안전장치(활성/턴 한도/비용 한도)를 통과한 직후,
         # 하나의 플레이어 선언을 하나의 논리 턴 시도에 대응시킨다. get_or_begin은
         # ASK/NARRATE 재입력 시 같은 트랜잭션을 재사용한다(새 시도를 만들지 않는다).
@@ -2536,6 +2549,11 @@ class GMCog(commands.Cog):
             entry, rec, reason = core.turn_history.rerender_target(session)
             if entry is None:
                 return False, reason
+            # H06-E: DYNAMIC 턴은 보존된 의미 선택 + 같은 정의 revision에서만 재서술한다(상태 변경 전 검사)
+            w_intent, w_reason = core.turn_world.rerender_world_intent(
+                session, rec.get("judgment"), (rec.get("post") or {}).get("world_version"))
+            if w_reason:
+                return False, w_reason
             try:
                 tx = await core.turn_history.begin_rerender(
                     self.bot, session, entry, rec, addendum=addendum)
@@ -2543,6 +2561,17 @@ class GMCog(commands.Cog):
                 return False, str(e)
             tid = tx.transaction_id
             j = tx.judgment_result
+            if w_intent is not None:
+                # 턴 이전 세계로 복원된 뒤 새 시도의 세계 계획을 다시 세운다(옛 시도의 WorldTurn 재사용 금지)
+                _ctx = core.player_world.session_world_context(session)
+                if _ctx.dynamic:
+                    _wt = core.turn_world.WorldTurn(ctx=_ctx, intent=w_intent)
+                    tx.world_turn = _wt
+                    self._ensure_world_plan(session, _wt, tid)
+                else:
+                    # 세계 연산 없이 커밋하지 않는다 — 교체 시도를 묘사 전에 종결하고 기존 턴 유지
+                    await self._fail_rerender_before_narration(session, tid, master_ch)
+                    return False, f"턴 이전 세계가 DYNAMIC이 아닙니다({_ctx.reason}) — 기존 턴 유지"
             if master_ch:
                 await master_ch.send(
                     f"🔁 **[재생성]** {rec['gm_turn']}턴을 같은 선언·판단으로 다시 서술합니다 "
@@ -2905,7 +2934,9 @@ class GMCog(commands.Cog):
         _jnote = judgment
         if _wt is not None and _wt.intent is not None:
             _jnote = dict(judgment)
-            _jnote[core.action_intent.INTENT_FIELD] = {"semantic": _wt.intent.semantic_record()}
+            # H06-E: 재서술이 같은 정의에서만 같은 의미 선택을 재현하도록 그 턴의 revision을 함께 남긴다
+            _jnote[core.action_intent.INTENT_FIELD] = {"semantic": _wt.intent.semantic_record(),
+                                                       "definition_revision": _wt.ctx.definition_revision}
         core.turn_history.note_judgment(
             session, transaction_id, judgment=_jnote,
             player_message=player_message, roll_results=list(roll_results))

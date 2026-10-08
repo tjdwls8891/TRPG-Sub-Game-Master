@@ -3,6 +3,7 @@
 
 의도적으로 바뀌는 특성화 테스트다. 시간·공간 handler(통합 로드맵 H03), INITIALIZATION·
 ADMIN_EDIT 배선(H06)이 들어올 때 이 테스트를 함께 갱신한다.
+H06 갱신: canonical_mutation 호출자 = world_lifecycle(INITIALIZATION)·admin_world_edit(ADMIN_EDIT)뿐.
 
 H02-R24  공통 정본 변이 primitive(canonical_mutation)의 production 호출자 0
 H02-R26  새 모듈은 provider·Discord를 쓰지 않는다(판단층위 캐시·provider 호출 수 불변)
@@ -61,19 +62,30 @@ def _references(path, module: str) -> bool:
     return False
 
 
-def test_canonical_mutation_has_no_production_caller():
+def test_canonical_mutation_callers_are_h06_initialization_and_admin_only():
+    """H06: production 호출자 = world_lifecycle(INITIALIZATION)·admin_world_edit(ADMIN_EDIT)뿐. PLAYER_TURN 없음."""
+    from tests.characterize.h06_scope import CANONICAL_MUTATION_CALLERS
     allowed = {os.path.join("core", "canonical_mutation.py"), os.path.join("core", "__init__.py")}
+    allowed |= {os.path.join("core", f) for f in CANONICAL_MUTATION_CALLERS}
     hits = [_rel(p) for p in _production_files()
             if _rel(p) not in allowed and _references(p, "canonical_mutation")]
     assert hits == [], hits
+    for f, cause in CANONICAL_MUTATION_CALLERS.items():
+        src = source_of(f"core/{f}")
+        assert cause in src and "CAUSE_PLAYER_TURN" not in src, f
+    other = {"world_lifecycle.py": "CAUSE_ADMIN_EDIT", "admin_world_edit.py": "CAUSE_INITIALIZATION"}
+    for f, cause in other.items():
+        assert cause not in source_of(f"core/{f}"), f
 
 
 def test_world_mutation_users_are_the_commit_owners_only():
     from tests.characterize.h05_scope import H05_FILES
     # H05: 플레이어 세계 계획·관찰(순수)이 typed 연산·투영을 만든다 — 정본 적용은 여전히 커밋 owner뿐.
+    # H06: 초기 세계 계획(world_lifecycle)·관리자 편집(admin_world_edit)이 typed 묶음을 만든다(적용은 coordinator).
     allowed = {os.path.join("core", f) for f in (
         "world_mutation.py", "canonical_mutation.py", "turn_preparation.py",
-        "commit_coordinator.py", "__init__.py") + H03_DOMAIN_MODULES + H05_FILES}
+        "commit_coordinator.py", "__init__.py", "world_lifecycle.py", "admin_world_edit.py")
+        + H03_DOMAIN_MODULES + H05_FILES}
     hits = [_rel(p) for p in _production_files()
             if _rel(p) not in allowed and _references(p, "world_mutation")]
     assert hits == [], hits

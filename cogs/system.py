@@ -20,6 +20,10 @@ _HINT_LABEL = {
 }
 
 # ========== [시스템 관리 모듈(System Cog)] ==========
+class _BoundDefinition(Exception):
+    """!캐시 재발급 — 동적 세계 바인딩 세션의 원본 재로드 생략 신호."""
+
+
 class SystemCog(commands.Cog):
     """
     봇 명령어 가이드, 채널 정리, 캐시 관리, 무중단 리로드 등
@@ -206,33 +210,38 @@ class SystemCog(commands.Cog):
         if not game_channel:
             return await ctx.send("⚠️ 게임 채널을 찾을 수 없습니다.")
 
+        # H06-G: 안전 지점 — 진행 중인 턴(재시도 대기 포함)·재서술/되감기·세계 변이가 있으면 종료를 거부한다
+        #   (진행 중인 턴을 강제로 취소하지 않는다). 채널 잠금도 하지 않는다.
+        _why = core.world_lifecycle.close_blocked_reason(session)
+        if _why:
+            return await ctx.send(f"⏸️ 지금은 세션을 종료할 수 없습니다: {_why}")
+
         await ctx.send("⏳ 세션 종료 시퀀스를 시작합니다...")
 
-        # 1. 게임 채널 잠금
+        # 1~6. 배타 락 · 안전 지점 재검사 · 캐시 파기/보관 시간 정산 · 미사용 선불 환급(정확히 한 번) · CLOSED 영속
+        #    — WP-F 캐시 생애주기 단일 finalizer. POLICY-CACHE-02: 운영자 조기 종료도 실제 선불 payer 에게
+        #    미사용 캐시 선불을 환급한다. 세계 상태(시계·사건·예약 등)는 바꾸지 않는다.
+        storage_cost = 0.0
+        try:
+            res = await core.world_lifecycle.close_session(
+                self.bot, session, reason=core.cache_lifecycle.REASON_OPERATOR_END)
+        except Exception as e:
+            return await ctx.send(f"⚠️ 캐시 종료 정산 실패(다시 시도하면 이어서 처리합니다 — 중복 환급 없음): {e}")
+        if not res.get("ok"):
+            return await ctx.send(f"⚠️ 세션 종료가 완료되지 않았습니다: {res.get('reason')} — 다시 시도해 주십시오.")
+        storage_cost = res.get("storage_krw") or 0.0
+        if res.get("refund"):
+            await ctx.send("💰 미사용 캐시 선불 환급: " + ", ".join(
+                f"<@{u}> {v}잉크" for u, v in res["refund"].items()))
+        if res.get("remote") == core.cache_lifecycle.REMOTE_FAILED:
+            await ctx.send("⚠️ API 서버 측 캐시 삭제 실패 — 만료 시각까지의 보관분으로 정산했습니다.")
+
+        # 7. 게임 채널 잠금(보고·표시 — 재무 완료 뒤. 실패해도 재무는 되돌리지 않는다)
         try:
             await game_channel.set_permissions(ctx.guild.default_role, send_messages=False)
             await core.send_streamed(self.bot, game_channel, "🔒 **세션이 종료되어 채널이 잠겼습니다.**")
         except Exception as e:
             await ctx.send(f"⚠️ 게임 채널 잠금 실패: {e}")
-
-        # 2. 캐시 파기 및 보관 시간 정산 — WP-F 캐시 생애주기 단일 finalizer.
-        #    POLICY-CACHE-02: 운영자 조기 종료도 실제 선불 payer 에게 미사용 캐시 선불을 환급한다.
-        storage_cost = 0.0
-        if session.cache_name:
-            try:
-                res = await core.cache_lifecycle.close_window(
-                    self.bot, session, reason=core.cache_lifecycle.REASON_OPERATOR_END,
-                    disposition=core.cache_lifecycle.WINDOW_SETTLE_REFUND)
-                storage_cost = res["storage_krw"]
-                if res.get("refund"):
-                    await ctx.send("💰 미사용 캐시 선불 환급: " + ", ".join(
-                        f"<@{u}> {v}잉크" for u, v in res["refund"].items()))
-                if not res.get("settled"):
-                    await ctx.send("⚠️ 환급 기록이 완료되지 않아 다음 캐시 조작·재시작 시 재시도합니다.")
-                if res.get("remote") == core.cache_lifecycle.REMOTE_FAILED:
-                    await ctx.send("⚠️ API 서버 측 캐시 삭제 실패 — 만료 시각까지의 보관분으로 정산했습니다.")
-            except Exception as e:
-                await ctx.send(f"⚠️ 캐시 종료 정산 실패(다음 캐시 조작·재시작 시 재시도): {e}")
 
         await core.save_session_data(self.bot, session)
 
@@ -270,11 +279,17 @@ class SystemCog(commands.Cog):
             # 고쳐도 봇을 재시작하기 전까지 반영되지 않는다.
             try:
                 core.quest.clear_cache()
+                if core.world_lifecycle.world_bound(session):
+                    # H06: 동적 세계 세션은 바인딩된 정의를 유지한다 — 원본 재로드·기본 NPC 재전개 없음
+                    #   (재발급은 캐시 최적화이지 정의 migration이 아니다).
+                    raise _BoundDefinition()
                 _fresh = core.load_scenario_from_file(session.scenario_id)
                 if _fresh:
                     session.scenario_data = _fresh
                     session.expand_default_npcs(replace=True)
                     await ctx.send("> 시나리오·퀘스트 데이터를 다시 읽었습니다.")
+            except _BoundDefinition:
+                await ctx.send("> 동적 세계 세션 — 바인딩된 정의를 유지합니다(원본 재로드 없음).")
             except Exception as e:
                 print(f"[캐시] 시나리오 재로드 실패: {e}")
 

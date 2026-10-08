@@ -133,11 +133,12 @@ class DependencyIndex:
 
 def build_dependency_index(definition: dict, world) -> DependencyIndex:
     idx = DependencyIndex()
+    pc = _refs.session_pc_actor(world)          # H06: "$session_pc" 키는 정본 단일 PC로만 구체화
     for tid, tpl in sorted(_ev.templates(definition).items()):
         dep = tpl.get("dependency") or {}
         for b in _ev.enumerate_bindings(tpl):
             for key in dep.get("spawn") or ():
-                k = _refs.materialize_key(key, b)
+                k = _refs.materialize_key(key, b, session_pc=pc)
                 if k:
                     idx._add(k, "spawn", tid)
     insts = _d(world, "event_instances") if isinstance(world, _wm.ProjectedWorld) else \
@@ -150,12 +151,14 @@ def build_dependency_index(definition: dict, world) -> DependencyIndex:
         if tpl is None:
             continue
         for key in (tpl.get("dependency") or {}).get("instance") or ():
-            k = _refs.materialize_key(key, inst.get("bound_slots") or {}, iid)
+            k = _refs.materialize_key(key, inst.get("bound_slots") or {}, iid, session_pc=pc)
             if k:
                 idx._add(k, "instance", iid)
     for sid, sdef in sorted((definition.get("information_series") or {}).items()):
         for key in sdef.get("dependency_keys") or _info.series_dependency_keys(sdef):
-            idx._add(key, "series", sid)
+            k = _refs.materialize_key(key, {}, session_pc=pc) if _refs.SESSION_PC in key else key
+            if k:
+                idx._add(k, "series", sid)
     return idx
 
 
@@ -390,8 +393,9 @@ def start_movement_step(step, sctx, parents):
 
 class _Engine:
     def __init__(self, definition, source, target_minute, *, base_ops, progress, narrative_seed,
-                 resolved_tie_orders, max_rounds, max_transitions, outer_origin):
+                 resolved_tie_orders, max_rounds, max_transitions, outer_origin, initial_full_scan=False):
         self.definition = definition
+        self.initial_full_scan = initial_full_scan    # H06 INITIALIZATION 전용 — 첫 연쇄를 전수 검사로 시작
         self.source = source if isinstance(source, _wm.ProjectedWorld) else _wm.ProjectedWorld.capture(source)
         self.world = _wm.ProjectedWorld(self.source.to_dict())
         self.target = target_minute
@@ -687,7 +691,7 @@ class _Engine:
             aff = idx.affected(changed)
             spawn = sorted(set(aff["spawn"]) | set(forced.get("spawn", ())))
             insts = sorted(set(aff["instance"]) | set(forced.get("instance", ())))
-            series = aff["series"]
+            series = sorted(set(aff["series"]) | set(forced.get("series", ())))
             forced = {}
             units = []
             n = 0
@@ -909,6 +913,9 @@ class _Engine:
                 changed = self.apply_units([_Unit("base", list(self.base_ops))], kind="BASE")
             minutes = 0
             forced = {}
+            if self.initial_full_scan:
+                # 초기화: 의존 키 변화가 아니라 정의 전체에서 시작한다(정규 PLAYER_TURN 경로는 쓰지 않는다)
+                forced = full_scan(self.definition, self.world)
             last_minute = None
             while True:
                 minutes += 1
@@ -979,7 +986,8 @@ def case_candidates_exist(tpl, frm, to) -> bool:
 def project_world_progression(definition: dict, source, target_minute: int, *, base_ops=(), progress=None,
                               narrative_seed: str, resolved_tie_orders=None, max_rounds: int = MAX_CASCADE_ROUNDS,
                               max_transitions: int = MAX_TRANSITIONS_PER_EVENT_PER_MINUTE,
-                              outer_origin: str = "PLAYER_TURN") -> ProgressionResult:
+                              outer_origin: str = "PLAYER_TURN",
+                              initial_full_scan: bool = False) -> ProgressionResult:
     """순수 세계 진행 투영. source(세션·ProjectedWorld)를 바꾸지 않는다.
 
     progress: {"observer_actor"?, "scene_place"?, "activity"?, "movement_context"?, "activity_context"?}
@@ -989,7 +997,8 @@ def project_world_progression(definition: dict, source, target_minute: int, *, b
     """
     return _Engine(definition, source, target_minute, base_ops=base_ops, progress=progress,
                    narrative_seed=narrative_seed, resolved_tie_orders=resolved_tie_orders,
-                   max_rounds=max_rounds, max_transitions=max_transitions, outer_origin=outer_origin).run()
+                   max_rounds=max_rounds, max_transitions=max_transitions, outer_origin=outer_origin,
+                   initial_full_scan=initial_full_scan and outer_origin == "INITIALIZATION").run()
 
 
 def initial_template_wakeups(definition: dict, world, *, narrative_seed: str, op_prefix: str = "init") -> list:

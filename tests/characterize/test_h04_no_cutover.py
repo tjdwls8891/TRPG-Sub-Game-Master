@@ -59,7 +59,9 @@ def _imports(tree, module):
 def test_h04_modules_have_no_player_or_cogs_caller():
     """cogs·main은 H04 모듈을 직접 부르지 않는다 — H05 플레이어 계획 모듈만 경유한다."""
     from tests.characterize.h05_scope import H05_FILES
-    allowed = set(H04_DOMAIN_FILES) | {"__init__.py", "world_mutation.py", "definition_compiler.py"} | set(H05_FILES)
+    # H06: 초기 세계 계획(world_lifecycle)이 시작 시점 전수 검사·wakeup을 만든다(INITIALIZATION owner)
+    allowed = (set(H04_DOMAIN_FILES) | {"__init__.py", "world_mutation.py", "definition_compiler.py"}
+               | set(H05_FILES) | {"world_lifecycle.py"})
     hits = []
     for p in _files():
         base = os.path.basename(p)
@@ -76,7 +78,8 @@ def test_no_production_producer_of_h04_operations_or_progression():
     names = {"project_world_progression", "build_dependency_index", "project_npc", "build_supersede_ops",
              "reevaluate_series", "build_series_init_ops", "initial_template_wakeups", "start_movement_step"}
     from tests.characterize.h05_scope import H05_FILES
-    domain = set(H04_DOMAIN_FILES) | {"__init__.py", "world_mutation.py", "definition_compiler.py"} | set(H05_FILES)
+    domain = (set(H04_DOMAIN_FILES) | {"__init__.py", "world_mutation.py", "definition_compiler.py"}
+              | set(H05_FILES) | {"world_lifecycle.py"})                # H06: INITIALIZATION producer
     hits = []
     for p in _files():
         if p.startswith(os.path.join(REPO_ROOT, "core")) and os.path.basename(p) in domain:

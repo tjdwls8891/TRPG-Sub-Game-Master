@@ -117,7 +117,7 @@ def remaining_ttl(session) -> int:
     return max(MIN_TTL_SECONDS, total)
 
 
-def update_session_cache_state(session: TRPGSession):
+def update_session_cache_state(session: TRPGSession, frozen=None):
     """
     캐시 재발급(또는 신규 발급) 완료 직후 호출하여 세션 캐시 연동 상태를 동기화한다.
 
@@ -128,6 +128,19 @@ def update_session_cache_state(session: TRPGSession):
        → `cached_compressed_memory`에 누적 후 `compressed_memory` 초기화.
        → 이후 프롬프트 `add_memory_block`에는 캐시 재발급 이후 새로 생긴 기억만 주입된다.
     """
+    if frozen is not None:
+        # H06-C: 캐시 본문은 고정 원천(FrozenCacheBuildSource)으로 만들었다 — 기준선도 그 원천에서 잡는다.
+        #   생성 중에 새로 쌓인 압축 기억·NPC 변화는 캐시에 없으므로 런타임 쪽에 그대로 남긴다.
+        session.cached_session_npcs = copy.deepcopy(frozen.session_npc_base)
+        old, new = frozen.cached_compressed_memory, frozen.compressed_memory
+        session.cached_compressed_memory = (old + "\n" + new) if (old and new) else (old or new)
+        live = session.compressed_memory or ""
+        session.compressed_memory = live[len(new):].lstrip("\n") if (new and live.startswith(new)) else \
+            ("" if live == new else live)
+        session.cached_worldview_sections = get_home_section_ids(frozen.view)
+        session.cache_history_marker = copy.deepcopy(frozen.history_marker)
+        session.cache_history_stale = False
+        return
     default_npcs = session.scenario_data.get("default_npcs", {})
     session.cached_session_npcs = {
         name: {
@@ -494,6 +507,17 @@ async def restore_sessions_from_disk(bot):
                         restored_raw_logs.append(entry)
                 session.raw_logs = restored_raw_logs
 
+                # ── H06: 동적 세계가 바인딩된 세션은 현재 원본 파일이 아니라 정의 스냅샷 원문으로 진행한다 ──
+                #    (원본 drift가 진행 중 세션의 의미·캐시·프롬프트를 바꾸지 못한다). 스냅샷을 읽지 못하면
+                #    그대로 두고 세계 모드가 BLOCKED로 턴을 막는다(조용한 재컴파일·대체 없음).
+                try:
+                    from . import cache_source as _src
+                    from . import world_lifecycle as _wlc
+                    if _wlc.world_bound(session) and getattr(session, "definition_revision", None):
+                        session.scenario_data = _src.bound_scenario_data(session)
+                except Exception as _se:
+                    print(f"⛔ {session_id}: 바인딩 정의 스냅샷을 읽지 못했습니다 — 동적 세계 턴 차단: {_se}")
+
                 # ── WP-D: 커밋 복구 — 게임 진입(active_sessions 등록)·캐시 재발급 저장 전에
                 #    CommitJournal/Settlement/계정 사실과 data.json 커밋 표식을 대조해 처분한다.
                 #    구 런타임 tx/준비 객체는 없다(재시작) — durable 사실만 쓴다.
@@ -520,6 +544,12 @@ async def restore_sessions_from_disk(bot):
                         _d = await _th.drain_cleanup(bot, session)
                         if _d["done"] or _d["pending"]:
                             print(f"🧹 {session_id}: 출력 정리 부채 완료 {_d['done']} · 보류 {_d['pending']}")
+                    # H06: 동적 세계 정본 변이 저널(INITIALIZATION/ADMIN_EDIT) 종결 + 바인딩 정의 검증.
+                    #   커밋 복구(PLAYER_TURN) 뒤 — 경쟁 복구 owner 없음. 정본·시계는 바꾸지 않는다.
+                    from . import world_lifecycle as _wl
+                    _w = _wl.restore(session)
+                    if _w["journal"] or _w["definition"] not in ("OK", "UNBOUND"):
+                        print(f"🌍 {session_id}: 동적 세계 복구 {_w}")
                     # WP-F: 재시작으로 끊긴 대기 안내(주인 없는 transient)·만료분 정리.
                     #   채널 미준비면 등록부에 남고 다음 입력 admission 에서 재시도된다.
                     from . import message_lifecycle as _ml

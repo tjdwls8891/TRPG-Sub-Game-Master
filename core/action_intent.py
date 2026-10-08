@@ -243,6 +243,24 @@ class ResolvedActionIntent:
         return not (self.movement and self.movement.kind == MOVE_DESTINATION) and self.time_advance is None \
             and self.stance is None
 
+    @classmethod
+    def from_semantic(cls, record: dict, *, definition_revision: str | None) -> "ResolvedActionIntent":
+        """H06-E: 이력의 의미 기록 → 의도(재서술 전용). transient 후보 키·매니페스트 없이 같은 선택을 재현한다.
+
+        경로 선택(구간 서명)·접근 확인 토큰을 그대로 보존한다 — 재서술은 경로·접근을 다시 묻지 않는다.
+        """
+        r = record if isinstance(record, dict) else {}
+        mv = r.get("movement")
+        ta = r.get("time_advance")
+        st = r.get("stance")
+        return cls(
+            movement=MovementIntent(mv["kind"], mv.get("destination_place")) if isinstance(mv, dict) else None,
+            time_advance=TimeAdvanceIntent(**ta) if isinstance(ta, dict) else None,
+            stance=CognitionStanceIntent(st["info_id"], st.get("belief")) if isinstance(st, dict) else None,
+            route_signature=tuple(r["route_signature"]) if r.get("route_signature") else None,
+            access_action_ids=tuple(r.get("access_action_ids") or ()),
+            definition_revision=definition_revision)
+
     def semantic_record(self) -> dict:
         """영속 가능한 의미 기록(transient 키 없음) — H06 재서술이 재사용한다."""
         return {"movement": None if self.movement is None else

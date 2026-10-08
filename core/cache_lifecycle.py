@@ -409,15 +409,30 @@ def _adopt_legacy_locked(session) -> JournalView:
 # ══════════════════════════════════════════════════════════════
 
 async def _build_text(bot, session, cache_note: str, log_session_id: bool):
+    """H06-C: 짧은 임계 구역에서 FrozenCacheBuildSource를 캡처하고, 락 밖에서 그 사본으로 룰북을 조립한다.
+
+    반환: (caching_text, tokens, base_text, frozen). 조립·토큰 계산 중 세션이 바뀌어도 원천은 고정이다.
+    """
+    from . import cache_source as _src
     from .cache import build_scenario_cache_text
-    return await build_scenario_cache_text(
-        bot, DEFAULT_MODEL, session.scenario_data, cache_note or "",
-        session.session_id if log_session_id else None, session=session)
+    frozen = await _src.capture_locked(bot, session)
+    caching_text, tokens, base_text = await build_scenario_cache_text(
+        bot, DEFAULT_MODEL, frozen.scenario_data, cache_note or "",
+        session.session_id if log_session_id else None, session=frozen.view)
+    return caching_text, tokens, base_text, frozen
+
+
+class CacheGenerationStale(CacheLifecycleError):
+    """생성 중 정의 revision이 바뀌었다 — 새 세대를 활성화하지 않고 정리했다(H06-C)."""
 
 
 async def _create_locked(bot, session, *, window_id, purpose, ttl_seconds,
-                         caching_text, cache_tokens, base_text) -> dict:
-    """provider 캐시를 만들고, **성공한 뒤에만** 생성 사실을 기록한다(AUD-035)."""
+                         caching_text, cache_tokens, base_text, frozen=None) -> dict:
+    """provider 캐시를 만들고, **성공한 뒤에만** 생성 사실을 기록한다(AUD-035).
+
+    H06-C: 생성 사실에 세대 메타(definition_revision·base_world_version_id·history_marker)를 함께 남긴다.
+    생성 중 세션 정의 revision이 원천과 달라졌으면 활성화하지 않고 단일 finalizer로 정리한다.
+    """
     from .cache import update_session_cache_state
     from .cost import accrue, cache_create_cost_usd
     from .io import write_cost_log
@@ -434,6 +449,8 @@ async def _create_locked(bot, session, *, window_id, purpose, ttl_seconds,
           "purpose": purpose, "model": DEFAULT_MODEL, "tokens": tokens,
           "token_source": token_source, "created_at": created_at,
           "ttl_seconds": int(ttl_seconds), "expire_at": created_at + int(ttl_seconds)}
+    if frozen is not None:
+        ev["generation"] = frozen.meta()
     try:
         _append(sid, ev)
     except CacheLifecycleError:
@@ -443,13 +460,21 @@ async def _create_locked(bot, session, *, window_id, purpose, ttl_seconds,
             from .io import write_log
             write_log(sid, "error", f"[캐시 생애주기] 기록 실패 + 보상 삭제 실패 — 고아 캐시 {cache.name}")
         raise
+    if frozen is not None and frozen.definition_revision != getattr(session, "definition_revision", None):
+        # 정의 migration이 생성 중에 끼었다 — 옛 정의 세대를 활성 캐시로 쓰지 않는다(정리·비용 사실은 기존 규칙)
+        prev = (session.cache_name, session.cache_obj, session.cache_model, session.cache_tokens)
+        session.cache_name = cache.name
+        await _finalize_lifecycle_locked(bot, session, reason="DEFINITION_CHANGED")
+        session.cache_name, session.cache_obj, session.cache_model, session.cache_tokens = prev
+        raise CacheGenerationStale(f"{cache.name}: 원천 revision {frozen.definition_revision} ≠ 현재 "
+                                   f"{getattr(session, 'definition_revision', None)}")
     session.cache_obj = cache
     session.cache_name = cache.name
     session.cache_model = DEFAULT_MODEL
     session.cache_tokens = tokens
     session.cache_text = base_text
     session.cache_expired_notified = False
-    update_session_cache_state(session)        # WP-E(E-E3) 출처 스탬프 포함
+    update_session_cache_state(session, frozen=frozen)   # WP-E(E-E3) 출처 스탬프 — H06: 고정 원천 기준
     usd = cache_create_cost_usd(DEFAULT_MODEL, tokens=tokens)
     krw = usd * EXCHANGE_RATE
     accrue(session, krw, usd)                  # 레거시 호환 누적 — 실제 생성분만
@@ -698,7 +723,7 @@ async def open_window(bot, session, *, say=None, quoted_tokens: int | None = Non
                                         reason="superseded_by_open")
         minutes = int(getattr(session, "open_minutes", 0) or 0)
         ttl = minutes * 60 if minutes else CACHE_TTL_SECONDS
-        caching_text, tokens, base_text = await _build_text(bot, session, "", False)
+        caching_text, tokens, base_text, frozen = await _build_text(bot, session, "", False)
         est_tokens = int(quoted_tokens or 0) or int(tokens or 0)
         # 선불 예상 — 종료 책임과 같은 canonical 공식(계획 TTL). CostEvent 아님.
         est_usd = cache_window_estimate_usd(DEFAULT_MODEL, tokens=est_tokens,
@@ -724,7 +749,7 @@ async def open_window(bot, session, *, say=None, quoted_tokens: int | None = Non
         try:
             res = await _create_locked(bot, session, window_id=wid, purpose=PURPOSE_OPEN,
                                        ttl_seconds=ttl, caching_text=caching_text,
-                                       cache_tokens=tokens, base_text=base_text)
+                                       cache_tokens=tokens, base_text=base_text, frozen=frozen)
         except Exception as e:
             _append(sid, {"type": "WINDOW_ABORTED", "window_id": wid,
                           "reason": f"create_failed:{type(e).__name__}"})
@@ -760,12 +785,12 @@ async def reissue(bot, session, *, purpose, cache_note: str = "",
             if not getattr(session, "cache_created_at", 0.0):
                 session.cache_created_at = time.time()
         try:
-            caching_text, tokens, base_text = await _build_text(bot, session, cache_note,
-                                                                log_session_id)
+            caching_text, tokens, base_text, frozen = await _build_text(bot, session, cache_note,
+                                                                        log_session_id)
             res = await _create_locked(bot, session, window_id=wid, purpose=purpose,
                                        ttl_seconds=remaining_ttl(session),
                                        caching_text=caching_text, cache_tokens=tokens,
-                                       base_text=base_text)
+                                       base_text=base_text, frozen=frozen)
         except Exception:
             await _settle_window_locked(session, wid, disposition=WINDOW_SETTLE_REFUND,
                                         reason=REASON_REISSUE_FAILED)
@@ -864,10 +889,10 @@ async def restore(bot, session) -> dict:
         if not getattr(session, "cache_created_at", 0.0):
             session.cache_created_at = float(opened.get("opened_at") or time.time())
         try:
-            caching_text, tokens, base_text = await _build_text(bot, session, "", False)
+            caching_text, tokens, base_text, frozen = await _build_text(bot, session, "", False)
             await _create_locked(bot, session, window_id=wid, purpose=PURPOSE_RECOVERY,
                                  ttl_seconds=remaining_ttl(session), caching_text=caching_text,
-                                 cache_tokens=tokens, base_text=base_text)
+                                 cache_tokens=tokens, base_text=base_text, frozen=frozen)
         except Exception as e:  # noqa: BLE001
             print(f"⚠️ {sid}: 복구 캐시 생성 실패 — 창 정산: {e}")
             await _settle_window_locked(session, wid, disposition=WINDOW_SETTLE_REFUND,

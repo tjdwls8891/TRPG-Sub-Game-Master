@@ -75,7 +75,8 @@ REVERSIBLE_FIELDS = (
 ) + tuple(_world_state.GAMEPLAY_WORLD_FIELDS)
 # H02: 동적 세계 게임 정본은 가역. definition_revision·narrative_seed는 가역이 아니다(세션 정체성).
 WORLD_REVERSIBLE_FIELDS = tuple(_world_state.GAMEPLAY_WORLD_FIELDS)
-NON_REVERSIBLE_IDENTITY_FIELDS = tuple(_world_state.IDENTITY_FIELDS)
+NON_REVERSIBLE_IDENTITY_FIELDS = tuple(_world_state.IDENTITY_FIELDS) + tuple(_world_state.LIFECYCLE_FIELDS)
+# H06: 생애주기(world_lifecycle·world_initialization)·정의 바인딩·narrative_seed는 되감기로 바뀌지 않는다.
 assert not set(REVERSIBLE_FIELDS) & set(NON_REVERSIBLE_IDENTITY_FIELDS)
 CACHE_DERIVED_FIELDS = ("cached_compressed_memory", "cached_session_npcs",
                         "cached_worldview_sections")

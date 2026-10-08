@@ -8,7 +8,10 @@
 #   (인지 기록 없음 = 미인지, 사건 없음)는 known=True 와 명시 값으로 돌려준다.
 #
 #   파라미터의 슬롯 참조: "$slot:<name>"(사건 binding) · "$self"(현재 사건 인스턴스).
-#   holder: "actor:<ActorId>" · "group:<GroupId>" · "$slot:<name>"(ACTOR 슬롯 → actor:<id>).
+#   holder: "actor:<ActorId>" · "group:<GroupId>" · "$slot:<name>"(ACTOR 슬롯 → actor:<id>)
+#           · "$session_pc"(H06 — COGNITION_AWARENESS 전용). 정본 actor_registry의 PC가 정확히 하나일 때만
+#             그 ActorId로 해석하고, 아니면 UNKNOWN(이름 검색 대체 없음). PC 믿음(COGNITION_BELIEF)은 사건
+#             조건이 될 수 없다(사용자 결정 2026-10-08 — 컴파일 오류).
 #
 # [의존 키]
 #   정규 문자열. "actor:<id>:placement" · "access:<cid>:state" · "info:<id>:validity" ·
@@ -47,6 +50,15 @@ _PARAMS = {
 }
 SLOT_PREFIX = "$slot:"
 SELF = "$self"
+SESSION_PC = "$session_pc"
+
+
+def session_pc_actor(world):
+    """정본 actor_registry에서 단일 세션 PC ActorId. PC가 0명·여러 명이면 None(모호성 해석 금지)."""
+    reg = (world.domain("actor_registry") if isinstance(world, _wm.ProjectedWorld)
+           else getattr(world, "actor_registry", None)) or {}
+    pcs = sorted(a for a, e in reg.items() if isinstance(e, dict) and e.get("kind") == "PC")
+    return pcs[0] if len(pcs) == 1 else None
 
 
 @dataclass(frozen=True)
@@ -109,6 +121,9 @@ def _subst(v, ctx: EvalContext):
 
 
 def _holder(v, ctx):
+    if v == SESSION_PC:
+        pc = session_pc_actor(ctx.world)
+        return f"actor:{pc}" if pc else UNSET
     if isinstance(v, str) and v.startswith(SLOT_PREFIX):
         b = _subst(v, ctx)
         return UNSET if b is UNSET else f"actor:{b}"
@@ -269,6 +284,8 @@ def _key_param(ref, name):
         return SELF
     if name == "holder" and isinstance(v, str) and v.startswith(SLOT_PREFIX):
         return "actor:" + v
+    if name == "holder" and v == SESSION_PC:
+        return "actor:" + SESSION_PC                 # 패턴 — 의존 색인이 정본 단일 PC로 구체화
     return v
 
 
@@ -297,9 +314,13 @@ def dependency_keys(ref: dict) -> list:
     return []                                       # CLOCK_MINUTE·OBSERVER_ACTIVITY
 
 
-def materialize_key(key: str, bindings: dict, self_instance: str | None = None):
-    """패턴 키의 슬롯·$self를 구체 값으로. 묶이지 않으면 None."""
+def materialize_key(key: str, bindings: dict, self_instance: str | None = None, *, session_pc=None):
+    """패턴 키의 슬롯·$self·$session_pc를 구체 값으로. 묶이지 않으면 None."""
     out = key
+    if SESSION_PC in out:
+        if not session_pc:
+            return None
+        out = out.replace(SESSION_PC, session_pc)
     if SELF in out:
         if not self_instance:
             return None
@@ -391,7 +412,10 @@ def validate_ref(ref, scope: RefScope, path: str) -> list:
         elif k == "mode":
             _check_id("mode_id", v, scope.modes, scope, None, errs, p)
         elif k == "holder":
-            if isinstance(v, str) and v.startswith(SLOT_PREFIX):
+            if v == SESSION_PC:
+                if t != "COGNITION_AWARENESS":
+                    errs.append((p, "$session_pc는 COGNITION_AWARENESS에만 씁니다 — PC 믿음은 사건 조건이 될 수 없습니다"))
+            elif isinstance(v, str) and v.startswith(SLOT_PREFIX):
                 _check_id("holder", v, None, scope, "ACTOR", errs, p)
             elif not (isinstance(v, str) and (v.startswith("actor:") or v.startswith("group:"))
                       and len(v.split(":", 1)[1]) > 0):

@@ -8,7 +8,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 AI가 4개 층위로 나뉘어 판단·지시·묘사·추출을 분담한다. 플레이어는 서버 GM 스페이스에서 버튼으로 세션을 열고, 캐릭터를 만들고, 턴을 진행한다. **명령어는 GM의 수동 개입·복구 수단이며 일반 플레이에는 쓰지 않는다.**
 
-현재 버전: **v7.3.0** · `SCHEMA_VERSION` 4 · 총 운영 코드 ~42,770줄(main·prompts·cogs·core) · 테스트 ~18,040줄
+현재 버전: **v7.4.0** · `SCHEMA_VERSION` 4 · 총 운영 코드 ~42,770줄(main·prompts·cogs·core) · 테스트 ~18,040줄
 
 리팩터링: **7-WP 프로그램(WP-A~WP-G)** — 턴 트랜잭션·커밋·재무·이력·파생 시스템을 단일 권위로 재구성했다. WP-A~G 전부 독립 게이트 VERIFIED — **프로그램 완료**(WP-G 최종 후보 `f0fd69e`, 증거 `handoff/WP_G_COMPLETION_BUNDLE.md`). 다음 WP는 없다. 버전은 이 비호환 전환 전체를 **단일 MAJOR v6.0.0**으로 채택했다(2026-10-06, 이력 보정은 DEVLOG '버전 기록').
 
@@ -21,7 +21,7 @@ AI가 4개 층위로 나뉘어 판단·지시·묘사·추출을 분담한다. �
 | H03 | 정량 시간·예약 + 공간·이동·접근·공간인지 | **완료** — 서비스·typed 연산 등록, 플레이어 경로 미배선, `handoff/H03_COMPLETION_BUNDLE.md` |
 | H04 | Actor·정보·인지·NPC 투영 + 사건·DependencyIndex·WorldProgression | **완료**(VERIFIED `1906f1b`, R2·R3 보정 포함) — 순수 엔진·typed 연산, `handoff/H04_COMPLETION_BUNDLE.md` + `handoff/H04_R2_CORRECTION_BUNDLE.md` |
 | H05 | 구조화 행동 의도·턴 계획 + 프롬프트·추출·후속묘사·미디어 | **완료 제출(검수 대기, R2·R3 보정 포함)** — 자동 턴 배선(DYNAMIC 세션만, 현 운영 세션은 LEGACY), `handoff/H05_COMPLETION_BUNDLE.md` |
-| H06 | 초기화·캐시·관리자·복구·재서술·세션 종료 | 예정 |
+| H06 | 초기화·캐시·관리자·복구·재서술·세션 종료 | **완료 제출(검수 대기)** — 단일 PC DYNAMIC 생애주기 배선, `handoff/H06_COMPLETION_BUNDLE.md` |
 | H07 | 영도 실제 이행·legacy 권위 은퇴·production cutover·최종 게이트 | 예정 |
 
 H01 완료 번들은 통합 전 번호(H01~H11)를 쓴다 — 구 H02+H03→H02, H04+H05→H03, H06+H07→H04, H08+H09→H05, H10→H06, H11→H07로 읽는다.
@@ -125,7 +125,7 @@ python main.py
 | `permissions.py` | 98 | `!권한부여` `!권한회수` `!권한목록` |
 | `presence.py` | 122 | 상태 메시지 순환 + **캐시 만료 감지**(15초 주기) |
 
-### core/ — 80개 서브모듈
+### core/ — 83개 서브모듈
 
 `core/__init__.py`가 전 심볼을 re-export하므로 외부에서는 `core.XYZ`로 접근한다.
 
@@ -152,7 +152,7 @@ python main.py
 |---|---|---|
 | `constants.py` | 143 | 모델 ID, `EXCHANGE_RATE`, `PRICING_1M`, `TTS_VOICES`, `__version__` |
 | `models.py` | 293 | `TRPGSession` — 단일 세션의 모든 상태 |
-| `io.py` | 528 | `SCHEMA_VERSION`, `SESSION_FIELDS`(95), `migrate_session_data`, 직렬화·로그 |
+| `io.py` | 528 | `SCHEMA_VERSION`, `SESSION_FIELDS`(97), `migrate_session_data`, 직렬화·로그 |
 | `cache.py` | 561 | 룰북 캐시 빌드, `remaining_ttl`, `is_cache_expired`, `is_session_open`, 세션 복구 |
 | `resilience.py` | 207 | `call_with_retry` — 재시도·타임아웃·오류 로그 분리 |
 
@@ -266,6 +266,16 @@ H04는 세계가 스스로 진행되는 데 필요한 정본과 **순수 투영*
 자동 턴 순서(DYNAMIC): 판단(매니페스트·`action_intent`) → 코드 계획(경로 ASK는 지시층위 전) → 지시·묘사(오버레이·투영 장소 블록·투영 장면 이미지) → 추출(`world_observation`) → 보충 진행 → (필요 시 후속 묘사 1회, 같은 턴 비용) → READY(`stage_world_ops`) → CommitCoordinator → 후속 묘사 송출(시도 소유) → 다음 행동 질문. 장소·시간 권위는 정본 세계이며 추출의 장소·날짜는 적용되지 않는다. 묘사 전 결정적 충돌은 묘사 호출 없이, 묘사 후 충돌·모호한 선후는 재시도 없이 FAILED_SYSTEM(청구 0). LEGACY 세션은 기존 경로와 동일하다. 정의 바인딩·초기 seed(H06) 전에는 운영 세션이 DYNAMIC이 될 수 없다.
 
 READY와 `canonical_mutation`은 투영 결과의 **base quiescence**를 증명한다 — 초기화된 시계에 `due ≤ now` pending 예약이 남거나, 미초기화 시계에 예약이 있으면 `WORLD_PROJECTION_CONFLICT`(코드 `NOT_QUIESCENT`, 재시도 아님). 레거시 빈 시계·빈 예약은 quiescent다. H03 연산의 production producer는 0이며 legacy `places.py` 이동·`world_timeline` 시간은 그대로 권위다(H05·H07에서 전환).
+
+#### 동적 세계 생애주기 (H06 — 단일 PC DYNAMIC만)
+
+| 모듈 | 내용 |
+|---|---|
+| `world_lifecycle.py` | 유일한 생애주기 owner — 정의 스냅샷 바인딩(`definition_revision` 단일 writer)·시작 틀 저작 `world_start` → InitialWorldPlan → `CanonicalMutationCoordinator(INITIALIZATION)` genesis(멱등)·생애주기 `world_lifecycle`(INITIALIZED/OPEN/CLOSED)·재시작 검증(`restore`)·종료 안전 지점(`close_blocked_reason`·`close_session`) |
+| `cache_source.py` | `FrozenCacheBuildSource` — 짧은 io 락 캡처(바인딩 스냅샷 원문·기준 world_version·이력 표식), 락 밖 조립·생성. 생성 중 revision 변경 세대는 비활성 |
+| `admin_world_edit.py` | typed ADMIN_EDIT 서비스(활성 턴·이력 조작·stale 거부, no-op은 version 없음, 턴 수·청구 불변) — 운영자 명령 없음 |
+
+DYNAMIC = 단일 PC + 스냅샷 바인딩 + 필수 capability + 생애주기 OPEN + 시계 + PC 배치. 초기화된 세션에서 정의를 읽을 수 없거나 PC가 늘면 BLOCKED(턴 거부). 바인딩 세션은 재시작 때 `scenario_data`를 스냅샷 원문으로 되돌린다(원본 drift 무시). 사건 조건 holder `$session_pc`는 COGNITION_AWARENESS 전용(PC 믿음 조건은 컴파일 오류). 재서술은 그 턴의 revision이 현재 바인딩과 같을 때만, 보존된 의미 선택으로 세계 계획을 다시 세운다.
 
 #### 기억
 
@@ -504,7 +514,7 @@ pip install -r requirements-dev.txt
 python3 -m pytest tests/ -q
 ```
 
-`tests/`는 **현재 동작과 권위 불변식을 고정**한다. 현재 994건(특성화 56 · 결함 27 · 정책 911)이 모두 통과하며 strict xfail은 0건이다.
+`tests/`는 **현재 동작과 권위 불변식을 고정**한다. 현재 1,046건(특성화 60 · 결함 27 · 정책 959)이 모두 통과하며 strict xfail은 0건이다.
 
 | 분류 | 의미 |
 |---|---|
@@ -520,7 +530,7 @@ python3 -m pytest tests/ -q
 라이브 디스코드·Gemini·네트워크·자격증명을 쓰지 않는다.
 `tests/conftest.py`의 autouse 픽스처가 자격증명을 지우고 SDK 생성을 막는다.
 
-인도 번들: `handoff/WP00_*` ~ `handoff/WP_G_*` (WP-G: 완료 번들·사후 스캔·AUD-001~063 최종 매트릭스·시나리오 매트릭스·제어 동기화 제안) · `handoff/H01_*`~`handoff/H05_*`(동적 세계 H01~H05)
+인도 번들: `handoff/WP00_*` ~ `handoff/WP_G_*` (WP-G: 완료 번들·사후 스캔·AUD-001~063 최종 매트릭스·시나리오 매트릭스·제어 동기화 제안) · `handoff/H01_*`~`handoff/H06_*`(동적 세계 H01~H06)
 
 ---
 
@@ -726,6 +736,7 @@ python3 tools/scenario_check.py --all     # 전 시나리오 컴파일·진단(E
 | 영도 정량 공간 저작 | 구간 거리·접근·공간 지식 seed 미저작(비대칭 connected 71·거리 없는 연결 234·가려진 별칭 2). 자동 생성 금지 — H07 사람 저작 이행 |
 | 운영 반영 | v6.0.0이 main에 반영됨. 배포 전 운영 `sessions/`·`accounts/` 백업, 배포 후 `!캐시 재발급`(프롬프트 D1·무협 `location_images` 변경) |
 | 자동 턴 TTS | 더빙은 인트로에만 적용된다(자동 턴 미적용은 기존 동작). 확장은 별도 기능 |
-| H05 운영 활성 | 새 턴 경로는 DYNAMIC 세션에서만 동작 — 정의 스냅샷 바인딩·초기 행위자/시계 seed(H06) 전에는 운영 세션 전부 LEGACY. 동적 세계 재서술·되감기 이행도 H06 |
+| H06 운영 활성 | DYNAMIC은 시작 틀에 `world_start`가 저작된 단일 PC 세션에서만 켜진다 — 현 5개 시나리오에는 미저작이라 운영 세션은 전부 LEGACY. 영도 저작 이행은 H07 |
+| H06 배포 | 새 영속 필드 `world_lifecycle`·`world_initialization`(기본값 = 레거시). 스키마·이력·CommitPlan·compiler 유지. DYNAMIC 대상 세션은 캐시 업로드가 시작 선택 뒤로 이동 |
 | H05 프롬프트 | `prompts.py` 무변경 — 판단·추출 스키마 확장과 지시는 런타임 사용자 프롬프트 블록. 시스템 지시문에 `action_intent`·`world_observation` 설명을 넣는 것은 승인 후 제안 사항 |
 | H05 calibration | 경로 자동 선택(10분 미만·비용비 5/4)·추가 시간 상한(240분)·PC capability = 보유 소지품 이름 — 영도 정량 저작 후 조정 |

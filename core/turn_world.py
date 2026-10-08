@@ -559,3 +559,35 @@ def image_for_scene(definition: dict, plan) -> str | None:
         if pid in allowed and (places.get(pid) or {}).get("image"):
             return places[pid]["image"]
     return None
+
+
+# ══════════════════════════════════════════════════════════════
+#  재서술(같은 턴 재생성) — 보존된 의미 선택으로 세계 계획 재계산 (H06-E)
+# ══════════════════════════════════════════════════════════════
+
+def rerender_world_intent(session, judgment_record, post_world_version=None):
+    """(intent | None, reason | None) — 재서술 대상 턴의 세계 의도.
+
+    · DYNAMIC 세션: 이력의 의미 기록(action_intent.semantic)과 그 턴의 definition_revision이 있어야 하고,
+      revision이 현재 바인딩과 같아야 한다(다른 정의로 옛 선언을 재해석하지 않는다 — 불일치는 거부).
+    · LEGACY 세션의 레거시 턴: (None, None) — 기존 재서술 그대로.
+    · 판단층위는 다시 부르지 않는다. 경로·접근 선택은 의미 기록 그대로(재질문 없음).
+    """
+    from . import action_intent as _ai
+    ctx = _pw.session_world_context(session)
+    j = (judgment_record or {}).get("judgment") if isinstance(judgment_record, dict) else None
+    ai = (j or {}).get(_ai.INTENT_FIELD) if isinstance(j, dict) else None
+    if ctx.mode == _pw.MODE_BLOCKED:
+        return None, f"동적 세계 정의를 읽을 수 없습니다({ctx.reason})"
+    if not ctx.dynamic:
+        if isinstance(ai, dict):
+            return None, f"동적 세계 턴이지만 세션이 DYNAMIC이 아닙니다({ctx.reason})"
+        return None, None
+    if not isinstance(ai, dict) or not isinstance(ai.get("semantic"), dict):
+        return None, "이 턴에는 보존된 세계 의미 기록이 없어 재서술할 수 없습니다(재해석하지 않음)"
+    if ai.get("definition_revision") != ctx.definition_revision:
+        return None, "이 턴의 정의 revision이 현재 세션 바인딩과 다릅니다 — 재서술 거부"
+    if post_world_version is not None and post_world_version != getattr(session, "world_version", None):
+        # 턴 커밋 뒤 관리자 세계 편집(ADMIN_EDIT)이 있었다 — 재서술이 편집을 조용히 지우지 않게 한다
+        return None, "이 턴 이후 세계 편집이 있어 재서술할 수 없습니다(되감기를 사용하십시오)"
+    return _ai.ResolvedActionIntent.from_semantic(ai["semantic"], definition_revision=ctx.definition_revision), None

@@ -3,6 +3,8 @@
 
 의도적으로 바뀌는 특성화 테스트다. 세션 바인딩·재시작 권위 전환(통합 로드맵 H06)과
 새 엔진 cutover WP가 호출자를 추가할 때 이 테스트를 함께 갱신한다.
+H06 갱신: 정의 컴파일·스냅샷 쓰기·바인딩 owner = core.world_lifecycle 하나. 읽기 소비자(player_world·
+cache_source)는 스냅샷만 읽는다(재컴파일 대체 없음).
 
 고정하는 것
   · production 코드가 정의 컴파일러·스냅샷을 부르지 않는다(H02 이후에도 0)
@@ -44,8 +46,11 @@ from tests.characterize.h04_scope import H04_DOMAIN_MODULES  # noqa: E402
 WORLD_IDS_REUSERS = {os.path.join("core", f"{m}.py")
                      for m in ("world_state", "world_mutation", "canonical_mutation") + H04_DOMAIN_MODULES
                      + ("player_world", "turn_world")}
-# H05: 바인딩된 정의의 읽기 전용 소비자(쓰기·바인딩 없음 — 아래 writer 0 테스트가 계속 고정)
-DEFINITION_READERS = {os.path.join("core", "player_world.py")}
+# H05: 바인딩된 정의의 읽기 전용 소비자(쓰기·바인딩 없음 — 아래 writer 테스트가 계속 고정)
+# H06: 생애주기 owner(world_lifecycle — 컴파일·스냅샷 쓰기·바인딩)와 캐시 원천(cache_source — 스냅샷 읽기)
+DEFINITION_READERS = {os.path.join("core", "player_world.py"), os.path.join("core", "cache_source.py")}
+DEFINITION_BINDER = os.path.join("core", "world_lifecycle.py")
+WORLD_IDS_REUSERS = WORLD_IDS_REUSERS | {DEFINITION_BINDER}
 
 
 def test_no_production_caller_of_h01_modules():
@@ -58,8 +63,10 @@ def test_no_production_caller_of_h01_modules():
         for m in H01_MODULES:
             if m == "world_ids" and rel in WORLD_IDS_REUSERS:
                 continue
-            if m in ("definition_compiler", "definition_snapshot") and rel in DEFINITION_READERS:
+            if rel == DEFINITION_BINDER and m in ("definition_compiler", "definition_snapshot"):
                 continue
+            if rel in DEFINITION_READERS and m == "definition_snapshot":
+                continue                    # 읽기 소비자는 스냅샷만(컴파일러 재컴파일 대체 없음 — 아래로 걸린다)
             if m in src:
                 hits.append((rel, m))
     assert hits == [], hits
@@ -94,8 +101,8 @@ def test_compiler_does_no_file_writes():
             assert all(set(str(md)) <= {"r", "b"} for md in modes), modes
 
 
-def test_definition_revision_field_exists_but_is_not_bound():
-    """H02가 필드를 만들었으나 바인딩(H06)은 없다 — 기본 None, production writer 0."""
+def test_definition_revision_single_writer_is_lifecycle_binder():
+    """H06: 기본 None. production writer는 world_lifecycle(bind_definition) 하나 — 복원 레지스트리 외 직접 쓰기 없음."""
     assert core.SESSION_FIELDS["definition_revision"] is None
     assert core.TRPGSession("s", 1, 2, "x", {}).definition_revision is None
     assert "definition_snapshot" not in core.SESSION_FIELDS
@@ -111,7 +118,15 @@ def test_definition_revision_field_exists_but_is_not_bound():
                     if (isinstance(t, ast.Attribute) and t.attr == "definition_revision"
                             and not (isinstance(t.value, ast.Name) and t.value.id == "self")):
                         writers.append(rel)
-    assert writers == [], writers
+    assert sorted(set(writers)) == [DEFINITION_BINDER], writers
+    # 스냅샷 쓰기 API는 생애주기 owner만 부른다
+    for path in _production_files():
+        rel = os.path.relpath(path, REPO_ROOT)
+        if rel in (DEFINITION_BINDER, os.path.join("core", "definition_snapshot.py")):
+            continue
+        called = {getattr(n.func, "attr", None) for n in ast.walk(ast.parse(open(path, encoding="utf-8").read()))
+                  if isinstance(n, ast.Call)}
+        assert "write_snapshot" not in called, rel
 
 
 def test_h05_definition_reader_is_read_only_and_gated_on_binding():
@@ -119,4 +134,5 @@ def test_h05_definition_reader_is_read_only_and_gated_on_binding():
     tree = ast.parse(source_of("core/player_world.py"))
     called = {getattr(n.func, "attr", None) for n in ast.walk(tree) if isinstance(n, ast.Call)}
     assert not called & {"write_snapshot", "build_envelope", "_write_json_durable"}
+    assert "compile_scenario" not in called            # H06: 스냅샷만 읽는다(재컴파일 대체 없음)
     assert core.player_world.session_world_context(core.TRPGSession("s", 1, 2, "x", {})).mode == "LEGACY"

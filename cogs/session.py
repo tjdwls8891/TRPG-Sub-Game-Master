@@ -51,6 +51,11 @@ class JoinModal(discord.ui.Modal, title="세션 참가"):
     async def on_submit(self, interaction: discord.Interaction):
         name = str(self.char_name).strip()
         uid = str(interaction.user.id)
+        if core.world_lifecycle.world_bound(self.session) and uid not in (self.session.players or {}):
+            # H06: 동적 세계 세션은 단일 PC — 초기화 뒤 참가자를 늘리지 않는다(다인 동적 의미 없음)
+            await interaction.response.send_message(
+                "⚠️ 이 세션은 1인 동적 세계로 시작되어 참가자를 더 받을 수 없습니다.", ephemeral=True)
+            return
         base_profile = (self.session.scenario_data.get("pc_template") or {}).copy()
 
         self.session.players[uid] = {
@@ -126,6 +131,25 @@ class StartFrameButton(discord.ui.Button):
         if cog:
             await cog.play_intro(session, self.option, interaction.channel)
         view.stop()
+
+
+class DynamicOpenRetryView(discord.ui.View):
+    """H06 — INITIALIZED(캐시 미개방) 동적 세계 세션의 열기 재시도. 같은 초기화 정체성으로 이어 간다."""
+
+    def __init__(self, bot, session):
+        super().__init__(timeout=3600)
+        self.bot = bot
+        self.session = session
+
+    @discord.ui.button(label="세션 다시 열기", style=discord.ButtonStyle.primary)
+    async def retry(self, interaction: discord.Interaction, _b: discord.ui.Button):
+        await interaction.response.defer()
+        if getattr(self.session, "world_lifecycle", None) != core.world_lifecycle.LIFECYCLE_INITIALIZED:
+            return
+        cog = self.bot.get_cog("SessionCog")
+        if cog:
+            await cog.play_intro(self.session, getattr(self.session, "start_frame", None) or {},
+                                 interaction.channel)
 
 
 class SessionCog(commands.Cog):
@@ -508,7 +532,12 @@ class SessionCog(commands.Cog):
 
         기획 규정 — 채널을 정리하고, 브리핑 이후 인트로를 연결해
         한 번에 스트리밍한다. 원경에서 근경으로 좁혀 몰입되게 시작한다.
+
+        H06: DYNAMIC 대상(단일 PC·필수 capability) 세션은 여기서 정의 바인딩 + genesis 초기화 → 캐시 열기를
+        먼저 한다. 캐시 열기가 실패하면 INITIALIZED로 남고 인트로를 하지 않는다(재시도는 같은 초기화 정체성).
         """
+        if not await self.open_dynamic_world(session, chosen, game_channel):
+            return
         # 참가자 선택으로 채널 클리어 (기획 규정)
         try:
             await game_channel.purge(limit=100)
@@ -540,6 +569,8 @@ class SessionCog(commands.Cog):
                 f"{briefing}\n\n{chosen.get('summary', '')}",
                 words_per_tick=15, tick_interval=1.5)
 
+        # H06: 인트로 완료 → 동적 세계 OPEN(이후 자동 턴이 DYNAMIC 경로를 탄다). 레거시 세션은 no-op.
+        core.world_lifecycle.mark_open(session)
         await core.save_session_data(self.bot, session)
         try:
             await core.refresh_display(self.bot, session, reason="intro")
@@ -555,6 +586,44 @@ class SessionCog(commands.Cog):
                 asyncio.create_task(gm_cog._init_narrative_and_start(session))
             else:
                 print("[인트로] GMCog를 찾지 못해 라운드를 시작하지 못했습니다")
+
+    async def open_dynamic_world(self, session, chosen: dict, game_channel) -> bool:
+        """H06 — 시작 선택 직후 동적 세계 초기화 + 캐시 열기. False = 인트로 보류(INITIALIZED 유지).
+
+        대상이 아니면(LEGACY) 세계를 건드리지 않고, 연기했던 캐시 업로드만 기존 의미대로 진행한다.
+        """
+        master_ch = self.bot.get_channel(session.master_ch_id)
+
+        async def _say(text, **kw):
+            try:
+                if game_channel is not None:
+                    return await game_channel.send(text, **kw)
+            except Exception:
+                return None
+            return None
+
+        res = await core.world_lifecycle.initialize_world(self.bot, session, chosen)
+        if res.outcome in (core.world_lifecycle.INIT_LEGACY, core.world_lifecycle.INIT_FAILED):
+            if res.outcome == core.world_lifecycle.INIT_FAILED and master_ch:
+                try:
+                    await master_ch.send(f"⚠️ [동적 세계] 초기화 실패 — 기존(LEGACY) 진행으로 계속합니다. ({res.reason})")
+                except Exception:
+                    pass
+            if not getattr(session, "cache_name", None):
+                await self.upload_cache(session, notify=_say,      # 연기된 캐시(레거시 의미 그대로)
+                                        quoted_tokens=getattr(session, "open_quoted_tokens", None))
+            return True
+        if res.outcome == core.world_lifecycle.INIT_OK:
+            await core.save_session_data(self.bot, session)
+        ok = await self.upload_cache(session, notify=_say,
+                                     quoted_tokens=getattr(session, "open_quoted_tokens", None))
+        if not ok:
+            await core.save_session_data(self.bot, session)
+            await _say("⏸️ 세계는 준비됐지만 세션 캐시를 열지 못해 인트로를 보류합니다. "
+                       "잔액·상태를 확인한 뒤 아래 버튼으로 다시 여십시오.",
+                       view=DynamicOpenRetryView(self.bot, session))
+            return False
+        return True
 
     @commands.command(name="소개")
     async def send_intro(self, ctx):

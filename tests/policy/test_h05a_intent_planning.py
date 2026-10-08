@@ -22,6 +22,8 @@ from core import world_state as WS
 from tests.conftest import PLAYER_UID
 from tests.policy.test_h04b_events_progression import DOOR, K, eq, ev_raw
 
+from tests.policy.world_bind import bind_open  # noqa: E402
+
 pytestmark = pytest.mark.policy
 
 PC = f"pc_{PLAYER_UID}"
@@ -52,7 +54,7 @@ def make_session(raw=None, *, at="항구", edges=ROUTE_A, places=("항구", "시
     s.scenario_data = raw
     res = dc.compile_scenario(raw, s.scenario_id)
     assert res.ok, [(d.code, d.message) for d in res.errors]
-    s.definition_revision = res.revision
+    bind_open(s, res)                         # H06: 스냅샷 바인딩 + OPEN
     s.players = {PLAYER_UID: {"name": "주인공", "profile": {}}}
     s.resources = {"주인공": dict(items or {})}
     s.world_clock = WC.initial_clock(K)
