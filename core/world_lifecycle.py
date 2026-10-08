@@ -61,28 +61,55 @@ def pc_actor_id(uid) -> str:
 
 
 def world_bound(session) -> bool:
-    """동적 세계가 초기화된(또는 열린·닫힌) 세션인가 — 다인 참가·레거시 전환을 막는 근거."""
-    return getattr(session, "world_lifecycle", None) in LIFECYCLES
+    """동적 세계가 초기화된(또는 열린·닫힌) 세션인가 — 다인 참가·레거시 전환을 막는 근거.
+
+    R2: CLOSED는 LEGACY 세션도 갖는다 — genesis 정체성이 있는 세션만 동적 세계 바인딩이다.
+    """
+    rec = getattr(session, "world_initialization", None) or {}
+    return getattr(session, "world_lifecycle", None) in LIFECYCLES and bool(rec.get("genesis_version_id"))
+
+
+def is_closed(session) -> bool:
+    return getattr(session, "world_lifecycle", None) == LIFECYCLE_CLOSED
+
+
+def init_failed(session) -> bool:
+    """DYNAMIC 대상이었으나 초기화가 실패해 재시도를 기다리는 상태(fail-closed — LEGACY 진행 금지)."""
+    rec = getattr(session, "world_initialization", None) or {}
+    return getattr(session, "world_lifecycle", None) is None and rec.get("status") == "FAILED"
 
 
 def compile_candidate(session):
-    """(CompileResult | None, reason). DYNAMIC 후보 = 단일 PC + 컴파일 성공 + 필수 capability 검증."""
-    if world_bound(session):
+    """(정의 dict | None, reason). DYNAMIC 후보 = 단일 PC + 컴파일 성공 + 필수 capability 검증.
+
+    R2: 이전 시도가 이미 durable 정의 스냅샷을 남겼다면 그것을 쓴다 — 현재 원본으로 다시 컴파일해
+    스냅샷을 조용히 교체하지 않는다(스냅샷이 손상이면 후보가 아니라 실패로 남는다).
+    """
+    if world_bound(session) or is_closed(session):
         return None, "already_bound"
     if len(player_uids(session)) != 1:
         return None, "not_single_pc"
-    from . import definition_compiler as _dc
-    try:
-        res = _dc.compile_scenario(getattr(session, "scenario_data", {}) or {},
-                                   getattr(session, "scenario_id", None) or "scenario")
-    except Exception as e:  # noqa: BLE001 — 레거시 시나리오는 컴파일 실패해도 LEGACY로 정상 진행
-        return None, f"compile_error:{type(e).__name__}"
-    if not res.ok:
-        return None, "compile_failed"
-    caps = set((res.definition.get("scenario_meta") or {}).get("validated_capabilities") or ())
+    import os
+    from . import definition_snapshot as _snap
+    if os.path.exists(_snap.snapshot_path(session.session_id)):
+        try:
+            definition = _snap.read_snapshot(session.session_id).definition
+        except _snap.DefinitionSnapshotError as e:
+            return None, f"snapshot_unreadable:{type(e).__name__}"
+    else:
+        from . import definition_compiler as _dc
+        try:
+            res = _dc.compile_scenario(getattr(session, "scenario_data", {}) or {},
+                                       getattr(session, "scenario_id", None) or "scenario")
+        except Exception as e:  # noqa: BLE001 — 레거시 시나리오는 컴파일 실패해도 LEGACY로 정상 진행
+            return None, f"compile_error:{type(e).__name__}"
+        if not res.ok:
+            return None, "compile_failed"
+        definition = res.definition
+    caps = set((definition.get("scenario_meta") or {}).get("validated_capabilities") or ())
     if not set(REQUIRED_CAPABILITIES) <= caps:
         return None, "capability_absent"
-    return res, "ok"
+    return definition, "ok"
 
 
 def is_dynamic_candidate(session) -> bool:
@@ -173,7 +200,17 @@ def build_initial_world_plan(definition: dict, session, choices: StartChoices, *
     name = ((getattr(session, "players", None) or {}).get(uid) or {}).get("name") or "PC"
     prefix = "h06i." + stable_digest("world.initialization.ops.v1", initialization_id, length=10)
     clock_op = _mk(prefix, "clock", _sched.OP_CLOCK_INITIALIZE, {"minute_index": choices.start_minute})
-    base = [
+    # R2-05: 저작 행위자를 같은 INITIALIZATION 묶음에서 결정적으로 등록한다(프로필 복제·위치 추론 없음)
+    authored = []
+    for aid in sorted(definition.get("actor_definitions") or {}):
+        adef = definition["actor_definitions"][aid]
+        if adef.get("kind") != "NPC":
+            continue
+        authored.append(_mk(prefix, f"npc.{aid}", "ACTOR_REGISTER", {
+            "actor_id": aid, "kind": "NPC", "display_name": adef.get("display_name") or aid,
+            "source_kind": "AUTHORED_NPC", "source_key": adef.get("legacy_key"),
+            "aliases": list(adef.get("aliases") or [])}))
+    base = authored + [
         _mk(prefix, "pc", "ACTOR_REGISTER", {"actor_id": pc, "kind": "PC", "display_name": name,
                                             "source_kind": "PLAYER", "source_key": str(uid)}),
         _mk(prefix, "place", _sp.OP_ACTOR_PLACEMENT_SET, {"actor_id": pc, "place_id": choices.start_place}),
@@ -213,8 +250,8 @@ def build_initial_world_plan(definition: dict, session, choices: StartChoices, *
                                       initial_full_scan=True)
     if not r.committable:
         return InitialWorldPlan("CONFLICT", reason=r.status, diagnostics=list(r.diagnostics))
-    rejected = [x for x in r.diagnostics if x.get("code") == "UNIT_REJECTED" and x.get("unit_id") == "base"]
-    if rejected:
+    if _pw.base_rejected(r.diagnostics):
+        rejected = [x for x in r.diagnostics if x.get("code") == "UNIT_REJECTED"]
         # 진행 엔진은 거부된 단위를 진단으로만 남긴다 — 초기 세계의 기반 연산은 전부 적용돼야 한다
         return InitialWorldPlan("CONFLICT", reason="BASE_REJECTED", diagnostics=rejected)
     ops = [clock_op] + _pw.namespace_ops(r.ops, f"{prefix}.p", [clock_op.op_id])
@@ -239,61 +276,113 @@ def _restore(session, saved):
 
 
 async def initialize_world(bot, session, chosen: dict) -> InitResult:
-    """시작 선택 후 DYNAMIC 세션의 정의 바인딩 + genesis. 대상이 아니면 INIT_LEGACY(아무것도 바꾸지 않음)."""
+    """시작 선택 후 DYNAMIC 세션의 정의 바인딩 + genesis.
+
+    INIT_LEGACY: DYNAMIC 대상이 아니다(아무것도 바꾸지 않음 — 기존 LEGACY 시작).
+    INIT_FAILED: 대상이었으나 실패 — 정본·바인딩은 되돌리고 실패 표식(world_initialization.status=FAILED)을
+                 strict 저장한다. 이 표식이 있는 동안 LEGACY 진행·인트로는 막힌다(재시도 가능).
+    """
     if world_bound(session):
         rec = getattr(session, "world_initialization", None) or {}
         return InitResult(INIT_ALREADY, initialization_id=rec.get("initialization_id"))
-    res, why = compile_candidate(session)
-    if res is None:
+    definition, why = compile_candidate(session)
+    if definition is None:
+        if why.startswith("snapshot_unreadable"):
+            return await _fail(bot, session, why)
         return InitResult(INIT_LEGACY, why)
-    choices, why = resolve_start_choices(res.definition, chosen)
+    choices, why = resolve_start_choices(definition, chosen)
     if choices is None:
+        if init_failed(session):
+            return await _fail(bot, session, why)        # 이미 DYNAMIC 대상으로 실패한 세션은 LEGACY로 내리지 않는다
         return InitResult(INIT_LEGACY, why)
     saved = {k: copy.deepcopy(getattr(session, k, None))
              for k in ("definition_revision", "world_lifecycle", "world_initialization")}
     try:
-        rev = bind_definition(session, res)
+        rev = bind_definition(session, definition)
     except Exception as e:  # noqa: BLE001 — 바인딩 실패 = 초기화 안 함(정본 불변)
         _restore(session, saved)
-        return InitResult(INIT_FAILED, f"bind:{type(e).__name__}: {e}")
+        return await _fail(bot, session, f"bind:{type(e).__name__}: {e}")
     init_id = initialization_id_for(session.session_id, rev, choices)
     seed = getattr(session, "narrative_seed", None) or _ws.derive_narrative_seed(session.session_id)
-    plan = build_initial_world_plan(res.definition, session, choices, initialization_id=init_id,
+    plan = build_initial_world_plan(definition, session, choices, initialization_id=init_id,
                                     narrative_seed=seed)
     if plan.status != "READY":
         _restore(session, saved)
-        return InitResult(INIT_FAILED, f"plan:{plan.reason}", init_id)
+        return await _fail(bot, session, f"plan:{plan.reason}", init_id)
     batch = _cm.new_batch(session, cause_kind=_ws.CAUSE_INITIALIZATION, cause_id=init_id)
     for op in plan.ops:
         batch.add(op)
-    # 생애주기 표식은 genesis와 같은 strict 저장에 실린다(실패하면 되돌린다)
+    # R2-04: genesis 정체성은 원인·기준에서 결정적으로 계산된다 — 첫 strict 저장에 이미 들어간다
+    genesis = _ws.next_world_version(session.session_id, copy.deepcopy(getattr(session, "world_version", None)),
+                                     cause_kind=_ws.CAUSE_INITIALIZATION, cause_id=init_id)
     session.world_lifecycle = LIFECYCLE_INITIALIZED
     session.world_initialization = {"initialization_id": init_id,
                                     "mutation_id": _cm.mutation_id_for(session.session_id,
                                                                        _ws.CAUSE_INITIALIZATION, init_id),
                                     "definition_revision": rev, "start_choices": choices.to_dict(),
-                                    "genesis_version_id": None}
+                                    "genesis_version_id": genesis["version_id"]}
     mres = await _cm.CanonicalMutationCoordinator(bot).apply(
         session, batch, cause_kind=_ws.CAUSE_INITIALIZATION, cause_id=init_id)
     if mres.outcome not in (_cm.OUTCOME_COMMITTED, _cm.OUTCOME_RECOVERY_PENDING):
         _restore(session, saved)
-        return InitResult(INIT_FAILED, f"commit:{mres.outcome}:{mres.reason}", init_id, mres)
-    session.world_initialization["genesis_version_id"] = _ws.version_id_of(mres.target_world_version)
+        return await _fail(bot, session, f"commit:{mres.outcome}:{mres.reason}", init_id, mres)
+    if _ws.version_id_of(mres.target_world_version) != genesis["version_id"]:   # 계산과 coordinator가 같아야 한다
+        raise WorldLifecycleError("genesis world_version 정체성 불일치")
+    # 바인딩 세션은 이후 정의 원문(스냅샷)으로 진행 — 재시작과 같은 의미
+    session.scenario_data = copy.deepcopy(definition["legacy_source"]["scenario"])
     return InitResult(INIT_OK, initialization_id=init_id, mutation=mres)
 
 
+async def _fail(bot, session, reason: str, init_id=None, mutation=None) -> InitResult:
+    """초기화 실패 표식을 strict 저장한다(LEGACY 진행·인트로를 막는 fail-closed 근거)."""
+    from . import io as _io
+    session.world_lifecycle = None
+    session.world_initialization = {"status": "FAILED", "reason": str(reason)[:500], "initialization_id": init_id}
+    try:
+        await _io.save_session_data_strict(bot, session)
+    except Exception as e:  # noqa: BLE001 — 표식은 메모리에 남아 이 프로세스의 진행을 막는다
+        print(f"[H06] 초기화 실패 표식 저장 실패(메모리 표식 유지): {e}")
+    return InitResult(INIT_FAILED, str(reason), init_id, mutation)
+
+
 def mark_open(session) -> bool:
-    """인트로 완료 → OPEN. INITIALIZED에서만(멱등)."""
+    """인트로 완료 → OPEN(메모리만). 영속이 필요한 호출자는 open_durable을 쓴다."""
     if getattr(session, "world_lifecycle", None) == LIFECYCLE_INITIALIZED:
         session.world_lifecycle = LIFECYCLE_OPEN
         return True
     return False
 
 
+async def open_durable(bot, session) -> bool:
+    """R2-02: INITIALIZED → OPEN을 strict 저장으로 확정한다. 실패하면 INITIALIZED로 되돌리고 False.
+
+    LEGACY(생애주기 없음) 세션은 전이가 없으므로 True. 이미 OPEN이면 True.
+    """
+    from . import io as _io
+    lc = getattr(session, "world_lifecycle", None)
+    if lc is None:
+        return not init_failed(session)
+    if lc == LIFECYCLE_OPEN:
+        return True
+    if lc != LIFECYCLE_INITIALIZED:
+        return False
+    session.world_lifecycle = LIFECYCLE_OPEN
+    try:
+        await _io.save_session_data_strict(bot, session)
+    except Exception as e:  # noqa: BLE001
+        session.world_lifecycle = LIFECYCLE_INITIALIZED
+        print(f"[H06] OPEN 영속 실패 — INITIALIZED 유지: {e}")
+        return False
+    return True
+
+
 def blocked_reason(session) -> str | None:
     """동적 세계 세션이 자동 턴을 받을 수 없는 사유(운영자 표시용). None = 막지 않음."""
     lc = getattr(session, "world_lifecycle", None)
     if lc is None:
+        if init_failed(session):
+            rec = getattr(session, "world_initialization", None) or {}
+            return f"동적 세계 초기화가 실패했습니다({rec.get('reason')}) — 재시도가 필요합니다"
         return None
     if lc == LIFECYCLE_INITIALIZED:
         return "세계가 초기화됐지만 세션이 아직 열리지 않았습니다(캐시·인트로 대기)"
@@ -356,26 +445,69 @@ def close_blocked_reason(session) -> str | None:
 
 
 async def close_session(bot, session, *, reason: str) -> dict:
-    """운영자 세션 종료 — 생애주기 + 캐시/재무 작업(세계 변이 아님).
+    """운영자 세션 종료 — 생애주기 + 캐시/재무 작업(세계 변이 아님). LEGACY·DYNAMIC 모두 CLOSED가 된다.
 
     1 정본 직렬화 락(배타) → 2 안전 지점 검사 → 3·4·5 캐시 생애주기 단일 finalizer(실제 보관비 정산 ·
-    미사용 선불 환급 정확히 한 번 · 초과분은 운영자 부담) → 6 CLOSED 영속 → (7·8 보고·정리는 호출자).
-    세계(시계·사건·예약·공간·인지·정보)는 바꾸지 않는다. 종료·환급은 운영 이력이라 되감기 대상이 아니다.
-    환급이 durable하게 끝나지 않았으면 CLOSED로 표시하지 않는다(재시도 가능, 재시도해도 중복 환급 없음).
+    미사용 선불 환급 정확히 한 번 · 초과분은 운영자 부담) → 6 CLOSED strict 영속 → 8 활성 등록 제거.
+    (7 보고·채널 잠금은 호출자.) 세계(시계·사건·예약·공간·인지·정보)·게임 이력은 바꾸지 않는다.
+    환급이 durable하게 끝나지 않았거나 CLOSED strict 저장이 실패하면 성공으로 보고하지 않는다 —
+    재시도는 같은 finalizer의 멱등성으로 중복 환급 없이 이어 간다.
     """
     from . import cache_lifecycle as _cl
+    from . import io as _io
     from .commit_coordinator import commit_serialization_lock
-    from .io import save_session_data
     async with commit_serialization_lock(session.session_id):
-        why = close_blocked_reason(session)
-        if why:
-            return {"ok": False, "reason": why}
+        if not is_closed(session):
+            why = close_blocked_reason(session)
+            if why:
+                return {"ok": False, "reason": why}
         res = {"storage_krw": 0.0, "refund": {}, "settled": True, "remote": None}
         if getattr(session, "cache_name", None) or _cl.view(session.session_id).open_window_id():
             res = await _cl.close_window(bot, session, reason=reason, disposition=_cl.WINDOW_SETTLE_REFUND)
         if not res.get("settled", True) and _cl.view(session.session_id).open_window_id():
-            return {"ok": False, "reason": "환급 기록이 완료되지 않았습니다(재시도)", **res}
-        if world_bound(session):
-            session.world_lifecycle = LIFECYCLE_CLOSED
-        await save_session_data(bot, session)
-        return {"ok": True, **res}
+            return {**res, "ok": False, "reason": "환급 기록이 완료되지 않았습니다(재시도)"}
+        prev = getattr(session, "world_lifecycle", None)
+        session.world_lifecycle = LIFECYCLE_CLOSED
+        try:
+            await _io.save_session_data_strict(bot, session)
+        except Exception as e:  # noqa: BLE001
+            session.world_lifecycle = prev
+            return {**res, "ok": False, "reason": f"CLOSED 영속 실패(재시도): {type(e).__name__}"}
+        deactivate(bot, session)
+        return {**res, "ok": True}
+
+
+def deactivate(bot, session) -> list:
+    """종료된 세션을 활성 게임 표면(active_sessions의 game/master/display 매핑)에서 내린다."""
+    reg = getattr(bot, "active_sessions", None)
+    if not isinstance(reg, dict):
+        return []
+    gone = [k for k, v in list(reg.items()) if v is session]
+    for k in gone:
+        reg.pop(k, None)
+    return gone
+
+
+def apply_compat_view(session, chosen: dict) -> dict:
+    """R2-03: DYNAMIC 세션의 레거시 표시값(world_timeline)을 정본 genesis에서 파생한다.
+
+    장소·날짜·시간대는 정본(spatial_state·world_clock)에서만 온다 — 시작 틀 facts의 장소·시간은 쓰지 않는다.
+    정본 세계 모델에 없는 세력 표시(faction/player_faction)만 기존 의미대로 옮긴다(충돌할 정본이 없다).
+    """
+    from . import player_world as _pw
+    from . import turn_world as _tw
+    rec = getattr(session, "world_initialization", None) or {}
+    definition = _pw.load_definition(session, rec.get("definition_revision") or getattr(session, "definition_revision", None))
+    pc = pc_actor_id(player_uids(session)[0]) if len(player_uids(session)) == 1 else None
+    tl = dict(getattr(session, "world_timeline", {}) or {})
+    for k in ("current_location", "current_date", "time_of_day"):
+        tl.pop(k, None)
+    if definition is not None and pc:
+        tl = _tw.mirror_timeline(tl, definition, session, pc)
+    facts = (chosen or {}).get("facts") or {}
+    if facts.get("faction"):
+        tl["faction_context"] = facts["faction"]
+    if facts.get("player_faction"):
+        session.player_faction = facts["player_faction"]
+    session.world_timeline = tl
+    return tl

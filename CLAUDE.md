@@ -21,7 +21,7 @@ AI가 4개 층위로 나뉘어 판단·지시·묘사·추출을 분담한다. �
 | H03 | 정량 시간·예약 + 공간·이동·접근·공간인지 | **완료** — 서비스·typed 연산 등록, 플레이어 경로 미배선, `handoff/H03_COMPLETION_BUNDLE.md` |
 | H04 | Actor·정보·인지·NPC 투영 + 사건·DependencyIndex·WorldProgression | **완료**(VERIFIED `1906f1b`, R2·R3 보정 포함) — 순수 엔진·typed 연산, `handoff/H04_COMPLETION_BUNDLE.md` + `handoff/H04_R2_CORRECTION_BUNDLE.md` |
 | H05 | 구조화 행동 의도·턴 계획 + 프롬프트·추출·후속묘사·미디어 | **완료 제출(검수 대기, R2·R3 보정 포함)** — 자동 턴 배선(DYNAMIC 세션만, 현 운영 세션은 LEGACY), `handoff/H05_COMPLETION_BUNDLE.md` |
-| H06 | 초기화·캐시·관리자·복구·재서술·세션 종료 | **완료 제출(검수 대기)** — 단일 PC DYNAMIC 생애주기 배선, `handoff/H06_COMPLETION_BUNDLE.md` |
+| H06 | 초기화·캐시·관리자·복구·재서술·세션 종료 | **완료 제출(검수 대기, R2 보정 포함)** — 단일 PC DYNAMIC 생애주기 배선, `handoff/H06_COMPLETION_BUNDLE.md` + `handoff/H06_R2_CORRECTION_NOTE.md` |
 | H07 | 영도 실제 이행·legacy 권위 은퇴·production cutover·최종 게이트 | 예정 |
 
 H01 완료 번들은 통합 전 번호(H01~H11)를 쓴다 — 구 H02+H03→H02, H04+H05→H03, H06+H07→H04, H08+H09→H05, H10→H06, H11→H07로 읽는다.
@@ -275,7 +275,8 @@ READY와 `canonical_mutation`은 투영 결과의 **base quiescence**를 증명�
 | `cache_source.py` | `FrozenCacheBuildSource` — 짧은 io 락 캡처(바인딩 스냅샷 원문·기준 world_version·이력 표식), 락 밖 조립·생성. 생성 중 revision 변경 세대는 비활성 |
 | `admin_world_edit.py` | typed ADMIN_EDIT 서비스(활성 턴·이력 조작·stale 거부, no-op은 version 없음, 턴 수·청구 불변) — 운영자 명령 없음 |
 
-DYNAMIC = 단일 PC + 스냅샷 바인딩 + 필수 capability + 생애주기 OPEN + 시계 + PC 배치. 초기화된 세션에서 정의를 읽을 수 없거나 PC가 늘면 BLOCKED(턴 거부). 바인딩 세션은 재시작 때 `scenario_data`를 스냅샷 원문으로 되돌린다(원본 drift 무시). 사건 조건 holder `$session_pc`는 COGNITION_AWARENESS 전용(PC 믿음 조건은 컴파일 오류). 재서술은 그 턴의 revision이 현재 바인딩과 같을 때만, 보존된 의미 선택으로 세계 계획을 다시 세운다.
+DYNAMIC = 단일 PC + 스냅샷 바인딩 + 필수 capability + 생애주기 OPEN + 시계 + PC 배치(AT_PLACE 또는 TRANSIT). 초기화된 세션에서 정의를 읽을 수 없거나 PC가 늘면 BLOCKED(턴 거부). 바인딩 세션은 재시작 때 `scenario_data`를 스냅샷 원문으로 되돌린다(원본 drift 무시). 사건 조건 holder `$session_pc`는 COGNITION_AWARENESS 전용(PC 믿음 조건은 컴파일 오류). 재서술은 그 턴의 revision이 현재 바인딩과 같을 때만, 보존된 의미 선택으로 세계 계획을 다시 세운다.
+R2: 초기화 실패는 fail-closed(실패 표식 strict 저장 — LEGACY 진행·인트로 금지, 재시도 버튼). 인트로가 실제로 성공해야 OPEN(strict)·첫 라운드. `!세션종료`는 LEGACY·DYNAMIC 모두 CLOSED(strict)로 끝나고 활성 등록을 내리며, 재시작은 CLOSED 세션을 다시 올리지 않는다(`disp:close`는 재오픈 가능한 캐시 창 종료로 별개). DYNAMIC 시작의 장소·시간 owner는 저작 `world_start` → genesis 하나(시작 틀 facts는 LEGACY에서만 적용, 표시용 `world_timeline`은 정본에서 파생). genesis에 저작 NPC를 ActorRegistry로 등록한다(위치 추론 없음). 플레이 가능한 이동 공간은 일반 PlaceId다 — 중간 장소 도착은 독립 진행이라 도착 사건이 그 장소에서 멈추고, 구간 안 중단은 TRANSIT을 유지하며 다음 턴에 남은 시간만 이어 간다(경로 무효화 시 강행 없음). 플레이어 턴의 필수 연산이 handler에서 거부되면 결정적 충돌(묘사 전 실패)이다.
 
 #### 기억
 
@@ -514,7 +515,7 @@ pip install -r requirements-dev.txt
 python3 -m pytest tests/ -q
 ```
 
-`tests/`는 **현재 동작과 권위 불변식을 고정**한다. 현재 1,046건(특성화 60 · 결함 27 · 정책 959)이 모두 통과하며 strict xfail은 0건이다.
+`tests/`는 **현재 동작과 권위 불변식을 고정**한다. 현재 1,068건(특성화 61 · 결함 27 · 정책 980)이 모두 통과하며 strict xfail은 0건이다.
 
 | 분류 | 의미 |
 |---|---|

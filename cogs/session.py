@@ -116,8 +116,8 @@ class StartFrameButton(discord.ui.Button):
         session = view.session
         await interaction.response.defer()
 
-        # 사전 확정 정보를 세계 상태에 반영한다(기획 규정).
-        core.start_frame.apply_facts(session, self.option)
+        # 사전 확정 정보의 반영은 play_intro → open_dynamic_world가 정한다(H06 R2-03):
+        #   LEGACY = 기존 apply_facts 그대로 · DYNAMIC = 저작 world_start → genesis가 유일한 owner.
         session.start_frame = self.option
 
         for c in view.children:
@@ -144,7 +144,9 @@ class DynamicOpenRetryView(discord.ui.View):
     @discord.ui.button(label="세션 다시 열기", style=discord.ButtonStyle.primary)
     async def retry(self, interaction: discord.Interaction, _b: discord.ui.Button):
         await interaction.response.defer()
-        if getattr(self.session, "world_lifecycle", None) != core.world_lifecycle.LIFECYCLE_INITIALIZED:
+        s = self.session
+        if not (getattr(s, "world_lifecycle", None) == core.world_lifecycle.LIFECYCLE_INITIALIZED
+                or core.world_lifecycle.init_failed(s) or getattr(s, "_intro_pending", False)):
             return
         cog = self.bot.get_cog("SessionCog")
         if cog:
@@ -558,9 +560,12 @@ class SessionCog(commands.Cog):
             session.scenario_data, profile, chosen)
 
         game_cog = self.bot.get_cog("GameCog")
+        intro_ok = True
         if game_cog:
             # 묘사층위로 인트로를 생성한다. 이후 턴과 같은 경로를 쓴다.
-            await game_cog._execute_proceed(session, instruction)
+            # H06 R2-01: 생성·전달이 실제로 성공했을 때만 OPEN·첫 라운드로 넘어간다.
+            res = await game_cog._execute_proceed(session, instruction)
+            intro_ok = bool(isinstance(res, dict) and res.get("ok"))
         else:
             # 폴백 — 요약만 출력한다.
             briefing = core.start_frame.build_briefing(session.scenario_data, profile)
@@ -569,8 +574,31 @@ class SessionCog(commands.Cog):
                 f"{briefing}\n\n{chosen.get('summary', '')}",
                 words_per_tick=15, tick_interval=1.5)
 
-        # H06: 인트로 완료 → 동적 세계 OPEN(이후 자동 턴이 DYNAMIC 경로를 탄다). 레거시 세션은 no-op.
-        core.world_lifecycle.mark_open(session)
+        master_ch = self.bot.get_channel(session.master_ch_id)
+        if not intro_ok:
+            session._intro_pending = True
+            await core.save_session_data(self.bot, session)
+            for ch, text in ((master_ch, "⚠️ 인트로 생성·전달이 실패해 세션을 열지 않았습니다(첫 라운드 보류)."),
+                             (game_channel, "⏸️ 인트로를 내보내지 못했습니다. 아래 버튼으로 다시 시도해 주십시오.")):
+                try:
+                    if ch is not None:
+                        await ch.send(text, **({"view": DynamicOpenRetryView(self.bot, session)}
+                                               if ch is game_channel else {}))
+                except Exception:
+                    pass
+            return
+        session._intro_pending = False
+        # H06: 인트로 완료 → 동적 세계 OPEN(strict 영속 — 실패하면 INITIALIZED 유지·라운드 보류). 레거시는 전이 없음.
+        if not await core.world_lifecycle.open_durable(self.bot, session):
+            try:
+                if master_ch:
+                    await master_ch.send("⚠️ 세션 열림(OPEN) 상태를 저장하지 못했습니다 — 첫 라운드를 보류합니다.")
+                if game_channel is not None:
+                    await game_channel.send("⏸️ 세션 상태 저장에 실패했습니다. 아래 버튼으로 다시 시도해 주십시오.",
+                                            view=DynamicOpenRetryView(self.bot, session))
+            except Exception:
+                pass
+            return
         await core.save_session_data(self.bot, session)
         try:
             await core.refresh_display(self.bot, session, reason="intro")
@@ -603,18 +631,26 @@ class SessionCog(commands.Cog):
             return None
 
         res = await core.world_lifecycle.initialize_world(self.bot, session, chosen)
-        if res.outcome in (core.world_lifecycle.INIT_LEGACY, core.world_lifecycle.INIT_FAILED):
-            if res.outcome == core.world_lifecycle.INIT_FAILED and master_ch:
+        if res.outcome == core.world_lifecycle.INIT_FAILED:
+            # H06 R2-01: fail-closed — 레거시 캐시·인트로로 넘어가지 않는다(재시도 가능, 운영자 표시)
+            if master_ch:
                 try:
-                    await master_ch.send(f"⚠️ [동적 세계] 초기화 실패 — 기존(LEGACY) 진행으로 계속합니다. ({res.reason})")
+                    await master_ch.send(f"⛔ [동적 세계] 초기화 실패 — 세션을 열지 않았습니다. ({res.reason})")
                 except Exception:
                     pass
+            await _say("⏸️ 세계를 준비하지 못해 세션을 열지 않았습니다. 운영자 확인 후 아래 버튼으로 다시 시도해 주십시오.",
+                       view=DynamicOpenRetryView(self.bot, session))
+            return False
+        if res.outcome == core.world_lifecycle.INIT_LEGACY:
+            # 기존 LEGACY 시작 — 사전 확정 정보 반영(기획 규정)과 연기된 캐시를 기존 의미대로
+            core.start_frame.apply_facts(session, chosen)
             if not getattr(session, "cache_name", None):
-                await self.upload_cache(session, notify=_say,      # 연기된 캐시(레거시 의미 그대로)
+                await self.upload_cache(session, notify=_say,
                                         quoted_tokens=getattr(session, "open_quoted_tokens", None))
             return True
-        if res.outcome == core.world_lifecycle.INIT_OK:
-            await core.save_session_data(self.bot, session)
+        # DYNAMIC — 장소·시간은 정본 genesis가 유일한 owner. 표시용 레거시 world_timeline은 정본에서 파생한다
+        #   (시작 틀 facts를 두 번째 권위로 쓰지 않는다 — 장소·시간과 무관한 세력 표시만 유지).
+        core.world_lifecycle.apply_compat_view(session, chosen)
         ok = await self.upload_cache(session, notify=_say,
                                      quoted_tokens=getattr(session, "open_quoted_tokens", None))
         if not ok:

@@ -175,7 +175,7 @@ async def test_initialization_conflict_leaves_no_partial_world(rig):
     res = await WL.initialize_world(r.bot, s, {"id": "harbor"})
     assert res.outcome == WL.INIT_FAILED
     assert world_of(s) == before and s.definition_revision is None and s.world_lifecycle is None
-    assert s.world_initialization == {}
+    assert s.world_initialization["status"] == "FAILED" and WL.blocked_reason(s)   # R2: fail-closed 표식
     assert not [e for e in CM.read_journal(s.session_id) if e.get("phase") == "COMMITTED"]
 
 
@@ -209,6 +209,7 @@ async def test_initial_cache_failure_after_genesis_stays_initialized_and_retry_d
 
     async def _intro(session, instruction, **kw):
         calls["intro"] += 1
+        return {"ok": True, "ai_text": "인트로", "error": None, "finalized": True}
     monkeypatch.setattr(cog, "upload_cache", _upload)
     monkeypatch.setattr(r.bot.get_cog("GameCog"), "_execute_proceed", _intro)
     s.start_frame = {"id": "harbor"}

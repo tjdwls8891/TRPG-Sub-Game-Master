@@ -507,6 +507,11 @@ async def restore_sessions_from_disk(bot):
                         restored_raw_logs.append(entry)
                 session.raw_logs = restored_raw_logs
 
+                # ── H06 R2: 종료(CLOSED)된 세션은 활성 게임 표면에 다시 올리지 않는다(저장·감사·재무 기록은 보존) ──
+                if getattr(session, "world_lifecycle", None) == "CLOSED":
+                    print(f"⏹️ {session_id}: 종료된 세션 — 활성 등록하지 않습니다.")
+                    continue
+
                 # ── H06: 동적 세계가 바인딩된 세션은 현재 원본 파일이 아니라 정의 스냅샷 원문으로 진행한다 ──
                 #    (원본 drift가 진행 중 세션의 의미·캐시·프롬프트를 바꾸지 못한다). 스냅샷을 읽지 못하면
                 #    그대로 두고 세계 모드가 BLOCKED로 턴을 막는다(조용한 재컴파일·대체 없음).

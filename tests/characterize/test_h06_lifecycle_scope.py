@@ -67,3 +67,19 @@ def test_prompts_untouched_by_h06_runtime():
     for f in H06_FILES:
         assert "prompts" not in {getattr(n, "module", None) for n in ast.walk(ast.parse(source_of(f"core/{f}")))
                                  if isinstance(n, ast.ImportFrom)}
+
+
+def test_lifecycle_single_writer_and_closed_sessions_not_reactivated():
+    """R2: 세션 생애주기(INITIALIZED/OPEN/CLOSED·실패 표식) writer는 core/world_lifecycle.py 하나.
+    재시작은 CLOSED 세션을 활성 등록하지 않는다."""
+    writers = set()
+    for p in _prod():
+        for node in ast.walk(ast.parse(open(p, encoding="utf-8").read())):
+            if isinstance(node, ast.Assign):
+                for t in node.targets:
+                    if isinstance(t, ast.Attribute) and t.attr == "world_lifecycle" and not (
+                            isinstance(t.value, ast.Name) and t.value.id == "self"):
+                        writers.add(os.path.relpath(p, REPO_ROOT))
+    assert writers == {os.path.join("core", "world_lifecycle.py")}, writers
+    src = source_of("core/cache.py")
+    assert src.index('"CLOSED"') < src.index("bot.active_sessions[session.game_ch_id] = session")

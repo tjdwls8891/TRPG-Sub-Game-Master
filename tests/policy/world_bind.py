@@ -19,4 +19,8 @@ def bind_open(s, res):
     SNAP.write_snapshot(s.session_id, res)
     s.definition_revision = res.revision
     s.world_lifecycle = WL.LIFECYCLE_OPEN
+    # genesis 정체성(H06 R2: world_bound = 생애주기 + genesis 정체성)
+    s.world_initialization = {"initialization_id": "init_test", "mutation_id": "cmu_test",
+                              "definition_revision": res.revision, "start_choices": {},
+                              "genesis_version_id": "wv_test_genesis"}
     return res.revision

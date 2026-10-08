@@ -76,6 +76,7 @@ class ActionReferenceManifest:
     access: tuple = ()           # (key, access_action_id, label)
     infos: tuple = ()            # (key, info_id, label)
     dayparts: tuple = ()
+    transit: tuple = ()          # H06 R2-06: (from_place, to_place, elapsed_min, total_min) — PC가 구간 안일 때만
 
     def _map(self, rows):
         return {r[0]: r for r in rows}
@@ -105,6 +106,10 @@ class ActionReferenceManifest:
         lines = ["\n[행동 참조 후보 — action_intent에는 아래 키만 쓴다. 후보에 없으면 NONE]"]
         if self.origin_place:
             lines.append(f"현재 위치: {self.origin_place}")
+        if self.transit:
+            frm, to, el, tot = self.transit
+            lines.append(f"현재 상태: {frm}에서 {to}(으)로 가는 길 위(장소 밖) — 이 구간 {tot}분 중 {el}분 진행. "
+                         f"계속 가려면 destination={to}(또는 더 먼 목적지). 출발지로 되돌아간 것으로 보지 말 것.")
         if self.places:
             lines.append("장소(목적지): " + ", ".join(f"{k}={lbl}" for k, _, lbl in self.places))
         if self.routes:
@@ -175,6 +180,14 @@ def build_manifest(definition: dict, world, pc_actor_id: str, *, definition_revi
     """PC 지식 기반 후보(숨은 장소·정보 제외). route_options/access_options는 호출자가 준비한 선택지."""
     pl = _sp.placement_of(world, pc_actor_id) or {}
     here = pl.get("place_id") if pl.get("kind") == _sp.AT_PLACE else None
+    transit = ()
+    if pl.get("kind") == _sp.TRANSIT:
+        clock = (world.domain("world_clock") if isinstance(world, _wm.ProjectedWorld)
+                 else getattr(world, "world_clock", {})) or {}
+        now = clock.get("minute_index")
+        st, en = pl.get("edge_started_at_minute"), pl.get("edge_expected_end_minute")
+        if isinstance(now, int) and isinstance(st, int) and isinstance(en, int):
+            transit = (pl.get("from_place"), pl.get("to_place"), now - st, en - st)
     knowledge = _sp.actor_knowledge(world, pc_actor_id)
     order = {p: i for i, p in enumerate(definition.get("place_order") or sorted(definition.get("place_definitions") or {}))}
     known = set()
@@ -183,6 +196,8 @@ def build_manifest(definition: dict, world, pc_actor_id: str, *, definition_revi
             known.add(pid)
     if here:
         known.add(here)
+    if transit:
+        known |= {transit[0], transit[1]}                 # 지금 지나는 구간의 양 끝은 안다
     known &= set(definition.get("place_definitions") or {})
     places = tuple((f"P{n}", pid, _place_label(definition, pid))
                    for n, pid in enumerate(sorted(known, key=lambda p: (order.get(p, 10 ** 9), p)), 1))
@@ -199,7 +214,7 @@ def build_manifest(definition: dict, world, pc_actor_id: str, *, definition_revi
     return ActionReferenceManifest(
         world_version_id=world_version_id(world), definition_revision=definition_revision,
         pc_actor_id=pc_actor_id, origin_place=here, places=places, routes=routes, access=access,
-        infos=infos, dayparts=dayparts)
+        infos=infos, dayparts=dayparts, transit=transit)
 
 
 # ══════════════════════════════════════════════════════════════

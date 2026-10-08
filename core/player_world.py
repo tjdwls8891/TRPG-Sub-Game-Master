@@ -125,7 +125,8 @@ def session_world_context(session, world=None) -> WorldContext:
     for uid in sorted((getattr(session, "players", None) or {}), key=str):
         aid = pc_actor_for(uid)
         pl = _sp.placement_of(w, aid)
-        if aid in (reg or {}) and isinstance(pl, dict) and pl.get("kind") == _sp.AT_PLACE:
+        # H06 R2-06: TRANSIT도 동적 세계 정본 공간 상태다(LEGACY로 강등하지 않는다)
+        if aid in (reg or {}) and isinstance(pl, dict) and pl.get("kind") in (_sp.AT_PLACE, _sp.TRANSIT):
             pcs.append(aid)
             uid_of[aid] = uid
     if not pcs:
@@ -259,6 +260,10 @@ class _Run:
                                           progress=progress, narrative_seed=self.seed,
                                           resolved_tie_orders=self.tie_orders, outer_origin=self.outer_origin)
         self.diags += r.diagnostics
+        if base_rejected(r.diagnostics):
+            # H06 R2-07: 플레이어 행동의 필수 연산(base 단위)이 거부되면 버린 채 계속하지 않는다 — 결정적 충돌
+            self.stop = (PLAN_CONFLICT, "BASE_REJECTED")
+            return None
         if r.status == _wp.TIE_PENDING:
             self.ties += list(r.same_minute_ties)
             self.stop = (PLAN_TIE, None)
@@ -276,6 +281,12 @@ class _Run:
 
 def _mk(prefix, i, t, p):
     return _wm.make_op(f"{prefix}.{i}", t, "PLAYER_ACTION", p)
+
+
+def base_rejected(diagnostics) -> bool:
+    """진행 엔진이 기반 연산 단위(base)를 거부해 버렸는가(UNIT_REJECTED). 조용한 탈락을 막는 판정."""
+    return any(isinstance(d, dict) and d.get("code") == "UNIT_REJECTED" and d.get("unit_id") == "base"
+               for d in diagnostics or ())
 
 
 def chain(*groups) -> list:
@@ -378,7 +389,9 @@ def plan_player_turn(ctx: WorldContext, world, intent: _ai.ResolvedActionIntent,
     D = ctx.definition
     src = world if isinstance(world, _wm.ProjectedWorld) else _wm.ProjectedWorld.capture(world)
     lead = ctx.lead_pc
-    here = (_sp.placement_of(src, lead) or {}).get("place_id")
+    lead_pl = _sp.placement_of(src, lead) or {}
+    here = lead_pl.get("place_id") if lead_pl.get("kind") == _sp.AT_PLACE else None
+    transit = lead_pl if lead_pl.get("kind") == _sp.TRANSIT else None      # H06 R2-06: 구간 안(장소 아님)
     now = (src.domain("world_clock") or {}).get("minute_index")
     prefix = "h05." + stable_digest("player.turn.v1", transaction_id, length=10)
     plan = PlayerWorldPlan(PLAN_NONE, _ai.world_version_id(src), ctx.definition_revision, now, now, scene_place=here)
@@ -402,9 +415,22 @@ def plan_player_turn(ctx: WorldContext, world, intent: _ai.ResolvedActionIntent,
                 "authority": "PLAYER_EXPLICIT", "cause_ref": f"turn:{transaction_id}:stance"}))
     mv = intent.movement
     if mv is not None and mv.kind == _ai.MOVE_DESTINATION:
+        if transit is not None:
+            return _plan_transit_movement(ctx, plan, run, transit, now, mv.destination_place, intent, pre_ops,
+                                          capabilities=capabilities, policy=policy, transaction_id=transaction_id)
         return _plan_movement(ctx, plan, run, src, here, now, mv.destination_place, intent, pre_ops,
                               capabilities=capabilities, policy=policy, transaction_id=transaction_id)
     if intent.time_advance is not None:
+        if transit is not None:
+            try:
+                target = _ai.target_minute(D.get("calendar") or {}, now, intent.time_advance)
+            except Exception:
+                target = None
+            if target is None or target >= transit["edge_expected_end_minute"]:
+                # 구간 안에서 구간 끝을 넘겨 머무를 수 없다(TRANSIT은 start ≤ now < end) — 이동을 이어 가야 한다
+                plan.status, plan.reason = PLAN_REJECTED, "IN_TRANSIT_TIME"
+                plan.transit = {k: transit.get(k) for k in ("edge_id", "from_place", "to_place")}
+                return plan
         return _plan_time(ctx, plan, run, here, now, intent.time_advance, pre_ops)
     if pre_ops:
         run.step(pre_ops, now, _progress(lead, here))
@@ -448,6 +474,67 @@ def _plan_time(ctx, plan, run, here, now, ta: _ai.TimeAdvanceIntent, pre_ops):
     plan.outcome.update({"activity": ta.activity, "target_minute": target, "reached_minute": reached,
                          "interrupt": r.foreground_interrupt})
     return _finish(plan, run, OUT_TIME_INTERRUPTED if reached < target else OUT_TIME_DONE)
+
+
+def _plan_transit_movement(ctx, plan, run, tr, now, dest, intent, pre_ops, *, capabilities, policy,
+                           transaction_id):
+    """H06 R2-06: PC가 구간 안(TRANSIT)일 때의 이동 — 현재 구간의 **남은 시간만** 진행해 끝 장소에 도착한 뒤,
+    목적지가 더 멀면 그 장소에서 일반 계획(알려진 경로·실제 접근·경로 선택 규칙)을 이어 간다.
+
+    · 이미 지난 구간·이미 소비한 시간을 다시 계산하지 않는다(재개 = edge_expected_end까지).
+    · 출발지로 되돌리거나 목적지로 자동 완료하지 않는다. 임의 장소를 만들지 않는다.
+    · 현재 구간의 실제 접근이 그 사이 막혔으면(세계 변화) 강행하지 않는다 — TRANSIT 유지, 계획 거부.
+    """
+    D, lead = ctx.definition, ctx.lead_pc
+    eid, frm, to, end = tr["edge_id"], tr["from_place"], tr["to_place"], tr["edge_expected_end_minute"]
+    mode = default_mode(D)
+    plan.transit = {"edge_id": eid, "from_place": frm, "to_place": to}
+    plan.outcome.update({"destination": dest, "origin": None, "mode": mode,
+                         "transit_resume": {"edge_id": eid, "from_place": frm, "to_place": to,
+                                            "remaining_minutes": end - now}})
+    if mode is None:
+        plan.status, plan.reason = PLAN_REJECTED, "NO_MOVEMENT_MODE"
+        return plan
+    try:
+        trav = _mv.plan_actual_traversal(D, actor_id=lead, edge_sequence=(eid,), mode_id=mode, start_minute=now,
+                                         access_state=run.world.domain("access_control_state") or {},
+                                         actor_capabilities=tuple(capabilities),
+                                         confirmed_actions=tuple(intent.access_action_ids))
+    except _mv.MovementError as ex:
+        plan.status, plan.reason = PLAN_REJECTED, "TRANSIT_ROUTE_STALE"
+        plan.diagnostics.append({"code": "TRANSIT_ROUTE_STALE", "detail": str(ex)})
+        return plan
+    if trav.interruption is not None:
+        plan.status, plan.reason = PLAN_REJECTED, "TRANSIT_ROUTE_STALE"
+        plan.outcome["access_interruption"] = {"edge_id": eid, "kind": trav.interruption.get("kind")}
+        return plan
+    pcs = tuple(p for p in ctx.pcs if (_sp.placement_of(run.world, p) or {}).get("edge_id") == eid)
+    r = run.step(chain(pre_ops), end, _progress(lead, None, movement={"edge_id": eid}))
+    if r is None:
+        return _finish(plan, run, None)
+    if r.status == _wp.FOREGROUND_INTERRUPT and r.reached_minute < end:
+        plan.transit["minute"] = r.reached_minute                  # 아직 구간 안 — TRANSIT 유지
+        plan.outcome["interrupt"] = r.foreground_interrupt
+        plan.code_owned_minutes = (run.now() or now) - now
+        return _finish(plan, run, OUT_INTERRUPTED_SIGNAL)
+    r2 = run.step(_arrival_ops(f"{run.prefix}.c", pcs, eid, to, end), end, _progress(lead, to))
+    if r2 is None:
+        return _finish(plan, run, None)
+    plan.transit = None
+    stopped = r.status == _wp.FOREGROUND_INTERRUPT or r2.status == _wp.FOREGROUND_INTERRUPT
+    if dest == to or stopped:
+        if stopped:
+            plan.outcome["interrupt"] = (r2 if r2.status == _wp.FOREGROUND_INTERRUPT else r).foreground_interrupt
+        plan.scene_place = to
+        plan.code_owned_minutes = (run.now() or now) - now
+        plan.outcome.update({"final_place": to, "arrived": dest == to})
+        return _finish(plan, run, OUT_ARRIVED if dest == to else OUT_INTERRUPTED_SIGNAL)
+    out = _plan_movement(ctx, plan, run, run.world, to, end, dest, intent, [],
+                         capabilities=capabilities, policy=policy, transaction_id=transaction_id)
+    if out.status == PLAN_PLANNED:
+        out.code_owned_minutes = (out.end_minute if out.end_minute is not None else end) - now
+        out.start_minute = now
+    return out
 
 
 def _plan_movement(ctx, plan, run, src, here, now, dest, intent, pre_ops, *, capabilities, policy,
@@ -543,6 +630,17 @@ def _plan_movement(ctx, plan, run, src, here, now, dest, intent, pre_ops, *, cap
             outcome = OUT_INTERRUPTED_SIGNAL if i < len(seq) - 1 else OUT_ARRIVED
             plan.outcome["interrupt"] = r.foreground_interrupt
             if i < len(seq) - 1:
+                break
+        if i < len(seq) - 1:
+            # H06 R2-06: 중간 장소 도착은 그 자체로 한 번의 진행이다 — 도착이 촉발한 관찰 사건은 다음 구간
+            #   진입(TRANSIT)과 섞이지 않고 그 장소(AT_PLACE)에서 플레이어 진행을 멈춘다.
+            r2 = run.step(pending, end, _progress(lead, cur))
+            pending = []
+            if r2 is None:
+                break
+            if r2.status == _wp.FOREGROUND_INTERRUPT:
+                outcome = OUT_INTERRUPTED_SIGNAL
+                plan.outcome["interrupt"] = r2.foreground_interrupt
                 break
     if pending and run.stop is None:
         run.step(pending, minute, _progress(lead, cur))

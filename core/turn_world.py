@@ -488,9 +488,12 @@ def process_observation(ctx, base_world, plan, obs_manifest: ObservationManifest
         if r.status == _wp.TIE_PENDING:
             return TurnWorldResult(TW_TIE_UNRESOLVED, plan=plan, diagnostics=diags + [
                 {"code": "SUPPLEMENTAL_TIE", "ties": [t.to_dict() for t in r.same_minute_ties]}])
-        if not r.committable:
+        if not r.committable or _pw.base_rejected(r.diagnostics):
+            # H06 R2-07: 관찰 연산(PC 획득)이 거부되면 버린 채 커밋하지 않는다 — 결정적 충돌
             return TurnWorldResult(TW_CONFLICT, plan=plan, diagnostics=diags,
-                                   conflict={"stage": "post_narration", "status": r.status})
+                                   conflict={"stage": "post_narration",
+                                             "status": r.status,
+                                             "base_rejected": _pw.base_rejected(r.diagnostics)})
         ops += _pw.namespace_ops(r.ops, f"{prefix}.sup", [o.op_id for o in stage1])
         world, sigs = r.projected_world, list(r.signals)
     cont = unrepresented_signals(sigs, represented)

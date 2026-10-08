@@ -267,6 +267,7 @@ class TRPGSession:
         self.world_lifecycle = None
         self.world_initialization = {}
         self.open_quoted_tokens = None   # H06 런타임 전용(비영속): 연기된 캐시 열기의 확인 화면 견적 토큰
+        self._intro_pending = False      # H06 R2 런타임 전용(비영속): 인트로 실패 — 재시도 대기(첫 라운드 보류)
 
         self.expand_default_npcs()
 
