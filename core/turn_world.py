@@ -372,6 +372,7 @@ def build_observation_manifest(definition: dict, ctx, plan, base_world) -> Obser
     정보: 이번 턴 코드 계획(stage-1)의 사건이 결정적으로 만든 정보 중 장면과 관련되고 공개 안전 요약
           (summary)이 있는 것. 명제 전문·숨은 정보로 대체하지 않는다. 같은 장면 NPC가 내용을 안다는
           사실만으로는 후보가 아니다(노출 계획 없음 = 후보 없음).
+          H07: 본 묘사에 준 관찰 신호의 exposes(저작 정보 — summary 필수)도 후보다(신호 = 노출 계획).
     신호: 본 묘사에 실제로 준 관찰 신호만. ACTIVE 사건의 미래 EMIT_SIGNAL은 나열하지 않는다.
     """
     world = plan.projected_world if plan is not None and plan.projected_world is not None else (
@@ -392,6 +393,18 @@ def build_observation_manifest(definition: dict, ctx, plan, base_world) -> Obser
         if (pc_recs.get(iid) or {}).get("awareness") == _cog.CONTENT or not _scene_relevant(g, scene, rec):
             continue
         cand[iid] = summary
+    # H07: 이번 본 묘사에 준 관찰 신호가 노출할 수 있는 정보(저작 정의의 공개 안전 summary만)
+    if planned:
+        istate = world.domain("information_state") or {}
+        for s in observable_signals(plan.signals):
+            for iid in s.get("exposes") or ():
+                rec = _info.resolve_definition(definition, istate, iid) or {}
+                summary = rec.get("summary")
+                if not isinstance(summary, str) or not summary.strip():
+                    continue
+                if (pc_recs.get(iid) or {}).get("awareness") == _cog.CONTENT:
+                    continue
+                cand.setdefault(iid, summary)
     infos = tuple((f"X{n}", iid, cand[iid]) for n, iid in enumerate(sorted(cand), 1))
     sigs = [((s["signal_id"], s["instance_id"]), s["cue"])
             for s in observable_signals(plan.signals if plan is not None else ())]

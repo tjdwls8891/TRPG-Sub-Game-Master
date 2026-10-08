@@ -1169,8 +1169,12 @@ def _compile_spatial_seeds(raw, place_defs, edges, access, caps, d):
 
 _TPL_KEYS = ("version", "name", "slots", "distinct", "spawn_when", "repeat_policy", "max_occurrences",
              "access_when", "phase_selector", "phases", "transition_cases", "case_selection", "case_required",
-             "resolve_when", "cancel_when")
-_PHASE_KEYS = ("eligible_when", "retain_when", "priority", "base_score", "score_terms", "rank", "terminal")
+             "resolve_when", "cancel_when", "relevance_places")
+_PHASE_KEYS = ("eligible_when", "retain_when", "priority", "base_score", "score_terms", "rank", "terminal",
+               "guide")
+# H07: phases[*].guide — 지시층위(GM 권한) 전용 상황 지침. 묘사·추출·판단층위에는 주지 않는다.
+#      relevance_places — 장면 장소(또는 그 상위)가 목록·바인딩된 PLACE 슬롯과 닿을 때만 지침을 싣는다.
+#      둘 다 저작된 경우에만 컴파일 결과에 키가 생긴다(미저작 시나리오의 정의·revision 불변).
 _CASE_KEYS = ("case_id", "from", "to", "valid_when", "weight", "steps")
 _STEP_PARAMS = {
     "SET_ACCESS_STATE": (("control", "state"), ()),
@@ -1184,8 +1188,10 @@ _STEP_PARAMS = {
     "SET_EVENT_LOCAL": (("key", "value"), ()),
     "SCHEDULE_WAKEUP": (("after_minutes",), ()),
     "SCHEDULE_EFFECT": (("after_minutes", "effect"), ("guard", "epoch_bound")),
-    "EMIT_SIGNAL": (("signal_id", "cue"), ("interrupt_policy", "observable_when")),
+    "EMIT_SIGNAL": (("signal_id", "cue"), ("interrupt_policy", "observable_when", "exposes")),
 }
+# H07: EMIT_SIGNAL.exposes — 이 신호가 묘사되면 PC가 알게 될 수 있는 저작 정보(공개 안전 summary 필수).
+#      관찰 매니페스트 후보가 될 뿐, 노출 확정은 확정 묘사의 추출 관찰(info_exposed)만 한다.
 _EFFECT_STEP_TYPES = ("SET_ACCESS_STATE", "SET_ACTOR_PLACEMENT", "START_MOVEMENT", "CREATE_INFORMATION",
                       "SUPERSEDE_INFORMATION", "ACQUIRE_INFORMATION", "SET_COGNITION_BELIEF",
                       "APPEND_RELATIONSHIP_DELTA", "SET_EVENT_LOCAL", "EMIT_SIGNAL")
@@ -1350,7 +1356,25 @@ def _compile_step(st, p, scope, access, edges, created, d, *, nested=False):
         if st.get("observable_when") is not None and not _pred_check(
                 st["observable_when"], scope, f"{p}.observable_when", d, phase_time=True):
             ok = False
+        if "exposes" in st:
+            ex = st["exposes"]
+            if not isinstance(ex, list) or not ex or len(set(map(str, ex))) != len(ex):
+                bad("STEP_PARAMS_INVALID", "exposes는 중복 없는 InfoId(또는 INFO 슬롯) 목록")
+            else:
+                for v in ex:
+                    ref_id(v, "InfoId", scope.infos, "INFO")
     return out if ok else None
+
+
+def _exposed_infos(steps):
+    """케이스 step(중첩 예약 효과 포함)의 EMIT_SIGNAL.exposes 중 슬롯이 아닌 InfoId."""
+    for st in steps or ():
+        if st.get("type") == "SCHEDULE_EFFECT" and isinstance(st.get("effect"), dict):
+            yield from _exposed_infos([st["effect"]])
+        elif st.get("type") == "EMIT_SIGNAL":
+            for v in st.get("exposes") or ():
+                if isinstance(v, str) and not v.startswith("$"):
+                    yield v
 
 
 def _fixed_write_key(st):
@@ -1433,6 +1457,19 @@ def _compile_event_templates(raw, caps, actors, actor_index, places, infos, acce
         if mx is not None and (pol != "REPEATABLE" or not _is_int_ge(mx, 1)):
             d.add(ERROR, "EVENT_MAX_OCCURRENCES_INVALID", f"{p}.max_occurrences",
                   "max_occurrences는 REPEATABLE의 1 이상 정수")
+        rel = body.get("relevance_places")
+        if rel is not None:
+            if not isinstance(rel, list) or not rel or len(set(map(str, rel))) != len(rel):
+                d.add(ERROR, "EVENT_RELEVANCE_INVALID", f"{p}.relevance_places",
+                      "relevance_places는 중복 없는 PlaceId(또는 PLACE 슬롯) 목록")
+            else:
+                for v in rel:
+                    if isinstance(v, str) and v.startswith(_refs.SLOT_PREFIX):
+                        if slot_types.get(v[len(_refs.SLOT_PREFIX):]) != "PLACE":
+                            d.add(ERROR, "EVENT_RELEVANCE_INVALID", f"{p}.relevance_places",
+                                  f"{v!r}는 PLACE 슬롯이 아닙니다")
+                    elif v not in places:
+                        d.add(ERROR, "EVENT_RELEVANCE_INVALID", f"{p}.relevance_places", f"정의되지 않은 장소 {v!r}")
         for k in ("access_when", "resolve_when", "cancel_when"):
             if body.get(k) is not None:
                 _pred_check(body[k], scope, f"{p}.{k}", d, phase_time=True)
@@ -1484,6 +1521,11 @@ def _compile_event_templates(raw, caps, actors, actor_index, places, infos, acce
                            "retain_when": copy.deepcopy(ph.get("retain_when")),
                            "priority": ph.get("priority"), "base_score": ph.get("base_score") or 0,
                            "score_terms": terms, "rank": ph.get("rank"), "terminal": bool(ph.get("terminal"))}
+            if "guide" in ph:
+                if not isinstance(ph["guide"], str) or not ph["guide"].strip():
+                    d.add(ERROR, "EVENT_PHASE_GUIDE_INVALID", f"{pp}.guide", "guide는 비어 있지 않은 문자열")
+                else:
+                    phases[pid]["guide"] = ph["guide"]
         prios = {}
         for pid in sorted(phases):
             pr = phases[pid]["priority"]
@@ -1533,6 +1575,11 @@ def _compile_event_templates(raw, caps, actors, actor_index, places, infos, acce
                               f"같은 케이스에서 {key[0]} {key[1]!r}에 서로 다른 고정값을 씁니다")
                     fixed.setdefault(key, val)
                 steps.append(ns)
+            for iid in _exposed_infos(steps):
+                summ = (infos.get(iid) or {}).get("summary")
+                if not isinstance(summ, str) or not summ.strip():
+                    d.add(ERROR, "SIGNAL_EXPOSES_SUMMARY_REQUIRED", cp,
+                          f"노출 정보 {iid!r}에 공개 안전 summary가 없습니다(추출층위에 명제 전문을 주지 않습니다)")
             cases.append({"case_id": c["case_id"], "from": frm, "to": to,
                           "valid_when": copy.deepcopy(c.get("valid_when")), "weight": w, "steps": steps})
         case_sel = body.get("case_selection", "DETERMINISTIC_WEIGHTED")
@@ -1561,6 +1608,7 @@ def _compile_event_templates(raw, caps, actors, actor_index, places, infos, acce
                     "case_required": bool(body.get("case_required")),
                     "resolve_when": copy.deepcopy(body.get("resolve_when")),
                     "cancel_when": copy.deepcopy(body.get("cancel_when")),
+                    **({"relevance_places": list(rel)} if rel is not None else {}),
                     "dependency": {"spawn": spawn_keys, "instance": inst_keys, "wildcards": wild},
                     "has_time_predicates": any(_pr.time_atoms(x) for x in inst_preds + [body["spawn_when"]] if x),
                     "source_ref": ["event_templates", tid]}
@@ -1767,6 +1815,20 @@ def _compile_world_starts(raw, init, place_defs, seeds, calendar, caps, d):
             continue
         if ws["place"] not in place_defs:
             d.add(ERROR, "WORLD_START_PLACE_UNKNOWN", f"{p}.place", f"정의되지 않은 장소 {ws['place']!r}")
+            continue
+        # H07: 인트로 문안의 장소·시각이 정본 시작점과 갈라지지 않게 한다 — world_start 틀에서는
+        # 무작위 시작 지점 슬롯(place:)과, facts의 시간·장소를 채우는 무작위 목록 슬롯(list:)을 쓰지 않는다.
+        frame = by_id[fr["id"]]
+        random_slots = {n for n, s in frame["slots"].items() if s["source"] in ("place", "list")}
+        bad_slots = sorted(n for n, s in frame["slots"].items() if s["source"] == "place")
+        for fk in ("time", "location", "date"):
+            tpl = (frame.get("fact_templates") or {}).get(fk)
+            if isinstance(tpl, str):
+                bad_slots += sorted(n for n in random_slots if "{" + n + "}" in tpl and n not in bad_slots)
+        if bad_slots:
+            d.add(ERROR, "WORLD_START_SLOT_RANDOM", p,
+                  f"world_start 틀의 무작위 슬롯 {bad_slots}이 인트로 장소·시각을 정본 시작점과 다르게 만들 수 있습니다"
+                  " — 고정 문안(literal)으로 저작하십시오")
             continue
         seed = ws.get("knowledge_seed")
         if seed is not None and seed not in (seeds or {}):

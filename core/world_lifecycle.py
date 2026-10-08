@@ -229,6 +229,7 @@ def build_initial_world_plan(definition: dict, session, choices: StartChoices, *
         _mk(prefix, "scene", _sp.OP_SCENE_PLACE_SET, {"place_id": choices.start_place}),
     ]
     know = []
+    rec = {}
     if choices.knowledge_seed:
         rec = _sp.seed_knowledge(definition, choices.knowledge_seed)
         for pid, f in rec["places"].items():
@@ -243,6 +244,10 @@ def build_initial_world_plan(definition: dict, session, choices: StartChoices, *
     visit = [_mk(prefix, "visit", _sp.OP_PLACE_KNOWLEDGE_UPSERT, {
         "actor_id": pc, "place_id": choices.start_place,
         "fields": {"knows_name": True, "visited": True}})]
+    # H07: 시작 장소에서 보이는 출구(PUBLIC·LOCAL)와 그 너머 장소 이름 — 도착 규칙과 같다
+    view = _pw.local_view_ops(f"{prefix}.view", definition, None, [pc], choices.start_place,
+                              knowledge={"places": dict(rec.get("places") or {}, **{choices.start_place: {}}),
+                                         "edges": rec.get("edges") or {}})
     # ① 시계만 먼저 투영(진행 엔진은 초기화된 시계 위에서만 돈다)
     clock_batch = _wm.WorldMutationBatch(batch_id=f"{prefix}.clock", outer_origin=_ws.CAUSE_INITIALIZATION,
                                          source_world_version_id=None, definition_revision=None)
@@ -254,7 +259,7 @@ def build_initial_world_plan(definition: dict, session, choices: StartChoices, *
                                 diagnostics=[c.message for c in pr.conflicts])
     w1 = pr.world
     wake = _wp.initial_template_wakeups(definition, w1, narrative_seed=narrative_seed, op_prefix=f"{prefix}.wk")
-    base_ops = _pw.chain(base, know, visit, wake)
+    base_ops = _pw.chain(base, know, visit, view, wake)
     # ② 시작 분에서 전수 검사 1회 — 성립하는 spawn·정보 계열만(정규 진행 규칙 그대로)
     r = _wp.project_world_progression(definition, w1, choices.start_minute, base_ops=base_ops,
                                       progress={"observer_actor": pc, "scene_place": choices.start_place},

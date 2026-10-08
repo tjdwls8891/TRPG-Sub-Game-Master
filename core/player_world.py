@@ -303,7 +303,42 @@ def chain(*groups) -> list:
     return out
 
 
-def _arrival_ops(prefix, pcs, edge_id, to_place, minute, *, scene=True):
+LOCAL_VIEW_SOURCE = "LOCAL_VIEW"
+
+
+def local_view_ops(prefix, definition, world, actors, place_id, *, knowledge=None) -> list:
+    """H07: 장소에 있는 행위자가 그 자리에서 보는 출구(PUBLIC·LOCAL 구간)와 그 너머 장소 이름을 안다.
+
+    RESTRICTED·SECRET 구간은 보이지 않는다(저작 분류). 실제 접근 상태·구간 성질은 알려 주지 않는다 —
+    연결의 존재만(connection_known). 이미 아는 것은 다시 쓰지 않는다(world가 주어질 때).
+    """
+    if not definition or not place_id:
+        return []
+    edges = definition.get("movement_edges") or {}
+    out = []
+    for n, actor in enumerate(actors):
+        know = knowledge if knowledge is not None else (_sp.actor_knowledge(world, actor) if world is not None else {})
+        for eid in sorted(edges):
+            e = edges[eid]
+            if e.get("from") != place_id or e.get("knowledge_visibility") not in _sp.FAMILIARITY_VISIBILITY:
+                continue
+            if not _sp.knows_edge(know, eid):
+                out.append(_mk(prefix, f"lv{n}.e.{eid}", _sp.OP_EDGE_KNOWLEDGE_UPSERT, {
+                    "actor_id": actor, "edge_id": eid,
+                    "fields": {"connection_known": True, "acquisition_sources": [LOCAL_VIEW_SOURCE]}}))
+            if not _sp.knows_place(know, e["to"]):
+                out.append(_mk(prefix, f"lv{n}.p.{e['to']}", _sp.OP_PLACE_KNOWLEDGE_UPSERT, {
+                    "actor_id": actor, "place_id": e["to"],
+                    "fields": {"knows_name": True, "acquisitions": [LOCAL_VIEW_SOURCE]}}))
+    seen, uniq = set(), []
+    for op in out:
+        if op.op_id not in seen:
+            seen.add(op.op_id)
+            uniq.append(op)
+    return uniq
+
+
+def _arrival_ops(prefix, pcs, edge_id, to_place, minute, *, scene=True, definition=None, world=None):
     ops = []
     for n, pc in enumerate(pcs):
         ops.append(_mk(prefix, f"arr{n}", _sp.OP_ACTOR_PLACEMENT_SET, {"actor_id": pc, "place_id": to_place}))
@@ -314,6 +349,7 @@ def _arrival_ops(prefix, pcs, edge_id, to_place, minute, *, scene=True):
             "actor_id": pc, "place_id": to_place, "fields": {"visited": True}}))
     if scene:
         ops.append(_mk(prefix, "scene", _sp.OP_SCENE_PLACE_SET, {"place_id": to_place}))
+    ops += local_view_ops(prefix, definition, world, pcs, to_place)
     return ops
 
 
@@ -517,7 +553,7 @@ def _plan_transit_movement(ctx, plan, run, tr, now, dest, intent, pre_ops, *, ca
         plan.outcome["interrupt"] = r.foreground_interrupt
         plan.code_owned_minutes = (run.now() or now) - now
         return _finish(plan, run, OUT_INTERRUPTED_SIGNAL)
-    r2 = run.step(_arrival_ops(f"{run.prefix}.c", pcs, eid, to, end), end, _progress(lead, to))
+    r2 = run.step(_arrival_ops(f"{run.prefix}.c", pcs, eid, to, end, definition=D, world=run.world), end, _progress(lead, to))
     if r2 is None:
         return _finish(plan, run, None)
     plan.transit = None
@@ -606,7 +642,8 @@ def _plan_movement(ctx, plan, run, src, here, now, dest, intent, pre_ops, *, cap
                 break
             minute = start
         if end == start:                                    # 0분 구간 — 같은 분 도착
-            pending = chain(pending, obs, _arrival_ops(f"{run.prefix}.a{i}", pcs, eid, e["to"], minute))
+            pending = chain(pending, obs, _arrival_ops(f"{run.prefix}.a{i}", pcs, eid, e["to"], minute,
+                                                                    definition=D, world=run.world))
             cur = e["to"]
             continue
         mid = "mv_" + stable_digest("player.movement.v1", transaction_id, eid, minute, length=16)
@@ -624,7 +661,7 @@ def _plan_movement(ctx, plan, run, src, here, now, dest, intent, pre_ops, *, cap
                             "minute": r.reached_minute}
             plan.outcome["interrupt"] = r.foreground_interrupt
             break
-        pending = _arrival_ops(f"{run.prefix}.a{i}", pcs, eid, e["to"], end)
+        pending = _arrival_ops(f"{run.prefix}.a{i}", pcs, eid, e["to"], end, definition=D, world=run.world)
         cur, minute = e["to"], end
         if r.status == _wp.FOREGROUND_INTERRUPT:            # 도착 분의 신호 — 도착 후 멈춘다
             outcome = OUT_INTERRUPTED_SIGNAL if i < len(seq) - 1 else OUT_ARRIVED

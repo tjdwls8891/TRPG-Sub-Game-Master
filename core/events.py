@@ -447,6 +447,9 @@ def _s_signal(step, sctx, parents):
     sig = {"signal_id": step["signal_id"], "instance_id": sctx.iid, "minute": sctx.now, "cue": step["cue"],
            "interrupt_policy": step.get("interrupt_policy", "NONE"), "observability": obs,
            "observable": obs == _pred.TRUE, "source_ref": sctx.cause(step["step_id"])}
+    if step.get("exposes"):
+        # H07: 묘사되면 PC가 알 수 있는 저작 정보(관찰 매니페스트 후보). 노출 확정은 추출 관찰만 한다.
+        sig["exposes"] = sorted({x for x in (sctx.resolve(v) for v in step["exposes"]) if x})
     return StepResult(signals=[sig])
 
 
