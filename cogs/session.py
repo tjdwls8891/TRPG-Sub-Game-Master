@@ -51,10 +51,10 @@ class JoinModal(discord.ui.Modal, title="세션 참가"):
     async def on_submit(self, interaction: discord.Interaction):
         name = str(self.char_name).strip()
         uid = str(interaction.user.id)
-        if core.world_lifecycle.world_bound(self.session) and uid not in (self.session.players or {}):
+        if core.world_lifecycle.joins_blocked(self.session) and uid not in (self.session.players or {}):
             # H06: 동적 세계 세션은 단일 PC — 초기화 뒤 참가자를 늘리지 않는다(다인 동적 의미 없음)
             await interaction.response.send_message(
-                "⚠️ 이 세션은 1인 동적 세계로 시작되어 참가자를 더 받을 수 없습니다.", ephemeral=True)
+                "⚠️ 이 세션은 참가자를 더 받을 수 없습니다(1인 동적 세계 또는 종료 진행·종료).", ephemeral=True)
             return
         base_profile = (self.session.scenario_data.get("pc_template") or {}).copy()
 

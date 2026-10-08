@@ -713,6 +713,9 @@ async def open_window(bot, session, *, say=None, quoted_tokens: int | None = Non
     from . import accounts
     from .cost import cache_usd_to_ink, cache_window_estimate_usd
     sid = session.session_id
+    if getattr(session, "world_lifecycle", None) in ("CLOSING", "CLOSED"):
+        # H06: 종료 진행·종료된 세션은 다시 열지 않는다(환급 뒤 재개 금지)
+        raise CacheLifecycleError("종료 진행 중이거나 종료된 세션은 다시 열 수 없습니다")
     async with lifecycle_lock(sid):
         if getattr(session, "cache_name", None):
             return {"ok": True, "already": True}

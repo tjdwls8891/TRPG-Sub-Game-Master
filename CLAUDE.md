@@ -271,12 +271,12 @@ READY와 `canonical_mutation`은 투영 결과의 **base quiescence**를 증명�
 
 | 모듈 | 내용 |
 |---|---|
-| `world_lifecycle.py` | 유일한 생애주기 owner — 정의 스냅샷 바인딩(`definition_revision` 단일 writer)·시작 틀 저작 `world_start` → InitialWorldPlan → `CanonicalMutationCoordinator(INITIALIZATION)` genesis(멱등)·생애주기 `world_lifecycle`(INITIALIZED/OPEN/CLOSED)·재시작 검증(`restore`)·종료 안전 지점(`close_blocked_reason`·`close_session`) |
+| `world_lifecycle.py` | 유일한 생애주기 owner — 정의 스냅샷 바인딩(`definition_revision` 단일 writer)·시작 틀 저작 `world_start` → InitialWorldPlan → `CanonicalMutationCoordinator(INITIALIZATION)` genesis(멱등)·생애주기 `world_lifecycle`(INITIALIZED/OPEN/CLOSING/CLOSED)·재시작 검증(`restore`)·종료 안전 지점(`close_blocked_reason`·`close_session`) |
 | `cache_source.py` | `FrozenCacheBuildSource` — 짧은 io 락 캡처(바인딩 스냅샷 원문·기준 world_version·이력 표식), 락 밖 조립·생성. 생성 중 revision 변경 세대는 비활성 |
 | `admin_world_edit.py` | typed ADMIN_EDIT 서비스(활성 턴·이력 조작·stale 거부, no-op은 version 없음, 턴 수·청구 불변) — 운영자 명령 없음 |
 
 DYNAMIC = 단일 PC + 스냅샷 바인딩 + 필수 capability + 생애주기 OPEN + 시계 + PC 배치(AT_PLACE 또는 TRANSIT). 초기화된 세션에서 정의를 읽을 수 없거나 PC가 늘면 BLOCKED(턴 거부). 바인딩 세션은 재시작 때 `scenario_data`를 스냅샷 원문으로 되돌린다(원본 drift 무시). 사건 조건 holder `$session_pc`는 COGNITION_AWARENESS 전용(PC 믿음 조건은 컴파일 오류). 재서술은 그 턴의 revision이 현재 바인딩과 같을 때만, 보존된 의미 선택으로 세계 계획을 다시 세운다.
-R2: 초기화 실패는 fail-closed(실패 표식 strict 저장 — LEGACY 진행·인트로 금지, 재시도 버튼). 인트로가 실제로 성공해야 OPEN(strict)·첫 라운드. `!세션종료`는 LEGACY·DYNAMIC 모두 CLOSED(strict)로 끝나고 활성 등록을 내리며, 재시작은 CLOSED 세션을 다시 올리지 않는다(`disp:close`는 재오픈 가능한 캐시 창 종료로 별개). DYNAMIC 시작의 장소·시간 owner는 저작 `world_start` → genesis 하나(시작 틀 facts는 LEGACY에서만 적용, 표시용 `world_timeline`은 정본에서 파생). genesis에 저작 NPC를 ActorRegistry로 등록한다(위치 추론 없음). 플레이 가능한 이동 공간은 일반 PlaceId다 — 중간 장소 도착은 독립 진행이라 도착 사건이 그 장소에서 멈추고, 구간 안 중단은 TRANSIT을 유지하며 다음 턴에 남은 시간만 이어 간다(경로 무효화 시 강행 없음). 플레이어 턴의 필수 연산이 handler에서 거부되면 결정적 충돌(묘사 전 실패)이다.
+R2: 초기화 실패는 fail-closed(실패 표식 strict 저장 — LEGACY 진행·인트로 금지, 재시도 버튼). 인트로가 실제로 성공해야 OPEN(strict)·첫 라운드. `!세션종료`는 LEGACY·DYNAMIC 모두 OPEN → CLOSING(strict) → 캐시 단일 finalizer → CLOSED(strict)로 끝나고 활성 등록을 내린다. 환급 뒤 CLOSED 저장이 실패해도 durable CLOSING이 남아 턴·참가·재개(캐시 재오픈)를 막고, 재시도·재시작이 환급 반복 없이 CLOSED를 완성한다. 재시작은 CLOSED 세션을 다시 올리지 않는다(`disp:close`는 재오픈 가능한 캐시 창 종료로 별개). DYNAMIC 시작의 장소·시간 owner는 저작 `world_start` → genesis 하나(시작 틀 facts는 LEGACY에서만 적용, 표시용 `world_timeline`은 정본에서 파생). genesis에 저작 NPC를 ActorRegistry로 등록한다(위치 추론 없음). 플레이 가능한 이동 공간은 일반 PlaceId다 — 중간 장소 도착은 독립 진행이라 도착 사건이 그 장소에서 멈추고, 구간 안 중단은 TRANSIT을 유지하며 다음 턴에 남은 시간만 이어 간다(경로 무효화 시 강행 없음). 플레이어 턴의 필수 연산이 handler에서 거부되면 결정적 충돌(묘사 전 실패)이다.
 
 #### 기억
 
@@ -515,7 +515,7 @@ pip install -r requirements-dev.txt
 python3 -m pytest tests/ -q
 ```
 
-`tests/`는 **현재 동작과 권위 불변식을 고정**한다. 현재 1,068건(특성화 61 · 결함 27 · 정책 980)이 모두 통과하며 strict xfail은 0건이다.
+`tests/`는 **현재 동작과 권위 불변식을 고정**한다. 현재 1,072건(특성화 61 · 결함 27 · 정책 984)이 모두 통과하며 strict xfail은 0건이다.
 
 | 분류 | 의미 |
 |---|---|

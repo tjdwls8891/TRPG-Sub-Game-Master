@@ -14,3 +14,9 @@
 | R2-07 | 확인된 결함 — 진행 엔진의 `UNIT_REJECTED(base)`가 플레이어 턴에서 무시돼 필수 연산 탈락 상태로 묘사·커밋 가능(고장 주입 반례). `_Run.step`·`process_observation`에서 결정적 충돌로 처리(묘사 전 FAILED_SYSTEM, 청구 0). 현 데이터의 자연 발생 경로는 찾지 못함(플래너 사전 검사·컴파일러가 PC 대상 사건 효과를 막음) |
 
 검증: 신규 R2 테스트 21건(수정 전 1dacdda: 19 실패 · 2 통과[보존]) + 특성화 1건, H06 전체 74 passed, H05 전체 68 passed, H01~H04 294 passed, 전체 **1,068 passed**, compileall OK, scenario_check ERROR 0, provider 19, `prompts.py`·`scenarios/` diff 0, 5개 시나리오 revision 불변.
+
+## 추가 보정 — 종료 durability (31c984d 이후)
+
+- 결함: 환급·finalize가 durable하게 끝난 뒤 CLOSED strict 저장이 실패하면 `world_lifecycle`을 이전 값으로 되돌려 세션이 다시 OPEN(LEGACY는 None)으로 플레이 가능했다.
+- 보정: OPEN → **CLOSING**(strict, 환급 전 — 실패 시 안전 복귀) → 기존 캐시 단일 finalizer → CLOSED(strict, 실패 시 durable CLOSING 유지). CLOSING은 턴·참가·재개(`open_window` 입구)를 모두 막는다. 재시작은 CLOSING을 캐시 복구보다 먼저 기존 finalizer로 완성(멱등 — 환급 반복 없음)하고, CLOSED가 되면 활성 등록하지 않는다. 새 재무 경로 없음.
+- 검증: 신규 4건(수정 전 4 실패), 전체 1,072 passed.

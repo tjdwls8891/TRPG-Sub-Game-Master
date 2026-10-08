@@ -30,8 +30,10 @@ from .world_ids import stable_digest
 
 LIFECYCLE_INITIALIZED = "INITIALIZED"     # genesis 커밋됨 — 아직 열리지 않음(인트로 전)
 LIFECYCLE_OPEN = "OPEN"                   # 인트로 완료 — DYNAMIC 자동 턴 가능
+LIFECYCLE_CLOSING = "CLOSING"             # 종료 진행 중(strict) — 모든 진행 차단, 재무 finalize 뒤 CLOSED로만 간다
 LIFECYCLE_CLOSED = "CLOSED"               # 세션 종료(세계 상태는 그대로 보존)
-LIFECYCLES = (LIFECYCLE_INITIALIZED, LIFECYCLE_OPEN, LIFECYCLE_CLOSED)
+LIFECYCLES = (LIFECYCLE_INITIALIZED, LIFECYCLE_OPEN, LIFECYCLE_CLOSING, LIFECYCLE_CLOSED)
+ENDING = (LIFECYCLE_CLOSING, LIFECYCLE_CLOSED)
 
 # 영속 생애주기 필드는 core.world_state.LIFECYCLE_FIELDS(단일 출처)
 LIFECYCLE_FIELDS = _ws.LIFECYCLE_FIELDS
@@ -73,6 +75,16 @@ def is_closed(session) -> bool:
     return getattr(session, "world_lifecycle", None) == LIFECYCLE_CLOSED
 
 
+def is_ending(session) -> bool:
+    """종료 진행 중(CLOSING) 또는 종료(CLOSED) — 턴·참가·재개를 모두 막는다(LEGACY·DYNAMIC 공통)."""
+    return getattr(session, "world_lifecycle", None) in ENDING
+
+
+def joins_blocked(session) -> bool:
+    """추가 참가 금지 — 동적 세계 바인딩(단일 PC) 또는 종료 진행·종료."""
+    return world_bound(session) or is_ending(session)
+
+
 def init_failed(session) -> bool:
     """DYNAMIC 대상이었으나 초기화가 실패해 재시도를 기다리는 상태(fail-closed — LEGACY 진행 금지)."""
     rec = getattr(session, "world_initialization", None) or {}
@@ -85,7 +97,7 @@ def compile_candidate(session):
     R2: 이전 시도가 이미 durable 정의 스냅샷을 남겼다면 그것을 쓴다 — 현재 원본으로 다시 컴파일해
     스냅샷을 조용히 교체하지 않는다(스냅샷이 손상이면 후보가 아니라 실패로 남는다).
     """
-    if world_bound(session) or is_closed(session):
+    if world_bound(session) or is_ending(session):
         return None, "already_bound"
     if len(player_uids(session)) != 1:
         return None, "not_single_pc"
@@ -388,6 +400,8 @@ def blocked_reason(session) -> str | None:
         return "세계가 초기화됐지만 세션이 아직 열리지 않았습니다(캐시·인트로 대기)"
     if lc == LIFECYCLE_CLOSED:
         return "세션이 종료됐습니다"
+    if lc == LIFECYCLE_CLOSING:
+        return "세션 종료가 진행 중입니다(운영자 재시도로 완료)"
     from . import player_world as _pw
     ctx = _pw.session_world_context(session)
     if ctx.mode == _pw.MODE_BLOCKED:
@@ -447,34 +461,57 @@ def close_blocked_reason(session) -> str | None:
 async def close_session(bot, session, *, reason: str) -> dict:
     """운영자 세션 종료 — 생애주기 + 캐시/재무 작업(세계 변이 아님). LEGACY·DYNAMIC 모두 CLOSED가 된다.
 
-    1 정본 직렬화 락(배타) → 2 안전 지점 검사 → 3·4·5 캐시 생애주기 단일 finalizer(실제 보관비 정산 ·
-    미사용 선불 환급 정확히 한 번 · 초과분은 운영자 부담) → 6 CLOSED strict 영속 → 8 활성 등록 제거.
-    (7 보고·채널 잠금은 호출자.) 세계(시계·사건·예약·공간·인지·정보)·게임 이력은 바꾸지 않는다.
-    환급이 durable하게 끝나지 않았거나 CLOSED strict 저장이 실패하면 성공으로 보고하지 않는다 —
-    재시도는 같은 finalizer의 멱등성으로 중복 환급 없이 이어 간다.
+    1 정본 직렬화 락(배타) → 2 안전 지점 검사 → 3 CLOSING strict 영속(이후 모든 진행·참가·재개 차단)
+    → 4·5 캐시 생애주기 단일 finalizer(실제 보관비 정산 · 미사용 선불 환급 정확히 한 번 · 초과분 운영자 부담)
+    → 6 CLOSED strict 영속 → 8 활성 등록 제거. (7 보고·채널 잠금은 호출자.)
+    · CLOSING 진입 저장 실패: 환급 전이므로 이전 상태로 안전 복귀.
+    · finalize 뒤 CLOSED 저장 실패: durable CLOSING 유지 — OPEN으로 되돌리지 않는다(재시도·재시작이 완성).
+    · 재시도는 같은 finalizer의 멱등성으로 환급·finalize를 반복하지 않는다.
+    세계(시계·사건·예약·공간·인지·정보)·게임 이력은 바꾸지 않는다.
     """
-    from . import cache_lifecycle as _cl
-    from . import io as _io
     from .commit_coordinator import commit_serialization_lock
     async with commit_serialization_lock(session.session_id):
-        if not is_closed(session):
+        lc = getattr(session, "world_lifecycle", None)
+        if lc not in ENDING:
             why = close_blocked_reason(session)
             if why:
                 return {"ok": False, "reason": why}
-        res = {"storage_krw": 0.0, "refund": {}, "settled": True, "remote": None}
-        if getattr(session, "cache_name", None) or _cl.view(session.session_id).open_window_id():
-            res = await _cl.close_window(bot, session, reason=reason, disposition=_cl.WINDOW_SETTLE_REFUND)
-        if not res.get("settled", True) and _cl.view(session.session_id).open_window_id():
-            return {**res, "ok": False, "reason": "환급 기록이 완료되지 않았습니다(재시도)"}
-        prev = getattr(session, "world_lifecycle", None)
+            from . import io as _io
+            session.world_lifecycle = LIFECYCLE_CLOSING
+            try:
+                await _io.save_session_data_strict(bot, session)
+            except Exception as e:  # noqa: BLE001 — 환급 시작 전: 안전 복귀
+                session.world_lifecycle = lc
+                return {"ok": False, "reason": f"CLOSING 영속 실패(재시도): {type(e).__name__}"}
+        return await _complete_closing_locked(bot, session, reason=reason)
+
+
+async def _complete_closing_locked(bot, session, *, reason: str) -> dict:
+    """CLOSING(또는 CLOSED) 세션의 종료를 완성한다 — 기존 finalizer 재사용, CLOSED strict 영속만 추가."""
+    from . import cache_lifecycle as _cl
+    from . import io as _io
+    res = {"storage_krw": 0.0, "refund": {}, "settled": True, "remote": None}
+    if getattr(session, "cache_name", None) or _cl.view(session.session_id).open_window_id():
+        res = await _cl.close_window(bot, session, reason=reason, disposition=_cl.WINDOW_SETTLE_REFUND)
+    if not res.get("settled", True) and _cl.view(session.session_id).open_window_id():
+        return {**res, "ok": False, "reason": "환급 기록이 완료되지 않았습니다(재시도)"}
+    if getattr(session, "world_lifecycle", None) != LIFECYCLE_CLOSED:
         session.world_lifecycle = LIFECYCLE_CLOSED
         try:
             await _io.save_session_data_strict(bot, session)
-        except Exception as e:  # noqa: BLE001
-            session.world_lifecycle = prev
+        except Exception as e:  # noqa: BLE001 — finalize 뒤: durable CLOSING 유지(OPEN 복귀 금지)
+            session.world_lifecycle = LIFECYCLE_CLOSING
             return {**res, "ok": False, "reason": f"CLOSED 영속 실패(재시도): {type(e).__name__}"}
-        deactivate(bot, session)
-        return {**res, "ok": True}
+    deactivate(bot, session)
+    return {**res, "ok": True}
+
+
+async def recover_closing(bot, session) -> dict:
+    """재시작 — durable CLOSING 세션의 종료를 완성한다(활성 등록 전). 환급·finalize는 멱등 재사용."""
+    from . import cache_lifecycle as _cl
+    from .commit_coordinator import commit_serialization_lock
+    async with commit_serialization_lock(session.session_id):
+        return await _complete_closing_locked(bot, session, reason=_cl.REASON_OPERATOR_END)
 
 
 def deactivate(bot, session) -> list:

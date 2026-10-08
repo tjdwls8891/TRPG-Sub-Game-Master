@@ -43,7 +43,7 @@ IDENTITY_FIELDS = {
 }
 
 # H06: 영속 · 비가역(되감기 대상 아님) 동적 세계 생애주기 — 기본값이 곧 레거시 의미(미초기화).
-#   world_lifecycle       None | INITIALIZED | OPEN | CLOSED (core.world_lifecycle가 유일한 writer)
+#   world_lifecycle       None | INITIALIZED | OPEN | CLOSING | CLOSED (core.world_lifecycle가 유일한 writer)
 #   world_initialization  {initialization_id, mutation_id, definition_revision, start_choices, genesis_version_id}
 LIFECYCLE_FIELDS = {
     "world_lifecycle": None,

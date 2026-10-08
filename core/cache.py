@@ -508,6 +508,14 @@ async def restore_sessions_from_disk(bot):
                 session.raw_logs = restored_raw_logs
 
                 # ── H06 R2: 종료(CLOSED)된 세션은 활성 게임 표면에 다시 올리지 않는다(저장·감사·재무 기록은 보존) ──
+                if getattr(session, "world_lifecycle", None) == "CLOSING":
+                    # 종료 진행 중 크래시 — 캐시 복구(재생성)보다 먼저 기존 finalizer로 종료를 완성한다
+                    try:
+                        from . import world_lifecycle as _wlc
+                        _cr0 = await _wlc.recover_closing(bot, session)
+                        print(f"⏹️ {session_id}: 종료 진행 복구 ok={_cr0.get('ok')} ({_cr0.get('reason', '')})")
+                    except Exception as _ce0:
+                        print(f"⛔ {session_id}: 종료 진행 복구 실패(차단 유지): {_ce0}")
                 if getattr(session, "world_lifecycle", None) == "CLOSED":
                     print(f"⏹️ {session_id}: 종료된 세션 — 활성 등록하지 않습니다.")
                     continue

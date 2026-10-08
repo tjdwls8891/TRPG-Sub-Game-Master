@@ -135,8 +135,8 @@ async def test_r2_02_strict_closed_save_failure_not_success_and_retry_no_double_
     state = {"n": 0}
 
     async def _flaky(bot, session):
-        state["n"] += 1
-        if state["n"] == 1:
+        if session.world_lifecycle == WL.LIFECYCLE_CLOSED and state["n"] == 0:   # CLOSED 확정 저장만 1회 실패
+            state["n"] += 1
             raise cio.SessionPersistenceError("strict 저장 실패(주입)")
         return await orig(bot, session)
     monkeypatch.setattr(cio, "save_session_data_strict", _flaky)

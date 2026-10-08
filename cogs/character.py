@@ -326,9 +326,9 @@ class CharacterCog(commands.Cog):
             return
 
         user_id_str = str(ctx.author.id)
-        if core.world_lifecycle.world_bound(session) and user_id_str not in (session.players or {}):
+        if core.world_lifecycle.joins_blocked(session) and user_id_str not in (session.players or {}):
             # H06: 동적 세계 세션은 단일 PC — 초기화 뒤 참가자를 늘리지 않는다(다인 동적 의미 없음)
-            await ctx.send("⚠️ 이 세션은 1인 동적 세계로 시작되어 참가자를 더 받을 수 없습니다.")
+            await ctx.send("⚠️ 이 세션은 참가자를 더 받을 수 없습니다(1인 동적 세계 또는 종료 진행·종료).")
             return
         base_profile = session.scenario_data.get("pc_template", {}).copy()
 
