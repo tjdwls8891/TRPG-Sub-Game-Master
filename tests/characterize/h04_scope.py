@@ -1,7 +1,8 @@
 # -*- coding: utf-8 -*-
 """H04 도메인 모듈 목록(특성화 스캔 공유). 플레이어·cogs 경로 배선은 H05."""
+# H07: npc_position(유효 위치 읽기 모델 — 정본 override > 평상시 일과 > untracked)도 같은 순수 세계 엔진 계층이다.
 H04_DOMAIN_MODULES = ("world_refs", "actors", "information", "cognition", "relationships",
-                      "npc_projection", "predicates", "events", "world_progression")
+                      "npc_projection", "predicates", "events", "world_progression", "npc_position")
 H04_DOMAIN_FILES = tuple(f"{m}.py" for m in H04_DOMAIN_MODULES)
 
 

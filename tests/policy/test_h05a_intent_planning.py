@@ -151,10 +151,15 @@ def test_unregistered_or_hidden_destination_never_becomes_canonical():
     assert PW.plan_player_turn(ctx_of(s), s, local, transaction_id="t", narrative_seed=SEED).ops == ()
 
 
-def test_known_place_without_known_route_does_not_reveal_route():
+def test_known_place_without_known_route_departs_by_public_graph_not_secret():
+    """H07 supersede(사용자 결정): 이름은 알지만 길을 몰라도 PUBLIC/LOCAL 일반 그래프로 출발할 수 있다.
+    모르는 SECRET 통로는 후보에 나오지 않는다(숨은 길 비노출 유지)."""
     s, _ = make_session(edges=())                                        # 이름은 알지만 길을 모름
     p, _, _ = plan(s, go(manifest(s), "성당"))
-    assert p.status == PW.PLAN_REJECTED and p.reason == "NO_KNOWN_ROUTE" and p.route_options == ()
+    assert p.status == PW.PLAN_NEEDS_CHOICE and p.reason != "NO_KNOWN_ROUTE"
+    sigs = [tuple(o["signature"]) for o in p.route_options]
+    assert sigs and not any("e_secret#fwd" in sg for sg in sigs)
+    assert not any("e_ferry#fwd" in sg for sg in sigs)                  # 도보로 못 가는 수로(공개 분류)는 제외
 
 
 def test_stale_manifest_rejected():

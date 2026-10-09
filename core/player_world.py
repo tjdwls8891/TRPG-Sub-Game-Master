@@ -582,7 +582,8 @@ def _plan_movement(ctx, plan, run, src, here, now, dest, intent, pre_ops, *, cap
         plan.status, plan.reason = PLAN_REJECTED, "NO_MOVEMENT_MODE"
         return plan
     try:
-        known = _mv.plan_known_routes(D, _sp.actor_knowledge(src, lead), here, dest, mode)
+        # H07(사용자 결정): PUBLIC/LOCAL 일반 그래프 + 아는 RESTRICTED/SECRET — 경로 세부를 몰라도 출발할 수 있다
+        known = _mv.plan_known_routes(D, _sp.actor_knowledge(src, lead), here, dest, mode, public_graph=True)
     except _mv.MovementError as e:
         plan.status, plan.reason = PLAN_REJECTED, f"ROUTE_PLAN_INVALID:{e}"
         return plan

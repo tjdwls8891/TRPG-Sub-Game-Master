@@ -720,13 +720,28 @@ def test_r54_r56_npc_moves_by_known_route_with_checkpoint_wakeups():
     assert [d["kind"] for d in mid.due_processed + end.due_processed] == ["MOVEMENT_WAKEUP", "MOVEMENT_WAKEUP"]
 
 
-def test_r55_no_known_route_never_uses_omniscient_path():
+def test_r55_h07_unknown_public_route_moves_but_never_uses_unknown_secret():
+    """H07 supersede(사용자 결정 2026-10-09): 지식 없음 ≠ 이동 불가. PUBLIC/LOCAL 일반 그래프로 출발하고,
+    RESTRICTED/SECRET은 아는 경우에만 쓴다(전지적 숨은 길 금지는 유지). 경로가 없으면 이동 없음."""
     D = defn({"go": _go_tpl()})
-    w = world(spatial_state=at(KANG, "항구"), spatial_knowledge={})       # 실제 길은 있지만 모른다
-    r = run(D, w, K + 60, base_ops=[_set("b", "door_1", "BARRED")])
+    w = world(spatial_state=at(KANG, "항구"), spatial_knowledge={})       # 아무 길도 모른다
+    r = run(D, w, K, base_ops=[_set("b", "door_1", "BARRED")])
     assert r.status == WP.COMPLETED
+    pl = r.projected_world.domain("spatial_state")["placements"][KANG]
+    assert pl["kind"] == "TRANSIT" and pl["edge_id"] == "e_hh#fwd"      # 일반 그래프(동률은 서명 순) — 비밀 통로 아님
+    assert not any(d["code"] in ("MOVEMENT_NO_ROUTE", "MOVEMENT_NO_KNOWN_ROUTE") for d in r.diagnostics)
+    wk = [e for e in r.projected_world.domain("world_schedule").values() if e["kind"] == "MOVEMENT_WAKEUP"]
+    assert len(wk) == 1 and "e_secret#fwd" not in wk[0]["payload"]["route_edge_ids"]
+    # 비밀 통로를 알면 그 길을 쓴다(지식 = 경로 선택 품질). 실제 통과는 ActualTraversal이 판정
+    w = world(spatial_state=at(KANG, "항구"), spatial_knowledge={KANG: _know(("e_secret#fwd",), {"e_secret#fwd": 100})})
+    r = run(D, w, K, base_ops=[_set("b", "door_1", "BARRED")])
+    assert r.projected_world.domain("spatial_state")["placements"][KANG]["edge_id"] == "e_secret#fwd"
+    # 갈 수 있는 길이 정말 없으면(외딴곳) 제자리 · 예약 없음
+    D2 = defn({"go": _go_tpl("외딴곳")})
+    r = run(D2, world(spatial_state=at(KANG, "항구"), spatial_knowledge={}), K + 60,
+            base_ops=[_set("b", "door_1", "BARRED")])
     assert r.projected_world.domain("spatial_state")["placements"][KANG] == SP.at_place("항구")
-    assert any(d["code"] == "MOVEMENT_NO_KNOWN_ROUTE" for d in r.diagnostics)
+    assert any(d["code"] == "MOVEMENT_NO_ROUTE" for d in r.diagnostics)
     assert not any(e["kind"] == "MOVEMENT_WAKEUP" for e in r.projected_world.domain("world_schedule").values())
 
 

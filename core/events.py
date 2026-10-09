@@ -45,7 +45,7 @@ SELECTOR_MODES = ("PRIORITY", "SCORE")
 STABILITIES = ("STICKY", "BEST_MATCH", "MONOTONIC")
 CASE_SELECTIONS = ("DETERMINISTIC_WEIGHTED", "FIRST_VALID")
 SLOT_TYPES = ("ACTOR", "PLACE", "INFO")
-STEP_TYPES = ("SET_ACCESS_STATE", "SET_ACTOR_PLACEMENT", "START_MOVEMENT", "CREATE_INFORMATION",
+STEP_TYPES = ("SET_ACCESS_STATE", "SET_ACTOR_PLACEMENT", "CLEAR_ACTOR_PLACEMENT", "START_MOVEMENT", "CREATE_INFORMATION",
               "SUPERSEDE_INFORMATION", "ACQUIRE_INFORMATION", "SET_COGNITION_BELIEF",
               "APPEND_RELATIONSHIP_DELTA", "SET_EVENT_LOCAL", "SCHEDULE_WAKEUP", "SCHEDULE_EFFECT",
               "EMIT_SIGNAL")
@@ -341,6 +341,14 @@ def _s_placement(step, sctx, parents):
                            {"actor_id": actor, "place_id": place}, parents)])
 
 
+def _s_clear_placement(step, sctx, parents):
+    """H07: 정본 override 해제 — 이후 유효 위치는 평상시 일과/untracked(core.npc_position)."""
+    actor = sctx.resolve(step["actor"])
+    if not actor:
+        return StepResult(diagnostics=[_diag("STEP_UNBOUND", sctx, step)])
+    return StepResult([_mk(sctx, step["step_id"], 0, "ACTOR_PLACEMENT_CLEAR", {"actor_id": actor}, parents)])
+
+
 def _s_movement(step, sctx, parents):
     from . import world_progression as _wp
     return _wp.start_movement_step(step, sctx, parents)
@@ -454,7 +462,8 @@ def _s_signal(step, sctx, parents):
 
 
 STEP_HANDLERS = {
-    "SET_ACCESS_STATE": _s_access, "SET_ACTOR_PLACEMENT": _s_placement, "START_MOVEMENT": _s_movement,
+    "SET_ACCESS_STATE": _s_access, "SET_ACTOR_PLACEMENT": _s_placement,
+    "CLEAR_ACTOR_PLACEMENT": _s_clear_placement, "START_MOVEMENT": _s_movement,
     "CREATE_INFORMATION": _s_create_info, "SUPERSEDE_INFORMATION": _s_supersede,
     "ACQUIRE_INFORMATION": _s_acquire, "SET_COGNITION_BELIEF": _s_belief,
     "APPEND_RELATIONSHIP_DELTA": _s_relationship, "SET_EVENT_LOCAL": _s_local,

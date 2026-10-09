@@ -10,6 +10,8 @@
 #   분 정규화는 경로 전체 누적 마이크로초에서 한 번만: minutes = ROUND_HALF_UP(us / 60e6).
 #   경유 checkpoint Ti = T0 + ROUND_HALF_UP(누적_i / 60e6). 구간마다 분으로 반올림하지 않는다.
 #
+#   H07(사용자 결정): 플레이어·NPC 이동은 public_graph — PUBLIC/LOCAL 구간은 지식 없이도 일반 그래프로 쓰고,
+#     RESTRICTED/SECRET은 아는 경우에만 쓴다. 지식은 이동 허가가 아니라 경로 품질(비용 추정·숨은 길)이다.
 #   KnownRoutePlanner — 행위자의 공간 지식만으로 후보를 만든다. 실제 접근 상태를 인자로
 #     받지 않는다(서명 차단). 실제 구간의 이동 방식 제한·태그·시간 배수·고정 지연도 읽지 않고,
 #     EdgeKnowledge의 known_*(모르면 중립: 제한 없음·배수 1·지연 0)만 쓴다(H03 보정 1).
@@ -292,22 +294,38 @@ def perceived_edge_cost_us(edge_knowledge: dict, profile: MovementProfile):
     return moving_us(est, profile.mode["base_speed_m_per_min"], factor) + delay * US_PER_MINUTE
 
 
-def known_graph(definition: dict, knowledge: dict, profile: MovementProfile, config: RoutePlannerConfig):
-    """행위자 지식 그래프: (adj, cost, to_of, meta).
+PUBLIC_GRAPH_VISIBILITY = ("PUBLIC", "LOCAL")      # H07: 지식 없이도 경로 탐색에 쓸 수 있는 일반 이동 그래프
+
+
+def known_graph(definition: dict, knowledge: dict, profile: MovementProfile, config: RoutePlannerConfig,
+                *, public_graph: bool = False):
+    """행위자 인식 그래프: (adj, cost, to_of, meta).
 
     인식 경계: 실제 접근 상태뿐 아니라 실제 구간의 이동 방식 제한·태그·시간 배수·고정 지연도
-    읽지 않는다. 정의에서 쓰는 것은 행위자가 아는 연결의 위상(from/to)뿐이고, 통과 성질은
-    EdgeKnowledge의 known_* 필드에서만 온다.
+    읽지 않는다. 정의에서 쓰는 것은 연결의 위상(from/to)과 공개 분류(knowledge_visibility)뿐이고,
+    통과 성질은 EdgeKnowledge의 known_* 필드에서만 온다.
+
+    public_graph(H07 — 사용자 결정, H04 '지식 없으면 이동 없음'의 의도적 supersede):
+      · PUBLIC/LOCAL 구간은 개인 지식에 없어도 일반 이동 그래프로 넣는다(비용 모름 = 중립 순위 비용 —
+        지식이 있는 길이 더 정확한 비용을 가지므로 지름길·효율 경로 선택에 지식이 쓰인다).
+      · RESTRICTED/SECRET 구간은 지식에 있을 때만 넣는다(자율 경로가 숨은 길을 전지적으로 쓰지 않는다).
+      · 지식은 허가가 아니다 — 실제 통과·권한은 ActualTraversalPlanner(access.actual_access)만 판정한다.
     """
     edges = definition.get("movement_edges") or {}
     adj, cost, to_of, meta = {}, {}, {}, {}
-    for eid in _sp.known_edge_ids(knowledge):
+    known_ids = set(_sp.known_edge_ids(knowledge))
+    ids = set(known_ids)
+    if public_graph:
+        ids |= {eid for eid, e in edges.items() if e.get("knowledge_visibility") in PUBLIC_GRAPH_VISIBILITY}
+    for eid in sorted(ids):
         e = edges.get(eid)
         if e is None:
             continue                                   # 정의에서 사라진 구간 지식(무시)
-        ek = knowledge["edges"][eid] or {}
+        ek = (knowledge.get("edges") or {}).get(eid) or {} if eid in known_ids else {}
         if not perceived_mode_allows(profile.mode, ek):
             continue                                   # 행위자가 '이 방식으론 못 간다'고 아는 길
+        if eid not in known_ids and not _sp.mode_allows_edge(profile.mode, e)[0]:
+            continue                                   # H07 일반 그래프: 길의 종류(수로 등)는 공개 분류다 — 거리·지연은 읽지 않는다
         perc = _acc.perceived_access(knowledge, e)
         if perc["perceived"] == _acc.PERCEIVED_BLOCKED:
             continue                                   # 행위자가 막혔다고 아는 길만 제외
@@ -318,7 +336,8 @@ def known_graph(definition: dict, knowledge: dict, profile: MovementProfile, con
             c = config.unknown_edge_cost_us
         adj.setdefault(e["from"], []).append((eid, e["to"]))
         cost[eid], to_of[eid] = c, e["to"]
-        meta[eid] = {"cost_known": known, "distance_estimate_m": est, "perceived": perc}
+        meta[eid] = {"cost_known": known, "distance_estimate_m": est, "perceived": perc,
+                     "edge_known": eid in known_ids}
     for k in adj:
         adj[k].sort()
     return adj, cost, to_of, meta
@@ -326,7 +345,21 @@ def known_graph(definition: dict, knowledge: dict, profile: MovementProfile, con
 
 def plan_known_routes(definition: dict, knowledge: dict, origin: str, destination: str, mode_id: str, *,
                       stance_id=None, stance_factor=1, actor_factor=1, environment_factor=1,
-                      config: RoutePlannerConfig = RoutePlannerConfig()) -> KnownRoutePlan:
+                      config: RoutePlannerConfig = RoutePlannerConfig(),
+                      public_graph: bool = False) -> KnownRoutePlan:
+    """행위자 인식 경로 후보.
+
+    public_graph=False(순수 지식 질의 — ROUTE_KNOWN_EXISTS 등): 아는 구간만.
+    public_graph=True(H07 플레이어·NPC 이동 정책): 아는 구간만으로 경로가 있으면 그 후보(익숙한 길 우선 —
+      아는 지름길·숨은 길·우회로가 선택 품질을 만든다). 없을 때만 PUBLIC/LOCAL 일반 그래프 + 아는
+      RESTRICTED/SECRET으로 다시 찾는다(경로 세부를 모른다는 이유로 출발을 막지 않는다).
+    """
+    if public_graph:
+        familiar = plan_known_routes(definition, knowledge, origin, destination, mode_id, stance_id=stance_id,
+                                     stance_factor=stance_factor, actor_factor=actor_factor,
+                                     environment_factor=environment_factor, config=config, public_graph=False)
+        if familiar.status != NO_KNOWN_ROUTE:
+            return familiar
     places = definition.get("place_definitions") or {}
     for p in (origin, destination):
         if p not in places:
@@ -335,7 +368,7 @@ def plan_known_routes(definition: dict, knowledge: dict, origin: str, destinatio
         return KnownRoutePlan(SAME_PLACE, origin, destination, mode_id)
     profile = MovementProfile.build(definition, mode_id, stance_id=stance_id, stance_factor=stance_factor,
                                     actor_factor=actor_factor, environment_factor=environment_factor)
-    adj, cost, to_of, meta = known_graph(definition, knowledge or {}, profile, config)
+    adj, cost, to_of, meta = known_graph(definition, knowledge or {}, profile, config, public_graph=public_graph)
     raw = k_shortest_simple_paths(adj, cost, to_of, origin, destination, config.raw_k)
     if not raw:
         return KnownRoutePlan(NO_KNOWN_ROUTE, origin, destination, mode_id)

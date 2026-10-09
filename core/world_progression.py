@@ -25,8 +25,10 @@
 #   투영한 결과가 라운드별 투영과 같다(최종 검증).
 #
 # [NPC 이동]
-#   START_MOVEMENT·MOVEMENT_WAKEUP 모두 행위자 SpatialKnowledge → KnownRoutePlanner → ActualTraversalPlanner.
-#   NO_KNOWN_ROUTE면 전지적 경로로 대체하지 않는다(step 불충족). 최종 ETA 순간이동이 아니라 구간마다
+#   START_MOVEMENT·MOVEMENT_WAKEUP 모두 인식 그래프 → KnownRoutePlanner(public_graph) → ActualTraversalPlanner.
+#   H07(사용자 결정 — H04 R55 '지식 없으면 이동 없음'의 의도적 supersede): PUBLIC/LOCAL 구간은 지식 없이도
+#   일반 그래프로 쓴다. RESTRICTED/SECRET은 아는 경우에만(전지적 숨은 길 사용 금지). 저작된 명시 route는 연속성·
+#   실제 접근만 검증하고 행위자 지식으로 거부하지 않는다. 경로가 없으면 MOVEMENT_NO_ROUTE. 최종 ETA 순간이동이 아니라 구간마다
 #   checkpoint wakeup이며, wakeup에서 실제 상태·지식을 다시 검증한다. 0분 구간은 TRANSIT 없이 같은 분에 처리.
 from __future__ import annotations
 
@@ -274,30 +276,31 @@ def _movement_ops(definition, world, *, actor, here, dest, mode, stance, stance_
         knowledge = _sp.actor_knowledge(world, actor)
         seq = None
         trav = None
-        try:
-            plan = _mv.plan_known_routes(definition, knowledge, here, dest, mode, stance_id=stance,
-                                         stance_factor=stance_factor)
-        except _mv.MovementError as exc:                 # 방어: 동적 데이터(없는 장소·배수) — API 밖으로 내보내지 않는다
-            plan = None
-            diags.append({"code": "MOVEMENT_PLAN_INVALID", "actor_id": actor, "detail": str(exc)})
-        if plan is None:
-            pass
-        elif plan.status == _mv.ROUTE_OK:
-            if route:
-                edges = definition.get("movement_edges") or {}
-                if not route_is_continuous(edges, route):
-                    seq = None                               # 끊긴 명시 경로 — 대체 경로로 바꾸지 않는다
-                    diags.append({"code": "MOVEMENT_ROUTE_INVALID", "actor_id": actor, "route": list(route)})
-                else:
-                    ok = all(_sp.knows_edge(knowledge, e) for e in route)
-                    ok = ok and edges[route[0]]["from"] == here and edges[route[-1]]["to"] == dest
-                    seq = tuple(route) if ok else None
-                    if not ok:
-                        diags.append({"code": "MOVEMENT_ROUTE_CONSTRAINT_UNKNOWN", "actor_id": actor})
+        edges = definition.get("movement_edges") or {}
+        if route:
+            # H07: 저작된 명시 경로 — 저작자가 이 행위자의 이 경로 이용을 이미 큐레이션했다. 연속성·출발/도착은
+            #      검증하되 행위자 지식이 없다는 이유로 거부하지 않는다(실제 통과는 아래 ActualTraversal이 판정).
+            if not route_is_continuous(edges, route):
+                diags.append({"code": "MOVEMENT_ROUTE_INVALID", "actor_id": actor, "route": list(route)})
+            elif edges[route[0]]["from"] != here or edges[route[-1]]["to"] != dest:
+                diags.append({"code": "MOVEMENT_ROUTE_ENDPOINTS_MISMATCH", "actor_id": actor,
+                              "from": here, "to": dest})
             else:
-                seq = plan.candidates[0].edge_ids
+                seq = tuple(route)                           # 끊긴·어긋난 명시 경로는 대체 경로로 바꾸지 않는다
         else:
-            diags.append({"code": "MOVEMENT_NO_KNOWN_ROUTE", "actor_id": actor, "from": here, "to": dest})
+            try:
+                # H07: PUBLIC/LOCAL 일반 그래프 + 아는 RESTRICTED/SECRET(지식 = 경로 품질, 허가 아님)
+                plan = _mv.plan_known_routes(definition, knowledge, here, dest, mode, stance_id=stance,
+                                             stance_factor=stance_factor, public_graph=True)
+            except _mv.MovementError as exc:             # 방어: 동적 데이터(없는 장소·배수) — API 밖으로 내보내지 않는다
+                plan = None
+                diags.append({"code": "MOVEMENT_PLAN_INVALID", "actor_id": actor, "detail": str(exc)})
+            if plan is None:
+                pass
+            elif plan.status == _mv.ROUTE_OK:
+                seq = plan.candidates[0].edge_ids
+            else:
+                diags.append({"code": "MOVEMENT_NO_ROUTE", "actor_id": actor, "from": here, "to": dest})
         if seq is not None:
             try:
                 trav = _mv.plan_actual_traversal(definition, actor_id=actor, edge_sequence=seq, mode_id=mode,
@@ -341,7 +344,7 @@ def _movement_ops(definition, world, *, actor, here, dest, mode, stance, stance_
                     "payload": {"actor_id": actor, "destination_place": dest, "mode_id": mode, "stance": stance,
                                 "stance_factor": str(stance_factor), "capabilities": list(capabilities or ()),
                                 "owner_event_instance": owner_iid, "movement_id": movement_id, "edge_id": nxt,
-                                "route_edge_ids": list(seq)}}))
+                                "route_edge_ids": list(seq), "explicit_route": bool(route)}}))
             else:
                 final = _sp.at_place(cur)
                 if not trav.completed or cur != dest:
@@ -359,6 +362,29 @@ def _movement_ops(definition, world, *, actor, here, dest, mode, stance, stance_
     return ops, diags
 
 
+def routine_changed_keys(definition, world, before, after) -> set:
+    """두 분 사이에 평상시 일과 위치가 달라진 행위자(정본 override 없음)의 'actor:X:placement' 키.
+
+    일과는 정본이 아니라 정의 + 시계의 파생이므로, 시계가 움직이면 그 파생값의 변화를 의존 키 '변경'으로
+    공급한다(사건·정보 계열이 정본 위치 변화와 같은 통로로 재평가된다 — polling·materialize 없음).
+    """
+    from . import npc_position as _npos
+    if before is None or after is None or before == after:
+        return set()
+    pls = (world._peek("spatial_state") if isinstance(world, _wm.ProjectedWorld)
+           else world.domain("spatial_state")) or {}
+    pls = pls.get("placements") or {}
+    out = set()
+    for aid, d in sorted((definition.get("actor_definitions") or {}).items()):
+        if not (d or {}).get("routine") or aid in pls:
+            continue
+        a = (_npos.routine_place_at(definition, aid, before) or (None,))[0]
+        b = (_npos.routine_place_at(definition, aid, after) or (None,))[0]
+        if a != b:
+            out.add(f"actor:{aid}:placement")
+    return out
+
+
 def route_is_continuous(edges: dict, route) -> bool:
     """명시 route 구조 검증 — 비어 있지 않은 정의 구간 id 목록이고 edge[i].to == edge[i+1].from."""
     if not isinstance(route, (list, tuple)) or not route or \
@@ -373,7 +399,9 @@ def start_movement_step(step, sctx, parents):
     if not actor or not dest:
         return _ev.StepResult(diagnostics=[{"code": "STEP_UNBOUND", "instance_id": sctx.iid,
                                             "step_id": step["step_id"]}])
-    pl = _sp.placement_of(sctx.world, actor)
+    # H07: 출발점 = 유효 위치(정본 override > 평상시 일과). 일과 NPC를 움직이면 그 이동이 정본 override가 된다.
+    from . import npc_position as _npos
+    pl = _npos.effective_position(sctx.definition, sctx.world, actor)["placement"]
     if not pl or pl.get("kind") != _sp.AT_PLACE:
         return _ev.StepResult(diagnostics=[{"code": "MOVEMENT_ORIGIN_UNKNOWN" if not pl else "MOVEMENT_ACTOR_IN_TRANSIT",
                                             "instance_id": sctx.iid, "step_id": step["step_id"], "actor_id": actor}])
@@ -672,10 +700,14 @@ class _Engine:
                     or pl.get("edge_id") != p.get("edge_id"):
                 u.diagnostics.append({"code": "MOVEMENT_WAKEUP_STALE", "schedule_id": e["schedule_id"]})
                 return u
+            route = None
+            if p.get("explicit_route"):                   # H07: 저작 명시 경로는 남은 구간 그대로 이어 간다(재계획 없음)
+                seq = list(p.get("route_edge_ids") or ())
+                route = seq[seq.index(p["edge_id"]) + 1:] if p["edge_id"] in seq else None
             ops, diags = _movement_ops(
                 self.definition, self.world, actor=actor, here=pl["to_place"], dest=p["destination_place"],
                 mode=p["mode_id"], stance=p.get("stance"), stance_factor=p.get("stance_factor") or 1,
-                capabilities=p.get("capabilities"), route=None, now=self.now(), movement_id=p["movement_id"],
+                capabilities=p.get("capabilities"), route=route, now=self.now(), movement_id=p["movement_id"],
                 owner_iid=p.get("owner_event_instance"), op_prefix=f"{prefix}.mv", parents=(consume.op_id,),
                 arrived_edge=p["edge_id"])
             u.ops += ops
@@ -942,10 +974,12 @@ class _Engine:
                 nxt = _sched.next_due_after(self.world.domain("world_schedule") or {}, self.now())
                 if nxt is None or nxt["due_minute"] > self.target:
                     if self.target > self.now():
-                        self._advance(self.target)
+                        moved = self._advance(self.target)
+                        if moved:                              # H07: 목표 분의 일과 위치 변화도 의존 사건·계열에 반영
+                            changed, forced = moved, {}
+                            continue
                     break
-                self._advance(nxt["due_minute"])
-                changed, forced = set(), {}
+                changed, forced = self._advance(nxt["due_minute"]), {}
         except _Stop as s:
             self.result.status = s.status
             if s.status == TIE_PENDING:
@@ -963,9 +997,12 @@ class _Engine:
         return self.result
 
     def _advance(self, minute):
+        """시계 전진. 반환 = 평상시 일과 위치가 바뀐 행위자의 의존 키(H07 — 정본 쓰기 없음, 파생 변화 통지)."""
+        before = self.now()
         op = _wm.make_op(f"m{minute}.clock", _sched.OP_CLOCK_ADVANCE_TO, "WORLD_PROGRESSION",
                          {"target_minute": minute})
         self.apply_units([_Unit("clock", [op])], kind="CLOCK")
+        return routine_changed_keys(self.definition, self.world, before, self.now())
 
     def _verify(self):
         """합친 묶음을 원본에 한 번 투영한 결과 = 라운드별 투영 결과."""

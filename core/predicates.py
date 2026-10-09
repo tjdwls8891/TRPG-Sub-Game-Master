@@ -16,6 +16,8 @@
 #   시간 원자(time·CLOCK_MINUTE GTE/GT 리터럴)는 의존 키를 만들지 않는다. 대신 next_wakeup()이
 #   '참값이 바뀔 수 있는 다음 분'을 계산하고 호출자가 EVENT_WAKEUP 예약을 만든다.
 #   CLOCK_MINUTE의 다른 비교(EQ·LT 등)는 polling이 필요하므로 컴파일 ERROR.
+#   H07: 행위자 위치 ref(ACTOR_PLACE 등)가 평상시 일과로 해석되는 행위자를 읽으면, 그 일과의 다음 경계도
+#   wakeup 후보다(npc_position.next_routine_boundary). 일과 전환을 정본 배치 SET으로 만들지 않는다.
 from __future__ import annotations
 
 import re
@@ -194,7 +196,35 @@ def next_wakeup(predicates, ctx: _refs.EvalContext):
             m = _atom_next(a, ctx, now)
             if m is not None and m > now:
                 cands.append(m)
+        m = _routine_next(p, ctx, now)
+        if m is not None:
+            cands.append(m)
     return min(cands) if cands else None
+
+
+POSITION_REFS = ("ACTOR_PLACE", "ACTOR_PLACEMENT_KIND", "ACTOR_POSITION_SOURCE", "ROUTE_KNOWN_EXISTS")
+
+
+def _routine_next(p, ctx, now):
+    """H07: 조건이 읽는 행위자 위치가 평상시 일과 파생이면 그 일과의 다음 경계(> now).
+
+    정본 override가 있는 행위자는 경계가 없다(배치 변화는 의존 키 actor:X:placement가 깨운다).
+    조건이 실제로 읽는 행위자만 — 모든 NPC를 보지 않는다(polling 없음).
+    """
+    from . import npc_position as _npos
+    best = None
+    for ref in _refs_in(p):
+        if ref.get("ref") not in POSITION_REFS or "actor" not in ref:
+            continue
+        actor = _refs.param(ref, "actor", ctx)
+        if actor is _refs.UNSET or not isinstance(actor, str):
+            continue
+        if _npos.effective_position(ctx.definition, ctx, actor)["source"] == _npos.CANONICAL:
+            continue
+        m = _npos.next_routine_boundary(ctx.definition, actor, now)
+        if m is not None and m > now and (best is None or m < best):
+            best = m
+    return best
 
 
 def _atom_next(a, ctx, now):

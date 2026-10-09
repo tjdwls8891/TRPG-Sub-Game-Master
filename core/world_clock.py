@@ -162,6 +162,17 @@ class Calendar:
         y, m, d = self.from_ordinal(ordinal)
         return DateTime(y, m, d, mod // 60, mod % 60)
 
+    # ── 요일 (H07) ──
+    def has_weekdays(self) -> bool:
+        """주(週)가 정의된 달력인가. GREGORIAN만 — FIXED_CUSTOM에는 주 정의가 없다(요일을 억지로 적용하지 않는다)."""
+        return self.calendar_type == CALENDAR_GREGORIAN
+
+    def weekday_of(self, index: int) -> int | None:
+        """minute_index의 요일 0=월 … 6=일(GREGORIAN, 일련번호 1 = 0001-01-01 월요일). 주가 없으면 None."""
+        if not self.has_weekdays():
+            return None
+        return (index // MINUTES_PER_DAY + 6) % 7
+
     # ── 시간대 ──
     def daypart_of(self, index: int) -> str | None:
         """minute_index가 속한 시간대 id. 어떤 구간에도 없으면 None."""
@@ -181,6 +192,9 @@ class Calendar:
         """날짜 + 시간대 → 그 시간대 대표 시각의 minute_index(결정적)."""
         rep = self.representative_minute_of_day(daypart_id)
         return self.to_minute_index(year, month, day, rep // 60, rep % 60)
+
+
+WEEKDAY_IDS = ("MON", "TUE", "WED", "THU", "FRI", "SAT", "SUN")
 
 
 def daypart_contains(start: int, end: int, minute_of_day: int) -> bool:

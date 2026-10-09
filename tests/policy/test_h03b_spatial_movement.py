@@ -613,7 +613,8 @@ def test_production_registry_is_typed_time_and_spatial_only():
     assert names == expected_production_ops()                      # H04 도메인 typed 연산 포함
     assert set(SP.SPATIAL_OP_TYPES) == {
         "SCENE_PLACE_SET", "ACTOR_PLACEMENT_SET", "ACTOR_TRANSIT_SET", "ACCESS_STATE_SET",
-        "SPATIAL_PLACE_KNOWLEDGE_UPSERT", "SPATIAL_EDGE_KNOWLEDGE_UPSERT", "SPATIAL_ACCESS_KNOWLEDGE_UPSERT"}
+        "SPATIAL_PLACE_KNOWLEDGE_UPSERT", "SPATIAL_EDGE_KNOWLEDGE_UPSERT", "SPATIAL_ACCESS_KNOWLEDGE_UPSERT",
+        "ACTOR_PLACEMENT_CLEAR"}                                   # H07: 정본 override 해제(typed — 임의 경로 아님)
 
 
 def test_spatial_ops_project_and_knowledge_is_sparse():

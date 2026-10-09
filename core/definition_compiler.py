@@ -97,9 +97,12 @@ RESERVED_UNCOMPILED_KEYS = (
 # NPC 인라인 비밀 필드(npc_template.info_fields의 '비밀').
 INLINE_SECRET_FIELD = "비밀"
 # profile_base에서 빼는 필드: 구조화된 별도 권위(actor_id·name·비밀) + 레거시 런타임 초기값.
-PROFILE_BASE_EXCLUDED = ("actor_id", "name", INLINE_SECRET_FIELD, "resources", "statuses", "knowledge_seed")
-# H07: default_npcs[*].knowledge_seed — 저작 NPC의 초기 공간 지식 seed id(genesis가 적용). NPC 이동(START_MOVEMENT)은
-#      행위자 지식 기반이라, seed 없는 NPC는 정본 이동을 계획할 수 없다. 저작된 경우에만 정의에 키가 생긴다.
+PROFILE_BASE_EXCLUDED = ("actor_id", "name", INLINE_SECRET_FIELD, "resources", "statuses", "knowledge_seed",
+                         "routine")
+# H07: default_npcs[*].knowledge_seed — 저작 NPC의 초기 공간 지식 seed id(genesis가 적용). 지식은 이동 허가가 아니라
+#      지름길·숨은 길·위험 회피 같은 경로 선택 품질의 근거다(H07 최종 지시 §6). 저작된 경우에만 정의에 키가 생긴다.
+# H07: default_npcs[*].routine — 선택적 평상시 일과(요일·시간대 → 장소). 정본 배치가 아니라 정의 + 정본 시계의
+#      순수 함수로 해석되는 파생 위치다(core.npc_position). 저작된 경우에만 정의에 키가 생긴다.
 INFO_EXPLICIT_KEYS = ("proposition", "summary", "subject_refs", "tags", "fragments", "sensitivity")
 
 ERROR, WARNING, INFO = "ERROR", "WARNING", "INFO"
@@ -336,6 +339,8 @@ def _compile_actors(scenario_id, raw, d):
         }
         if "knowledge_seed" in prof:
             defs[actor_id]["knowledge_seed"] = prof["knowledge_seed"]
+        if "routine" in prof:
+            defs[actor_id]["routine"] = copy.deepcopy(prof["routine"])     # _compile_routines가 정규화·검증
         order.append(actor_id)
         index[key] = actor_id
     return defs, order, index
@@ -603,7 +608,13 @@ def _compile_places(raw, actor_index, d):
             if aid is None:
                 d.add(WARNING, "PLACE_NPC_UNRESOLVED", f"{path}.npcs",
                       f"연관 인물 '{nm}'이 default_npcs에 없습니다")
-            assoc.append({"legacy_name": nm, "actor_id": aid})
+            rec_a = {"legacy_name": nm, "actor_id": aid}
+            if isinstance(entry, dict):
+                # H07: 연고 근거 메타데이터(relation·frequency) 보존 — 현재 위치·확률 위치로 해석하지 않는다.
+                for mk in ("relation", "frequency"):
+                    if isinstance(entry.get(mk), str) and entry[mk]:
+                        rec_a[mk] = entry[mk]
+            assoc.append(rec_a)
         rec["npc_associations"] = assoc
         defs[pid] = rec
         order.append(pid)
@@ -1183,6 +1194,7 @@ _CASE_KEYS = ("case_id", "from", "to", "valid_when", "weight", "steps")
 _STEP_PARAMS = {
     "SET_ACCESS_STATE": (("control", "state"), ()),
     "SET_ACTOR_PLACEMENT": (("actor", "place"), ()),
+    "CLEAR_ACTOR_PLACEMENT": (("actor",), ()),
     "START_MOVEMENT": (("actor", "destination", "mode"), ("stance", "stance_factor", "capabilities", "route")),
     "CREATE_INFORMATION": (("proposition",), ("summary", "subject_refs", "tags")),
     "SUPERSEDE_INFORMATION": (("info", "proposition"), ("summary", "validity")),
@@ -1196,7 +1208,8 @@ _STEP_PARAMS = {
 }
 # H07: EMIT_SIGNAL.exposes — 이 신호가 묘사되면 PC가 알게 될 수 있는 저작 정보(공개 안전 summary 필수).
 #      관찰 매니페스트 후보가 될 뿐, 노출 확정은 확정 묘사의 추출 관찰(info_exposed)만 한다.
-_EFFECT_STEP_TYPES = ("SET_ACCESS_STATE", "SET_ACTOR_PLACEMENT", "START_MOVEMENT", "CREATE_INFORMATION",
+# H07: CLEAR_ACTOR_PLACEMENT — 정본 override 해제(이후 평상시 일과/untracked). 명시 저작으로만 해제한다.
+_EFFECT_STEP_TYPES = ("SET_ACCESS_STATE", "SET_ACTOR_PLACEMENT", "CLEAR_ACTOR_PLACEMENT", "START_MOVEMENT", "CREATE_INFORMATION",
                       "SUPERSEDE_INFORMATION", "ACQUIRE_INFORMATION", "SET_COGNITION_BELIEF",
                       "APPEND_RELATIONSHIP_DELTA", "SET_EVENT_LOCAL", "EMIT_SIGNAL")
 
@@ -1277,6 +1290,8 @@ def _compile_step(st, p, scope, access, edges, created, d, *, nested=False):
     elif t == "SET_ACTOR_PLACEMENT":
         ref_id(st["actor"], "ActorId", scope.actors, "ACTOR")
         ref_id(st["place"], "PlaceId", scope.places, "PLACE")
+    elif t == "CLEAR_ACTOR_PLACEMENT":
+        ref_id(st["actor"], "ActorId", scope.actors, "ACTOR")
     elif t == "START_MOVEMENT":
         ref_id(st["actor"], "ActorId", scope.actors, "ACTOR")
         ref_id(st["destination"], "PlaceId", scope.places, "PLACE")
@@ -1387,6 +1402,8 @@ def _fixed_write_key(st):
         return ("access", st["control"]), st["state"]
     if t == "SET_ACTOR_PLACEMENT" and not str(st["actor"]).startswith("$"):
         return ("placement", st["actor"]), st["place"]
+    if t == "CLEAR_ACTOR_PLACEMENT" and not str(st["actor"]).startswith("$"):
+        return ("placement", st["actor"]), "\x00CLEAR"
     if t == "SET_EVENT_LOCAL":
         return ("local", st["key"]), canonical_json(st["value"])
     return None, None
@@ -1733,6 +1750,108 @@ def _compile_calendar(raw, caps, d):
     return compiled
 
 
+_ROUTINE_KEYS = ("entries", "default_place")
+_ROUTINE_ENTRY_KEYS = ("place", "days", "dayparts", "from", "to")
+
+
+def _compile_routines(actors, places, calendar, d):
+    """default_npcs[*].routine → 정규화(H07). 선택 키 — 미저작 인물·시나리오의 정의는 그대로다.
+
+    raw:  {"entries": [{"place": PlaceId, "days"?: ["MON".."SUN"], "dayparts"?: [DaypartId] |
+                        "from"?: "HH:MM", "to"?: "HH:MM"}], "default_place"?: PlaceId}
+    정규: {"entries": [{"place", "days": [0..6]|None, "windows": [[start,end],...]|None}], "default_place"|None}
+      · 해석 = 저작 순서 첫 일치(결정적). 일치가 없으면 default_place, 그것도 없으면 untracked.
+      · windows는 하루 분 [start, end) 반열림, start > end는 자정을 넘는다. 요일은 창이 시작한 날 기준.
+      · 요일은 주(週)가 정의된 달력(GREGORIAN)에서만 — FIXED_CUSTOM에 요일을 쓰면 ERROR.
+      · 정본 배치를 만들지 않는다(routine은 파생 위치 — core.npc_position).
+    """
+    from . import world_clock as _wc
+    for aid in sorted(actors):
+        a = actors[aid]
+        if "routine" not in a:
+            continue
+        r = a["routine"]
+        p = f"default_npcs.{a['legacy_key']}.routine"
+        if calendar is None:
+            d.add(ERROR, "ROUTINE_REQUIRES_CALENDAR", p, "routine에는 정량 시간 달력(calendar)이 필요합니다")
+            del a["routine"]
+            continue
+        cal = _wc.Calendar(calendar)
+        if not isinstance(r, dict) or set(r) - set(_ROUTINE_KEYS) or not isinstance(r.get("entries", []), list):
+            d.add(ERROR, "ROUTINE_INVALID", p, f"routine은 {list(_ROUTINE_KEYS)} 키의 객체여야 합니다")
+            del a["routine"]
+            continue
+        bad = False
+        entries = []
+        for i, e in enumerate(r.get("entries") or []):
+            ep = f"{p}.entries[{i}]"
+            if not isinstance(e, dict) or set(e) - set(_ROUTINE_ENTRY_KEYS) or "place" not in e:
+                d.add(ERROR, "ROUTINE_ENTRY_INVALID", ep, f"항목은 place와 {list(_ROUTINE_ENTRY_KEYS[1:])} 키만 씁니다")
+                bad = True
+                continue
+            if e["place"] not in places:
+                d.add(ERROR, "ROUTINE_PLACE_UNKNOWN", f"{ep}.place", f"정의되지 않은 장소 {e['place']!r}")
+                bad = True
+            days = None
+            if "days" in e:
+                if not cal.has_weekdays():
+                    d.add(ERROR, "ROUTINE_WEEKDAY_UNSUPPORTED", f"{ep}.days",
+                          "이 달력에는 주(週) 정의가 없습니다 — 요일 일과를 쓸 수 없습니다(시간대만 쓰십시오)")
+                    bad = True
+                elif not (isinstance(e["days"], list) and e["days"] and
+                          all(x in _wc.WEEKDAY_IDS for x in e["days"]) and len(set(e["days"])) == len(e["days"])):
+                    d.add(ERROR, "ROUTINE_DAYS_INVALID", f"{ep}.days", f"days는 {list(_wc.WEEKDAY_IDS)}의 중복 없는 목록입니다")
+                    bad = True
+                else:
+                    days = sorted(_wc.WEEKDAY_IDS.index(x) for x in e["days"])
+            windows = None
+            has_dp, has_range = "dayparts" in e, ("from" in e or "to" in e)
+            if has_dp and has_range:
+                d.add(ERROR, "ROUTINE_WINDOW_CONFLICT", ep, "dayparts와 from/to는 함께 쓰지 않습니다")
+                bad = True
+            elif has_dp:
+                dps = e["dayparts"]
+                if not (isinstance(dps, list) and dps and len(set(dps)) == len(dps)):
+                    d.add(ERROR, "ROUTINE_DAYPARTS_INVALID", f"{ep}.dayparts", "dayparts는 중복 없는 시간대 id 목록입니다")
+                    bad = True
+                else:
+                    windows = []
+                    for dp in dps:
+                        if dp not in cal.dayparts:
+                            d.add(ERROR, "ROUTINE_DAYPART_UNKNOWN", f"{ep}.dayparts", f"정의되지 않은 시간대 {dp!r}")
+                            bad = True
+                            continue
+                        st, en, _ = cal.dayparts[dp]
+                        windows.append([st, en])
+            elif has_range:
+                try:
+                    st, en = _wc.parse_hhmm(e.get("from")), _wc.parse_hhmm(e.get("to"))
+                except (_wc.ClockError, TypeError, AttributeError):
+                    d.add(ERROR, "ROUTINE_TIME_INVALID", ep, "from·to는 둘 다 'HH:MM'이어야 합니다")
+                    bad = True
+                else:
+                    if st == en:
+                        d.add(ERROR, "ROUTINE_TIME_INVALID", ep, "from과 to가 같습니다(하루 종일은 창을 생략)")
+                        bad = True
+                    windows = [[st, en]]
+            if days is None and windows is None and not bad:
+                d.add(ERROR, "ROUTINE_ENTRY_UNCONDITIONAL", ep,
+                      "요일·시간 조건이 없는 항목입니다 — 항상 그곳이면 default_place를 쓰십시오")
+                bad = True
+            entries.append({"place": e["place"], "days": days, "windows": windows})
+        dflt = r.get("default_place")
+        if dflt is not None and dflt not in places:
+            d.add(ERROR, "ROUTINE_PLACE_UNKNOWN", f"{p}.default_place", f"정의되지 않은 장소 {dflt!r}")
+            bad = True
+        if not entries and dflt is None and not bad:
+            d.add(ERROR, "ROUTINE_EMPTY", p, "routine에 항목도 default_place도 없습니다(미저작이면 키를 빼십시오)")
+            bad = True
+        if bad:
+            del a["routine"]
+            continue
+        a["routine"] = {"entries": entries, "default_place": dflt}
+
+
 def _compile_initialization(raw, place_defs, d):
     """start_frames/start_points → 초기화 정의.
 
@@ -1890,6 +2009,7 @@ def compile_scenario(raw: dict, scenario_id: str, quests: dict | None = None) ->
                   f"정의되지 않은 공간 지식 seed {a['knowledge_seed']!r}")
     init = _compile_initialization(raw, places, d)
     calendar = _compile_calendar(raw, cap["capabilities"], d)
+    _compile_routines(actors, places, calendar, d)
     _compile_world_starts(raw, init, places, seeds, calendar, cap["capabilities"], d)
     explicit = _compile_explicit_infos(raw, actors, places, d)
     infos = {}

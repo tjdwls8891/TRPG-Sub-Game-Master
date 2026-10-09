@@ -286,12 +286,23 @@ def test_r2_04_valid_route_and_unknown_route_policy_unchanged():
     r = run(D, w, K, base_ops=[_set("b", "door_1", "BARRED")])
     pl = r.projected_world.domain("spatial_state")["placements"][KANG]
     assert pl["kind"] == "TRANSIT" and pl["edge_id"] == "e_hh#fwd"
-    # 명시 route를 모르면 전지적 경로로 대체하지 않는다
+    # H07 supersede(사용자 결정): 저작된 명시 route는 행위자 지식이 없어도 연속성·실제 접근이 유효하면 이동한다
+    # (저작자가 그 경로 이용을 큐레이션했다). 다른 길만 알아도 명시 경로를 그대로 따른다 — 대체 경로 없음.
     w = world(spatial_state={"placements": {KANG: SP.at_place("항구")}},
               spatial_knowledge={KANG: _know(("e_hm#fwd", "e_mc#fwd"), {"e_hm#fwd": 1, "e_mc#fwd": 1})})
     r = run(D, w, K, base_ops=[_set("b", "door_1", "BARRED")])
-    assert r.projected_world.domain("spatial_state")["placements"][KANG] == SP.at_place("항구")
-    assert any(d["code"] == "MOVEMENT_ROUTE_CONSTRAINT_UNKNOWN" for d in r.diagnostics)
+    pl = r.projected_world.domain("spatial_state")["placements"][KANG]
+    assert pl["kind"] == "TRANSIT" and pl["edge_id"] == "e_hh#fwd"
+    assert not any(d["code"] == "MOVEMENT_ROUTE_CONSTRAINT_UNKNOWN" for d in r.diagnostics)
+    (wk,) = [e for e in r.projected_world.domain("world_schedule").values() if e["kind"] == "MOVEMENT_WAKEUP"]
+    assert wk["payload"]["explicit_route"] is True and wk["payload"]["route_edge_ids"] == list(ROUTE_B)
+    end = run(D, r.projected_world, K + 30)                              # 남은 명시 구간 그대로(재계획 없음)
+    assert end.projected_world.domain("spatial_state")["placements"][KANG] == SP.at_place("성당")
+    # 행위자가 명시 경로의 출발점에 없으면 거부(대체 경로로 바꾸지 않는다 — 도착점 불일치는 컴파일 ERROR)
+    w = world(spatial_state={"placements": {KANG: SP.at_place("시장")}}, spatial_knowledge={})
+    r = run(D, w, K, base_ops=[_set("b", "door_1", "BARRED")])
+    assert r.projected_world.domain("spatial_state")["placements"][KANG] == SP.at_place("시장")
+    assert any(d["code"] == "MOVEMENT_ROUTE_ENDPOINTS_MISMATCH" for d in r.diagnostics)
 
 
 # ══════════════════════════════════════════════════════════════

@@ -6,6 +6,7 @@
 #     · 정의: actor_definitions[*].profile_base(정제된 저작 프로필 — legacy_source를 읽지 않는다)
 #     · actor_registry(표시 이름·aliases·세션 NPC)
 #     · spatial_state.placements(현재 위치/TRANSIT — 기록 없음 = 추적하지 않음, '없음'이 아니다)
+#     · H07 유효 위치(core.npc_position): 정본 override > 평상시 일과(정의+시계 파생) > untracked
 #     · 레거시 읽기 adapter(resources·statuses·companions·met_npcs — 이름 키, 읽기만)
 #     · event_instances(ACTIVE 사건의 bound slot 역할)
 #     · cognition_state(relevant_info_ids로 지정한 정보만 — 전부 넣지 않는다)
@@ -54,6 +55,8 @@ def project_npc(actor_id: str, definition: dict, world, *, relevant_info_ids=(),
     name = _actors.display_name(definition, world, actor_id)
     legacy_name = _actors.legacy_name_of(definition, world, actor_id)
     placement = ((_dom(world, "spatial_state").get("placements")) or {}).get(actor_id)
+    from . import npc_position as _npos
+    pos = _npos.effective_position(definition, world, actor_id)
     holder = _cog.actor_holder(actor_id)
     roles = []
     events = _dom(world, "event_instances")
@@ -78,8 +81,11 @@ def project_npc(actor_id: str, definition: dict, world, *, relevant_info_ids=(),
         "display_name": name,
         "kind": (reg or {}).get("kind") or (adef or {}).get("kind"),
         "authored_profile": copy.deepcopy((adef or {}).get("profile_base") or {}),
-        "placement": copy.deepcopy(placement),             # None = 정본으로 추적하지 않음
+        "placement": copy.deepcopy(placement),             # 정본 배치(override)만 — None = 정본 추적 없음
         "location_tracked": placement is not None,
+        # H07: 유효 위치(정본 override > 평상시 일과 파생 > untracked) — 사건 조건과 같은 경계(core.npc_position)
+        "effective_placement": copy.deepcopy(pos["placement"]),
+        "position_source": pos["source"],
         "place_associations": assoc,                        # 연고·선호 — 현재 위치 아님
         "relevant_resources": copy.deepcopy(legacy.resources.get(legacy_name)) if legacy_name else None,
         "relevant_statuses": copy.deepcopy(legacy.statuses.get(legacy_name)) if legacy_name else None,

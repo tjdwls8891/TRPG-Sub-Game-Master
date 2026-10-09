@@ -29,7 +29,7 @@ UNSET = object()
 
 REF_TYPES = (
     "CLOCK_MINUTE", "SCENE_PLACE", "OBSERVER_ACTIVITY",
-    "ACTOR_PLACE", "ACTOR_PLACEMENT_KIND", "ACCESS_STATE", "INFO_VALIDITY",
+    "ACTOR_PLACE", "ACTOR_PLACEMENT_KIND", "ACTOR_POSITION_SOURCE", "ACCESS_STATE", "INFO_VALIDITY",
     "COGNITION_AWARENESS", "COGNITION_BELIEF",
     "EVENT_LIFECYCLE", "EVENT_PHASE", "EVENT_LOCAL", "ROUTE_KNOWN_EXISTS",
 )
@@ -39,6 +39,7 @@ _PARAMS = {
     "OBSERVER_ACTIVITY": ((), ()),
     "ACTOR_PLACE": (("actor",), ()),
     "ACTOR_PLACEMENT_KIND": (("actor",), ()),
+    "ACTOR_POSITION_SOURCE": (("actor",), ()),
     "ACCESS_STATE": (("control",), ()),
     "INFO_VALIDITY": (("info",), ()),
     "COGNITION_AWARENESS": (("holder", "info"), ()),
@@ -176,19 +177,27 @@ def _r_activity(ctx):
 
 
 def _placement(ctx, actor):
-    return ((ctx.domain("spatial_state") or {}).get("placements") or {}).get(actor)
+    """유효 배치(H07 — core.npc_position 단일 경계): 정본 override > 평상시 일과 > None(untracked)."""
+    from . import npc_position as _npos
+    return _npos.effective_position(ctx.definition, ctx, actor)["placement"]
 
 
 def _r_actor_place(ctx, actor):
     pl = _placement(ctx, actor)
     if pl is None:
-        return UNKNOWN                              # 위치를 정본으로 추적하지 않음 ≠ 없음
+        return UNKNOWN                              # 위치를 추적·해석하지 않음 ≠ 없음
     return known(pl.get("place_id") if pl.get("kind") == "AT_PLACE" else None)
 
 
 def _r_actor_kind(ctx, actor):
     pl = _placement(ctx, actor)
     return known(pl.get("kind")) if pl is not None else UNKNOWN
+
+
+def _r_actor_source(ctx, actor):
+    """CANONICAL(정본 override) · ROUTINE(평상시 일과 파생) · UNTRACKED — 파생 위치를 정본과 구분한다."""
+    from . import npc_position as _npos
+    return known(_npos.effective_position(ctx.definition, ctx, actor)["source"])
 
 
 def _r_access(ctx, control):
@@ -270,7 +279,7 @@ def _r_route(ctx, actor, to, mode, **kw):
 
 _RESOLVERS = {
     "CLOCK_MINUTE": _r_clock, "SCENE_PLACE": _r_scene, "OBSERVER_ACTIVITY": _r_activity,
-    "ACTOR_PLACE": _r_actor_place, "ACTOR_PLACEMENT_KIND": _r_actor_kind,
+    "ACTOR_PLACE": _r_actor_place, "ACTOR_PLACEMENT_KIND": _r_actor_kind, "ACTOR_POSITION_SOURCE": _r_actor_source,
     "ACCESS_STATE": _r_access, "INFO_VALIDITY": _r_info_validity,
     "COGNITION_AWARENESS": _r_awareness, "COGNITION_BELIEF": _r_belief,
     "EVENT_LIFECYCLE": _r_lifecycle, "EVENT_PHASE": _r_phase, "EVENT_LOCAL": _r_local,
@@ -297,8 +306,8 @@ def dependency_keys(ref: dict) -> list:
     """ValueRef가 읽는 정본 키(슬롯·$self는 패턴으로 남는다). 시간은 키가 아니다."""
     t = ref.get("ref")
     a = lambda n: _key_param(ref, n)
-    if t == "ACTOR_PLACE" or t == "ACTOR_PLACEMENT_KIND":
-        return [f"actor:{a('actor')}:placement"]
+    if t in ("ACTOR_PLACE", "ACTOR_PLACEMENT_KIND", "ACTOR_POSITION_SOURCE"):
+        return [f"actor:{a('actor')}:placement"]       # 일과 경계 변화는 키가 아니라 wakeup(predicates)
     if t == "SCENE_PLACE":
         return ["scene:place"]
     if t == "ACCESS_STATE":

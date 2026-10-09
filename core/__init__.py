@@ -56,6 +56,7 @@
 #   world_refs — (H04) 타입 값 참조·의존 키
 #   actors · information · cognition · relationships — (H04) 행위자·정보·인지·관계 정본 + typed 연산
 #   npc_projection — (H04) 읽기 전용 CurrentNpcProjection
+#   npc_position — (H07) NPC 유효 위치(정본 override > 평상시 일과 > untracked)
 #   predicates · events · world_progression — (H04) 3값 조건·사건 엔진·순수 세계 진행 투영
 #   action_intent · player_world · turn_world — (H05) 구조화 의도·플레이어 세계 계획·턴 관찰/후속 묘사/투영 미디어
 #   world_lifecycle — (H06) 정의 바인딩·초기 세계 계획·INITIALIZATION·동적 세계 생애주기
@@ -249,6 +250,7 @@ from . import information  # H04: InformationState validity/lineage/series + typ
 from . import cognition  # H04: sparse cognition + acquisition provenance + belief authority
 from . import relationships  # H04: sparse relationship deltas
 from . import npc_projection  # H04: read-only CurrentNpcProjection
+from . import npc_position  # H07: effective NPC position (canonical override > routine > untracked)
 from . import predicates  # H04: tri-state typed predicates + time wakeups
 from . import events  # H04: event templates/instances, phase/case selection, typed steps
 from . import world_progression  # H04: DependencyIndex + pure WorldProgressionProjection

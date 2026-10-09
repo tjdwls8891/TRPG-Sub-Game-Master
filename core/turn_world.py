@@ -155,7 +155,7 @@ def projected_scene(plan) -> dict:
 
 # ══════════════════════════════════════════════════════════════
 #  현재 장면 NPC — 정본 배치 + H04 CurrentNpcProjection (H05 R3)
-#   · 현재 위치 권위 = spatial_state.placements. place.npcs(연고)·session.npcs는 존재 권위가 아니다.
+#   · 현재 위치 권위 = 유효 위치(H07 core.npc_position: 정본 override > 평상시 일과 > untracked). place.npcs(연고)·session.npcs는 존재 권위가 아니다.
 #   · AT_PLACE == 장면 장소인 NPC만. 기록 없음(추적 안 함)·TRANSIT은 장면에 있다고 추론하지 않는다.
 #   · 투영은 project_npc(읽기 전용) — relevant_info_ids=()로 인지·명제는 싣지 않는다(공개 규칙 유지).
 # ══════════════════════════════════════════════════════════════
@@ -169,19 +169,19 @@ def _scene_world_and_place(ctx, plan, session):
 
 
 def scene_npc_projections(ctx, plan, session) -> tuple:
-    """(scene_place, [CurrentNpcProjection]) — 정본 배치가 장면 장소인 NPC만(정렬)."""
+    """(scene_place, [CurrentNpcProjection]) — 유효 위치가 장면 장소인 NPC만(정렬).
+
+    H07: 유효 위치 = 정본 override > 평상시 일과(파생) > untracked(core.npc_position — 사건 조건과 같은 경계).
+    일과로 나타난 인물을 장면에 올려도 정본 배치를 만들지 않는다(materialize 없음).
+    """
+    from . import npc_position as _npos
     from . import npc_projection as _np
     world, scene = _scene_world_and_place(ctx, plan, session)
     if scene is None:
         return None, []
-    pls = ((world.domain("spatial_state") if isinstance(world, _wm.ProjectedWorld)
-            else getattr(world, "spatial_state", None)) or {}).get("placements") or {}
     legacy = _np.LegacyRuntime.from_session(session)
     out = []
-    for aid in sorted(pls):
-        pl = pls[aid] or {}
-        if aid in ctx.pcs or pl.get("kind") != _sp.AT_PLACE or pl.get("place_id") != scene:
-            continue
+    for aid, _src in _npos.actors_at(ctx.definition, world, scene, exclude=ctx.pcs):
         proj = _np.project_npc(aid, ctx.definition, world, relevant_info_ids=(), legacy_runtime=legacy)
         if proj is not None and proj.get("kind") != "PC":
             out.append(proj)

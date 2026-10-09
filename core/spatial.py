@@ -258,11 +258,12 @@ def seed_knowledge(definition: dict, seed_id: str, *, source: str = "SEED") -> d
 OP_SCENE_PLACE_SET = "SCENE_PLACE_SET"
 OP_ACTOR_PLACEMENT_SET = "ACTOR_PLACEMENT_SET"
 OP_ACTOR_TRANSIT_SET = "ACTOR_TRANSIT_SET"
+OP_ACTOR_PLACEMENT_CLEAR = "ACTOR_PLACEMENT_CLEAR"      # H07: 정본 override 해제 → 평상시 일과/untracked 복귀
 OP_ACCESS_STATE_SET = "ACCESS_STATE_SET"
 OP_PLACE_KNOWLEDGE_UPSERT = "SPATIAL_PLACE_KNOWLEDGE_UPSERT"
 OP_EDGE_KNOWLEDGE_UPSERT = "SPATIAL_EDGE_KNOWLEDGE_UPSERT"
 OP_ACCESS_KNOWLEDGE_UPSERT = "SPATIAL_ACCESS_KNOWLEDGE_UPSERT"
-SPATIAL_OP_TYPES = (OP_SCENE_PLACE_SET, OP_ACTOR_PLACEMENT_SET, OP_ACTOR_TRANSIT_SET,
+SPATIAL_OP_TYPES = (OP_SCENE_PLACE_SET, OP_ACTOR_PLACEMENT_SET, OP_ACTOR_TRANSIT_SET, OP_ACTOR_PLACEMENT_CLEAR,
                     OP_ACCESS_STATE_SET, OP_PLACE_KNOWLEDGE_UPSERT, OP_EDGE_KNOWLEDGE_UPSERT,
                     OP_ACCESS_KNOWLEDGE_UPSERT)
 
@@ -315,6 +316,26 @@ def h_actor_transit_set(view, op, payload):
                     f"{pl['edge_expected_end_minute']}) 밖입니다(도착 시각이면 AT_PLACE — "
                     f"시계 진행을 인과 부모로 두십시오)")
     return [_wm.write(op, "spatial_state", ("placements", actor), _wm.MERGE_SINGLE_VALUE, pl)]
+
+
+def h_actor_placement_clear(view, op, payload):
+    """H07: 정본 배치(override)를 지운다 — 이후 유효 위치는 평상시 일과 또는 untracked(core.npc_position).
+
+    · 명시 typed 연산만 해제한다('사건이 끝난 것 같다'는 추론으로 자동 해제하지 않는다).
+    · 배치가 없으면 no-op(이미 일과/untracked — 없는 키 삭제 충돌로 진행 전체를 막지 않는다).
+    · TRANSIT 해제: 그 행위자의 pending MOVEMENT_WAKEUP을 함께 지운다(낡은 깨우기가 정본 위치를 재오염시키지
+      않는다 — 남아 있어도 진행 엔진은 STALE로 무시하지만, 정리해 둔다).
+    """
+    _keys(op, payload, ("actor_id",))
+    actor = _id(op, payload, "actor_id")
+    if not view.has("spatial_state", ("placements", actor)):
+        return []
+    out = [_wm.write(op, "spatial_state", ("placements", actor), _wm.MERGE_DELETE, None)]
+    for sid, e in sorted((view.domain("world_schedule") or {}).items()):
+        if isinstance(e, dict) and e.get("kind") == "MOVEMENT_WAKEUP" and \
+                (e.get("payload") or {}).get("actor_id") == actor:
+            out.append(_wm.write(op, "world_schedule", (sid,), _wm.MERGE_DELETE, None))
+    return out
 
 
 def h_access_state_set(view, op, payload):
@@ -438,6 +459,7 @@ _HANDLERS = {
     OP_SCENE_PLACE_SET: h_scene_place_set,
     OP_ACTOR_PLACEMENT_SET: h_actor_placement_set,
     OP_ACTOR_TRANSIT_SET: h_actor_transit_set,
+    OP_ACTOR_PLACEMENT_CLEAR: h_actor_placement_clear,
     OP_ACCESS_STATE_SET: h_access_state_set,
     OP_PLACE_KNOWLEDGE_UPSERT: h_place_knowledge_upsert,
     OP_EDGE_KNOWLEDGE_UPSERT: h_edge_knowledge_upsert,
