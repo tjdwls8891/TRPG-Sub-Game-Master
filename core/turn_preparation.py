@@ -231,16 +231,21 @@ def stage_instruction_effects(session, decision, *, transaction_id=None) -> Pend
     if not (isinstance(prev, PendingInstructionEffects) and not prev.applied
             and (prev.logical_turn, prev.attempt) == (pending.logical_turn, pending.attempt)):
         prev = None
-    try:
-        _stage_quest(session, decision or {}, pending,
-                     base_state=(prev.projected_quest_state if prev is not None else None))
-    except Exception as e:  # 스테이징 실패는 canonical을 오염시키지 않는다.
-        pending.diagnostics["quest_error"] = str(e)
-    try:
-        _stage_info_ledger(session, decision or {}, pending,
-                           base_ledger=(prev.info_ledger if prev is not None else None))
-    except Exception as e:
-        pending.diagnostics["info_error"] = str(e)
+    from . import player_world as _pw
+    if _pw.legacy_narrative_retired(session):
+        # H07-C: 동적 세계 세션 — 퀘스트 선택·intended_case·info_ledger 스테이징 없음(사건·인지가 권위)
+        pending.diagnostics["legacy_narrative"] = "RETIRED"
+    else:
+        try:
+            _stage_quest(session, decision or {}, pending,
+                         base_state=(prev.projected_quest_state if prev is not None else None))
+        except Exception as e:  # 스테이징 실패는 canonical을 오염시키지 않는다.
+            pending.diagnostics["quest_error"] = str(e)
+        try:
+            _stage_info_ledger(session, decision or {}, pending,
+                               base_ledger=(prev.info_ledger if prev is not None else None))
+        except Exception as e:
+            pending.diagnostics["info_error"] = str(e)
     if prev is not None:
         if (pending.quest_action not in ("start", "switch")
                 and prev.quest_action in ("start", "switch")):
@@ -363,6 +368,7 @@ class ExtractionMutationPlan:
     companions_joined: list = _field(default_factory=list)
     companions_left: list = _field(default_factory=list)
     world_new_tl: dict | None = None
+    world_player_faction: str | None = None   # H07-C: 사건 결과(grant_faction) 파생 호환 뷰(DYNAMIC)
     location_before: str | None = None
     location_after: str | None = None
     location_moved: bool = False

@@ -240,6 +240,9 @@ class PromptBuilder:
               활성 퀘스트가 있으면 그것만, 없으면 후보 목록이 실린다.
         """
         try:
+            from . import player_world as _pw
+            if _pw.legacy_narrative_retired(self.session):
+                return self                         # H07-C: 동적 세계 세션은 레거시 퀘스트를 서사 권위로 싣지 않는다
             from .quest import build_quest_block
             block = build_quest_block(self.session, quest_state=self.quest_projection)
             if block:

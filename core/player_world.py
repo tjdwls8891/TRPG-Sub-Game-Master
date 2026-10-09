@@ -135,6 +135,14 @@ def session_world_context(session, world=None) -> WorldContext:
     return WorldContext(MODE_DYNAMIC, "ok", definition, rev, tuple(pcs), pcs[0], uid_of)
 
 
+def legacy_narrative_retired(session) -> bool:
+    """H07-C: 동적 세계에 바인딩된 세션(정의 revision 바인딩 또는 세계 생애주기 초기화 — DYNAMIC·BLOCKED)에서는
+    레거시 서사 권위(퀘스트 선택·진행·intended_case·info_ledger·hidden/known_secrets·정적 상주 동행 해제)를 은퇴한다.
+    권위는 사건 상태기계 + 정보/인지 + 정본 세계다. 바인딩이 없는 LEGACY 세션(4개 시나리오·현 운영)은 그대로다."""
+    from . import world_lifecycle as _lc
+    return bool(getattr(session, "definition_revision", None)) or bool(_lc.world_bound(session))
+
+
 def pc_stats(session, uid) -> dict:
     """H07: 관찰자 PC 능력치(프로필의 정수 항목) — 레거시 min_stat 조건 의미 보존용 진행 문맥."""
     prof = ((getattr(session, "players", None) or {}).get(uid) or {}).get("profile") or {}

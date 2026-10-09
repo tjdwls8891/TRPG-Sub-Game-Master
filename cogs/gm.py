@@ -414,7 +414,9 @@ def _build_logic_user_prompt(session, player_message: str, roll_results: list,
 
     # 정보 인지 원장 블록 (지속형): 비공개·플롯 정보별 '누가 아는가'의 확립된 기록.
     # 지시층위가 info_access 필드로 갱신하며, 적·NPC가 도달 경로 없는 정보로 행동하지 않도록 하는 진실 기준.
-    info_ledger = getattr(session, "info_ledger", []) or []
+    # H07-C: 동적 세계 세션은 레거시 info_ledger를 진실 기준으로 싣지 않는다(정보·인지가 권위).
+    info_ledger = [] if core.player_world.legacy_narrative_retired(session) else (
+        getattr(session, "info_ledger", []) or [])
     if info_ledger:
         led_lines = []
         for item in info_ledger[-8:]:  # 최근 8건만 주입(스코핑)
@@ -548,6 +550,10 @@ def _build_logic_user_prompt(session, player_message: str, roll_results: list,
             if _gb:
                 place_block += _gb
                 manifest.append("사건 국면 지침")
+            _kb = core.turn_world.pc_knowledge_block(world_turn.ctx, world_turn.plan, session)  # H07-C
+            if _kb:
+                place_block += _kb
+                manifest.append("PC 인지")
         except Exception as e:
             print(f"[지시층위] 사건 국면 지침 블록 실패: {e}")
 
@@ -556,9 +562,9 @@ def _build_logic_user_prompt(session, player_message: str, roll_results: list,
     # 모델의 선택을 검증한다. 이 호출이 없으면 후보가 비어 아무것도 열리지 않는다.
     quest_block = ""
     try:
-        _qb = core.quest.build_quest_block(
+        _qb = "" if core.player_world.legacy_narrative_retired(session) else core.quest.build_quest_block(
             session,
-            quest_state=core.turn_preparation.projected_quest_state(session))
+            quest_state=core.turn_preparation.projected_quest_state(session))   # H07-C: 동적 세계는 사건 지침이 대신
         if _qb:
             quest_block = "\n" + _qb
             manifest.append("퀘스트")
@@ -1794,6 +1800,7 @@ class GMCog(commands.Cog):
         prev_tl = getattr(session, "world_timeline", {}) or {}
         new_tl = core.turn_world.mirror_timeline(prev_tl, ctx.definition, res.projected_world, ctx.lead_pc)
         plan.world_new_tl = new_tl
+        plan.world_player_faction = core.turn_world.derived_player_faction(res.projected_world)   # H07-C 호환 뷰
         plan.location_before = prev_tl.get("current_location")
         plan.location_after = new_tl.get("current_location")
         plan.location_moved = plan.location_before != plan.location_after
@@ -3139,6 +3146,10 @@ class GMCog(commands.Cog):
         if not session:
             await ctx.send("이 채널에는 세션이 없습니다.")
             return
+        if core.player_world.legacy_narrative_retired(session):
+            # H07-C: 동적 세계 세션은 사건 상태기계가 서사 권위다 — 레거시 퀘스트 수동 개입은 병렬 권위를 만든다
+            await ctx.send("이 세션은 동적 세계 세션입니다. 레거시 퀘스트는 사용하지 않습니다(사건 상태기계가 권위).")
+            return
 
         state = core.quest.get_state(session)
         active = state.get("active")
@@ -3456,9 +3467,18 @@ class GMCog(commands.Cog):
             # 스키마에서 아예 뺀다. 필드가 없으면 모델이 값을 낼 수 없으므로
             # 잘못된 선택이 구조적으로 불가능해진다.
             logic_schema = GM_LOGIC_RESPONSE_SCHEMA
+            _retired = core.player_world.legacy_narrative_retired(session)
+            if _retired:
+                # H07-C: 동적 세계 세션 — 레거시 퀘스트 선택·info_access(정보 원장) 필드를 스키마에서 뺀다
+                #        (prompts.py 원본 스키마 불변, 런타임 사본만). 값을 낼 수 없으니 병렬 권위가 생길 수 없다.
+                logic_schema = dict(GM_LOGIC_RESPONSE_SCHEMA)
+                logic_schema["properties"] = {k: v for k, v in logic_schema["properties"].items()
+                                              if k not in ("quest_choice", "quest_case", "info_access")}
+                logic_schema["required"] = [k for k in logic_schema["required"]
+                                            if k not in ("quest_choice", "quest_case", "info_access")]
             try:
-                q_schema = core.quest.choice_schema(session)
-                c_schema = core.quest.case_schema(session)
+                q_schema = None if _retired else core.quest.choice_schema(session)
+                c_schema = None if _retired else core.quest.case_schema(session)
                 if q_schema or c_schema:
                     logic_schema = dict(GM_LOGIC_RESPONSE_SCHEMA)
                     logic_schema["properties"] = dict(logic_schema["properties"])
@@ -4740,7 +4760,8 @@ class GMCog(commands.Cog):
             try:
                 if core.places.mark_visited(session, plan.location_after):
                     print(f"[장소] 첫 방문: {plan.location_after}")
-                if plan.location_moved:
+                if plan.location_moved and not core.player_world.legacy_narrative_retired(session):
+                    # H07-C: 정적 상주(places[*].npcs) 기반 동행 해제는 LEGACY만 — 연고는 현재 위치가 아니다
                     gone = core.release_resident_companions(session, plan.location_after)
                     if gone:
                         await _master(
@@ -4781,48 +4802,56 @@ class GMCog(commands.Cog):
 
         # ── 퀘스트 진전 / 이면정보 / 메인 해금 / 엔딩 (좁은 정규화 입력만) ──
         moved = None
-        try:
-            if core.quest.check_secret_awareness(
-                    session, {"secret_awareness": plan.secret_awareness}):
-                print(f"[GM/{session.session_id}] 이면정보 인지됨")
-                await _master("🔓 **[퀘스트]** 플레이어가 숨겨진 사실을 알아챘습니다.")
-
+        if core.player_world.legacy_narrative_retired(session):
+            # H07-C: 동적 세계 세션 — 레거시 퀘스트 진전·이면 인지·메인 해금·엔딩은 은퇴(사건 상태기계가 권위).
+            #        소속은 사건 결과에서 파생한 읽기 전용 호환 뷰(world_player_faction)만 반영한다.
+            if getattr(plan, "world_player_faction", None):
+                if session.player_faction != plan.world_player_faction:
+                    await _game(f"🏛️ **{plan.world_player_faction}**의 일원이 되었습니다.")
+                session.player_faction = plan.world_player_faction
+        if not core.player_world.legacy_narrative_retired(session):
             try:
-                mains = core.quest.check_main_unlock(session)
-                if mains and not getattr(session, "main_unlocked_notified", False):
-                    session.main_unlocked_notified = True
-                    await _master(
-                        f"🗝️ **[퀘스트]** 메인라인 조건 충족 — "
-                        f"{', '.join(q['name'] for q in mains)}")
+                if core.quest.check_secret_awareness(
+                        session, {"secret_awareness": plan.secret_awareness}):
+                    print(f"[GM/{session.session_id}] 이면정보 인지됨")
+                    await _master("🔓 **[퀘스트]** 플레이어가 숨겨진 사실을 알아챘습니다.")
+
+                try:
+                    mains = core.quest.check_main_unlock(session)
+                    if mains and not getattr(session, "main_unlocked_notified", False):
+                        session.main_unlocked_notified = True
+                        await _master(
+                            f"🗝️ **[퀘스트]** 메인라인 조건 충족 — "
+                            f"{', '.join(q['name'] for q in mains)}")
+                except Exception as e:
+                    if derived is not None:
+                        raise   # WP-D(D-D1): 권위 커밋의 정본 변이 실패는 삼키지 않고 커밋 owner로 전파
+                    print(f"[퀘스트] 메인 해금 확인 실패: {e}")
+
+                moved = core.quest.advance_quest(
+                    session, {"quest_progress": plan.quest_progress})
+                if moved and moved.get("moved"):
+                    outcome = moved.get("outcome")
+                    print(f"[GM/{session.session_id}] 퀘스트 진전 → {moved['node']}"
+                          + (f" (완료: {outcome})" if outcome else ""))
+                    if outcome:
+                        await _master(f"📜 **[퀘스트]** 완료 — {outcome}")
+                    if moved.get("granted"):
+                        g = moved["granted"]
+                        if g.get("faction"):
+                            print(f"[GM/{session.session_id}] 소속 획득: {g['faction']}")
+                            await _game(f"🏛️ **{g['faction']}**의 일원이 되었습니다.")
+                    if core.quest.is_ending(outcome):
+                        session.pending_ending = outcome
+                        await _game(
+                            f"🎬 **세션 엔딩에 도달했습니다.**\n"
+                            f"> 결말: {outcome}\n\n"
+                            + core.quest.format_plans(),
+                            view_factory=lambda: InfinityPlanView(self.bot, session))
             except Exception as e:
                 if derived is not None:
                     raise   # WP-D(D-D1): 권위 커밋의 정본 변이 실패는 삼키지 않고 커밋 owner로 전파
-                print(f"[퀘스트] 메인 해금 확인 실패: {e}")
-
-            moved = core.quest.advance_quest(
-                session, {"quest_progress": plan.quest_progress})
-            if moved and moved.get("moved"):
-                outcome = moved.get("outcome")
-                print(f"[GM/{session.session_id}] 퀘스트 진전 → {moved['node']}"
-                      + (f" (완료: {outcome})" if outcome else ""))
-                if outcome:
-                    await _master(f"📜 **[퀘스트]** 완료 — {outcome}")
-                if moved.get("granted"):
-                    g = moved["granted"]
-                    if g.get("faction"):
-                        print(f"[GM/{session.session_id}] 소속 획득: {g['faction']}")
-                        await _game(f"🏛️ **{g['faction']}**의 일원이 되었습니다.")
-                if core.quest.is_ending(outcome):
-                    session.pending_ending = outcome
-                    await _game(
-                        f"🎬 **세션 엔딩에 도달했습니다.**\n"
-                        f"> 결말: {outcome}\n\n"
-                        + core.quest.format_plans(),
-                        view_factory=lambda: InfinityPlanView(self.bot, session))
-        except Exception as e:
-            if derived is not None:
-                raise   # WP-D(D-D1): 권위 커밋의 정본 변이 실패는 삼키지 않고 커밋 owner로 전파
-            print(f"[퀘스트] 진전 실패(진행에는 영향 없음): {e}")
+                print(f"[퀘스트] 진전 실패(진행에는 영향 없음): {e}")
         if applied["applied"] or applied["cleared"]:
             print(f"[GM/{session.session_id}] 상태 적용: "
                   f"부여={applied['applied']} 해제={applied['cleared']}")
@@ -4938,7 +4967,8 @@ class GMCog(commands.Cog):
         # 이면정보 본문(truth)은 넣지 않는다 — 추출층위가 알면 판정이 오염된다.
         secret_block = ""
         try:
-            st = core.quest.get_state(view)
+            # H07-C: 동적 세계 세션의 이면정보 인지는 정보 노출(관찰 매니페스트)만 — 레거시 인지 조건 없음
+            st = {} if core.player_world.legacy_narrative_retired(session) else core.quest.get_state(view)
             active = st.get("active")
             if active and not active.get("secret_known"):
                 q = core.quest._find_quest(view, active["id"])

@@ -71,6 +71,46 @@ def clock_view(definition, minute) -> dict:
             "time_of_day": cal.daypart_of(minute) or "미확인", "hhmm": f"{dt.hour:02d}:{dt.minute:02d}"}
 
 
+def derived_player_faction(world):
+    """H07-C 호환 뷰: 사건 결과에서 파생한 PC 소속(읽기 전용). RESOLVED 사건의 지역 상태 grant_faction 중
+    가장 최근(국면 진입 분·인스턴스 id 순). 없으면 None(기존 표시 유지). 새 병렬 권위가 아니라 사건의 파생이다."""
+    ev = (world.domain("event_instances") if isinstance(world, _wm.ProjectedWorld)
+          else getattr(world, "event_instances", None)) or {}
+    best = None
+    for iid, inst in ev.items():
+        if not isinstance(inst, dict) or inst.get("lifecycle") != "RESOLVED":
+            continue
+        f = (inst.get("local_state") or {}).get("grant_faction")
+        if not isinstance(f, str) or not f:
+            continue
+        key = (inst.get("phase_entered_at") or 0, iid)
+        if best is None or key > best[0]:
+            best = (key, f)
+    return best[1] if best else None
+
+
+def pc_knowledge_block(ctx, plan, session) -> str:
+    """H07-C: 지시층위용 PC 인지 블록 — 레거시 info_ledger를 대신한다(정보·인지가 권위).
+    PC가 CONTENT로 아는 정보의 공개 안전 요약만 싣는다(명제 원문·NPC 비밀 없음)."""
+    world, _scene = _scene_world_and_place(ctx, plan, session)
+    recs = ((world.domain("cognition_state") if isinstance(world, _wm.ProjectedWorld)
+             else getattr(world, "cognition_state", None)) or {}).get(_cog.actor_holder(ctx.lead_pc)) or {}
+    st = (world.domain("information_state") if isinstance(world, _wm.ProjectedWorld)
+          else getattr(world, "information_state", None)) or {}
+    lines = []
+    for iid in sorted(recs):
+        r = recs[iid]
+        if not isinstance(r, dict) or r.get("awareness") != _cog.CONTENT:
+            continue
+        d = _info.resolve_definition(ctx.definition, st, iid) or {}
+        if d.get("summary"):
+            lines.append(f"· {d['summary']}" + (f" (PC 태도: {r['belief']})" if r.get("belief") else ""))
+    if not lines:
+        return ""
+    return ("\n[PC가 알게 된 것 — 정본 인지(노출 ≠ 믿음). 여기 없는 이면을 PC가 아는 것처럼 다루지 말 것]\n"
+            + "\n".join(lines[-12:]) + "\n")
+
+
 def mirror_timeline(prev_tl: dict, definition: dict, world, pc: str) -> dict:
     """정본 세계 → 레거시 world_timeline 표시 미러(파생값 — 권위 아님).
 
