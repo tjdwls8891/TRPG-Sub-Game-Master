@@ -21,6 +21,7 @@ from . import access as _acc
 from . import action_intent as _ai
 from . import cognition as _cog
 from . import movement as _mv
+from . import place_display as _pd
 from . import spatial as _sp
 from . import world_clock as _clock
 from . import world_mutation as _wm
@@ -159,22 +160,30 @@ class RouteChoicePolicy:
 DEFAULT_ROUTE_POLICY = RouteChoicePolicy()
 
 
-def route_option(c: _mv.KnownRouteCandidate) -> dict:
-    """선택지(플레이어 지식만). signature가 의미 정체성 — option_id는 transient."""
-    return {"signature": list(c.signature), "label": c.route_label,
+def route_option(c: _mv.KnownRouteCandidate, *, definition=None, knowledge=None, best=None, n=1) -> dict:
+    """선택지(플레이어 지식만). signature가 의미 정체성 — option_id는 transient.
+
+    H07 §5: definition·knowledge가 주어지면 라벨을 PC 지식 수준 표시명으로 만든다(모르는 장소 이름 비노출)."""
+    label = c.route_label
+    if definition is not None and knowledge is not None:
+        label = _pd.route_label(definition, knowledge, c.edge_ids, best if best is not None else c.edge_ids,
+                                c.place_ids[0] if c.place_ids else None, n)
+    return {"signature": list(c.signature), "label": label,
             "minutes": c.perceived_duration_minutes,
             "known_constraints": [dict(k) for k in c.known_constraints]}
 
 
 def choose_route(plan: _mv.KnownRoutePlan, *, chosen_signature=None,
-                 policy: RouteChoicePolicy = DEFAULT_ROUTE_POLICY):
+                 policy: RouteChoicePolicy = DEFAULT_ROUTE_POLICY, definition=None, knowledge=None):
     """(decision, candidate|None, options). decision = AUTO|CHOSEN|ASK|NO_ROUTE|SAME_PLACE."""
     if plan.status == _mv.SAME_PLACE:
         return "SAME_PLACE", None, ()
     if plan.status != _mv.ROUTE_OK or not plan.candidates:
         return "NO_ROUTE", None, ()
     cands = list(plan.candidates)[:policy.max_displayed]
-    options = tuple(route_option(c) for c in cands)
+    best = cands[0].edge_ids
+    options = tuple(route_option(c, definition=definition, knowledge=knowledge, best=best, n=i)
+                    for i, c in enumerate(cands, 1))
     if chosen_signature is not None:
         for c in plan.candidates:
             if tuple(c.signature) == tuple(chosen_signature):
@@ -307,7 +316,7 @@ LOCAL_VIEW_SOURCE = "LOCAL_VIEW"
 
 
 def local_view_ops(prefix, definition, world, actors, place_id, *, knowledge=None) -> list:
-    """H07: 장소에 있는 행위자가 그 자리에서 보는 출구(PUBLIC·LOCAL 구간)와 그 너머 장소 이름을 안다.
+    """H07: 장소에 있는 행위자가 그 자리에서 보는 출구(PUBLIC·LOCAL 구간)와 그 너머 장소(존재·표시명)를 안다.
 
     RESTRICTED·SECRET 구간은 보이지 않는다(저작 분류). 실제 접근 상태·구간 성질은 알려 주지 않는다 —
     연결의 존재만(connection_known). 이미 아는 것은 다시 쓰지 않는다(world가 주어질 때).
@@ -327,9 +336,12 @@ def local_view_ops(prefix, definition, world, actors, place_id, *, knowledge=Non
                     "actor_id": actor, "edge_id": eid,
                     "fields": {"connection_known": True, "acquisition_sources": [LOCAL_VIEW_SOURCE]}}))
             if not _sp.knows_place(know, e["to"]):
+                # H07 §5: 출구 너머 장소의 존재를 안다. 이름은 스스로 드러나는 곳(unknown_name 미저작)만 —
+                #        세력·비밀 이름은 명시 발견 전까지 표시명(unknown_name)으로만 보인다(core.place_display).
                 out.append(_mk(prefix, f"lv{n}.p.{e['to']}", _sp.OP_PLACE_KNOWLEDGE_UPSERT, {
                     "actor_id": actor, "place_id": e["to"],
-                    "fields": {"knows_name": True, "acquisitions": [LOCAL_VIEW_SOURCE]}}))
+                    "fields": dict(_pd.seen_place_fields(definition, e["to"]),
+                                   acquisitions=[LOCAL_VIEW_SOURCE])}))
     seen, uniq = set(), []
     for op in out:
         if op.op_id not in seen:
@@ -583,11 +595,13 @@ def _plan_movement(ctx, plan, run, src, here, now, dest, intent, pre_ops, *, cap
         return plan
     try:
         # H07(사용자 결정): PUBLIC/LOCAL 일반 그래프 + 아는 RESTRICTED/SECRET — 경로 세부를 몰라도 출발할 수 있다
-        known = _mv.plan_known_routes(D, _sp.actor_knowledge(src, lead), here, dest, mode, public_graph=True)
+        pk = _sp.actor_knowledge(src, lead)
+        known = _mv.plan_known_routes(D, pk, here, dest, mode, public_graph=True)
     except _mv.MovementError as e:
         plan.status, plan.reason = PLAN_REJECTED, f"ROUTE_PLAN_INVALID:{e}"
         return plan
-    decision, cand, options = choose_route(known, chosen_signature=intent.route_signature, policy=policy)
+    decision, cand, options = choose_route(known, chosen_signature=intent.route_signature, policy=policy,
+                                           definition=D, knowledge=pk)
     plan.route_options = options
     if decision == "SAME_PLACE":
         plan.reason = "SAME_PLACE"

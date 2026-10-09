@@ -104,12 +104,16 @@ class ActionReferenceManifest:
     def render(self) -> str:
         """판단층위 사용자 프롬프트 블록(정본 id·숨은 정보 없음 — 표시명과 키만)."""
         lines = ["\n[행동 참조 후보 — action_intent에는 아래 키만 쓴다. 후보에 없으면 NONE]"]
+        shown = {pid: lbl for _, pid, lbl in self.places}               # H07 §5: PlaceId 대신 PC 지식 수준 표시명
+        nm = lambda pid: shown.get(pid, pid)
         if self.origin_place:
-            lines.append(f"현재 위치: {self.origin_place}")
+            lines.append(f"현재 위치: {nm(self.origin_place)}")
         if self.transit:
             frm, to, el, tot = self.transit
-            lines.append(f"현재 상태: {frm}에서 {to}(으)로 가는 길 위(장소 밖) — 이 구간 {tot}분 중 {el}분 진행. "
-                         f"계속 가려면 destination={to}(또는 더 먼 목적지). 출발지로 되돌아간 것으로 보지 말 것.")
+            key = next((k for k, pid, _ in self.places if pid == to), None)
+            lines.append(f"현재 상태: {nm(frm)}에서 {nm(to)}(으)로 가는 길 위(장소 밖) — 이 구간 {tot}분 중 {el}분 "
+                         f"진행. 계속 가려면 destination={key or nm(to)}(또는 더 먼 목적지). "
+                         f"출발지로 되돌아간 것으로 보지 말 것.")
         if self.places:
             lines.append("장소(목적지): " + ", ".join(f"{k}={lbl}" for k, _, lbl in self.places))
         if self.routes:
@@ -165,8 +169,10 @@ def extend_judgment_schema(base_schema: dict, manifest: ActionReferenceManifest)
     return out
 
 
-def _place_label(definition: dict, pid: str) -> str:
-    return pid
+def _place_label(definition: dict, pid: str, knowledge=None) -> str:
+    """H07 §5: PC 지식 수준 표시명(내부 PlaceId 비노출). 해석 키는 여전히 PlaceId다."""
+    from . import place_display as _pd
+    return _pd.display_name(definition, knowledge or {}, pid, require_known=False)
 
 
 def _info_label(definition: dict, world, info_id: str) -> str:
@@ -192,14 +198,14 @@ def build_manifest(definition: dict, world, pc_actor_id: str, *, definition_revi
     order = {p: i for i, p in enumerate(definition.get("place_order") or sorted(definition.get("place_definitions") or {}))}
     known = set()
     for pid, rec in (knowledge.get("places") or {}).items():
-        if isinstance(rec, dict) and (rec.get("knows_name") or rec.get("visited")):
+        if isinstance(rec, dict):                         # 존재를 아는 곳(이름을 모르면 표시명으로 — H07 §5)
             known.add(pid)
     if here:
         known.add(here)
     if transit:
         known |= {transit[0], transit[1]}                 # 지금 지나는 구간의 양 끝은 안다
     known &= set(definition.get("place_definitions") or {})
-    places = tuple((f"P{n}", pid, _place_label(definition, pid))
+    places = tuple((f"P{n}", pid, _place_label(definition, pid, knowledge))
                    for n, pid in enumerate(sorted(known, key=lambda p: (order.get(p, 10 ** 9), p)), 1))
     routes = tuple((f"R{n}", tuple(o["signature"]), o["label"], o.get("minutes"))
                    for n, o in enumerate(route_options, 1))

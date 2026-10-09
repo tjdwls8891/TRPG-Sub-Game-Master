@@ -21,6 +21,7 @@ from dataclasses import dataclass, field
 from . import cognition as _cog
 from . import information as _info
 from . import player_world as _pw
+from . import place_display as _pd
 from . import spatial as _sp
 from . import world_clock as _clock
 from . import world_mutation as _wm
@@ -82,6 +83,10 @@ def mirror_timeline(prev_tl: dict, definition: dict, world, pc: str) -> dict:
         tl["current_location"] = pl["place_id"]
     elif pl.get("kind") == _sp.TRANSIT:
         tl["current_location"] = pl["from_place"]
+    if tl.get("current_location") and pl:
+        # H07 §5: 플레이어에게 보이는 표시명(PC 지식 수준). current_location(PlaceId)은 내부 소비자 전용.
+        tl["current_location_display"] = _pd.display_for(definition, world, pc, tl["current_location"],
+                                                         require_known=False)
     minute = ((world.domain("world_clock") if isinstance(world, _wm.ProjectedWorld)
                else getattr(world, "world_clock", {})) or {}).get("minute_index")
     cv = clock_view(definition, minute)
@@ -90,10 +95,22 @@ def mirror_timeline(prev_tl: dict, definition: dict, world, pc: str) -> dict:
     return tl
 
 
+def _shown(plan, definition, ctx, pid):
+    """H07 §5: 묘사층위·플레이어에게 쓰는 장소 이름 = PC 지식 수준 표시명(내부 PlaceId 비노출)."""
+    if pid is None:
+        return None
+    world = getattr(plan, "projected_world", None)
+    pc = getattr(ctx, "lead_pc", None)
+    if world is None or pc is None:
+        return _pd.display_name(definition or {}, {}, pid, require_known=False)
+    return _pd.display_for(definition or {}, world, pc, pid, require_known=False)
+
+
 def narration_overlay(plan, definition: dict, ctx=None) -> str:
-    """묘사층위에 주는 코드 확정 세계 결과(PC가 관찰 가능한 것만)."""
+    """묘사층위에 주는 코드 확정 세계 결과(PC가 관찰 가능한 것만). 장소는 PC 지식 수준 표시명."""
     if plan is None:
         return ""
+    nm = lambda pid: _shown(plan, definition, ctx, pid)
     lines = ["\n[세계 진행 — 코드 확정 결과. 아래와 다른 시간·장소·결과를 묘사하지 말 것]"]
     o = plan.outcome or {}
     kind = o.get("kind")
@@ -117,15 +134,15 @@ def narration_overlay(plan, definition: dict, ctx=None) -> str:
     if cv:
         lines.append(f"· 현재 시각: {cv['current_date']} {cv['hhmm']} ({cv['time_of_day']})")
     if kind == _pw.OUT_ARRIVED:
-        lines.append(f"· PC는 {o.get('final_place')}에 도착했다.")
+        lines.append(f"· PC는 {nm(o.get('final_place'))}에 도착했다.")
     elif kind == _pw.OUT_INTERRUPTED_SIGNAL:
         if plan.transit:
-            lines.append(f"· PC는 {plan.transit['from_place']}에서 {plan.transit['to_place']} 쪽으로 가던 길 "
+            lines.append(f"· PC는 {nm(plan.transit['from_place'])}에서 {nm(plan.transit['to_place'])} 쪽으로 가던 길 "
                          f"위에서 멈췄다(아직 도착하지 않았다 — 목적지 모습을 묘사하지 말 것).")
         else:
-            lines.append(f"· PC는 {plan.scene_place}에서 멈췄다.")
+            lines.append(f"· PC는 {nm(plan.scene_place)}에서 멈췄다.")
     elif kind in (_pw.OUT_INTERRUPTED_ACCESS, _pw.OUT_INTERRUPTED_BLOCKED):
-        lines.append(f"· PC는 {plan.scene_place}에서 더 나아가지 못했다 — 앞길이 막혀 있음을 이제 처음 확인했다. "
+        lines.append(f"· PC는 {nm(plan.scene_place)}에서 더 나아가지 못했다 — 앞길이 막혀 있음을 이제 처음 확인했다. "
                      f"우회로를 지어내지 말 것.")
     elif kind in (_pw.OUT_TIME_DONE, _pw.OUT_TIME_INTERRUPTED):
         act = o.get("activity")
@@ -166,6 +183,59 @@ def _scene_world_and_place(ctx, plan, session):
         return plan.projected_world, plan.scene_place                  # TRANSIT 중단이면 None(장소 없음)
     pl = _sp.placement_of(session, ctx.lead_pc) or {}
     return session, (pl.get("place_id") if pl.get("kind") == _sp.AT_PLACE else None)
+
+
+def _raw_place(definition, pid) -> dict:
+    return ((((definition.get("legacy_source") or {}).get("scenario") or {}).get("places") or {}).get(pid)) or {}
+
+
+def dynamic_place_block(ctx, plan, session) -> str:
+    """H07: DYNAMIC 지시층위용 장소 블록 — 정본 장소·구간·PC 지식 기준(레거시 connected·reachable 홉 은퇴).
+
+    · 현재 장소: 플레이어 표시명 + (다르면) 내부 이름과 '이름 사용 규칙'. 지시층위(GM 권한)만 내부 이름을 본다.
+    · 보이는 출구: 현재 장소에서 나가는 구간 중 PC가 아는 것(도착·시작 시 PUBLIC/LOCAL 출구 학습 포함).
+      RESTRICTED/SECRET은 발견했을 때만. 표시명은 PC 지식 수준, 미방문·이름 모름이면 unknown_hint만.
+    · 연고 인물(places[*].npcs)은 싣지 않는다 — 현재 장면 인물은 scene_npc_block(유효 위치)이 준다.
+    """
+    world, scene = _scene_world_and_place(ctx, plan, session)
+    if scene is None:
+        return ""
+    D = ctx.definition
+    know = _sp.actor_knowledge(world, ctx.lead_pc)
+    shown = _pd.display_name(D, know, scene, require_known=False)
+    lines = ["\n[현재 장소 — 정본]", shown]
+    if shown != scene:
+        lines.append(f"(내부 이름: {scene} — PC는 아직 이 이름을 모른다. 묘사·질문에서 내부 이름·소속을 쓰지 말고 "
+                     f"'{shown}'처럼 PC가 아는 만큼만 부를 것)")
+    node = _raw_place(D, scene)
+    for key, label in (("location_desc", "위치"), ("exterior", "외부"), ("interior", "내부")):
+        if node.get(key):
+            mood = node.get(f"mood_{key}") if key != "location_desc" else None
+            lines.append(f"{label}: {node[key]}" + (f" ({mood})" if mood else ""))
+    for up in (node.get("inherit") or []):
+        un = _raw_place(D, up)
+        desc = " / ".join(str(un[k]) for k in ("location_desc", "exterior") if un.get(k))
+        if desc:
+            lines.append(f"\n[상위 맥락 — {_pd.display_name(D, know, up, require_known=False)}]\n{desc}")
+    exits = []
+    for eid, e in sorted((D.get("movement_edges") or {}).items()):
+        if e.get("from") != scene or not _sp.knows_edge(know, eid):
+            continue
+        to = e["to"]
+        nm = _pd.display_name(D, know, to, require_known=False)
+        rec = (know.get("places") or {}).get(to) or {}
+        tn = _raw_place(D, to)
+        if rec.get("visited") and _pd.knows_true_name(D, know, to):
+            brief, mark = tn.get("known_brief") or tn.get("location_desc") or "", "방문함"
+        else:
+            brief, mark = tn.get("unknown_hint") or "아직 가 보지 않은 곳이다.", "미방문"
+        via = f" — {e['route_hint']}" if e.get("route_hint") else ""
+        exits.append(f"· {nm}{via} ({mark}) — {brief}")
+    if exits:
+        lines.append("\n[보이는 출구 — PC 지식 기준]")
+        lines += exits[:10]
+        lines.append("미방문 장소는 확정적으로 묘사하지 말 것. 이름을 모르는 곳은 표시된 이름으로만 부를 것.")
+    return "\n".join(lines) + "\n"
 
 
 def scene_npc_projections(ctx, plan, session) -> tuple:
@@ -230,13 +300,15 @@ _ACCESS_STATE_WORDS = {"OPEN": "열린다", "UNLOCKED": "열린다", "CLOSED": "
                        "BARRED": "막힌다", "BLOCKED": "막힌다", "SEALED": "봉쇄된다", "GUARDED": "경비가 선다"}
 
 
-def _control_label(definition, cid, scene) -> str | None:
-    """접근 제어 → 장면에서 보이는 출입로 표현(내부 control id 미노출)."""
+def _control_label(definition, cid, scene, namer=None) -> str | None:
+    """접근 제어 → 장면에서 보이는 출입로 표현(내부 control id 미노출 · H07 장소는 표시명)."""
     edges = [e for e in (definition.get("movement_edges") or {}).values() if e.get("access_ref") == cid]
     if not edges:
         return None
     edges.sort(key=lambda e: (scene not in (e.get("from"), e.get("to")), e.get("from"), e.get("to")))
     a, b = sorted((edges[0].get("from"), edges[0].get("to")))
+    if namer is not None:
+        a, b = namer(a), namer(b)
     return f"{a}–{b} 사이 출입로"
 
 
@@ -250,21 +322,33 @@ def _actor_label(definition, world, actor_id, pcs) -> str:
     return name or "누군가"
 
 
+def _place_shown(definition, world, pcs, pid):
+    pc = sorted(pcs)[0] if pcs else None
+    if pid is None or world is None or pc is None:
+        return pid
+    return _pd.display_for(definition, world, pc, pid, require_known=False)
+
+
 def _fact_label(fact, definition, world, scene, pcs) -> str | None:
-    """관찰 가능한 효과 사실 하나의 서술. 표현할 수 없는 효과는 None(내부 id로 대체하지 않는다)."""
+    """관찰 가능한 효과 사실 하나의 서술. 표현할 수 없는 효과는 None(내부 id로 대체하지 않는다).
+    H07 §5: 장소는 PC 지식 수준 표시명."""
     t, p = fact.get("op_type"), fact.get("payload") or {}
+    pn = lambda pid: _place_shown(definition, world, pcs, pid)
     if t == _sp.OP_ACCESS_STATE_SET:
-        where = _control_label(definition, p.get("control_id"), scene)
+        where = _control_label(definition, p.get("control_id"), scene, pn)
         word = _ACCESS_STATE_WORDS.get(p.get("state"))
         return f"{where}가 {word}" if where and word else None
     if t == _sp.OP_ACTOR_PLACEMENT_SET:
         who = _actor_label(definition, world, p.get("actor_id"), pcs)
-        return f"{who}이(가) {p.get('place_id')}에 도착한다" if p.get("place_id") else None
+        return f"{who}이(가) {pn(p.get('place_id'))}에 도착한다" if p.get("place_id") else None
+    if t == _sp.OP_ACTOR_PLACEMENT_CLEAR:
+        who = _actor_label(definition, world, p.get("actor_id"), pcs)
+        return f"{who}이(가) 평소 자리로 돌아간다"
     if t == _sp.OP_ACTOR_TRANSIT_SET:
         who = _actor_label(definition, world, p.get("actor_id"), pcs)
-        return f"{who}이(가) {p.get('from_place')}에서 {p.get('to_place')} 쪽으로 떠난다"
+        return f"{who}이(가) {pn(p.get('from_place'))}에서 {pn(p.get('to_place'))} 쪽으로 떠난다"
     if t == _sp.OP_SCENE_PLACE_SET:
-        return f"장면이 {p.get('place_id')}(으)로 옮겨진다" if p.get("place_id") else None
+        return f"장면이 {pn(p.get('place_id'))}(으)로 옮겨진다" if p.get("place_id") else None
     return None
 
 
@@ -435,6 +519,31 @@ class TurnWorldResult:
     conflict: dict | None = None
 
 
+def reveal_ops(definition: dict, pc: str, info_ids, *, prefix: str, at_minute=None) -> list:
+    """H07 §5.2: PC가 CONTENT로 알게 된 저작 정보의 reveals → 공간 지식 upsert(장소 이름 · 구간 존재).
+
+    같은 장소·구간을 여러 정보가 드러내도 연산은 하나(출처 목록 병합). RESTRICTED/SECRET 길도 이 경로로만
+    자동이 아닌 '발견'으로 알게 된다. 노출 ≠ 믿음: 공간 지식은 '그런 이름·길이 있다고 안다'는 인지다.
+    """
+    infos = definition.get("information_definitions") or {}
+    places, edges = {}, {}
+    for iid in sorted(set(info_ids or ())):
+        rv = (infos.get(iid) or {}).get("reveals") or {}
+        for pid in rv.get("places") or ():
+            places.setdefault(pid, []).append(f"INFO:{iid}")
+        for eid in rv.get("edges") or ():
+            edges.setdefault(eid, []).append(f"INFO:{iid}")
+    out = []
+    for pid in sorted(places):
+        out.append(_wm.make_op(f"{prefix}.p.{pid}", _sp.OP_PLACE_KNOWLEDGE_UPSERT, "OBSERVATION", {
+            "actor_id": pc, "place_id": pid, "fields": {"knows_name": True, "acquisitions": places[pid]}}))
+    for eid in sorted(edges):
+        out.append(_wm.make_op(f"{prefix}.e.{eid}", _sp.OP_EDGE_KNOWLEDGE_UPSERT, "OBSERVATION", {
+            "actor_id": pc, "edge_id": eid, "fields": {"connection_known": True, "acquisition_sources": edges[eid],
+                                                       "last_confirmed_at": at_minute}}))
+    return out
+
+
 def process_observation(ctx, base_world, plan, obs_manifest: ObservationManifest, raw_obs, *,
                         transaction_id: str, narrative_seed: str, replan=None) -> TurnWorldResult:
     """확정 묘사 관찰 → 보충 typed 연산 + 보충 세계 진행 → 최종 묶음 연산(순수)."""
@@ -472,6 +581,9 @@ def process_observation(ctx, base_world, plan, obs_manifest: ObservationManifest
             "holder": _cog.actor_holder(lead), "info_id": iid, "awareness": _cog.CONTENT,
             "acquisition": _cog.acquisition_record(f"turn:{transaction_id}:obs:{iid}", "TESTIMONY",
                                                    at_minute=(start_world.domain("world_clock") or {}).get("minute_index"))}))
+    # ②-b H07 §5.2: 정보가 드러낸 공간 지식(장소 이름·숨은 길 발견) — 실제로 알게 된 정보의 저작 reveals만
+    acq += reveal_ops(D, lead, exposures, prefix=f"{prefix}.rv", at_minute=(start_world.domain("world_clock") or {})
+                      .get("minute_index"))
     # ③ 추가 시간(코드 소유 경과가 있으면 버린다)
     extra = raw.get("extra_minutes")
     extra = extra if isinstance(extra, int) and not isinstance(extra, bool) and extra > 0 else 0

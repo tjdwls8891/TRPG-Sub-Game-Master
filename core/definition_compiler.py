@@ -103,7 +103,10 @@ PROFILE_BASE_EXCLUDED = ("actor_id", "name", INLINE_SECRET_FIELD, "resources", "
 #      지름길·숨은 길·위험 회피 같은 경로 선택 품질의 근거다(H07 최종 지시 §6). 저작된 경우에만 정의에 키가 생긴다.
 # H07: default_npcs[*].routine — 선택적 평상시 일과(요일·시간대 → 장소). 정본 배치가 아니라 정의 + 정본 시계의
 #      순수 함수로 해석되는 파생 위치다(core.npc_position). 저작된 경우에만 정의에 키가 생긴다.
-INFO_EXPLICIT_KEYS = ("proposition", "summary", "subject_refs", "tags", "fragments", "sensitivity")
+INFO_EXPLICIT_KEYS = ("proposition", "summary", "subject_refs", "tags", "fragments", "sensitivity", "reveals")
+# H07: information_definitions[*].reveals = {"places": [PlaceId], "edges": [EdgeId|pair id]} — PC가 이 정보를 실제로
+#      알게 되면(CONTENT 획득) 함께 얻는 공간 지식(장소 이름·숨은 길 발견: NPC 제보·문서·지도·수색·사건 효과).
+#      노출 ≠ 믿음 원칙은 그대로 — 공간 지식은 '그런 길·이름이 있다고 들었다'는 인지다. 저작된 경우에만 키가 생긴다.
 
 ERROR, WARNING, INFO = "ERROR", "WARNING", "INFO"
 _SEVERITY_RANK = {ERROR: 0, WARNING: 1, INFO: 2}
@@ -450,6 +453,40 @@ def _compile_explicit_infos(raw, actors, places, d):
     return out
 
 
+def _compile_info_reveals(raw, infos, places, edges, d):
+    """information_definitions[*].reveals 검증·정규화(H07). pair id는 저작된 양방향 모두로 확장한다."""
+    src = raw.get("information_definitions") if isinstance(raw.get("information_definitions"), dict) else {}
+    pair_index = {}
+    for eid, e in edges.items():
+        pair_index.setdefault(e["pair_id"], []).append(eid)
+    for iid, body in src.items():
+        if not isinstance(body, dict) or "reveals" not in body or iid not in infos:
+            continue
+        p = f"information_definitions.{iid}.reveals"
+        rv = body["reveals"]
+        if not isinstance(rv, dict) or set(rv) - {"places", "edges"} or not rv:
+            d.add(ERROR, "INFO_REVEALS_INVALID", p, "reveals는 {places?, edges?} 객체입니다")
+            continue
+        out = {"places": [], "edges": []}
+        for v in _str_list(rv.get("places")) or []:
+            if v not in places:
+                d.add(ERROR, "INFO_REVEALS_UNKNOWN", f"{p}.places", f"정의되지 않은 장소 {v!r}")
+            out["places"].append(v)
+        exp = set()
+        for v in _str_list(rv.get("edges")) or []:
+            if v in edges:
+                exp.add(v)
+            elif v in pair_index:
+                exp.update(pair_index[v])
+            else:
+                d.add(ERROR, "INFO_REVEALS_UNKNOWN", f"{p}.edges", f"정의되지 않은 구간 {v!r}")
+        if _str_list(rv.get("places")) is None or _str_list(rv.get("edges")) is None:
+            d.add(ERROR, "INFO_REVEALS_INVALID", p, "places·edges는 문자열 목록입니다")
+        out["places"] = sorted(set(out["places"]))
+        out["edges"] = sorted(exp)
+        infos[iid]["reveals"] = out
+
+
 _SERIES_KEYS = ("value_ref", "proposition_template", "tracking_policy", "subject_refs", "tags", "sensitivity")
 SERIES_TRACKING_POLICIES = ("ON_CHANGE",)
 
@@ -598,6 +635,20 @@ def _compile_places(raw, actor_index, d):
             rec[fk] = vals
         rec["traversable"] = bool(node.get("traversable"))
         rec["image"] = node.get("image") if isinstance(node.get("image"), str) else None
+        # H07: 플레이어 표시명(내부 PlaceId와 분리). display_name = 이름을 아는 PC에게 보이는 이름(기본 PlaceId),
+        #      unknown_name = 이름을 모르는 PC에게 보이는 서술형 이름(세력·비밀을 누설하지 않는 저작 문구).
+        #      unknown_name이 있는 장소는 보거나 가 보는 것만으로 이름을 알지 못한다(명시 발견 필요 — core.place_display).
+        #      저작된 경우에만 키가 생긴다(미저작 시나리오의 정의·revision 불변).
+        for fk in ("display_name", "unknown_name"):
+            if fk in node:
+                v = node[fk]
+                if not isinstance(v, str) or not v.strip():
+                    d.add(ERROR, "PLACE_DISPLAY_NAME_INVALID", f"{path}.{fk}", f"{fk}는 비어 있지 않은 문자열입니다")
+                else:
+                    rec[fk] = v.strip()
+        if rec.get("unknown_name") is not None and rec["unknown_name"] in (pid, rec.get("display_name")):
+            d.add(ERROR, "PLACE_UNKNOWN_NAME_LEAKS", f"{path}.unknown_name",
+                  "unknown_name이 실제 이름과 같습니다(모르는 PC에게 이름이 누설됩니다)")
         # places[*].npcs 는 연고·선호 연관이다. 현재 위치(presence)가 아니다(BLK-06).
         assoc = []
         for entry in (node.get("npcs") or []):
@@ -2029,6 +2080,7 @@ def compile_scenario(raw: dict, scenario_id: str, quests: dict | None = None) ->
         if len(ids) > 1:
             d.add(WARNING, "INFO_DUPLICATE_PROPOSITION", "information_definitions",
                   f"같은 명제가 여러 InfoId로 정의됐습니다: {', '.join(ids)} — 합치지 않습니다(info_ref 사용 권장)")
+    _compile_info_reveals(raw, infos, places, edges, d)
     series = _compile_info_series(raw, _ref_scope(actors, places, infos, access, modes, calendar=calendar), d)
     event_tpls = _compile_event_templates(raw, cap["capabilities"], actors, actor_index, places, infos, access,
                                           modes, edges, calendar, d)

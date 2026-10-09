@@ -22,6 +22,7 @@ import json
 from dataclasses import dataclass, field
 
 from . import canonical_mutation as _cm
+from . import place_display as _pd
 from . import spatial as _sp
 from . import world_mutation as _wm
 from . import world_schedule as _sched
@@ -258,7 +259,7 @@ def build_initial_world_plan(definition: dict, session, choices: StartChoices, *
                             {"actor_id": aid, "ref": ref, "fields": f}))
     visit = [_mk(prefix, "visit", _sp.OP_PLACE_KNOWLEDGE_UPSERT, {
         "actor_id": pc, "place_id": choices.start_place,
-        "fields": {"knows_name": True, "visited": True}})]
+        "fields": dict(_pd.seen_place_fields(definition, choices.start_place), visited=True)})]
     # H07: 시작 장소에서 보이는 출구(PUBLIC·LOCAL)와 그 너머 장소 이름 — 도착 규칙과 같다
     view = _pw.local_view_ops(f"{prefix}.view", definition, None, [pc], choices.start_place,
                               knowledge={"places": dict(rec.get("places") or {}, **{choices.start_place: {}}),

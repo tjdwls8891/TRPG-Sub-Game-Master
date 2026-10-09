@@ -179,6 +179,7 @@ def format_timeline(timeline: dict) -> str:
     parts = [f"{tl.get('current_date', '미확인')} {tl.get('time_of_day', '')}".strip()]
     if tl.get("elapsed_days") is not None:
         parts.append(f"(경과 {tl['elapsed_days']}일)")
-    if tl.get("current_location"):
-        parts.append(f"@ {tl['current_location']}")
+    loc = tl.get("current_location_display") or tl.get("current_location")   # H07: DYNAMIC은 PC 지식 수준 표시명
+    if loc:
+        parts.append(f"@ {loc}")
     return " ".join(parts)

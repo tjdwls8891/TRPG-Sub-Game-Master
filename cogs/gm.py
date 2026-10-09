@@ -162,7 +162,7 @@ def _build_judgment_user_prompt(session, player_message: str, roll_results: list
     if tl:
         lines.append(
             "[현재 상황]\n"
-            f"위치: {tl.get('current_location', '미확인')} / "
+            f"위치: {tl.get('current_location_display') or tl.get('current_location', '미확인')} / "
             f"시간대: {tl.get('time_of_day', '미확인')} / "
             f"날짜: {tl.get('current_date', '미확인')}"
         )
@@ -405,7 +405,7 @@ def _build_logic_user_prompt(session, player_message: str, roll_results: list,
         world_tl_block = (
             "\n[현재 세계 상태 — 세력 배치·지역 규칙 기반 개연성 판단의 기준]\n"
             f"날짜: {world_tl.get('current_date', '(미확인)')}\n"
-            f"위치: {world_tl.get('current_location', '(미확인)')}\n"
+            f"위치: {world_tl.get('current_location_display') or world_tl.get('current_location', '(미확인)')}\n"
             f"시간대: {world_tl.get('time_of_day', '(미확인)')}\n"
             f"세력/지역 컨텍스트: {world_tl.get('faction_context', '(미확인)')}\n"
         )
@@ -528,7 +528,9 @@ def _build_logic_user_prompt(session, player_message: str, roll_results: list,
     # "거기까지는 한 번에 못 간다"를 판정할 수 있다.
     place_block = ""
     try:
-        _pb = core.places.build_place_block(session, static_npcs=world_turn is None)
+        # H07: DYNAMIC은 정본 장소·구간·PC 지식 기반 블록(레거시 connected 홉·연고 인물 은퇴, 표시명 규칙)
+        _pb = (core.turn_world.dynamic_place_block(world_turn.ctx, world_turn.plan, session)
+               if world_turn is not None else core.places.build_place_block(session))
         if _pb:
             place_block = "\n" + _pb
             manifest.append("장소 정보")
