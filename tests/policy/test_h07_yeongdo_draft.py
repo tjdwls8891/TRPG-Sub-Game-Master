@@ -333,3 +333,23 @@ def test_first_sighting_study_requires_watching():
     w = adopt(p)
     assert phase_of(w, "yd_ev_first_sighting") == "studied"
     assert any(s.get("exposes") == ["yd.info.q.early_first_sight"] for s in signals(p))
+
+
+def test_every_legacy_quest_has_a_mapping_and_mapped_templates_exist():
+    import sys
+    sys.path.insert(0, os.path.join(ROOT, "handoff", "H07_YEONGDO_WORKBOOK"))
+    try:
+        import events_author as EA
+    finally:
+        sys.path.pop(0)
+    quests = json.load(open(os.path.join(ROOT, "scenarios", "영도.quests.json"), encoding="utf-8"))["quests"]
+    D, _ = _defn()
+    assert sorted(EA.MAP) == sorted(q["id"] for q in quests)              # 무음 누락 0
+    for qid, (disp, tids, note) in EA.MAP.items():
+        assert disp in ("MIGRATED", "SPLIT", "MERGED", "RETAINED", "RETIRED"), qid
+        assert note.strip(), qid
+        assert (disp == "RETIRED") == (not tids), qid
+        for tid in tids:
+            assert tid in D["event_templates"], (qid, tid)
+    review = open(os.path.join(ROOT, "handoff", "H07_YEONGDO_AUTHORING_REVIEW.md"), encoding="utf-8").read()
+    assert all(f"| {q['id']} |" in review for q in quests)
