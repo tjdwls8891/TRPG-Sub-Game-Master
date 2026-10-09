@@ -134,7 +134,7 @@ def test_legacy_connected_is_never_promoted_to_edges():
     h07 = ("scenario_schema", "calendar", "movement_modes", "movement_edges", "access_control_definitions",
            "spatial_knowledge_seeds", "information_definitions", "event_templates", "start_frames")
     bare = {k: v for k, v in d.items() if k not in h07}
-    bare["default_npcs"] = {n: {k: v for k, v in prof.items() if k != "knowledge_seed"}
+    bare["default_npcs"] = {n: {k: v for k, v in prof.items() if k not in ("knowledge_seed", "routine")}
                             for n, prof in d["default_npcs"].items()}
     res0 = dc.compile_scenario(bare, "영도")
     assert res0.ok and res0.definition["movement_edges"] == {}

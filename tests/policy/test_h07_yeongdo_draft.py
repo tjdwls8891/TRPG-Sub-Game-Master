@@ -171,9 +171,12 @@ def test_genesis_places_pc_clock_npcs_and_no_unnarrated_signals(frame):
     assert SP.placement_of(w, PC) == SP.at_place(ch.start_place)
     assert w.domain("world_clock")["minute_index"] == ch.start_minute
     placed = [a for a, p in (w.domain("spatial_state")["placements"]).items() if a != PC]
-    patrol = {"yd.npc.lee_junhyeok", "yd.npc.ryu_gaeun"}            # 낮 시작이면 수습대는 이미 출발(세계 주도)
-    assert len(placed) == 47
-    assert all(SP.placement_of(w, a)["kind"] == "AT_PLACE" for a in placed if a not in patrol)
+    assert placed == []                                               # V2: genesis 정본 NPC 배치 없음(A 분류 0명)
+    from core import npc_position as NP
+    srcs = {a: NP.effective_position(D, w, a)["source"] for a in D["actor_definitions"]}
+    assert sum(1 for a in D["actor_definitions"].values() if a.get("routine")) == 35      # 일과 저작 35 · 미저작 12
+    assert all(v in (NP.ROUTINE, NP.UNTRACKED) for v in srcs.values())  # 파생 또는 미추적(정본 아님)
+    assert all(srcs[a] == NP.UNTRACKED for a, d in D["actor_definitions"].items() if not d.get("routine"))
     assert lifecycle(w, "yd_ev_first_sighting") == "NONE"            # 시작 분에는 관찰 신호성 사건 없음
     for inst in w.domain("event_instances").values():                 # 시작 분에 생긴 사건은 신호를 내지 않는다(인트로 밖)
         spawn = next(c for c in D["event_templates"][inst["template_id"]]["transition_cases"] if c["from"] is None)
@@ -217,8 +220,11 @@ def test_route_place_stop_then_branch_east_descent():
 # ── 세계 주도 진행(오프스크린 NPC 이동) ────────────────────────
 
 def test_salvage_patrol_leaves_at_morning_offscreen():
-    w, _ = genesis("arrive_plain")                                     # 05:40 — 수습대는 요새 안
-    assert SP.placement_of(w, "yd.npc.lee_junhyeok") == SP.at_place("수습대 집결지")
+    from core import npc_position as NP
+    D, _ = _defn()
+    w, _ = genesis("arrive_plain")                                     # 05:40 — 수습대는 요새 안(일과)
+    assert NP.effective_place(D, w, "yd.npc.lee_junhyeok") == "수습대 집결지"
+    assert SP.placement_of(w, "yd.npc.lee_junhyeok") is None          # 정본 배치가 아니라 일과
     start = w.domain("world_clock")["minute_index"]
     w2 = w
     for _ in range(8):                                                 # 관찰 신호가 대기를 끊으면 다시 기다린다
@@ -226,8 +232,8 @@ def test_salvage_patrol_leaves_at_morning_offscreen():
         if w2.domain("world_clock")["minute_index"] - start >= 120:      # 07:40 — 이른 아침 출발 뒤
             break
     assert w2.domain("world_clock")["minute_index"] - start >= 120
-    pl = SP.placement_of(w2, "yd.npc.lee_junhyeok")
-    assert pl["kind"] == "TRANSIT" or pl.get("place_id") != "수습대 집결지"
+    assert NP.effective_place(D, w2, "yd.npc.lee_junhyeok") == "저지대 상업지구"   # 이른 아침 일과
+    assert SP.placement_of(w2, "yd.npc.lee_junhyeok") is None          # 일과 전환을 정본 SET으로 만들지 않는다
     assert phase_of(w2, "yd_namhang_salvage_patrol") == "out"
 
 
@@ -250,7 +256,7 @@ def test_haeryeon_ladder_join_by_waiting_then_climbing():
     assert inst["local_state"]["grant_faction"] == "해련 자치 마을"
     assert w.domain("access_control_state")["haeryeon_rear_line"]["state"] == "ADMITTED"
     sig = [s for s in signals(p) if s["signal_id"] == "known"]
-    assert sig and sig[0]["exposes"] == ["yd.info.q.join_haeryeon_silence"]
+    assert sig and sig[0]["exposes"] == ["yd.info.place.haeryeon", "yd.info.q.join_haeryeon_silence"]
     assert lifecycle(w, "yd_ev_haeryeon_gutter") in ("NONE", "CANCELLED")      # 다른 가입 경로는 열리지 않는다
 
 
