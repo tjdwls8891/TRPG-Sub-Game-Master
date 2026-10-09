@@ -339,7 +339,7 @@ sessions/{session_id}/
 
 | 항목 | 수 | 비고 |
 |---|---|---|
-| `places` | 122 | 계층 그래프. `tier` 없이 `parent`만 |
+| `places` | 125 | 계층 그래프. `tier` 없이 `parent`만 |
 | `default_npcs` | 47 | 32명이 장소에 배치 |
 | `jobs` | 16 | 8종에 `top_stat` |
 | `start_frames` | 8 | 도착 서사. 5축 슬롯 |

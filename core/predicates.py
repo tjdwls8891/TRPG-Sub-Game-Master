@@ -90,7 +90,15 @@ def evaluate(p, ctx: _refs.EvalContext) -> str:
         return TRUE if p["const"] else FALSE
     if "cmp" in p:
         a = _refs.resolve(p["ref"], ctx)
-        b = _refs.resolve(p["value_ref"], ctx) if "value_ref" in p else _refs.known(p.get("value"))
+        if "value_ref" in p:
+            b = _refs.resolve(p["value_ref"], ctx)
+        else:
+            v = p.get("value")
+            if isinstance(v, str) and v.startswith(_refs.SLOT_PREFIX):     # H07: 비교값의 슬롯 = binding 값
+                v = _refs._subst(v, ctx)
+                b = _refs.UNKNOWN if v is _refs.UNSET else _refs.known(v)
+            else:
+                b = _refs.known(v)
         if not (a.known and b.known):
             return UNKNOWN
         return _cmp(p["cmp"], a.value, b.value)
@@ -251,6 +259,10 @@ def validate(p, scope: _refs.RefScope, path: str, *, allow_phase_time: bool) -> 
         if "value_ref" in p:
             errs += [("PREDICATE_REF_INVALID", ep, m)
                      for ep, m in _refs.validate_ref(p["value_ref"], scope, f"{path}.value_ref")]
+        v = p.get("value")
+        if isinstance(v, str) and v.startswith(_refs.SLOT_PREFIX) and v[len(_refs.SLOT_PREFIX):] not in scope.slots:
+            # H07: 슬롯 문자열을 리터럴로 조용히 비교하지 않는다(정의되지 않은 슬롯은 오류)
+            errs.append(("PREDICATE_SLOT_UNKNOWN", f"{path}.value", f"정의되지 않은 슬롯 {v!r}"))
         if isinstance(p.get("ref"), dict) and p["ref"].get("ref") == "CLOCK_MINUTE":
             if p["cmp"] not in ("GTE", "GT") or not _is_int(p.get("value")):
                 errs.append(("PREDICATE_TIME_POLLING", path,

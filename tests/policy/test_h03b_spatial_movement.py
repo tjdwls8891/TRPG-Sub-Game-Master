@@ -128,12 +128,22 @@ def test_structured_places_is_validated_and_edges_normalized():
     assert g.out_edges("외딴곳") == () and g.out_edges("섬") == ()
 
 
-def test_legacy_connected_is_never_promoted_and_yeongdo_has_no_edges():
+def test_legacy_connected_is_never_promoted_to_edges():
     d = json.load(open(os.path.join(REPO_ROOT, "scenarios", "영도.json"), encoding="utf-8"))
+    # H07: 영도는 구간을 사람이 저작했다 — 저작 구간을 걷어 내면 connected만으로는 구간이 하나도 생기지 않는다
+    h07 = ("scenario_schema", "calendar", "movement_modes", "movement_edges", "access_control_definitions",
+           "spatial_knowledge_seeds", "information_definitions", "event_templates", "start_frames")
+    bare = {k: v for k, v in d.items() if k not in h07}
+    bare["default_npcs"] = {n: {k: v for k, v in prof.items() if k != "knowledge_seed"}
+                            for n, prof in d["default_npcs"].items()}
+    res0 = dc.compile_scenario(bare, "영도")
+    assert res0.ok and res0.definition["movement_edges"] == {}
+    g0 = SP.SpatialGraph(res0.definition)
+    assert all(g0.out_edges(p) == () for p in g0.places)
     res = dc.compile_scenario(d, "영도")
-    assert res.ok and res.definition["movement_edges"] == {} and res.definition["movement_modes"] == {}
+    assert res.ok
+    assert all(e["source_ref"][0] == "movement_edges" for e in res.definition["movement_edges"].values())
     g = SP.SpatialGraph(res.definition)
-    assert all(g.out_edges(p) == () for p in g.places)
     # 정적 가시성 = 기존 places.is_visible_from과 같은 저작 의미(전 장소 쌍)
     legacy = core.places.load_places(d)
     names = sorted(g.places)

@@ -120,13 +120,21 @@ def test_revision_and_ids_are_process_and_hashseed_independent():
 
 # ── legacy 호환 (REQ-066) ────────────────────────────────────
 
+FULL_CAPABILITY_SCENARIOS = ("영도",)        # H07: 영도는 최초 full-capability 이행 대상(나머지는 LEGACY 그대로)
+
+
 @pytest.mark.parametrize("sid", ALL_SCENARIOS)
-def test_every_shipped_scenario_compiles_as_legacy_without_error(sid):
+def test_every_shipped_scenario_compiles_without_error_legacy_unless_migrated(sid):
     res = dc.compile_sources(_src(sid))
     assert res.ok, [d.to_dict() for d in res.errors]
     meta = res.definition["scenario_meta"]
-    assert meta["schema_mode"] == "legacy"
-    assert meta["capabilities"] == {} and meta["validated_capabilities"] == []
+    if sid in FULL_CAPABILITY_SCENARIOS:
+        assert meta["schema_mode"] == "declared"
+        assert sorted(meta["validated_capabilities"]) == sorted(dc.KNOWN_CAPABILITIES)
+        assert meta["deferred_capabilities"] == []
+    else:
+        assert meta["schema_mode"] == "legacy"
+        assert meta["capabilities"] == {} and meta["validated_capabilities"] == []
     assert res.revision == dc.definition_revision(res.definition)
     # 현행 런타임이 쓰는 raw 모양이 순서까지 그대로 복원된다
     scen, _ = dc.legacy_scenario_view(res.definition)
@@ -137,13 +145,20 @@ def test_every_shipped_scenario_compiles_as_legacy_without_error(sid):
     assert list(scen.get("default_npcs") or {}) == list(raw.get("default_npcs") or {})
 
 
+def kinds_explicit(defn):
+    return sum(1 for i in defn["information_definitions"].values() if i["kind"] == "EXPLICIT")
+
+
 def test_yeongdo_wuxia_darkfantasy_compile_report_sizes():
     y = dc.compile_sources(_src("영도")).definition
     raw_y = _raw("영도")
     quests = json.load(open(os.path.join(SCEN_DIR, "영도.quests.json"), encoding="utf-8"))
     assert len(y["actor_definitions"]) == len(raw_y["default_npcs"])
     assert y["place_order"] == list(raw_y["places"])
-    assert y["movement_edges"] == {}               # connected에서 구간을 만들지 않는다
+    # connected에서 구간을 만들지 않는다 — 모든 구간은 저작 movement_edges에서만(H07: 양방향 저작 = fwd+rev)
+    assert {e["source_ref"][0] for e in y["movement_edges"].values()} == {"movement_edges"}
+    assert len(y["movement_edges"]) == sum(2 if e.get("bidirectional") else 1 for e in raw_y["movement_edges"])
+    assert kinds_explicit(y) == len(raw_y["information_definitions"])
     kinds = [i["kind"] for i in y["information_definitions"].values()]
     assert kinds.count("NPC_INLINE_SECRET") == sum(1 for v in raw_y["default_npcs"].values() if v.get("비밀"))
     assert kinds.count("QUEST_HIDDEN_TRUTH") == sum(
