@@ -945,6 +945,10 @@ class _Engine:
                 changed = self.apply_units([_Unit("base", list(self.base_ops))], kind="BASE")
             if self.progress.get("activity"):
                 changed = set(changed) | {_refs.OBSERVER_ACTIVITY_KEY}    # H07: 활동 시작 = 활동 조건 재평가
+            if "observer_items" in self.progress:                     # H07: 소지품·스탯 조건 재평가(공급된 진행만)
+                changed = set(changed) | {_refs.OBSERVER_ITEMS_KEY}
+            if "observer_stats" in self.progress:
+                changed = set(changed) | {_refs.OBSERVER_STATS_KEY}
             minutes = 0
             forced = {}
             if self.initial_full_scan:

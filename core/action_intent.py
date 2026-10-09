@@ -77,6 +77,7 @@ class ActionReferenceManifest:
     infos: tuple = ()            # (key, info_id, label)
     dayparts: tuple = ()
     transit: tuple = ()          # H06 R2-06: (from_place, to_place, elapsed_min, total_min) — PC가 구간 안일 때만
+    resolutions: tuple = ()      # H07: (key, (instance_id, option_id), label) — 플레이어 명시 결단 후보
 
     def _map(self, rows):
         return {r[0]: r for r in rows}
@@ -97,9 +98,14 @@ class ActionReferenceManifest:
         r = self._map(self.infos).get(key)
         return r[1] if r else None
 
+    def resolution_of(self, key):
+        r = self._map(self.resolutions).get(key)
+        return tuple(r[1]) if r else None
+
     def keys(self) -> dict:
         return {"places": [r[0] for r in self.places], "routes": [r[0] for r in self.routes],
-                "access": [r[0] for r in self.access], "infos": [r[0] for r in self.infos]}
+                "access": [r[0] for r in self.access], "infos": [r[0] for r in self.infos],
+                "resolutions": [r[0] for r in self.resolutions]}
 
     def render(self) -> str:
         """판단층위 사용자 프롬프트 블록(정본 id·숨은 정보 없음 — 표시명과 키만)."""
@@ -123,6 +129,8 @@ class ActionReferenceManifest:
             lines.append("확인 가능한 접근 행동: " + ", ".join(f"{k}={lbl}" for k, _, lbl in self.access))
         if self.infos:
             lines.append("PC가 아는 정보(명시적 태도 대상): " + ", ".join(f"{k}={lbl}" for k, _, lbl in self.infos))
+        if self.resolutions:
+            lines.append("플레이어가 내릴 수 있는 결단: " + ", ".join(f"{k}={lbl}" for k, _, lbl in self.resolutions))
         if self.dayparts:
             lines.append("시간대: " + ", ".join(self.dayparts))
         lines.append("· 이동 선언이면 movement_kind=DESTINATION과 destination 키. 장소 안의 작은 이동은 "
@@ -131,6 +139,9 @@ class ActionReferenceManifest:
                      "시간을 명시하지 않았으면 NONE.")
         lines.append("· 플레이어가 정보를 믿는다/의심한다/믿지 않는다고 **직접 말한 경우에만** stance_*를 채운다. "
                      "추측으로 채우지 말 것.")
+        if self.resolutions:
+            lines.append("· resolution은 플레이어가 그 결단을 **이번 선언에서 명시적으로 내린 경우에만** 고른다. "
+                         "망설임·질문·추측·다른 행동·GM 권유로는 채우지 않는다(NONE). 결단은 번복되지 않는다.")
         return "\n".join(lines) + "\n"
 
     def schema(self) -> dict:
@@ -152,6 +163,7 @@ class ActionReferenceManifest:
                 "activity": {"type": "string", "enum": [NONE] + list(ACTIVITIES)},
                 "stance_info": enum(r[0] for r in self.infos),
                 "stance_belief": {"type": "string", "enum": [NONE] + list(STANCE_BELIEFS)},
+                "resolution": enum(r[0] for r in self.resolutions),
             },
             "required": ["movement_kind", "time_kind"],
         }
@@ -217,10 +229,13 @@ def build_manifest(definition: dict, world, pc_actor_id: str, *, definition_revi
                                                  if isinstance(r, dict) and r.get("awareness") == _cog.CONTENT), 1))
     cal = definition.get("calendar") or {}
     dayparts = tuple(cal.get("daypart_order") or sorted(cal.get("dayparts") or {}))
+    from . import events as _ev
+    resolutions = tuple((f"D{n}", (iid, oid), label)
+                        for n, (iid, oid, label) in enumerate(_ev.open_resolutions(definition, world, here), 1))
     return ActionReferenceManifest(
         world_version_id=world_version_id(world), definition_revision=definition_revision,
         pc_actor_id=pc_actor_id, origin_place=here, places=places, routes=routes, access=access,
-        infos=infos, dayparts=dayparts, transit=transit)
+        infos=infos, dayparts=dayparts, transit=transit, resolutions=resolutions)
 
 
 # ══════════════════════════════════════════════════════════════
@@ -253,6 +268,7 @@ class ResolvedActionIntent:
     movement: MovementIntent | None = None
     time_advance: TimeAdvanceIntent | None = None
     stance: CognitionStanceIntent | None = None
+    resolution: tuple | None = None               # H07: (instance_id, option_id) — 플레이어 명시 결단
     route_signature: tuple | None = None          # 안정 의미 선택(구간 id 서명)
     access_action_ids: tuple = ()                 # H04 access_action_id(확인 토큰)
     unresolved: tuple = ()                        # (field, code)
@@ -262,7 +278,7 @@ class ResolvedActionIntent:
     @property
     def empty(self) -> bool:
         return not (self.movement and self.movement.kind == MOVE_DESTINATION) and self.time_advance is None \
-            and self.stance is None
+            and self.stance is None and self.resolution is None
 
     @classmethod
     def from_semantic(cls, record: dict, *, definition_revision: str | None) -> "ResolvedActionIntent":
@@ -278,6 +294,7 @@ class ResolvedActionIntent:
             movement=MovementIntent(mv["kind"], mv.get("destination_place")) if isinstance(mv, dict) else None,
             time_advance=TimeAdvanceIntent(**ta) if isinstance(ta, dict) else None,
             stance=CognitionStanceIntent(st["info_id"], st.get("belief")) if isinstance(st, dict) else None,
+            resolution=tuple(r["resolution"]) if r.get("resolution") else None,
             route_signature=tuple(r["route_signature"]) if r.get("route_signature") else None,
             access_action_ids=tuple(r.get("access_action_ids") or ()),
             definition_revision=definition_revision)
@@ -288,6 +305,7 @@ class ResolvedActionIntent:
                 {"kind": self.movement.kind, "destination_place": self.movement.destination_place},
                 "time_advance": None if self.time_advance is None else dict(self.time_advance.__dict__),
                 "stance": None if self.stance is None else dict(self.stance.__dict__),
+                "resolution": list(self.resolution) if self.resolution else None,
                 "route_signature": list(self.route_signature) if self.route_signature else None,
                 "access_action_ids": list(self.access_action_ids)}
 
@@ -366,7 +384,13 @@ def resolve_intent(manifest: ActionReferenceManifest, raw, *, world=None) -> Res
             bad.append(("stance", "INVALID_CANDIDATE"))
         else:
             stance = CognitionStanceIntent(iid, None if sb == STANCE_CLEAR else sb)
-    return ResolvedActionIntent(movement=movement, time_advance=time_adv, stance=stance,
+    resolution = None
+    rk = _s(raw.get("resolution"))
+    if rk:
+        resolution = manifest.resolution_of(rk)
+        if resolution is None:
+            bad.append(("resolution", "INVALID_CANDIDATE"))
+    return ResolvedActionIntent(movement=movement, time_advance=time_adv, stance=stance, resolution=resolution,
                                 route_signature=route_sig, access_action_ids=access_ids,
                                 unresolved=tuple(bad), definition_revision=rev)
 

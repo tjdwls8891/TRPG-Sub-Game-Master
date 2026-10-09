@@ -58,6 +58,10 @@ OP_EVENT_INSTANCE_CREATE = "EVENT_INSTANCE_CREATE"
 OP_EVENT_PHASE_TRANSITION = "EVENT_PHASE_TRANSITION"
 OP_EVENT_LIFECYCLE_SET = "EVENT_LIFECYCLE_SET"
 OP_EVENT_LOCAL_SET = "EVENT_LOCAL_SET"
+# H07(사용자 결정): 플레이어 명시 결단 — 예약 지역 상태 키. 플레이어 턴(source_kind PLAYER_RESOLUTION)만 쓸 수 있고
+# 한 인스턴스에 한 번만 정해진다. 결과는 저작된 국면·케이스(EVENT_LOCAL resolution 조건)가 적용한다.
+RESOLUTION_KEY = "resolution"
+RESOLUTION_SOURCE = "PLAYER_RESOLUTION"
 OP_EVENT_HISTORY_APPEND = "EVENT_HISTORY_APPEND"
 EVENT_OP_TYPES = (OP_EVENT_INSTANCE_CREATE, OP_EVENT_PHASE_TRANSITION, OP_EVENT_LIFECYCLE_SET,
                   OP_EVENT_LOCAL_SET, OP_EVENT_HISTORY_APPEND)
@@ -471,6 +475,49 @@ STEP_HANDLERS = {
 }
 
 
+def instance_relevant(definition: dict, inst: dict, scene) -> bool:
+    """H07: 사건이 현재 장면과 닿는가 — relevance_places(슬롯은 binding) 중 하나가 장면 장소이거나 그 상위.
+    relevance_places가 없으면 장소에 묶이지 않은 세계 압력으로 보고 닿는다고 본다."""
+    tpl = template(definition, inst.get("template_id")) or {}
+    rel = tpl.get("relevance_places")
+    if not rel:
+        return True
+    if scene is None:
+        return False
+    places = definition.get("place_definitions") or {}
+    chain, cur, seen = set(), scene, set()
+    while cur and cur not in seen:
+        seen.add(cur)
+        chain.add(cur)
+        cur = (places.get(cur) or {}).get("parent")
+    b = inst.get("bound_slots") or {}
+    for v in rel:
+        pid = b.get(v[len("$slot:"):]) if isinstance(v, str) and v.startswith("$slot:") else v
+        if pid in chain:
+            return True
+    return False
+
+
+def open_resolutions(definition: dict, world, scene) -> list:
+    """[(instance_id, option_id, label)] — 진행 중이고 현재 국면이 결단 선택지를 가지며 아직 결단이 없고 장면과 닿는
+    사건의 선택지(정렬 · 결정적). 판단층위 후보(매니페스트)·지시층위 안내의 단일 출처."""
+    ev = world.domain("event_instances") if isinstance(world, _wm.ProjectedWorld) else getattr(world, "event_instances", {})
+    out = []
+    for iid in sorted(ev or {}):
+        inst = ev[iid]
+        if not isinstance(inst, dict) or inst.get("lifecycle") != ACTIVE:
+            continue
+        if RESOLUTION_KEY in (inst.get("local_state") or {}):
+            continue
+        tpl = template(definition, inst.get("template_id")) or {}
+        ph = (tpl.get("phases") or {}).get(inst.get("current_phase")) or {}
+        if not ph.get("resolution_options") or not instance_relevant(definition, inst, scene):
+            continue
+        for o in ph["resolution_options"]:
+            out.append((iid, o["option_id"], o["label"]))
+    return out
+
+
 def find_step(definition: dict, ref: str):
     """payload_ref 'template|case|step' → (template, case, step). SCHEDULE_EFFECT면 (…, effect step)."""
     try:
@@ -565,6 +612,13 @@ def h_event_local(view, op, payload):
         _reject(op, f"없는 사건 {iid}")
     if not isinstance(key, str) or not key:
         _reject(op, "key는 비어 있지 않은 문자열")
+    if (key == RESOLUTION_KEY) != (op.source_kind == RESOLUTION_SOURCE):
+        _reject(op, "'resolution'은 플레이어 명시 결단(PLAYER_RESOLUTION)만, 결단 연산은 'resolution'만 씁니다")
+    if key == RESOLUTION_KEY:
+        if view.get("event_instances", (iid, "lifecycle")) != ACTIVE:
+            _reject(op, f"진행 중이 아닌 사건 {iid}의 결단")
+        if view.has("event_instances", (iid, "local_state", RESOLUTION_KEY)):
+            _reject(op, f"사건 {iid}의 결단은 이미 내려졌습니다(번복 없음)")
     return [_wm.write(op, "event_instances", (iid, "local_state", key), _wm.MERGE_SINGLE_VALUE, payload["value"])]
 
 

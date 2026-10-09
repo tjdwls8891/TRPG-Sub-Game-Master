@@ -238,6 +238,44 @@ def dynamic_place_block(ctx, plan, session) -> str:
     return "\n".join(lines) + "\n"
 
 
+MAX_GUIDE_LINES = 8
+
+
+def event_guide_block(ctx, plan, session) -> str:
+    """H07 R-2: 진행 중 사건의 현재 국면 guide — **지시층위 전용**(묘사·추출·판단층위에는 주지 않는다).
+
+    · 장면과 닿는 사건만(relevance_places — 없으면 장소에 묶이지 않은 세계 압력).
+    · guide는 정본 결과·세계 사실을 정하지 않는다 — 현재 국면의 연출·맥락·운영 지침이다.
+    · 결단 선택지가 열린 국면이면 선택지를 보여 주되, 고르는 것은 플레이어의 명시 선언뿐이다(GM이 대신 고르지 않음).
+    """
+    from . import events as _ev
+    world, scene = _scene_world_and_place(ctx, plan, session)
+    D = ctx.definition
+    ev = (world.domain("event_instances") if isinstance(world, _wm.ProjectedWorld)
+          else getattr(world, "event_instances", None)) or {}
+    lines = []
+    for iid in sorted(ev):
+        inst = ev[iid]
+        if not isinstance(inst, dict) or inst.get("lifecycle") != _ev.ACTIVE:
+            continue
+        tpl = _ev.template(D, inst.get("template_id")) or {}
+        ph = (tpl.get("phases") or {}).get(inst.get("current_phase")) or {}
+        if not ph.get("guide") or not _ev.instance_relevant(D, inst, scene):
+            continue
+        lines.append(f"· {tpl.get('name') or inst.get('template_id')}: {ph['guide']}")
+        res = (inst.get("local_state") or {}).get(_ev.RESOLUTION_KEY)
+        opts = {o["option_id"]: o["label"] for o in ph.get("resolution_options") or ()}
+        if opts and res is None:
+            lines.append("  └ 플레이어가 명시적으로 내릴 수 있는 결단: " + " / ".join(opts.values())
+                         + " — GM·묘사가 대신 고르거나 유도하지 말 것")
+        if len(lines) >= MAX_GUIDE_LINES:
+            break
+    if not lines:
+        return ""
+    return ("\n[진행 중인 사건 — 지시층위 전용 지침(정본 결과·세계 사실을 정하지 않는다. 플레이어의 자유 행동을 "
+            "이 사건의 분기로 억지 해석하지 말 것)]\n" + "\n".join(lines) + "\n")
+
+
 def scene_npc_projections(ctx, plan, session) -> tuple:
     """(scene_place, [CurrentNpcProjection]) — 유효 위치가 장면 장소인 NPC만(정렬).
 

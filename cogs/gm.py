@@ -543,6 +543,13 @@ def _build_logic_user_prompt(session, player_message: str, roll_results: list,
             manifest.append("현재 장면 인물")
         except Exception as e:
             print(f"[지시층위] 현재 장면 인물 블록 실패: {e}")
+        try:
+            _gb = core.turn_world.event_guide_block(world_turn.ctx, world_turn.plan, session)   # H07 R-2
+            if _gb:
+                place_block += _gb
+                manifest.append("사건 국면 지침")
+        except Exception as e:
+            print(f"[지시층위] 사건 국면 지침 블록 실패: {e}")
 
     # 퀘스트 — 후보 목록을 여기서 제시해야 quest_choice로 고를 수 있다.
     # build_quest_block이 session._quest_offered를 채우고, 코드가 그것으로
@@ -1697,6 +1704,7 @@ class GMCog(commands.Cog):
             ctx, session, intent, transaction_id=transaction_id,
             narrative_seed=getattr(session, "narrative_seed", None) or session.session_id,
             capabilities=core.player_world.pc_capabilities(session, ctx.uid_of.get(ctx.lead_pc)),
+            stats=core.player_world.pc_stats(session, ctx.uid_of.get(ctx.lead_pc)),       # H07: 스탯 조건
             resolved_tie_orders=resolved_tie_orders)
 
     def _ensure_world_plan(self, session, wt, transaction_id):

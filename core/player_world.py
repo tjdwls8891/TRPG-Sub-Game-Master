@@ -135,6 +135,20 @@ def session_world_context(session, world=None) -> WorldContext:
     return WorldContext(MODE_DYNAMIC, "ok", definition, rev, tuple(pcs), pcs[0], uid_of)
 
 
+def pc_stats(session, uid) -> dict:
+    """H07: 관찰자 PC 능력치(프로필의 정수 항목) — 레거시 min_stat 조건 의미 보존용 진행 문맥."""
+    prof = ((getattr(session, "players", None) or {}).get(uid) or {}).get("profile") or {}
+    out = {}
+    for k, v in (prof.items() if isinstance(prof, dict) else ()):
+        try:
+            if isinstance(v, bool):
+                continue
+            out[str(k)] = int(v)
+        except (TypeError, ValueError):
+            continue
+    return out
+
+
 def pc_capabilities(session, uid) -> tuple:
     """PC capability = 그 PC가 가진 수량 > 0 소지품 이름(접근 규칙 requires_capability와 대조)."""
     name = ((getattr(session, "players", None) or {}).get(uid) or {}).get("name")
@@ -250,8 +264,9 @@ def namespace_ops(ops, prefix: str, barrier=()) -> list:
 class _Run:
     """진행 호출들을 이어 붙이는 누적기(정본 불변 — ProjectedWorld만 갱신)."""
 
-    def __init__(self, definition, world, *, seed, tie_orders, prefix, outer_origin="PLAYER_TURN"):
+    def __init__(self, definition, world, *, seed, tie_orders, prefix, outer_origin="PLAYER_TURN", observer=None):
         self.definition = definition
+        self.observer = dict(observer or {})      # H07: 관찰자 PC 소지품·능력치(진행 문맥 — 조건 의미 보존)
         self.world = world if isinstance(world, _wm.ProjectedWorld) else _wm.ProjectedWorld.capture(world)
         self.seed, self.tie_orders, self.prefix = seed, dict(tie_orders or {}), prefix
         self.outer_origin = outer_origin
@@ -266,7 +281,7 @@ class _Run:
 
     def step(self, base_ops, target, progress) -> _wp.ProgressionResult | None:
         r = _wp.project_world_progression(self.definition, self.world, target, base_ops=base_ops,
-                                          progress=progress, narrative_seed=self.seed,
+                                          progress=dict(progress, **self.observer), narrative_seed=self.seed,
                                           resolved_tie_orders=self.tie_orders, outer_origin=self.outer_origin)
         self.diags += r.diagnostics
         if base_rejected(r.diagnostics):
@@ -432,7 +447,7 @@ def default_mode(definition: dict) -> str | None:
 
 def plan_player_turn(ctx: WorldContext, world, intent: _ai.ResolvedActionIntent, *, transaction_id: str,
                      narrative_seed: str, capabilities=(), resolved_tie_orders=None,
-                     policy: RouteChoicePolicy = DEFAULT_ROUTE_POLICY) -> PlayerWorldPlan:
+                     policy: RouteChoicePolicy = DEFAULT_ROUTE_POLICY, stats=None) -> PlayerWorldPlan:
     """ResolvedActionIntent → PlayerWorldPlan(순수). world는 세션 또는 ProjectedWorld."""
     D = ctx.definition
     src = world if isinstance(world, _wm.ProjectedWorld) else _wm.ProjectedWorld.capture(world)
@@ -450,7 +465,11 @@ def plan_player_turn(ctx: WorldContext, world, intent: _ai.ResolvedActionIntent,
             intent.definition_revision is not None and intent.definition_revision != ctx.definition_revision):
         plan.status, plan.reason = PLAN_REJECTED, "DEFINITION_STALE"     # 옛 정의 문맥·의도로 계획하지 않는다
         return plan
-    run = _Run(D, src, seed=narrative_seed, tie_orders=resolved_tie_orders, prefix=prefix)
+    observer = {"observer_items": tuple(sorted(capabilities or ()))}
+    if stats is not None:
+        observer["observer_stats"] = {k: v for k, v in dict(stats).items()
+                                      if isinstance(v, int) and not isinstance(v, bool)}
+    run = _Run(D, src, seed=narrative_seed, tie_orders=resolved_tie_orders, prefix=prefix, observer=observer)
     pre_ops = []
     if intent.stance is not None:
         holder = _cog.actor_holder(lead)
@@ -461,6 +480,17 @@ def plan_player_turn(ctx: WorldContext, world, intent: _ai.ResolvedActionIntent,
             pre_ops.append(_mk(prefix, "stance", _cog.OP_COGNITION_BELIEF_SET, {
                 "holder": holder, "info_id": intent.stance.info_id, "belief": intent.stance.belief,
                 "authority": "PLAYER_EXPLICIT", "cause_ref": f"turn:{transaction_id}:stance"}))
+    if intent.resolution is not None:
+        # H07(사용자 결정): 플레이어 명시 결단 → 예약 사건 지역 상태(typed EVENT_LOCAL_SET, PLAYER_RESOLUTION).
+        # 지금도 열려 있는 선택지만(진행 중 · 현재 국면 · 미결단 · 장면 관련). 결과는 저작 국면·케이스가 적용한다.
+        from . import events as _ev
+        iid, oid = intent.resolution
+        if (iid, oid) not in {(a, b) for a, b, _ in _ev.open_resolutions(D, src, here)}:
+            plan.diagnostics.append({"code": "RESOLUTION_NOT_OPEN", "instance_id": iid, "option_id": oid})
+        else:
+            pre_ops.append(_wm.make_op(f"{prefix}.resolution", _ev.OP_EVENT_LOCAL_SET, _ev.RESOLUTION_SOURCE, {
+                "instance_id": iid, "key": _ev.RESOLUTION_KEY, "value": oid}))
+            plan.outcome["resolution"] = {"instance_id": iid, "option_id": oid}
     mv = intent.movement
     if mv is not None and mv.kind == _ai.MOVE_DESTINATION:
         if transit is not None:

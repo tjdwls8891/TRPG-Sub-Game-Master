@@ -28,7 +28,7 @@ from . import world_mutation as _wm
 UNSET = object()
 
 REF_TYPES = (
-    "CLOCK_MINUTE", "SCENE_PLACE", "OBSERVER_ACTIVITY",
+    "CLOCK_MINUTE", "SCENE_PLACE", "OBSERVER_ACTIVITY", "OBSERVER_HAS_ITEM", "OBSERVER_STAT",
     "ACTOR_PLACE", "ACTOR_PLACEMENT_KIND", "ACTOR_POSITION_SOURCE", "ACCESS_STATE", "INFO_VALIDITY",
     "COGNITION_AWARENESS", "COGNITION_BELIEF",
     "EVENT_LIFECYCLE", "EVENT_PHASE", "EVENT_LOCAL", "ROUTE_KNOWN_EXISTS",
@@ -37,6 +37,8 @@ _PARAMS = {
     "CLOCK_MINUTE": ((), ()),
     "SCENE_PLACE": ((), ()),
     "OBSERVER_ACTIVITY": ((), ()),
+    "OBSERVER_HAS_ITEM": (("item",), ()),
+    "OBSERVER_STAT": (("stat",), ()),
     "ACTOR_PLACE": (("actor",), ()),
     "ACTOR_PLACEMENT_KIND": (("actor",), ()),
     "ACTOR_POSITION_SOURCE": (("actor",), ()),
@@ -46,7 +48,7 @@ _PARAMS = {
     "COGNITION_BELIEF": (("holder", "info"), ()),
     "EVENT_LIFECYCLE": ((), ("instance", "template")),
     "EVENT_PHASE": (("instance",), ()),
-    "EVENT_LOCAL": (("instance", "key"), ()),
+    "EVENT_LOCAL": (("key",), ("instance", "template")),        # H07: template = 그 템플릿의 최신 인스턴스
     "ROUTE_KNOWN_EXISTS": (("actor", "to", "mode"), ("from",)),
 }
 SLOT_PREFIX = "$slot:"
@@ -55,6 +57,11 @@ SESSION_PC = "$session_pc"
 # H07: 관찰자 활동(대기·수면·수색 등 코드 소유 활동)은 정본 칸이 아니라 진행 문맥이다. 활동이 있는 진행은 시작 시
 # 이 키를 '변경'으로 넣어, 활동 조건을 가진 사건이 장소 변화·시간 깨우기 없이도 재평가되게 한다(polling 없음).
 OBSERVER_ACTIVITY_KEY = "observer:activity"
+# H07(레거시 퀘스트 조건 의미 보존 — 소지품·스탯): 관찰자 PC의 소지품 이름·능력치는 진행 문맥(플레이어 턴이 공급)이다.
+# 정본 세계 칸이 아니라 PC 프로필·소지품(커밋 경로가 소유)의 읽기 사실이며, 공급된 진행에서 '변경'으로 들어가
+# 소지품·스탯 조건 사건을 재평가한다. 공급되지 않은 진행(오프스크린·초기화)에서는 UNKNOWN.
+OBSERVER_ITEMS_KEY = "observer:items"
+OBSERVER_STATS_KEY = "observer:stats"
 
 
 def session_pc_actor(world):
@@ -176,6 +183,19 @@ def _r_activity(ctx):
     return known(ctx.progress["activity"]) if "activity" in ctx.progress else UNKNOWN
 
 
+def _r_has_item(ctx, item):
+    if "observer_items" not in ctx.progress:
+        return UNKNOWN
+    return known(item in set(ctx.progress["observer_items"] or ()))
+
+
+def _r_stat(ctx, stat):
+    st = ctx.progress.get("observer_stats")
+    if not isinstance(st, dict) or not isinstance(st.get(stat), int) or isinstance(st.get(stat), bool):
+        return UNKNOWN
+    return known(st[stat])
+
+
 def _placement(ctx, actor):
     """유효 배치(H07 — core.npc_position 단일 경계): 정본 override > 평상시 일과 > None(untracked)."""
     from . import npc_position as _npos
@@ -254,8 +274,13 @@ def _r_phase(ctx, instance):
     return known(inst.get("current_phase") if inst else None)
 
 
-def _r_local(ctx, instance, key):
-    inst = ctx.instance(instance)
+def _r_local(ctx, key, instance=None, template=None):
+    if instance is not None:
+        inst = ctx.instance(instance)
+    elif template is not None:
+        inst = _latest_instance_of(ctx, template)
+    else:
+        return UNKNOWN
     if not inst or key not in (inst.get("local_state") or {}):
         return UNKNOWN                              # 사건이 아직 기록하지 않은 국소 상태
     return known(inst["local_state"][key])
@@ -279,6 +304,7 @@ def _r_route(ctx, actor, to, mode, **kw):
 
 _RESOLVERS = {
     "CLOCK_MINUTE": _r_clock, "SCENE_PLACE": _r_scene, "OBSERVER_ACTIVITY": _r_activity,
+    "OBSERVER_HAS_ITEM": _r_has_item, "OBSERVER_STAT": _r_stat,
     "ACTOR_PLACE": _r_actor_place, "ACTOR_PLACEMENT_KIND": _r_actor_kind, "ACTOR_POSITION_SOURCE": _r_actor_source,
     "ACCESS_STATE": _r_access, "INFO_VALIDITY": _r_info_validity,
     "COGNITION_AWARENESS": _r_awareness, "COGNITION_BELIEF": _r_belief,
@@ -321,11 +347,17 @@ def dependency_keys(ref: dict) -> list:
     if t == "EVENT_PHASE":
         return [f"event:{a('instance')}:phase"]
     if t == "EVENT_LOCAL":
-        return [f"event:{a('instance')}:local:{ref.get('key')}"]
+        if "instance" in ref:
+            return [f"event:{a('instance')}:local:{ref.get('key')}"]
+        return [f"event:*:local:{ref.get('key')}"]
     if t == "ROUTE_KNOWN_EXISTS":
         return [f"actor:{a('actor')}:placement", f"knowledge:{a('actor')}:spatial"]
     if t == "OBSERVER_ACTIVITY":
-        return [OBSERVER_ACTIVITY_KEY]              # H07: 진행 문맥 키 — 정본이 아니라 진행 시작 시 '변경'으로 공급
+        return [OBSERVER_ACTIVITY_KEY]
+    if t == "OBSERVER_HAS_ITEM":
+        return [OBSERVER_ITEMS_KEY]
+    if t == "OBSERVER_STAT":
+        return [OBSERVER_STATS_KEY]              # H07: 진행 문맥 키 — 정본이 아니라 진행 시작 시 '변경'으로 공급
     return []                                       # CLOCK_MINUTE
 
 
@@ -410,8 +442,8 @@ def validate_ref(ref, scope: RefScope, path: str) -> list:
     for k in req:
         if k not in ref:
             errs.append((path, f"{t}: 파라미터 {k!r} 누락"))
-    if t == "EVENT_LIFECYCLE" and ("instance" in ref) == ("template" in ref):
-        errs.append((path, "EVENT_LIFECYCLE은 instance 또는 template 중 하나만"))
+    if t in ("EVENT_LIFECYCLE", "EVENT_LOCAL") and ("instance" in ref) == ("template" in ref):
+        errs.append((path, f"{t}은 instance 또는 template 중 하나만"))
     for k in req + opt:
         if k not in ref:
             continue
@@ -446,6 +478,9 @@ def validate_ref(ref, scope: RefScope, path: str) -> list:
         elif k == "template":
             if v not in scope.templates:
                 errs.append((p, f"정의되지 않은 사건 템플릿 {v!r}"))
+        elif k in ("item", "stat"):
+            if not isinstance(v, str) or not v.strip():
+                errs.append((p, f"{k}는 비어 있지 않은 문자열"))
         elif k == "key":
             if not isinstance(v, str) or not v:
                 errs.append((p, "key는 비어 있지 않은 문자열이어야 합니다"))

@@ -1237,7 +1237,11 @@ _TPL_KEYS = ("version", "name", "slots", "distinct", "spawn_when", "repeat_polic
              "access_when", "phase_selector", "phases", "transition_cases", "case_selection", "case_required",
              "resolve_when", "cancel_when", "relevance_places")
 _PHASE_KEYS = ("eligible_when", "retain_when", "priority", "base_score", "score_terms", "rank", "terminal",
-               "guide")
+               "guide", "resolution_options")
+# H07(사용자 결정 — 메인 결말·플레이어 명시 결단): phases[*].resolution_options = [{option_id, label}] — 이 국면에서
+#      플레이어가 **명시적으로** 내릴 수 있는 결단. 판단층위가 플레이어 선언에서 키만 고르고, 코드가 예약 사건 지역
+#      상태 'resolution'에 typed EVENT_LOCAL_SET(PLAYER_RESOLUTION)으로 쓴다. 이후 결과는 기존 국면·케이스가 적용한다
+#      (새 분기 엔진 없음). 'resolution' 키는 저작 step이 쓸 수 없다(EVENT_LOCAL_RESERVED_KEY).
 # H07: phases[*].guide — 지시층위(GM 권한) 전용 상황 지침. 묘사·추출·판단층위에는 주지 않는다.
 #      relevance_places — 장면 장소(또는 그 상위)가 목록·바인딩된 PLACE 슬롯과 닿을 때만 지침을 싣는다.
 #      둘 다 저작된 경우에만 컴파일 결과에 키가 생긴다(미저작 시나리오의 정의·revision 불변).
@@ -1399,6 +1403,8 @@ def _compile_step(st, p, scope, access, edges, created, d, *, nested=False):
     elif t == "SET_EVENT_LOCAL":
         if not isinstance(st["key"], str) or not st["key"]:
             bad("STEP_PARAMS_INVALID", "key는 비어 있지 않은 문자열")
+        elif st["key"] == "resolution":
+            bad("EVENT_LOCAL_RESERVED_KEY", "'resolution'은 플레이어 명시 결단만 쓰는 예약 키입니다(저작 step 금지)")
         try:
             canonical_json(st["value"])
         except CanonicalSerializationError:
@@ -1598,6 +1604,16 @@ def _compile_event_templates(raw, caps, actors, actor_index, places, infos, acce
                     d.add(ERROR, "EVENT_PHASE_GUIDE_INVALID", f"{pp}.guide", "guide는 비어 있지 않은 문자열")
                 else:
                     phases[pid]["guide"] = ph["guide"]
+            if "resolution_options" in ph:
+                ro = ph["resolution_options"]
+                okr = isinstance(ro, list) and ro and all(
+                    isinstance(o, dict) and set(o) == {"option_id", "label"} and is_valid_explicit_id(o["option_id"])
+                    and isinstance(o["label"], str) and o["label"].strip() for o in ro)
+                if not okr or len({o["option_id"] for o in ro}) != len(ro):
+                    d.add(ERROR, "EVENT_RESOLUTION_OPTIONS_INVALID", f"{pp}.resolution_options",
+                          "resolution_options는 중복 없는 [{option_id(명시 id), label(문자열)}] 목록")
+                else:
+                    phases[pid]["resolution_options"] = [dict(o) for o in ro]
         prios = {}
         for pid in sorted(phases):
             pr = phases[pid]["priority"]
