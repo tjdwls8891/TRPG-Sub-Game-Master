@@ -12,4 +12,4 @@ V1(`handoff/H07_YEONGDO_WORKBOOK/`, H07-G 체크포인트 `99f490e`)은 과거 �
 | `geo.py`·`build_geo.py` | 변경 없음(V1과 같은 지도·구간 판정) |
 
 재생성: `python3 handoff/H07_YEONGDO_WORKBOOK_V2/apply.py <repo>`(후보만 — `$TMPDIR/yd_candidate.json`) · `--write`(시나리오 덮어쓰기 — 명시 저작 단계).
-분류·근거·남은 판단 항목은 `handoff/H07_FINAL_NPC_POSITION_AND_AUTHORITY.md`.
+분류·근거·남은 판단 항목은 `handoff/H07_FINAL_IMPLEMENTATION_REPORT.md`.

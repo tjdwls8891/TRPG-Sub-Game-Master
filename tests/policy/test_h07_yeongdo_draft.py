@@ -343,7 +343,7 @@ def test_first_sighting_study_requires_watching():
 
 def test_every_legacy_quest_has_a_mapping_and_mapped_templates_exist():
     import sys
-    sys.path.insert(0, os.path.join(ROOT, "handoff", "H07_YEONGDO_WORKBOOK"))
+    sys.path.insert(0, os.path.join(ROOT, "handoff", "H07_YEONGDO_WORKBOOK_V2"))      # 현재 저작 근거(V1은 기록 보존)
     try:
         import events_author as EA
     finally:
@@ -357,5 +357,5 @@ def test_every_legacy_quest_has_a_mapping_and_mapped_templates_exist():
         assert (disp == "RETIRED") == (not tids), qid
         for tid in tids:
             assert tid in D["event_templates"], (qid, tid)
-    review = open(os.path.join(ROOT, "handoff", "H07_YEONGDO_AUTHORING_REVIEW.md"), encoding="utf-8").read()
+    review = open(os.path.join(ROOT, "handoff", "H07_FINAL_IMPLEMENTATION_REPORT.md"), encoding="utf-8").read()
     assert all(f"| {q['id']} |" in review for q in quests)

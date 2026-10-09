@@ -1,10 +1,10 @@
 # INDAIM — 개발 로그 (DEVLOG)
 
-> 현재 버전: **v7.4.0** · `SCHEMA_VERSION` 4
+> 현재 버전: **v7.5.0** · `SCHEMA_VERSION` 4
 > 스택: Gemini API + discord.py / 한국어 TRPG 보조 GM 봇
 > 저장소: `tjdwls8891/TRPG-Sub-Game-Master`
 > 리팩터링: 7-WP 프로그램(WP-A~G, 2026-09-12~09-29) — WP-A~G 전부 VERIFIED, 프로그램 완료(WP-G 최종 `f0fd69e`) → **v6.0.0**
-> 동적 세계 프로그램: 통합 로드맵 H01~H07 — H01·H02 완료 → **v7.0.0**, H03 완료 → **v7.1.0**, H04 완료 → **v7.2.0**, H05 → **v7.3.0**, H06 → **v7.4.0**, H07 예정
+> 동적 세계 프로그램: 통합 로드맵 H01~H07 — H01·H02 완료 → **v7.0.0**, H03 완료 → **v7.1.0**, H04 완료 → **v7.2.0**, H05 → **v7.3.0**, H06 → **v7.4.0**, H07 → **v7.5.0**(구현 완료 · 독립 검수 대기)
 
 ---
 
@@ -260,6 +260,7 @@
 | **7.1.0** | H03 | 시간·공간 서비스와 typed 연산 추가 — 하위호환 기능 = MINOR. `SCHEMA_VERSION` 4·turn-history 3·CommitPlan 2 유지, compiler semantic version 1→2 |
 | **7.2.0** | H04 | 행위자·정보·인지·사건·세계 진행 엔진 추가 — 하위호환 기능 = MINOR. 스키마·이력·CommitPlan 유지, compiler semantic version 2→3 |
 | **7.3.0** | H05 | 구조화 행동 의도·플레이어 세계 계획·관찰·같은 분 선후·후속 묘사·투영 미디어를 자동 턴에 배선 — 하위호환 기능 = MINOR. 스키마·이력·CommitPlan·compiler 유지, `prompts.py` 무변경(판단·추출 스키마는 런타임 확장). DYNAMIC 세션(정의 바인딩·시계·PC 배치)만 새 경로 — 바인딩·seed는 H06이라 현 운영 세션은 모두 기존 경로 |
+| **7.5.0** | H07 | 영도 DYNAMIC 이행(NPC 유효 위치·평상시 일과·명시 해제, 이동 지식 정책 교체, 표시명 분리, 플레이어 명시 결단, 레거시 서사 권위 은퇴, `prompts.py` 동적 세계 조건부 정합) — 하위호환 기능·프롬프트 변경 = MINOR. `SCHEMA_VERSION` 4·turn-history 3·CommitPlan 2·compiler 3 유지(새 정의 키는 선택 저작 — 미저작 시나리오 revision 불변) |
 | **7.4.0** | H06 | 동적 세계 생애주기 배선(정의 스냅샷 바인딩·genesis INITIALIZATION·캐시 고정 원천·재시작·재서술/되감기·typed ADMIN_EDIT·안전 종료) — 하위호환 기능 = MINOR. `SCHEMA_VERSION` 4·turn-history 3·CommitPlan 2·compiler 3 유지(새 영속 필드 2개는 기본값이 곧 레거시 의미). `prompts.py` 무변경 |
 
 **전환점 분석** — 첫 비호환 변경은 WP-B(`967263e`, `자:/태:` 태그의 자원·상태 변경 기능 정지)였다. 그 앞의 7개 패키지(WP-01·02·PERSIST·ACCOUNTING·JOURNAL·SETTLEMENT-01·WP-A)는 하위호환 추가였으나 개별 출시되지 않았으므로 MAJOR에 흡수된다. 이후 WP-D(청구 권위 전환)·WP-E(되감기 의미 변경)·WP-G(명령어 은퇴)의 비호환 변경도 같은 출시에 함께 실렸다. `SCHEMA_VERSION`은 3을 유지했고, 구세션 데이터는 로드된다(호환 처리 포함).
@@ -384,6 +385,22 @@ H05(`197a9ac`, 994 passed) 위에서 H06-A~G를 게이트별로 진행했다. **
 - DYNAMIC 시작의 이중 writer 제거(시작 틀 facts는 LEGACY에서만). genesis 정체성을 첫 strict 저장에 포함. 저작 NPC를 genesis ActorRegistry에 등록.
 - TRANSIT도 DYNAMIC 정본 상태. 중간 장소 도착을 독립 진행으로 분리해 도착 사건이 그 장소(AT_PLACE)에서 멈춘다. 구간 안 중단 뒤 이동 선언은 남은 시간만 이어 가고, 현재 구간 접근이 막혔으면 강행하지 않는다. 판단층위 매니페스트가 이동 중 문맥을 싣는다. 실제 경로 장소화(시나리오 저작)는 하지 않았다.
 - 진행 엔진이 거부된 기반 연산을 진단으로만 남기던 동작이 플레이어 턴에서도 '도착' 묘사·이동 없는 커밋으로 이어질 수 있음을 확인(고장 주입 반례) — 기반 단위 거부를 결정적 충돌로 처리했다.
+
+---
+
+### v7.5.0 — 동적 세계 H07: 영도 이행 · NPC 유효 위치 · 이동 지식 정책 · 표시명 · 명시 결단 · 레거시 권위 은퇴 (2026-10-09)
+
+H07-G 체크포인트(`99f490e`) 이후 사용자 최종 통합 구현 지시(2026-10-09)를 반영했다. 세부·증거는 `handoff/H07_FINAL_IMPLEMENTATION_REPORT.md`.
+
+- **NPC 유효 위치** — 새 모듈 `core/npc_position.py`. 정본 override(사건·플레이어 영향) > 평상시 일과(정의 + 정본 시계의 순수 함수, 정본 SET·materialize 없음) > untracked. 장면 인물·CurrentNpcProjection·사건 조건(`ACTOR_PLACE`·`ACTOR_PLACEMENT_KIND`·신규 `ACTOR_POSITION_SOURCE`)·사건 이동 출발점이 같은 경계를 쓴다. 선택 저작 `default_npcs[*].routine`(요일은 주가 있는 달력만), 일과 경계 wakeup(실제 장소가 바뀌는 분만)·시계 전진 시 파생 위치 변화를 의존 키로 공급. 명시 해제 `ACTOR_PLACEMENT_CLEAR`(typed 연산 28종)·`CLEAR_ACTOR_PLACEMENT` step.
+- **이동 지식 정책(H04 R55 의도적 supersede)** — PC·NPC 공통: 아는 길 우선, 없으면 PUBLIC/LOCAL 일반 그래프 + 아는 RESTRICTED/SECRET. 지식은 경로 품질이고 통과·권한은 실제 접근이 판정한다. 저작된 명시 사건 route는 연속성·실제 접근만 검증.
+- **표시명** — `core/place_display.py`. 내부 PlaceId ≠ 플레이어 표시명(`display_name`·`unknown_name`). 이름이 드러나지 않는 장소는 정보 `reveals`(명시 발견)로만 이름을 안다.
+- **플레이어 명시 결단** — 국면 `resolution_options` → 판단층위 키 → 예약 지역 상태 `resolution`(typed EVENT_LOCAL_SET, PLAYER_RESOLUTION, 1회·번복 없음) → 저작 국면·케이스가 결과 적용. 국면 guide는 지시층위 전용으로 주입(R-2).
+- **영도 재저작(워크북 V2)** — 일과 35명·untracked 12명·genesis 정본 배치 0, R-6 이동 seed 폐기, 메인 결말 7아크 = 명시 결단 → ending 사실, 원문 deviated 8건 = 행적 사실(`main_upheaval` 개방 = 행적 둘 이상), 소지품·능력치 조건 = `OBSERVER_HAS_ITEM`·`OBSERVER_STAT`.
+- **레거시 서사 권위 은퇴(H07-C)** — 정의 바인딩 세션에서 퀘스트 블록·선택·intended_case·info_ledger·hidden 인지 조건·정적 상주 동행 해제·`!자동 퀘스트` 정지. 소속은 사건 결과 파생 호환 뷰. LEGACY 4개 시나리오 동작 불변.
+- **프롬프트(H07-D)** — 4개 층위 시스템 지시문에 동적 세계 조건부 권위 절 추가(+1,803자). provider 호출 지점 19 유지.
+
+테스트 1,183건(특성화 61 · 결함 27 · 정책 1,095) · strict xfail 0. 배포 후 `!캐시 재발급` 필요(프롬프트·영도 변경).
 
 ## 실측 데이터
 

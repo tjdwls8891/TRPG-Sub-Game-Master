@@ -8,7 +8,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 AI가 4개 층위로 나뉘어 판단·지시·묘사·추출을 분담한다. 플레이어는 서버 GM 스페이스에서 버튼으로 세션을 열고, 캐릭터를 만들고, 턴을 진행한다. **명령어는 GM의 수동 개입·복구 수단이며 일반 플레이에는 쓰지 않는다.**
 
-현재 버전: **v7.4.0** · `SCHEMA_VERSION` 4 · 총 운영 코드 ~42,770줄(main·prompts·cogs·core) · 테스트 ~18,040줄
+현재 버전: **v7.5.0** · `SCHEMA_VERSION` 4 · 총 운영 코드 ~42,770줄(main·prompts·cogs·core) · 테스트 ~18,040줄
 
 리팩터링: **7-WP 프로그램(WP-A~WP-G)** — 턴 트랜잭션·커밋·재무·이력·파생 시스템을 단일 권위로 재구성했다. WP-A~G 전부 독립 게이트 VERIFIED — **프로그램 완료**(WP-G 최종 후보 `f0fd69e`, 증거 `handoff/WP_G_COMPLETION_BUNDLE.md`). 다음 WP는 없다. 버전은 이 비호환 전환 전체를 **단일 MAJOR v6.0.0**으로 채택했다(2026-10-06, 이력 보정은 DEVLOG '버전 기록').
 
@@ -22,7 +22,7 @@ AI가 4개 층위로 나뉘어 판단·지시·묘사·추출을 분담한다. �
 | H04 | Actor·정보·인지·NPC 투영 + 사건·DependencyIndex·WorldProgression | **완료**(VERIFIED `1906f1b`, R2·R3 보정 포함) — 순수 엔진·typed 연산, `handoff/H04_COMPLETION_BUNDLE.md` + `handoff/H04_R2_CORRECTION_BUNDLE.md` |
 | H05 | 구조화 행동 의도·턴 계획 + 프롬프트·추출·후속묘사·미디어 | **완료 제출(검수 대기, R2·R3 보정 포함)** — 자동 턴 배선(DYNAMIC 세션만, 현 운영 세션은 LEGACY), `handoff/H05_COMPLETION_BUNDLE.md` |
 | H06 | 초기화·캐시·관리자·복구·재서술·세션 종료 | **완료 제출(검수 대기, R2 보정 포함)** — 단일 PC DYNAMIC 생애주기 배선, `handoff/H06_COMPLETION_BUNDLE.md` + `handoff/H06_R2_CORRECTION_NOTE.md` |
-| H07 | 영도 실제 이행·legacy 권위 은퇴·production cutover·최종 게이트 | 예정 |
+| H07 | 영도 실제 이행·legacy 권위 은퇴·production cutover·최종 게이트 | **구현 완료 — 독립 검수 대기(VERIFIED 아님)** — NPC 유효 위치·이동 지식 정책·표시명·명시 결단·레거시 권위 은퇴·프롬프트 정합, `handoff/H07_FINAL_IMPLEMENTATION_REPORT.md` |
 
 H01 완료 번들은 통합 전 번호(H01~H11)를 쓴다 — 구 H02+H03→H02, H04+H05→H03, H06+H07→H04, H08+H09→H05, H10→H06, H11→H07로 읽는다.
 
@@ -224,7 +224,7 @@ compiler v2(H03)·v3(H04)로 5개 시나리오의 definition revision이 모두 
 | 모듈 | 줄 | 내용 |
 |---|---|---|
 | `world_state.py` | 124 | H02 세션 필드의 **단일 출처** — 가역 게임 정본 11필드·비가역 정체성 2필드(`definition_revision`·`narrative_seed`), `world_version` 인과 정체성 |
-| `world_mutation.py` | 701 | `WorldMutationBatch`(typed op·LocalRef·동결·digest — 내부는 정규 사본이라 외부·반환 객체 변경과 분리)·`ProjectedWorld`·**인과 계층 투영**(`causal_parent_op_ids`)·병합 의미 5종(H03: typed `DELETE` — 같은 계층 멱등, 혼용·없는 키·인과 없는 교차 계층은 충돌)·`WORLD_PROJECTION_CONFLICT`. production 레지스트리 = H03 시간·공간 12종 + H04 행위자·정보·인지·관계·사건 15종 = typed 연산 27종(임의 경로 setter 없음) |
+| `world_mutation.py` | 701 | `WorldMutationBatch`(typed op·LocalRef·동결·digest — 내부는 정규 사본이라 외부·반환 객체 변경과 분리)·`ProjectedWorld`·**인과 계층 투영**(`causal_parent_op_ids`)·병합 의미 5종(H03: typed `DELETE` — 같은 계층 멱등, 혼용·없는 키·인과 없는 교차 계층은 충돌)·`WORLD_PROJECTION_CONFLICT`. production 레지스트리 = H03 시간·공간 12종 + H04 행위자·정보·인지·관계·사건 15종 + H07 `ACTOR_PLACEMENT_CLEAR` = typed 연산 28종(임의 경로 setter 없음) |
 | `canonical_mutation.py` | 286 | INITIALIZATION·ADMIN_EDIT 공통 원자 적용(검증~저장 전체가 커밋 직렬화 락 안 — 직렬화 락 → io 락)·작은 내구 저널·base quiescence 증명(H03) — **production 호출자 0**(배선은 H06) |
 
 모든 커밋된 PLAYER_TURN은 빈 묶음이어도 `world_version`을 전진시킨다(CommitPlan v2가 PREPARED 전에 대상 version을 동결). PLAYER_TURN 정본 owner는 여전히 `CommitCoordinator` 하나다.
@@ -243,15 +243,24 @@ compiler v2(H03)·v3(H04)로 5개 시나리오의 definition revision이 모두 
 
 | 모듈 | 줄 | 내용 |
 |---|---|---|
-| `world_refs.py` | 433 | 타입 ValueRef 13종(해석 결과 known/UNKNOWN 구분)·의존 키·컴파일 검증·결정적 표시 |
+| `world_refs.py` | 433 | 타입 ValueRef 16종(해석 결과 known/UNKNOWN 구분)·의존 키·컴파일 검증·결정적 표시. H07: 행위자 위치 ref는 유효 위치(`npc_position`), `ACTOR_POSITION_SOURCE`·`OBSERVER_HAS_ITEM`·`OBSERVER_STAT`·`EVENT_LOCAL` template 변형 |
 | `actors.py` | 189 | `actor_registry` 검증·레거시 이름 → ActorId 해석(모호하면 후보만)·`ACTOR_REGISTER`/`ACTOR_RENAME`(개명 = id 유지·alias 누적) |
 | `information.py` | 373 | 정보 상태(저작 = 기본 CURRENT, 런타임 명제 불변)·SUPERSEDED/REFUTED 계보·정보 계열(값 변화 = 새 revision InfoId)·typed 연산 4종 |
 | `cognition.py` | 260 | 희소 인지(기록 없음 = 미인지)·획득 provenance 멱등·노출 ≠ 믿음·PC 믿음은 PLAYER_EXPLICIT·RULE_FORCED만·group 자동 전파 없음 |
 | `relationships.py` | 79 | 희소 관계 delta(행렬 없음, delta_id 멱등) |
 | `npc_projection.py` | 92 | 읽기 전용 `CurrentNpcProjection`(정본 저장 없음, 장소 연관 ≠ 현재 위치, 지정한 정보만) |
 | `predicates.py` | 297 | 3값 조건 AST(자유 문자열·eval 없음)·시간 조건 → wakeup(매분 polling 없음) |
-| `events.py` | 527 | 사건 인스턴스 정체성·binding 열거·PRIORITY/SCORE·STICKY 기본·결정적 가중 케이스·typed step 12종·사건 연산 5종 |
+| `events.py` | 527 | 사건 인스턴스 정체성·binding 열거·PRIORITY/SCORE·STICKY 기본·결정적 가중 케이스·typed step 13종(H07 `CLEAR_ACTOR_PLACEMENT`)·사건 연산 5종. H07: 예약 지역 상태 `resolution`(플레이어 명시 결단 전용)·`open_resolutions`·`instance_relevant` |
 | `world_progression.py` | 940 | DependencyIndex·같은 분 due 일괄(우선순위·`SameMinuteNarrativeTie`·장면 밖 안전 중단)·즉시 연쇄(라운드 32·사건당 분당 전이 8·진동 검출)·정보 계열 재평가·NPC 이동 checkpoint wakeup·신호/foreground·순수 `project_world_progression` |
+
+#### 동적 세계 H07 (영도 이행 — DYNAMIC 세션)
+
+| 모듈 | 내용 |
+|---|---|
+| `npc_position.py` | NPC 유효 위치 단일 경계 — 정본 override > 평상시 일과(선택 저작 `default_npcs[*].routine`, 정의 + 정본 시계의 순수 함수) > untracked. 장면 인물·CurrentNpcProjection·사건 조건·사건 이동 출발점이 같은 해석을 쓴다. 일과 경계 wakeup(실제 장소 변화 분만), 정본 SET·materialize 없음 |
+| `place_display.py` | 내부 PlaceId ≠ 플레이어 표시명(`display_name`·`unknown_name`, PC 지식 수준). 이름이 드러나지 않는 장소는 정보 `reveals`(명시 발견)로만 이름을 안다 |
+
+이동(PC·NPC 공통, H04 R55 의도적 supersede): 아는 길 우선, 없으면 PUBLIC/LOCAL 일반 그래프 + 아는 RESTRICTED/SECRET — 지식은 경로 품질, 통과·권한은 실제 접근. 저작 명시 사건 route는 연속성·실제 접근만 검증. 메인 결말·행적은 국면 `resolution_options` → 판단층위 키 → typed `EVENT_LOCAL_SET(resolution, PLAYER_RESOLUTION)` → 저작 국면·케이스. 국면 guide는 지시층위 전용(R-2). 정의 바인딩 세션은 레거시 퀘스트·info_ledger·hidden 인지·정적 상주 동행 해제를 은퇴한다(`player_world.legacy_narrative_retired`) — 소속은 사건 결과 파생 호환 뷰.
 
 H04는 세계가 스스로 진행되는 데 필요한 정본과 **순수 투영**까지만 만든다. 결과 연산은 바깥 트랜잭션(PLAYER_TURN·INITIALIZATION·ADMIN_EDIT)의 묶음으로 기존 커밋 경로가 적용한다 — 플레이어 턴 orchestration은 H05, 초기 행위자·정보·사건 seed와 정의 스냅샷 바인딩은 H06, 레거시 퀘스트·`info_ledger` 권위 은퇴는 H07이다. H04는 같은 분 서사 선후(`SameMinuteNarrativeTie`)를 스스로 고르지 않는다(H05 묘사 관찰이 정한다).
 
@@ -515,7 +524,7 @@ pip install -r requirements-dev.txt
 python3 -m pytest tests/ -q
 ```
 
-`tests/`는 **현재 동작과 권위 불변식을 고정**한다. 현재 1,072건(특성화 61 · 결함 27 · 정책 984)이 모두 통과하며 strict xfail은 0건이다.
+`tests/`는 **현재 동작과 권위 불변식을 고정**한다. 현재 1,183건(특성화 61 · 결함 27 · 정책 1,095)이 모두 통과하며 strict xfail은 0건이다.
 
 | 분류 | 의미 |
 |---|---|
@@ -531,7 +540,7 @@ python3 -m pytest tests/ -q
 라이브 디스코드·Gemini·네트워크·자격증명을 쓰지 않는다.
 `tests/conftest.py`의 autouse 픽스처가 자격증명을 지우고 SDK 생성을 막는다.
 
-인도 번들: `handoff/WP00_*` ~ `handoff/WP_G_*` (WP-G: 완료 번들·사후 스캔·AUD-001~063 최종 매트릭스·시나리오 매트릭스·제어 동기화 제안) · `handoff/H01_*`~`handoff/H06_*`(동적 세계 H01~H06)
+인도 번들: `handoff/WP00_*` ~ `handoff/WP_G_*` (WP-G: 완료 번들·사후 스캔·AUD-001~063 최종 매트릭스·시나리오 매트릭스·제어 동기화 제안) · `handoff/H01_*`~`handoff/H07_*`(동적 세계 H01~H07, H07 저작 근거 `handoff/H07_YEONGDO_WORKBOOK_V2/`)
 
 ---
 
@@ -733,11 +742,10 @@ python3 tools/scenario_check.py --all     # 전 시나리오 컴파일·진단(E
 | 소개 미디어 | `intro_images` 연결부만 있고 자산 없음 |
 | 디스코드 결제 | SKU 한국 미지원. `!지급`·`!잉크`로 대체 |
 | v7.x 반영 | `SCHEMA_VERSION` 4·turn-history v3·CommitPlan v2(7.1.0·7.2.0도 유지). 배포 전 `sessions/`·`accounts/` 백업. 기존 세션은 로드 시 자동 마이그레이션되며, 배포 후 6.x로 되돌리면 plan v2 PREPARED 복구를 읽지 못한다 |
-| 영도 사건·정보·초기 인지 저작 | `event_templates`·`information_definitions`·초기 행위자 위치/인지 미저작. 퀘스트를 사건으로 자동 변환하지 않는다 — H06 seed 적용·H07 사람 저작 이행 |
-| 영도 정량 공간 저작 | 구간 거리·접근·공간 지식 seed 미저작(비대칭 connected 71·거리 없는 연결 234·가려진 별칭 2). 자동 생성 금지 — H07 사람 저작 이행 |
+| 영도 DYNAMIC 저작 | H07 V2 저작 완료(사건 64·정보·일과 35·표시명 8·구간 230쌍) — 남은 판단 항목(OPEN DECISION)은 `handoff/H07_FINAL_IMPLEMENTATION_REPORT.md` |
 | 운영 반영 | v6.0.0이 main에 반영됨. 배포 전 운영 `sessions/`·`accounts/` 백업, 배포 후 `!캐시 재발급`(프롬프트 D1·무협 `location_images` 변경) |
 | 자동 턴 TTS | 더빙은 인트로에만 적용된다(자동 턴 미적용은 기존 동작). 확장은 별도 기능 |
-| H06 운영 활성 | DYNAMIC은 시작 틀에 `world_start`가 저작된 단일 PC 세션에서만 켜진다 — 현 5개 시나리오에는 미저작이라 운영 세션은 전부 LEGACY. 영도 저작 이행은 H07 |
+| H07 운영 활성 | 영도 단일 PC 세션은 DYNAMIC(시작 틀 `world_start` 저작), 나머지 4개 시나리오·다인 세션은 LEGACY. 배포 후 `!캐시 재발급` 필요(프롬프트·영도 변경) |
 | H06 배포 | 새 영속 필드 `world_lifecycle`·`world_initialization`(기본값 = 레거시). 스키마·이력·CommitPlan·compiler 유지. DYNAMIC 대상 세션은 캐시 업로드가 시작 선택 뒤로 이동 |
-| H05 프롬프트 | `prompts.py` 무변경 — 판단·추출 스키마 확장과 지시는 런타임 사용자 프롬프트 블록. 시스템 지시문에 `action_intent`·`world_observation` 설명을 넣는 것은 승인 후 제안 사항 |
+| H07 프롬프트 | `prompts.py` 4개 층위에 동적 세계 조건부 권위 절 추가(H07-D). 추출 스키마의 레거시 `quest_progress`·`secret_awareness`는 DYNAMIC에서 쓰이지 않지만 스키마에 남아 있다(토큰 낭비 — 남은 한계) |
 | H05 calibration | 경로 자동 선택(10분 미만·비용비 5/4)·추가 시간 상한(240분)·PC capability = 보유 소지품 이름 — 영도 정량 저작 후 조정 |

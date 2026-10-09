@@ -133,7 +133,7 @@ def admit(f):
 #   A. 시작부터 정본 추적 필요 → GENESIS_CANONICAL(현 초안: 없음 — 시작 장면·즉시 사건이 정본 위치를 요구하는 NPC가 없다)
 #   B. 평상시 위치 근거 충분 → ROUTINE(아래 규칙·근거)
 #   C. 근거 부족 → untracked(임의 배치·일과를 창작하지 않는다)
-# 근거 규칙(판정표는 handoff/H07_FINAL_NPC_POSITION_AND_AUTHORITY.md):
+# 근거 규칙(판정표는 handoff/H07_FINAL_IMPLEMENTATION_REPORT.md):
 #   R1 places[*].npcs '상주' → default_place
 #   R2 '자주'(상주 없음) → default_place(여럿이면 원문 첫 항목 — 잠정)
 #   R3 프로필 '행동 방식'의 명시 장소·시각 습관 → 해당 장소·시간 항목(원문 인용)
