@@ -397,7 +397,7 @@ class _Engine:
         self.definition = definition
         self.initial_full_scan = initial_full_scan    # H06 INITIALIZATION 전용 — 첫 연쇄를 전수 검사로 시작
         self.source = source if isinstance(source, _wm.ProjectedWorld) else _wm.ProjectedWorld.capture(source)
-        self.world = _wm.ProjectedWorld(self.source.to_dict())
+        self.world = self.source.clone()
         self.target = target_minute
         self.base_ops = list(base_ops or ())
         self.progress = dict(progress or {})
@@ -911,6 +911,8 @@ class _Engine:
             changed = set()
             if self.base_ops:
                 changed = self.apply_units([_Unit("base", list(self.base_ops))], kind="BASE")
+            if self.progress.get("activity"):
+                changed = set(changed) | {_refs.OBSERVER_ACTIVITY_KEY}    # H07: 활동 시작 = 활동 조건 재평가
             minutes = 0
             forced = {}
             if self.initial_full_scan:

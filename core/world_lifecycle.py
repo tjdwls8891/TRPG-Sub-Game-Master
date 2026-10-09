@@ -241,6 +241,21 @@ def build_initial_world_plan(definition: dict, session, choices: StartChoices, *
         for ref, f in rec["access"].items():
             know.append(_mk(prefix, f"ka.{ref}", _sp.OP_ACCESS_KNOWLEDGE_UPSERT,
                             {"actor_id": pc, "ref": ref, "fields": f}))
+    # H07: 저작 NPC의 초기 공간 지식(knowledge_seed) — NPC 이동 계획의 근거(행위자 지식 기반)
+    for aid in sorted(definition.get("actor_definitions") or {}):
+        sid = (definition["actor_definitions"][aid] or {}).get("knowledge_seed")
+        if not sid:
+            continue
+        nrec = _sp.seed_knowledge(definition, sid)
+        for pid, f in nrec["places"].items():
+            know.append(_mk(prefix, f"nkp.{aid}.{pid}", _sp.OP_PLACE_KNOWLEDGE_UPSERT,
+                            {"actor_id": aid, "place_id": pid, "fields": f}))
+        for eid, f in nrec["edges"].items():
+            know.append(_mk(prefix, f"nke.{aid}.{eid}", _sp.OP_EDGE_KNOWLEDGE_UPSERT,
+                            {"actor_id": aid, "edge_id": eid, "fields": f}))
+        for ref, f in nrec["access"].items():
+            know.append(_mk(prefix, f"nka.{aid}.{ref}", _sp.OP_ACCESS_KNOWLEDGE_UPSERT,
+                            {"actor_id": aid, "ref": ref, "fields": f}))
     visit = [_mk(prefix, "visit", _sp.OP_PLACE_KNOWLEDGE_UPSERT, {
         "actor_id": pc, "place_id": choices.start_place,
         "fields": {"knows_name": True, "visited": True}})]

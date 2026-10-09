@@ -51,6 +51,9 @@ _PARAMS = {
 SLOT_PREFIX = "$slot:"
 SELF = "$self"
 SESSION_PC = "$session_pc"
+# H07: 관찰자 활동(대기·수면·수색 등 코드 소유 활동)은 정본 칸이 아니라 진행 문맥이다. 활동이 있는 진행은 시작 시
+# 이 키를 '변경'으로 넣어, 활동 조건을 가진 사건이 장소 변화·시간 깨우기 없이도 재평가되게 한다(polling 없음).
+OBSERVER_ACTIVITY_KEY = "observer:activity"
 
 
 def session_pc_actor(world):
@@ -89,8 +92,9 @@ class EvalContext:
     instance_overrides: dict = field(default_factory=dict)
 
     def domain(self, name):
+        """읽기 전용 — 해석기는 결과를 바꾸지 않는다(복사 없이 조회, H07 성능)."""
         if isinstance(self.world, _wm.ProjectedWorld):
-            return self.world.domain(name)
+            return self.world._peek(name)
         return getattr(self.world, name, None)
 
     def now(self):
@@ -311,7 +315,9 @@ def dependency_keys(ref: dict) -> list:
         return [f"event:{a('instance')}:local:{ref.get('key')}"]
     if t == "ROUTE_KNOWN_EXISTS":
         return [f"actor:{a('actor')}:placement", f"knowledge:{a('actor')}:spatial"]
-    return []                                       # CLOCK_MINUTE·OBSERVER_ACTIVITY
+    if t == "OBSERVER_ACTIVITY":
+        return [OBSERVER_ACTIVITY_KEY]              # H07: 진행 문맥 키 — 정본이 아니라 진행 시작 시 '변경'으로 공급
+    return []                                       # CLOCK_MINUTE
 
 
 def materialize_key(key: str, bindings: dict, self_instance: str | None = None, *, session_pc=None):

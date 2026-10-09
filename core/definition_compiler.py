@@ -97,7 +97,9 @@ RESERVED_UNCOMPILED_KEYS = (
 # NPC 인라인 비밀 필드(npc_template.info_fields의 '비밀').
 INLINE_SECRET_FIELD = "비밀"
 # profile_base에서 빼는 필드: 구조화된 별도 권위(actor_id·name·비밀) + 레거시 런타임 초기값.
-PROFILE_BASE_EXCLUDED = ("actor_id", "name", INLINE_SECRET_FIELD, "resources", "statuses")
+PROFILE_BASE_EXCLUDED = ("actor_id", "name", INLINE_SECRET_FIELD, "resources", "statuses", "knowledge_seed")
+# H07: default_npcs[*].knowledge_seed — 저작 NPC의 초기 공간 지식 seed id(genesis가 적용). NPC 이동(START_MOVEMENT)은
+#      행위자 지식 기반이라, seed 없는 NPC는 정본 이동을 계획할 수 없다. 저작된 경우에만 정의에 키가 생긴다.
 INFO_EXPLICIT_KEYS = ("proposition", "summary", "subject_refs", "tags", "fragments", "sensitivity")
 
 ERROR, WARNING, INFO = "ERROR", "WARNING", "INFO"
@@ -332,6 +334,8 @@ def _compile_actors(scenario_id, raw, d):
             "profile_base": {k: copy.deepcopy(v) for k, v in prof.items() if k not in PROFILE_BASE_EXCLUDED},
             "source_ref": ["default_npcs", key],
         }
+        if "knowledge_seed" in prof:
+            defs[actor_id]["knowledge_seed"] = prof["knowledge_seed"]
         order.append(actor_id)
         index[key] = actor_id
     return defs, order, index
@@ -1880,6 +1884,10 @@ def compile_scenario(raw: dict, scenario_id: str, quests: dict | None = None) ->
         d.add(ERROR, "MODES_REQUIRED", "movement_modes",
               "structured_places 구간을 쓰려면 movement_modes(속도 저작)가 필요합니다")
     seeds = _compile_spatial_seeds(raw, places, edges, access, cap["capabilities"], d)
+    for aid, a in actors.items():
+        if "knowledge_seed" in a and (not isinstance(a["knowledge_seed"], str) or a["knowledge_seed"] not in seeds):
+            d.add(ERROR, "NPC_KNOWLEDGE_SEED_UNKNOWN", f"default_npcs.{a['legacy_key']}.knowledge_seed",
+                  f"정의되지 않은 공간 지식 seed {a['knowledge_seed']!r}")
     init = _compile_initialization(raw, places, d)
     calendar = _compile_calendar(raw, cap["capabilities"], d)
     _compile_world_starts(raw, init, places, seeds, calendar, cap["capabilities"], d)

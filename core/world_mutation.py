@@ -428,6 +428,17 @@ class ProjectedWorld:
     def domain(self, name: str):
         return copy.deepcopy(self._d[name])
 
+    def _peek(self, name: str):
+        """내부 도메인 객체를 복사 없이 돌려준다 — 읽기 전용 평가기(world_refs.EvalContext) 전용(H07 성능).
+        호출자는 결과를 바꾸지 않는다(바꾸면 투영 사본이 오염된다)."""
+        return self._d[name]
+
+    def clone(self) -> "ProjectedWorld":
+        """깊은 사본 하나(H07 성능 — to_dict()→생성자의 이중 복사 대신 단일 복사)."""
+        w = ProjectedWorld.__new__(ProjectedWorld)
+        w._d = copy.deepcopy(self._d)
+        return w
+
     def to_dict(self) -> dict:
         return copy.deepcopy(self._d)
 
@@ -564,6 +575,18 @@ def _cross_layer_compatible(w1: WorldWrite, w2: WorldWrite) -> bool:
     return False      # APPEND_DEDUPE: 독립 추가의 계층 순서가 결과 순서가 되므로 금지
 
 
+class _LayerView(ProjectedWorld):
+    """계층 기준 투영의 읽기 전용 공유 view(H07 성능). 읽기(get·has·domain)는 이미 깊은 사본을 돌려주므로
+    연산마다 세계 전체를 복사할 필요가 없다. 쓰기 경로(_set)는 막아, handler가 view를 바꿔 같은 계층의 다른
+    연산이 보는 기준을 오염시킬 수 없게 한다(기존 계약 '고쳐도 무해'를 '고칠 수 없음'으로 강화)."""
+
+    def __init__(self, base: ProjectedWorld):              # noqa: D401 — 의도적으로 부모 초기화를 건너뛴다(공유)
+        self._d = base._d
+
+    def _set(self, domain, path, value):
+        raise WorldMutationError("handler view는 읽기 전용입니다")
+
+
 def project(source, batch: WorldMutationBatch, registry: OperationRegistry) -> ProjectionResult:
     """동결된 묶음을 원본 투영 사본 위에 인과 계층 순서로 적용한다. 원본은 바뀌지 않는다.
 
@@ -584,13 +607,14 @@ def project(source, batch: WorldMutationBatch, registry: OperationRegistry) -> P
         raise WorldMutationError(f"{batch.batch_id}: 동결 digest와 내용이 다릅니다(변조)")
     base = source if isinstance(source, ProjectedWorld) else ProjectedWorld.capture(source)
     src_digest = base.digest()
-    world = ProjectedWorld(base.to_dict())
+    world = base.clone()
     ops = batch.operations
     layers = causal_layers(ops)
     anc = causal_ancestors(ops)
     conflicts, record = [], []          # record: (layer, WorldWrite)
     for L in sorted(set(layers.values())):
-        layer_base = ProjectedWorld(world.to_dict())
+        layer_base = world.clone()
+        view = _LayerView(layer_base)                       # 계층당 하나 — 읽기 전용 공유
         grouped = {}
         for op in (o for o in ops if layers[o.op_id] == L):
             handler = registry.handler_for(op.op_type)
@@ -605,7 +629,6 @@ def project(source, batch: WorldMutationBatch, registry: OperationRegistry) -> P
                     conflicts.append(Conflict("EXPECTATION_FAILED", exp["domain"], tuple(exp["path"]),
                                               (op.op_id,), f"{op.op_id}: 기대값과 투영 상태가 다릅니다"))
                     continue
-            view = ProjectedWorld(layer_base.to_dict())     # handler가 view를 고쳐도 무해
             try:
                 writes = list(handler(view, op, batch.resolved_payload(op)) or ())
             except WorldMutationError as e:
