@@ -8,7 +8,8 @@
 #     거리·홉으로 가시성을 만들지 않는다. 접근과 가시성은 다른 질의다.
 #
 # [canonical 형태]
-#   spatial_state = {"scene_place": PlaceId?, "placements": {actor_id: Placement}}
+#   spatial_state = {"scene_place": PlaceId?, "placements": {actor_id: Placement},
+#                    "placement_holds": {actor_id: {"placement", "at_minute"}}}   (H07 CLEAR 보류 — 같은 분만 유효)
 #     Placement AT_PLACE = {"kind": "AT_PLACE", "place_id"}
 #     Placement TRANSIT  = {"kind": "TRANSIT", "movement_id", "edge_id", "from_place", "to_place",
 #                           "edge_started_at_minute", "edge_expected_end_minute"}
@@ -331,6 +332,13 @@ def h_actor_placement_clear(view, op, payload):
     if not view.has("spatial_state", ("placements", actor)):
         return []
     out = [_wm.write(op, "spatial_state", ("placements", actor), _wm.MERGE_DELETE, None)]
+    # 순간이동 방지: 해제 시각의 물리 위치를 보류(hold)로 남긴다 — 같은 분 동안은 일과와 어긋나도 그 자리에
+    # 머문다(시간이 흐르거나 일과가 이미 그 자리면 일과 권위로 복귀 — core.npc_position.effective_position).
+    clock = view.domain("world_clock")
+    if _wc.is_initialized(clock) and not _wc.validate_clock(clock):
+        held = view.domain("spatial_state")["placements"][actor]
+        out.append(_wm.write(op, "spatial_state", ("placement_holds", actor), _wm.MERGE_SINGLE_VALUE,
+                             {"placement": held, "at_minute": clock["minute_index"]}))
     for sid, e in sorted((view.domain("world_schedule") or {}).items()):
         if isinstance(e, dict) and e.get("kind") == "MOVEMENT_WAKEUP" and \
                 (e.get("payload") or {}).get("actor_id") == actor:

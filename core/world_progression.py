@@ -373,8 +373,10 @@ def routine_changed_keys(definition, world, before, after) -> set:
         return set()
     pls = (world._peek("spatial_state") if isinstance(world, _wm.ProjectedWorld)
            else world.domain("spatial_state")) or {}
+    holds = pls.get("placement_holds") or {}
     pls = pls.get("placements") or {}
-    out = set()
+    out = {f"actor:{aid}:placement" for aid, rec in holds.items()        # CLEAR 보류가 시계 진행으로 소멸
+           if aid not in pls and (rec or {}).get("at_minute") == before}
     for aid, d in sorted((definition.get("actor_definitions") or {}).items()):
         if not (d or {}).get("routine") or aid in pls:
             continue

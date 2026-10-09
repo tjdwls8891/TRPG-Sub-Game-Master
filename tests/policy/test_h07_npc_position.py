@@ -200,11 +200,34 @@ def test_clear_op_returns_actor_to_routine_and_is_noop_when_untracked():
     w = _at(MON0 + 12 * 60, spatial_state=at(KANG, "성당"))
     w2 = _proj(w, op("c", SP.OP_ACTOR_PLACEMENT_CLEAR, {"actor_id": KANG}))
     assert KANG not in (w2.domain("spatial_state").get("placements") or {})
-    assert NP.effective_position(D, w2, KANG)["placement"] == SP.at_place("시장")
+    assert NP.effective_place(D, w2, KANG) == "성당"                # 같은 분 — 순간이동 없음
+    assert NP.effective_position(D, run(D, w2, MON0 + 12 * 60 + 1).projected_world, KANG)["placement"] \
+        == SP.at_place("시장")                                       # 시간이 흐른 뒤 일과로 복귀
     w3 = _proj(w2, op("c2", SP.OP_ACTOR_PLACEMENT_CLEAR, {"actor_id": KANG}))  # 이미 일과 — no-op
     assert w3.digest() == w2.digest()
     with pytest.raises(Exception):
         _proj(w, op("bad", SP.OP_ACTOR_PLACEMENT_CLEAR, {"actor_id": KANG, "why": "x"}))
+
+
+def test_clear_does_not_teleport_npc_to_routine_place_in_same_instant():
+    """반례: 월 15:00 일과 = 시장, 정본 override = 성당 → CLEAR → 같은 순간 유효 위치가 시장이면 안 된다."""
+    D = _defn()
+    t = MON0 + 15 * 60
+    assert NP.routine_place_at(D, KANG, t)[0] == "시장"
+    w2 = _proj(_at(t, spatial_state=at(KANG, "성당")), op("c", SP.OP_ACTOR_PLACEMENT_CLEAR, {"actor_id": KANG}))
+    assert KANG not in (w2.domain("spatial_state").get("placements") or {})          # override는 지워졌다
+    assert NP.effective_place(D, w2, KANG) == "성당"                                  # 그러나 그 자리에 머문다
+    assert [a for a, _ in NP.actors_at(D, w2, "시장")] == []
+    assert [a for a, _ in NP.actors_at(D, w2, "성당")] == [KANG]
+    assert RF.resolve(PLACE, ctx(D, w2)).value == "성당"
+    # 시간이 흐른 뒤에만 일과 권위로 복귀(그 전환은 의존 키로 공급된다)
+    assert f"actor:{KANG}:placement" in WP.routine_changed_keys(D, w2, t, t + 10)
+    later = run(D, w2, t + 10).projected_world
+    assert NP.effective_position(D, later, KANG) == {"source": NP.ROUTINE, "placement": SP.at_place("시장"),
+                                                     "routine_entry": 0}
+    # 현재 위치와 일과가 이미 정합하면 즉시 일과 권위
+    w3 = _proj(_at(t, spatial_state=at(KANG, "시장")), op("c", SP.OP_ACTOR_PLACEMENT_CLEAR, {"actor_id": KANG}))
+    assert NP.effective_position(D, w3, KANG)["source"] == NP.ROUTINE
 
 
 def _know(edges):
@@ -247,7 +270,9 @@ def test_clear_step_compiles_and_runs_from_event_case():
     w = _at(MON0 + 12 * 60, spatial_state=at(KANG, "성당"))
     r = run(D, w, MON0 + 12 * 60, base_ops=[op("b", "ACCESS_STATE_SET", {"control_id": "door_1", "state": "OPEN"})])
     assert KANG not in (r.projected_world.domain("spatial_state").get("placements") or {})
-    assert NP.effective_position(D, r.projected_world, KANG)["placement"] == SP.at_place("시장")
+    assert NP.effective_place(D, r.projected_world, KANG) == "성당"                  # 같은 분 — 순간이동 없음
+    later = run(D, r.projected_world, MON0 + 12 * 60 + 1).projected_world
+    assert NP.effective_position(D, later, KANG)["placement"] == SP.at_place("시장")
     bad = copy.deepcopy(tpl)
     bad["transition_cases"][0]["steps"][0]["actor"] = "nobody"
     assert "STEP_REF_UNKNOWN" in [d.code for d in dc.compile_scenario(_raw(templates={"x": bad}), "t").diagnostics]

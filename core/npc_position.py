@@ -7,6 +7,8 @@
 #        플레이어·사건 영향으로 생긴 typed 배치다. 있는 동안 일과는 무시한다.
 #     2) 없으면 정의 actor_definitions[actor].routine을 정본 world_clock으로 해석 — ROUTINE(파생).
 #        정의 스냅샷 + 정본 시계의 순수 함수다. 정본에 쓰지 않는다(경계마다 SET 없음 · materialize 없음).
+#        단, ACTOR_PLACEMENT_CLEAR 직후 같은 분에는 해제 시점 위치(placement_holds)에 머문다 — 일과 장소가
+#        이미 그 자리이거나 시계가 흐른 뒤에만 일과 권위로 복귀한다(해제만으로 다른 장소로 순간이동하지 않는다).
 #     3) 둘 다 없으면 UNTRACKED — '없음'이 아니라 '위치를 추적·해석하지 않음'.
 #   places[*].npcs 연고(relation·frequency)는 현재 위치가 아니다 — 여기서 읽지 않는다.
 #   일과 해석 = 저작 순서 첫 일치 항목, 없으면 default_place. 창 [start, end) 반열림, start > end는 자정을
@@ -81,12 +83,24 @@ def routine_place_at(definition: dict, actor_id: str, minute: int):
     return None
 
 
+def held_placement(world, actor_id: str, now):
+    """ACTOR_PLACEMENT_CLEAR가 남긴 보류 위치 — 해제와 같은 분일 때만(시간이 흐르면 소멸). 순간이동 방지."""
+    rec = (_dom(world, "spatial_state").get("placement_holds") or {}).get(actor_id)
+    if not rec or now is None or rec.get("at_minute") != now:
+        return None
+    return rec.get("placement")
+
+
 def effective_position(definition: dict, world, actor_id: str) -> dict:
     """{"source": CANONICAL|ROUTINE|UNTRACKED, "placement": dict|None, "routine_entry": idx|'default'|None}."""
     pl = (_dom(world, "spatial_state").get("placements") or {}).get(actor_id)
     if pl is not None:
         return {"source": CANONICAL, "placement": dict(pl), "routine_entry": None}
-    hit = routine_place_at(definition, actor_id, _now(world))
+    now = _now(world)
+    hit = routine_place_at(definition, actor_id, now)
+    held = held_placement(world, actor_id, now)
+    if held is not None and (hit is None or held.get("kind") != "AT_PLACE" or held.get("place_id") != hit[0]):
+        return {"source": CANONICAL, "placement": dict(held), "routine_entry": None}
     if hit is not None:
         return {"source": ROUTINE, "placement": {"kind": "AT_PLACE", "place_id": hit[0]}, "routine_entry": hit[1]}
     return {"source": UNTRACKED, "placement": None, "routine_entry": None}
@@ -100,9 +114,10 @@ def effective_place(definition: dict, world, actor_id: str):
 
 def candidate_actors(definition: dict, world) -> list:
     """유효 위치를 가질 수 있는 행위자(정본 배치 보유 ∪ 일과 저작 NPC) — 정렬."""
-    pls = _dom(world, "spatial_state").get("placements") or {}
+    st = _dom(world, "spatial_state")
+    pls, holds = st.get("placements") or {}, st.get("placement_holds") or {}
     routine = [a for a, d in (definition.get("actor_definitions") or {}).items() if (d or {}).get("routine")]
-    return sorted(set(pls) | set(routine))
+    return sorted(set(pls) | set(holds) | set(routine))
 
 
 def actors_at(definition: dict, world, place_id: str, *, exclude=()) -> list:

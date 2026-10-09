@@ -20,6 +20,7 @@ from core import world_mutation as WM
 from core import world_refs as RF
 from core import predicates as PR
 from tests.policy.test_h04b_events_progression import K, ev_raw, op, run, world
+from tests.policy.test_h04a_actor_info import KANG
 from tests.policy.test_h05a_intent_planning import PC, ctx_of, make_session, manifest, plan
 
 pytestmark = pytest.mark.policy
@@ -96,6 +97,59 @@ def test_manifest_offers_open_resolutions_only_in_relevant_scene():
     assert "플레이어가 내릴 수 있는 결단" in m.render() and "resolution" in m.schema()["properties"]
     s.spatial_state = {"placements": {PC: {"kind": "AT_PLACE", "place_id": "항구"}}, "scene_place": "항구"}
     assert manifest(s).resolutions == ()                                  # 장면과 닿지 않으면 후보 없음
+
+
+# ── player-facing 관련성 gate(relevance_places 미저작 사건) ─────────
+
+def _unscoped(spawn_when, *, extra_place=None):
+    """relevance_places가 없는 결단 사건 — 관련성은 사건 자신의 저작 조건(장면 결속)에서만 온다."""
+    tpl = _crisis()
+    tpl.pop("relevance_places")
+    tpl["spawn_when"] = spawn_when
+    s, D = make_session(ev_raw({"crisis": tpl}), at=ROOM, places=("항구", ROOM))
+    if extra_place:
+        s.spatial_state["placements"].update(extra_place)
+    r = run(D, s, K, progress={"observer_actor": PC, "scene_place": ROOM}, outer_origin="INITIALIZATION",
+            initial_full_scan=True)
+    for f in ("event_instances", "world_schedule", "access_control_state"):
+        setattr(s, f, r.projected_world.domain(f))
+    assert _inst(s)["current_phase"] == "standoff"
+    return s, D
+
+
+def _move_pc(s, place):
+    s.spatial_state["placements"][PC] = {"kind": "AT_PLACE", "place_id": place}
+    s.spatial_state["scene_place"] = place
+
+
+def _labels(s):
+    return [lbl for _, _, lbl in manifest(s).resolutions]
+
+
+def test_unrelated_scene_does_not_expose_resolution_candidates_of_unscoped_event():
+    s, D = _unscoped({"cmp": "EQ", "ref": {"ref": "SCENE_PLACE"}, "value": ROOM})
+    _move_pc(s, "항구")                                                   # 사건과 무관한 장면
+    assert EV.open_resolutions(D, s, "항구") == [] and _labels(s) == []
+    assert "결단" not in TW.event_guide_block(ctx_of(s), None, s)          # 지시층위 안내에도 선택지 없음
+    # 장면 인물 결속 사건 — 그 인물이 장면에 없으면 노출하지 않는다
+    s2, D2 = _unscoped({"cmp": "EQ", "ref": {"ref": "ACTOR_PLACE", "actor": KANG},
+                        "value_ref": {"ref": "SCENE_PLACE"}}, extra_place={KANG: {"kind": "AT_PLACE", "place_id": ROOM}})
+    s2.spatial_state["placements"][KANG] = {"kind": "AT_PLACE", "place_id": "항구"}
+    assert _labels(s2) == []
+
+
+def test_entering_related_scene_exposes_the_same_resolution_candidates():
+    s, D = _unscoped({"cmp": "EQ", "ref": {"ref": "SCENE_PLACE"}, "value": ROOM})
+    _move_pc(s, "항구")
+    assert _labels(s) == []
+    _move_pc(s, ROOM)                                                     # 관련 장면으로 돌아오면
+    assert _labels(s) == ["질서를 지킨다", "문을 연다"]
+    s2, D2 = _unscoped({"cmp": "EQ", "ref": {"ref": "ACTOR_PLACE", "actor": KANG},
+                        "value_ref": {"ref": "SCENE_PLACE"}}, extra_place={KANG: {"kind": "AT_PLACE", "place_id": ROOM}})
+    assert _labels(s2) == ["질서를 지킨다", "문을 연다"]                  # 장면 인물과 함께 있으면 노출
+    s2.spatial_state["placements"][KANG] = {"kind": "AT_PLACE", "place_id": "항구"}
+    _move_pc(s2, "항구")                                                  # 그 인물이 있는 장면에 들어가도 노출
+    assert _labels(s2) == ["질서를 지킨다", "문을 연다"]
 
 
 def test_no_resolution_without_explicit_player_choice_and_guide_creates_nothing():

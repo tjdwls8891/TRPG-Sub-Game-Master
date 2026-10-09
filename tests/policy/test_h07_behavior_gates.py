@@ -147,7 +147,9 @@ def test_t4_t5_override_beats_routine_then_explicit_clear_returns_to_routine():
     w2, _ = _wait_until(w, 300)
     assert NP.effective_place(D, w2, SEON) == "지하 의료소"            # 일과가 override를 덮지 않는다
     w3 = _admin(w2, WM.make_op("clr", SP.OP_ACTOR_PLACEMENT_CLEAR, "ADMIN_EDIT", {"actor_id": SEON}))
-    assert NP.effective_place(D, w3, SEON) == "중리 해변" and SEON in _scene_npcs(w3, "중리 해변")
+    assert NP.effective_place(D, w3, SEON) == "지하 의료소"            # 해제 순간 순간이동 없음
+    w4, _ = _wait_until(w3, 10)
+    assert NP.effective_place(D, w4, SEON) == "중리 해변" and SEON in _scene_npcs(w4, "중리 해변")   # 시간 전환 후 복귀
     again = _admin(w2, WM.make_op("clr", SP.OP_ACTOR_PLACEMENT_CLEAR, "ADMIN_EDIT", {"actor_id": SEON}))
     assert again.digest() == w3.digest()                               # 재현(되감기·재시작 후 같은 결과)
     restored = WM.ProjectedWorld(json.loads(json.dumps(w3.to_dict())))

@@ -498,6 +498,60 @@ def instance_relevant(definition: dict, inst: dict, scene) -> bool:
     return False
 
 
+def _scene_anchors(node, bound, places, actors):
+    """조건 AST에서 장면 결속 근거를 모은다 — SCENE_PLACE == 장소 literal, ACTOR_PLACE(actor) == SCENE_PLACE."""
+    if isinstance(node, list):
+        for x in node:
+            _scene_anchors(x, bound, places, actors)
+        return
+    if not isinstance(node, dict):
+        return
+    if "cmp" in node and node["cmp"] == "EQ":
+        ref, vref = node.get("ref") or {}, node.get("value_ref") or {}
+        slot = lambda v: bound.get(v[len("$slot:"):]) if isinstance(v, str) and v.startswith("$slot:") else v
+        if ref.get("ref") == "SCENE_PLACE" and "value" in node:
+            places.add(slot(node["value"]))
+        if ref.get("ref") == "ACTOR_PLACE" and vref.get("ref") == "SCENE_PLACE":
+            actors.add(slot(ref.get("actor")))
+        return
+    for v in node.values():
+        _scene_anchors(v, bound, places, actors)
+
+
+def resolution_relevant(definition: dict, world, inst: dict, scene) -> bool:
+    """H07: player-facing 결단 후보의 관련성 — 현재 플레이 맥락과 닿을 때만.
+
+    · relevance_places가 저작돼 있으면 그것(instance_relevant — 장면 장소 또는 상위).
+    · 없으면 사건 자신의 저작 조건(spawn_when · 현재 국면 eligible_when/retain_when)이 결속한 장면 근거:
+      SCENE_PLACE 비교 장소(장면 또는 상위가 그 장소) · 장면에 있어야 하는 인물/ACTOR 슬롯(유효 위치 = 장면).
+    · 장면 근거가 하나도 저작되지 않은 사건(시각만으로 도는 섬 전체 압력)은 어디서나 맥락이다.
+    """
+    tpl = template(definition, inst.get("template_id")) or {}
+    if tpl.get("relevance_places"):
+        return instance_relevant(definition, inst, scene)
+    bound = inst.get("bound_slots") or {}
+    ph = (tpl.get("phases") or {}).get(inst.get("current_phase")) or {}
+    places, actors = set(), set()
+    _scene_anchors([tpl.get("spawn_when"), ph.get("eligible_when"), ph.get("retain_when")], bound, places, actors)
+    slots = tpl.get("slots") or {}
+    actors |= {bound[k] for k, sd in slots.items() if (sd or {}).get("type") == "ACTOR" and bound.get(k)}
+    places.discard(None)
+    actors.discard(None)
+    if not places and not actors:
+        return True
+    if scene is None:
+        return False
+    pdefs = definition.get("place_definitions") or {}
+    chain, cur = set(), scene
+    while cur and cur not in chain:
+        chain.add(cur)
+        cur = (pdefs.get(cur) or {}).get("parent")
+    if places & chain:
+        return True
+    from . import npc_position as _npos
+    return any(_npos.effective_place(definition, world, a) == scene for a in sorted(actors))
+
+
 def open_resolutions(definition: dict, world, scene) -> list:
     """[(instance_id, option_id, label)] — 진행 중이고 현재 국면이 결단 선택지를 가지며 아직 결단이 없고 장면과 닿는
     사건의 선택지(정렬 · 결정적). 판단층위 후보(매니페스트)·지시층위 안내의 단일 출처."""
@@ -511,7 +565,7 @@ def open_resolutions(definition: dict, world, scene) -> list:
             continue
         tpl = template(definition, inst.get("template_id")) or {}
         ph = (tpl.get("phases") or {}).get(inst.get("current_phase")) or {}
-        if not ph.get("resolution_options") or not instance_relevant(definition, inst, scene):
+        if not ph.get("resolution_options") or not resolution_relevant(definition, world, inst, scene):
             continue
         for o in ph["resolution_options"]:
             out.append((iid, o["option_id"], o["label"]))

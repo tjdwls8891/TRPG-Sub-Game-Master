@@ -305,7 +305,7 @@ def event_guide_block(ctx, plan, session) -> str:
         lines.append(f"· {tpl.get('name') or inst.get('template_id')}: {ph['guide']}")
         res = (inst.get("local_state") or {}).get(_ev.RESOLUTION_KEY)
         opts = {o["option_id"]: o["label"] for o in ph.get("resolution_options") or ()}
-        if opts and res is None:
+        if opts and res is None and _ev.resolution_relevant(D, world, inst, scene):   # player-facing 관련성 gate
             lines.append("  └ 플레이어가 명시적으로 내릴 수 있는 결단: " + " / ".join(opts.values())
                          + " — GM·묘사가 대신 고르거나 유도하지 말 것")
         if len(lines) >= MAX_GUIDE_LINES:
