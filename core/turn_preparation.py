@@ -1019,6 +1019,7 @@ class TurnPreparation:
         self.world_conflicts: list = []          # WORLD_PROJECTION_CONFLICT 진단(재시도 대상 아님)
         self.world_quiescence = None             # H03: BaseQuiescenceReport(READY 증명)
         self.world_turn = None                   # H05: core.turn_world.WorldTurn(DYNAMIC 세션만)
+        self.card_variations = None              # SVG 카드: 추출층위가 고른 {ActorId: variation}(턴 로컬)
         self.world_observation_raw = None        # H05: 추출의 world_observation(원본 — 처리 전)
 
     # ── 정체성 ──

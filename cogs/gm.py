@@ -1788,7 +1788,10 @@ class GMCog(commands.Cog):
             ctx, session, wt.plan, wt.obs_manifest or core.turn_world.ObservationManifest(),
             prep.world_observation_raw, transaction_id=prep.transaction_id,
             narrative_seed=getattr(session, "narrative_seed", None) or session.session_id,
-            replan=wt.replan)
+            replan=wt.replan,
+            face_info_ids=core.speaker_card.face_info_ids(
+                core.speaker_card.config_of(session.scenario_data), wt.identified_faces)
+            if core.speaker_card.card_world(session) else ())
         wt.result = res
         core.write_log(session.session_id, "api",
                        f"[H05 관찰] status={res.status} exposures={list(res.exposures)} "
@@ -3452,6 +3455,12 @@ class GMCog(commands.Cog):
             f"이 유형에 필요한 지시문만 작성하십시오.\n\n"
         ) + user_prompt
 
+        # SVG 카드: 얼굴 식별 후보(장면 카드 인물의 transient 키) — 응답 키는 서버가 ActorId로 검증한다
+        _card_world = core.speaker_card.card_world(session) if _wt is not None else None
+        _face_manifest = core.speaker_card.face_manifest(_card_world, _wt, session) if _card_world else {}
+        if _face_manifest:
+            user_prompt += core.speaker_card.face_block(_face_manifest, _card_world.definition, session)
+
         core.write_log(session.session_id, "api", f"[자동 지시층위 요청 - Payload]\n{user_prompt}")
 
         # 캐시 활용 가능 여부 판단
@@ -3493,6 +3502,10 @@ class GMCog(commands.Cog):
                         logic_schema["required"].append("quest_case")
             except Exception as e:
                 print(f"[퀘스트] 스키마 조립 실패: {e}")
+            if _face_manifest:
+                logic_schema = dict(logic_schema)
+                logic_schema["properties"] = dict(logic_schema["properties"])
+                logic_schema["properties"]["identified_faces"] = core.speaker_card.face_schema(_face_manifest)
 
             if use_cache:
                 # ── 캐시 활용 경로 (방안 ①) ──
@@ -3612,6 +3625,11 @@ class GMCog(commands.Cog):
             session.session_id, "api",
             f"[자동 지시층위 결정]\n{json.dumps(decision, ensure_ascii=False, indent=2)}"
         )
+        if _face_manifest and _wt is not None:
+            # 이 시도의 WorldTurn에 누적 — process_observation이 저작 얼굴 InfoId 획득으로 합류시킨다(커밋 후 공개)
+            _faces = core.speaker_card.parse_faces(_face_manifest, decision.get("identified_faces"))
+            if _faces:
+                _wt.identified_faces = tuple(sorted(set(_wt.identified_faces) | set(_faces)))
 
         # WP-B: 지시층위 효과(quest_case/quest_choice/info_access)는 여기서 직접
         #       canonical에 적용하지 않는다. 호출부 루프가 이 decision을 스테이징
@@ -4075,8 +4093,13 @@ class GMCog(commands.Cog):
                 dialogue = core.parse_dialogue_paragraph(paragraph)
                 if dialogue:
                     speaker, content = dialogue
-                    await core.maybe_send_speaker_image(game_ch, session, speaker)
-                    formatted = core.format_dialogue_block(speaker, content)
+                    _dctx = core.speaker_card.display_context(session, speaker)
+                    if _dctx is None:
+                        await core.maybe_send_speaker_image(game_ch, session, speaker)
+                        formatted = core.format_dialogue_block(speaker, content)
+                    else:
+                        # SVG 카드(DYNAMIC): NARRATE는 이미지를 내지 않고 헤더만 커밋된 이름 인지로 표시한다
+                        formatted = core.format_dialogue_block(_dctx.header, content)
                     await core.stream_text_to_channel(
                         self.bot, game_ch, formatted,
                         words_per_tick=15, tick_interval=1.5, quote_prefix=False
@@ -4991,6 +5014,7 @@ class GMCog(commands.Cog):
         _wt = getattr(preparation, "world_turn", None)
         _ext_schema = core.EXTRACTION_RESPONSE_SCHEMA
         _obs_block = ""
+        _var_manifest = {}
         if _wt is not None:
             # H05-B: 관찰 후보(장면 행위자가 아는 정보·장면 신호·선후 선택지)만 — 숨은 진실 미포함.
             _wt.obs_manifest = core.turn_world.build_observation_manifest(
@@ -4998,6 +5022,12 @@ class GMCog(commands.Cog):
             _ext_schema = copy.deepcopy(core.EXTRACTION_RESPONSE_SCHEMA)
             _ext_schema.setdefault("properties", {})[core.turn_world.OBS_FIELD] = _wt.obs_manifest.schema()
             _obs_block = _wt.obs_manifest.render()
+            # SVG 카드: 장면 카드 인물별 허용 바리에이션 — 인물당 턴 하나(턴 로컬, 정본 저장 없음)
+            _cw = core.speaker_card.card_world(session)
+            _var_manifest = core.speaker_card.variation_manifest(_cw, _wt, session) if _cw else {}
+            if _var_manifest:
+                _ext_schema["properties"]["speaker_variations"] = core.speaker_card.variation_schema(_var_manifest)
+                _obs_block += core.speaker_card.variation_block(_var_manifest, _cw.definition, session)
             # 장소·시간 권위는 정본 세계다 — 레거시 요약 대신 정본 미러를 보여 준다.
             _tl = core.turn_world.mirror_timeline(prev_tl, _wt.ctx.definition,
                                                   _wt.plan.projected_world if _wt.plan is not None
@@ -5107,6 +5137,9 @@ class GMCog(commands.Cog):
             f"[추출층위 결과(준비·미적용)]\n{json.dumps(result, ensure_ascii=False, indent=2)}")
         preparation.extraction_plan = plan
         preparation.world_observation_raw = result.get(core.turn_world.OBS_FIELD) if _wt is not None else None
+        if _wt is not None and _var_manifest:
+            preparation.card_variations = core.speaker_card.parse_variations(
+                _var_manifest, result.get("speaker_variations"))
         return plan
 
     async def _verify_proceed_instruction(self, session, instruction: str,

@@ -854,7 +854,8 @@ class GameCog(commands.Cog):
                 # 음성-텍스트 동기 출력 (이미지 송출 포함). 합성·적재·스트리밍을 한 곳에서 처리.
                 dub = await self._stream_paragraphs_synced(
                     session, paragraphs, game_channel, master_ch,
-                    top_imgs, mid_imgs, bottom_imgs, collector=collector, media_collector=media_collector
+                    top_imgs, mid_imgs, bottom_imgs, collector=collector, media_collector=media_collector,
+                    preparation=preparation,
                 )
             else:
                 # 비동기(또는 TTS off) 경로. 토글 ON이지만 보이스 미연결이면 no_voice 경고용으로 합성 시도.
@@ -874,8 +875,15 @@ class GameCog(commands.Cog):
                     dialogue = core.parse_dialogue_paragraph(paragraph)
                     if dialogue:
                         speaker, content = dialogue
-                        await core.maybe_send_speaker_image(game_channel, session, speaker, collector=media_collector)
-                        formatted = core.format_dialogue_block(speaker, content)
+                        _dctx = core.speaker_card.display_context(session, speaker)
+                        if _dctx is None:
+                            await core.maybe_send_speaker_image(game_channel, session, speaker, collector=media_collector)
+                            formatted = core.format_dialogue_block(speaker, content)
+                        else:
+                            # SVG 카드: 이미지 지점에서만 추출을 기다린다(앞선 문단 스트리밍은 지연 없음)
+                            _png = await core.speaker_card.prepare_card(session, _dctx, preparation)
+                            await core.speaker_card.send_card(game_channel, session, _png, collector=media_collector)
+                            formatted = core.format_dialogue_block(_dctx.header, content)
                         await core.stream_text_to_channel(self.bot, game_channel, formatted,
                                                           words_per_tick=15, tick_interval=1.5,
                                                           quote_prefix=False, collector=collector)
@@ -1134,7 +1142,7 @@ class GameCog(commands.Cog):
     async def _stream_paragraphs_synced(self, session, paragraphs, game_channel, master_ch,
                                         top_imgs, mid_imgs, bottom_imgs, voice_name=None,
                                         *, cost_scope: str = None, collector: list = None,
-                                        media_collector: list = None) -> dict:
+                                        media_collector: list = None, preparation=None) -> dict:
         """
         TTS 더빙 ON + 보이스 연결 시 사용하는 '음성-텍스트 동기' 출력 경로.
 
@@ -1150,16 +1158,17 @@ class GameCog(commands.Cog):
         """
         mixer = core.get_mixer(getattr(session, "voice_client", None))
 
-        # (raw_paragraph, display_text, spoken_text, is_dialogue, speaker)
+        # (raw_paragraph, display_text, spoken_text, is_dialogue, speaker, card_display_context)
         items = []
         for p in paragraphs:
             d = core.parse_dialogue_paragraph(p)
             if d:
                 speaker, content = d
-                items.append((p, core.format_dialogue_block(speaker, content),
-                              core.clean_text_for_tts(content), True, speaker))
+                _dctx = core.speaker_card.display_context(session, speaker)
+                items.append((p, core.format_dialogue_block(_dctx.header if _dctx else speaker, content),
+                              core.clean_text_for_tts(content), True, speaker, _dctx))
             else:
-                items.append((p, p, core.clean_text_for_tts(p), False, None))
+                items.append((p, p, core.clean_text_for_tts(p), False, None, None))
 
         async def _synth(spoken):
             if not spoken:
@@ -1181,7 +1190,7 @@ class GameCog(commands.Cog):
         else:
             pcm, cost, in_tok, out_tok = (b"", 0.0, 0, 0)
 
-        for i, (raw, display, spoken, is_dialogue, speaker) in enumerate(items):
+        for i, (raw, display, spoken, is_dialogue, speaker, dctx) in enumerate(items):
             # 다음 문단 prefetch (현재 문단 출력 동안 백그라운드 합성)
             next_task = None
             if i + 1 < len(items):
@@ -1191,6 +1200,11 @@ class GameCog(commands.Cog):
             total_in += in_tok
             total_out += out_tok
 
+            # SVG 카드: 추출 대기·카드 준비를 음성 적재보다 먼저(음성·텍스트 동기 유지). 실패는 이미지 생략.
+            card_png = None
+            if is_dialogue and dctx is not None:
+                card_png = await core.speaker_card.prepare_card(session, dctx, preparation)
+
             # 음성 적재(재생 시작) + 재생 길이 산출
             duration = None
             if pcm:
@@ -1198,8 +1212,10 @@ class GameCog(commands.Cog):
                 enqueued += 1
                 duration = len(pcm) / float(core.TTS_PCM_BYTES_PER_SEC)
 
-            if is_dialogue:
+            if is_dialogue and dctx is None:
                 await core.maybe_send_speaker_image(game_channel, session, speaker, collector=media_collector)
+            elif is_dialogue:
+                await core.speaker_card.send_card(game_channel, session, card_png, collector=media_collector)
 
             await core.stream_text_to_channel(
                 self.bot, game_channel, display,

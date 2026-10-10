@@ -262,6 +262,7 @@ from . import turn_world  # H05: narration overlay, observation, same-minute tie
 from . import world_lifecycle  # H06: definition bind + genesis initialization + lifecycle
 from . import cache_source  # H06: FrozenCacheBuildSource
 from . import admin_world_edit  # H06: typed ADMIN_EDIT service
+from . import speaker_card  # SVG 화자 카드(DYNAMIC 전용, 시나리오 speaker_card)
 from .cost import (
     extract_token_usage,
     format_cost,

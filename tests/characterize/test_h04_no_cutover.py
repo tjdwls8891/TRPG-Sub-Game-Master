@@ -60,8 +60,10 @@ def test_h04_modules_have_no_player_or_cogs_caller():
     """cogs·main은 H04 모듈을 직접 부르지 않는다 — H05 플레이어 계획 모듈만 경유한다."""
     from tests.characterize.h05_scope import H05_FILES
     # H06: 초기 세계 계획(world_lifecycle)이 시작 시점 전수 검사·wakeup을 만든다(INITIALIZATION owner)
+    # SVG 화자 카드: 커밋된 PC 인지(cognition)·화자 ActorId 해석(actors)을 읽기만 한다(연산 생성 없음 —
+    #   얼굴 식별 획득 연산은 turn_world.process_observation이 만든다)
     allowed = (set(H04_DOMAIN_FILES) | {"__init__.py", "world_mutation.py", "definition_compiler.py"}
-               | set(H05_FILES) | {"world_lifecycle.py"})
+               | set(H05_FILES) | {"world_lifecycle.py", "speaker_card.py"})
     hits = []
     for p in _files():
         base = os.path.basename(p)

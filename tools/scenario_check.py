@@ -26,6 +26,7 @@ sys.path.insert(0, str(ROOT))
 
 from core import definition_compiler as dc  # noqa: E402
 from core import definition_snapshot as ds  # noqa: E402
+from core import speaker_card as sc  # noqa: E402
 
 
 def _resolve_sources(arg: str, scenarios_dir: pathlib.Path) -> dc.ScenarioSources:
@@ -152,6 +153,19 @@ def main(argv=None) -> int:
                                   diagnostics=[d.to_dict() for d in res.diagnostics]))
         else:
             _print_report(res, args.verbose)
+
+        # SVG 화자 카드 — 독립 검사(컴파일러 ERROR가 아니다: 카드 오류로 DYNAMIC 후보가 LEGACY로 강등되지 않는다)
+        card_diags = sc.check_card_definition(src.raw, definition=res.definition,
+                                              base=str(ROOT / "media"), scenario_id=src.scenario_id)
+        if card_diags:
+            worst = 1
+            if args.json:
+                summaries[-1]["speaker_card_diagnostics"] = [
+                    {"severity": a, "code": b, "path": c, "message": d} for a, b, c, d in card_diags]
+            else:
+                print(f"   speaker_card: ERROR {len(card_diags)}")
+                for sev, code, path, msg in card_diags:
+                    print(f"     [{sev}] {code} {path}: {msg}")
 
         if args.compile_out:
             if not res.ok:
