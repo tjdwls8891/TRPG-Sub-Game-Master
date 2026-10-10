@@ -8,7 +8,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 AI가 4개 층위로 나뉘어 판단·지시·묘사·추출을 분담한다. 플레이어는 서버 GM 스페이스에서 버튼으로 세션을 열고, 캐릭터를 만들고, 턴을 진행한다. **명령어는 GM의 수동 개입·복구 수단이며 일반 플레이에는 쓰지 않는다.**
 
-현재 버전: **v7.5.0** · `SCHEMA_VERSION` 4 · 총 운영 코드 ~42,770줄(main·prompts·cogs·core) · 테스트 ~18,040줄
+현재 버전: **v7.5.0** · `SCHEMA_VERSION` 4 · 총 운영 코드 ~49,830줄(main·prompts·cogs·core) · 테스트 ~25,690줄
 
 리팩터링: **7-WP 프로그램(WP-A~WP-G)** — 턴 트랜잭션·커밋·재무·이력·파생 시스템을 단일 권위로 재구성했다. WP-A~G 전부 독립 게이트 VERIFIED — **프로그램 완료**(WP-G 최종 후보 `f0fd69e`, 증거 `handoff/WP_G_COMPLETION_BUNDLE.md`). 다음 WP는 없다. 버전은 이 비호환 전환 전체를 **단일 MAJOR v6.0.0**으로 채택했다(2026-10-06, 이력 보정은 DEVLOG '버전 기록').
 
@@ -16,13 +16,13 @@ AI가 4개 층위로 나뉘어 판단·지시·묘사·추출을 분담한다. �
 
 | WP | 범위 | 상태 |
 |---|---|---|
-| H01 | 정의 컴파일러·정체성·스냅샷 기반 | **완료** — production 미배선, `handoff/H01_COMPLETION_BUNDLE.md` |
+| H01 | 정의 컴파일러·정체성·스냅샷 기반 | **완료** — 완료 시점 production 미배선(H06에서 세션 바인딩), `handoff/H01_COMPLETION_BUNDLE.md` |
 | H02 | canonical 상태·영속·이력 + WorldMutationBatch·ProjectedWorld·정본 변이 기반 | **완료** — 빈 변이 lane 배선, `handoff/H02_COMPLETION_BUNDLE.md` |
-| H03 | 정량 시간·예약 + 공간·이동·접근·공간인지 | **완료** — 서비스·typed 연산 등록, 플레이어 경로 미배선, `handoff/H03_COMPLETION_BUNDLE.md` |
+| H03 | 정량 시간·예약 + 공간·이동·접근·공간인지 | **완료** — 서비스·typed 연산 등록, 완료 시점 플레이어 경로 미배선(H05에서 DYNAMIC 턴 배선), `handoff/H03_COMPLETION_BUNDLE.md` |
 | H04 | Actor·정보·인지·NPC 투영 + 사건·DependencyIndex·WorldProgression | **완료**(VERIFIED `1906f1b`, R2·R3 보정 포함) — 순수 엔진·typed 연산, `handoff/H04_COMPLETION_BUNDLE.md` + `handoff/H04_R2_CORRECTION_BUNDLE.md` |
 | H05 | 구조화 행동 의도·턴 계획 + 프롬프트·추출·후속묘사·미디어 | **완료 제출(검수 대기, R2·R3 보정 포함)** — 자동 턴 배선(DYNAMIC 세션만, 현 운영 세션은 LEGACY), `handoff/H05_COMPLETION_BUNDLE.md` |
 | H06 | 초기화·캐시·관리자·복구·재서술·세션 종료 | **완료 제출(검수 대기, R2 보정 포함)** — 단일 PC DYNAMIC 생애주기 배선, `handoff/H06_COMPLETION_BUNDLE.md` + `handoff/H06_R2_CORRECTION_NOTE.md` |
-| H07 | 영도 실제 이행·legacy 권위 은퇴·production cutover·최종 게이트 | **구현 완료 — 독립 검수 대기(VERIFIED 아님)** — NPC 유효 위치·이동 지식 정책·표시명·명시 결단·레거시 권위 은퇴·프롬프트 정합, `handoff/H07_FINAL_IMPLEMENTATION_REPORT.md` |
+| H07 | 영도 실제 이행·legacy 권위 은퇴·production cutover·최종 게이트 | **구현 완료 — 독립 검수 대기(VERIFIED 아님)** — NPC 유효 위치·이동 지식 정책·표시명·명시 결단·레거시 권위 은퇴·프롬프트 정합, `handoff/H07_FINAL_IMPLEMENTATION_REPORT.md`. 최종 게이트 보정 `b7a4d82`(CLEAR 순간이동 방지·결단 후보 관련성 gate) — main 반영 |
 
 H01 완료 번들은 통합 전 번호(H01~H11)를 쓴다 — 구 H02+H03→H02, H04+H05→H03, H06+H07→H04, H08+H09→H05, H10→H06, H11→H07로 읽는다.
 
@@ -101,7 +101,7 @@ python main.py
 | 파일 | 역할 |
 |---|---|
 | `main.py` | `TRPGBot`, `active_sessions`, cog 자동 로드, 세션 복구, 초대 링크 생성, GM 홈 갱신 |
-| `prompts.py` (1,693줄) | 시스템 지시문 + 응답 스키마 12종. 권위 서술은 WP-G D1(아래 '프롬프트 권위') |
+| `prompts.py` (1,726줄) | 시스템 지시문 + 응답 스키마 12종. 권위 서술은 WP-G D1(아래 '프롬프트 권위') |
 | `scenarios/*.json` | 시나리오 데이터. 퀘스트는 `{이름}.quests.json`으로 분리 |
 | `media/{시나리오명}/` | 인물 이미지·BGM. **폴더명은 시나리오 id와 같아야 한다** |
 | `tools/verify_docs.py` | 문서 수치 정합 검증 |
@@ -115,12 +115,12 @@ python main.py
 
 | 파일 | 줄 | 명령어 |
 |---|---|---|
-| `gm.py` | 5,569 | `!자동` 그룹(시작·중단·상태·개입·재계획·서사·원장·**퀘스트**·턴제한·비용제한), `!되감기` |
-| `game.py` | 1,491 | `!재생성` `!출력물` `!주사위` `!기억압축` `!노트` `!캐시노트` `!더빙테스트` (WP-G: 수동 `!진행`·`!수정` 은퇴) |
-| `character.py` | 1,249 | `!참가` `!설정` `!증감` `!외형` `!프로필` `!엔피씨` `!능력치` `!설정생성` `!캐릭터가져오기` |
-| `system.py` | 872 | `!명령어` `!배포` `!재시작` `!지급` **`!잉크`** **`!사용량`** `!스페이스` `!캐시` `!리로드` `!세션종료` `!채널정리` `!tts생성` |
+| `gm.py` | 5,981 | `!자동` 그룹(시작·중단·상태·개입·재계획·서사·원장·**퀘스트**·턴제한·비용제한), `!되감기` |
+| `game.py` | 1,533 | `!재생성` `!출력물` `!주사위` `!기억압축` `!노트` `!캐시노트` `!더빙테스트` (WP-G: 수동 `!진행`·`!수정` 은퇴) |
+| `character.py` | 1,253 | `!참가` `!설정` `!증감` `!외형` `!프로필` `!엔피씨` `!능력치` `!설정생성` `!캐릭터가져오기` |
+| `system.py` | 887 | `!명령어` `!배포` `!재시작` `!지급` **`!잉크`** **`!사용량`** `!스페이스` `!캐시` `!리로드` `!세션종료` `!채널정리` `!tts생성` |
 | `media.py` | 756 | `!이미지` `!브금` `!플리` `!볼륨` `!채팅` `!더빙` |
-| `session.py` | 632 | `!새세션` `!시작` `!소개` + `JoinView` + `on_voice_state_update` |
+| `session.py` | 737 | `!새세션` `!시작` `!소개` + `JoinView` + `on_voice_state_update` |
 | `errors.py` | 152 | 명령어 오류 핸들러 |
 | `permissions.py` | 98 | `!권한부여` `!권한회수` `!권한목록` |
 | `presence.py` | 122 | 상태 메시지 순환 + **캐시 만료 감지**(15초 주기) |
@@ -133,15 +133,15 @@ python main.py
 
 | 모듈 | 줄 | 내용 |
 |---|---|---|
-| `turn_transaction.py` | 345 | `TurnTransaction` — 자동 논리 턴 시도의 런타임 정체성 |
-| `turn_preparation.py` | 1,512 | `TurnPreparation` — 결과 스테이징, 작업 레지스트리, `READY_TO_COMMIT` 배리어, 추출 계획 |
-| `commit_coordinator.py` | 1,171 | `CommitCoordinator` — 유일한 정본 커밋·복구, 재시도 breadcrumb·구 컨텍스트 은퇴 |
+| `turn_transaction.py` | 348 | `TurnTransaction` — 자동 논리 턴 시도의 런타임 정체성 |
+| `turn_preparation.py` | 1,535 | `TurnPreparation` — 결과 스테이징, 작업 레지스트리, `READY_TO_COMMIT` 배리어, 추출 계획 |
+| `commit_coordinator.py` | 1,230 | `CommitCoordinator` — 유일한 정본 커밋·복구, 재시도 breadcrumb·구 컨텍스트 은퇴 |
 | `commit_journal.py` | 548 | `CommitJournal` — 커밋 단계 append-only 내구 기록·복구 분류 |
 | `settlement.py` | 562 | `TurnSettlement` — 정상 턴 플레이어 부담·보고의 단일 출처 |
 | `ink_transactions.py` | 602 | `InkTransaction`/`LifecycleInkTransaction` — 정확히 한 번 계정 효과 |
-| `cost_ledger.py` | 960 | `CostLedger` — provider 사실 append-only(`data/cost_ledger.jsonl`), strict 조회 |
-| `turn_history.py` | 1,182 | 커밋된 턴 이력 — 되감기·재생성 선택, 출력 정리 부채 |
-| `cache_lifecycle.py` | 878 | 캐시 생애주기 단일 finalizer — 창 선불·환급·보관비 |
+| `cost_ledger.py` | 961 | `CostLedger` — provider 사실 append-only(`data/cost_ledger.jsonl`), strict 조회 |
+| `turn_history.py` | 1,198 | 커밋된 턴 이력 — 되감기·재생성 선택, 출력 정리 부채 |
+| `cache_lifecycle.py` | 906 | 캐시 생애주기 단일 finalizer — 창 선불·환급·보관비 |
 | `interpretation_billing.py` | 258 | 유지 시간 해석 비용의 strict 사실 → 청구 |
 | `message_lifecycle.py` | 323 | 플레이어 채널 메시지 5분류 소유·정리 |
 | `narration_result.py` | 82 | 묘사 생성/전달 결과 DTO |
@@ -151,16 +151,16 @@ python main.py
 | 모듈 | 줄 | 내용 |
 |---|---|---|
 | `constants.py` | 143 | 모델 ID, `EXCHANGE_RATE`, `PRICING_1M`, `TTS_VOICES`, `__version__` |
-| `models.py` | 293 | `TRPGSession` — 단일 세션의 모든 상태 |
-| `io.py` | 528 | `SCHEMA_VERSION`, `SESSION_FIELDS`(97), `migrate_session_data`, 직렬화·로그 |
-| `cache.py` | 561 | 룰북 캐시 빌드, `remaining_ttl`, `is_cache_expired`, `is_session_open`, 세션 복구 |
+| `models.py` | 319 | `TRPGSession` — 단일 세션의 모든 상태 |
+| `io.py` | 535 | `SCHEMA_VERSION`, `SESSION_FIELDS`(97), `migrate_session_data`, 직렬화·로그 |
+| `cache.py` | 604 | 룰북 캐시 빌드, `remaining_ttl`, `is_cache_expired`, `is_session_open`, 세션 복구 |
 | `resilience.py` | 207 | `call_with_retry` — 재시도·타임아웃·오류 로그 분리 |
 
 #### 프롬프트·AI
 
 | 모듈 | 줄 | 내용 |
 |---|---|---|
-| `prompt.py` | 343 | `PromptBuilder` — 체이닝으로 블록 조립 |
+| `prompt.py` | 346 | `PromptBuilder` — 체이닝으로 블록 조립 |
 | `extraction.py` | 664 | 추출 스키마·파싱·적용, 동행 갱신, **소지품 반영**, `build_extraction_limits` |
 | `dialogue.py` | 516 | `@대사:이름\|본문` 파싱, 인물 이미지 송출, 스트리밍, `WaitingStatus` |
 
@@ -179,7 +179,7 @@ python main.py
 
 | 모듈 | 줄 | 내용 |
 |---|---|---|
-| `session_flow.py` | 698 | **17단계 통합 플로우** — 단일 메시지 임베드로 갱신 |
+| `session_flow.py` | 708 | **17단계 통합 플로우** — 단일 메시지 임베드로 갱신 |
 | `intro.py` | 276 | **소개 — 인지 수준 3단계, 항목별 바리에이션** |
 | `creation.py` | 176 | 단계 상태 기계 |
 | `session_open.py` | 134 | 유지 시간 입력 해석 |
@@ -199,65 +199,65 @@ python main.py
 
 | 모듈 | 줄 | 내용 |
 |---|---|---|
-| `places.py` | 401 | **장소 계층 그래프** — 이동 개연성, 가시성, 이미지 상속 |
+| `places.py` | 409 | **장소 계층 그래프** — 이동 개연성, 가시성, 이미지 상속 |
 | `quest.py` | 815 | 퀘스트 트리, 이면정보, 메인 해금, `apply_grants`, 인피니티 플랜 |
 | `quest_filter.py` | 326 | **필터 매칭 — 통과한 값이 곧 슬롯** |
 | `start_frame.py` | 239 | 시작 상황 틀 |
-| `timeline.py` | 184 | 작중 시간 정량화 |
+| `timeline.py` | 185 | 작중 시간 정량화 |
 | `growth.py` | 215 | 능력치 성장·행운 |
 | `irregular_npc.py` | 244 | 비정규 NPC 이미지·목소리 |
 | `koreantext.py` | 144 | 슬롯 치환·조사 보정 |
 
-#### 세계 정의 (H01 — production 미배선)
+#### 세계 정의 (H01 — H06부터 세션 바인딩)
 
 | 모듈 | 줄 | 내용 |
 |---|---|---|
 | `world_ids.py` | 157 | 정규 직렬화·순서 지문·안정 digest, 저작 ActorId/InfoId/구간 id 파생 |
-| `definition_compiler.py` | 1,965 | capability 감지(`scenario_schema`)·legacy 통과·저작 sugar 컴파일·검증 진단·revision·이행 보고. **compiler v2(H03)**: 달력(`quantitative_time`)·구간 속성·이동 방식·접근 정의·공간 지식 seed(`structured_places`) 검증. **compiler v3(H04)**: 행위자 `profile_base`·명시 `information_definitions`·인라인 `info_ref`·`information_series`·`event_templates`(타입 조건·국면·케이스·typed step·의존 키)·접근 override 안정 variant id. 인식 capability 8종 전부 검증 대상 |
+| `definition_compiler.py` | 2,296 | capability 감지(`scenario_schema`)·legacy 통과·저작 sugar 컴파일·검증 진단·revision·이행 보고. **compiler v2(H03)**: 달력(`quantitative_time`)·구간 속성·이동 방식·접근 정의·공간 지식 seed(`structured_places`) 검증. **compiler v3(H04)**: 행위자 `profile_base`·명시 `information_definitions`·인라인 `info_ref`·`information_series`·`event_templates`(타입 조건·국면·케이스·typed step·의존 키)·접근 override 안정 variant id. 인식 capability 8종 전부 검증 대상 |
 | `definition_snapshot.py` | 235 | `sessions/{id}/definition_snapshot.json` 원자적 쓰기·해시 검증·덮어쓰기 거부 |
 
-호출자는 `tools/scenario_check.py`와 테스트뿐이다. 런타임은 여전히 raw `scenario_data`를 쓴다(세션 바인딩은 H06).
-compiler v2(H03)·v3(H04)로 5개 시나리오의 definition revision이 모두 바뀌었다 — 운영 스냅샷 바인딩이 0이라 이행 작업은 없다.
+production 호출자는 `world_lifecycle`(H06) — DYNAMIC 후보 판정·시작 선택 뒤 컴파일과 스냅샷 바인딩(`definition_revision` 단일 writer). 바인딩 세션은 `scenario_data`를 스냅샷 원문으로 쓴다. LEGACY 세션은 여전히 raw `scenario_data`.
+H07에서 compiler v3에 선택 키(`routine`·`display_name`/`unknown_name`·`reveals`·`resolution_options`)가 추가됐다 — 미저작 시나리오 4종은 revision 불변, 영도만 `d3a01114…`로 바뀌었다.
 
 #### 동적 세계 정본·변이 (H02)
 
 | 모듈 | 줄 | 내용 |
 |---|---|---|
-| `world_state.py` | 124 | H02 세션 필드의 **단일 출처** — 가역 게임 정본 11필드·비가역 정체성 2필드(`definition_revision`·`narrative_seed`), `world_version` 인과 정체성 |
-| `world_mutation.py` | 701 | `WorldMutationBatch`(typed op·LocalRef·동결·digest — 내부는 정규 사본이라 외부·반환 객체 변경과 분리)·`ProjectedWorld`·**인과 계층 투영**(`causal_parent_op_ids`)·병합 의미 5종(H03: typed `DELETE` — 같은 계층 멱등, 혼용·없는 키·인과 없는 교차 계층은 충돌)·`WORLD_PROJECTION_CONFLICT`. production 레지스트리 = H03 시간·공간 12종 + H04 행위자·정보·인지·관계·사건 15종 + H07 `ACTOR_PLACEMENT_CLEAR` = typed 연산 28종(임의 경로 setter 없음) |
-| `canonical_mutation.py` | 286 | INITIALIZATION·ADMIN_EDIT 공통 원자 적용(검증~저장 전체가 커밋 직렬화 락 안 — 직렬화 락 → io 락)·작은 내구 저널·base quiescence 증명(H03) — **production 호출자 0**(배선은 H06) |
+| `world_state.py` | 132 | H02 세션 필드의 **단일 출처** — 가역 게임 정본 11필드·비가역 정체성 2필드(`definition_revision`·`narrative_seed`), `world_version` 인과 정체성 |
+| `world_mutation.py` | 724 | `WorldMutationBatch`(typed op·LocalRef·동결·digest — 내부는 정규 사본이라 외부·반환 객체 변경과 분리)·`ProjectedWorld`·**인과 계층 투영**(`causal_parent_op_ids`)·병합 의미 5종(H03: typed `DELETE` — 같은 계층 멱등, 혼용·없는 키·인과 없는 교차 계층은 충돌)·`WORLD_PROJECTION_CONFLICT`. production 레지스트리 = H03 시간·공간 12종 + H04 행위자·정보·인지·관계·사건 15종 + H07 `ACTOR_PLACEMENT_CLEAR` = typed 연산 28종(임의 경로 setter 없음) |
+| `canonical_mutation.py` | 291 | INITIALIZATION·ADMIN_EDIT 공통 원자 적용(검증~저장 전체가 커밋 직렬화 락 안 — 직렬화 락 → io 락)·작은 내구 저널·base quiescence 증명(H03) — production 호출자 = H06 genesis(`world_lifecycle`, INITIALIZATION). ADMIN_EDIT(`admin_world_edit`)는 호출자 0 |
 
 모든 커밋된 PLAYER_TURN은 빈 묶음이어도 `world_version`을 전진시킨다(CommitPlan v2가 PREPARED 전에 대상 version을 동결). PLAYER_TURN 정본 owner는 여전히 `CommitCoordinator` 하나다.
 
-#### 동적 세계 시간·공간 (H03 — 서비스·typed 연산, 플레이어 경로 미배선)
+#### 동적 세계 시간·공간 (H03 — 서비스·typed 연산, H05부터 DYNAMIC 턴 배선)
 
 | 모듈 | 줄 | 내용 |
 |---|---|---|
-| `world_clock.py` | 251 | 달력(GREGORIAN·FIXED_CUSTOM)·시간대 `[start,end)`(자정 넘김)·canonical 분 시계 `{"minute_index","start_minute_index"}`(미초기화 `{}`, 값 ≥ 1440 = 달력 일련번호 ≥ 1). 후퇴 거부·0분 허용 |
+| `world_clock.py` | 265 | 달력(GREGORIAN·FIXED_CUSTOM)·시간대 `[start,end)`(자정 넘김)·canonical 분 시계 `{"minute_index","start_minute_index"}`(미초기화 `{}`, 값 ≥ 1440 = 달력 일련번호 ≥ 1). 후퇴 거부·0분 허용 |
 | `world_schedule.py` | 304 | pending 전용 예약 큐(순서 = due·order_key·id, 빈 큐는 `{}`뿐)·H04 v2 확장(H03 7키 항목 그대로 읽음, 신규 11키: payload·guard_ref·owner_epoch·conflict_priority)·`BaseQuiescenceReport`·시간/예약 typed 연산 5종 |
-| `spatial.py` | 450 | 방향 구간 그래프(계층·connected는 구간 아님)·정적 가시성(저작 `visible_within`)·배치/TRANSIT(`start < end`, `start ≤ now < end`, 진행률 미저장)·희소 공간 지식(인지 통과 정보 `known_*`, provenance append+dedupe)·familiarity seed·공간 typed 연산 7종 |
+| `spatial.py` | 480 | 방향 구간 그래프(계층·connected는 구간 아님)·정적 가시성(저작 `visible_within`)·배치/TRANSIT(`start < end`, `start ≤ now < end`, 진행률 미저장)·희소 공간 지식(인지 통과 정보 `known_*`, provenance append+dedupe)·familiarity seed·공간 typed 연산 8종(H07 `ACTOR_PLACEMENT_CLEAR` — 같은 분에는 해제 시점 위치를 `placement_holds`로 보류) |
 | `access.py` | 168 | `AccessRuleRegistry`(STATE_TABLE)·실제 접근 3결과/3정책 · 인지 접근(KnownAccessFact, 없으면 UNKNOWN) 분리 |
-| `movement.py` | 544 | 고정 정밀도 소요시간(Fraction → 구간 정수 μs → 경로 전체 HALF_UP 분)·`KnownRoutePlanner`(지식만 — 실제 접근·구간 성질 미사용, Yen K-shortest·서명 동률·가중 Jaccard 다양성)·`ActualTraversalPlanner`(실제 구간 진실, 우회 없음, CONFIRM은 접근 행동 id 단위 — H04부터 override variant 포함)·`traversal_ops` |
+| `movement.py` | 577 | 고정 정밀도 소요시간(Fraction → 구간 정수 μs → 경로 전체 HALF_UP 분)·`KnownRoutePlanner`(지식만 — 실제 접근·구간 성질 미사용, Yen K-shortest·서명 동률·가중 Jaccard 다양성)·`ActualTraversalPlanner`(실제 구간 진실, 우회 없음, CONFIRM은 접근 행동 id 단위 — H04부터 override variant 포함)·`traversal_ops` |
 
-#### 동적 세계 행위자·정보·사건·진행 (H04 — 순수 엔진·typed 연산, 플레이어 경로 미배선)
+#### 동적 세계 행위자·정보·사건·진행 (H04 — 순수 엔진·typed 연산, H05부터 DYNAMIC 턴 배선)
 
 | 모듈 | 줄 | 내용 |
 |---|---|---|
-| `world_refs.py` | 433 | 타입 ValueRef 16종(해석 결과 known/UNKNOWN 구분)·의존 키·컴파일 검증·결정적 표시. H07: 행위자 위치 ref는 유효 위치(`npc_position`), `ACTOR_POSITION_SOURCE`·`OBSERVER_HAS_ITEM`·`OBSERVER_STAT`·`EVENT_LOCAL` template 변형 |
+| `world_refs.py` | 507 | 타입 ValueRef 16종(해석 결과 known/UNKNOWN 구분)·의존 키·컴파일 검증·결정적 표시. H07: 행위자 위치 ref는 유효 위치(`npc_position`), `ACTOR_POSITION_SOURCE`·`OBSERVER_HAS_ITEM`·`OBSERVER_STAT`·`EVENT_LOCAL` template 변형 |
 | `actors.py` | 189 | `actor_registry` 검증·레거시 이름 → ActorId 해석(모호하면 후보만)·`ACTOR_REGISTER`/`ACTOR_RENAME`(개명 = id 유지·alias 누적) |
 | `information.py` | 373 | 정보 상태(저작 = 기본 CURRENT, 런타임 명제 불변)·SUPERSEDED/REFUTED 계보·정보 계열(값 변화 = 새 revision InfoId)·typed 연산 4종 |
-| `cognition.py` | 260 | 희소 인지(기록 없음 = 미인지)·획득 provenance 멱등·노출 ≠ 믿음·PC 믿음은 PLAYER_EXPLICIT·RULE_FORCED만·group 자동 전파 없음 |
+| `cognition.py` | 276 | 희소 인지(기록 없음 = 미인지)·획득 provenance 멱등·노출 ≠ 믿음·PC 믿음은 PLAYER_EXPLICIT·RULE_FORCED만·group 자동 전파 없음 |
 | `relationships.py` | 79 | 희소 관계 delta(행렬 없음, delta_id 멱등) |
-| `npc_projection.py` | 92 | 읽기 전용 `CurrentNpcProjection`(정본 저장 없음, 장소 연관 ≠ 현재 위치, 지정한 정보만) |
-| `predicates.py` | 297 | 3값 조건 AST(자유 문자열·eval 없음)·시간 조건 → wakeup(매분 polling 없음) |
-| `events.py` | 527 | 사건 인스턴스 정체성·binding 열거·PRIORITY/SCORE·STICKY 기본·결정적 가중 케이스·typed step 13종(H07 `CLEAR_ACTOR_PLACEMENT`)·사건 연산 5종. H07: 예약 지역 상태 `resolution`(플레이어 명시 결단 전용)·`open_resolutions`·`instance_relevant` |
-| `world_progression.py` | 940 | DependencyIndex·같은 분 due 일괄(우선순위·`SameMinuteNarrativeTie`·장면 밖 안전 중단)·즉시 연쇄(라운드 32·사건당 분당 전이 8·진동 검출)·정보 계열 재평가·NPC 이동 checkpoint wakeup·신호/foreground·순수 `project_world_progression` |
+| `npc_projection.py` | 98 | 읽기 전용 `CurrentNpcProjection`(정본 저장 없음, 장소 연관 ≠ 현재 위치, 지정한 정보만) |
+| `predicates.py` | 339 | 3값 조건 AST(자유 문자열·eval 없음)·시간 조건 → wakeup(매분 polling 없음) |
+| `events.py` | 695 | 사건 인스턴스 정체성·binding 열거·PRIORITY/SCORE·STICKY 기본·결정적 가중 케이스·typed step 13종(H07 `CLEAR_ACTOR_PLACEMENT`)·사건 연산 5종. H07: 예약 지역 상태 `resolution`(플레이어 명시 결단 전용)·`open_resolutions`·`instance_relevant`·`resolution_relevant`(player-facing 결단 후보 관련성 gate — 저작 `relevance_places` 또는 사건 자신의 장면 조건·장면 인물, 장면 근거가 없는 섬 전체 압력 사건만 어디서나) |
+| `world_progression.py` | 1,060 | DependencyIndex·같은 분 due 일괄(우선순위·`SameMinuteNarrativeTie`·장면 밖 안전 중단)·즉시 연쇄(라운드 32·사건당 분당 전이 8·진동 검출)·정보 계열 재평가·NPC 이동 checkpoint wakeup·신호/foreground·순수 `project_world_progression` |
 
 #### 동적 세계 H07 (영도 이행 — DYNAMIC 세션)
 
 | 모듈 | 내용 |
 |---|---|
-| `npc_position.py` | NPC 유효 위치 단일 경계 — 정본 override > 평상시 일과(선택 저작 `default_npcs[*].routine`, 정의 + 정본 시계의 순수 함수) > untracked. 장면 인물·CurrentNpcProjection·사건 조건·사건 이동 출발점이 같은 해석을 쓴다. 일과 경계 wakeup(실제 장소 변화 분만), 정본 SET·materialize 없음 |
+| `npc_position.py` | NPC 유효 위치 단일 경계 — 정본 override > 평상시 일과(선택 저작 `default_npcs[*].routine`, 정의 + 정본 시계의 순수 함수) > untracked. 장면 인물·CurrentNpcProjection·사건 조건·사건 이동 출발점이 같은 해석을 쓴다. 일과 경계 wakeup(실제 장소 변화 분만), 정본 SET·materialize 없음. 명시 해제 직후 같은 분에는 해제 시점 위치에 머물고(순간이동 없음), 일과가 이미 그 자리이거나 시계가 흐른 뒤 일과로 복귀 |
 | `place_display.py` | 내부 PlaceId ≠ 플레이어 표시명(`display_name`·`unknown_name`, PC 지식 수준). 이름이 드러나지 않는 장소는 정보 `reveals`(명시 발견)로만 이름을 안다 |
 
 이동(PC·NPC 공통, H04 R55 의도적 supersede): 아는 길 우선, 없으면 PUBLIC/LOCAL 일반 그래프 + 아는 RESTRICTED/SECRET — 지식은 경로 품질, 통과·권한은 실제 접근. 저작 명시 사건 route는 연속성·실제 접근만 검증. 메인 결말·행적은 국면 `resolution_options` → 판단층위 키 → typed `EVENT_LOCAL_SET(resolution, PLAYER_RESOLUTION)` → 저작 국면·케이스. 국면 guide는 지시층위 전용(R-2). 정의 바인딩 세션은 레거시 퀘스트·info_ledger·hidden 인지·정적 상주 동행 해제를 은퇴한다(`player_world.legacy_narrative_retired`) — 소속은 사건 결과 파생 호환 뷰.
@@ -268,13 +268,13 @@ H04는 세계가 스스로 진행되는 데 필요한 정본과 **순수 투영*
 
 | 모듈 | 줄 | 내용 |
 |---|---|---|
-| `action_intent.py` | 327 | `ActionReferenceManifest`(PC 지식 기반 후보 → transient 키 P/R/K/I, world_version·revision 결속)·판단 스키마 런타임 확장(`action_intent`, 추가 provider 호출 0)·`ResolvedActionIntent`(목적지·시간·경로 선택·접근 확인 토큰·명시 PC 태도, 후보 밖 키는 거부)·시간 목표 계산 |
-| `player_world.py` | 548 | 세계 모드(`definition_revision` 바인딩 + 정량 시간·구조화 장소 + 시계 초기화 + PC 배치 = DYNAMIC, 그 외 LEGACY)·경로 선택 정책(의미 있는 차이는 ASK, 자동은 (비용, 서명) 결정적)·구간별 실제 접근 + 구간 사이 H04 세계 진행(관찰 신호 중단·숨은 봉쇄는 도달 시 관찰)·대기/수면 ActivityContext·PLAYER_EXPLICIT 태도·`namespace_ops`/`chain` |
-| `turn_world.py` | 451 | 묘사 오버레이(투영 장면·관찰 가능한 결과만)·레거시 `world_timeline` 표시 미러(정본에서 파생)·관찰 매니페스트(장면 행위자가 아는 정보·장면 신호·선후 선택지)·`process_observation`(노출 → PC 획득, 비코드 소유 추가 시간, 선후 검증, 보충 진행)·`ForegroundContinuationPlan`·투영 미디어 허용 장소 |
+| `action_intent.py` | 409 | `ActionReferenceManifest`(PC 지식 기반 후보 → transient 키 P/R/K/I, world_version·revision 결속)·판단 스키마 런타임 확장(`action_intent`, 추가 provider 호출 0)·`ResolvedActionIntent`(목적지·시간·경로 선택·접근 확인 토큰·명시 PC 태도, 후보 밖 키는 거부)·시간 목표 계산 |
+| `player_world.py` | 745 | 세계 모드(`definition_revision` 바인딩 + 정량 시간·구조화 장소 + 시계 초기화 + PC 배치 = DYNAMIC, 그 외 LEGACY)·경로 선택 정책(의미 있는 차이는 ASK, 자동은 (비용, 서명) 결정적)·구간별 실제 접근 + 구간 사이 H04 세계 진행(관찰 신호 중단·숨은 봉쇄는 도달 시 관찰)·대기/수면 ActivityContext·PLAYER_EXPLICIT 태도·`namespace_ops`/`chain` |
+| `turn_world.py` | 799 | 묘사 오버레이(투영 장면·관찰 가능한 결과만)·레거시 `world_timeline` 표시 미러(정본에서 파생)·관찰 매니페스트(장면 행위자가 아는 정보·장면 신호·선후 선택지)·`process_observation`(노출 → PC 획득, 비코드 소유 추가 시간, 선후 검증, 보충 진행)·`ForegroundContinuationPlan`·투영 미디어 허용 장소 |
 
-자동 턴 순서(DYNAMIC): 판단(매니페스트·`action_intent`) → 코드 계획(경로 ASK는 지시층위 전) → 지시·묘사(오버레이·투영 장소 블록·투영 장면 이미지) → 추출(`world_observation`) → 보충 진행 → (필요 시 후속 묘사 1회, 같은 턴 비용) → READY(`stage_world_ops`) → CommitCoordinator → 후속 묘사 송출(시도 소유) → 다음 행동 질문. 장소·시간 권위는 정본 세계이며 추출의 장소·날짜는 적용되지 않는다. 묘사 전 결정적 충돌은 묘사 호출 없이, 묘사 후 충돌·모호한 선후는 재시도 없이 FAILED_SYSTEM(청구 0). LEGACY 세션은 기존 경로와 동일하다. 정의 바인딩·초기 seed(H06) 전에는 운영 세션이 DYNAMIC이 될 수 없다.
+자동 턴 순서(DYNAMIC): 판단(매니페스트·`action_intent`) → 코드 계획(경로 ASK는 지시층위 전) → 지시·묘사(오버레이·투영 장소 블록·투영 장면 이미지) → 추출(`world_observation`) → 보충 진행 → (필요 시 후속 묘사 1회, 같은 턴 비용) → READY(`stage_world_ops`) → CommitCoordinator → 후속 묘사 송출(시도 소유) → 다음 행동 질문. 장소·시간 권위는 정본 세계이며 추출의 장소·날짜는 적용되지 않는다. 묘사 전 결정적 충돌은 묘사 호출 없이, 묘사 후 충돌·모호한 선후는 재시도 없이 FAILED_SYSTEM(청구 0). LEGACY 세션은 기존 경로와 동일하다. 운영 세션이 DYNAMIC이 되려면 H06 정의 바인딩·genesis가 필요하다(현재 영도 단일 PC만).
 
-READY와 `canonical_mutation`은 투영 결과의 **base quiescence**를 증명한다 — 초기화된 시계에 `due ≤ now` pending 예약이 남거나, 미초기화 시계에 예약이 있으면 `WORLD_PROJECTION_CONFLICT`(코드 `NOT_QUIESCENT`, 재시도 아님). 레거시 빈 시계·빈 예약은 quiescent다. H03 연산의 production producer는 0이며 legacy `places.py` 이동·`world_timeline` 시간은 그대로 권위다(H05·H07에서 전환).
+READY와 `canonical_mutation`은 투영 결과의 **base quiescence**를 증명한다 — 초기화된 시계에 `due ≤ now` pending 예약이 남거나, 미초기화 시계에 예약이 있으면 `WORLD_PROJECTION_CONFLICT`(코드 `NOT_QUIESCENT`, 재시도 아님). 레거시 빈 시계·빈 예약은 quiescent다. H03·H04 연산의 production producer는 genesis(INITIALIZATION)와 DYNAMIC 플레이어 턴이다. LEGACY 세션에서는 `places.py` 이동·`world_timeline` 시간이 그대로 권위다.
 
 #### 동적 세계 생애주기 (H06 — 단일 PC DYNAMIC만)
 
@@ -298,7 +298,7 @@ R2: 초기화 실패는 fail-closed(실패 표식 strict 저장 — LEGACY 진�
 
 | 모듈 | 줄 | 내용 |
 |---|---|---|
-| `display.py` | 655 | **디스플레이 채널** — 상태·UI 단일 메시지, `notify`/`close_notice` |
+| `display.py` | 662 | **디스플레이 채널** — 상태·UI 단일 메시지, `notify`/`close_notice` |
 | `audio_mixer.py` | 393 | BGM/플리 + 효과음 + 음성 합산 |
 | `tts.py` · `tts_preset.py` | 436 | Gemini TTS, 시스템 문구 사전 합성 |
 | `media.py` · `media_control.py` | 316 | 이미지 전송, 플레이리스트, BGM 선택 |
@@ -329,7 +329,8 @@ sessions/{session_id}/
 ├── cache_lifecycle.jsonl       캐시 창·생애주기 저널
 ├── interpretation_billing.jsonl 유지 시간 해석 청구 저널
 ├── retry_claims.jsonl          추출 재시도 provider claim
-├── canonical_mutation_journal.jsonl  INITIALIZATION/ADMIN_EDIT 정본 변이 저널 (H02 — 아직 production 미생성)
+├── canonical_mutation_journal.jsonl  INITIALIZATION/ADMIN_EDIT 정본 변이 저널 (DYNAMIC genesis부터 생성)
+├── definition_snapshot.json   바인딩된 정의 스냅샷 (H06 — DYNAMIC 세션만)
 ├── rewind_log.jsonl       레거시 턴별 델타 (비권위)
 └── rewind_archive.jsonl   되감기로 제거된 정보
 ```
@@ -379,7 +380,7 @@ sessions/{session_id}/
 ### 턴 확정 권위 (WP-A~F)
 
 자동 턴 하나 = `TurnTransaction` 하나. AI 결과는 준비(`turn_preparation`)에 스테이징되고, 필수 작업이 모두 합류한 `READY_TO_COMMIT` 뒤에 `CommitCoordinator`만 정본 상태를 커밋한다(`CommitJournal`로 복구). 게임 채널 출력은 `message_lifecycle` 5분류로 소유되며, 백그라운드 압축은 출처 식별이 맞을 때만 적용된다. 수동 `!진행`·`!수정`은 WP-G에서 은퇴했다 — 공유 묘사 엔진(`_execute_proceed`)의 호출자는 자동 턴과 인트로뿐이다.
-H02: `TurnPreparation`은 world_version·definition_revision 기준선과 (production에서는 항상 빈) `WorldMutationBatch`를 소유하고, READY에서 묶음을 동결·투영한다. H03: 투영 뒤 base quiescence를 증명해 `ReadyProof.base_quiescence`에 남긴다. 투영 충돌(`WORLD_PROJECTION_CONFLICT`)은 결정적 종료 실패이며 추출 재시도(RETRY_PENDING)가 아니다. `CommitPlan` v2는 source/target world_version·definition_revision·mutation digest를 PREPARED에 동결하고, v1 PREPARED는 정상 구버전으로 복구한다.
+H02: `TurnPreparation`은 world_version·definition_revision 기준선과 `WorldMutationBatch`(LEGACY 턴은 빈 묶음, DYNAMIC 턴은 `stage_world_ops`로 세계 연산)를 소유하고, READY에서 묶음을 동결·투영한다. H03: 투영 뒤 base quiescence를 증명해 `ReadyProof.base_quiescence`에 남긴다. 투영 충돌(`WORLD_PROJECTION_CONFLICT`)은 결정적 종료 실패이며 추출 재시도(RETRY_PENDING)가 아니다. `CommitPlan` v2는 source/target world_version·definition_revision·mutation digest를 PREPARED에 동결하고, v1 PREPARED는 정상 구버전으로 복구한다.
 추출 결과의 정본 적용은 커밋 경로 하나뿐이다(`CommitCoordinator` → `_apply_commit_effects` → `_apply_prepared_extraction` → `_apply_extraction_plan`). `_run_extraction`은 준비 객체 없이 호출하면 provider 호출 전에 거부된다. WP-C 이전 형식의 추출 재시도 컨텍스트는 재추출·정본 변이 없이 은퇴된다(`commit_coordinator.retire_legacy_retry_context`).
 
 ### 프롬프트 권위 (WP-G D1)
@@ -524,7 +525,7 @@ pip install -r requirements-dev.txt
 python3 -m pytest tests/ -q
 ```
 
-`tests/`는 **현재 동작과 권위 불변식을 고정**한다. 현재 1,183건(특성화 61 · 결함 27 · 정책 1,095)이 모두 통과하며 strict xfail은 0건이다.
+`tests/`는 **현재 동작과 권위 불변식을 고정**한다. 현재 1,186건(특성화 61 · 결함 27 · 정책 1,098)이 모두 통과하며 strict xfail은 0건이다.
 
 | 분류 | 의미 |
 |---|---|
@@ -691,8 +692,8 @@ python3 tools/verify_docs.py --show   # 실제 값 출력 (문서 작성 참고)
 그대로 달고 있었다(core 서브모듈 10개 → 실제 44개). **원칙을 지키려는
 의지에 기대지 않고 기계가 잡아낸다.**
 
-22항목을 대조한다 — 버전·`SCHEMA_VERSION`·`SESSION_FIELDS`·`TRACKED_PATHS`·
-서브모듈 수·장소·NPC·직업·시작 틀·프로필 단계·브리핑·퀘스트.
+21항목을 대조한다(CLAUDE.md 11 · DEVLOG.md 10) — 버전·`SCHEMA_VERSION`·`SESSION_FIELDS`·`TRACKED_PATHS`·
+서브모듈 수·장소·NPC·직업·시작 틀·프로필 단계·퀘스트. 줄 수·테스트 수는 대조하지 않으므로 손으로 갱신한다.
 
 수치가 바뀌는 작업(장소 추가, 퀘스트 저작, 필드 신설)을 했다면
 `--fix`를 돌리고 함께 커밋한다.
@@ -742,10 +743,11 @@ python3 tools/scenario_check.py --all     # 전 시나리오 컴파일·진단(E
 | 소개 미디어 | `intro_images` 연결부만 있고 자산 없음 |
 | 디스코드 결제 | SKU 한국 미지원. `!지급`·`!잉크`로 대체 |
 | v7.x 반영 | `SCHEMA_VERSION` 4·turn-history v3·CommitPlan v2(7.1.0·7.2.0도 유지). 배포 전 `sessions/`·`accounts/` 백업. 기존 세션은 로드 시 자동 마이그레이션되며, 배포 후 6.x로 되돌리면 plan v2 PREPARED 복구를 읽지 못한다 |
-| 영도 DYNAMIC 저작 | H07 V2 저작 완료(사건 64·정보·일과 35·표시명 8·구간 230쌍) — 남은 판단 항목(OPEN DECISION)은 `handoff/H07_FINAL_IMPLEMENTATION_REPORT.md` |
-| 운영 반영 | v6.0.0이 main에 반영됨. 배포 전 운영 `sessions/`·`accounts/` 백업, 배포 후 `!캐시 재발급`(프롬프트 D1·무협 `location_images` 변경) |
+| 영도 DYNAMIC 저작 | H07 V2 저작 완료(사건 64·정보 146·일과 35·`unknown_name` 8·구간 230쌍) — 남은 판단 항목(OPEN DECISION)은 `handoff/H07_FINAL_IMPLEMENTATION_REPORT.md` |
+| 운영 반영 | v7.5.0(`b7a4d82`)이 main에 반영됨. 배포 전 운영 `sessions/`·`accounts/` 백업, 배포 후 `!캐시 재발급`(프롬프트·영도 변경) |
 | 자동 턴 TTS | 더빙은 인트로에만 적용된다(자동 턴 미적용은 기존 동작). 확장은 별도 기능 |
 | H07 운영 활성 | 영도 단일 PC 세션은 DYNAMIC(시작 틀 `world_start` 저작), 나머지 4개 시나리오·다인 세션은 LEGACY. 배포 후 `!캐시 재발급` 필요(프롬프트·영도 변경) |
 | H06 배포 | 새 영속 필드 `world_lifecycle`·`world_initialization`(기본값 = 레거시). 스키마·이력·CommitPlan·compiler 유지. DYNAMIC 대상 세션은 캐시 업로드가 시작 선택 뒤로 이동 |
 | H07 프롬프트 | `prompts.py` 4개 층위에 동적 세계 조건부 권위 절 추가(H07-D). 추출 스키마의 레거시 `quest_progress`·`secret_awareness`는 DYNAMIC에서 쓰이지 않지만 스키마에 남아 있다(토큰 낭비 — 남은 한계) |
+| H05~H07 신규 관찰 결함 | 미수정(2026-10-10 기능도 조사): ① 초기화 실패 뒤 두 번째 플레이어 참가 시 재시도가 INIT_LEGACY로 내려가 선불·인트로가 진행되지만 턴은 계속 거부(`joins_blocked`가 `init_failed` 미포함) ② INIT_LEGACY·시작 틀 없음 분기가 캐시 업로드 결과를 무시 ③ `DynamicOpenRetryView` 비영속(재시작 후 버튼 무효) ④ `!자동 원장`·`!자동 서사`가 DYNAMIC에서 은퇴된 원장·플랜 표시 ⑤ 바인딩 세션의 `!이미지 생성`이 스냅샷 원문으로 시나리오 원본을 덮어씀 ⑥ 개연성 시뮬레이션이 DYNAMIC 계획 전 레거시 미러로 실행 |
 | H05 calibration | 경로 자동 선택(10분 미만·비용비 5/4)·추가 시간 상한(240분)·PC capability = 보유 소지품 이름 — 영도 정량 저작 후 조정 |
