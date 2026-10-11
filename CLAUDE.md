@@ -299,7 +299,7 @@ R2: 초기화 실패는 fail-closed(실패 표식 strict 저장 — LEGACY 진�
 | 모듈 | 줄 | 내용 |
 |---|---|---|
 | `display.py` | 662 | **디스플레이 채널** — 상태·UI 단일 메시지, `notify`/`close_notice` |
-| `speaker_card.py` | 976 | **SVG 화자 카드**(DYNAMIC 전용) — 시나리오 최상위 `speaker_card`(기본 `legacy_png`)·커밋된 PC 인지(CONTENT) 기반 항목별 공개(`all_info` AND, 슬롯당 규칙 1개)·지시층위 얼굴·이름 식별(`identified_faces`·`identified_names`)·안전 슬롯 치환·자산 SHA-256·래스터화(resvg CLI/`resvg_py`, 운영 설치 필요)·독립 저작 검사(`scenario_check`). 실패 = 이미지 생략. 재색은 `baseline` 기준색 배율, `front_ids`로 지정 요소를 맨 앞에 그림. 영도 저작: NPC 47명 카드·얼굴·이름 InfoId 94개(`yd.info.card.*`, revision `f0b25c95…`) |
+| `speaker_card.py` | 976 | **SVG 화자 카드**(DYNAMIC 전용) — 시나리오 최상위 `speaker_card`(기본 `legacy_png`)·커밋된 PC 인지(CONTENT) 기반 항목별 공개(`all_info` AND, 슬롯당 규칙 1개)·지시층위 얼굴·이름 식별(`identified_faces`·`identified_names`)·안전 슬롯 치환·자산 SHA-256·래스터화(resvg CLI/`resvg_py`, 운영 설치 필요)·독립 저작 검사(`scenario_check`). 실패 = 이미지 생략. 재색은 `baseline` 기준색 배율, `front_ids`로 지정 요소를 맨 앞에 그림. 영도 저작: NPC 47명 카드·얼굴·이름 InfoId 94개(`yd.info.card.*`, revision `41b4539c…`) |
 | `audio_mixer.py` | 393 | BGM/플리 + 효과음 + 음성 합산 |
 | `tts.py` · `tts_preset.py` | 436 | Gemini TTS, 시스템 문구 사전 합성 |
 | `media.py` · `media_control.py` | 316 | 이미지 전송, 플레이리스트, BGM 선택 |
