@@ -661,47 +661,86 @@ def parse_variations(manifest: dict, raw) -> dict:
     return out
 
 
-def face_manifest(world: CardWorld, wt, session) -> dict:
-    """{transient_key: ActorId} — 얼굴 InfoId가 저작된 장면 카드 인물."""
+_IDENTIFY = {
+    # kind: (transient 키 접두, 응답 필드, 후보 블록 제목, 판정 지시, 스키마 설명)
+    "face": ("F", "identified_faces", "얼굴 식별 후보",
+             "이번 장면에서 PC가 그 인물의 얼굴을 분명히 보고 식별하게 되는 경우에만 키를 넣는다. "
+             "같은 장소에 있다는 것만으로는 넣지 않는다.",
+             "이번 장면에서 PC가 얼굴을 실제로 식별하게 되는 인물 키."),
+    "name": ("N", "identified_names", "이름 식별 후보",
+             "이번 장면에서 PC가 그 인물의 이름을 실제로 알게 되는 경우(자기소개·호명·명패·제3자의 소개 등)에만 "
+             "키를 넣는다. 얼굴을 보거나 같은 장소에 있다는 것만으로는 넣지 않는다.",
+             "이번 장면에서 PC가 이름을 실제로 알게 되는 인물 키."),
+}
+
+
+def identity_manifest(world: CardWorld, wt, session, kind: str) -> dict:
+    """{transient_key: ActorId} — knowledge.<kind> InfoId가 저작된 장면 카드 인물."""
+    prefix = _IDENTIFY[kind][0]
     out = {}
     actors = world.config.get("actors") or {}
     for n, aid in enumerate(scene_card_actors(world, wt, session), 1):
-        if isinstance((actors[aid].get("knowledge") or {}).get("face"), str):
-            out[f"F{n}"] = aid
+        if isinstance((actors[aid].get("knowledge") or {}).get(kind), str):
+            out[f"{prefix}{n}"] = aid
     return out
 
 
-def face_schema(manifest: dict) -> dict:
-    return {"type": "array", "description": "이번 장면에서 PC가 얼굴을 실제로 식별하게 되는 인물 키.",
+def identity_field(kind: str) -> str:
+    return _IDENTIFY[kind][1]
+
+
+def identity_schema(manifest: dict, kind: str) -> dict:
+    return {"type": "array", "description": _IDENTIFY[kind][4],
             "items": {"type": "string", "enum": list(manifest)}}
 
 
-def face_block(manifest: dict, definition: dict, session) -> str:
+def identity_block(manifest: dict, definition: dict, session, kind: str) -> str:
     from . import actors as _actors
     if not manifest:
         return ""
-    lines = ["\n[얼굴 식별 후보 — identified_faces]",
-             "이번 장면에서 PC가 그 인물의 얼굴을 분명히 보고 식별하게 되는 경우에만 키를 넣는다. "
-             "같은 장소에 있다는 것만으로는 넣지 않는다. 해당 없으면 빈 배열."]
+    _p, field, title, rule, _d = _IDENTIFY[kind]
+    lines = [f"\n[{title} — {field}]",
+             rule + " 넣었다면 proceed_instruction에 그 장면이 실제로 묘사되게 한다. 해당 없으면 빈 배열."]
     for k, aid in manifest.items():
         lines.append(f"- {k}: {_actors.display_name(definition, session, aid) or aid}")
     return "\n".join(lines) + "\n"
 
 
-def parse_faces(manifest: dict, raw) -> tuple:
+def parse_identified(manifest: dict, raw) -> tuple:
+    """후보 키 → ActorId(정렬). 후보 밖 키·형식 오류는 버린다."""
     if not isinstance(raw, list):
         return ()
     return tuple(sorted({manifest[k] for k in raw if isinstance(k, str) and k in manifest}))
 
 
-def face_info_ids(config: dict, actor_ids) -> tuple:
+def identity_info_ids(config: dict, actor_ids, kind: str) -> tuple:
     actors = (config or {}).get("actors") or {}
     out = []
     for aid in actor_ids or ():
-        iid = ((actors.get(aid) or {}).get("knowledge") or {}).get("face")
+        iid = ((actors.get(aid) or {}).get("knowledge") or {}).get(kind)
         if isinstance(iid, str) and iid:
             out.append(iid)
     return tuple(sorted(set(out)))
+
+
+# 얼굴 식별(기존 호출 이름 유지)
+def face_manifest(world, wt, session):
+    return identity_manifest(world, wt, session, "face")
+
+
+def face_schema(manifest):
+    return identity_schema(manifest, "face")
+
+
+def face_block(manifest, definition, session):
+    return identity_block(manifest, definition, session, "face")
+
+
+parse_faces = parse_identified
+
+
+def face_info_ids(config, actor_ids):
+    return identity_info_ids(config, actor_ids, "face")
 
 
 # ══════════════════════════════════════════════════════════════

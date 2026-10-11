@@ -52,6 +52,7 @@ class WorldTurn:
     continuation_delivered: bool = False
     replan: object = None                         # 선후 확정 재계획 호출(callable(orders) -> plan)
     identified_faces: tuple = ()                  # SVG 카드: 지시층위가 지정한 얼굴 식별 ActorId(검증됨)
+    identified_names: tuple = ()                  # SVG 카드: 지시층위가 지정한 이름 식별 ActorId(검증됨)
 
 
 # ══════════════════════════════════════════════════════════════
@@ -625,7 +626,7 @@ def reveal_ops(definition: dict, pc: str, info_ids, *, prefix: str, at_minute=No
 
 def process_observation(ctx, base_world, plan, obs_manifest: ObservationManifest, raw_obs, *,
                         transaction_id: str, narrative_seed: str, replan=None,
-                        face_info_ids=()) -> TurnWorldResult:
+                        face_info_ids=(), name_info_ids=()) -> TurnWorldResult:
     """확정 묘사 관찰 → 보충 typed 연산 + 보충 세계 진행 → 최종 묶음 연산(순수)."""
     D, lead = ctx.definition, ctx.lead_pc
     raw = raw_obs if isinstance(raw_obs, dict) else {}
@@ -661,12 +662,15 @@ def process_observation(ctx, base_world, plan, obs_manifest: ObservationManifest
             "holder": _cog.actor_holder(lead), "info_id": iid, "awareness": _cog.CONTENT,
             "acquisition": _cog.acquisition_record(f"turn:{transaction_id}:obs:{iid}", "TESTIMONY",
                                                    at_minute=(start_world.domain("world_clock") or {}).get("minute_index"))}))
-    # ②-a SVG 카드: 지시층위가 지정한 얼굴 식별 → 저작 얼굴 InfoId 획득(WITNESS). 같은 보충 진행에 합류한다.
-    for n, iid in enumerate(sorted(set(face_info_ids or ()))):
-        acq.append(_wm.make_op(f"{prefix}.face{n}", _cog.OP_COGNITION_ACQUIRE, "OBSERVATION", {
-            "holder": _cog.actor_holder(lead), "info_id": iid, "awareness": _cog.CONTENT,
-            "acquisition": _cog.acquisition_record(f"turn:{transaction_id}:face:{iid}", "WITNESS",
-                                                   at_minute=(start_world.domain("world_clock") or {}).get("minute_index"))}))
+    # ②-a SVG 카드: 지시층위가 지정한 얼굴·이름 식별 → 저작 InfoId 획득(얼굴 WITNESS · 이름 TESTIMONY).
+    #       같은 보충 진행에 합류한다(인지 변화에 의존하는 사건 연쇄가 같은 턴에 평가된다).
+    for tag, route, ids in (("face", "WITNESS", face_info_ids), ("name", "TESTIMONY", name_info_ids)):
+        for n, iid in enumerate(sorted(set(ids or ()))):
+            acq.append(_wm.make_op(f"{prefix}.{tag}{n}", _cog.OP_COGNITION_ACQUIRE, "OBSERVATION", {
+                "holder": _cog.actor_holder(lead), "info_id": iid, "awareness": _cog.CONTENT,
+                "acquisition": _cog.acquisition_record(
+                    f"turn:{transaction_id}:{tag}:{iid}", route,
+                    at_minute=(start_world.domain("world_clock") or {}).get("minute_index"))}))
     # ②-b H07 §5.2: 정보가 드러낸 공간 지식(장소 이름·숨은 길 발견) — 실제로 알게 된 정보의 저작 reveals만
     acq += reveal_ops(D, lead, exposures, prefix=f"{prefix}.rv", at_minute=(start_world.domain("world_clock") or {})
                       .get("minute_index"))

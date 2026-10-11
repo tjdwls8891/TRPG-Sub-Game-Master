@@ -1789,8 +1789,11 @@ class GMCog(commands.Cog):
             prep.world_observation_raw, transaction_id=prep.transaction_id,
             narrative_seed=getattr(session, "narrative_seed", None) or session.session_id,
             replan=wt.replan,
-            face_info_ids=core.speaker_card.face_info_ids(
-                core.speaker_card.config_of(session.scenario_data), wt.identified_faces)
+            face_info_ids=core.speaker_card.identity_info_ids(
+                core.speaker_card.config_of(session.scenario_data), wt.identified_faces, "face")
+            if core.speaker_card.card_world(session) else (),
+            name_info_ids=core.speaker_card.identity_info_ids(
+                core.speaker_card.config_of(session.scenario_data), wt.identified_names, "name")
             if core.speaker_card.card_world(session) else ())
         wt.result = res
         core.write_log(session.session_id, "api",
@@ -3457,9 +3460,12 @@ class GMCog(commands.Cog):
 
         # SVG 카드: 얼굴 식별 후보(장면 카드 인물의 transient 키) — 응답 키는 서버가 ActorId로 검증한다
         _card_world = core.speaker_card.card_world(session) if _wt is not None else None
-        _face_manifest = core.speaker_card.face_manifest(_card_world, _wt, session) if _card_world else {}
-        if _face_manifest:
-            user_prompt += core.speaker_card.face_block(_face_manifest, _card_world.definition, session)
+        _id_manifests = {}
+        for _kind in ("face", "name"):
+            _m = core.speaker_card.identity_manifest(_card_world, _wt, session, _kind) if _card_world else {}
+            if _m:
+                _id_manifests[_kind] = _m
+                user_prompt += core.speaker_card.identity_block(_m, _card_world.definition, session, _kind)
 
         core.write_log(session.session_id, "api", f"[자동 지시층위 요청 - Payload]\n{user_prompt}")
 
@@ -3502,10 +3508,12 @@ class GMCog(commands.Cog):
                         logic_schema["required"].append("quest_case")
             except Exception as e:
                 print(f"[퀘스트] 스키마 조립 실패: {e}")
-            if _face_manifest:
+            if _id_manifests:
                 logic_schema = dict(logic_schema)
                 logic_schema["properties"] = dict(logic_schema["properties"])
-                logic_schema["properties"]["identified_faces"] = core.speaker_card.face_schema(_face_manifest)
+                for _kind, _m in _id_manifests.items():
+                    logic_schema["properties"][core.speaker_card.identity_field(_kind)] = \
+                        core.speaker_card.identity_schema(_m, _kind)
 
             if use_cache:
                 # ── 캐시 활용 경로 (방안 ①) ──
@@ -3625,11 +3633,13 @@ class GMCog(commands.Cog):
             session.session_id, "api",
             f"[자동 지시층위 결정]\n{json.dumps(decision, ensure_ascii=False, indent=2)}"
         )
-        if _face_manifest and _wt is not None:
-            # 이 시도의 WorldTurn에 누적 — process_observation이 저작 얼굴 InfoId 획득으로 합류시킨다(커밋 후 공개)
-            _faces = core.speaker_card.parse_faces(_face_manifest, decision.get("identified_faces"))
-            if _faces:
-                _wt.identified_faces = tuple(sorted(set(_wt.identified_faces) | set(_faces)))
+        if _id_manifests and _wt is not None:
+            # 이 시도의 WorldTurn에 누적 — process_observation이 저작 얼굴·이름 InfoId 획득으로 합류시킨다(커밋 후 공개)
+            for _kind, _m in _id_manifests.items():
+                _hit = core.speaker_card.parse_identified(_m, decision.get(core.speaker_card.identity_field(_kind)))
+                if _hit:
+                    _attr = "identified_faces" if _kind == "face" else "identified_names"
+                    setattr(_wt, _attr, tuple(sorted(set(getattr(_wt, _attr)) | set(_hit))))
 
         # WP-B: 지시층위 효과(quest_case/quest_choice/info_access)는 여기서 직접
         #       canonical에 적용하지 않는다. 호출부 루프가 이 decision을 스테이징

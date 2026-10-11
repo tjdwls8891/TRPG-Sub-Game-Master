@@ -506,7 +506,7 @@ async def test_director_identified_faces_are_validated_into_world_turn(fake_bot,
     tx.world_turn = wt
     provider.outcomes.append(FakeGenAIResponse.json_payload(
         {"constraint_check": "통과", "narrate_instruction": "", "proceed_instruction": "묘사",
-         "identified_faces": ["F1", "F9"]}))
+         "identified_faces": ["F1", "F9"], "identified_names": ["N1"]}))
     decision = await _gm_cog(fake_bot)._call_gm_logic(s, "얼굴을 본다", [], master_channel,
                                                        transaction_id=tx.transaction_id)
     assert decision is not None
@@ -514,6 +514,9 @@ async def test_director_identified_faces_are_validated_into_world_turn(fake_bot,
     assert schema["properties"]["identified_faces"]["items"]["enum"] == ["F1"]
     assert "[얼굴 식별 후보" in provider.calls[-1].contents[0].parts[0].text
     assert wt.identified_faces == (KANG,)                                   # 후보 밖 키(F9)는 버린다
+    assert schema["properties"]["identified_names"]["items"]["enum"] == ["N1"]
+    assert "[이름 식별 후보" in provider.calls[-1].contents[0].parts[0].text
+    assert wt.identified_names == (KANG,)
     assert s.cognition_state.get(f"actor:{PC}") is None                     # 지시층위는 정본을 바꾸지 않는다
 
 
@@ -553,3 +556,15 @@ def test_a_different_template_and_slot_set_works_without_engine_change():
                          SC.media_root(SID)).decode()
     assert "???" in hidden and "장로" not in hidden and "#111111" in hidden and "QUJD" not in hidden
     assert "장로" in shown and "#ABCDEF" in shown
+
+
+def test_name_identification_is_independent_testimony_acquisition():
+    s, D = make_session(edges=())
+    c = ctx_of(s)
+    res = TW.process_observation(c, s, None, TW.ObservationManifest(), {}, transaction_id="tx2",
+                                 narrative_seed="seed", name_info_ids=("S40",))
+    acq = [o.payload for o in res.ops if o.op_type == CG.OP_COGNITION_ACQUIRE]
+    assert [(p["info_id"], p["acquisition"]["route"], p["acquisition"]["acquisition_id"]) for p in acq] == \
+        [("S40", "TESTIMONY", "turn:tx2:name:S40")]
+    assert SC.identity_info_ids({"actors": {KANG: {"knowledge": {"face": "F", "name": "S40"}}}}, (KANG,), "name") \
+        == ("S40",)
