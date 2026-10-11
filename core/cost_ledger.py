@@ -172,6 +172,21 @@ def _registry_for(path: str) -> dict:
 #  authoritative Settlement 는 "손상/누락 CostEvent 가 조용히 0/생략" 되면 안 된다.
 #  strict 경로는 성공을 SUCCESS 로만, 실패를 아래 타입드 예외로만 신호한다.
 
+def _log_cost_event(event) -> None:
+    """구조 로그: 새 CostEvent 1건(domain.jsonl) — 관측 전용, 실패 흡수."""
+    try:
+        from . import logs as _logs
+        _logs.domain("cost.event", {
+            "event_id": event.event_id, "op": event.operation, "model": event.model,
+            "tx": event.transaction_id, "turn": event.logical_turn, "attempt": event.provider_attempt,
+            "actor": event.actor_user_id, "actor_kind": event.actor_kind, "billing_hint": event.billing_hint,
+            "in": event.input_tokens, "cached": event.cached_input_tokens, "out": event.output_tokens,
+            "thought": event.thought_tokens, "usd": event.cost_usd, "krw": event.cost_krw,
+            "source": event.usage_source, "success": event.success}, sid=event.session_id)
+    except Exception:  # noqa: BLE001
+        pass
+
+
 class CostLedgerError(RuntimeError):
     """strict CostLedger 계열 예외의 베이스."""
 
@@ -360,6 +375,7 @@ class CostLedger:
                 with open(self.path, "a", encoding="utf-8") as f:
                     f.write(line + "\n")
                 self._reg["keys"].add(event.idempotency_key)
+            _log_cost_event(event)
             return True
         except Exception as e:  # noqa: BLE001
             print(f"[CostLedger] 기록 실패(무시): {type(e).__name__} - {e}")
@@ -512,6 +528,7 @@ class CostLedger:
             # shadow dedup 캐시 일관성: tolerant 경로가 같은 키를 중복 기록하지
             # 않도록 성공 후 공유 키 집합에도 등재한다.
             self._reg["keys"].add(key)
+            _log_cost_event(event)
             return StrictAppendResult(True, event.event_id, key)
 
     def list_cost_events_strict(self, *, session_id=None,

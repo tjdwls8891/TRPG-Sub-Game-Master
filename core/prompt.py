@@ -224,8 +224,11 @@ class PromptBuilder:
         미방문 장소를 미리 얕게 넣어야 이동 묘사의 재료가 생긴다.
         """
         try:
-            from .places import build_place_block
-            block = build_place_block(self.session)
+            # DYNAMIC 턴: 정본 세계 블록(장소·출구·확정 결과·장면 인물)이 레거시 장소 블록을 대체한다
+            block = getattr(self.session, "world_narration_block", None)
+            if not block:
+                from .places import build_place_block
+                block = build_place_block(self.session)
             if block:
                 self.blocks.append(block)
                 self.manifest.append("장소 정보")

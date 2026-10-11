@@ -156,8 +156,10 @@ class GameCog(commands.Cog):
             else:
                 char_name = message.author.display_name
 
-            session.current_turn_logs.append(f"[{char_name}]: {message.content}")
-            await core.save_session_data(self.bot, session)
+            # 자동 GM이 켜진 세션은 GMCog 입력 경로가 처리하는 발언만 턴 맥락에 기록한다(중복·거부 선언 기록 방지).
+            if not getattr(session, "gm_active", False):
+                session.current_turn_logs.append(f"[{char_name}]: {message.content}")
+                await core.save_session_data(self.bot, session)
 
             core.write_log(session.session_id, "game_chat", f"[{char_name}]: {message.content}")
 
@@ -275,7 +277,7 @@ class GameCog(commands.Cog):
             session: TRPGSession
             instruction (str): 지시사항 (이미지 태그 상/중/하: 포함 가능. 자:/태: 는 권위 없이 제거만 된다)
             master_guild: 게임 채널 채팅 권한 토글용 guild (None이면 마스터 채널에서 추출)
-            cost_log_prefix (str): cost_log.txt 라벨에 부착할 접두사 (예: "[AUTO] ")
+            cost_log_prefix (str): 비용 기록(구조 로그 cost.usage) 사용처 라벨 접두사 (예: "[AUTO] ")
             preparation: WP-C 자동 턴 준비 객체(core.turn_preparation.TurnPreparation).
                 자동 caller(_dispatch_proceed)만 넘긴다. 주어지면
                   · canonical 로그/카운터를 적용하지 않고 스테이징한다(READY 이후 적용),
@@ -581,6 +583,8 @@ class GameCog(commands.Cog):
             _ov["world_timeline"] = _prep.world_prompt_timeline
         if _prep is not None and getattr(_prep, "world_turn", None) is not None:
             _ov["world_static_npcs_suppressed"] = True      # H05 R3: 연고 인물 ≠ 현재 존재(장면 인물은 투영 블록)
+            # 묘사가 정본을 따른다 — 정본 장소·출구·장소 고정·장면 인물을 독립 블록으로(레거시 장소 블록 대체)
+            _ov["world_narration_block"] = core.turn_world.narration_world_block(_prep.world_turn, session)
         if _ov:
             _prompt_session = core.turn_preparation.PreparationView(
                 session, overrides=_ov,
@@ -600,10 +604,7 @@ class GameCog(commands.Cog):
             types.Content(role="user", parts=[types.Part.from_text(text=prompt)])
         ]
 
-        payload_dump = ""
-        for content in current_contents:
-            payload_dump += f"[{content.role.upper()}]\n{content.parts[0].text}\n\n"
-        core.write_log(session.session_id, "api", f"[메인 턴 묘사 요청 - 최종 Payload]\n{payload_dump}")
+        # 요청 원문은 core.logs 호출 기록 프록시가 남긴다(델타 조각).
 
         async def _reissue_cache(reason_label: str):
             """룰북 캐시를 (재)발급하고 세션 캐시 상태를 동기화한다.
@@ -644,12 +645,15 @@ class GameCog(commands.Cog):
 
                 async with game_channel.typing():
                     _narr_op.mark_attempt()  # WP-02: 실제 provider 호출 1회 계수
-                    return await asyncio.to_thread(
-                        self.bot.genai_client.models.generate_content,
-                        model=core.DEFAULT_MODEL,
-                        contents=current_contents,
-                        config=config
-                    )
+                    with core.logs.call_context(session.session_id, "narration",
+                                                op=getattr(_narr_op, "operation", None),
+                                                attempt=retry_count + 1):
+                        return await asyncio.to_thread(
+                            self.bot.genai_client.models.generate_content,
+                            model=core.DEFAULT_MODEL,
+                            contents=current_contents,
+                            config=config
+                        )
             # NOTE: 이 경로는 call_with_retry를 쓰지 않는다. 캐시 만료를
             #       감지해 재발급 후 재시도하는 자체 복구 로직이 있으며,
             #       바깥에서 한 번 더 감싸면 재발급이 두 번 일어난다.
@@ -1013,7 +1017,6 @@ class GameCog(commands.Cog):
             await m_send("⏳ (시스템: 백그라운드에서 자동 초정밀 기억 압축을 진행합니다...)")
 
             summary_prompt = core.build_compression_prompt(session, source.text)
-            core.write_log(session.session_id, "api", f"[기억 압축 요청]\n{summary_prompt}")
 
             # 로우 플랜은 일정 횟수 이후 저비용 모델로 전환한다.
             comp_model = core.memory_plan.select_model(session)
@@ -1388,7 +1391,6 @@ class GameCog(commands.Cog):
         source = core.memory_plan.capture_compression_source(session)
         summary_prompt = core.build_compression_prompt(session, source.text)
 
-        core.write_log(session.session_id, "api", f"[기억 압축 요청]\n{summary_prompt}")
 
         session.is_compressing = True
         try:

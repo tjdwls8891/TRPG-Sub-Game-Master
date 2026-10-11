@@ -4,6 +4,7 @@ import json
 import copy
 import random
 import asyncio
+from types import SimpleNamespace
 import discord
 from discord.ext import commands
 from google.genai import types
@@ -96,6 +97,18 @@ def _clean_proceed_instruction(instruction: str) -> str:
     return re.sub(r'\s+', ' ', result).strip()
 
 
+def _roll_target(session, char_name: str, stat_value: int, weight: int) -> tuple[int, str]:
+    """판정 기준치 = 스탯 + 현재 상태이상 가중치(시나리오 정의, 코드 합산) + 판단층위 상황 가중치.
+    Returns: (기준치, 표시 문자열) — 예: "12-1(감염 의심)+2=13"."""
+    s_total, s_parts = core.status_roll_modifier(session.scenario_data,
+                                                 (getattr(session, "statuses", None) or {}).get(char_name, []))
+    target = stat_value + s_total + weight
+    if not s_parts and not weight:
+        return target, f"{stat_value}"
+    terms = f"{stat_value}" + "".join(f"{w:+d}({n})" for n, w in s_parts) + (f"{weight:+d}" if weight else "")
+    return target, f"{terms}={target}"
+
+
 def _build_judgment_user_prompt(session, player_message: str, roll_results: list,
                                 world_turn=None) -> str:
     """
@@ -144,6 +157,10 @@ def _build_judgment_user_prompt(session, player_message: str, roll_results: list
             prof_lines.append("    소지 자원: " + ", ".join(f"{k} {v}" for k, v in c_res.items()))
         c_sta = (session.statuses or {}).get(c_name, [])
         prof_lines.append("    상태이상: " + (", ".join(c_sta) if c_sta else "없음"))
+        _s_total, _s_parts = core.status_roll_modifier(session.scenario_data, c_sta)
+        if _s_parts:
+            prof_lines.append("    ※ 상태이상 판정 보정(" + ", ".join(f"{n} {w:+d}" for n, w in _s_parts)
+                              + ")은 코드가 기준치에 자동 반영한다 — rolls.weight에는 상태이상을 제외한 상황 가중치만 넣을 것.")
     lines.append("[플레이어 프로필]\n" + ("\n".join(prof_lines) if prof_lines else "(없음)"))
 
     # ②-2 등장 NPC — 무대에 누가 있는지 알아야 ASK 대상과 판정 대상을 정할 수 있다
@@ -766,11 +783,12 @@ class OpenConfirmView(core.message_lifecycle.LifecyclePromptView):
     WP-F: INTERACTION_PROMPT — 확인/취소/시간 만료 중 정확히 한 번 종결. 만료는 취소와 같다.
     """
 
-    def __init__(self, bot, session, minutes: int):
+    def __init__(self, bot, session, minutes: int, *, on_reopen=None):
         super().__init__(timeout=300)
         self.bot = bot
         self.session = session
         self.minutes = minutes
+        self.on_reopen = on_reopen          # 다시 열기 성공 후 콜백(닫힌 동안 보관한 선언 이어서 진행)
 
     async def on_expired(self):
         self.session.open_minutes = 0
@@ -833,6 +851,8 @@ class OpenConfirmView(core.message_lifecycle.LifecyclePromptView):
                     await core.save_session_data(self.bot, self.session)
                     from core.display import refresh as _refresh
                     await _refresh(self.bot, self.session, reason="reopen")
+                    if self.on_reopen is not None:
+                        await self.on_reopen(self.session)
         self.stop()
 
     @discord.ui.button(label="취소", style=discord.ButtonStyle.secondary)
@@ -1382,9 +1402,11 @@ class GMCog(commands.Cog):
                 return
             if not session.gm_active:
                 return
+            content = message.content.strip()
+            if await self._hold_if_closed(session, char_name, content):
+                return                                     # 질문 대기 상태 유지 — 다시 열면 보관 선언으로 진행
 
             session.gm_waiting_for = None
-            content = message.content.strip()
 
             # 행동 수집
             session.gm_collected_actions[char_name] = content
@@ -1432,6 +1454,45 @@ class GMCog(commands.Cog):
     # ─────────────────────────────────────────────────────────────
     # 안전장치 + 지시층위 루프 진입점
     # ─────────────────────────────────────────────────────────────
+
+    async def _hold_if_closed(self, session, char_name: str, content: str) -> bool:
+        """세션이 닫혀 있으면 선언을 보관하고 안내한다(턴 맥락에 기록하지 않음). 다시 열면 이어서 진행한다.
+
+        보관은 런타임 한정(재시작 시 소실) — 새 선언이 오면 새 것으로 교체된다.
+        """
+        if core.is_session_open(session):
+            return False
+        session._held_declaration = {"char": char_name, "content": content}
+        master_ch = self.bot.get_channel(session.master_ch_id)
+        if master_ch:
+            await master_ch.send("⚠️ 세션이 닫혀 있어 선언을 보관했습니다. 세션을 열면 이어서 진행합니다.")
+        game_ch = self.bot.get_channel(session.game_ch_id)
+        if game_ch:
+            await core.message_lifecycle.send_transient(
+                self.bot, session, game_ch,
+                "⏸️ 세션이 닫혀 있습니다. 선언은 보관해 두었습니다.\n"
+                "> 디스플레이 채널의 **세션 열기**를 누르시면 그 선언으로 이어서 진행합니다.",
+                key=core.message_lifecycle.KEY_TURN_NOTICE)
+        return True
+
+    async def resume_held_declaration(self, session) -> bool:
+        """세션 다시 열기 직후 — 닫힌 동안 보관한 선언으로 턴을 진행한다(재입력 불필요)."""
+        held = getattr(session, "_held_declaration", None)
+        session._held_declaration = None
+        if not held or not getattr(session, "gm_active", False) or not core.is_session_open(session):
+            return False
+        game_ch = self.bot.get_channel(session.game_ch_id)
+        if game_ch:
+            await core.message_lifecycle.send_transient(
+                self.bot, session, game_ch, f"▶️ 보관된 선언으로 이어서 진행합니다: {held['content']}",
+                key=core.message_lifecycle.KEY_TURN_NOTICE)
+        shim = SimpleNamespace(content=held["content"], channel=game_ch,
+                               author=SimpleNamespace(display_name=held["char"]))
+        if getattr(session, "gm_waiting_for", None) == held["char"]:
+            await self._handle_waiting_response(session, shim, held["char"])
+        else:
+            await self._handle_player_message(session, shim)
+        return True
 
     async def _handle_player_message(self, session, message: discord.Message):
         """
@@ -1481,8 +1542,10 @@ class GMCog(commands.Cog):
                 await core.save_session_data(self.bot, session)
                 return
 
-            session.gm_clarify_count = 0
             char_name = session.gm_target_char or message.author.display_name
+            if await self._hold_if_closed(session, char_name, message.content.strip()):
+                return
+            session.gm_clarify_count = 0
             session.current_turn_logs.append(f"[{char_name}]: {message.content.strip()}")
 
             await self._process_actions(session, message.content.strip(), master_ch)
@@ -1740,6 +1803,17 @@ class GMCog(commands.Cog):
             await master_ch.send(f"🧭 **[경로 선택]** 후보 {len(plan.route_options)}개 — 플레이어 선택 대기")
         core.turn_transaction.mark_waiting_for_player(session, transaction_id)
 
+    async def _ask_destination(self, session, wt, transaction_id, master_ch) -> None:
+        """목적지 불명 이동 — PC가 아는 출구를 제시하며 묻는다(묘사·추출 호출 없음)."""
+        bridge = core.turn_world.destination_question(wt.ctx, session)
+        game_ch = self.bot.get_channel(session.game_ch_id)
+        if game_ch:
+            await core.stream_text_to_channel(self.bot, game_ch, bridge, words_per_tick=15, tick_interval=1.5)
+        session.current_turn_logs.append(f"[진행자 (GM)]: {bridge}")
+        if master_ch:
+            await master_ch.send("🧭 **[목적지 확인]** 이동 목적지가 정본 후보에 없어 되묻습니다")
+        core.turn_transaction.mark_waiting_for_player(session, transaction_id)
+
     def _attach_world_turn(self, session, prep, transaction_id):
         """PROCEED 배리어 소유 시작 — 계획을 준비 객체에 붙이고 묘사용 투영 장면을 만든다."""
         wt = self._world_turn(session, transaction_id)
@@ -1761,11 +1835,7 @@ class GMCog(commands.Cog):
         rec = {"code": code, "transaction_id": prep.transaction_id,
                "world_version": core.action_intent.world_version_id(session),
                "definition_revision": getattr(session, "definition_revision", None), "detail": detail}
-        try:
-            core.write_error_log(session.session_id, "world",
-                                 RuntimeError(json.dumps(rec, ensure_ascii=False, default=str)), 1)
-        except Exception as e:
-            print(f"[H05] 진단 기록 실패: {e}")
+        core.logs.warn("world", f"세계 진단 {code}", session=session, data=rec)
 
     async def _world_conflict_outcome(self, session, prep, *, stage: str) -> str:
         prep.seal()
@@ -1823,7 +1893,6 @@ class GMCog(commands.Cog):
         main_text = getattr(prep.narration, "text", "") or ""
         prompt = (f"[직전 본 묘사]\n{main_text[-1500:]}\n\n" + cplan.prompt()
                   + "\n\n2~4문장으로만 쓴다.")
-        core.write_log(session.session_id, "api", f"[H05 후속 묘사 요청]\n{prompt}")
         _cl_op = core.cost_ledger.begin_operation(
             self.bot, core.cost_ledger.OP_TURN_FOREGROUND_CONTINUATION, session=session,
             model=core.DEFAULT_MODEL, actor_kind=core.cost_ledger.ACTOR_PLAYER,
@@ -2964,6 +3033,14 @@ class GMCog(commands.Cog):
             session, transaction_id, judgment=_jnote,
             player_message=player_message, roll_results=list(roll_results))
 
+        # 정합: 이동 선언인데 목적지가 없거나 후보 밖이면 진행(묘사가 임의로 이동시킴)하지 않고 되묻는다.
+        if _wt is not None and _wt.intent is not None \
+                and (judgment.get("action") or "").upper() in ("PROCEED", "ROLL") \
+                and any(f == "destination" for f, _c in (_wt.intent.unresolved or ())):
+            await self._ask_destination(session, _wt, transaction_id, master_ch)
+            await core.save_session_data(self.bot, session)
+            return
+
         # H05-A: PROCEED면 지시층위 전에 코드 소유 세계 계획을 세운다(정본 불변). 의미 있는 경로 차이는
         #   여기서 플레이어에게 묻는다(경로 선택은 판단층위가 아니라 코드 정책).
         if _wt is not None and (judgment.get("action") or "").upper() == "PROCEED":
@@ -3318,7 +3395,6 @@ class GMCog(commands.Cog):
             self._build_world_manifest(session, _wt)
             _schema = core.action_intent.extend_judgment_schema(JUDGMENT_RESPONSE_SCHEMA, _wt.manifest)
         user_prompt = _build_judgment_user_prompt(session, player_message, roll_results, world_turn=_wt)
-        core.write_log(session.session_id, "api", f"[판단층위 요청 - Payload]\n{user_prompt}")
 
         contents = [types.Content(role="user", parts=[types.Part.from_text(text=user_prompt)])]
         config = types.GenerateContentConfig(
@@ -3408,10 +3484,6 @@ class GMCog(commands.Cog):
                 await master_ch.send("⚠️ 판단층위 호출에 실패했습니다. 이번 발언을 스킵합니다.")
             return None
 
-        core.write_log(
-            session.session_id, "api",
-            f"[판단층위 결정]\n{json.dumps(decision, ensure_ascii=False, indent=2)}"
-        )
         if _wt is not None and _wt.manifest is not None:
             # 후보 키 → 정본 참조(코드 검증). raw 문자열은 정본이 되지 않는다. 새 의도 = 재계획.
             _wt.intent = core.action_intent.resolve_intent(
@@ -3447,10 +3519,13 @@ class GMCog(commands.Cog):
         core.turn_transaction.mark_transaction_status(
             session, transaction_id, core.turn_transaction.TurnStatus.INSTRUCTING)
         _wt = self._world_turn(session, transaction_id)
+        if _wt is not None and _wt.plan is None:
+            # 지시층위도 이번 턴 정본 계획(장소 고정 포함)을 본다 — ROLL 뒤 PROCEED·NARRATE 경로(순수 계획)
+            self._ensure_world_plan(session, _wt, transaction_id)
         user_prompt = _build_logic_user_prompt(session, player_message, roll_results,
                                                 sim_result=sim_result, world_turn=_wt)
         if _wt is not None and _wt.plan is not None:
-            user_prompt += core.turn_world.narration_overlay(_wt.plan, _wt.ctx.definition, _wt.ctx)
+            user_prompt += core.turn_world.narration_overlay(_wt.plan, _wt.ctx.definition, _wt.ctx, world=session)
         # 판단층위가 확정한 진행 유형을 지시층위에 전달한다. 지시층위는 이 유형을 바꾸지 않는다.
         user_prompt = (
             f"[확정된 진행 유형] {action}\n"
@@ -3467,7 +3542,6 @@ class GMCog(commands.Cog):
                 _id_manifests[_kind] = _m
                 user_prompt += core.speaker_card.identity_block(_m, _card_world.definition, session, _kind)
 
-        core.write_log(session.session_id, "api", f"[자동 지시층위 요청 - Payload]\n{user_prompt}")
 
         # 캐시 활용 가능 여부 판단
         cache_name  = getattr(session, "cache_name",  None)
@@ -3629,10 +3703,6 @@ class GMCog(commands.Cog):
                     await master_ch.send("⚠️ 자동 지시층위 응답이 JSON 형식이 아닙니다. 이번 발언 스킵.")
                 return None
 
-        core.write_log(
-            session.session_id, "api",
-            f"[자동 지시층위 결정]\n{json.dumps(decision, ensure_ascii=False, indent=2)}"
-        )
         if _id_manifests and _wt is not None:
             # 이 시도의 WorldTurn에 누적 — process_observation이 저작 얼굴·이름 InfoId 획득으로 합류시킨다(커밋 후 공개)
             for _kind, _m in _id_manifests.items():
@@ -3707,7 +3777,7 @@ class GMCog(commands.Cog):
                     f"→ {roll} (스탯 미확인, 결과 해석 보류)"
                 )
             else:
-                target = stat_value + weight
+                target, weight_str = _roll_target(roll_session, char_name, stat_value, weight)
                 is_success = roll <= target
                 crit = ""
                 if 5 <= target <= 16:
@@ -3716,7 +3786,6 @@ class GMCog(commands.Cog):
                     elif roll in (sides - 1, sides):
                         crit = " 💥대실패"
                 result_text = ("성공 🟢" if is_success else "실패 🔴") + crit
-                weight_str = f"{stat_value}{weight:+d}={target}" if weight else f"{stat_value}"
                 line = (
                     f"> 🎲 [{char_name}] **{stat_name}** 판정 (1~{sides}, 기준치 {weight_str}) "
                     f"→ **{roll}**  /  **{result_text}**"
@@ -3739,7 +3808,7 @@ class GMCog(commands.Cog):
                     else:
                         announce = f"> ❌ **{stat_name}** 판정이 실패했습니다."
                     await core.send_streamed(self.bot, game_ch, announce)
-                core.write_log(session.session_id, "game_chat", f"[판정]: {line}")
+                # 판정 줄은 send_streamed가 게임 채널 기록([GM])에 남긴다 — 별도 기록하지 않는다(중복 방지).
             # 주사위 효과음 — 토글이 켜져 있을 때만.
             try:
                 if core.is_enabled(session, "sfx"):
@@ -3837,8 +3906,8 @@ class GMCog(commands.Cog):
                     except (TypeError, ValueError):
                         pass
             if stat_value is not None:
-                target = stat_value + weight
-                w_str = f"({stat_value}{weight:+d}={target})" if weight else f"(기준치 {stat_value})"
+                target, _t_str = _roll_target(session, char_name, stat_value, weight)
+                w_str = f"({_t_str})" if "=" in _t_str else f"(기준치 {stat_value})"
                 roll_descs.append(f"**{stat_name}** {w_str} 판정 ({sides}면체)")
             else:
                 roll_descs.append(f"**{stat_name}** 판정 ({sides}면체)")
@@ -3984,7 +4053,6 @@ class GMCog(commands.Cog):
 
         narrate_prompt = build_narrate_prompt(recent_str, current_turn_str, narrate_instruction)
 
-        core.write_log(session.session_id, "api", f"[GM NARRATE 요청]\n{narrate_prompt}")
 
         # NOTE: max_output_tokens를 설정하지 않음 — PROCEED(_execute_proceed)와 동일한 방침.
         # DEFAULT_MODEL(gemini-3-flash-preview)은 thinking 모델이므로, max_output_tokens를
@@ -4090,7 +4158,6 @@ class GMCog(commands.Cog):
         if not narrate_text:
             return None
 
-        core.write_log(session.session_id, "api", f"[GM NARRATE 응답]\n{narrate_text}")
 
         # 게임 채널에 스트리밍 출력 (대사 마커 처리 포함)
         # NOTE: PROCEED(_execute_proceed)와 동일한 구조 — typing 컨텍스트 밖에서 stream_text_to_channel 호출.
@@ -4168,12 +4235,8 @@ class GMCog(commands.Cog):
             "지나간 장면에 인물의 행동·대사를 소급 삽입하지 말 것."
         )
 
-        _wt = getattr(preparation, "world_turn", None) if preparation is not None else None
-        if _wt is not None and _wt.plan is not None:
-            exec_instruction += core.turn_world.narration_overlay(_wt.plan, _wt.ctx.definition, _wt.ctx)
-        if _wt is not None:
-            # H05 R3: 묘사층위가 현재 장면에 실제 있는 NPC와 그 현재 상태를 안다(정본 배치 투영)
-            exec_instruction += core.turn_world.scene_npc_block(_wt.ctx, _wt.plan, session)
+        # H05 R3·정합: 묘사층위의 세계 제약(확정 결과·장소 고정·장면 인물)은 지시문에 붙이지 않고
+        #   GameCog 묘사 프롬프트의 독립 블록(turn_world.narration_world_block)으로 준다.
 
         async def _on_finalized(narr):
             if preparation is not None:
@@ -4271,7 +4334,8 @@ class GMCog(commands.Cog):
             est = core.estimate_session_open(session, resolved["minutes"] / 60)
         except Exception:
             est = {}
-        view = OpenConfirmView(self.bot, session, resolved["minutes"])
+        view = OpenConfirmView(self.bot, session, resolved["minutes"],
+                               on_reopen=self.resume_held_declaration)
         view.bind(await message.channel.send(
             core.format_confirmation(resolved, est) + _interp_note(resolved), view=view))
 
@@ -5052,7 +5116,6 @@ class GMCog(commands.Cog):
             f"[직전까지의 세계 상태]\n{prev_summary}\n\n"
             f"[이번 묘사문]\n{ai_output_text}"
         )
-        core.write_log(session.session_id, "api", f"[추출층위 요청 - Payload]\n{user_prompt}")
 
         contents = [types.Content(role="user", parts=[types.Part.from_text(text=user_prompt)])]
         config = types.GenerateContentConfig(
@@ -5142,9 +5205,6 @@ class GMCog(commands.Cog):
             print(f"[추출/{session.session_id}] stale 준비 결과 — 배리어 미충족 "
                   f"(tx={transaction_id}, lt={logical_turn}, at={attempt})")
             return None
-        core.write_log(
-            session.session_id, "api",
-            f"[추출층위 결과(준비·미적용)]\n{json.dumps(result, ensure_ascii=False, indent=2)}")
         preparation.extraction_plan = plan
         preparation.world_observation_raw = result.get(core.turn_world.OBS_FIELD) if _wt is not None else None
         if _wt is not None and _var_manifest:
@@ -5355,6 +5415,7 @@ class GMCog(commands.Cog):
                 usage_source=core.cost_ledger.SOURCE_PROVIDER_METADATA)
             core.write_cost_log(session.session_id, f"{COST_LOG_PREFIX}서사 방향성 시뮬레이션",
                                  in_tokens, cached_tokens, out_tokens, cost, session.total_cost)
+            core.update_stats(session, "simulation", out_tokens, thought_tokens)
             if not hasattr(session, "turn_cost_log"):
                 session.turn_cost_log = []
             # 라벨을 '서사 설계자'라 두면 _plan_narrative와 혼동된다.
@@ -5399,8 +5460,6 @@ class GMCog(commands.Cog):
             except Exception as e:
                 print(f"[GM] 시뮬레이션 보고 실패(무시): {e}")
 
-        core.write_log(session.session_id, "api",
-                       f"[서사 방향성 시뮬레이션]\n{json.dumps(sim_data, ensure_ascii=False, indent=2)}")
         return sim_data
 
     # ─────────────────────────────────────────────────────────────
@@ -5913,8 +5972,6 @@ class GMCog(commands.Cog):
             "위 정보를 바탕으로 GM이 활용할 서사 계획을 JSON 스키마에 맞게 수립하십시오."
         )
 
-        core.write_log(session.session_id, "api",
-                       f"[서사 계획 요청 - trigger={trigger_reason}]\n{user_prompt}")
 
         try:
             config = types.GenerateContentConfig(

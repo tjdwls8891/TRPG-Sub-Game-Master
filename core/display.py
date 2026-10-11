@@ -609,6 +609,25 @@ def build_view(bot, session) -> discord.ui.View:
     return view
 
 
+def _log_display(session, embed, view, reason) -> None:
+    """구조 로그: 플레이어가 보는 상태판 내용(바뀐 경우만) — 표시·정본 불일치 추적용."""
+    try:
+        from . import logs as _logs
+        e = embed.to_dict() if hasattr(embed, "to_dict") else {}
+        shown = {"title": e.get("title"), "description": e.get("description"),
+                 "fields": [[f.get("name"), f.get("value")] for f in e.get("fields") or ()],
+                 "footer": (e.get("footer") or {}).get("text"),
+                 "buttons": [[getattr(c, "custom_id", None), getattr(c, "label", None),
+                              bool(getattr(c, "disabled", False))] for c in getattr(view, "children", ())]}
+        fp = hash(repr(shown))
+        sid = getattr(session, "session_id", None)
+        if sid and _logs._display_last.get(sid) != fp:
+            _logs._display_last[sid] = fp
+            _logs.domain("display", {"reason": reason, **shown}, session=session)
+    except Exception:  # noqa: BLE001
+        pass
+
+
 async def refresh(bot, session, *, reason: str = "") -> bool:
     """CANONICAL_DISPLAY 갱신 — 같은 메시지를 edit 한다. 실패해도 게임 진행을 막지 않는다.
 
@@ -627,6 +646,7 @@ async def refresh(bot, session, *, reason: str = "") -> bool:
 
     embed = build_embed(session)
     view = build_view(bot, session)
+    _log_display(session, embed, view, reason)
     msg_id = getattr(session, "display_msg_id", None)
 
     if msg_id:

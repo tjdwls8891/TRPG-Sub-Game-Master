@@ -207,9 +207,15 @@ async def settle(bot, session) -> dict:
     Returns: {"charged_ink": int(이번 호출에서 새로 확정한 1인당 잉크), "pending_krw": float,
               "complete": bool}
     """
+    from . import logs as _logs
+    sid = session.session_id
+    with _logs.call_context(sid):                      # 잉크 계정 효과 로그의 세션 귀속
+        return await _charge_body(bot, session, sid)
+
+
+async def _charge_body(bot, session, sid):
     from .ink import cost_to_ink
     from .session_open import INTERPRET_CHARGE_THRESHOLD
-    sid = session.session_id
     try:
         reconcile_from_ledger(bot, session)
     except Exception as e:  # noqa: BLE001

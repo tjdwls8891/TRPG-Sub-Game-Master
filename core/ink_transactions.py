@@ -600,3 +600,59 @@ async def execute_lifecycle_ink(*, reference_kind: str, reference_id: str, user_
             f"계정 변이는 내구화됐으나 원장 append 실패(복구 필요): ink_tx_id={ink_tx_id}") from e
     result_status = EXEC_APPLIED if status == accounts.APPLY_NEW else EXEC_RECOVERED_LEDGER
     return InkChargeResult(result_status, ink_tx_id, rec, balance_after=rec.balance_after)
+
+
+# ══════════════════════════════════════════════════════════════
+#  구조 로그 — 잉크 계정 효과 기록(동작 불변 래퍼, 실패·예외도 기록)
+# ══════════════════════════════════════════════════════════════
+
+def _log_ink(kind, sid, data):
+    try:
+        from . import logs as _logs
+        _logs.domain(kind, data, sid=sid)
+    except Exception:  # noqa: BLE001
+        pass
+
+
+def _ink_result(res) -> dict:
+    rec = getattr(res, "transaction", None)
+    return {"status": getattr(res, "status", None), "ink_tx_id": getattr(res, "ink_tx_id", None),
+            "balance_after": getattr(res, "balance_after", None),
+            "delta": getattr(rec, "applied_balance_delta", None) if rec is not None else None}
+
+
+_execute_settlement_charge_impl = execute_settlement_charge
+_execute_lifecycle_ink_impl = execute_lifecycle_ink
+
+
+async def execute_settlement_charge(settlement, user_id, **kw) -> InkChargeResult:  # noqa: F811
+    sid = getattr(settlement, "session_id", None)
+    base = {"user": str(user_id), "settlement_id": getattr(settlement, "settlement_id", None),
+            "nominal": getattr(settlement, "charge_ink_per_user", None),
+            "tx": getattr(settlement, "transaction_id", None)}
+    try:
+        res = await _execute_settlement_charge_impl(settlement, user_id, **kw)
+    except Exception as e:
+        _log_ink("ink.charge", sid, {**base, "error": f"{type(e).__name__}: {e}"})
+        raise
+    _log_ink("ink.charge", sid, {**base, **_ink_result(res)})
+    return res
+
+
+async def execute_lifecycle_ink(**kw) -> InkChargeResult:  # noqa: F811
+    base = {k: kw.get(k) for k in ("reference_kind", "reference_id", "kind", "nominal_ink", "reason")}
+    base["user"] = str(kw.get("user_id"))
+    sid = kw.get("session_id")
+    if not sid:
+        try:
+            from . import logs as _logs
+            sid = (_logs._CTX.get() or {}).get("sid")
+        except Exception:  # noqa: BLE001
+            sid = None
+    try:
+        res = await _execute_lifecycle_ink_impl(**{k: v for k, v in kw.items() if k != "session_id"})
+    except Exception as e:
+        _log_ink("ink.lifecycle", sid, {**base, "error": f"{type(e).__name__}: {e}"})
+        raise
+    _log_ink("ink.lifecycle", sid, {**base, **_ink_result(res)})
+    return res

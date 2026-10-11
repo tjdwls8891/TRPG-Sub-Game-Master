@@ -69,8 +69,35 @@ def clock_view(definition, minute) -> dict:
     if cal is None or minute is None:
         return {}
     dt = cal.from_minute_index(minute)
+    wd = cal.weekday_of(minute)
     return {"current_date": f"{dt.year:04d}-{dt.month:02d}-{dt.day:02d}",
-            "time_of_day": cal.daypart_of(minute) or "미확인", "hhmm": f"{dt.hour:02d}:{dt.minute:02d}"}
+            "time_of_day": cal.daypart_of(minute) or "미확인", "hhmm": f"{dt.hour:02d}:{dt.minute:02d}",
+            "weekday": WEEKDAY_KO[wd] if wd is not None else None}
+
+
+WEEKDAY_KO = ("월요일", "화요일", "수요일", "목요일", "금요일", "토요일", "일요일")
+
+
+def clock_text(cv: dict) -> str:
+    return (f"{cv['current_date']}" + (f" {cv['weekday']}" if cv.get("weekday") else "")
+            + f" {cv['hhmm']} ({cv['time_of_day']})")
+
+
+def narration_clock_block(wt, session) -> str:
+    """묘사층위용 정본 시각 — 매 턴 준다(이동이 없는 턴도). 상태 블록의 날짜·요일·시각은 이 값을 따른다."""
+    plan = wt.plan
+    if plan is not None and plan.status == _pw.PLAN_PLANNED and plan.end_minute is not None:
+        minute = plan.end_minute
+    else:
+        world = getattr(plan, "projected_world", None) or session
+        minute = ((world.domain("world_clock") if isinstance(world, _wm.ProjectedWorld)
+                   else getattr(world, "world_clock", {})) or {}).get("minute_index")
+    cv = clock_view(wt.ctx.definition, minute)
+    if not cv:
+        return ""
+    return ("\n[현재 작중 시각 — 정본]\n· " + clock_text(cv) + "\n"
+            "· 본문과 상태 블록의 날짜·요일·시각 표기는 이 값을 따를 것. 다른 날짜·요일·시각을 지어내지 말 것"
+            "(경과일 등 다른 표기를 쓰더라도 이 날짜와 어긋나지 않게).\n")
 
 
 def derived_player_faction(world):
@@ -137,23 +164,37 @@ def mirror_timeline(prev_tl: dict, definition: dict, world, pc: str) -> dict:
     return tl
 
 
-def _shown(plan, definition, ctx, pid):
+def _shown(plan, definition, ctx, pid, world=None):
     """H07 §5: 묘사층위·플레이어에게 쓰는 장소 이름 = PC 지식 수준 표시명(내부 PlaceId 비노출)."""
     if pid is None:
         return None
-    world = getattr(plan, "projected_world", None)
+    world = getattr(plan, "projected_world", None) or world
     pc = getattr(ctx, "lead_pc", None)
     if world is None or pc is None:
         return _pd.display_name(definition or {}, {}, pid, require_known=False)
     return _pd.display_for(definition or {}, world, pc, pid, require_known=False)
 
 
-def narration_overlay(plan, definition: dict, ctx=None) -> str:
-    """묘사층위에 주는 코드 확정 세계 결과(PC가 관찰 가능한 것만). 장소는 PC 지식 수준 표시명."""
+PLACE_LOCK_TEXT = ("· 이번 턴에는 정본 이동이 없다. PC는 여전히 {place}에 있다. 이 장소를 벗어나거나 "
+                   "다른 장소·건물·구역에 도착·진입한 것으로 지시·묘사하지 말 것 — 이 장소 안의 작은 움직임만 다룬다. "
+                   "다른 곳으로 가려면 플레이어가 보이는 출구를 선언해야 한다.")
+
+
+def narration_overlay(plan, definition: dict, ctx=None, *, world=None) -> str:
+    """묘사층위에 주는 코드 확정 세계 결과(PC가 관찰 가능한 것만). 장소는 PC 지식 수준 표시명.
+
+    정본 이동이 없는 턴(NONE — 장소 안 이동 포함)도 장소 고정 문구를 준다(묘사가 정본을 따른다).
+    world: 계획에 투영 세계가 없을 때 표시명 판단에 쓸 정본 세계(세션).
+    """
     if plan is None:
         return ""
-    nm = lambda pid: _shown(plan, definition, ctx, pid)
+    nm = lambda pid: _shown(plan, definition, ctx, pid, world)
     lines = ["\n[세계 진행 — 코드 확정 결과. 아래와 다른 시간·장소·결과를 묘사하지 말 것]"]
+    if plan.status == _pw.PLAN_NONE:
+        if not plan.scene_place:
+            return ""
+        lines.append(PLACE_LOCK_TEXT.format(place=nm(plan.scene_place)))
+        return "\n".join(lines) + "\n"
     o = plan.outcome or {}
     kind = o.get("kind")
     if plan.status == _pw.PLAN_REJECTED:
@@ -174,7 +215,7 @@ def narration_overlay(plan, definition: dict, ctx=None) -> str:
         lines.append(f"· 경과 시간: {plan.code_owned_minutes}분")
     cv = clock_view(definition, plan.end_minute)
     if cv:
-        lines.append(f"· 현재 시각: {cv['current_date']} {cv['hhmm']} ({cv['time_of_day']})")
+        lines.append(f"· 현재 시각: {clock_text(cv)}")
     if kind == _pw.OUT_ARRIVED:
         lines.append(f"· PC는 {nm(o.get('final_place'))}에 도착했다.")
     elif kind == _pw.OUT_INTERRUPTED_SIGNAL:
@@ -231,7 +272,7 @@ def _raw_place(definition, pid) -> dict:
     return ((((definition.get("legacy_source") or {}).get("scenario") or {}).get("places") or {}).get(pid)) or {}
 
 
-def dynamic_place_block(ctx, plan, session) -> str:
+def dynamic_place_block(ctx, plan, session, *, for_narration: bool = False) -> str:
     """H07: DYNAMIC 지시층위용 장소 블록 — 정본 장소·구간·PC 지식 기준(레거시 connected·reachable 홉 은퇴).
 
     · 현재 장소: 플레이어 표시명 + (다르면) 내부 이름과 '이름 사용 규칙'. 지시층위(GM 권한)만 내부 이름을 본다.
@@ -246,7 +287,7 @@ def dynamic_place_block(ctx, plan, session) -> str:
     know = _sp.actor_knowledge(world, ctx.lead_pc)
     shown = _pd.display_name(D, know, scene, require_known=False)
     lines = ["\n[현재 장소 — 정본]", shown]
-    if shown != scene:
+    if shown != scene and not for_narration:          # 내부 이름은 지시층위(GM 권한)만 본다
         lines.append(f"(내부 이름: {scene} — PC는 아직 이 이름을 모른다. 묘사·질문에서 내부 이름·소속을 쓰지 말고 "
                      f"'{shown}'처럼 PC가 아는 만큼만 부를 것)")
     node = _raw_place(D, scene)
@@ -278,6 +319,43 @@ def dynamic_place_block(ctx, plan, session) -> str:
         lines += exits[:10]
         lines.append("미방문 장소는 확정적으로 묘사하지 말 것. 이름을 모르는 곳은 표시된 이름으로만 부를 것.")
     return "\n".join(lines) + "\n"
+
+
+def visible_exit_names(ctx, session) -> list:
+    """현재 장소에서 PC가 아는 출구의 표시명(PC 지식 수준) — 목적지 되묻기용."""
+    world, scene = _scene_world_and_place(ctx, None, session)
+    if scene is None:
+        return []
+    D = ctx.definition
+    know = _sp.actor_knowledge(world, ctx.lead_pc)
+    out = []
+    for eid, e in sorted((D.get("movement_edges") or {}).items()):
+        if e.get("from") == scene and _sp.knows_edge(know, eid):
+            nm = _pd.display_name(D, know, e["to"], require_known=False)
+            if nm and nm not in out:
+                out.append(nm)
+    return out
+
+
+def destination_question(ctx, session) -> str:
+    names = visible_exit_names(ctx, session)
+    if names:
+        return "어디로 가시겠습니까? 지금 보이는 길: " + ", ".join(names[:10]) + "."
+    return "어디로 가시겠습니까? 가려는 곳을 구체적으로 말씀해 주세요."
+
+
+def narration_world_block(wt, session) -> str:
+    """DYNAMIC 묘사층위용 세계 블록 — 정본 장소·출구 + 코드 확정 결과(장소 고정 포함) + 현재 장면 인물.
+
+    GM 지시문은 공백이 접혀 한 문단이 되므로, 세계 제약은 지시문 뒤가 아니라 독립 블록으로 준다.
+    """
+    if wt is None:
+        return ""
+    parts = [narration_clock_block(wt, session), dynamic_place_block(wt.ctx, wt.plan, session, for_narration=True)]
+    if wt.plan is not None:
+        parts.append(narration_overlay(wt.plan, wt.ctx.definition, wt.ctx, world=session))
+    parts.append(scene_npc_block(wt.ctx, wt.plan, session))
+    return "".join(p for p in parts if p)
 
 
 MAX_GUIDE_LINES = 8
@@ -367,7 +445,9 @@ def scene_npc_block(ctx, plan, session) -> str:
     where = scene or "이동 중(장소 밖)"
     lines = [f"\n[현재 장면 인물 — 정본 위치 기준 · 장면: {where}]",
              "※ 정의된 NPC 중 이 목록의 인물만 지금 이 장면에 있다. 장소의 연고 인물·NPC 사전의 거처는 "
-             "현재 위치가 아니다 — 목록에 없는 정의 NPC를 이 장면에 있다고 묘사하지 말 것."]
+             "현재 위치가 아니다 — 목록에 없는 정의 NPC를 이 장면에 있다고 묘사하지 말 것.",
+             "※ 목록 밖 정의 인물(룰북 인물 사전의 이름)을 이름·정체로 등장시키지 말 것. 새로 필요한 인물은 "
+             "이름 없는 인물로 다룬다."]
     lines += [_npc_line(p) for p in projs] or ["(정본상 이 장면에 있는 정의 NPC 없음)"]
     return "\n".join(lines) + "\n"
 

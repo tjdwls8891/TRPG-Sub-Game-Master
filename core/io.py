@@ -278,56 +278,35 @@ def load_scenario_from_file(scenario_id: str) -> dict | None:
 
 
 def write_log(session_id: str, log_type: str, content: str):
-    """
-    세션별 행동 및 시스템 로그를 타임스탬프와 함께 로컬 텍스트 파일로 영구 저장.
+    """세션 기록 — core.logs 구조 로그로 보낸다(텍스트 로그 파일은 은퇴).
 
-    Args:
-        session_id (str): 로그를 저장할 세션 식별자
-        log_type (str): 로그 유형 (예: 'api', 'game_chat', 'master_chat')
-        content (str): 기록할 내용
+    log_type: 'game_chat'·'master_chat' → chat.jsonl / 'error' → events(ERROR) / 그 밖('api' 등) → events(turn).
+    첫 줄은 메시지, 나머지는 상세(길면 조각 저장소로).
     """
     if not session_id:
         return
-
-    log_filename = f"sessions/{session_id}/{log_type}_log.txt"
-    now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-
-    # 로그 실패가 게임 진행을 막지 않게 한다. 호출부가 28곳이라
-    # 각자 감싸는 대신 여기서 흡수한다.
-    try:
-        os.makedirs(os.path.dirname(log_filename), exist_ok=True)
-        with open(log_filename, "a", encoding="utf-8") as f:
-            f.write(f"[{now_str}] {content}\n")
-            if log_type == "api":
-                f.write("-" * 60 + "\n")
-    except Exception as e:
-        print(f"[로그 실패] {session_id}/{log_type}: {e}")
+    from . import logs as _logs
+    text = str(content or "")
+    if log_type in ("game_chat", "master_chat"):
+        speaker, _sep, body = text.partition(": ") if text.startswith("[") else ("", "", text)
+        _logs.chat(session_id, "game" if log_type == "game_chat" else "master",
+                   speaker.strip("[]") if _sep else "", body if _sep else text)
+        return
+    head, _nl, rest = text.partition("\n")
+    _logs.event("error" if log_type == "error" else "turn", head,
+                level="ERROR" if log_type == "error" else "INFO", sid=session_id,
+                data={"detail": rest} if rest else None)
 
 
 def write_cost_log(session_id: str, usage_context: str, in_tokens: int, cached_tokens: int, out_tokens: int, cost: float, total_cost: float):
-    """
-    비용 발생 시점, 사용처, 토큰 수, 청구액을 기록하는 전용 비용 로거.
-    """
+    """비용 발생(사용처·토큰·원화/달러·세션 누적 미러) — domain.jsonl. 권위는 CostLedger."""
     if not session_id:
         return
-    log_filename = f"sessions/{session_id}/cost_log.txt"
-    now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-
-    # 청구 근거는 달러다. 원화는 그 시점 환율로 환산한 값이므로
-    # 나중에 환율이 바뀌면 대조할 수 없다. 둘을 함께 남긴다.
+    from . import logs as _logs
     usd = (cost / EXCHANGE_RATE) if EXCHANGE_RATE else 0.0
-    total_usd = (total_cost / EXCHANGE_RATE) if EXCHANGE_RATE else 0.0
-
-    try:
-        os.makedirs(os.path.dirname(log_filename), exist_ok=True)
-        with open(log_filename, "a", encoding="utf-8") as f:
-            f.write(
-                f"[{now_str}] [사용처: {usage_context}] "
-                f"토큰: In({in_tokens}), Cached({cached_tokens}), Out({out_tokens}) | "
-                f"발생: ${usd:.6f} (₩{cost:.2f}) | "
-                f"누적: ${total_usd:.4f} (₩{total_cost:.2f})\n")
-    except Exception as e:
-        print(f"[비용로그 실패] {session_id}: {e}")
+    _logs.domain("cost.usage", {"context": usage_context, "in": in_tokens, "cached": cached_tokens,
+                                "out": out_tokens, "krw": round(cost, 4), "usd": round(usd, 6),
+                                "session_total_krw": round(total_cost, 4)}, sid=session_id)
 
 
 def get_available_scenarios() -> list:

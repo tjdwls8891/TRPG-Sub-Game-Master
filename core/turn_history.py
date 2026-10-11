@@ -359,6 +359,15 @@ def write_attempt_record(session, plan, payload) -> bool:
     }
     rec["post_digest"] = _digest(rec["post"])
     _write_json_strict(path, rec)
+    # 구조 로그: 되감기 레코드의 pre→post 상태 델타(아이템·상태·사건·인지·위치 등 이 턴의 정본 변화 전부)
+    try:
+        from . import logs as _logs
+        _logs.domain("turn.delta", {"tx": plan.transaction_id, "gm_turn": plan.gm_turn,
+                                    "story_turn": plan.story_turn, "attempt": plan.attempt,
+                                    "settlement_id": plan.settlement_id,
+                                    "diff": _logs.state_diff(rec["pre"], rec["post"])}, sid=sid)
+    except Exception as e:  # noqa: BLE001
+        print(f"[로그] 턴 델타 기록 실패(무시): {e}")
     return True
 
 
@@ -1196,3 +1205,52 @@ def _history_block(session, stage, detail) -> dict:
     _io.write_log(session.session_id, "error", f"[WP-E] 이력 정합 차단 {stage} — {detail}")
     print(f"⛔ [WP-E/{session.session_id}] 이력 정합 차단 {stage}: {detail}")
     return {"ok": False, "action": stage, "detail": detail}
+
+
+# ══════════════════════════════════════════════════════════════
+#  구조 로그 — 이력 조작(되감기·재생성) 결과 기록(동작 불변 래퍼)
+# ══════════════════════════════════════════════════════════════
+
+def _log_history(kind, session, data):
+    try:
+        from . import logs as _logs
+        _logs.domain(kind, data, session=session)
+    except Exception:  # noqa: BLE001
+        pass
+
+
+_rewind_impl = rewind
+_begin_rerender_impl = begin_rerender
+_abort_rerender_impl = abort_rerender
+_settle_rerender_impl = settle_rerender
+
+
+async def rewind(bot, session, target_gm_turn: int) -> dict:  # noqa: F811
+    res = await _rewind_impl(bot, session, target_gm_turn)
+    _log_history("history.rewind", session, {"target_gm_turn": target_gm_turn, "ok": res.get("ok"),
+                                             "reason": res.get("reason"),
+                                             "removed_turns": res.get("removed_turns")})
+    return res
+
+
+async def begin_rerender(bot, session, entry, rec, *, addendum: str = ""):  # noqa: F811
+    tx = await _begin_rerender_impl(bot, session, entry, rec, addendum=addendum)
+    _log_history("history.rerender_begin", session, {"gm_turn": (rec or {}).get("gm_turn"),
+                                                     "replaces_tx": (rec or {}).get("transaction_id"),
+                                                     "new_tx": getattr(tx, "transaction_id", None),
+                                                     "addendum": addendum})
+    return tx
+
+
+async def abort_rerender(bot, session) -> bool:  # noqa: F811
+    ok = await _abort_rerender_impl(bot, session)
+    _log_history("history.rerender_abort", session, {"ok": ok})
+    return ok
+
+
+async def settle_rerender(bot, session) -> dict:  # noqa: F811
+    res = await _settle_rerender_impl(bot, session)
+    if res.get("action") not in (None, "NONE"):
+        _log_history("history.rerender_settle", session, {"action": res.get("action"),
+                                                          "superseded": res.get("superseded")})
+    return res

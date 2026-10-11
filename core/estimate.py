@@ -35,7 +35,11 @@ DEFAULT_BASELINE = {
     "instruction_out": 620,    # 지시층위 출력
     "judgment_out": 280,       # 판단층위 출력
     "extraction_out": 340,     # 추출층위 출력
+    "simulation_out": 2100,    # 개연성 시뮬레이션 출력(사고 포함)
 }
+
+# 개연성 시뮬레이션 비캐시 입력의 고정분(시뮬레이터 지시문·지시사항) — 최근 로그 4개는 따로 센다.
+SIMULATION_FIXED_TOKENS = 1700
 
 # 통계 표본 수에 따른 신뢰도 구간
 CONFIDENCE_MID = 3
@@ -112,9 +116,9 @@ def estimate_input_tokens(session, action: str = "PROCEED") -> dict:
 
     Returns:
         {"judgment": int, "instruction": int, "narration": int,
-         "extraction": int, "cached": int}
+         "extraction": int, "simulation": int, "cached": int}
     """
-    out = {"judgment": 0, "instruction": 0, "narration": 0, "extraction": 0, "cached": 0}
+    out = {"judgment": 0, "instruction": 0, "narration": 0, "extraction": 0, "simulation": 0, "cached": 0}
     # 실제 관측된 캐시 읽기량을 우선 사용한다. cache_tokens는 조립 텍스트 기준이라
     # 캐시 본문에 함께 구워진 시스템 지시문(약 8천 토큰)이 빠져 있다.
     out["cached"] = int(getattr(session, "cache_read_tokens", 0)
@@ -145,8 +149,10 @@ def estimate_input_tokens(session, action: str = "PROCEED") -> dict:
                 continue
         judged = "\n".join(recent) + (getattr(session, "note", "") or "")
         out["judgment"] = _tok(judged) + 200   # 지시문·능력치 블록 고정분
+        out["simulation"] = _tok("\n".join(recent[-4:])) + SIMULATION_FIXED_TOKENS
     except Exception:
         out["judgment"] = 400
+        out["simulation"] = SIMULATION_FIXED_TOKENS
 
     # 추출층위 — 묘사문(최대 3000자) + 타겟 목록
     narr_hi = _out_range(session, "narration", "narration_out")[1]
@@ -165,6 +171,9 @@ def estimate_turn(session, action: str = "PROCEED") -> dict:
         ROLL    판단만 (이후 재진입)         → 캐시 읽기 0회
         NARRATE 판단 + 지시 + 경량묘사        → 캐시 읽기 2회
         PROCEED 판단 + 지시 + 묘사 + 추출     → 캐시 읽기 2회
+    캐시가 유효하면 매 판단 전에 개연성 시뮬레이션(캐시 읽기 1회)이 함께 돈다.
+    NARRATE·PROCEED 상한에는 판정 재진입 1회(시뮬레이션 + 판단)를 더한다 —
+    ROLL을 거친 턴은 같은 턴 안에서 시뮬레이션·판단을 다시 부른다.
 
     Returns:
         {"min_krw", "max_krw", "min_ink", "max_ink",
@@ -189,17 +198,29 @@ def estimate_turn(session, action: str = "PROCEED") -> dict:
     j_lo, j_hi = _out_range(session, "judgment", "judgment_out")
     breakdown["판단층위"] = (_cost(inp["judgment"], j_lo, 0), _cost(inp["judgment"], j_hi, 0))
 
+    # 개연성 시뮬레이션 — 판단 전에 실행(gm._call_gm_logic의 do_simulation과 같은 조건)
+    sim = _simulation_runs(session)
+    if sim:
+        s_lo, s_hi = _out_range(session, "simulation", "simulation_out")
+        s_in = inp["simulation"] + inp["cached"]
+        breakdown["개연성 시뮬레이션"] = (_cost(s_in, s_lo, inp["cached"]), _cost(s_in, s_hi, inp["cached"]))
+
     if action in ("NARRATE", "PROCEED"):
+        # 단가 함수의 input_tokens는 캐시 적중분을 포함한 총량이다(본문만 넘기면 비캐시 입력이 0으로 계산된다).
+        c = inp["cached"]
         i_lo, i_hi = _out_range(session, "instruction", "instruction_out")
-        breakdown["지시층위"] = (_cost(inp["instruction"], i_lo, inp["cached"]),
-                              _cost(inp["instruction"], i_hi, inp["cached"]))
+        breakdown["지시층위"] = (_cost(inp["instruction"] + c, i_lo, c), _cost(inp["instruction"] + c, i_hi, c))
         n_lo, n_hi = _out_range(session, "narration", "narration_out")
-        breakdown["묘사층위"] = (_cost(inp["narration"], n_lo, inp["cached"]),
-                              _cost(inp["narration"], n_hi, inp["cached"]))
+        breakdown["묘사층위"] = (_cost(inp["narration"] + c, n_lo, c), _cost(inp["narration"] + c, n_hi, c))
 
     if action == "PROCEED":
         e_lo, e_hi = _out_range(session, "extraction", "extraction_out")
         breakdown["추출층위"] = (_cost(inp["extraction"], e_lo, 0), _cost(inp["extraction"], e_hi, 0))
+
+    if action in ("NARRATE", "PROCEED"):
+        # 판정 재진입(ROLL 뒤 같은 턴의 두 번째 시뮬레이션·판단) — 상한에만 더한다.
+        re_hi = breakdown["판단층위"][1] + (breakdown.get("개연성 시뮬레이션") or (0.0, 0.0))[1]
+        breakdown["판정 재진입(상한)"] = (0.0, re_hi)
 
     for lo, hi in breakdown.values():
         lo_total += lo
@@ -220,6 +241,17 @@ def estimate_turn(session, action: str = "PROCEED") -> dict:
         "confidence": confidence,
         "input_tokens": inp,
     }
+
+
+def _simulation_runs(session) -> bool:
+    """이번 턴에 개연성 시뮬레이션이 돌 것인가 — gm._call_gm_logic의 do_simulation과 같은 조건."""
+    try:
+        from .constants import DEFAULT_MODEL as _dm
+        from . import turn_history
+        return bool(getattr(session, "cache_name", None) and getattr(session, "cache_model", None) == _dm
+                    and turn_history.cache_usable(session))
+    except Exception:
+        return False
 
 
 def approx_cache_tokens(scenario_data: dict) -> int:

@@ -8,11 +8,12 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 AI가 4개 층위로 나뉘어 판단·지시·묘사·추출을 분담한다. 플레이어는 서버 GM 스페이스에서 버튼으로 세션을 열고, 캐릭터를 만들고, 턴을 진행한다. **명령어는 GM의 수동 개입·복구 수단이며 일반 플레이에는 쓰지 않는다.**
 
-현재 버전: **v7.5.0** · `SCHEMA_VERSION` 4 · 총 운영 코드 ~49,830줄(main·prompts·cogs·core) · 테스트 ~25,690줄
+현재 버전: **v7.9.1** · `SCHEMA_VERSION` 4 · 총 운영 코드 ~51,810줄(main·prompts·cogs·core) · 테스트 ~26,780줄
 
 리팩터링: **7-WP 프로그램(WP-A~WP-G)** — 턴 트랜잭션·커밋·재무·이력·파생 시스템을 단일 권위로 재구성했다. WP-A~G 전부 독립 게이트 VERIFIED — **프로그램 완료**(WP-G 최종 후보 `f0fd69e`, 증거 `handoff/WP_G_COMPLETION_BUNDLE.md`). 다음 WP는 없다. 버전은 이 비호환 전환 전체를 **단일 MAJOR v6.0.0**으로 채택했다(2026-10-06, 이력 보정은 DEVLOG '버전 기록').
 
 동적 세계 구현 프로그램(통합 로드맵 v0.3, **H01~H07**, `de367c7` 기준)이 진행 중이다. H 번호는 개발 패키지명이다.
+H07 이후 패키지(v7.6.0~v7.9.1): SVG 화자 카드·영도 카드 저작 → 7.6.0, `!세션이력` → 7.7.0, 묘사↔정본 정합·만료 중 선언 보관·화자 표기 → 7.8.0, 구조 로그 → 7.9.0, 정본 시각·상태이상 판정 보정·예상 비용·판정 기록 중복 → 7.9.1(DEVLOG '버전 기록').
 
 | WP | 범위 | 상태 |
 |---|---|---|
@@ -42,7 +43,7 @@ python main.py
 
 ### 배포
 
-운영 서버(Oracle Cloud, Ubuntu ARM, systemd `trpg-bot.service`)에서:
+운영 서버(Oracle Cloud, Ubuntu x86_64, systemd `trpg-bot.service`)에서:
 
 ```
 !배포 재시작      # git pull + 재시작
@@ -62,12 +63,13 @@ python main.py
 ```
 플레이어 선언
    ↓
+[개연성 시뮬레이션]  세계관 대비 이 행동이 무엇에 닿는지 미리 훑는다(캐시 읽기 1회)
+   │                 캐시가 유효하면 판단 전에 모든 유형에서 돈다. 지시층위의 판단 재료.
+   │                 서사설계자와는 별개다.
+   ↓
 [판단층위]  유형 결정 (ASK / NARRATE / ROLL / PROCEED)
    │        캐시를 읽지 않는다. 맥락을 사용자 프롬프트로 직접 공급.
-   │        ASK·ROLL은 여기서 끝난다 (캐시 0회 → 가장 저렴)
-   ↓
-[개연성 시뮬레이션]  세계관 대비 이 행동이 무엇에 닿는지 미리 훑는다
-   │                 지시층위의 판단 재료. 서사설계자와는 별개다.
+   │        ASK·ROLL은 여기서 끝난다 (지시·묘사 캐시 0회 → 가장 저렴. ROLL은 결과 뒤 같은 턴에 시뮬레이션·판단 재진입)
    ↓
 [지시층위]  묘사 지시문 + 퀘스트 선택 (NARRATE·PROCEED만)
    │        캐시를 읽는다. 세계관·금지사항·정보 접근을 반영.
@@ -106,6 +108,7 @@ python main.py
 | `media/{시나리오명}/` | 인물 이미지·BGM. **폴더명은 시나리오 id와 같아야 한다** |
 | `tools/verify_docs.py` | 문서 수치 정합 검증 |
 | `tools/scenario_check.py` | 시나리오 정의 검사·컴파일·이행 보고(H01, 원본 읽기 전용) |
+| `tools/log_view.py` | 구조 로그 열람(세션 폴더·`!세션이력` zip) — 요약·시간순·호출 원문 복원·이벤트·도메인·채팅 |
 | `handoff/` | WP별 완료 번들·스캔·매트릭스(과거 번들은 HISTORICAL 증거, 수정 금지) |
 | `tests/` | 특성화·결함·정책 테스트 하네스(WP-00~G) |
 
@@ -115,8 +118,8 @@ python main.py
 
 | 파일 | 줄 | 명령어 |
 |---|---|---|
-| `gm.py` | 5,981 | `!자동` 그룹(시작·중단·상태·개입·재계획·서사·원장·**퀘스트**·턴제한·비용제한), `!되감기` |
-| `game.py` | 1,533 | `!재생성` `!출력물` `!주사위` `!기억압축` `!노트` `!캐시노트` `!더빙테스트` (WP-G: 수동 `!진행`·`!수정` 은퇴) |
+| `gm.py` | 6,081 | `!자동` 그룹(시작·중단·상태·개입·재계획·서사·원장·**퀘스트**·턴제한·비용제한), `!되감기` |
+| `game.py` | 1,552 | `!재생성` `!출력물` `!주사위` `!기억압축` `!노트` `!캐시노트` `!더빙테스트` (WP-G: 수동 `!진행`·`!수정` 은퇴) |
 | `character.py` | 1,253 | `!참가` `!설정` `!증감` `!외형` `!프로필` `!엔피씨` `!능력치` `!설정생성` `!캐릭터가져오기` |
 | `system.py` | 972 | `!명령어` `!배포` `!재시작` `!지급` **`!잉크`** **`!사용량`** `!스페이스` `!캐시` `!리로드` `!세션종료` `!채널정리` `!tts생성` `!세션이력` |
 | `media.py` | 756 | `!이미지` `!브금` `!플리` `!볼륨` `!채팅` `!더빙` |
@@ -125,7 +128,7 @@ python main.py
 | `permissions.py` | 98 | `!권한부여` `!권한회수` `!권한목록` |
 | `presence.py` | 122 | 상태 메시지 순환 + **캐시 만료 감지**(15초 주기) |
 
-### core/ — 86개 서브모듈
+### core/ — 87개 서브모듈
 
 `core/__init__.py`가 전 심볼을 re-export하므로 외부에서는 `core.XYZ`로 접근한다.
 
@@ -154,7 +157,8 @@ python main.py
 | `models.py` | 319 | `TRPGSession` — 단일 세션의 모든 상태 |
 | `io.py` | 535 | `SCHEMA_VERSION`, `SESSION_FIELDS`(97), `migrate_session_data`, 직렬화·로그 |
 | `cache.py` | 604 | 룰북 캐시 빌드, `remaining_ttl`, `is_cache_expired`, `is_session_open`, 세션 복구 |
-| `resilience.py` | 207 | `call_with_retry` — 재시도·타임아웃·오류 로그 분리 |
+| `resilience.py` | 207 | `call_with_retry` — 재시도·타임아웃. 시도 실패는 구조 로그 ERROR, provider 호출 맥락(층위·작업·시도·세션)을 설정 |
+| `logs.py` | 440 | **구조 로그 단일 owner** — 세션 `logs/`(`calls`·`blobs`·`events`·`domain`·`chat` JSONL)·전역 `logs/bot.jsonl`(회전 10MB×5, 모든 print 포착·세션 ID 출력은 세션 이벤트에도). provider 호출은 `install_client_proxy`가 `genai_client.models`를 감싸 1건씩 기록(동작 불변). 요청·응답은 줄 조각 해시 델타(반복 줄은 참조만, 테스트 세션 요청 원문 대비 27%). 도메인 사실: `tx.*`·`turn.delta`(되감기 레코드 pre→post 상태 차이)·`commit`(청구·세계 typed op)·`cost.event`·`cost.usage`·`ink.charge`·`ink.lifecycle`·`display`(바뀐 상태판)·`history.*`·`card.*`. 열람은 `tools/log_view.py` |
 
 #### 프롬프트·AI
 
@@ -169,7 +173,7 @@ python main.py
 | 모듈 | 줄 | 내용 |
 |---|---|---|
 | `cost.py` | 689 | 토큰 단가 계산, 호환 미러 `accrue`, 비용 임베드, CostLedger 조회(`provider_cost_summary`·`player_ink_summary`·`auto_cost_cap_reached`) |
-| `estimate.py` | 380 | 턴·세션오픈·TTS 예상, `approx_cache_tokens` (압축 선결제는 WP-G에서 은퇴) |
+| `estimate.py` | 412 | 턴·세션오픈·TTS 예상(개연성 시뮬레이션·판정 재진입 상한 포함), `approx_cache_tokens` (압축 선결제는 WP-G에서 은퇴) |
 | `ink.py` | 85 | 잉크 환산 (1잉크 = 10원) |
 | `accounts.py` | 576 | 계정 등록·약관·잔액. strict 금전 프리미티브(Settlement CHARGE·Lifecycle 조정 마커) + 운영자 `*_strict`(WP-G). 레거시 tolerant writer는 테스트 시드 전용 |
 | `terms.py` | 202 | 약관 동의 DM |
@@ -270,7 +274,7 @@ H04는 세계가 스스로 진행되는 데 필요한 정본과 **순수 투영*
 |---|---|---|
 | `action_intent.py` | 409 | `ActionReferenceManifest`(PC 지식 기반 후보 → transient 키 P/R/K/I, world_version·revision 결속)·판단 스키마 런타임 확장(`action_intent`, 추가 provider 호출 0)·`ResolvedActionIntent`(목적지·시간·경로 선택·접근 확인 토큰·명시 PC 태도, 후보 밖 키는 거부)·시간 목표 계산 |
 | `player_world.py` | 745 | 세계 모드(`definition_revision` 바인딩 + 정량 시간·구조화 장소 + 시계 초기화 + PC 배치 = DYNAMIC, 그 외 LEGACY)·경로 선택 정책(의미 있는 차이는 ASK, 자동은 (비용, 서명) 결정적)·구간별 실제 접근 + 구간 사이 H04 세계 진행(관찰 신호 중단·숨은 봉쇄는 도달 시 관찰)·대기/수면 ActivityContext·PLAYER_EXPLICIT 태도·`namespace_ops`/`chain` |
-| `turn_world.py` | 799 | 묘사 오버레이(투영 장면·관찰 가능한 결과만)·레거시 `world_timeline` 표시 미러(정본에서 파생)·관찰 매니페스트(장면 행위자가 아는 정보·장면 신호·선후 선택지)·`process_observation`(노출 → PC 획득, 비코드 소유 추가 시간, 선후 검증, 보충 진행)·`ForegroundContinuationPlan`·투영 미디어 허용 장소 |
+| `turn_world.py` | 891 | 묘사 오버레이(투영 장면·관찰 가능한 결과만 · 정본 이동 없는 턴은 장소 고정 문구 · 묘사층위 세계 블록 `narration_world_block` — 정본 날짜·요일·시각·장소·출구·장면 인물 독립 블록 · 목적지 불명 이동은 보이는 출구로 되묻기)·레거시 `world_timeline` 표시 미러(정본에서 파생)·관찰 매니페스트(장면 행위자가 아는 정보·장면 신호·선후 선택지)·`process_observation`(노출 → PC 획득, 비코드 소유 추가 시간, 선후 검증, 보충 진행)·`ForegroundContinuationPlan`·투영 미디어 허용 장소 |
 
 자동 턴 순서(DYNAMIC): 판단(매니페스트·`action_intent`) → 코드 계획(경로 ASK는 지시층위 전) → 지시·묘사(오버레이·투영 장소 블록·투영 장면 이미지) → 추출(`world_observation`) → 보충 진행 → (필요 시 후속 묘사 1회, 같은 턴 비용) → READY(`stage_world_ops`) → CommitCoordinator → 후속 묘사 송출(시도 소유) → 다음 행동 질문. 장소·시간 권위는 정본 세계이며 추출의 장소·날짜는 적용되지 않는다. 묘사 전 결정적 충돌은 묘사 호출 없이, 묘사 후 충돌·모호한 선후는 재시도 없이 FAILED_SYSTEM(청구 0). LEGACY 세션은 기존 경로와 동일하다. 운영 세션이 DYNAMIC이 되려면 H06 정의 바인딩·genesis가 필요하다(현재 영도 단일 PC만).
 
@@ -299,13 +303,13 @@ R2: 초기화 실패는 fail-closed(실패 표식 strict 저장 — LEGACY 진�
 | 모듈 | 줄 | 내용 |
 |---|---|---|
 | `display.py` | 662 | **디스플레이 채널** — 상태·UI 단일 메시지, `notify`/`close_notice` |
-| `speaker_card.py` | 976 | **SVG 화자 카드**(DYNAMIC 전용) — 시나리오 최상위 `speaker_card`(기본 `legacy_png`)·커밋된 PC 인지(CONTENT) 기반 항목별 공개(`all_info` AND, 슬롯당 규칙 1개)·지시층위 얼굴·이름 식별(`identified_faces`·`identified_names`)·안전 슬롯 치환·자산 SHA-256·래스터화(resvg CLI/`resvg_py`, 운영 설치 필요)·독립 저작 검사(`scenario_check`). 실패 = 이미지 생략. 재색은 `baseline` 기준색 배율, `front_ids`로 지정 요소를 맨 앞에 그림. 영도 저작: NPC 47명 카드·얼굴·이름 InfoId 94개(`yd.info.card.*`, revision `0240dbc5…`) |
+| `speaker_card.py` | 982 | **SVG 화자 카드**(DYNAMIC 전용) — 시나리오 최상위 `speaker_card`(기본 `legacy_png`)·커밋된 PC 인지(CONTENT) 기반 항목별 공개(`all_info` AND, 슬롯당 규칙 1개)·지시층위 얼굴·이름 식별(`identified_faces`·`identified_names`)·안전 슬롯 치환·자산 SHA-256·래스터화(resvg CLI/`resvg_py`, 운영 설치 필요)·독립 저작 검사(`scenario_check`). 실패 = 이미지 생략. 미식별 표기 `???`, 시나리오 `plain_speakers`는 원문 표기·이미지 없음. 재색은 `baseline` 기준색 배율, `front_ids`로 지정 요소를 맨 앞에 그림. 영도 저작: NPC 47명 카드·얼굴·이름 InfoId 94개(`yd.info.card.*`, revision `7cfe9f16…`) |
 | `audio_mixer.py` | 393 | BGM/플리 + 효과음 + 음성 합산 |
 | `tts.py` · `tts_preset.py` | 436 | Gemini TTS, 시스템 문구 사전 합성 |
 | `media.py` · `media_control.py` | 316 | 이미지 전송, 플레이리스트, BGM 선택 |
 | `ui.py` | 282 | 주사위 뷰, 채널 삭제 뷰 |
 | `chat_guard.py` | 82 | 채널별 권한 검증 (단일 훅) |
-| `utils.py` | 310 | 캐릭터 검색, AI 설정 생성 |
+| `utils.py` | 326 | 캐릭터 검색, AI 설정 생성, 상태이상 판정 보정 합산(`status_roll_modifier` — 시나리오 weight를 판정 기준치에 코드가 더함) |
 
 ---
 
@@ -316,11 +320,7 @@ R2: 초기화 실패는 fail-closed(실패 표식 strict 저장 — LEGACY 진�
 ```
 sessions/{session_id}/
 ├── data.json              세션 스냅샷 (원자적 쓰기)
-├── api_log.txt            층위별 요청·응답
-├── game_chat_log.txt      게임 채널 대화
-├── master_chat_log.txt    마스터 채널 대화
-├── cost_log.txt           비용 내역
-├── error_log.txt          오류
+├── logs/                  구조 로그(core.logs) — calls·blobs(델타 조각)·events·domain·chat JSONL
 ├── full_logs.jsonl        전 턴 대화 원본
 ├── turn_commit_journal.jsonl   커밋 단계 저널 (CommitJournal)
 ├── turn_settlements.jsonl      턴 Settlement
@@ -336,7 +336,7 @@ sessions/{session_id}/
 └── rewind_archive.jsonl   되감기로 제거된 정보
 ```
 
-세션 외부: `profiles/{uid}.json` · `accounts/{uid}.json` · `accounts/ink_transactions/{uid}.jsonl` · `stats/{uid}.json` · `data/cost_ledger.jsonl`(전 세션 provider 비용 원장)
+세션 외부: `logs/bot.jsonl`(전역 구조 로그) · `profiles/{uid}.json` · `accounts/{uid}.json` · `accounts/ink_transactions/{uid}.jsonl` · `stats/{uid}.json` · `data/cost_ledger.jsonl`(전 세션 provider 비용 원장)
 
 ### 스키마 마이그레이션
 
@@ -526,7 +526,7 @@ pip install -r requirements-dev.txt
 python3 -m pytest tests/ -q
 ```
 
-`tests/`는 **현재 동작과 권위 불변식을 고정**한다. 현재 1,186건(특성화 61 · 결함 27 · 정책 1,098)이 모두 통과하며 strict xfail은 0건이다.
+`tests/`는 **현재 동작과 권위 불변식을 고정**한다. 현재 1,251건(특성화 61 · 결함 27 · 정책 1,163)이 모두 통과하며 strict xfail은 0건이다.
 
 | 분류 | 의미 |
 |---|---|
@@ -745,7 +745,7 @@ python3 tools/scenario_check.py --all     # 전 시나리오 컴파일·진단(E
 | 디스코드 결제 | SKU 한국 미지원. `!지급`·`!잉크`로 대체 |
 | v7.x 반영 | `SCHEMA_VERSION` 4·turn-history v3·CommitPlan v2(7.1.0·7.2.0도 유지). 배포 전 `sessions/`·`accounts/` 백업. 기존 세션은 로드 시 자동 마이그레이션되며, 배포 후 6.x로 되돌리면 plan v2 PREPARED 복구를 읽지 못한다 |
 | 영도 DYNAMIC 저작 | H07 V2 저작 완료(사건 64·정보 146·일과 35·`unknown_name` 8·구간 230쌍) — 남은 판단 항목(OPEN DECISION)은 `handoff/H07_FINAL_IMPLEMENTATION_REPORT.md` |
-| 운영 반영 | v7.5.0(`b7a4d82`)이 main에 반영됨. 배포 전 운영 `sessions/`·`accounts/` 백업, 배포 후 `!캐시 재발급`(프롬프트·영도 변경) |
+| 운영 반영 | v7.9.1이 main에 반영됨. 배포 전 운영 `sessions/`·`accounts/` 백업, 배포 후 `!캐시 재발급`(영도 `speaker_card`·`plain_speakers` 변경). SVG 카드 래스터화는 운영 서버에 resvg 설치 필요(없으면 이미지 생략). 구조 로그는 세션 `logs/`·전역 `logs/bot.jsonl`에 쌓이며 옛 텍스트 로그 파일은 더 이상 쓰지 않는다 |
 | 자동 턴 TTS | 더빙은 인트로에만 적용된다(자동 턴 미적용은 기존 동작). 확장은 별도 기능 |
 | H07 운영 활성 | 영도 단일 PC 세션은 DYNAMIC(시작 틀 `world_start` 저작), 나머지 4개 시나리오·다인 세션은 LEGACY. 배포 후 `!캐시 재발급` 필요(프롬프트·영도 변경) |
 | H06 배포 | 새 영속 필드 `world_lifecycle`·`world_initialization`(기본값 = 레거시). 스키마·이력·CommitPlan·compiler 유지. DYNAMIC 대상 세션은 캐시 업로드가 시작 선택 뒤로 이동 |

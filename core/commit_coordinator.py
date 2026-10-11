@@ -120,6 +120,25 @@ def _markers_equal(a, b) -> bool:
     return _digest(a) == _digest(b)
 
 
+def _log_commit(session, plan, settlement, prep) -> None:
+    """구조 로그: 커밋 확정 1건 — 청구·세계 연산(사건·이동·인지 등 typed op 전체)."""
+    try:
+        from . import logs as _logs
+        batch = getattr(prep, "world_mutation_batch", None)
+        ops = list(getattr(batch, "_ops", None) or ()) if batch is not None else []
+        _logs.domain("commit", {
+            "tx": plan.transaction_id, "turn": plan.logical_turn, "attempt": plan.attempt,
+            "story_turn": plan.story_turn, "gm_turn": plan.gm_turn,
+            "settlement_id": plan.settlement_id,
+            "charge_ink_per_user": getattr(settlement, "charge_ink_per_user", None),
+            "billing_users": list(plan.billing_user_ids),
+            "cost_events": list(plan.frozen_cost_event_ids),
+            "world_version": plan.target_world_version, "definition_revision": plan.definition_revision,
+            "world_ops": ops}, session=session)
+    except Exception:  # noqa: BLE001
+        pass
+
+
 @dataclass(frozen=True)
 class CommitPlan:
     """READY 시도 1건의 불변 커밋 입력. PREPARED 저널 metadata로 그대로 영속된다.
@@ -633,6 +652,7 @@ class CommitCoordinator:
             return self._recovery_pending(session, prep, plan, derived, "FINALIZE", e)
         self._finalize_runtime(session, tid, prep)
         _history_select_block(session, plan)
+        _log_commit(session, plan, settlement, prep)
         return CommitResult(CommitOutcome.COMMITTED, settlement=settlement,
                             plan=plan, derived=derived)
 
@@ -775,6 +795,12 @@ class CommitCoordinator:
     def _recovery_pending(self, session, prep, plan, derived, stage, exc) -> CommitResult:
         """정본 영속 이후 실패 — 롤백·FAILED_SYSTEM 금지. 세션 차단 + 복구 대기."""
         msg = f"{type(exc).__name__}: {exc}"
+        try:
+            from . import logs as _logs
+            _logs.error("commit", f"정본 영속 이후 실패 — 복구 대기({stage})", exc=exc, session=session,
+                        data={"tx": plan.transaction_id, "attempt": plan.attempt, "stage": stage})
+        except Exception:  # noqa: BLE001
+            pass
         session.commit_recovery = {"transaction_id": plan.transaction_id,
                                    "attempt": plan.attempt, "stage": stage,
                                    "error": msg, "status": "PENDING"}
@@ -788,6 +814,12 @@ class CommitCoordinator:
                                 plan=None) -> CommitResult:
         """정본 영속 전 실패 — (메모리는 이미 복원됨) FAILED_SYSTEM·청구 0."""
         tid = prep.transaction_id
+        try:
+            from . import logs as _logs
+            _logs.error("commit", f"정본 영속 전 실패 — FAILED_SYSTEM({stage})", session=session,
+                        data={"tx": tid, "stage": stage, "error": error, "prepared": prepared})
+        except Exception:  # noqa: BLE001
+            pass
         # D-D2: 정산 기록 실패 시 PREPARED 유무와 무관하게 fail-closed(백로그 + 차단).
         settlement, audit = await settle_failed_attempt(self.bot, session, prep,
                                                         stage=f"COMMIT_{stage}")

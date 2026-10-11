@@ -16,6 +16,7 @@ import base64
 import copy
 import hashlib
 import io
+import time
 import itertools
 import os
 import re
@@ -29,7 +30,7 @@ CONFIG_KEY = "speaker_card"
 MODE_SVG = "svg"
 MODE_LEGACY = "legacy_png"
 SCHEMA_VERSION = 1
-UNKNOWN_TEXT = "?"
+UNKNOWN_TEXT = "???"
 SLOT_KINDS = ("text", "image", "color")
 BIND_OPS = ("text", "chars", "attr", "image", "recolor")
 # attr 연산이 함께 고정할 수 있는 정적 속성(색 슬롯이 보이도록 투명도를 여는 용도 등)
@@ -123,6 +124,7 @@ def known_infos(session, pc_actor: str) -> frozenset:
 # ══════════════════════════════════════════════════════════════
 
 SPEAKER_ACTOR, SPEAKER_IRREGULAR, SPEAKER_UNKNOWN = "ACTOR", "IRREGULAR", "UNKNOWN"
+SPEAKER_PLAIN = "PLAIN"          # 시나리오 지정 원문 화자(speaker_card.plain_speakers) — 원문 헤더·이미지 없음
 
 
 @dataclass(frozen=True)
@@ -149,23 +151,36 @@ def resolve_speaker(world: CardWorld, session, speaker: str):
     return SPEAKER_UNKNOWN, None
 
 
+def _logged(session, ctx: DisplayContext) -> DisplayContext:
+    """구조 로그: 대사 1건의 화자 식별·헤더 결정."""
+    try:
+        from . import logs as _logs
+        _logs.domain("card.speaker", {"speaker": ctx.speaker, "status": ctx.status, "actor": ctx.actor_id,
+                                      "header": ctx.header, "has_card": ctx.card is not None}, session=session)
+    except Exception:  # noqa: BLE001
+        pass
+    return ctx
+
+
 def display_context(session, speaker: str) -> DisplayContext | None:
     """SVG 카드 세션이면 표시 컨텍스트, 아니면 None(호출자는 기존 PNG·실명 헤더 경로를 그대로 쓴다)."""
     world = card_world(session)
     if world is None:
         return None
-    status, aid = resolve_speaker(world, session, speaker)
     known = known_infos(session, world.pc_actor)
+    if speaker in (world.config.get("plain_speakers") or ()):
+        return _logged(session, DisplayContext(speaker, SPEAKER_PLAIN, None, speaker, None, known, world))
+    status, aid = resolve_speaker(world, session, speaker)
     if status == SPEAKER_UNKNOWN:
-        return DisplayContext(speaker, status, None, UNKNOWN_TEXT, None, known, world)
+        return _logged(session, DisplayContext(speaker, status, None, UNKNOWN_TEXT, None, known, world))
     card = (world.config.get("actors") or {}).get(aid) if aid else None
     card = card if isinstance(card, dict) else None
     if card is None:
         # 카드 미저작(또는 비정규 NPC) — 이미지 생략. 카드가 없다는 이유만으로 이름을 숨기지 않는다.
-        return DisplayContext(speaker, status, aid, speaker, None, known, world)
+        return _logged(session, DisplayContext(speaker, status, aid, speaker, None, known, world))
     name_info = (card.get("knowledge") or {}).get("name")
     header = speaker if (isinstance(name_info, str) and name_info in known) else UNKNOWN_TEXT
-    return DisplayContext(speaker, status, aid, header, card, known, world)
+    return _logged(session, DisplayContext(speaker, status, aid, header, card, known, world))
 
 
 # ══════════════════════════════════════════════════════════════
@@ -606,10 +621,27 @@ async def prepare_card(session, ctx: DisplayContext | None, preparation=None):
         # 바리에이션이 하나뿐이면 고를 것이 없다 — 추출을 기다리지 않는다
         variation = (await turn_variation(preparation, ctx.actor_id)
                      if len(ctx.card.get("variations") or {}) > 1 else None)
-        return await asyncio.to_thread(render_png, ctx.world, ctx.card, ctx.known, variation)
+        t0 = time.monotonic()
+        png = await asyncio.to_thread(render_png, ctx.world, ctx.card, ctx.known, variation)
+        _log_card(session, ctx, variation, ms=int((time.monotonic() - t0) * 1000), size=len(png or b""))
+        return png
     except Exception as e:  # noqa: BLE001 — 카드 실패는 이미지 생략(대사 유지)
-        print(f"[화자 카드] {getattr(session, 'session_id', '?')}: 카드 생략 — {type(e).__name__}: {e}")
+        from . import logs as _logs
+        _logs.error("card", f"카드 생략 — {ctx.actor_id}", exc=e, session=session)
         return None
+
+
+def _log_card(session, ctx, variation, **extra) -> None:
+    """구조 로그: 카드 1장 — 화자·헤더·공개 판정 근거(커밋 인지 중 이 인물 InfoId)."""
+    try:
+        from . import logs as _logs
+        know = ctx.card.get("knowledge") or {}
+        _logs.domain("card.render", {"speaker": ctx.speaker, "actor": ctx.actor_id, "header": ctx.header,
+                                     "variation": variation,
+                                     "knows": {k: (v in ctx.known) for k, v in know.items()}, **extra},
+                     session=session)
+    except Exception:  # noqa: BLE001
+        pass
 
 
 async def send_card(channel, session, png, collector=None) -> bool:
@@ -621,7 +653,8 @@ async def send_card(channel, session, png, collector=None) -> bool:
     try:
         msg = await channel.send(file=discord.File(io.BytesIO(png), filename=name))
     except Exception as e:  # noqa: BLE001
-        print(f"[화자 카드] 전송 실패(이미지 생략): {e}")
+        from . import logs as _logs
+        _logs.error("card", "카드 전송 실패(이미지 생략)", exc=e, session=session)
         return False
     if collector is not None:
         collector.append(msg)
@@ -873,6 +906,9 @@ def check_card_definition(scenario: dict, *, definition: dict | None = None, bas
     infos = set(((definition or {}).get("information_definitions") or {}))
     actor_defs = set(((definition or {}).get("actor_definitions") or {}))
     name_slots = set(cfg.get("name_slots") or ())
+    plain = cfg.get("plain_speakers")
+    if plain is not None and not (isinstance(plain, list) and all(isinstance(x, str) and x for x in plain)):
+        err("CARD_PLAIN_SPEAKERS", "speaker_card.plain_speakers", "plain_speakers는 화자 이름 문자열 목록")
     for s in name_slots:
         if s not in slots:
             err("CARD_NAME_SLOT", "speaker_card.name_slots", f"정의되지 않은 슬롯 {s}")

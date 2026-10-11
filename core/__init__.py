@@ -263,6 +263,7 @@ from . import world_lifecycle  # H06: definition bind + genesis initialization +
 from . import cache_source  # H06: FrozenCacheBuildSource
 from . import admin_world_edit  # H06: typed ADMIN_EDIT service
 from . import speaker_card  # SVG 화자 카드(DYNAMIC 전용, 시나리오 speaker_card)
+from . import logs  # 구조 로그(세션 logs/·전역 logs/bot.jsonl)
 from .cost import (
     extract_token_usage,
     format_cost,
@@ -357,6 +358,7 @@ from .utils import (
     get_uid_by_char_name,
     generate_character_details,
     get_merged_status_effects,
+    status_roll_modifier,
     resolve_char_name,
     resolve_pc,
     decompose_hangul,
@@ -437,5 +439,5 @@ __all__ = [
     "GeneralDiceView", "DiceView",
     # utils
     "get_uid_by_char_name", "generate_character_details", "get_merged_status_effects",
-    "resolve_char_name", "resolve_pc", "decompose_hangul", "suggest_commands",
+    "status_roll_modifier", "resolve_char_name", "resolve_pc", "decompose_hangul", "suggest_commands",
 ]
