@@ -51,7 +51,9 @@ class TRPGBot(commands.Bot):
         self.authorized_users = core.load_authorized_users()
 
         # 2. API 클라이언트 및 환경 텍스트 세팅
-        self.genai_client = genai.Client(api_key=GEMINI_API_KEY)
+        # 구조 로그: 전역 회전 로그 + print 포착, provider 호출 기록 프록시(동작 불변)
+        core.logs.setup_global()
+        self.genai_client = core.logs.install_client_proxy(genai.Client(api_key=GEMINI_API_KEY))
         # WP-02: append-only shadow CostLedger. provider 사용량을 관측만 하며
         #        레거시 회계/청구/게임상태를 바꾸지 않는다. mutable session JSON과
         #        분리된 별도 파일에 기록되어 rewind/rerender가 건드리지 못한다.

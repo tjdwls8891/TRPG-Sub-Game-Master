@@ -106,6 +106,7 @@ python main.py
 | `media/{시나리오명}/` | 인물 이미지·BGM. **폴더명은 시나리오 id와 같아야 한다** |
 | `tools/verify_docs.py` | 문서 수치 정합 검증 |
 | `tools/scenario_check.py` | 시나리오 정의 검사·컴파일·이행 보고(H01, 원본 읽기 전용) |
+| `tools/log_view.py` | 구조 로그 열람(세션 폴더·`!세션이력` zip) — 요약·시간순·호출 원문 복원·이벤트·도메인·채팅 |
 | `handoff/` | WP별 완료 번들·스캔·매트릭스(과거 번들은 HISTORICAL 증거, 수정 금지) |
 | `tests/` | 특성화·결함·정책 테스트 하네스(WP-00~G) |
 
@@ -125,7 +126,7 @@ python main.py
 | `permissions.py` | 98 | `!권한부여` `!권한회수` `!권한목록` |
 | `presence.py` | 122 | 상태 메시지 순환 + **캐시 만료 감지**(15초 주기) |
 
-### core/ — 86개 서브모듈
+### core/ — 87개 서브모듈
 
 `core/__init__.py`가 전 심볼을 re-export하므로 외부에서는 `core.XYZ`로 접근한다.
 
@@ -154,7 +155,8 @@ python main.py
 | `models.py` | 319 | `TRPGSession` — 단일 세션의 모든 상태 |
 | `io.py` | 535 | `SCHEMA_VERSION`, `SESSION_FIELDS`(97), `migrate_session_data`, 직렬화·로그 |
 | `cache.py` | 604 | 룰북 캐시 빌드, `remaining_ttl`, `is_cache_expired`, `is_session_open`, 세션 복구 |
-| `resilience.py` | 207 | `call_with_retry` — 재시도·타임아웃·오류 로그 분리 |
+| `resilience.py` | 207 | `call_with_retry` — 재시도·타임아웃. 시도 실패는 구조 로그 ERROR, provider 호출 맥락(층위·작업·시도·세션)을 설정 |
+| `logs.py` | 440 | **구조 로그 단일 owner** — 세션 `logs/`(`calls`·`blobs`·`events`·`domain`·`chat` JSONL)·전역 `logs/bot.jsonl`(회전 10MB×5, 모든 print 포착·세션 ID 출력은 세션 이벤트에도). provider 호출은 `install_client_proxy`가 `genai_client.models`를 감싸 1건씩 기록(동작 불변). 요청·응답은 줄 조각 해시 델타(반복 줄은 참조만, 테스트 세션 요청 원문 대비 27%). 도메인 사실: `tx.*`·`turn.delta`(되감기 레코드 pre→post 상태 차이)·`commit`(청구·세계 typed op)·`cost.event`·`cost.usage`·`ink.charge`·`ink.lifecycle`·`display`(바뀐 상태판)·`history.*`·`card.*`. 열람은 `tools/log_view.py` |
 
 #### 프롬프트·AI
 
@@ -316,11 +318,7 @@ R2: 초기화 실패는 fail-closed(실패 표식 strict 저장 — LEGACY 진�
 ```
 sessions/{session_id}/
 ├── data.json              세션 스냅샷 (원자적 쓰기)
-├── api_log.txt            층위별 요청·응답
-├── game_chat_log.txt      게임 채널 대화
-├── master_chat_log.txt    마스터 채널 대화
-├── cost_log.txt           비용 내역
-├── error_log.txt          오류
+├── logs/                  구조 로그(core.logs) — calls·blobs(델타 조각)·events·domain·chat JSONL
 ├── full_logs.jsonl        전 턴 대화 원본
 ├── turn_commit_journal.jsonl   커밋 단계 저널 (CommitJournal)
 ├── turn_settlements.jsonl      턴 Settlement
@@ -336,7 +334,7 @@ sessions/{session_id}/
 └── rewind_archive.jsonl   되감기로 제거된 정보
 ```
 
-세션 외부: `profiles/{uid}.json` · `accounts/{uid}.json` · `accounts/ink_transactions/{uid}.jsonl` · `stats/{uid}.json` · `data/cost_ledger.jsonl`(전 세션 provider 비용 원장)
+세션 외부: `logs/bot.jsonl`(전역 구조 로그) · `profiles/{uid}.json` · `accounts/{uid}.json` · `accounts/ink_transactions/{uid}.jsonl` · `stats/{uid}.json` · `data/cost_ledger.jsonl`(전 세션 provider 비용 원장)
 
 ### 스키마 마이그레이션
 

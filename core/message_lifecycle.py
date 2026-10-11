@@ -208,7 +208,8 @@ async def send_transient(bot, session, channel, content=None, *, key: str,
     try:
         msg = await channel.send(content, **kwargs)
     except Exception as e:  # noqa: BLE001
-        print(f"[메시지 수명주기] transient 전송 실패({key}): {e}")
+        from . import logs as _logs
+        _logs.warn("message", f"transient 전송 실패({key})", session=session, data={"error": str(e)})
         return None
     register(session, key, msg, owner=owner, ttl=ttl)
     if ttl:

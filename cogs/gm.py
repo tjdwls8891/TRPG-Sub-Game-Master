@@ -1819,11 +1819,7 @@ class GMCog(commands.Cog):
         rec = {"code": code, "transaction_id": prep.transaction_id,
                "world_version": core.action_intent.world_version_id(session),
                "definition_revision": getattr(session, "definition_revision", None), "detail": detail}
-        try:
-            core.write_error_log(session.session_id, "world",
-                                 RuntimeError(json.dumps(rec, ensure_ascii=False, default=str)), 1)
-        except Exception as e:
-            print(f"[H05] 진단 기록 실패: {e}")
+        core.logs.warn("world", f"세계 진단 {code}", session=session, data=rec)
 
     async def _world_conflict_outcome(self, session, prep, *, stage: str) -> str:
         prep.seal()
@@ -1881,7 +1877,6 @@ class GMCog(commands.Cog):
         main_text = getattr(prep.narration, "text", "") or ""
         prompt = (f"[직전 본 묘사]\n{main_text[-1500:]}\n\n" + cplan.prompt()
                   + "\n\n2~4문장으로만 쓴다.")
-        core.write_log(session.session_id, "api", f"[H05 후속 묘사 요청]\n{prompt}")
         _cl_op = core.cost_ledger.begin_operation(
             self.bot, core.cost_ledger.OP_TURN_FOREGROUND_CONTINUATION, session=session,
             model=core.DEFAULT_MODEL, actor_kind=core.cost_ledger.ACTOR_PLAYER,
@@ -3384,7 +3379,6 @@ class GMCog(commands.Cog):
             self._build_world_manifest(session, _wt)
             _schema = core.action_intent.extend_judgment_schema(JUDGMENT_RESPONSE_SCHEMA, _wt.manifest)
         user_prompt = _build_judgment_user_prompt(session, player_message, roll_results, world_turn=_wt)
-        core.write_log(session.session_id, "api", f"[판단층위 요청 - Payload]\n{user_prompt}")
 
         contents = [types.Content(role="user", parts=[types.Part.from_text(text=user_prompt)])]
         config = types.GenerateContentConfig(
@@ -3474,10 +3468,6 @@ class GMCog(commands.Cog):
                 await master_ch.send("⚠️ 판단층위 호출에 실패했습니다. 이번 발언을 스킵합니다.")
             return None
 
-        core.write_log(
-            session.session_id, "api",
-            f"[판단층위 결정]\n{json.dumps(decision, ensure_ascii=False, indent=2)}"
-        )
         if _wt is not None and _wt.manifest is not None:
             # 후보 키 → 정본 참조(코드 검증). raw 문자열은 정본이 되지 않는다. 새 의도 = 재계획.
             _wt.intent = core.action_intent.resolve_intent(
@@ -3536,7 +3526,6 @@ class GMCog(commands.Cog):
                 _id_manifests[_kind] = _m
                 user_prompt += core.speaker_card.identity_block(_m, _card_world.definition, session, _kind)
 
-        core.write_log(session.session_id, "api", f"[자동 지시층위 요청 - Payload]\n{user_prompt}")
 
         # 캐시 활용 가능 여부 판단
         cache_name  = getattr(session, "cache_name",  None)
@@ -3698,10 +3687,6 @@ class GMCog(commands.Cog):
                     await master_ch.send("⚠️ 자동 지시층위 응답이 JSON 형식이 아닙니다. 이번 발언 스킵.")
                 return None
 
-        core.write_log(
-            session.session_id, "api",
-            f"[자동 지시층위 결정]\n{json.dumps(decision, ensure_ascii=False, indent=2)}"
-        )
         if _id_manifests and _wt is not None:
             # 이 시도의 WorldTurn에 누적 — process_observation이 저작 얼굴·이름 InfoId 획득으로 합류시킨다(커밋 후 공개)
             for _kind, _m in _id_manifests.items():
@@ -4053,7 +4038,6 @@ class GMCog(commands.Cog):
 
         narrate_prompt = build_narrate_prompt(recent_str, current_turn_str, narrate_instruction)
 
-        core.write_log(session.session_id, "api", f"[GM NARRATE 요청]\n{narrate_prompt}")
 
         # NOTE: max_output_tokens를 설정하지 않음 — PROCEED(_execute_proceed)와 동일한 방침.
         # DEFAULT_MODEL(gemini-3-flash-preview)은 thinking 모델이므로, max_output_tokens를
@@ -4159,7 +4143,6 @@ class GMCog(commands.Cog):
         if not narrate_text:
             return None
 
-        core.write_log(session.session_id, "api", f"[GM NARRATE 응답]\n{narrate_text}")
 
         # 게임 채널에 스트리밍 출력 (대사 마커 처리 포함)
         # NOTE: PROCEED(_execute_proceed)와 동일한 구조 — typing 컨텍스트 밖에서 stream_text_to_channel 호출.
@@ -5118,7 +5101,6 @@ class GMCog(commands.Cog):
             f"[직전까지의 세계 상태]\n{prev_summary}\n\n"
             f"[이번 묘사문]\n{ai_output_text}"
         )
-        core.write_log(session.session_id, "api", f"[추출층위 요청 - Payload]\n{user_prompt}")
 
         contents = [types.Content(role="user", parts=[types.Part.from_text(text=user_prompt)])]
         config = types.GenerateContentConfig(
@@ -5208,9 +5190,6 @@ class GMCog(commands.Cog):
             print(f"[추출/{session.session_id}] stale 준비 결과 — 배리어 미충족 "
                   f"(tx={transaction_id}, lt={logical_turn}, at={attempt})")
             return None
-        core.write_log(
-            session.session_id, "api",
-            f"[추출층위 결과(준비·미적용)]\n{json.dumps(result, ensure_ascii=False, indent=2)}")
         preparation.extraction_plan = plan
         preparation.world_observation_raw = result.get(core.turn_world.OBS_FIELD) if _wt is not None else None
         if _wt is not None and _var_manifest:
@@ -5465,8 +5444,6 @@ class GMCog(commands.Cog):
             except Exception as e:
                 print(f"[GM] 시뮬레이션 보고 실패(무시): {e}")
 
-        core.write_log(session.session_id, "api",
-                       f"[서사 방향성 시뮬레이션]\n{json.dumps(sim_data, ensure_ascii=False, indent=2)}")
         return sim_data
 
     # ─────────────────────────────────────────────────────────────
@@ -5979,8 +5956,6 @@ class GMCog(commands.Cog):
             "위 정보를 바탕으로 GM이 활용할 서사 계획을 JSON 스키마에 맞게 수립하십시오."
         )
 
-        core.write_log(session.session_id, "api",
-                       f"[서사 계획 요청 - trigger={trigger_reason}]\n{user_prompt}")
 
         try:
             config = types.GenerateContentConfig(

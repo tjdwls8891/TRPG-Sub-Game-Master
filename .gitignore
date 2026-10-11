@@ -8,6 +8,7 @@ __pycache__/
 
 # 동적 생성되는 TRPG 세션 데이터 및 로그
 sessions/
+logs/
 paused_session/
 
 # 봇이 자동 생성/관리하는 로컬 상태 (공개 저장소에 오너·허가 계정 ID가 노출되지 않도록 제외.

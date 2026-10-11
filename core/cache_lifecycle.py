@@ -573,7 +573,8 @@ async def _execute_prepayments_locked(session, wid, opened) -> bool:
         try:
             await IT.execute_lifecycle_ink(
                 reference_kind=REFERENCE_KIND, reference_id=wid, user_id=uid,
-                kind=IT.KIND_PREPAYMENT, nominal_ink=int(ink), reason="cache_window_prepayment")
+                kind=IT.KIND_PREPAYMENT, nominal_ink=int(ink), reason="cache_window_prepayment",
+                session_id=getattr(session, "session_id", None))
         except Exception as e:  # noqa: BLE001
             ok = False
             print(f"[캐시 생애주기] 선불 적용 실패(재시도 대기) uid={uid}: {type(e).__name__}: {e}")
@@ -639,7 +640,8 @@ async def _settle_window_locked(session, wid, *, disposition, reason, closed_at=
         try:
             await IT.execute_lifecycle_ink(
                 reference_kind=REFERENCE_KIND, reference_id=wid, user_id=uid,
-                kind=IT.KIND_REFUND, nominal_ink=int(ink), reason=f"cache_window_{reason}")
+                kind=IT.KIND_REFUND, nominal_ink=int(ink), reason=f"cache_window_{reason}",
+                session_id=getattr(session, "session_id", None))
         except Exception as e:  # noqa: BLE001
             ok = False
             print(f"[캐시 생애주기] 환급 적용 실패(재시도 대기) uid={uid}: {type(e).__name__}: {e}")

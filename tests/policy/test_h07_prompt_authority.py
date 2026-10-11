@@ -34,9 +34,12 @@ def test_provider_production_callsites_stay_19():
     n = 0
     for base in ("cogs", "core"):
         for f in sorted(os.listdir(os.path.join(REPO_ROOT, base))):
-            if f.endswith(".py"):
+            if f.endswith(".py") and (base, f) != ("core", "logs.py"):
                 tree = ast.parse(open(os.path.join(REPO_ROOT, base, f), encoding="utf-8").read())
                 n += sum(1 for x in ast.walk(tree) if isinstance(x, ast.Attribute) and x.attr == "generate_content")
     tree = ast.parse(open(os.path.join(REPO_ROOT, "main.py"), encoding="utf-8").read())
     n += sum(1 for x in ast.walk(tree) if isinstance(x, ast.Attribute) and x.attr == "generate_content")
     assert n == 19                                                              # H07은 provider 호출 단계를 늘리지 않는다
+    # core/logs.py 기록 프록시는 호출 단계가 아니라 통과 전달 1회뿐이다(새 provider 호출 없음)
+    tree = ast.parse(open(os.path.join(REPO_ROOT, "core", "logs.py"), encoding="utf-8").read())
+    assert sum(1 for x in ast.walk(tree) if isinstance(x, ast.Attribute) and x.attr == "generate_content") == 1

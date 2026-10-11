@@ -41,16 +41,10 @@ def get_timeout(layer: str) -> float:
 
 
 def write_error_log(session_id: str, layer: str, exc: Exception, attempt: int):
-    """오류를 별도 파일에 남긴다(기획 규정 — 오류 로그는 별도 배치)."""
-    try:
-        d = os.path.join("sessions", str(session_id))
-        os.makedirs(d, exist_ok=True)
-        stamp = time.strftime("%Y-%m-%d %H:%M:%S")
-        with open(os.path.join(d, "error_log.txt"), "a", encoding="utf-8") as f:
-            f.write(f"[{stamp}] {layer} 시도{attempt} — "
-                    f"{type(exc).__name__}: {exc}\n")
-    except Exception:
-        pass
+    """provider 시도 실패 — 구조 로그 events(ERROR)."""
+    from . import logs as _logs
+    _logs.error("provider", f"{layer} 시도{attempt} 실패", exc=exc, sid=session_id or None,
+                data={"layer": layer, "attempt": attempt})
 
 
 # WP-C(B-C4): 논리 래퍼 타임아웃 이후에도 살아 있는 실제 provider 호출의 네트워크 상한.
@@ -139,7 +133,10 @@ async def call_with_retry(fn, *, layer: str, session_id: str = "",
         #   타임아웃 시 래퍼만 포기하고(원 응답은 게임에 쓰지 않음 — 기존 규정 유지),
         #   underlying 호출은 잊지 않고 관측자에게 in-flight로 넘겨 종료까지 추적한다.
         #   (기존 wait_for(fn()) 취소는 to_thread 스레드를 멈추지 못해 비용 사실이 유실됐다.)
-        task = asyncio.ensure_future(fn())
+        from . import logs as _logs
+        _op = getattr(getattr(on_attempt_result, "__self__", None), "operation", None)
+        with _logs.call_context(session_id or None, layer, attempt=attempt, op=_op):
+            task = asyncio.ensure_future(fn())         # 태스크가 맥락(층위·세션·시도)을 복사한다
         try:
             result = await asyncio.wait_for(asyncio.shield(task), timeout=timeout)
             _notify_attempt_observer(

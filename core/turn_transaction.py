@@ -30,6 +30,7 @@ import time
 import uuid
 from dataclasses import dataclass, field
 from enum import Enum
+from . import logs as _logs
 
 
 class TurnStatus(str, Enum):
@@ -168,6 +169,9 @@ def _begin(session, *, logical_turn: int, player_declaration: str) -> TurnTransa
         player_declaration=player_declaration or "",
     )
     session.active_turn_transaction = tx
+    _logs.set_turn(tx.session_id, tx.transaction_id, logical_turn)
+    _logs.domain("tx.begin", {"tx": tx.transaction_id, "turn": logical_turn, "attempt": attempt,
+                              "declaration": tx.player_declaration}, sid=tx.session_id)
     return tx
 
 
@@ -255,7 +259,13 @@ def mark_transaction_status(session, transaction_id, status, *,
     if not is_current_transaction(session, transaction_id):
         return False
     active = get_active_transaction(session)
+    _prev = active.status
     active.status = status if isinstance(status, TurnStatus) else TurnStatus(status)
+    if active.status != _prev or failure_code is not None:
+        _logs.domain("tx.status", {"tx": transaction_id, "from": getattr(_prev, "value", _prev),
+                                   "to": active.status.value, "stage": failure_stage,
+                                   "code": getattr(failure_code, "value", failure_code),
+                                   "message": failure_message}, sid=active.session_id)
     if failure_stage is not None:
         active.failure_stage = failure_stage
     if failure_code is not None:
@@ -279,6 +289,7 @@ def clear_active_transaction(session, transaction_id) -> bool:
     active = get_active_transaction(session)
     if active is not None and active.transaction_id == transaction_id:
         session.active_turn_transaction = None
+        _logs.set_turn(active.session_id, None)
         return True
     return False
 

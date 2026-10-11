@@ -230,7 +230,6 @@ async def generate_character_details(bot, scenario_data, char_type, char_name, i
             extra_rules=extra_rules,
         )
 
-    write_log(session_id, "api", f"[{char_type.upper()} 설정 생성 요청 - {char_name}]\n{prompt}")
 
     from .resilience import call_with_retry
     from . import cost_ledger
