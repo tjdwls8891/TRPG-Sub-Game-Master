@@ -411,6 +411,14 @@ def build_svg(config: dict, slots: dict, root_dir: str, *, template_root=None) -
         if _classes(el) & show:
             el.set("style", "display:inline")
     ids, parents = _index(root)
+    # 2) 맨 앞 요소 — 지정 요소를 같은 부모의 끝으로 옮긴다(순서 유지). 초상 등 슬롯보다 위에 그려진다.
+    for fid in config.get("front_ids") or ():
+        el = ids.get(fid)
+        if el is None:
+            raise CardError(f"front_ids: 대상 요소 {fid}가 없습니다")
+        parent = parents[el]
+        parent.remove(el)
+        parent.append(el)
     defs = next((c for c in root if _local(c.tag) == "defs"), None)
     if defs is None:
         defs = ET.Element(f"{{{SVG_NS}}}defs")
@@ -851,6 +859,9 @@ def check_card_definition(scenario: dict, *, definition: dict | None = None, bas
                 err("CARD_BIND_KIND", bp, "image는 image 슬롯 전용")
             if op in ("text", "chars") and kind != "text":
                 err("CARD_BIND_KIND", bp, f"{op}는 text 슬롯 전용")
+    for fid in cfg.get("front_ids") or ():
+        if tpl is not None and fid not in ids:
+            err("CARD_BIND_TARGET", "speaker_card.front_ids", f"템플릿에 id {fid!r}가 없습니다")
     for pname, table in presets.items():
         for length in (table or {}):
             for c in preset_candidates(presets, pname, int(length)):

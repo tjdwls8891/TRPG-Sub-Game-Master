@@ -33674,7 +33674,7 @@
     "mode": "svg",
     "template": "cards/card.svg",
     "sha256": {
-      "cards/card.svg": "8e7ac00a524c1edab0521d7fb7f427cb2f7102b39d6c462daf5ca4b7a6686431",
+      "cards/card.svg": "8c5fac5e4e148817984f2c791e28ae21c9713a1d692748d444e9b1761aa1ce61",
       "cards/silhouette.png": "0909a4f365ae26dec9998106ef9b34f7dab5894e0f0912d74ba2c413affb2e9e",
       "cards/logo_namhang_black.png": "e2ff8787aa92c9185f9bf7dcd37d7195b0aa2e35c5436fdd44a022aa999e9782",
       "cards/logo_namhang_white.png": "51620a1d8c22a37688f28cd4bab633601c913f510aae867323c40fc6a5190371",
@@ -33734,6 +33734,12 @@
     ],
     "remove_ids": [
       "unknown-silhouette-slot"
+    ],
+    "front_ids": [
+      "bottom-band-texture",
+      "bottom-band-black-shape",
+      "faction-name-bottom-text-slot",
+      "bottom-band-faction-gradient"
     ],
     "fixed_slots": [
       "latin_band"
@@ -33976,7 +33982,7 @@
     "slots": {
       "name": {
         "kind": "text",
-        "unknown": "?",
+        "unknown": "???",
         "bind": [
           {
             "op": "chars",
@@ -34010,7 +34016,7 @@
       },
       "age": {
         "kind": "text",
-        "unknown": "?",
+        "unknown": "??세",
         "bind": [
           {
             "op": "text",
@@ -34020,7 +34026,7 @@
       },
       "role_detail": {
         "kind": "text",
-        "unknown": "?",
+        "unknown": "???",
         "bind": [
           {
             "op": "text",
@@ -34030,7 +34036,7 @@
       },
       "latin_name": {
         "kind": "text",
-        "unknown": "?",
+        "unknown": "???",
         "bind": [
           {
             "op": "text",
@@ -34140,10 +34146,10 @@
           {
             "op": "image",
             "id": "portrait-slot",
-            "x": 71,
+            "x": 37,
             "y": 0,
-            "width": 473,
-            "height": 710
+            "width": 540,
+            "height": 810
           }
         ]
       }

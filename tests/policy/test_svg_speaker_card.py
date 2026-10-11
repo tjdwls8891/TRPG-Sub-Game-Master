@@ -611,3 +611,14 @@ def test_yeongdo_speaker_card_authoring_passes_check():
     cards = raw["speaker_card"]["actors"]
     assert set(cards) == set(res.definition["actor_definitions"]) - {
         a for a, d in res.definition["actor_definitions"].items() if d.get("kind") != "NPC"}
+
+
+def test_front_ids_draw_listed_elements_above_portrait():
+    cfg = _config()
+    cfg["front_ids"] = ["band", "panel"]
+    svg = SC.build_svg(cfg, SC.evaluate_slots(cfg, cfg["actors"][AID], {"i.face"}, "neutral"),
+                       os.path.join("media", SID)).decode("utf-8")
+    assert svg.index('id="portrait"') < svg.index('id="band"') < svg.index('id="panel"')
+    cfg["front_ids"] = ["nope"]
+    codes = {d[1] for d in SC.check_card_definition({"speaker_card": cfg}, definition=DEFINITION, scenario_id=SID)}
+    assert "CARD_BIND_TARGET" in codes
