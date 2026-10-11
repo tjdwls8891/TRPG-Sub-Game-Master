@@ -233,9 +233,9 @@ def test_authoring_check_catches_unbound_slot_and_rule_contract():
 def test_header_follows_committed_name_knowledge_and_identification(card_session):
     s = card_session
     ctx = SC.display_context(s, "김노인")
-    assert (ctx.actor_id, ctx.header, ctx.card is not None) == (AID, "?", True)
+    assert (ctx.actor_id, ctx.header, ctx.card is not None) == (AID, "???", True)
     _known(s, "i.name", awareness="EXISTENCE")
-    assert SC.display_context(s, "김노인").header == "?"                    # EXISTENCE만으로 공개 안 함
+    assert SC.display_context(s, "김노인").header == "???"                  # EXISTENCE만으로 공개 안 함
     _known(s, "i.name")
     assert SC.display_context(s, "김노인").header == "김노인"
     unc = SC.display_context(s, "박씨")                                      # 카드 미저작 → 이미지 없음, 이름은 숨기지 않음
@@ -243,14 +243,14 @@ def test_header_follows_committed_name_knowledge_and_identification(card_session
     irr = SC.display_context(s, "떠돌이")
     assert (irr.status, irr.header, irr.card) == (SC.SPEAKER_IRREGULAR, "떠돌이", None)
     unk = SC.display_context(s, "누군가")                                    # 식별 실패 → ? · 이미지 없음
-    assert (unk.status, unk.header, unk.card) == (SC.SPEAKER_UNKNOWN, "?", None)
+    assert (unk.status, unk.header, unk.card) == (SC.SPEAKER_UNKNOWN, "???", None)
 
 
 def test_ambiguous_speaker_is_not_guessed(card_session, monkeypatch):
     s = card_session
     s.actor_registry = {"a1": {"display_name": "형제", "kind": "NPC"}, "a2": {"display_name": "형제", "kind": "NPC"}}
     ctx = SC.display_context(s, "형제")
-    assert (ctx.status, ctx.header, ctx.card) == (SC.SPEAKER_UNKNOWN, "?", None)
+    assert (ctx.status, ctx.header, ctx.card) == (SC.SPEAKER_UNKNOWN, "???", None)
 
 
 def test_legacy_png_scenarios_have_no_display_context(session_auto_ready):
@@ -622,3 +622,16 @@ def test_front_ids_draw_listed_elements_above_portrait():
     cfg["front_ids"] = ["nope"]
     codes = {d[1] for d in SC.check_card_definition({"speaker_card": cfg}, definition=DEFINITION, scenario_id=SID)}
     assert "CARD_BIND_TARGET" in codes
+
+
+def test_plain_speakers_keep_original_header_without_image(card_session, monkeypatch):
+    s = card_session
+    cfg = _config()
+    cfg["plain_speakers"] = ["감염자"]
+    monkeypatch.setattr(SC, "card_world", lambda _s: _world(cfg))
+    ctx = SC.display_context(s, "감염자")
+    assert (ctx.status, ctx.header, ctx.card) == (SC.SPEAKER_PLAIN, "감염자", None)
+    assert SC.display_context(s, "누군가").header == "???"
+    cfg["plain_speakers"] = "감염자"
+    codes = {d[1] for d in SC.check_card_definition({"speaker_card": cfg}, definition=DEFINITION, scenario_id=SID)}
+    assert "CARD_PLAIN_SPEAKERS" in codes

@@ -115,8 +115,8 @@ python main.py
 
 | 파일 | 줄 | 명령어 |
 |---|---|---|
-| `gm.py` | 5,981 | `!자동` 그룹(시작·중단·상태·개입·재계획·서사·원장·**퀘스트**·턴제한·비용제한), `!되감기` |
-| `game.py` | 1,533 | `!재생성` `!출력물` `!주사위` `!기억압축` `!노트` `!캐시노트` `!더빙테스트` (WP-G: 수동 `!진행`·`!수정` 은퇴) |
+| `gm.py` | 6,090 | `!자동` 그룹(시작·중단·상태·개입·재계획·서사·원장·**퀘스트**·턴제한·비용제한), `!되감기` |
+| `game.py` | 1,552 | `!재생성` `!출력물` `!주사위` `!기억압축` `!노트` `!캐시노트` `!더빙테스트` (WP-G: 수동 `!진행`·`!수정` 은퇴) |
 | `character.py` | 1,253 | `!참가` `!설정` `!증감` `!외형` `!프로필` `!엔피씨` `!능력치` `!설정생성` `!캐릭터가져오기` |
 | `system.py` | 972 | `!명령어` `!배포` `!재시작` `!지급` **`!잉크`** **`!사용량`** `!스페이스` `!캐시` `!리로드` `!세션종료` `!채널정리` `!tts생성` `!세션이력` |
 | `media.py` | 756 | `!이미지` `!브금` `!플리` `!볼륨` `!채팅` `!더빙` |
@@ -270,7 +270,7 @@ H04는 세계가 스스로 진행되는 데 필요한 정본과 **순수 투영*
 |---|---|---|
 | `action_intent.py` | 409 | `ActionReferenceManifest`(PC 지식 기반 후보 → transient 키 P/R/K/I, world_version·revision 결속)·판단 스키마 런타임 확장(`action_intent`, 추가 provider 호출 0)·`ResolvedActionIntent`(목적지·시간·경로 선택·접근 확인 토큰·명시 PC 태도, 후보 밖 키는 거부)·시간 목표 계산 |
 | `player_world.py` | 745 | 세계 모드(`definition_revision` 바인딩 + 정량 시간·구조화 장소 + 시계 초기화 + PC 배치 = DYNAMIC, 그 외 LEGACY)·경로 선택 정책(의미 있는 차이는 ASK, 자동은 (비용, 서명) 결정적)·구간별 실제 접근 + 구간 사이 H04 세계 진행(관찰 신호 중단·숨은 봉쇄는 도달 시 관찰)·대기/수면 ActivityContext·PLAYER_EXPLICIT 태도·`namespace_ops`/`chain` |
-| `turn_world.py` | 799 | 묘사 오버레이(투영 장면·관찰 가능한 결과만)·레거시 `world_timeline` 표시 미러(정본에서 파생)·관찰 매니페스트(장면 행위자가 아는 정보·장면 신호·선후 선택지)·`process_observation`(노출 → PC 획득, 비코드 소유 추가 시간, 선후 검증, 보충 진행)·`ForegroundContinuationPlan`·투영 미디어 허용 장소 |
+| `turn_world.py` | 864 | 묘사 오버레이(투영 장면·관찰 가능한 결과만 · 정본 이동 없는 턴은 장소 고정 문구 · 묘사층위 세계 블록 `narration_world_block` — 정본 장소·출구·장면 인물 독립 블록 · 목적지 불명 이동은 보이는 출구로 되묻기)·레거시 `world_timeline` 표시 미러(정본에서 파생)·관찰 매니페스트(장면 행위자가 아는 정보·장면 신호·선후 선택지)·`process_observation`(노출 → PC 획득, 비코드 소유 추가 시간, 선후 검증, 보충 진행)·`ForegroundContinuationPlan`·투영 미디어 허용 장소 |
 
 자동 턴 순서(DYNAMIC): 판단(매니페스트·`action_intent`) → 코드 계획(경로 ASK는 지시층위 전) → 지시·묘사(오버레이·투영 장소 블록·투영 장면 이미지) → 추출(`world_observation`) → 보충 진행 → (필요 시 후속 묘사 1회, 같은 턴 비용) → READY(`stage_world_ops`) → CommitCoordinator → 후속 묘사 송출(시도 소유) → 다음 행동 질문. 장소·시간 권위는 정본 세계이며 추출의 장소·날짜는 적용되지 않는다. 묘사 전 결정적 충돌은 묘사 호출 없이, 묘사 후 충돌·모호한 선후는 재시도 없이 FAILED_SYSTEM(청구 0). LEGACY 세션은 기존 경로와 동일하다. 운영 세션이 DYNAMIC이 되려면 H06 정의 바인딩·genesis가 필요하다(현재 영도 단일 PC만).
 
@@ -299,7 +299,7 @@ R2: 초기화 실패는 fail-closed(실패 표식 strict 저장 — LEGACY 진�
 | 모듈 | 줄 | 내용 |
 |---|---|---|
 | `display.py` | 662 | **디스플레이 채널** — 상태·UI 단일 메시지, `notify`/`close_notice` |
-| `speaker_card.py` | 976 | **SVG 화자 카드**(DYNAMIC 전용) — 시나리오 최상위 `speaker_card`(기본 `legacy_png`)·커밋된 PC 인지(CONTENT) 기반 항목별 공개(`all_info` AND, 슬롯당 규칙 1개)·지시층위 얼굴·이름 식별(`identified_faces`·`identified_names`)·안전 슬롯 치환·자산 SHA-256·래스터화(resvg CLI/`resvg_py`, 운영 설치 필요)·독립 저작 검사(`scenario_check`). 실패 = 이미지 생략. 재색은 `baseline` 기준색 배율, `front_ids`로 지정 요소를 맨 앞에 그림. 영도 저작: NPC 47명 카드·얼굴·이름 InfoId 94개(`yd.info.card.*`, revision `0240dbc5…`) |
+| `speaker_card.py` | 982 | **SVG 화자 카드**(DYNAMIC 전용) — 시나리오 최상위 `speaker_card`(기본 `legacy_png`)·커밋된 PC 인지(CONTENT) 기반 항목별 공개(`all_info` AND, 슬롯당 규칙 1개)·지시층위 얼굴·이름 식별(`identified_faces`·`identified_names`)·안전 슬롯 치환·자산 SHA-256·래스터화(resvg CLI/`resvg_py`, 운영 설치 필요)·독립 저작 검사(`scenario_check`). 실패 = 이미지 생략. 미식별 표기 `???`, 시나리오 `plain_speakers`는 원문 표기·이미지 없음. 재색은 `baseline` 기준색 배율, `front_ids`로 지정 요소를 맨 앞에 그림. 영도 저작: NPC 47명 카드·얼굴·이름 InfoId 94개(`yd.info.card.*`, revision `7cfe9f16…`) |
 | `audio_mixer.py` | 393 | BGM/플리 + 효과음 + 음성 합산 |
 | `tts.py` · `tts_preset.py` | 436 | Gemini TTS, 시스템 문구 사전 합성 |
 | `media.py` · `media_control.py` | 316 | 이미지 전송, 플레이리스트, BGM 선택 |

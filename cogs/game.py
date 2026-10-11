@@ -156,8 +156,10 @@ class GameCog(commands.Cog):
             else:
                 char_name = message.author.display_name
 
-            session.current_turn_logs.append(f"[{char_name}]: {message.content}")
-            await core.save_session_data(self.bot, session)
+            # 자동 GM이 켜진 세션은 GMCog 입력 경로가 처리하는 발언만 턴 맥락에 기록한다(중복·거부 선언 기록 방지).
+            if not getattr(session, "gm_active", False):
+                session.current_turn_logs.append(f"[{char_name}]: {message.content}")
+                await core.save_session_data(self.bot, session)
 
             core.write_log(session.session_id, "game_chat", f"[{char_name}]: {message.content}")
 
@@ -581,6 +583,8 @@ class GameCog(commands.Cog):
             _ov["world_timeline"] = _prep.world_prompt_timeline
         if _prep is not None and getattr(_prep, "world_turn", None) is not None:
             _ov["world_static_npcs_suppressed"] = True      # H05 R3: 연고 인물 ≠ 현재 존재(장면 인물은 투영 블록)
+            # 묘사가 정본을 따른다 — 정본 장소·출구·장소 고정·장면 인물을 독립 블록으로(레거시 장소 블록 대체)
+            _ov["world_narration_block"] = core.turn_world.narration_world_block(_prep.world_turn, session)
         if _ov:
             _prompt_session = core.turn_preparation.PreparationView(
                 session, overrides=_ov,

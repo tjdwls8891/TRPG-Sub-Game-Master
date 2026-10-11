@@ -29,7 +29,7 @@ CONFIG_KEY = "speaker_card"
 MODE_SVG = "svg"
 MODE_LEGACY = "legacy_png"
 SCHEMA_VERSION = 1
-UNKNOWN_TEXT = "?"
+UNKNOWN_TEXT = "???"
 SLOT_KINDS = ("text", "image", "color")
 BIND_OPS = ("text", "chars", "attr", "image", "recolor")
 # attr 연산이 함께 고정할 수 있는 정적 속성(색 슬롯이 보이도록 투명도를 여는 용도 등)
@@ -123,6 +123,7 @@ def known_infos(session, pc_actor: str) -> frozenset:
 # ══════════════════════════════════════════════════════════════
 
 SPEAKER_ACTOR, SPEAKER_IRREGULAR, SPEAKER_UNKNOWN = "ACTOR", "IRREGULAR", "UNKNOWN"
+SPEAKER_PLAIN = "PLAIN"          # 시나리오 지정 원문 화자(speaker_card.plain_speakers) — 원문 헤더·이미지 없음
 
 
 @dataclass(frozen=True)
@@ -154,8 +155,10 @@ def display_context(session, speaker: str) -> DisplayContext | None:
     world = card_world(session)
     if world is None:
         return None
-    status, aid = resolve_speaker(world, session, speaker)
     known = known_infos(session, world.pc_actor)
+    if speaker in (world.config.get("plain_speakers") or ()):
+        return DisplayContext(speaker, SPEAKER_PLAIN, None, speaker, None, known, world)
+    status, aid = resolve_speaker(world, session, speaker)
     if status == SPEAKER_UNKNOWN:
         return DisplayContext(speaker, status, None, UNKNOWN_TEXT, None, known, world)
     card = (world.config.get("actors") or {}).get(aid) if aid else None
@@ -873,6 +876,9 @@ def check_card_definition(scenario: dict, *, definition: dict | None = None, bas
     infos = set(((definition or {}).get("information_definitions") or {}))
     actor_defs = set(((definition or {}).get("actor_definitions") or {}))
     name_slots = set(cfg.get("name_slots") or ())
+    plain = cfg.get("plain_speakers")
+    if plain is not None and not (isinstance(plain, list) and all(isinstance(x, str) and x for x in plain)):
+        err("CARD_PLAIN_SPEAKERS", "speaker_card.plain_speakers", "plain_speakers는 화자 이름 문자열 목록")
     for s in name_slots:
         if s not in slots:
             err("CARD_NAME_SLOT", "speaker_card.name_slots", f"정의되지 않은 슬롯 {s}")
