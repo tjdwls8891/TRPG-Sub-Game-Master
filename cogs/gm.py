@@ -97,6 +97,18 @@ def _clean_proceed_instruction(instruction: str) -> str:
     return re.sub(r'\s+', ' ', result).strip()
 
 
+def _roll_target(session, char_name: str, stat_value: int, weight: int) -> tuple[int, str]:
+    """판정 기준치 = 스탯 + 현재 상태이상 가중치(시나리오 정의, 코드 합산) + 판단층위 상황 가중치.
+    Returns: (기준치, 표시 문자열) — 예: "12-1(감염 의심)+2=13"."""
+    s_total, s_parts = core.status_roll_modifier(session.scenario_data,
+                                                 (getattr(session, "statuses", None) or {}).get(char_name, []))
+    target = stat_value + s_total + weight
+    if not s_parts and not weight:
+        return target, f"{stat_value}"
+    terms = f"{stat_value}" + "".join(f"{w:+d}({n})" for n, w in s_parts) + (f"{weight:+d}" if weight else "")
+    return target, f"{terms}={target}"
+
+
 def _build_judgment_user_prompt(session, player_message: str, roll_results: list,
                                 world_turn=None) -> str:
     """
@@ -145,6 +157,10 @@ def _build_judgment_user_prompt(session, player_message: str, roll_results: list
             prof_lines.append("    소지 자원: " + ", ".join(f"{k} {v}" for k, v in c_res.items()))
         c_sta = (session.statuses or {}).get(c_name, [])
         prof_lines.append("    상태이상: " + (", ".join(c_sta) if c_sta else "없음"))
+        _s_total, _s_parts = core.status_roll_modifier(session.scenario_data, c_sta)
+        if _s_parts:
+            prof_lines.append("    ※ 상태이상 판정 보정(" + ", ".join(f"{n} {w:+d}" for n, w in _s_parts)
+                              + ")은 코드가 기준치에 자동 반영한다 — rolls.weight에는 상태이상을 제외한 상황 가중치만 넣을 것.")
     lines.append("[플레이어 프로필]\n" + ("\n".join(prof_lines) if prof_lines else "(없음)"))
 
     # ②-2 등장 NPC — 무대에 누가 있는지 알아야 ASK 대상과 판정 대상을 정할 수 있다
@@ -3761,7 +3777,7 @@ class GMCog(commands.Cog):
                     f"→ {roll} (스탯 미확인, 결과 해석 보류)"
                 )
             else:
-                target = stat_value + weight
+                target, weight_str = _roll_target(roll_session, char_name, stat_value, weight)
                 is_success = roll <= target
                 crit = ""
                 if 5 <= target <= 16:
@@ -3770,7 +3786,6 @@ class GMCog(commands.Cog):
                     elif roll in (sides - 1, sides):
                         crit = " 💥대실패"
                 result_text = ("성공 🟢" if is_success else "실패 🔴") + crit
-                weight_str = f"{stat_value}{weight:+d}={target}" if weight else f"{stat_value}"
                 line = (
                     f"> 🎲 [{char_name}] **{stat_name}** 판정 (1~{sides}, 기준치 {weight_str}) "
                     f"→ **{roll}**  /  **{result_text}**"
@@ -3793,7 +3808,7 @@ class GMCog(commands.Cog):
                     else:
                         announce = f"> ❌ **{stat_name}** 판정이 실패했습니다."
                     await core.send_streamed(self.bot, game_ch, announce)
-                core.write_log(session.session_id, "game_chat", f"[판정]: {line}")
+                # 판정 줄은 send_streamed가 게임 채널 기록([GM])에 남긴다 — 별도 기록하지 않는다(중복 방지).
             # 주사위 효과음 — 토글이 켜져 있을 때만.
             try:
                 if core.is_enabled(session, "sfx"):
@@ -3891,8 +3906,8 @@ class GMCog(commands.Cog):
                     except (TypeError, ValueError):
                         pass
             if stat_value is not None:
-                target = stat_value + weight
-                w_str = f"({stat_value}{weight:+d}={target})" if weight else f"(기준치 {stat_value})"
+                target, _t_str = _roll_target(session, char_name, stat_value, weight)
+                w_str = f"({_t_str})" if "=" in _t_str else f"(기준치 {stat_value})"
                 roll_descs.append(f"**{stat_name}** {w_str} 판정 ({sides}면체)")
             else:
                 roll_descs.append(f"**{stat_name}** 판정 ({sides}면체)")
@@ -5400,6 +5415,7 @@ class GMCog(commands.Cog):
                 usage_source=core.cost_ledger.SOURCE_PROVIDER_METADATA)
             core.write_cost_log(session.session_id, f"{COST_LOG_PREFIX}서사 방향성 시뮬레이션",
                                  in_tokens, cached_tokens, out_tokens, cost, session.total_cost)
+            core.update_stats(session, "simulation", out_tokens, thought_tokens)
             if not hasattr(session, "turn_cost_log"):
                 session.turn_cost_log = []
             # 라벨을 '서사 설계자'라 두면 _plan_narrative와 혼동된다.

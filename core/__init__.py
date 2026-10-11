@@ -358,6 +358,7 @@ from .utils import (
     get_uid_by_char_name,
     generate_character_details,
     get_merged_status_effects,
+    status_roll_modifier,
     resolve_char_name,
     resolve_pc,
     decompose_hangul,
@@ -438,5 +439,5 @@ __all__ = [
     "GeneralDiceView", "DiceView",
     # utils
     "get_uid_by_char_name", "generate_character_details", "get_merged_status_effects",
-    "resolve_char_name", "resolve_pc", "decompose_hangul", "suggest_commands",
+    "status_roll_modifier", "resolve_char_name", "resolve_pc", "decompose_hangul", "suggest_commands",
 ]

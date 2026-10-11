@@ -69,8 +69,35 @@ def clock_view(definition, minute) -> dict:
     if cal is None or minute is None:
         return {}
     dt = cal.from_minute_index(minute)
+    wd = cal.weekday_of(minute)
     return {"current_date": f"{dt.year:04d}-{dt.month:02d}-{dt.day:02d}",
-            "time_of_day": cal.daypart_of(minute) or "미확인", "hhmm": f"{dt.hour:02d}:{dt.minute:02d}"}
+            "time_of_day": cal.daypart_of(minute) or "미확인", "hhmm": f"{dt.hour:02d}:{dt.minute:02d}",
+            "weekday": WEEKDAY_KO[wd] if wd is not None else None}
+
+
+WEEKDAY_KO = ("월요일", "화요일", "수요일", "목요일", "금요일", "토요일", "일요일")
+
+
+def clock_text(cv: dict) -> str:
+    return (f"{cv['current_date']}" + (f" {cv['weekday']}" if cv.get("weekday") else "")
+            + f" {cv['hhmm']} ({cv['time_of_day']})")
+
+
+def narration_clock_block(wt, session) -> str:
+    """묘사층위용 정본 시각 — 매 턴 준다(이동이 없는 턴도). 상태 블록의 날짜·요일·시각은 이 값을 따른다."""
+    plan = wt.plan
+    if plan is not None and plan.status == _pw.PLAN_PLANNED and plan.end_minute is not None:
+        minute = plan.end_minute
+    else:
+        world = getattr(plan, "projected_world", None) or session
+        minute = ((world.domain("world_clock") if isinstance(world, _wm.ProjectedWorld)
+                   else getattr(world, "world_clock", {})) or {}).get("minute_index")
+    cv = clock_view(wt.ctx.definition, minute)
+    if not cv:
+        return ""
+    return ("\n[현재 작중 시각 — 정본]\n· " + clock_text(cv) + "\n"
+            "· 본문과 상태 블록의 날짜·요일·시각 표기는 이 값을 따를 것. 다른 날짜·요일·시각을 지어내지 말 것"
+            "(경과일 등 다른 표기를 쓰더라도 이 날짜와 어긋나지 않게).\n")
 
 
 def derived_player_faction(world):
@@ -188,7 +215,7 @@ def narration_overlay(plan, definition: dict, ctx=None, *, world=None) -> str:
         lines.append(f"· 경과 시간: {plan.code_owned_minutes}분")
     cv = clock_view(definition, plan.end_minute)
     if cv:
-        lines.append(f"· 현재 시각: {cv['current_date']} {cv['hhmm']} ({cv['time_of_day']})")
+        lines.append(f"· 현재 시각: {clock_text(cv)}")
     if kind == _pw.OUT_ARRIVED:
         lines.append(f"· PC는 {nm(o.get('final_place'))}에 도착했다.")
     elif kind == _pw.OUT_INTERRUPTED_SIGNAL:
@@ -324,7 +351,7 @@ def narration_world_block(wt, session) -> str:
     """
     if wt is None:
         return ""
-    parts = [dynamic_place_block(wt.ctx, wt.plan, session, for_narration=True)]
+    parts = [narration_clock_block(wt, session), dynamic_place_block(wt.ctx, wt.plan, session, for_narration=True)]
     if wt.plan is not None:
         parts.append(narration_overlay(wt.plan, wt.ctx.definition, wt.ctx, world=session))
     parts.append(scene_npc_block(wt.ctx, wt.plan, session))

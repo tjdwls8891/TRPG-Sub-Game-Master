@@ -42,6 +42,23 @@ def get_merged_status_effects(scenario_data: dict) -> dict:
     return merged
 
 
+def status_roll_modifier(scenario_data: dict, statuses) -> tuple[int, list[tuple[str, int]]]:
+    """현재 상태이상의 판정 가중치 합(시나리오 정의 weight) — 판정 기준치에 코드가 더한다.
+
+    Returns: (합계, [(상태이상명, 가중치), ...]) — 가중치 0·미정의 상태는 제외.
+    """
+    effects = get_merged_status_effects(scenario_data or {})
+    parts = []
+    for name in statuses or ():
+        try:
+            w = int((effects.get(name) or {}).get("weight") or 0)
+        except (TypeError, ValueError):
+            w = 0
+        if w:
+            parts.append((name, w))
+    return sum(w for _, w in parts), parts
+
+
 def get_uid_by_char_name(session: TRPGSession, char_name: str) -> str | None:
     """
     캐릭터 이름 문자열을 통해 매핑된 디스코드 사용자 ID 탐색 및 반환.
