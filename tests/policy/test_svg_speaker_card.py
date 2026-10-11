@@ -568,3 +568,46 @@ def test_name_identification_is_independent_testimony_acquisition():
         [("S40", "TESTIMONY", "turn:tx2:name:S40")]
     assert SC.identity_info_ids({"actors": {KANG: {"knowledge": {"face": "F", "name": "S40"}}}}, (KANG,), "name") \
         == ("S40",)
+
+
+# ── 기준색 재색 · 이미지 null · 영도 저작 ─────────────────────
+
+def test_recolor_baseline_maps_baseline_luminance_to_target_color():
+    import re
+    cfg = _config()
+    cfg["slots"]["panel"]["bind"][0]["baseline"] = "#714510"
+    slots = dict(SC.evaluate_slots(cfg, cfg["actors"][AID], set(), None), panel="#C9523A")
+    svg = SC.build_svg(cfg, slots, os.path.join("media", SID)).decode("utf-8")
+    vals = [float(v) for v in re.search(r'feColorMatrix[^>]*values="([^"]+)"', svg).group(1).split()]
+    base = [0x71 / 255, 0x45 / 255, 0x10 / 255]
+    out = [sum(vals[row * 5 + i] * base[i] for i in range(3)) for row in range(3)]
+    assert [round(c * 255) for c in out] == [0xC9, 0x52, 0x3A]
+    cfg["slots"]["panel"]["bind"][0]["baseline"] = "brown"
+    codes = {d[1] for d in SC.check_card_definition({"speaker_card": cfg}, definition=DEFINITION, scenario_id=SID)}
+    assert "CARD_COLOR" in codes
+
+
+def test_null_image_value_is_valid_and_leaves_no_image():
+    cfg = _config()
+    cfg["actors"][AID]["values"]["logo"] = None
+    assert not SC.check_card_definition({"speaker_card": cfg}, definition=DEFINITION, scenario_id=SID)
+    slots = SC.evaluate_slots(cfg, cfg["actors"][AID], {"i.faction", "i.name"}, "neutral")
+    assert slots["logo"] is None
+    svg = SC.build_svg(cfg, slots, os.path.join("media", SID))
+    assert b'id="logo-src"' not in svg
+
+
+def test_yeongdo_speaker_card_authoring_passes_check():
+    import json
+    from tests.conftest import REPO_ROOT
+    from core import definition_compiler as DC
+    with open(os.path.join(REPO_ROOT, "scenarios", "영도.json"), encoding="utf-8") as f:
+        raw = json.load(f)
+    res = DC.compile_scenario(raw, "영도")
+    assert res.ok
+    assert SC.mode_of(raw) == SC.MODE_SVG
+    assert SC.check_card_definition(raw, definition=res.definition, base=os.path.join(REPO_ROOT, "media"),
+                                    scenario_id="영도") == []
+    cards = raw["speaker_card"]["actors"]
+    assert set(cards) == set(res.definition["actor_definitions"]) - {
+        a for a, d in res.definition["actor_definitions"].items() if d.get("kind") != "NPC"}

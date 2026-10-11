@@ -9057,6 +9057,946 @@
           "중리 교역소"
         ]
       }
+    },
+    "yd.info.card.kang_cheolsu.face": {
+      "proposition": "강철수의 얼굴을 보면 알아볼 수 있다.",
+      "summary": "강철수의 얼굴",
+      "subject_refs": [
+        "actor:yd.npc.kang_cheolsu"
+      ],
+      "tags": [
+        "인물 식별"
+      ]
+    },
+    "yd.info.card.kang_cheolsu.name": {
+      "proposition": "이 인물의 이름은 강철수이다.",
+      "summary": "강철수의 이름",
+      "subject_refs": [
+        "actor:yd.npc.kang_cheolsu"
+      ],
+      "tags": [
+        "인물 식별"
+      ]
+    },
+    "yd.info.card.cha_bongsun.face": {
+      "proposition": "차봉순의 얼굴을 보면 알아볼 수 있다.",
+      "summary": "차봉순의 얼굴",
+      "subject_refs": [
+        "actor:yd.npc.cha_bongsun"
+      ],
+      "tags": [
+        "인물 식별"
+      ]
+    },
+    "yd.info.card.cha_bongsun.name": {
+      "proposition": "이 인물의 이름은 차봉순이다.",
+      "summary": "차봉순의 이름",
+      "subject_refs": [
+        "actor:yd.npc.cha_bongsun"
+      ],
+      "tags": [
+        "인물 식별"
+      ]
+    },
+    "yd.info.card.no_sangjin.face": {
+      "proposition": "노상진의 얼굴을 보면 알아볼 수 있다.",
+      "summary": "노상진의 얼굴",
+      "subject_refs": [
+        "actor:yd.npc.no_sangjin"
+      ],
+      "tags": [
+        "인물 식별"
+      ]
+    },
+    "yd.info.card.no_sangjin.name": {
+      "proposition": "이 인물의 이름은 노상진이다.",
+      "summary": "노상진의 이름",
+      "subject_refs": [
+        "actor:yd.npc.no_sangjin"
+      ],
+      "tags": [
+        "인물 식별"
+      ]
+    },
+    "yd.info.card.lee_junhyeok.face": {
+      "proposition": "이준혁의 얼굴을 보면 알아볼 수 있다.",
+      "summary": "이준혁의 얼굴",
+      "subject_refs": [
+        "actor:yd.npc.lee_junhyeok"
+      ],
+      "tags": [
+        "인물 식별"
+      ]
+    },
+    "yd.info.card.lee_junhyeok.name": {
+      "proposition": "이 인물의 이름은 이준혁이다.",
+      "summary": "이준혁의 이름",
+      "subject_refs": [
+        "actor:yd.npc.lee_junhyeok"
+      ],
+      "tags": [
+        "인물 식별"
+      ]
+    },
+    "yd.info.card.ryu_gaeun.face": {
+      "proposition": "류가은의 얼굴을 보면 알아볼 수 있다.",
+      "summary": "류가은의 얼굴",
+      "subject_refs": [
+        "actor:yd.npc.ryu_gaeun"
+      ],
+      "tags": [
+        "인물 식별"
+      ]
+    },
+    "yd.info.card.ryu_gaeun.name": {
+      "proposition": "이 인물의 이름은 류가은이다.",
+      "summary": "류가은의 이름",
+      "subject_refs": [
+        "actor:yd.npc.ryu_gaeun"
+      ],
+      "tags": [
+        "인물 식별"
+      ]
+    },
+    "yd.info.card.park_changsu.face": {
+      "proposition": "박창수의 얼굴을 보면 알아볼 수 있다.",
+      "summary": "박창수의 얼굴",
+      "subject_refs": [
+        "actor:yd.npc.park_changsu"
+      ],
+      "tags": [
+        "인물 식별"
+      ]
+    },
+    "yd.info.card.park_changsu.name": {
+      "proposition": "이 인물의 이름은 박창수이다.",
+      "summary": "박창수의 이름",
+      "subject_refs": [
+        "actor:yd.npc.park_changsu"
+      ],
+      "tags": [
+        "인물 식별"
+      ]
+    },
+    "yd.info.card.oh_gitae.face": {
+      "proposition": "오기태의 얼굴을 보면 알아볼 수 있다.",
+      "summary": "오기태의 얼굴",
+      "subject_refs": [
+        "actor:yd.npc.oh_gitae"
+      ],
+      "tags": [
+        "인물 식별"
+      ]
+    },
+    "yd.info.card.oh_gitae.name": {
+      "proposition": "이 인물의 이름은 오기태이다.",
+      "summary": "오기태의 이름",
+      "subject_refs": [
+        "actor:yd.npc.oh_gitae"
+      ],
+      "tags": [
+        "인물 식별"
+      ]
+    },
+    "yd.info.card.seo_taeyang.face": {
+      "proposition": "서태양의 얼굴을 보면 알아볼 수 있다.",
+      "summary": "서태양의 얼굴",
+      "subject_refs": [
+        "actor:yd.npc.seo_taeyang"
+      ],
+      "tags": [
+        "인물 식별"
+      ]
+    },
+    "yd.info.card.seo_taeyang.name": {
+      "proposition": "이 인물의 이름은 서태양이다.",
+      "summary": "서태양의 이름",
+      "subject_refs": [
+        "actor:yd.npc.seo_taeyang"
+      ],
+      "tags": [
+        "인물 식별"
+      ]
+    },
+    "yd.info.card.lim_jaehwan.face": {
+      "proposition": "임재환의 얼굴을 보면 알아볼 수 있다.",
+      "summary": "임재환의 얼굴",
+      "subject_refs": [
+        "actor:yd.npc.lim_jaehwan"
+      ],
+      "tags": [
+        "인물 식별"
+      ]
+    },
+    "yd.info.card.lim_jaehwan.name": {
+      "proposition": "이 인물의 이름은 임재환이다.",
+      "summary": "임재환의 이름",
+      "subject_refs": [
+        "actor:yd.npc.lim_jaehwan"
+      ],
+      "tags": [
+        "인물 식별"
+      ]
+    },
+    "yd.info.card.hwang_sunae.face": {
+      "proposition": "황순애의 얼굴을 보면 알아볼 수 있다.",
+      "summary": "황순애의 얼굴",
+      "subject_refs": [
+        "actor:yd.npc.hwang_sunae"
+      ],
+      "tags": [
+        "인물 식별"
+      ]
+    },
+    "yd.info.card.hwang_sunae.name": {
+      "proposition": "이 인물의 이름은 황순애이다.",
+      "summary": "황순애의 이름",
+      "subject_refs": [
+        "actor:yd.npc.hwang_sunae"
+      ],
+      "tags": [
+        "인물 식별"
+      ]
+    },
+    "yd.info.card.choi_minjun.face": {
+      "proposition": "최민준의 얼굴을 보면 알아볼 수 있다.",
+      "summary": "최민준의 얼굴",
+      "subject_refs": [
+        "actor:yd.npc.choi_minjun"
+      ],
+      "tags": [
+        "인물 식별"
+      ]
+    },
+    "yd.info.card.choi_minjun.name": {
+      "proposition": "이 인물의 이름은 최민준이다.",
+      "summary": "최민준의 이름",
+      "subject_refs": [
+        "actor:yd.npc.choi_minjun"
+      ],
+      "tags": [
+        "인물 식별"
+      ]
+    },
+    "yd.info.card.beopun.face": {
+      "proposition": "법운의 얼굴을 보면 알아볼 수 있다.",
+      "summary": "법운의 얼굴",
+      "subject_refs": [
+        "actor:yd.npc.beopun"
+      ],
+      "tags": [
+        "인물 식별"
+      ]
+    },
+    "yd.info.card.beopun.name": {
+      "proposition": "이 인물의 이름은 법운이다.",
+      "summary": "법운의 이름",
+      "subject_refs": [
+        "actor:yd.npc.beopun"
+      ],
+      "tags": [
+        "인물 식별"
+      ]
+    },
+    "yd.info.card.jo_wondal.face": {
+      "proposition": "조원달의 얼굴을 보면 알아볼 수 있다.",
+      "summary": "조원달의 얼굴",
+      "subject_refs": [
+        "actor:yd.npc.jo_wondal"
+      ],
+      "tags": [
+        "인물 식별"
+      ]
+    },
+    "yd.info.card.jo_wondal.name": {
+      "proposition": "이 인물의 이름은 조원달이다.",
+      "summary": "조원달의 이름",
+      "subject_refs": [
+        "actor:yd.npc.jo_wondal"
+      ],
+      "tags": [
+        "인물 식별"
+      ]
+    },
+    "yd.info.card.shin_daeho.face": {
+      "proposition": "신대호의 얼굴을 보면 알아볼 수 있다.",
+      "summary": "신대호의 얼굴",
+      "subject_refs": [
+        "actor:yd.npc.shin_daeho"
+      ],
+      "tags": [
+        "인물 식별"
+      ]
+    },
+    "yd.info.card.shin_daeho.name": {
+      "proposition": "이 인물의 이름은 신대호이다.",
+      "summary": "신대호의 이름",
+      "subject_refs": [
+        "actor:yd.npc.shin_daeho"
+      ],
+      "tags": [
+        "인물 식별"
+      ]
+    },
+    "yd.info.card.oh_myeongsuk.face": {
+      "proposition": "오명숙의 얼굴을 보면 알아볼 수 있다.",
+      "summary": "오명숙의 얼굴",
+      "subject_refs": [
+        "actor:yd.npc.oh_myeongsuk"
+      ],
+      "tags": [
+        "인물 식별"
+      ]
+    },
+    "yd.info.card.oh_myeongsuk.name": {
+      "proposition": "이 인물의 이름은 오명숙이다.",
+      "summary": "오명숙의 이름",
+      "subject_refs": [
+        "actor:yd.npc.oh_myeongsuk"
+      ],
+      "tags": [
+        "인물 식별"
+      ]
+    },
+    "yd.info.card.jang_ujin.face": {
+      "proposition": "장우진의 얼굴을 보면 알아볼 수 있다.",
+      "summary": "장우진의 얼굴",
+      "subject_refs": [
+        "actor:yd.npc.jang_ujin"
+      ],
+      "tags": [
+        "인물 식별"
+      ]
+    },
+    "yd.info.card.jang_ujin.name": {
+      "proposition": "이 인물의 이름은 장우진이다.",
+      "summary": "장우진의 이름",
+      "subject_refs": [
+        "actor:yd.npc.jang_ujin"
+      ],
+      "tags": [
+        "인물 식별"
+      ]
+    },
+    "yd.info.card.kang_byeongcheol.face": {
+      "proposition": "강병철의 얼굴을 보면 알아볼 수 있다.",
+      "summary": "강병철의 얼굴",
+      "subject_refs": [
+        "actor:yd.npc.kang_byeongcheol"
+      ],
+      "tags": [
+        "인물 식별"
+      ]
+    },
+    "yd.info.card.kang_byeongcheol.name": {
+      "proposition": "이 인물의 이름은 강병철이다.",
+      "summary": "강병철의 이름",
+      "subject_refs": [
+        "actor:yd.npc.kang_byeongcheol"
+      ],
+      "tags": [
+        "인물 식별"
+      ]
+    },
+    "yd.info.card.park_haeun.face": {
+      "proposition": "박하은의 얼굴을 보면 알아볼 수 있다.",
+      "summary": "박하은의 얼굴",
+      "subject_refs": [
+        "actor:yd.npc.park_haeun"
+      ],
+      "tags": [
+        "인물 식별"
+      ]
+    },
+    "yd.info.card.park_haeun.name": {
+      "proposition": "이 인물의 이름은 박하은이다.",
+      "summary": "박하은의 이름",
+      "subject_refs": [
+        "actor:yd.npc.park_haeun"
+      ],
+      "tags": [
+        "인물 식별"
+      ]
+    },
+    "yd.info.card.yoon_jeomsun.face": {
+      "proposition": "윤점순의 얼굴을 보면 알아볼 수 있다.",
+      "summary": "윤점순의 얼굴",
+      "subject_refs": [
+        "actor:yd.npc.yoon_jeomsun"
+      ],
+      "tags": [
+        "인물 식별"
+      ]
+    },
+    "yd.info.card.yoon_jeomsun.name": {
+      "proposition": "이 인물의 이름은 윤점순이다.",
+      "summary": "윤점순의 이름",
+      "subject_refs": [
+        "actor:yd.npc.yoon_jeomsun"
+      ],
+      "tags": [
+        "인물 식별"
+      ]
+    },
+    "yd.info.card.lee_dongcheol.face": {
+      "proposition": "이동철의 얼굴을 보면 알아볼 수 있다.",
+      "summary": "이동철의 얼굴",
+      "subject_refs": [
+        "actor:yd.npc.lee_dongcheol"
+      ],
+      "tags": [
+        "인물 식별"
+      ]
+    },
+    "yd.info.card.lee_dongcheol.name": {
+      "proposition": "이 인물의 이름은 이동철이다.",
+      "summary": "이동철의 이름",
+      "subject_refs": [
+        "actor:yd.npc.lee_dongcheol"
+      ],
+      "tags": [
+        "인물 식별"
+      ]
+    },
+    "yd.info.card.park_incheol.face": {
+      "proposition": "박인철의 얼굴을 보면 알아볼 수 있다.",
+      "summary": "박인철의 얼굴",
+      "subject_refs": [
+        "actor:yd.npc.park_incheol"
+      ],
+      "tags": [
+        "인물 식별"
+      ]
+    },
+    "yd.info.card.park_incheol.name": {
+      "proposition": "이 인물의 이름은 박인철이다.",
+      "summary": "박인철의 이름",
+      "subject_refs": [
+        "actor:yd.npc.park_incheol"
+      ],
+      "tags": [
+        "인물 식별"
+      ]
+    },
+    "yd.info.card.lee_hyeonseok.face": {
+      "proposition": "이현석의 얼굴을 보면 알아볼 수 있다.",
+      "summary": "이현석의 얼굴",
+      "subject_refs": [
+        "actor:yd.npc.lee_hyeonseok"
+      ],
+      "tags": [
+        "인물 식별"
+      ]
+    },
+    "yd.info.card.lee_hyeonseok.name": {
+      "proposition": "이 인물의 이름은 이현석이다.",
+      "summary": "이현석의 이름",
+      "subject_refs": [
+        "actor:yd.npc.lee_hyeonseok"
+      ],
+      "tags": [
+        "인물 식별"
+      ]
+    },
+    "yd.info.card.min_dohyeon.face": {
+      "proposition": "민도현의 얼굴을 보면 알아볼 수 있다.",
+      "summary": "민도현의 얼굴",
+      "subject_refs": [
+        "actor:yd.npc.min_dohyeon"
+      ],
+      "tags": [
+        "인물 식별"
+      ]
+    },
+    "yd.info.card.min_dohyeon.name": {
+      "proposition": "이 인물의 이름은 민도현이다.",
+      "summary": "민도현의 이름",
+      "subject_refs": [
+        "actor:yd.npc.min_dohyeon"
+      ],
+      "tags": [
+        "인물 식별"
+      ]
+    },
+    "yd.info.card.kang_jisu.face": {
+      "proposition": "강지수의 얼굴을 보면 알아볼 수 있다.",
+      "summary": "강지수의 얼굴",
+      "subject_refs": [
+        "actor:yd.npc.kang_jisu"
+      ],
+      "tags": [
+        "인물 식별"
+      ]
+    },
+    "yd.info.card.kang_jisu.name": {
+      "proposition": "이 인물의 이름은 강지수이다.",
+      "summary": "강지수의 이름",
+      "subject_refs": [
+        "actor:yd.npc.kang_jisu"
+      ],
+      "tags": [
+        "인물 식별"
+      ]
+    },
+    "yd.info.card.hwang_giyeong.face": {
+      "proposition": "황기영의 얼굴을 보면 알아볼 수 있다.",
+      "summary": "황기영의 얼굴",
+      "subject_refs": [
+        "actor:yd.npc.hwang_giyeong"
+      ],
+      "tags": [
+        "인물 식별"
+      ]
+    },
+    "yd.info.card.hwang_giyeong.name": {
+      "proposition": "이 인물의 이름은 황기영이다.",
+      "summary": "황기영의 이름",
+      "subject_refs": [
+        "actor:yd.npc.hwang_giyeong"
+      ],
+      "tags": [
+        "인물 식별"
+      ]
+    },
+    "yd.info.card.lim_cheolmin.face": {
+      "proposition": "임철민의 얼굴을 보면 알아볼 수 있다.",
+      "summary": "임철민의 얼굴",
+      "subject_refs": [
+        "actor:yd.npc.lim_cheolmin"
+      ],
+      "tags": [
+        "인물 식별"
+      ]
+    },
+    "yd.info.card.lim_cheolmin.name": {
+      "proposition": "이 인물의 이름은 임철민이다.",
+      "summary": "임철민의 이름",
+      "subject_refs": [
+        "actor:yd.npc.lim_cheolmin"
+      ],
+      "tags": [
+        "인물 식별"
+      ]
+    },
+    "yd.info.card.son_jaehyeon.face": {
+      "proposition": "손재현의 얼굴을 보면 알아볼 수 있다.",
+      "summary": "손재현의 얼굴",
+      "subject_refs": [
+        "actor:yd.npc.son_jaehyeon"
+      ],
+      "tags": [
+        "인물 식별"
+      ]
+    },
+    "yd.info.card.son_jaehyeon.name": {
+      "proposition": "이 인물의 이름은 손재현이다.",
+      "summary": "손재현의 이름",
+      "subject_refs": [
+        "actor:yd.npc.son_jaehyeon"
+      ],
+      "tags": [
+        "인물 식별"
+      ]
+    },
+    "yd.info.card.yoon_sangjun.face": {
+      "proposition": "윤상준의 얼굴을 보면 알아볼 수 있다.",
+      "summary": "윤상준의 얼굴",
+      "subject_refs": [
+        "actor:yd.npc.yoon_sangjun"
+      ],
+      "tags": [
+        "인물 식별"
+      ]
+    },
+    "yd.info.card.yoon_sangjun.name": {
+      "proposition": "이 인물의 이름은 윤상준이다.",
+      "summary": "윤상준의 이름",
+      "subject_refs": [
+        "actor:yd.npc.yoon_sangjun"
+      ],
+      "tags": [
+        "인물 식별"
+      ]
+    },
+    "yd.info.card.bae_hyeongsik.face": {
+      "proposition": "배형식의 얼굴을 보면 알아볼 수 있다.",
+      "summary": "배형식의 얼굴",
+      "subject_refs": [
+        "actor:yd.npc.bae_hyeongsik"
+      ],
+      "tags": [
+        "인물 식별"
+      ]
+    },
+    "yd.info.card.bae_hyeongsik.name": {
+      "proposition": "이 인물의 이름은 배형식이다.",
+      "summary": "배형식의 이름",
+      "subject_refs": [
+        "actor:yd.npc.bae_hyeongsik"
+      ],
+      "tags": [
+        "인물 식별"
+      ]
+    },
+    "yd.info.card.choi_suyeon.face": {
+      "proposition": "최수연의 얼굴을 보면 알아볼 수 있다.",
+      "summary": "최수연의 얼굴",
+      "subject_refs": [
+        "actor:yd.npc.choi_suyeon"
+      ],
+      "tags": [
+        "인물 식별"
+      ]
+    },
+    "yd.info.card.choi_suyeon.name": {
+      "proposition": "이 인물의 이름은 최수연이다.",
+      "summary": "최수연의 이름",
+      "subject_refs": [
+        "actor:yd.npc.choi_suyeon"
+      ],
+      "tags": [
+        "인물 식별"
+      ]
+    },
+    "yd.info.card.kim_taeho.face": {
+      "proposition": "김태호의 얼굴을 보면 알아볼 수 있다.",
+      "summary": "김태호의 얼굴",
+      "subject_refs": [
+        "actor:yd.npc.kim_taeho"
+      ],
+      "tags": [
+        "인물 식별"
+      ]
+    },
+    "yd.info.card.kim_taeho.name": {
+      "proposition": "이 인물의 이름은 김태호이다.",
+      "summary": "김태호의 이름",
+      "subject_refs": [
+        "actor:yd.npc.kim_taeho"
+      ],
+      "tags": [
+        "인물 식별"
+      ]
+    },
+    "yd.info.card.mun_sangcheol.face": {
+      "proposition": "문상철의 얼굴을 보면 알아볼 수 있다.",
+      "summary": "문상철의 얼굴",
+      "subject_refs": [
+        "actor:yd.npc.mun_sangcheol"
+      ],
+      "tags": [
+        "인물 식별"
+      ]
+    },
+    "yd.info.card.mun_sangcheol.name": {
+      "proposition": "이 인물의 이름은 문상철이다.",
+      "summary": "문상철의 이름",
+      "subject_refs": [
+        "actor:yd.npc.mun_sangcheol"
+      ],
+      "tags": [
+        "인물 식별"
+      ]
+    },
+    "yd.info.card.na_yongsun.face": {
+      "proposition": "나용순의 얼굴을 보면 알아볼 수 있다.",
+      "summary": "나용순의 얼굴",
+      "subject_refs": [
+        "actor:yd.npc.na_yongsun"
+      ],
+      "tags": [
+        "인물 식별"
+      ]
+    },
+    "yd.info.card.na_yongsun.name": {
+      "proposition": "이 인물의 이름은 나용순이다.",
+      "summary": "나용순의 이름",
+      "subject_refs": [
+        "actor:yd.npc.na_yongsun"
+      ],
+      "tags": [
+        "인물 식별"
+      ]
+    },
+    "yd.info.card.eom_juseop.face": {
+      "proposition": "엄주섭의 얼굴을 보면 알아볼 수 있다.",
+      "summary": "엄주섭의 얼굴",
+      "subject_refs": [
+        "actor:yd.npc.eom_juseop"
+      ],
+      "tags": [
+        "인물 식별"
+      ]
+    },
+    "yd.info.card.eom_juseop.name": {
+      "proposition": "이 인물의 이름은 엄주섭이다.",
+      "summary": "엄주섭의 이름",
+      "subject_refs": [
+        "actor:yd.npc.eom_juseop"
+      ],
+      "tags": [
+        "인물 식별"
+      ]
+    },
+    "yd.info.card.jang_cheolung.face": {
+      "proposition": "장철웅의 얼굴을 보면 알아볼 수 있다.",
+      "summary": "장철웅의 얼굴",
+      "subject_refs": [
+        "actor:yd.npc.jang_cheolung"
+      ],
+      "tags": [
+        "인물 식별"
+      ]
+    },
+    "yd.info.card.jang_cheolung.name": {
+      "proposition": "이 인물의 이름은 장철웅이다.",
+      "summary": "장철웅의 이름",
+      "subject_refs": [
+        "actor:yd.npc.jang_cheolung"
+      ],
+      "tags": [
+        "인물 식별"
+      ]
+    },
+    "yd.info.card.jo_han.face": {
+      "proposition": "조한의 얼굴을 보면 알아볼 수 있다.",
+      "summary": "조한의 얼굴",
+      "subject_refs": [
+        "actor:yd.npc.jo_han"
+      ],
+      "tags": [
+        "인물 식별"
+      ]
+    },
+    "yd.info.card.jo_han.name": {
+      "proposition": "이 인물의 이름은 조한이다.",
+      "summary": "조한의 이름",
+      "subject_refs": [
+        "actor:yd.npc.jo_han"
+      ],
+      "tags": [
+        "인물 식별"
+      ]
+    },
+    "yd.info.card.jin_bokrye.face": {
+      "proposition": "진복례의 얼굴을 보면 알아볼 수 있다.",
+      "summary": "진복례의 얼굴",
+      "subject_refs": [
+        "actor:yd.npc.jin_bokrye"
+      ],
+      "tags": [
+        "인물 식별"
+      ]
+    },
+    "yd.info.card.jin_bokrye.name": {
+      "proposition": "이 인물의 이름은 진복례이다.",
+      "summary": "진복례의 이름",
+      "subject_refs": [
+        "actor:yd.npc.jin_bokrye"
+      ],
+      "tags": [
+        "인물 식별"
+      ]
+    },
+    "yd.info.card.hwang_minseok.face": {
+      "proposition": "황민석의 얼굴을 보면 알아볼 수 있다.",
+      "summary": "황민석의 얼굴",
+      "subject_refs": [
+        "actor:yd.npc.hwang_minseok"
+      ],
+      "tags": [
+        "인물 식별"
+      ]
+    },
+    "yd.info.card.hwang_minseok.name": {
+      "proposition": "이 인물의 이름은 황민석이다.",
+      "summary": "황민석의 이름",
+      "subject_refs": [
+        "actor:yd.npc.hwang_minseok"
+      ],
+      "tags": [
+        "인물 식별"
+      ]
+    },
+    "yd.info.card.lee_seonhui.face": {
+      "proposition": "이선희의 얼굴을 보면 알아볼 수 있다.",
+      "summary": "이선희의 얼굴",
+      "subject_refs": [
+        "actor:yd.npc.lee_seonhui"
+      ],
+      "tags": [
+        "인물 식별"
+      ]
+    },
+    "yd.info.card.lee_seonhui.name": {
+      "proposition": "이 인물의 이름은 이선희이다.",
+      "summary": "이선희의 이름",
+      "subject_refs": [
+        "actor:yd.npc.lee_seonhui"
+      ],
+      "tags": [
+        "인물 식별"
+      ]
+    },
+    "yd.info.card.jang_hyeonsu.face": {
+      "proposition": "장현수의 얼굴을 보면 알아볼 수 있다.",
+      "summary": "장현수의 얼굴",
+      "subject_refs": [
+        "actor:yd.npc.jang_hyeonsu"
+      ],
+      "tags": [
+        "인물 식별"
+      ]
+    },
+    "yd.info.card.jang_hyeonsu.name": {
+      "proposition": "이 인물의 이름은 장현수이다.",
+      "summary": "장현수의 이름",
+      "subject_refs": [
+        "actor:yd.npc.jang_hyeonsu"
+      ],
+      "tags": [
+        "인물 식별"
+      ]
+    },
+    "yd.info.card.park_mirae.face": {
+      "proposition": "박미래의 얼굴을 보면 알아볼 수 있다.",
+      "summary": "박미래의 얼굴",
+      "subject_refs": [
+        "actor:yd.npc.park_mirae"
+      ],
+      "tags": [
+        "인물 식별"
+      ]
+    },
+    "yd.info.card.park_mirae.name": {
+      "proposition": "이 인물의 이름은 박미래이다.",
+      "summary": "박미래의 이름",
+      "subject_refs": [
+        "actor:yd.npc.park_mirae"
+      ],
+      "tags": [
+        "인물 식별"
+      ]
+    },
+    "yd.info.card.kwon_sangtae.face": {
+      "proposition": "권상태의 얼굴을 보면 알아볼 수 있다.",
+      "summary": "권상태의 얼굴",
+      "subject_refs": [
+        "actor:yd.npc.kwon_sangtae"
+      ],
+      "tags": [
+        "인물 식별"
+      ]
+    },
+    "yd.info.card.kwon_sangtae.name": {
+      "proposition": "이 인물의 이름은 권상태이다.",
+      "summary": "권상태의 이름",
+      "subject_refs": [
+        "actor:yd.npc.kwon_sangtae"
+      ],
+      "tags": [
+        "인물 식별"
+      ]
+    },
+    "yd.info.card.shin_changho.face": {
+      "proposition": "신창호의 얼굴을 보면 알아볼 수 있다.",
+      "summary": "신창호의 얼굴",
+      "subject_refs": [
+        "actor:yd.npc.shin_changho"
+      ],
+      "tags": [
+        "인물 식별"
+      ]
+    },
+    "yd.info.card.shin_changho.name": {
+      "proposition": "이 인물의 이름은 신창호이다.",
+      "summary": "신창호의 이름",
+      "subject_refs": [
+        "actor:yd.npc.shin_changho"
+      ],
+      "tags": [
+        "인물 식별"
+      ]
+    },
+    "yd.info.card.baek_inha.face": {
+      "proposition": "백인하의 얼굴을 보면 알아볼 수 있다.",
+      "summary": "백인하의 얼굴",
+      "subject_refs": [
+        "actor:yd.npc.baek_inha"
+      ],
+      "tags": [
+        "인물 식별"
+      ]
+    },
+    "yd.info.card.baek_inha.name": {
+      "proposition": "이 인물의 이름은 백인하이다.",
+      "summary": "백인하의 이름",
+      "subject_refs": [
+        "actor:yd.npc.baek_inha"
+      ],
+      "tags": [
+        "인물 식별"
+      ]
+    },
+    "yd.info.card.han_doyun.face": {
+      "proposition": "한도윤의 얼굴을 보면 알아볼 수 있다.",
+      "summary": "한도윤의 얼굴",
+      "subject_refs": [
+        "actor:yd.npc.han_doyun"
+      ],
+      "tags": [
+        "인물 식별"
+      ]
+    },
+    "yd.info.card.han_doyun.name": {
+      "proposition": "이 인물의 이름은 한도윤이다.",
+      "summary": "한도윤의 이름",
+      "subject_refs": [
+        "actor:yd.npc.han_doyun"
+      ],
+      "tags": [
+        "인물 식별"
+      ]
+    },
+    "yd.info.card.jeon_seongnam.face": {
+      "proposition": "전성남의 얼굴을 보면 알아볼 수 있다.",
+      "summary": "전성남의 얼굴",
+      "subject_refs": [
+        "actor:yd.npc.jeon_seongnam"
+      ],
+      "tags": [
+        "인물 식별"
+      ]
+    },
+    "yd.info.card.jeon_seongnam.name": {
+      "proposition": "이 인물의 이름은 전성남이다.",
+      "summary": "전성남의 이름",
+      "subject_refs": [
+        "actor:yd.npc.jeon_seongnam"
+      ],
+      "tags": [
+        "인물 식별"
+      ]
+    },
+    "yd.info.card.yeom_gijun.face": {
+      "proposition": "염기준의 얼굴을 보면 알아볼 수 있다.",
+      "summary": "염기준의 얼굴",
+      "subject_refs": [
+        "actor:yd.npc.yeom_gijun"
+      ],
+      "tags": [
+        "인물 식별"
+      ]
+    },
+    "yd.info.card.yeom_gijun.name": {
+      "proposition": "이 인물의 이름은 염기준이다.",
+      "summary": "염기준의 이름",
+      "subject_refs": [
+        "actor:yd.npc.yeom_gijun"
+      ],
+      "tags": [
+        "인물 식별"
+      ]
     }
   },
   "event_templates": {
@@ -32726,6 +33666,3778 @@
       "phase_selector": {
         "mode": "PRIORITY",
         "stability": "STICKY"
+      }
+    }
+  },
+  "speaker_card": {
+    "schema_version": 1,
+    "mode": "svg",
+    "template": "cards/card.svg",
+    "sha256": {
+      "cards/card.svg": "8e7ac00a524c1edab0521d7fb7f427cb2f7102b39d6c462daf5ca4b7a6686431",
+      "cards/silhouette.png": "0909a4f365ae26dec9998106ef9b34f7dab5894e0f0912d74ba2c413affb2e9e",
+      "cards/logo_namhang_black.png": "e2ff8787aa92c9185f9bf7dcd37d7195b0aa2e35c5436fdd44a022aa999e9782",
+      "cards/logo_namhang_white.png": "51620a1d8c22a37688f28cd4bab633601c913f510aae867323c40fc6a5190371",
+      "cards/portraits/강철수.png": "b72d3cf3a18b76f083d48611e961786e0703d5744c4548880d26ff9c14848ef5",
+      "cards/portraits/차봉순.png": "584ebb48502814da3a2f5a391fcb8aabe903bd0c2bd282de3882efda9e93b678",
+      "cards/portraits/노상진.png": "41aa6ec13602a98fd847d85829e4c177253a882e0963d64aabf8b15bee44d77f",
+      "cards/portraits/이준혁.png": "5ea50c64300a7b419cdf5c537b180e41ee262fbc6f84698d2a1dc99fefba88f1",
+      "cards/portraits/류가은.png": "1295b37cd7619cfa1799b4e951acd5a849599b93aa88e7a959b443d7c33f732b",
+      "cards/portraits/박창수.png": "3bf2d097cb1c7d79b700dfbcac34f091963aa9def7a3ec20a02fb69ee2525bcb",
+      "cards/portraits/오기태.png": "62630a0f60a639d484be776295ab1e082d028c058440354fafb72c737647610d",
+      "cards/portraits/서태양.png": "8458c355b30106c2dd36279863a1a5876407ddf166fa43e12374c6cda6f8bdf9",
+      "cards/portraits/임재환.png": "badb01606815ce3be581326bcf0e62f73d58e33e6637f6351d6ce4f1759e0791",
+      "cards/portraits/황순애.png": "63c56211a9c5c1ebebc856d44a12d74c2ceacced9fec9aa5810b11a599fc24f3",
+      "cards/portraits/최민준.png": "2aef7fa816b90ecdc760d6e756c81bd10e6254bc6e226b44bb40d91482f4f3e1",
+      "cards/portraits/법운.png": "f99ec58c30fb69e00fabb2c67789a875e7e85bec3c13764072fe8aa6ca46b2aa",
+      "cards/portraits/조원달.png": "b33bb2a824cf2c6f3405a3c3308c5e2a6a35954ae7d451388ca604746c379434",
+      "cards/portraits/신대호.png": "d81c54b6508ca22aaf191c8b5a38e0e5dfb63e1978eabff7abb2fa46a38f19bf",
+      "cards/portraits/오명숙.png": "2c978591220a3e15bb6e46ba87e1dc6a626d3979f85de9880e7677cba0d07582",
+      "cards/portraits/장우진.png": "060e74e298c0a8c2dcaedb1c0f7336c4f462b892120b47dd63154ca25c6f0820",
+      "cards/portraits/강병철.png": "9f309b22945bca2d1dcaf32f4739f0be082a765945bc2663c00256cd26f326f7",
+      "cards/portraits/박하은.png": "dee2d6864b5a4bbbcca46387ec4bedb95828c18ae559238680b482a190488995",
+      "cards/portraits/윤점순.png": "9af8a65f1f971c35e486b3a6e847b3bb8fdc6af8a52090cc348f5b92176f32aa",
+      "cards/portraits/이동철.png": "ee7fa5d05802950a20023949775cc17176f41f2f632637b6c4c99e2722cc49f9",
+      "cards/portraits/박인철.png": "f718b76924aed5a6464d093a4743a46a2b679c4964fbdbf51f43926e5f16ce24",
+      "cards/portraits/이현석.png": "fa30a29b5f210be98b69221deda6b11e390cedc6e397e39ec9fcaf0c73b24097",
+      "cards/portraits/민도현.png": "bac102636f8646ded4a121439ee7201f73cc1ba689fb5f0c32b701bec7e99776",
+      "cards/portraits/강지수.png": "6f5e77781e805abc012a8d0dfbfe99fbb93748c522d945543d997675ec1c533d",
+      "cards/portraits/황기영.png": "2cfc2bcadcbee023b81510163b8fe30aa6ca8a4e00b04b24faaedb39401a22c0",
+      "cards/portraits/임철민.png": "a0ee073747940ebec03fb73fd74c657ea8b39e3ef676746104a77fc483370f14",
+      "cards/portraits/손재현.png": "b4cedd65017200969e4e1bcc230897b8dc2b63aab38df3e70113dbf293641276",
+      "cards/portraits/윤상준.png": "d8d533456d08cf92d87978bee8ded1b5130f5e1143325b274c536b2174da0715",
+      "cards/portraits/배형식.png": "995ad14a34f0e97f246277c9433f820e5113df9c8d6d28a5aa505ac3d7cc813b",
+      "cards/portraits/최수연.png": "ec929728e6d4a865d50726819b82db046a3d0c8a8ffecd118f02e86aeca3618a",
+      "cards/portraits/김태호.png": "9cb739147bf2e91883af2e9e3a9a87d0068161fee2016f499dbb186d8836e491",
+      "cards/portraits/문상철.png": "ce1ca5effb5574b34c800275ea58bf1016c1feb74e376a1fb14423835f3ffa36",
+      "cards/portraits/나용순.png": "8fa1e823bb14be2ac6a3fca4cad8ead5112390b9f12f0e9c39d9a8bac6c48703",
+      "cards/portraits/엄주섭.png": "3637a29e64ddf075afdb261d7c45a43ee1171556e82318071f4f96bf32e8120b",
+      "cards/portraits/장철웅.png": "2999f8e4022a0233dd102841718801726686563fe9d77631de79f3e87b4395ab",
+      "cards/portraits/조한.png": "f45c55cf504a2492906ff73a3da3bed1fcd660441f510861811c74d92dace3ff",
+      "cards/portraits/진복례.png": "cf2bd8dbd5ef3b3ee9325219130e3e1df0c7857c23961c3ab421072c9f78f434",
+      "cards/portraits/황민석.png": "4eb5244790fab7df7b8ac822eb19056cc44929513fffd3b947408c60c9b1ff24",
+      "cards/portraits/이선희.png": "9c75d1b36818d953ab935cfa66bbd7c1cce015bf66925d17fecc4d0b51bc4373",
+      "cards/portraits/장현수.png": "725b1dcc9c2fb76257e91c2456a5dd59d53ae9b8f93604ae00253db874b34e20",
+      "cards/portraits/박미래.png": "5b65d2ed0bb77f3ef4f86d981961128c7200ec2da1952e8a0ff62cc8e8a44cda",
+      "cards/portraits/권상태.png": "5183e8f9b648e7d39f5bee0a5ff2695a9cf5f5e30253fd6a10ef5f0a1a28b347",
+      "cards/portraits/신창호.png": "cbd9837f4a3c79e240bef91f035b3636cab981c886ef5243f279f100d6055034",
+      "cards/portraits/백인하.png": "b8dc8542058b6d3ce5f8f88c7ec497ef0bf1b059bd17533da942f8ae23abb3db",
+      "cards/portraits/한도윤.png": "e757117801d73fe7f28b01e1eb5f99a29a3cb72b48a00ffe06a39eb04ef80e50",
+      "cards/portraits/전성남.png": "786f79d4f14f4f1ca128f625f54221cc6dda7942fb41018fa40c20d5f3bc5ba0",
+      "cards/portraits/염기준.png": "a0ccbe7eec1e41003fdbb8f3805dc204eedf2e0d3318b301b393f006cb5d7b95"
+    },
+    "remove_classes": [
+      "reference-text-paths"
+    ],
+    "show_classes": [
+      "variable-text-slot"
+    ],
+    "remove_ids": [
+      "unknown-silhouette-slot"
+    ],
+    "fixed_slots": [
+      "latin_band"
+    ],
+    "default_variation": "neutral",
+    "name_slots": [
+      "name",
+      "latin_name"
+    ],
+    "text_presets": {
+      "name": {
+        "1": {
+          "A": [
+            {
+              "x": 748,
+              "y": 347,
+              "font_size": 152
+            }
+          ]
+        },
+        "2": {
+          "A": [
+            {
+              "x": 708,
+              "y": 341,
+              "font_size": 136
+            },
+            {
+              "x": 813,
+              "y": 358,
+              "font_size": 120
+            }
+          ]
+        },
+        "3": {
+          "A": [
+            {
+              "x": 678,
+              "y": 334,
+              "font_size": 138
+            },
+            {
+              "x": 773,
+              "y": 364,
+              "font_size": 108
+            },
+            {
+              "x": 857,
+              "y": 360,
+              "font_size": 88
+            }
+          ],
+          "B": [
+            {
+              "x": 684,
+              "y": 339,
+              "font_size": 132
+            },
+            {
+              "x": 773,
+              "y": 357,
+              "font_size": 114
+            },
+            {
+              "x": 853,
+              "y": 352,
+              "font_size": 94
+            }
+          ],
+          "C": [
+            {
+              "x": 686,
+              "y": 333,
+              "font_size": 134
+            },
+            {
+              "x": 772,
+              "y": 361,
+              "font_size": 110
+            },
+            {
+              "x": 851,
+              "y": 366,
+              "font_size": 90
+            }
+          ]
+        },
+        "4": {
+          "A": [
+            {
+              "x": 654,
+              "y": 338,
+              "font_size": 124
+            },
+            {
+              "x": 731,
+              "y": 353,
+              "font_size": 112
+            },
+            {
+              "x": 806,
+              "y": 360,
+              "font_size": 98
+            },
+            {
+              "x": 877,
+              "y": 355,
+              "font_size": 84
+            }
+          ]
+        },
+        "5": {
+          "A": [
+            {
+              "x": 636,
+              "y": 338,
+              "font_size": 114
+            },
+            {
+              "x": 704,
+              "y": 351,
+              "font_size": 106
+            },
+            {
+              "x": 771,
+              "y": 360,
+              "font_size": 94
+            },
+            {
+              "x": 836,
+              "y": 357,
+              "font_size": 84
+            },
+            {
+              "x": 896,
+              "y": 350,
+              "font_size": 76
+            }
+          ]
+        }
+      },
+      "role": {
+        "1": {
+          "A": [
+            {
+              "x": 1244,
+              "y": 176,
+              "font_size": 114
+            }
+          ]
+        },
+        "2": {
+          "A": [
+            {
+              "x": 1213,
+              "y": 160,
+              "font_size": 102
+            },
+            {
+              "x": 1298,
+              "y": 224,
+              "font_size": 80
+            }
+          ]
+        },
+        "3": {
+          "A": [
+            {
+              "x": 1203,
+              "y": 146,
+              "font_size": 94
+            },
+            {
+              "x": 1260,
+              "y": 192,
+              "font_size": 82
+            },
+            {
+              "x": 1310,
+              "y": 237,
+              "font_size": 70
+            }
+          ]
+        },
+        "4": {
+          "A": [
+            {
+              "x": 1196,
+              "y": 136,
+              "font_size": 90
+            },
+            {
+              "x": 1244,
+              "y": 173,
+              "font_size": 84
+            },
+            {
+              "x": 1292,
+              "y": 212,
+              "font_size": 76
+            },
+            {
+              "x": 1330,
+              "y": 247,
+              "font_size": 68
+            }
+          ]
+        },
+        "5": {
+          "A": [
+            {
+              "x": 1188,
+              "y": 129,
+              "font_size": 84
+            },
+            {
+              "x": 1230,
+              "y": 162,
+              "font_size": 80
+            },
+            {
+              "x": 1272,
+              "y": 194,
+              "font_size": 74
+            },
+            {
+              "x": 1309,
+              "y": 227,
+              "font_size": 68
+            },
+            {
+              "x": 1338,
+              "y": 256,
+              "font_size": 62
+            }
+          ]
+        }
+      }
+    },
+    "slots": {
+      "name": {
+        "kind": "text",
+        "unknown": "?",
+        "bind": [
+          {
+            "op": "chars",
+            "ids": [
+              "display-name-char-1-text",
+              "display-name-char-2-text",
+              "display-name-char-3-text",
+              "display-name-char-4-text",
+              "display-name-char-5-text"
+            ],
+            "presets": "name"
+          }
+        ]
+      },
+      "role": {
+        "kind": "text",
+        "unknown": "",
+        "bind": [
+          {
+            "op": "chars",
+            "ids": [
+              "corner-role-char-1-text",
+              "corner-role-char-2-text",
+              "corner-role-char-3-text",
+              "corner-role-char-4-text",
+              "corner-role-char-5-text"
+            ],
+            "presets": "role"
+          }
+        ]
+      },
+      "age": {
+        "kind": "text",
+        "unknown": "?",
+        "bind": [
+          {
+            "op": "text",
+            "id": "detail-age-text"
+          }
+        ]
+      },
+      "role_detail": {
+        "kind": "text",
+        "unknown": "?",
+        "bind": [
+          {
+            "op": "text",
+            "id": "detail-role-text"
+          }
+        ]
+      },
+      "latin_name": {
+        "kind": "text",
+        "unknown": "?",
+        "bind": [
+          {
+            "op": "text",
+            "id": "latin-name-value"
+          }
+        ]
+      },
+      "faction_name": {
+        "kind": "text",
+        "unknown": "",
+        "bind": [
+          {
+            "op": "text",
+            "id": "faction-name-top-value"
+          },
+          {
+            "op": "text",
+            "id": "faction-name-bottom-value"
+          }
+        ]
+      },
+      "logo_black": {
+        "kind": "image",
+        "unknown": null,
+        "bind": [
+          {
+            "op": "image",
+            "id": "faction-logo-source-black"
+          }
+        ]
+      },
+      "logo_white": {
+        "kind": "image",
+        "unknown": null,
+        "bind": [
+          {
+            "op": "image",
+            "id": "faction-logo-source-white"
+          }
+        ]
+      },
+      "faction_accent": {
+        "kind": "color",
+        "unknown": "#777777",
+        "bind": [
+          {
+            "op": "recolor",
+            "id": "faction-corner-color-panel",
+            "baseline": "#714510"
+          },
+          {
+            "op": "recolor",
+            "id": "top-band-faction-gradient",
+            "baseline": "#714510"
+          },
+          {
+            "op": "recolor",
+            "id": "bottom-band-faction-gradient",
+            "baseline": "#714510"
+          },
+          {
+            "op": "attr",
+            "id": "faction-name-top-text",
+            "attr": "fill"
+          },
+          {
+            "op": "attr",
+            "id": "faction-name-bottom-text",
+            "attr": "fill"
+          }
+        ]
+      },
+      "faction_panel": {
+        "kind": "color",
+        "unknown": "#1E1E1E",
+        "bind": [
+          {
+            "op": "recolor",
+            "id": "faction-background-texture",
+            "baseline": "#291610"
+          },
+          {
+            "op": "recolor",
+            "id": "left-shadow-frame",
+            "baseline": "#291610"
+          }
+        ]
+      },
+      "faction_wash": {
+        "kind": "color",
+        "unknown": "#777777",
+        "bind": [
+          {
+            "op": "attr",
+            "id": "faction-background-color",
+            "attr": "fill",
+            "static": {
+              "opacity": "0"
+            }
+          }
+        ]
+      },
+      "portrait": {
+        "kind": "image",
+        "unknown": "cards/silhouette.png",
+        "bind": [
+          {
+            "op": "image",
+            "id": "portrait-slot",
+            "x": 71,
+            "y": 0,
+            "width": 473,
+            "height": 710
+          }
+        ]
+      }
+    },
+    "actors": {
+      "yd.npc.kang_cheolsu": {
+        "knowledge": {
+          "face": "yd.info.card.kang_cheolsu.face",
+          "name": "yd.info.card.kang_cheolsu.name"
+        },
+        "variations": {
+          "neutral": "cards/portraits/강철수.png"
+        },
+        "values": {
+          "name": "강철수",
+          "latin": "GANG CHEOL SU",
+          "age": "62세",
+          "role_detail": "중앙 위원회 의장",
+          "faction_name": "NAMHANG HEAVY INDUSTRY ALLIANCE",
+          "logo_black": "cards/logo_namhang_black.png",
+          "logo_white": "cards/logo_namhang_white.png",
+          "accent": null,
+          "panel": null
+        },
+        "rules": [
+          {
+            "when": {
+              "all_info": [
+                "yd.info.card.kang_cheolsu.face"
+              ]
+            },
+            "set": {
+              "portrait": {
+                "variation_image": true
+              }
+            }
+          },
+          {
+            "when": {
+              "all_info": [
+                "yd.info.card.kang_cheolsu.name"
+              ]
+            },
+            "set": {
+              "name": {
+                "value": "name"
+              },
+              "latin_name": {
+                "value": "latin"
+              },
+              "age": {
+                "value": "age"
+              },
+              "role_detail": {
+                "value": "role_detail"
+              },
+              "faction_name": {
+                "value": "faction_name"
+              },
+              "logo_black": {
+                "value": "logo_black"
+              },
+              "logo_white": {
+                "value": "logo_white"
+              },
+              "faction_accent": {
+                "value": "accent"
+              },
+              "faction_panel": {
+                "value": "panel"
+              }
+            }
+          }
+        ]
+      },
+      "yd.npc.cha_bongsun": {
+        "knowledge": {
+          "face": "yd.info.card.cha_bongsun.face",
+          "name": "yd.info.card.cha_bongsun.name"
+        },
+        "variations": {
+          "neutral": "cards/portraits/차봉순.png"
+        },
+        "values": {
+          "name": "차봉순",
+          "latin": "CHA BONG SUN",
+          "age": "51세",
+          "role_detail": "병참국장",
+          "faction_name": "NAMHANG HEAVY INDUSTRY ALLIANCE",
+          "logo_black": "cards/logo_namhang_black.png",
+          "logo_white": "cards/logo_namhang_white.png",
+          "accent": null,
+          "panel": null
+        },
+        "rules": [
+          {
+            "when": {
+              "all_info": [
+                "yd.info.card.cha_bongsun.face"
+              ]
+            },
+            "set": {
+              "portrait": {
+                "variation_image": true
+              }
+            }
+          },
+          {
+            "when": {
+              "all_info": [
+                "yd.info.card.cha_bongsun.name"
+              ]
+            },
+            "set": {
+              "name": {
+                "value": "name"
+              },
+              "latin_name": {
+                "value": "latin"
+              },
+              "age": {
+                "value": "age"
+              },
+              "role_detail": {
+                "value": "role_detail"
+              },
+              "faction_name": {
+                "value": "faction_name"
+              },
+              "logo_black": {
+                "value": "logo_black"
+              },
+              "logo_white": {
+                "value": "logo_white"
+              },
+              "faction_accent": {
+                "value": "accent"
+              },
+              "faction_panel": {
+                "value": "panel"
+              }
+            }
+          }
+        ]
+      },
+      "yd.npc.no_sangjin": {
+        "knowledge": {
+          "face": "yd.info.card.no_sangjin.face",
+          "name": "yd.info.card.no_sangjin.name"
+        },
+        "variations": {
+          "neutral": "cards/portraits/노상진.png"
+        },
+        "values": {
+          "name": "노상진",
+          "latin": "NO SANG JIN",
+          "age": "44세",
+          "role_detail": "수습대장",
+          "faction_name": "NAMHANG HEAVY INDUSTRY ALLIANCE",
+          "logo_black": "cards/logo_namhang_black.png",
+          "logo_white": "cards/logo_namhang_white.png",
+          "accent": null,
+          "panel": null
+        },
+        "rules": [
+          {
+            "when": {
+              "all_info": [
+                "yd.info.card.no_sangjin.face"
+              ]
+            },
+            "set": {
+              "portrait": {
+                "variation_image": true
+              }
+            }
+          },
+          {
+            "when": {
+              "all_info": [
+                "yd.info.card.no_sangjin.name"
+              ]
+            },
+            "set": {
+              "name": {
+                "value": "name"
+              },
+              "latin_name": {
+                "value": "latin"
+              },
+              "age": {
+                "value": "age"
+              },
+              "role_detail": {
+                "value": "role_detail"
+              },
+              "faction_name": {
+                "value": "faction_name"
+              },
+              "logo_black": {
+                "value": "logo_black"
+              },
+              "logo_white": {
+                "value": "logo_white"
+              },
+              "faction_accent": {
+                "value": "accent"
+              },
+              "faction_panel": {
+                "value": "panel"
+              }
+            }
+          }
+        ]
+      },
+      "yd.npc.lee_junhyeok": {
+        "knowledge": {
+          "face": "yd.info.card.lee_junhyeok.face",
+          "name": "yd.info.card.lee_junhyeok.name"
+        },
+        "variations": {
+          "neutral": "cards/portraits/이준혁.png"
+        },
+        "values": {
+          "name": "이준혁",
+          "latin": "I JUN HYEOK",
+          "age": "27세",
+          "role_detail": "수습대 2조 대원",
+          "faction_name": "NAMHANG HEAVY INDUSTRY ALLIANCE",
+          "logo_black": "cards/logo_namhang_black.png",
+          "logo_white": "cards/logo_namhang_white.png",
+          "accent": null,
+          "panel": null
+        },
+        "rules": [
+          {
+            "when": {
+              "all_info": [
+                "yd.info.card.lee_junhyeok.face"
+              ]
+            },
+            "set": {
+              "portrait": {
+                "variation_image": true
+              }
+            }
+          },
+          {
+            "when": {
+              "all_info": [
+                "yd.info.card.lee_junhyeok.name"
+              ]
+            },
+            "set": {
+              "name": {
+                "value": "name"
+              },
+              "latin_name": {
+                "value": "latin"
+              },
+              "age": {
+                "value": "age"
+              },
+              "role_detail": {
+                "value": "role_detail"
+              },
+              "faction_name": {
+                "value": "faction_name"
+              },
+              "logo_black": {
+                "value": "logo_black"
+              },
+              "logo_white": {
+                "value": "logo_white"
+              },
+              "faction_accent": {
+                "value": "accent"
+              },
+              "faction_panel": {
+                "value": "panel"
+              }
+            }
+          }
+        ]
+      },
+      "yd.npc.ryu_gaeun": {
+        "knowledge": {
+          "face": "yd.info.card.ryu_gaeun.face",
+          "name": "yd.info.card.ryu_gaeun.name"
+        },
+        "variations": {
+          "neutral": "cards/portraits/류가은.png"
+        },
+        "values": {
+          "name": "류가은",
+          "latin": "RYU GA EUN",
+          "age": "24세",
+          "role_detail": "수습대 3조 조원",
+          "faction_name": "NAMHANG HEAVY INDUSTRY ALLIANCE",
+          "logo_black": "cards/logo_namhang_black.png",
+          "logo_white": "cards/logo_namhang_white.png",
+          "accent": null,
+          "panel": null
+        },
+        "rules": [
+          {
+            "when": {
+              "all_info": [
+                "yd.info.card.ryu_gaeun.face"
+              ]
+            },
+            "set": {
+              "portrait": {
+                "variation_image": true
+              }
+            }
+          },
+          {
+            "when": {
+              "all_info": [
+                "yd.info.card.ryu_gaeun.name"
+              ]
+            },
+            "set": {
+              "name": {
+                "value": "name"
+              },
+              "latin_name": {
+                "value": "latin"
+              },
+              "age": {
+                "value": "age"
+              },
+              "role_detail": {
+                "value": "role_detail"
+              },
+              "faction_name": {
+                "value": "faction_name"
+              },
+              "logo_black": {
+                "value": "logo_black"
+              },
+              "logo_white": {
+                "value": "logo_white"
+              },
+              "faction_accent": {
+                "value": "accent"
+              },
+              "faction_panel": {
+                "value": "panel"
+              }
+            }
+          }
+        ]
+      },
+      "yd.npc.park_changsu": {
+        "knowledge": {
+          "face": "yd.info.card.park_changsu.face",
+          "name": "yd.info.card.park_changsu.name"
+        },
+        "variations": {
+          "neutral": "cards/portraits/박창수.png"
+        },
+        "values": {
+          "name": "박창수",
+          "latin": "BAK CHANG SU",
+          "age": "42세",
+          "role_detail": "제1방어선 검역 통제소 선임 경비",
+          "faction_name": "NAMHANG HEAVY INDUSTRY ALLIANCE",
+          "logo_black": "cards/logo_namhang_black.png",
+          "logo_white": "cards/logo_namhang_white.png",
+          "accent": null,
+          "panel": null
+        },
+        "rules": [
+          {
+            "when": {
+              "all_info": [
+                "yd.info.card.park_changsu.face"
+              ]
+            },
+            "set": {
+              "portrait": {
+                "variation_image": true
+              }
+            }
+          },
+          {
+            "when": {
+              "all_info": [
+                "yd.info.card.park_changsu.name"
+              ]
+            },
+            "set": {
+              "name": {
+                "value": "name"
+              },
+              "latin_name": {
+                "value": "latin"
+              },
+              "age": {
+                "value": "age"
+              },
+              "role_detail": {
+                "value": "role_detail"
+              },
+              "faction_name": {
+                "value": "faction_name"
+              },
+              "logo_black": {
+                "value": "logo_black"
+              },
+              "logo_white": {
+                "value": "logo_white"
+              },
+              "faction_accent": {
+                "value": "accent"
+              },
+              "faction_panel": {
+                "value": "panel"
+              }
+            }
+          }
+        ]
+      },
+      "yd.npc.oh_gitae": {
+        "knowledge": {
+          "face": "yd.info.card.oh_gitae.face",
+          "name": "yd.info.card.oh_gitae.name"
+        },
+        "variations": {
+          "neutral": "cards/portraits/오기태.png"
+        },
+        "values": {
+          "name": "오기태",
+          "latin": "O GI TAE",
+          "age": "37세",
+          "role_detail": "제1방어선 검역 통제소 경비",
+          "faction_name": "NAMHANG HEAVY INDUSTRY ALLIANCE",
+          "logo_black": "cards/logo_namhang_black.png",
+          "logo_white": "cards/logo_namhang_white.png",
+          "accent": null,
+          "panel": null
+        },
+        "rules": [
+          {
+            "when": {
+              "all_info": [
+                "yd.info.card.oh_gitae.face"
+              ]
+            },
+            "set": {
+              "portrait": {
+                "variation_image": true
+              }
+            }
+          },
+          {
+            "when": {
+              "all_info": [
+                "yd.info.card.oh_gitae.name"
+              ]
+            },
+            "set": {
+              "name": {
+                "value": "name"
+              },
+              "latin_name": {
+                "value": "latin"
+              },
+              "age": {
+                "value": "age"
+              },
+              "role_detail": {
+                "value": "role_detail"
+              },
+              "faction_name": {
+                "value": "faction_name"
+              },
+              "logo_black": {
+                "value": "logo_black"
+              },
+              "logo_white": {
+                "value": "logo_white"
+              },
+              "faction_accent": {
+                "value": "accent"
+              },
+              "faction_panel": {
+                "value": "panel"
+              }
+            }
+          }
+        ]
+      },
+      "yd.npc.seo_taeyang": {
+        "knowledge": {
+          "face": "yd.info.card.seo_taeyang.face",
+          "name": "yd.info.card.seo_taeyang.name"
+        },
+        "variations": {
+          "neutral": "cards/portraits/서태양.png"
+        },
+        "values": {
+          "name": "서태양",
+          "latin": "SEO TAE YANG",
+          "age": "28세",
+          "role_detail": "기술국 마스터급 기술자",
+          "faction_name": "NAMHANG HEAVY INDUSTRY ALLIANCE",
+          "logo_black": "cards/logo_namhang_black.png",
+          "logo_white": "cards/logo_namhang_white.png",
+          "accent": null,
+          "panel": null
+        },
+        "rules": [
+          {
+            "when": {
+              "all_info": [
+                "yd.info.card.seo_taeyang.face"
+              ]
+            },
+            "set": {
+              "portrait": {
+                "variation_image": true
+              }
+            }
+          },
+          {
+            "when": {
+              "all_info": [
+                "yd.info.card.seo_taeyang.name"
+              ]
+            },
+            "set": {
+              "name": {
+                "value": "name"
+              },
+              "latin_name": {
+                "value": "latin"
+              },
+              "age": {
+                "value": "age"
+              },
+              "role_detail": {
+                "value": "role_detail"
+              },
+              "faction_name": {
+                "value": "faction_name"
+              },
+              "logo_black": {
+                "value": "logo_black"
+              },
+              "logo_white": {
+                "value": "logo_white"
+              },
+              "faction_accent": {
+                "value": "accent"
+              },
+              "faction_panel": {
+                "value": "panel"
+              }
+            }
+          }
+        ]
+      },
+      "yd.npc.lim_jaehwan": {
+        "knowledge": {
+          "face": "yd.info.card.lim_jaehwan.face",
+          "name": "yd.info.card.lim_jaehwan.name"
+        },
+        "variations": {
+          "neutral": "cards/portraits/임재환.png"
+        },
+        "values": {
+          "name": "임재환",
+          "latin": "IM JAE HWAN",
+          "age": "45세",
+          "role_detail": "지하 의료소장 겸 생체 연구원",
+          "faction_name": "NAMHANG HEAVY INDUSTRY ALLIANCE",
+          "logo_black": "cards/logo_namhang_black.png",
+          "logo_white": "cards/logo_namhang_white.png",
+          "accent": null,
+          "panel": null
+        },
+        "rules": [
+          {
+            "when": {
+              "all_info": [
+                "yd.info.card.lim_jaehwan.face"
+              ]
+            },
+            "set": {
+              "portrait": {
+                "variation_image": true
+              }
+            }
+          },
+          {
+            "when": {
+              "all_info": [
+                "yd.info.card.lim_jaehwan.name"
+              ]
+            },
+            "set": {
+              "name": {
+                "value": "name"
+              },
+              "latin_name": {
+                "value": "latin"
+              },
+              "age": {
+                "value": "age"
+              },
+              "role_detail": {
+                "value": "role_detail"
+              },
+              "faction_name": {
+                "value": "faction_name"
+              },
+              "logo_black": {
+                "value": "logo_black"
+              },
+              "logo_white": {
+                "value": "logo_white"
+              },
+              "faction_accent": {
+                "value": "accent"
+              },
+              "faction_panel": {
+                "value": "panel"
+              }
+            }
+          }
+        ]
+      },
+      "yd.npc.hwang_sunae": {
+        "knowledge": {
+          "face": "yd.info.card.hwang_sunae.face",
+          "name": "yd.info.card.hwang_sunae.name"
+        },
+        "variations": {
+          "neutral": "cards/portraits/황순애.png"
+        },
+        "values": {
+          "name": "황순애",
+          "latin": "HWANG SUN AE",
+          "age": "36세",
+          "role_detail": "하층 거주 노동자",
+          "faction_name": "NAMHANG HEAVY INDUSTRY ALLIANCE",
+          "logo_black": "cards/logo_namhang_black.png",
+          "logo_white": "cards/logo_namhang_white.png",
+          "accent": null,
+          "panel": null
+        },
+        "rules": [
+          {
+            "when": {
+              "all_info": [
+                "yd.info.card.hwang_sunae.face"
+              ]
+            },
+            "set": {
+              "portrait": {
+                "variation_image": true
+              }
+            }
+          },
+          {
+            "when": {
+              "all_info": [
+                "yd.info.card.hwang_sunae.name"
+              ]
+            },
+            "set": {
+              "name": {
+                "value": "name"
+              },
+              "latin_name": {
+                "value": "latin"
+              },
+              "age": {
+                "value": "age"
+              },
+              "role_detail": {
+                "value": "role_detail"
+              },
+              "faction_name": {
+                "value": "faction_name"
+              },
+              "logo_black": {
+                "value": "logo_black"
+              },
+              "logo_white": {
+                "value": "logo_white"
+              },
+              "faction_accent": {
+                "value": "accent"
+              },
+              "faction_panel": {
+                "value": "panel"
+              }
+            }
+          }
+        ]
+      },
+      "yd.npc.choi_minjun": {
+        "knowledge": {
+          "face": "yd.info.card.choi_minjun.face",
+          "name": "yd.info.card.choi_minjun.name"
+        },
+        "variations": {
+          "neutral": "cards/portraits/최민준.png"
+        },
+        "values": {
+          "name": "최민준",
+          "latin": "CHOE MIN JUN",
+          "age": "31세",
+          "role_detail": "중리 교역소 3등급 부랑 용병",
+          "faction_name": "INDEPENDENT SURVIVOR",
+          "logo_black": null,
+          "logo_white": null,
+          "accent": "#9E9E9E",
+          "panel": "#222222"
+        },
+        "rules": [
+          {
+            "when": {
+              "all_info": [
+                "yd.info.card.choi_minjun.face"
+              ]
+            },
+            "set": {
+              "portrait": {
+                "variation_image": true
+              }
+            }
+          },
+          {
+            "when": {
+              "all_info": [
+                "yd.info.card.choi_minjun.name"
+              ]
+            },
+            "set": {
+              "name": {
+                "value": "name"
+              },
+              "latin_name": {
+                "value": "latin"
+              },
+              "age": {
+                "value": "age"
+              },
+              "role_detail": {
+                "value": "role_detail"
+              },
+              "faction_name": {
+                "value": "faction_name"
+              },
+              "logo_black": {
+                "value": "logo_black"
+              },
+              "logo_white": {
+                "value": "logo_white"
+              },
+              "faction_accent": {
+                "value": "accent"
+              },
+              "faction_panel": {
+                "value": "panel"
+              }
+            }
+          }
+        ]
+      },
+      "yd.npc.beopun": {
+        "knowledge": {
+          "face": "yd.info.card.beopun.face",
+          "name": "yd.info.card.beopun.name"
+        },
+        "variations": {
+          "neutral": "cards/portraits/법운.png"
+        },
+        "values": {
+          "name": "법운",
+          "latin": "BEOPUN",
+          "age": "64세",
+          "role_detail": "해련사 주지 및 마을 창고 총괄",
+          "faction_name": "HAERYUN AUTONOMOUS VILLAGE",
+          "logo_black": null,
+          "logo_white": null,
+          "accent": "#C9523A",
+          "panel": "#2B1112"
+        },
+        "rules": [
+          {
+            "when": {
+              "all_info": [
+                "yd.info.card.beopun.face"
+              ]
+            },
+            "set": {
+              "portrait": {
+                "variation_image": true
+              }
+            }
+          },
+          {
+            "when": {
+              "all_info": [
+                "yd.info.card.beopun.name"
+              ]
+            },
+            "set": {
+              "name": {
+                "value": "name"
+              },
+              "latin_name": {
+                "value": "latin"
+              },
+              "age": {
+                "value": "age"
+              },
+              "role_detail": {
+                "value": "role_detail"
+              },
+              "faction_name": {
+                "value": "faction_name"
+              },
+              "logo_black": {
+                "value": "logo_black"
+              },
+              "logo_white": {
+                "value": "logo_white"
+              },
+              "faction_accent": {
+                "value": "accent"
+              },
+              "faction_panel": {
+                "value": "panel"
+              }
+            }
+          }
+        ]
+      },
+      "yd.npc.jo_wondal": {
+        "knowledge": {
+          "face": "yd.info.card.jo_wondal.face",
+          "name": "yd.info.card.jo_wondal.name"
+        },
+        "variations": {
+          "neutral": "cards/portraits/조원달.png"
+        },
+        "values": {
+          "name": "조원달",
+          "latin": "JO WON DAL",
+          "age": "54세",
+          "role_detail": "자치 위원회 대표",
+          "faction_name": "HAERYUN AUTONOMOUS VILLAGE",
+          "logo_black": null,
+          "logo_white": null,
+          "accent": "#C9523A",
+          "panel": "#2B1112"
+        },
+        "rules": [
+          {
+            "when": {
+              "all_info": [
+                "yd.info.card.jo_wondal.face"
+              ]
+            },
+            "set": {
+              "portrait": {
+                "variation_image": true
+              }
+            }
+          },
+          {
+            "when": {
+              "all_info": [
+                "yd.info.card.jo_wondal.name"
+              ]
+            },
+            "set": {
+              "name": {
+                "value": "name"
+              },
+              "latin_name": {
+                "value": "latin"
+              },
+              "age": {
+                "value": "age"
+              },
+              "role_detail": {
+                "value": "role_detail"
+              },
+              "faction_name": {
+                "value": "faction_name"
+              },
+              "logo_black": {
+                "value": "logo_black"
+              },
+              "logo_white": {
+                "value": "logo_white"
+              },
+              "faction_accent": {
+                "value": "accent"
+              },
+              "faction_panel": {
+                "value": "panel"
+              }
+            }
+          }
+        ]
+      },
+      "yd.npc.shin_daeho": {
+        "knowledge": {
+          "face": "yd.info.card.shin_daeho.face",
+          "name": "yd.info.card.shin_daeho.name"
+        },
+        "variations": {
+          "neutral": "cards/portraits/신대호.png"
+        },
+        "values": {
+          "name": "신대호",
+          "latin": "SIN DAE HO",
+          "age": "52세",
+          "role_detail": "시설 관리대장 겸 스카이웨이 설계자",
+          "faction_name": "HAERYUN AUTONOMOUS VILLAGE",
+          "logo_black": null,
+          "logo_white": null,
+          "accent": "#C9523A",
+          "panel": "#2B1112"
+        },
+        "rules": [
+          {
+            "when": {
+              "all_info": [
+                "yd.info.card.shin_daeho.face"
+              ]
+            },
+            "set": {
+              "portrait": {
+                "variation_image": true
+              }
+            }
+          },
+          {
+            "when": {
+              "all_info": [
+                "yd.info.card.shin_daeho.name"
+              ]
+            },
+            "set": {
+              "name": {
+                "value": "name"
+              },
+              "latin_name": {
+                "value": "latin"
+              },
+              "age": {
+                "value": "age"
+              },
+              "role_detail": {
+                "value": "role_detail"
+              },
+              "faction_name": {
+                "value": "faction_name"
+              },
+              "logo_black": {
+                "value": "logo_black"
+              },
+              "logo_white": {
+                "value": "logo_white"
+              },
+              "faction_accent": {
+                "value": "accent"
+              },
+              "faction_panel": {
+                "value": "panel"
+              }
+            }
+          }
+        ]
+      },
+      "yd.npc.oh_myeongsuk": {
+        "knowledge": {
+          "face": "yd.info.card.oh_myeongsuk.face",
+          "name": "yd.info.card.oh_myeongsuk.name"
+        },
+        "variations": {
+          "neutral": "cards/portraits/오명숙.png"
+        },
+        "values": {
+          "name": "오명숙",
+          "latin": "O MYEONG SUK",
+          "age": "49세",
+          "role_detail": "경작대장",
+          "faction_name": "HAERYUN AUTONOMOUS VILLAGE",
+          "logo_black": null,
+          "logo_white": null,
+          "accent": "#C9523A",
+          "panel": "#2B1112"
+        },
+        "rules": [
+          {
+            "when": {
+              "all_info": [
+                "yd.info.card.oh_myeongsuk.face"
+              ]
+            },
+            "set": {
+              "portrait": {
+                "variation_image": true
+              }
+            }
+          },
+          {
+            "when": {
+              "all_info": [
+                "yd.info.card.oh_myeongsuk.name"
+              ]
+            },
+            "set": {
+              "name": {
+                "value": "name"
+              },
+              "latin_name": {
+                "value": "latin"
+              },
+              "age": {
+                "value": "age"
+              },
+              "role_detail": {
+                "value": "role_detail"
+              },
+              "faction_name": {
+                "value": "faction_name"
+              },
+              "logo_black": {
+                "value": "logo_black"
+              },
+              "logo_white": {
+                "value": "logo_white"
+              },
+              "faction_accent": {
+                "value": "accent"
+              },
+              "faction_panel": {
+                "value": "panel"
+              }
+            }
+          }
+        ]
+      },
+      "yd.npc.jang_ujin": {
+        "knowledge": {
+          "face": "yd.info.card.jang_ujin.face",
+          "name": "yd.info.card.jang_ujin.name"
+        },
+        "variations": {
+          "neutral": "cards/portraits/장우진.png"
+        },
+        "values": {
+          "name": "장우진",
+          "latin": "JANG U JIN",
+          "age": "23세",
+          "role_detail": "청년 수송대장",
+          "faction_name": "HAERYUN AUTONOMOUS VILLAGE",
+          "logo_black": null,
+          "logo_white": null,
+          "accent": "#C9523A",
+          "panel": "#2B1112"
+        },
+        "rules": [
+          {
+            "when": {
+              "all_info": [
+                "yd.info.card.jang_ujin.face"
+              ]
+            },
+            "set": {
+              "portrait": {
+                "variation_image": true
+              }
+            }
+          },
+          {
+            "when": {
+              "all_info": [
+                "yd.info.card.jang_ujin.name"
+              ]
+            },
+            "set": {
+              "name": {
+                "value": "name"
+              },
+              "latin_name": {
+                "value": "latin"
+              },
+              "age": {
+                "value": "age"
+              },
+              "role_detail": {
+                "value": "role_detail"
+              },
+              "faction_name": {
+                "value": "faction_name"
+              },
+              "logo_black": {
+                "value": "logo_black"
+              },
+              "logo_white": {
+                "value": "logo_white"
+              },
+              "faction_accent": {
+                "value": "accent"
+              },
+              "faction_panel": {
+                "value": "panel"
+              }
+            }
+          }
+        ]
+      },
+      "yd.npc.kang_byeongcheol": {
+        "knowledge": {
+          "face": "yd.info.card.kang_byeongcheol.face",
+          "name": "yd.info.card.kang_byeongcheol.name"
+        },
+        "variations": {
+          "neutral": "cards/portraits/강병철.png"
+        },
+        "values": {
+          "name": "강병철",
+          "latin": "GANG BYEONG CHEOL",
+          "age": "46세",
+          "role_detail": "정적 파수꾼 선임",
+          "faction_name": "HAERYUN AUTONOMOUS VILLAGE",
+          "logo_black": null,
+          "logo_white": null,
+          "accent": "#C9523A",
+          "panel": "#2B1112"
+        },
+        "rules": [
+          {
+            "when": {
+              "all_info": [
+                "yd.info.card.kang_byeongcheol.face"
+              ]
+            },
+            "set": {
+              "portrait": {
+                "variation_image": true
+              }
+            }
+          },
+          {
+            "when": {
+              "all_info": [
+                "yd.info.card.kang_byeongcheol.name"
+              ]
+            },
+            "set": {
+              "name": {
+                "value": "name"
+              },
+              "latin_name": {
+                "value": "latin"
+              },
+              "age": {
+                "value": "age"
+              },
+              "role_detail": {
+                "value": "role_detail"
+              },
+              "faction_name": {
+                "value": "faction_name"
+              },
+              "logo_black": {
+                "value": "logo_black"
+              },
+              "logo_white": {
+                "value": "logo_white"
+              },
+              "faction_accent": {
+                "value": "accent"
+              },
+              "faction_panel": {
+                "value": "panel"
+              }
+            }
+          }
+        ]
+      },
+      "yd.npc.park_haeun": {
+        "knowledge": {
+          "face": "yd.info.card.park_haeun.face",
+          "name": "yd.info.card.park_haeun.name"
+        },
+        "variations": {
+          "neutral": "cards/portraits/박하은.png"
+        },
+        "values": {
+          "name": "박하은",
+          "latin": "BAK HA EUN",
+          "age": "17세",
+          "role_detail": "정적 파수꾼",
+          "faction_name": "HAERYUN AUTONOMOUS VILLAGE",
+          "logo_black": null,
+          "logo_white": null,
+          "accent": "#C9523A",
+          "panel": "#2B1112"
+        },
+        "rules": [
+          {
+            "when": {
+              "all_info": [
+                "yd.info.card.park_haeun.face"
+              ]
+            },
+            "set": {
+              "portrait": {
+                "variation_image": true
+              }
+            }
+          },
+          {
+            "when": {
+              "all_info": [
+                "yd.info.card.park_haeun.name"
+              ]
+            },
+            "set": {
+              "name": {
+                "value": "name"
+              },
+              "latin_name": {
+                "value": "latin"
+              },
+              "age": {
+                "value": "age"
+              },
+              "role_detail": {
+                "value": "role_detail"
+              },
+              "faction_name": {
+                "value": "faction_name"
+              },
+              "logo_black": {
+                "value": "logo_black"
+              },
+              "logo_white": {
+                "value": "logo_white"
+              },
+              "faction_accent": {
+                "value": "accent"
+              },
+              "faction_panel": {
+                "value": "panel"
+              }
+            }
+          }
+        ]
+      },
+      "yd.npc.yoon_jeomsun": {
+        "knowledge": {
+          "face": "yd.info.card.yoon_jeomsun.face",
+          "name": "yd.info.card.yoon_jeomsun.name"
+        },
+        "variations": {
+          "neutral": "cards/portraits/윤점순.png"
+        },
+        "values": {
+          "name": "윤점순",
+          "latin": "YUN JEOM SUN",
+          "age": "47세",
+          "role_detail": "방음실 격리 관리자",
+          "faction_name": "HAERYUN AUTONOMOUS VILLAGE",
+          "logo_black": null,
+          "logo_white": null,
+          "accent": "#C9523A",
+          "panel": "#2B1112"
+        },
+        "rules": [
+          {
+            "when": {
+              "all_info": [
+                "yd.info.card.yoon_jeomsun.face"
+              ]
+            },
+            "set": {
+              "portrait": {
+                "variation_image": true
+              }
+            }
+          },
+          {
+            "when": {
+              "all_info": [
+                "yd.info.card.yoon_jeomsun.name"
+              ]
+            },
+            "set": {
+              "name": {
+                "value": "name"
+              },
+              "latin_name": {
+                "value": "latin"
+              },
+              "age": {
+                "value": "age"
+              },
+              "role_detail": {
+                "value": "role_detail"
+              },
+              "faction_name": {
+                "value": "faction_name"
+              },
+              "logo_black": {
+                "value": "logo_black"
+              },
+              "logo_white": {
+                "value": "logo_white"
+              },
+              "faction_accent": {
+                "value": "accent"
+              },
+              "faction_panel": {
+                "value": "panel"
+              }
+            }
+          }
+        ]
+      },
+      "yd.npc.lee_dongcheol": {
+        "knowledge": {
+          "face": "yd.info.card.lee_dongcheol.face",
+          "name": "yd.info.card.lee_dongcheol.name"
+        },
+        "variations": {
+          "neutral": "cards/portraits/이동철.png"
+        },
+        "values": {
+          "name": "이동철",
+          "latin": "I DONG CHEOL",
+          "age": "29세",
+          "role_detail": "경작대원",
+          "faction_name": "HAERYUN AUTONOMOUS VILLAGE",
+          "logo_black": null,
+          "logo_white": null,
+          "accent": "#C9523A",
+          "panel": "#2B1112"
+        },
+        "rules": [
+          {
+            "when": {
+              "all_info": [
+                "yd.info.card.lee_dongcheol.face"
+              ]
+            },
+            "set": {
+              "portrait": {
+                "variation_image": true
+              }
+            }
+          },
+          {
+            "when": {
+              "all_info": [
+                "yd.info.card.lee_dongcheol.name"
+              ]
+            },
+            "set": {
+              "name": {
+                "value": "name"
+              },
+              "latin_name": {
+                "value": "latin"
+              },
+              "age": {
+                "value": "age"
+              },
+              "role_detail": {
+                "value": "role_detail"
+              },
+              "faction_name": {
+                "value": "faction_name"
+              },
+              "logo_black": {
+                "value": "logo_black"
+              },
+              "logo_white": {
+                "value": "logo_white"
+              },
+              "faction_accent": {
+                "value": "accent"
+              },
+              "faction_panel": {
+                "value": "panel"
+              }
+            }
+          }
+        ]
+      },
+      "yd.npc.park_incheol": {
+        "knowledge": {
+          "face": "yd.info.card.park_incheol.face",
+          "name": "yd.info.card.park_incheol.name"
+        },
+        "variations": {
+          "neutral": "cards/portraits/박인철.png"
+        },
+        "values": {
+          "name": "박인철",
+          "latin": "BAK IN CHEOL",
+          "age": "26세",
+          "role_detail": "경작대원",
+          "faction_name": "HAERYUN AUTONOMOUS VILLAGE",
+          "logo_black": null,
+          "logo_white": null,
+          "accent": "#C9523A",
+          "panel": "#2B1112"
+        },
+        "rules": [
+          {
+            "when": {
+              "all_info": [
+                "yd.info.card.park_incheol.face"
+              ]
+            },
+            "set": {
+              "portrait": {
+                "variation_image": true
+              }
+            }
+          },
+          {
+            "when": {
+              "all_info": [
+                "yd.info.card.park_incheol.name"
+              ]
+            },
+            "set": {
+              "name": {
+                "value": "name"
+              },
+              "latin_name": {
+                "value": "latin"
+              },
+              "age": {
+                "value": "age"
+              },
+              "role_detail": {
+                "value": "role_detail"
+              },
+              "faction_name": {
+                "value": "faction_name"
+              },
+              "logo_black": {
+                "value": "logo_black"
+              },
+              "logo_white": {
+                "value": "logo_white"
+              },
+              "faction_accent": {
+                "value": "accent"
+              },
+              "faction_panel": {
+                "value": "panel"
+              }
+            }
+          }
+        ]
+      },
+      "yd.npc.lee_hyeonseok": {
+        "knowledge": {
+          "face": "yd.info.card.lee_hyeonseok.face",
+          "name": "yd.info.card.lee_hyeonseok.name"
+        },
+        "variations": {
+          "neutral": "cards/portraits/이현석.png"
+        },
+        "values": {
+          "name": "이현석",
+          "latin": "I HYEON SEOK",
+          "age": "46세",
+          "role_detail": "최고 사령관",
+          "faction_name": "JODO DEFENSE COMMAND",
+          "logo_black": null,
+          "logo_white": null,
+          "accent": "#3B4CA8",
+          "panel": "#1D2238"
+        },
+        "rules": [
+          {
+            "when": {
+              "all_info": [
+                "yd.info.card.lee_hyeonseok.face"
+              ]
+            },
+            "set": {
+              "portrait": {
+                "variation_image": true
+              }
+            }
+          },
+          {
+            "when": {
+              "all_info": [
+                "yd.info.card.lee_hyeonseok.name"
+              ]
+            },
+            "set": {
+              "name": {
+                "value": "name"
+              },
+              "latin_name": {
+                "value": "latin"
+              },
+              "age": {
+                "value": "age"
+              },
+              "role_detail": {
+                "value": "role_detail"
+              },
+              "faction_name": {
+                "value": "faction_name"
+              },
+              "logo_black": {
+                "value": "logo_black"
+              },
+              "logo_white": {
+                "value": "logo_white"
+              },
+              "faction_accent": {
+                "value": "accent"
+              },
+              "faction_panel": {
+                "value": "panel"
+              }
+            }
+          }
+        ]
+      },
+      "yd.npc.min_dohyeon": {
+        "knowledge": {
+          "face": "yd.info.card.min_dohyeon.face",
+          "name": "yd.info.card.min_dohyeon.name"
+        },
+        "variations": {
+          "neutral": "cards/portraits/민도현.png"
+        },
+        "values": {
+          "name": "민도현",
+          "latin": "MIN DO HYEON",
+          "age": "31세",
+          "role_detail": "육상 작전대장",
+          "faction_name": "JODO DEFENSE COMMAND",
+          "logo_black": null,
+          "logo_white": null,
+          "accent": "#3B4CA8",
+          "panel": "#1D2238"
+        },
+        "rules": [
+          {
+            "when": {
+              "all_info": [
+                "yd.info.card.min_dohyeon.face"
+              ]
+            },
+            "set": {
+              "portrait": {
+                "variation_image": true
+              }
+            }
+          },
+          {
+            "when": {
+              "all_info": [
+                "yd.info.card.min_dohyeon.name"
+              ]
+            },
+            "set": {
+              "name": {
+                "value": "name"
+              },
+              "latin_name": {
+                "value": "latin"
+              },
+              "age": {
+                "value": "age"
+              },
+              "role_detail": {
+                "value": "role_detail"
+              },
+              "faction_name": {
+                "value": "faction_name"
+              },
+              "logo_black": {
+                "value": "logo_black"
+              },
+              "logo_white": {
+                "value": "logo_white"
+              },
+              "faction_accent": {
+                "value": "accent"
+              },
+              "faction_panel": {
+                "value": "panel"
+              }
+            }
+          }
+        ]
+      },
+      "yd.npc.kang_jisu": {
+        "knowledge": {
+          "face": "yd.info.card.kang_jisu.face",
+          "name": "yd.info.card.kang_jisu.name"
+        },
+        "variations": {
+          "neutral": "cards/portraits/강지수.png"
+        },
+        "values": {
+          "name": "강지수",
+          "latin": "GANG JI SU",
+          "age": "52세",
+          "role_detail": "검역 및 연구소 수석 연구원",
+          "faction_name": "JODO DEFENSE COMMAND",
+          "logo_black": null,
+          "logo_white": null,
+          "accent": "#3B4CA8",
+          "panel": "#1D2238"
+        },
+        "rules": [
+          {
+            "when": {
+              "all_info": [
+                "yd.info.card.kang_jisu.face"
+              ]
+            },
+            "set": {
+              "portrait": {
+                "variation_image": true
+              }
+            }
+          },
+          {
+            "when": {
+              "all_info": [
+                "yd.info.card.kang_jisu.name"
+              ]
+            },
+            "set": {
+              "name": {
+                "value": "name"
+              },
+              "latin_name": {
+                "value": "latin"
+              },
+              "age": {
+                "value": "age"
+              },
+              "role_detail": {
+                "value": "role_detail"
+              },
+              "faction_name": {
+                "value": "faction_name"
+              },
+              "logo_black": {
+                "value": "logo_black"
+              },
+              "logo_white": {
+                "value": "logo_white"
+              },
+              "faction_accent": {
+                "value": "accent"
+              },
+              "faction_panel": {
+                "value": "panel"
+              }
+            }
+          }
+        ]
+      },
+      "yd.npc.hwang_giyeong": {
+        "knowledge": {
+          "face": "yd.info.card.hwang_giyeong.face",
+          "name": "yd.info.card.hwang_giyeong.name"
+        },
+        "variations": {
+          "neutral": "cards/portraits/황기영.png"
+        },
+        "values": {
+          "name": "황기영",
+          "latin": "HWANG GI YEONG",
+          "age": "53세",
+          "role_detail": "군수 담당관",
+          "faction_name": "JODO DEFENSE COMMAND",
+          "logo_black": null,
+          "logo_white": null,
+          "accent": "#3B4CA8",
+          "panel": "#1D2238"
+        },
+        "rules": [
+          {
+            "when": {
+              "all_info": [
+                "yd.info.card.hwang_giyeong.face"
+              ]
+            },
+            "set": {
+              "portrait": {
+                "variation_image": true
+              }
+            }
+          },
+          {
+            "when": {
+              "all_info": [
+                "yd.info.card.hwang_giyeong.name"
+              ]
+            },
+            "set": {
+              "name": {
+                "value": "name"
+              },
+              "latin_name": {
+                "value": "latin"
+              },
+              "age": {
+                "value": "age"
+              },
+              "role_detail": {
+                "value": "role_detail"
+              },
+              "faction_name": {
+                "value": "faction_name"
+              },
+              "logo_black": {
+                "value": "logo_black"
+              },
+              "logo_white": {
+                "value": "logo_white"
+              },
+              "faction_accent": {
+                "value": "accent"
+              },
+              "faction_panel": {
+                "value": "panel"
+              }
+            }
+          }
+        ]
+      },
+      "yd.npc.lim_cheolmin": {
+        "knowledge": {
+          "face": "yd.info.card.lim_cheolmin.face",
+          "name": "yd.info.card.lim_cheolmin.name"
+        },
+        "variations": {
+          "neutral": "cards/portraits/임철민.png"
+        },
+        "values": {
+          "name": "임철민",
+          "latin": "IM CHEOL MIN",
+          "age": "38세",
+          "role_detail": "방파제 수비대 선임 대원",
+          "faction_name": "JODO DEFENSE COMMAND",
+          "logo_black": null,
+          "logo_white": null,
+          "accent": "#3B4CA8",
+          "panel": "#1D2238"
+        },
+        "rules": [
+          {
+            "when": {
+              "all_info": [
+                "yd.info.card.lim_cheolmin.face"
+              ]
+            },
+            "set": {
+              "portrait": {
+                "variation_image": true
+              }
+            }
+          },
+          {
+            "when": {
+              "all_info": [
+                "yd.info.card.lim_cheolmin.name"
+              ]
+            },
+            "set": {
+              "name": {
+                "value": "name"
+              },
+              "latin_name": {
+                "value": "latin"
+              },
+              "age": {
+                "value": "age"
+              },
+              "role_detail": {
+                "value": "role_detail"
+              },
+              "faction_name": {
+                "value": "faction_name"
+              },
+              "logo_black": {
+                "value": "logo_black"
+              },
+              "logo_white": {
+                "value": "logo_white"
+              },
+              "faction_accent": {
+                "value": "accent"
+              },
+              "faction_panel": {
+                "value": "panel"
+              }
+            }
+          }
+        ]
+      },
+      "yd.npc.son_jaehyeon": {
+        "knowledge": {
+          "face": "yd.info.card.son_jaehyeon.face",
+          "name": "yd.info.card.son_jaehyeon.name"
+        },
+        "variations": {
+          "neutral": "cards/portraits/손재현.png"
+        },
+        "values": {
+          "name": "손재현",
+          "latin": "SON JAE HYEON",
+          "age": "27세",
+          "role_detail": "방파제 수비대원",
+          "faction_name": "JODO DEFENSE COMMAND",
+          "logo_black": null,
+          "logo_white": null,
+          "accent": "#3B4CA8",
+          "panel": "#1D2238"
+        },
+        "rules": [
+          {
+            "when": {
+              "all_info": [
+                "yd.info.card.son_jaehyeon.face"
+              ]
+            },
+            "set": {
+              "portrait": {
+                "variation_image": true
+              }
+            }
+          },
+          {
+            "when": {
+              "all_info": [
+                "yd.info.card.son_jaehyeon.name"
+              ]
+            },
+            "set": {
+              "name": {
+                "value": "name"
+              },
+              "latin_name": {
+                "value": "latin"
+              },
+              "age": {
+                "value": "age"
+              },
+              "role_detail": {
+                "value": "role_detail"
+              },
+              "faction_name": {
+                "value": "faction_name"
+              },
+              "logo_black": {
+                "value": "logo_black"
+              },
+              "logo_white": {
+                "value": "logo_white"
+              },
+              "faction_accent": {
+                "value": "accent"
+              },
+              "faction_panel": {
+                "value": "panel"
+              }
+            }
+          }
+        ]
+      },
+      "yd.npc.yoon_sangjun": {
+        "knowledge": {
+          "face": "yd.info.card.yoon_sangjun.face",
+          "name": "yd.info.card.yoon_sangjun.name"
+        },
+        "variations": {
+          "neutral": "cards/portraits/윤상준.png"
+        },
+        "values": {
+          "name": "윤상준",
+          "latin": "YUN SANG JUN",
+          "age": "41세",
+          "role_detail": "검역 담당관",
+          "faction_name": "JODO DEFENSE COMMAND",
+          "logo_black": null,
+          "logo_white": null,
+          "accent": "#3B4CA8",
+          "panel": "#1D2238"
+        },
+        "rules": [
+          {
+            "when": {
+              "all_info": [
+                "yd.info.card.yoon_sangjun.face"
+              ]
+            },
+            "set": {
+              "portrait": {
+                "variation_image": true
+              }
+            }
+          },
+          {
+            "when": {
+              "all_info": [
+                "yd.info.card.yoon_sangjun.name"
+              ]
+            },
+            "set": {
+              "name": {
+                "value": "name"
+              },
+              "latin_name": {
+                "value": "latin"
+              },
+              "age": {
+                "value": "age"
+              },
+              "role_detail": {
+                "value": "role_detail"
+              },
+              "faction_name": {
+                "value": "faction_name"
+              },
+              "logo_black": {
+                "value": "logo_black"
+              },
+              "logo_white": {
+                "value": "logo_white"
+              },
+              "faction_accent": {
+                "value": "accent"
+              },
+              "faction_panel": {
+                "value": "panel"
+              }
+            }
+          }
+        ]
+      },
+      "yd.npc.bae_hyeongsik": {
+        "knowledge": {
+          "face": "yd.info.card.bae_hyeongsik.face",
+          "name": "yd.info.card.bae_hyeongsik.name"
+        },
+        "variations": {
+          "neutral": "cards/portraits/배형식.png"
+        },
+        "values": {
+          "name": "배형식",
+          "latin": "BAE HYEONG SIK",
+          "age": "34세",
+          "role_detail": "육상 작전대 요원",
+          "faction_name": "JODO DEFENSE COMMAND",
+          "logo_black": null,
+          "logo_white": null,
+          "accent": "#3B4CA8",
+          "panel": "#1D2238"
+        },
+        "rules": [
+          {
+            "when": {
+              "all_info": [
+                "yd.info.card.bae_hyeongsik.face"
+              ]
+            },
+            "set": {
+              "portrait": {
+                "variation_image": true
+              }
+            }
+          },
+          {
+            "when": {
+              "all_info": [
+                "yd.info.card.bae_hyeongsik.name"
+              ]
+            },
+            "set": {
+              "name": {
+                "value": "name"
+              },
+              "latin_name": {
+                "value": "latin"
+              },
+              "age": {
+                "value": "age"
+              },
+              "role_detail": {
+                "value": "role_detail"
+              },
+              "faction_name": {
+                "value": "faction_name"
+              },
+              "logo_black": {
+                "value": "logo_black"
+              },
+              "logo_white": {
+                "value": "logo_white"
+              },
+              "faction_accent": {
+                "value": "accent"
+              },
+              "faction_panel": {
+                "value": "panel"
+              }
+            }
+          }
+        ]
+      },
+      "yd.npc.choi_suyeon": {
+        "knowledge": {
+          "face": "yd.info.card.choi_suyeon.face",
+          "name": "yd.info.card.choi_suyeon.name"
+        },
+        "variations": {
+          "neutral": "cards/portraits/최수연.png"
+        },
+        "values": {
+          "name": "최수연",
+          "latin": "CHOE SU YEON",
+          "age": "25세",
+          "role_detail": "육상 작전대 수색요원",
+          "faction_name": "JODO DEFENSE COMMAND",
+          "logo_black": null,
+          "logo_white": null,
+          "accent": "#3B4CA8",
+          "panel": "#1D2238"
+        },
+        "rules": [
+          {
+            "when": {
+              "all_info": [
+                "yd.info.card.choi_suyeon.face"
+              ]
+            },
+            "set": {
+              "portrait": {
+                "variation_image": true
+              }
+            }
+          },
+          {
+            "when": {
+              "all_info": [
+                "yd.info.card.choi_suyeon.name"
+              ]
+            },
+            "set": {
+              "name": {
+                "value": "name"
+              },
+              "latin_name": {
+                "value": "latin"
+              },
+              "age": {
+                "value": "age"
+              },
+              "role_detail": {
+                "value": "role_detail"
+              },
+              "faction_name": {
+                "value": "faction_name"
+              },
+              "logo_black": {
+                "value": "logo_black"
+              },
+              "logo_white": {
+                "value": "logo_white"
+              },
+              "faction_accent": {
+                "value": "accent"
+              },
+              "faction_panel": {
+                "value": "panel"
+              }
+            }
+          }
+        ]
+      },
+      "yd.npc.kim_taeho": {
+        "knowledge": {
+          "face": "yd.info.card.kim_taeho.face",
+          "name": "yd.info.card.kim_taeho.name"
+        },
+        "variations": {
+          "neutral": "cards/portraits/김태호.png"
+        },
+        "values": {
+          "name": "김태호",
+          "latin": "GIM TAE HO",
+          "age": "22세",
+          "role_detail": "기술지원팀(전 해기사 후보생)",
+          "faction_name": "JODO DEFENSE COMMAND",
+          "logo_black": null,
+          "logo_white": null,
+          "accent": "#3B4CA8",
+          "panel": "#1D2238"
+        },
+        "rules": [
+          {
+            "when": {
+              "all_info": [
+                "yd.info.card.kim_taeho.face"
+              ]
+            },
+            "set": {
+              "portrait": {
+                "variation_image": true
+              }
+            }
+          },
+          {
+            "when": {
+              "all_info": [
+                "yd.info.card.kim_taeho.name"
+              ]
+            },
+            "set": {
+              "name": {
+                "value": "name"
+              },
+              "latin_name": {
+                "value": "latin"
+              },
+              "age": {
+                "value": "age"
+              },
+              "role_detail": {
+                "value": "role_detail"
+              },
+              "faction_name": {
+                "value": "faction_name"
+              },
+              "logo_black": {
+                "value": "logo_black"
+              },
+              "logo_white": {
+                "value": "logo_white"
+              },
+              "faction_accent": {
+                "value": "accent"
+              },
+              "faction_panel": {
+                "value": "panel"
+              }
+            }
+          }
+        ]
+      },
+      "yd.npc.mun_sangcheol": {
+        "knowledge": {
+          "face": "yd.info.card.mun_sangcheol.face",
+          "name": "yd.info.card.mun_sangcheol.name"
+        },
+        "variations": {
+          "neutral": "cards/portraits/문상철.png"
+        },
+        "values": {
+          "name": "문상철",
+          "latin": "MUN SANG CHEOL",
+          "age": "33세",
+          "role_detail": "검역소 격리 구역 감시병",
+          "faction_name": "JODO DEFENSE COMMAND",
+          "logo_black": null,
+          "logo_white": null,
+          "accent": "#3B4CA8",
+          "panel": "#1D2238"
+        },
+        "rules": [
+          {
+            "when": {
+              "all_info": [
+                "yd.info.card.mun_sangcheol.face"
+              ]
+            },
+            "set": {
+              "portrait": {
+                "variation_image": true
+              }
+            }
+          },
+          {
+            "when": {
+              "all_info": [
+                "yd.info.card.mun_sangcheol.name"
+              ]
+            },
+            "set": {
+              "name": {
+                "value": "name"
+              },
+              "latin_name": {
+                "value": "latin"
+              },
+              "age": {
+                "value": "age"
+              },
+              "role_detail": {
+                "value": "role_detail"
+              },
+              "faction_name": {
+                "value": "faction_name"
+              },
+              "logo_black": {
+                "value": "logo_black"
+              },
+              "logo_white": {
+                "value": "logo_white"
+              },
+              "faction_accent": {
+                "value": "accent"
+              },
+              "faction_panel": {
+                "value": "panel"
+              }
+            }
+          }
+        ]
+      },
+      "yd.npc.na_yongsun": {
+        "knowledge": {
+          "face": "yd.info.card.na_yongsun.face",
+          "name": "yd.info.card.na_yongsun.name"
+        },
+        "variations": {
+          "neutral": "cards/portraits/나용순.png"
+        },
+        "values": {
+          "name": "나용순",
+          "latin": "NA YONG SUN",
+          "age": "43세",
+          "role_detail": "자치 상조회 거상(1등급)",
+          "faction_name": "JUNGRI TRADING POST",
+          "logo_black": null,
+          "logo_white": null,
+          "accent": "#568A35",
+          "panel": "#0F2719"
+        },
+        "rules": [
+          {
+            "when": {
+              "all_info": [
+                "yd.info.card.na_yongsun.face"
+              ]
+            },
+            "set": {
+              "portrait": {
+                "variation_image": true
+              }
+            }
+          },
+          {
+            "when": {
+              "all_info": [
+                "yd.info.card.na_yongsun.name"
+              ]
+            },
+            "set": {
+              "name": {
+                "value": "name"
+              },
+              "latin_name": {
+                "value": "latin"
+              },
+              "age": {
+                "value": "age"
+              },
+              "role_detail": {
+                "value": "role_detail"
+              },
+              "faction_name": {
+                "value": "faction_name"
+              },
+              "logo_black": {
+                "value": "logo_black"
+              },
+              "logo_white": {
+                "value": "logo_white"
+              },
+              "faction_accent": {
+                "value": "accent"
+              },
+              "faction_panel": {
+                "value": "panel"
+              }
+            }
+          }
+        ]
+      },
+      "yd.npc.eom_juseop": {
+        "knowledge": {
+          "face": "yd.info.card.eom_juseop.face",
+          "name": "yd.info.card.eom_juseop.name"
+        },
+        "variations": {
+          "neutral": "cards/portraits/엄주섭.png"
+        },
+        "values": {
+          "name": "엄주섭",
+          "latin": "EOM JU SEOP",
+          "age": "62세",
+          "role_detail": "신용 평가 및 배급 등급 사정관",
+          "faction_name": "JUNGRI TRADING POST",
+          "logo_black": null,
+          "logo_white": null,
+          "accent": "#568A35",
+          "panel": "#0F2719"
+        },
+        "rules": [
+          {
+            "when": {
+              "all_info": [
+                "yd.info.card.eom_juseop.face"
+              ]
+            },
+            "set": {
+              "portrait": {
+                "variation_image": true
+              }
+            }
+          },
+          {
+            "when": {
+              "all_info": [
+                "yd.info.card.eom_juseop.name"
+              ]
+            },
+            "set": {
+              "name": {
+                "value": "name"
+              },
+              "latin_name": {
+                "value": "latin"
+              },
+              "age": {
+                "value": "age"
+              },
+              "role_detail": {
+                "value": "role_detail"
+              },
+              "faction_name": {
+                "value": "faction_name"
+              },
+              "logo_black": {
+                "value": "logo_black"
+              },
+              "logo_white": {
+                "value": "logo_white"
+              },
+              "faction_accent": {
+                "value": "accent"
+              },
+              "faction_panel": {
+                "value": "panel"
+              }
+            }
+          }
+        ]
+      },
+      "yd.npc.jang_cheolung": {
+        "knowledge": {
+          "face": "yd.info.card.jang_cheolung.face",
+          "name": "yd.info.card.jang_cheolung.name"
+        },
+        "variations": {
+          "neutral": "cards/portraits/장철웅.png"
+        },
+        "values": {
+          "name": "장철웅",
+          "latin": "JANG CHEOL UNG",
+          "age": "38세",
+          "role_detail": "해안 경비팀장",
+          "faction_name": "JUNGRI TRADING POST",
+          "logo_black": null,
+          "logo_white": null,
+          "accent": "#568A35",
+          "panel": "#0F2719"
+        },
+        "rules": [
+          {
+            "when": {
+              "all_info": [
+                "yd.info.card.jang_cheolung.face"
+              ]
+            },
+            "set": {
+              "portrait": {
+                "variation_image": true
+              }
+            }
+          },
+          {
+            "when": {
+              "all_info": [
+                "yd.info.card.jang_cheolung.name"
+              ]
+            },
+            "set": {
+              "name": {
+                "value": "name"
+              },
+              "latin_name": {
+                "value": "latin"
+              },
+              "age": {
+                "value": "age"
+              },
+              "role_detail": {
+                "value": "role_detail"
+              },
+              "faction_name": {
+                "value": "faction_name"
+              },
+              "logo_black": {
+                "value": "logo_black"
+              },
+              "logo_white": {
+                "value": "logo_white"
+              },
+              "faction_accent": {
+                "value": "accent"
+              },
+              "faction_panel": {
+                "value": "panel"
+              }
+            }
+          }
+        ]
+      },
+      "yd.npc.jo_han": {
+        "knowledge": {
+          "face": "yd.info.card.jo_han.face",
+          "name": "yd.info.card.jo_han.name"
+        },
+        "variations": {
+          "neutral": "cards/portraits/조한.png"
+        },
+        "values": {
+          "name": "조한",
+          "latin": "JO HAN",
+          "age": "32세",
+          "role_detail": "거상 나용순 직속 1등급 수거꾼",
+          "faction_name": "JUNGRI TRADING POST",
+          "logo_black": null,
+          "logo_white": null,
+          "accent": "#568A35",
+          "panel": "#0F2719"
+        },
+        "rules": [
+          {
+            "when": {
+              "all_info": [
+                "yd.info.card.jo_han.face"
+              ]
+            },
+            "set": {
+              "portrait": {
+                "variation_image": true
+              }
+            }
+          },
+          {
+            "when": {
+              "all_info": [
+                "yd.info.card.jo_han.name"
+              ]
+            },
+            "set": {
+              "name": {
+                "value": "name"
+              },
+              "latin_name": {
+                "value": "latin"
+              },
+              "age": {
+                "value": "age"
+              },
+              "role_detail": {
+                "value": "role_detail"
+              },
+              "faction_name": {
+                "value": "faction_name"
+              },
+              "logo_black": {
+                "value": "logo_black"
+              },
+              "logo_white": {
+                "value": "logo_white"
+              },
+              "faction_accent": {
+                "value": "accent"
+              },
+              "faction_panel": {
+                "value": "panel"
+              }
+            }
+          }
+        ]
+      },
+      "yd.npc.jin_bokrye": {
+        "knowledge": {
+          "face": "yd.info.card.jin_bokrye.face",
+          "name": "yd.info.card.jin_bokrye.name"
+        },
+        "variations": {
+          "neutral": "cards/portraits/진복례.png"
+        },
+        "values": {
+          "name": "진복례",
+          "latin": "JIN BOK RYE",
+          "age": "51세",
+          "role_detail": "수석 해녀",
+          "faction_name": "JUNGRI TRADING POST",
+          "logo_black": null,
+          "logo_white": null,
+          "accent": "#568A35",
+          "panel": "#0F2719"
+        },
+        "rules": [
+          {
+            "when": {
+              "all_info": [
+                "yd.info.card.jin_bokrye.face"
+              ]
+            },
+            "set": {
+              "portrait": {
+                "variation_image": true
+              }
+            }
+          },
+          {
+            "when": {
+              "all_info": [
+                "yd.info.card.jin_bokrye.name"
+              ]
+            },
+            "set": {
+              "name": {
+                "value": "name"
+              },
+              "latin_name": {
+                "value": "latin"
+              },
+              "age": {
+                "value": "age"
+              },
+              "role_detail": {
+                "value": "role_detail"
+              },
+              "faction_name": {
+                "value": "faction_name"
+              },
+              "logo_black": {
+                "value": "logo_black"
+              },
+              "logo_white": {
+                "value": "logo_white"
+              },
+              "faction_accent": {
+                "value": "accent"
+              },
+              "faction_panel": {
+                "value": "panel"
+              }
+            }
+          }
+        ]
+      },
+      "yd.npc.hwang_minseok": {
+        "knowledge": {
+          "face": "yd.info.card.hwang_minseok.face",
+          "name": "yd.info.card.hwang_minseok.name"
+        },
+        "variations": {
+          "neutral": "cards/portraits/황민석.png"
+        },
+        "values": {
+          "name": "황민석",
+          "latin": "HWANG MIN SEOK",
+          "age": "28세",
+          "role_detail": "3등급 해안 수거꾼",
+          "faction_name": "JUNGRI TRADING POST",
+          "logo_black": null,
+          "logo_white": null,
+          "accent": "#568A35",
+          "panel": "#0F2719"
+        },
+        "rules": [
+          {
+            "when": {
+              "all_info": [
+                "yd.info.card.hwang_minseok.face"
+              ]
+            },
+            "set": {
+              "portrait": {
+                "variation_image": true
+              }
+            }
+          },
+          {
+            "when": {
+              "all_info": [
+                "yd.info.card.hwang_minseok.name"
+              ]
+            },
+            "set": {
+              "name": {
+                "value": "name"
+              },
+              "latin_name": {
+                "value": "latin"
+              },
+              "age": {
+                "value": "age"
+              },
+              "role_detail": {
+                "value": "role_detail"
+              },
+              "faction_name": {
+                "value": "faction_name"
+              },
+              "logo_black": {
+                "value": "logo_black"
+              },
+              "logo_white": {
+                "value": "logo_white"
+              },
+              "faction_accent": {
+                "value": "accent"
+              },
+              "faction_panel": {
+                "value": "panel"
+              }
+            }
+          }
+        ]
+      },
+      "yd.npc.lee_seonhui": {
+        "knowledge": {
+          "face": "yd.info.card.lee_seonhui.face",
+          "name": "yd.info.card.lee_seonhui.name"
+        },
+        "variations": {
+          "neutral": "cards/portraits/이선희.png"
+        },
+        "values": {
+          "name": "이선희",
+          "latin": "I SEON HUI",
+          "age": "37세",
+          "role_detail": "2등급 해안 수거꾼",
+          "faction_name": "JUNGRI TRADING POST",
+          "logo_black": null,
+          "logo_white": null,
+          "accent": "#568A35",
+          "panel": "#0F2719"
+        },
+        "rules": [
+          {
+            "when": {
+              "all_info": [
+                "yd.info.card.lee_seonhui.face"
+              ]
+            },
+            "set": {
+              "portrait": {
+                "variation_image": true
+              }
+            }
+          },
+          {
+            "when": {
+              "all_info": [
+                "yd.info.card.lee_seonhui.name"
+              ]
+            },
+            "set": {
+              "name": {
+                "value": "name"
+              },
+              "latin_name": {
+                "value": "latin"
+              },
+              "age": {
+                "value": "age"
+              },
+              "role_detail": {
+                "value": "role_detail"
+              },
+              "faction_name": {
+                "value": "faction_name"
+              },
+              "logo_black": {
+                "value": "logo_black"
+              },
+              "logo_white": {
+                "value": "logo_white"
+              },
+              "faction_accent": {
+                "value": "accent"
+              },
+              "faction_panel": {
+                "value": "panel"
+              }
+            }
+          }
+        ]
+      },
+      "yd.npc.jang_hyeonsu": {
+        "knowledge": {
+          "face": "yd.info.card.jang_hyeonsu.face",
+          "name": "yd.info.card.jang_hyeonsu.name"
+        },
+        "variations": {
+          "neutral": "cards/portraits/장현수.png"
+        },
+        "values": {
+          "name": "장현수",
+          "latin": "JANG HYEON SU",
+          "age": "31세",
+          "role_detail": "3등급 채무 부랑자",
+          "faction_name": "JUNGRI TRADING POST",
+          "logo_black": null,
+          "logo_white": null,
+          "accent": "#568A35",
+          "panel": "#0F2719"
+        },
+        "rules": [
+          {
+            "when": {
+              "all_info": [
+                "yd.info.card.jang_hyeonsu.face"
+              ]
+            },
+            "set": {
+              "portrait": {
+                "variation_image": true
+              }
+            }
+          },
+          {
+            "when": {
+              "all_info": [
+                "yd.info.card.jang_hyeonsu.name"
+              ]
+            },
+            "set": {
+              "name": {
+                "value": "name"
+              },
+              "latin_name": {
+                "value": "latin"
+              },
+              "age": {
+                "value": "age"
+              },
+              "role_detail": {
+                "value": "role_detail"
+              },
+              "faction_name": {
+                "value": "faction_name"
+              },
+              "logo_black": {
+                "value": "logo_black"
+              },
+              "logo_white": {
+                "value": "logo_white"
+              },
+              "faction_accent": {
+                "value": "accent"
+              },
+              "faction_panel": {
+                "value": "panel"
+              }
+            }
+          }
+        ]
+      },
+      "yd.npc.park_mirae": {
+        "knowledge": {
+          "face": "yd.info.card.park_mirae.face",
+          "name": "yd.info.card.park_mirae.name"
+        },
+        "variations": {
+          "neutral": "cards/portraits/박미래.png"
+        },
+        "values": {
+          "name": "박미래",
+          "latin": "BAK MI RAE",
+          "age": "24세",
+          "role_detail": "3등급 채무 부랑자",
+          "faction_name": "JUNGRI TRADING POST",
+          "logo_black": null,
+          "logo_white": null,
+          "accent": "#568A35",
+          "panel": "#0F2719"
+        },
+        "rules": [
+          {
+            "when": {
+              "all_info": [
+                "yd.info.card.park_mirae.face"
+              ]
+            },
+            "set": {
+              "portrait": {
+                "variation_image": true
+              }
+            }
+          },
+          {
+            "when": {
+              "all_info": [
+                "yd.info.card.park_mirae.name"
+              ]
+            },
+            "set": {
+              "name": {
+                "value": "name"
+              },
+              "latin_name": {
+                "value": "latin"
+              },
+              "age": {
+                "value": "age"
+              },
+              "role_detail": {
+                "value": "role_detail"
+              },
+              "faction_name": {
+                "value": "faction_name"
+              },
+              "logo_black": {
+                "value": "logo_black"
+              },
+              "logo_white": {
+                "value": "logo_white"
+              },
+              "faction_accent": {
+                "value": "accent"
+              },
+              "faction_panel": {
+                "value": "panel"
+              }
+            }
+          }
+        ]
+      },
+      "yd.npc.kwon_sangtae": {
+        "knowledge": {
+          "face": "yd.info.card.kwon_sangtae.face",
+          "name": "yd.info.card.kwon_sangtae.name"
+        },
+        "variations": {
+          "neutral": "cards/portraits/권상태.png"
+        },
+        "values": {
+          "name": "권상태",
+          "latin": "GWON SANG TAE",
+          "age": "42세",
+          "role_detail": "3등급 채무 부랑자",
+          "faction_name": "JUNGRI TRADING POST",
+          "logo_black": null,
+          "logo_white": null,
+          "accent": "#568A35",
+          "panel": "#0F2719"
+        },
+        "rules": [
+          {
+            "when": {
+              "all_info": [
+                "yd.info.card.kwon_sangtae.face"
+              ]
+            },
+            "set": {
+              "portrait": {
+                "variation_image": true
+              }
+            }
+          },
+          {
+            "when": {
+              "all_info": [
+                "yd.info.card.kwon_sangtae.name"
+              ]
+            },
+            "set": {
+              "name": {
+                "value": "name"
+              },
+              "latin_name": {
+                "value": "latin"
+              },
+              "age": {
+                "value": "age"
+              },
+              "role_detail": {
+                "value": "role_detail"
+              },
+              "faction_name": {
+                "value": "faction_name"
+              },
+              "logo_black": {
+                "value": "logo_black"
+              },
+              "logo_white": {
+                "value": "logo_white"
+              },
+              "faction_accent": {
+                "value": "accent"
+              },
+              "faction_panel": {
+                "value": "panel"
+              }
+            }
+          }
+        ]
+      },
+      "yd.npc.shin_changho": {
+        "knowledge": {
+          "face": "yd.info.card.shin_changho.face",
+          "name": "yd.info.card.shin_changho.name"
+        },
+        "variations": {
+          "neutral": "cards/portraits/신창호.png"
+        },
+        "values": {
+          "name": "신창호",
+          "latin": "SIN CHANG HO",
+          "age": "33세",
+          "role_detail": "",
+          "faction_name": "INDEPENDENT SURVIVOR",
+          "logo_black": null,
+          "logo_white": null,
+          "accent": "#9E9E9E",
+          "panel": "#222222"
+        },
+        "rules": [
+          {
+            "when": {
+              "all_info": [
+                "yd.info.card.shin_changho.face"
+              ]
+            },
+            "set": {
+              "portrait": {
+                "variation_image": true
+              }
+            }
+          },
+          {
+            "when": {
+              "all_info": [
+                "yd.info.card.shin_changho.name"
+              ]
+            },
+            "set": {
+              "name": {
+                "value": "name"
+              },
+              "latin_name": {
+                "value": "latin"
+              },
+              "age": {
+                "value": "age"
+              },
+              "role_detail": {
+                "value": "role_detail"
+              },
+              "faction_name": {
+                "value": "faction_name"
+              },
+              "logo_black": {
+                "value": "logo_black"
+              },
+              "logo_white": {
+                "value": "logo_white"
+              },
+              "faction_accent": {
+                "value": "accent"
+              },
+              "faction_panel": {
+                "value": "panel"
+              }
+            }
+          }
+        ]
+      },
+      "yd.npc.baek_inha": {
+        "knowledge": {
+          "face": "yd.info.card.baek_inha.face",
+          "name": "yd.info.card.baek_inha.name"
+        },
+        "variations": {
+          "neutral": "cards/portraits/백인하.png"
+        },
+        "values": {
+          "name": "백인하",
+          "latin": "BAEK IN HA",
+          "age": "40세",
+          "role_detail": "전직 응급의학과 전문의 / 단독 생존자",
+          "faction_name": "INDEPENDENT SURVIVOR",
+          "logo_black": null,
+          "logo_white": null,
+          "accent": "#9E9E9E",
+          "panel": "#222222"
+        },
+        "rules": [
+          {
+            "when": {
+              "all_info": [
+                "yd.info.card.baek_inha.face"
+              ]
+            },
+            "set": {
+              "portrait": {
+                "variation_image": true
+              }
+            }
+          },
+          {
+            "when": {
+              "all_info": [
+                "yd.info.card.baek_inha.name"
+              ]
+            },
+            "set": {
+              "name": {
+                "value": "name"
+              },
+              "latin_name": {
+                "value": "latin"
+              },
+              "age": {
+                "value": "age"
+              },
+              "role_detail": {
+                "value": "role_detail"
+              },
+              "faction_name": {
+                "value": "faction_name"
+              },
+              "logo_black": {
+                "value": "logo_black"
+              },
+              "logo_white": {
+                "value": "logo_white"
+              },
+              "faction_accent": {
+                "value": "accent"
+              },
+              "faction_panel": {
+                "value": "panel"
+              }
+            }
+          }
+        ]
+      },
+      "yd.npc.han_doyun": {
+        "knowledge": {
+          "face": "yd.info.card.han_doyun.face",
+          "name": "yd.info.card.han_doyun.name"
+        },
+        "variations": {
+          "neutral": "cards/portraits/한도윤.png"
+        },
+        "values": {
+          "name": "한도윤",
+          "latin": "HAN DO YUN",
+          "age": "29세",
+          "role_detail": "2등급 일반 거래자 (전직 수거꾼)",
+          "faction_name": "JUNGRI TRADING POST",
+          "logo_black": null,
+          "logo_white": null,
+          "accent": "#568A35",
+          "panel": "#0F2719"
+        },
+        "rules": [
+          {
+            "when": {
+              "all_info": [
+                "yd.info.card.han_doyun.face"
+              ]
+            },
+            "set": {
+              "portrait": {
+                "variation_image": true
+              }
+            }
+          },
+          {
+            "when": {
+              "all_info": [
+                "yd.info.card.han_doyun.name"
+              ]
+            },
+            "set": {
+              "name": {
+                "value": "name"
+              },
+              "latin_name": {
+                "value": "latin"
+              },
+              "age": {
+                "value": "age"
+              },
+              "role_detail": {
+                "value": "role_detail"
+              },
+              "faction_name": {
+                "value": "faction_name"
+              },
+              "logo_black": {
+                "value": "logo_black"
+              },
+              "logo_white": {
+                "value": "logo_white"
+              },
+              "faction_accent": {
+                "value": "accent"
+              },
+              "faction_panel": {
+                "value": "panel"
+              }
+            }
+          }
+        ]
+      },
+      "yd.npc.jeon_seongnam": {
+        "knowledge": {
+          "face": "yd.info.card.jeon_seongnam.face",
+          "name": "yd.info.card.jeon_seongnam.name"
+        },
+        "variations": {
+          "neutral": "cards/portraits/전성남.png"
+        },
+        "values": {
+          "name": "전성남",
+          "latin": "JEON SEONG NAM",
+          "age": "53세",
+          "role_detail": "단독 생존자(전직 영도구청 하수과 공무원)",
+          "faction_name": "INDEPENDENT SURVIVOR",
+          "logo_black": null,
+          "logo_white": null,
+          "accent": "#9E9E9E",
+          "panel": "#222222"
+        },
+        "rules": [
+          {
+            "when": {
+              "all_info": [
+                "yd.info.card.jeon_seongnam.face"
+              ]
+            },
+            "set": {
+              "portrait": {
+                "variation_image": true
+              }
+            }
+          },
+          {
+            "when": {
+              "all_info": [
+                "yd.info.card.jeon_seongnam.name"
+              ]
+            },
+            "set": {
+              "name": {
+                "value": "name"
+              },
+              "latin_name": {
+                "value": "latin"
+              },
+              "age": {
+                "value": "age"
+              },
+              "role_detail": {
+                "value": "role_detail"
+              },
+              "faction_name": {
+                "value": "faction_name"
+              },
+              "logo_black": {
+                "value": "logo_black"
+              },
+              "logo_white": {
+                "value": "logo_white"
+              },
+              "faction_accent": {
+                "value": "accent"
+              },
+              "faction_panel": {
+                "value": "panel"
+              }
+            }
+          }
+        ]
+      },
+      "yd.npc.yeom_gijun": {
+        "knowledge": {
+          "face": "yd.info.card.yeom_gijun.face",
+          "name": "yd.info.card.yeom_gijun.name"
+        },
+        "variations": {
+          "neutral": "cards/portraits/염기준.png"
+        },
+        "values": {
+          "name": "염기준",
+          "latin": "YEOM GI JUN",
+          "age": "22세",
+          "role_detail": "자취방 은둔 생존자",
+          "faction_name": "INDEPENDENT SURVIVOR",
+          "logo_black": null,
+          "logo_white": null,
+          "accent": "#9E9E9E",
+          "panel": "#222222"
+        },
+        "rules": [
+          {
+            "when": {
+              "all_info": [
+                "yd.info.card.yeom_gijun.face"
+              ]
+            },
+            "set": {
+              "portrait": {
+                "variation_image": true
+              }
+            }
+          },
+          {
+            "when": {
+              "all_info": [
+                "yd.info.card.yeom_gijun.name"
+              ]
+            },
+            "set": {
+              "name": {
+                "value": "name"
+              },
+              "latin_name": {
+                "value": "latin"
+              },
+              "age": {
+                "value": "age"
+              },
+              "role_detail": {
+                "value": "role_detail"
+              },
+              "faction_name": {
+                "value": "faction_name"
+              },
+              "logo_black": {
+                "value": "logo_black"
+              },
+              "logo_white": {
+                "value": "logo_white"
+              },
+              "faction_accent": {
+                "value": "accent"
+              },
+              "faction_panel": {
+                "value": "panel"
+              }
+            }
+          }
+        ]
       }
     }
   }

@@ -367,15 +367,27 @@ def _text_target(el):
     return el
 
 
-def _recolor_filter(fid: str, color: str):
+def _rgb(color: str) -> tuple:
     h = color.lstrip("#")
     if len(h) == 3:
         h = "".join(ch * 2 for ch in h)
-    r, g, b = (int(h[i:i + 2], 16) / 255.0 for i in (0, 2, 4))
-    lum = (0.2126, 0.7152, 0.0722)
+    return tuple(int(h[i:i + 2], 16) / 255.0 for i in (0, 2, 4))
+
+
+_LUM = (0.2126, 0.7152, 0.0722)
+
+
+def _recolor_filter(fid: str, color: str, baseline: str | None = None):
+    """출력 = color × 휘도(입력). baseline을 주면 그 색의 휘도가 정확히 color가 되도록 배율을 곱한다."""
+    r, g, b = _rgb(color)
+    gain = 1.0
+    if baseline:
+        bl = sum(c * w for c, w in zip(_rgb(baseline), _LUM))
+        gain = 1.0 / bl if bl > 0 else 1.0
+    lum = _LUM
     rows = []
     for ch in (r, g, b):
-        rows += [f"{ch * w:.5f}" for w in lum] + ["0", "0"]
+        rows += [f"{ch * w * gain:.5f}" for w in lum] + ["0", "0"]
     rows += ["0", "0", "0", "1", "0"]
     flt = ET.Element(f"{{{SVG_NS}}}filter", {"id": fid, "color-interpolation-filters": "sRGB"})
     ET.SubElement(flt, f"{{{SVG_NS}}}feColorMatrix", {"type": "matrix", "values": " ".join(rows)})
@@ -450,7 +462,7 @@ def build_svg(config: dict, slots: dict, root_dir: str, *, template_root=None) -
                 if not (isinstance(value, str) and _COLOR_RE.match(value)):
                     raise CardError(f"{slot_name}: 색 값이 아닙니다")
                 fid = f"speaker-card-recolor-{next(seq)}"
-                defs.append(_recolor_filter(fid, value))
+                defs.append(_recolor_filter(fid, value, b.get("baseline")))
                 parent = parents[el]
                 wrap = ET.Element(f"{{{SVG_NS}}}g", {"filter": f"url(#{fid})"})
                 parent.insert(list(parent).index(el), wrap)
@@ -830,6 +842,9 @@ def check_card_definition(scenario: dict, *, definition: dict | None = None, bas
             for k, v in ((b.get("static") or {}).items() if op == "attr" else ()):
                 if k not in STATIC_ATTRS or not re.match(r"^(?:[0-9]*\.?[0-9]+|inline|none)$", str(v)):
                     err("CARD_BIND_ATTR", bp, f"static 속성은 {STATIC_ATTRS}(숫자·inline·none)")
+            if op == "recolor" and b.get("baseline") is not None and not (
+                    isinstance(b["baseline"], str) and _COLOR_RE.match(b["baseline"])):
+                err("CARD_COLOR", f"{bp}.baseline", "baseline은 #rgb/#rrggbb")
             if op in ("attr", "recolor") and kind != "color":
                 err("CARD_BIND_KIND", bp, f"{op}는 color 슬롯 전용")
             if op == "image" and kind != "image":
@@ -906,7 +921,8 @@ def check_card_definition(scenario: dict, *, definition: dict | None = None, bas
 def _check_value(spec, value, path, presets, check_asset, err):
     kind = spec.get("kind")
     if kind == "image":
-        check_asset(value, path)
+        if value is not None:                              # null = 이미지 없음(build_svg가 비운다)
+            check_asset(value, path)
     elif kind == "color":
         if value is not None and not (isinstance(value, str) and _COLOR_RE.match(value)):
             err("CARD_COLOR", path, "색은 #rgb/#rrggbb 또는 null(템플릿 원본 유지)")
