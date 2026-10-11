@@ -1,6 +1,8 @@
 import asyncio
+import io
 import os
 import subprocess
+import zipfile
 import sys
 import discord
 import time
@@ -18,6 +20,51 @@ _HINT_LABEL = {
     "FREE_FEATURE": "무료 제공",
     "UNKNOWN": "미분류",
 }
+
+# `!세션이력` — 파일 하나의 첨부 한도(Discord 비부스트 10MB)보다 약간 작게 나눈다.
+HISTORY_PART_LIMIT = 9_500_000
+
+
+def _zip_entries(entries) -> bytes:
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED, compresslevel=9) as z:
+        for arc, data in entries:
+            z.writestr(arc, data)
+    return buf.getvalue()
+
+
+def pack_session_dir(path: str, session_id: str, limit: int = HISTORY_PART_LIMIT):
+    """sessions/{id}/ 전체를 zip 묶음 목록으로. 반환: ([(파일명, bytes)], [(상대경로, 원본 크기)] 한도 초과로 제외).
+
+    파일 단위로 순서대로 채우고 다음 파일이 한도를 넘기면 새 묶음을 연다. 압축해도 한 파일이 한도를 넘으면 제외한다.
+    """
+    files = []
+    for root, _dirs, names in os.walk(path):
+        for n in names:
+            full = os.path.join(root, n)
+            rel = os.path.relpath(full, path).replace(os.sep, "/")
+            with open(full, "rb") as f:
+                files.append((f"{session_id}/{rel}", f.read()))
+    files.sort()
+    parts, skipped, cur, cur_size = [], [], [], 0
+    for arc, data in files:
+        size = len(_zip_entries([(arc, data)]))
+        if size > limit:
+            skipped.append((arc, len(data)))
+            continue
+        if cur and cur_size + size > limit:
+            parts.append(cur)
+            cur, cur_size = [], 0
+        cur.append((arc, data))
+        cur_size += size
+    if cur:
+        parts.append(cur)
+    out = []
+    for i, entries in enumerate(parts, 1):
+        suffix = f"_part{i}of{len(parts)}" if len(parts) > 1 else ""
+        out.append((f"session_{session_id}{suffix}.zip", _zip_entries(entries)))
+    return out, skipped
+
 
 # ========== [시스템 관리 모듈(System Cog)] ==========
 class _BoundDefinition(Exception):
@@ -133,6 +180,7 @@ class SystemCog(commands.Cog):
             "`!스페이스초기화 확인` — GM 스페이스 삭제 후 재생성\n"
             "`!지급 @유저 [잉크] (사유)` — 잉크 지급·회수 (오너 전용)\n"
             "`!재시작` — 봇 프로세스 재시작 (오너 전용)\n"
+            "`!세션이력 [세션ID/목록]` — 세션 폴더 zip을 DM으로 받기 (오너 전용)\n"
             "　└ 대상: `game` `character` `media` `session` `system` `gm`"
         ), inline=False)
 
@@ -634,6 +682,44 @@ class SystemCog(commands.Cog):
                 f"> 사유: {reason}")
         except Exception:
             pass
+
+    @commands.command(name="세션이력")
+    @commands.is_owner()
+    async def session_history(self, ctx, target: str = None):
+        """세션 폴더(sessions/{id}/) 전체를 zip으로 오너 DM에 보낸다 (오너 전용).
+
+        !세션이력           — 지금 채널의 세션
+        !세션이력 [세션ID]   — 지정한 세션(종료된 세션 포함)
+        !세션이력 목록       — 최근 수정된 세션 15개
+        """
+        base = "sessions"
+        existing = set(os.listdir(base)) if os.path.isdir(base) else set()
+        if target == "목록":
+            rows = sorted(((os.path.getmtime(os.path.join(base, d)), d) for d in existing
+                           if os.path.isdir(os.path.join(base, d))), reverse=True)[:15]
+            if not rows:
+                return await ctx.send("저장된 세션이 없습니다.")
+            lines = [f"`{d}` · {time.strftime('%Y-%m-%d %H:%M', time.localtime(m))}" for m, d in rows]
+            return await ctx.author.send("🗂️ **최근 세션**\n" + "\n".join(lines))
+        if target is None:
+            session = self.bot.active_sessions.get(ctx.channel.id)
+            if not session:
+                return await ctx.send("⚠️ 세션 채널에서 쓰거나 세션 ID를 지정하세요. (`!세션이력 목록`)")
+            target = str(session.session_id)
+        if target not in existing or not os.path.isdir(os.path.join(base, target)):
+            return await ctx.send(f"⚠️ 세션 `{target}`을(를) 찾을 수 없습니다.")
+        parts, skipped = await asyncio.to_thread(pack_session_dir, os.path.join(base, target), target)
+        try:
+            for i, (name, data) in enumerate(parts, 1):
+                head = f"📦 세션 `{target}` 이력" + (f" ({i}/{len(parts)})" if len(parts) > 1 else "")
+                await ctx.author.send(head, file=discord.File(io.BytesIO(data), filename=name))
+            if skipped:
+                await ctx.author.send("⚠️ 한도 초과로 제외된 파일(서버에서 직접 받으세요):\n" + "\n".join(
+                    f"`{arc}` · {size / 1_000_000:.1f}MB" for arc, size in skipped))
+        except discord.HTTPException as e:
+            return await ctx.send(f"⚠️ DM 전송 실패: {e}")
+        if ctx.guild is not None:
+            await ctx.send("📬 DM으로 보냈습니다.")
 
     @commands.command(name="재시작")
     @commands.is_owner()
