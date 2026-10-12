@@ -142,3 +142,25 @@ def strip_unfilled(text: str) -> str:
     슬롯 정의가 빠졌을 때 '{장소}'가 그대로 노출되는 것을 막는다.
     """
     return re.sub(r"\{[^}]{1,20}\}", "", text or "").replace("  ", " ").strip()
+
+
+# 국어의 로마자 표기(음절 단위 전자 — 자음 동화 등 음운 변화는 반영하지 않는다).
+# 표시용 라틴 부제(디스플레이 상태판)에 쓴다: '영도' → 'YEONGDO'.
+_RR_INITIAL = ("g", "kk", "n", "d", "tt", "r", "m", "b", "pp", "s", "ss", "", "j", "jj", "ch", "k", "t", "p", "h")
+_RR_MEDIAL = ("a", "ae", "ya", "yae", "eo", "e", "yeo", "ye", "o", "wa", "wae", "oe", "yo", "u", "wo", "we", "wi",
+              "yu", "eu", "ui", "i")
+_RR_FINAL = ("", "k", "k", "k", "n", "n", "n", "t", "l", "k", "m", "l", "l", "l", "p", "l", "m", "p", "p", "t", "t",
+             "ng", "t", "t", "k", "t", "p", "t")
+
+
+def romanize(text: str) -> str:
+    """한글 음절을 로마자로 옮기고 대문자로 반환한다. 한글이 아닌 문자는 그대로 둔다."""
+    out = []
+    for ch in text or "":
+        code = ord(ch)
+        if HANGUL_START <= code <= HANGUL_END:
+            idx = code - HANGUL_START
+            out.append(_RR_INITIAL[idx // 588] + _RR_MEDIAL[(idx % 588) // 28] + _RR_FINAL[idx % 28])
+        else:
+            out.append(ch)
+    return "".join(out).upper()
