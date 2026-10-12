@@ -7,7 +7,7 @@
 #
 # 하는 일:
 #   1) 시스템 패키지 설치 (ffmpeg, libopus, python venv 도구)
-#   2) .venv 가상환경 생성
+#   2) venv 가상환경 생성
 #   3) requirements.txt 설치
 #   4) .env 존재 여부 확인 안내
 # 멱등성: 여러 번 돌려도 안전하다.
@@ -20,14 +20,14 @@ sudo apt-get update -y
 # ffmpeg: 음성 송출 필수 / libopus0: 디스코드 voice 인코딩 / python3-venv,pip: 가상환경
 sudo apt-get install -y ffmpeg libopus0 python3-venv python3-pip
 
-echo "[2/4] 파이썬 가상환경 생성 (.venv)..."
-if [ ! -d .venv ]; then
-  python3 -m venv .venv
+echo "[2/4] 파이썬 가상환경 생성 (venv)..."
+if [ ! -d venv ]; then
+  python3 -m venv venv
 fi
 
 echo "[3/4] 의존성 설치 (requirements.txt)..."
-./.venv/bin/pip install --upgrade pip
-./.venv/bin/pip install -r requirements.txt
+./venv/bin/pip install --upgrade pip
+./venv/bin/pip install -r requirements.txt
 
 echo "[4/4] .env 확인..."
 if [ ! -f .env ]; then
@@ -41,4 +41,4 @@ fi
 echo
 echo "✅ 프로비저닝 완료."
 echo "   다음 단계(systemd 등록·기동)는 deploy/DEPLOY.md 의 4단계를 참조하세요."
-echo "   먼저 수동 구동으로 토큰을 검증하려면:  ./.venv/bin/python main.py"
+echo "   먼저 수동 구동으로 토큰을 검증하려면:  ./venv/bin/python main.py"

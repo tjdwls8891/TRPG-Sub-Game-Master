@@ -12,11 +12,11 @@ Type=simple
 # │ 환경에 맞게 아래 3줄만 수정하세요.                            │
 # │  - User            : 봇을 실행할 리눅스 계정 (Oracle 기본 ubuntu)│
 # │  - WorkingDirectory: 레포를 clone 한 절대 경로                 │
-# │  - ExecStart       : 위 경로의 .venv 파이썬 + main.py          │
+# │  - ExecStart       : 위 경로의 venv 파이썬 + main.py          │
 # └─────────────────────────────────────────────────────────────┘
 User=ubuntu
-WorkingDirectory=/home/ubuntu/trpg-bot
-ExecStart=/home/ubuntu/trpg-bot/.venv/bin/python main.py
+WorkingDirectory=/home/ubuntu/trpgbot
+ExecStart=/home/ubuntu/trpgbot/venv/bin/python main.py
 
 # .env 는 python-dotenv 가 WorkingDirectory 에서 자동 로드한다.
 # (멀티라인 TRPG_INTRO_TEXT 때문에 systemd EnvironmentFile 은 사용하지 않는다.)

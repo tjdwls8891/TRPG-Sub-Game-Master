@@ -870,6 +870,9 @@ class SystemCog(commands.Cog):
             !배포 재시작    — pull 후 봇 프로세스 재시작
                              (core/·main.py·prompts.py 변경 시 필수)
 
+        requirements.txt가 바뀌었으면 pull 직후 봇을 실행 중인 파이썬(venv)의 pip로
+        의존성을 설치한다. 설치가 실패하면 리로드·재시작을 하지 않는다(깨진 환경으로 재기동 방지).
+
         Args:
             ctx (commands.Context): 디스코드 컨텍스트 객체
             mode (str): 배포 후 반영 방식 (None / "리로드" / "재시작")
@@ -882,7 +885,7 @@ class SystemCog(commands.Cog):
         msg = await ctx.send("⏳ 원격 저장소에서 코드를 받는 중…")
 
         def _run(args, timeout=120):
-            """git 명령을 실행하고 (성공여부, 출력)을 반환. 대화형 프롬프트는 차단."""
+            """외부 명령(git·pip)을 실행하고 (성공여부, 출력)을 반환. 대화형 프롬프트는 차단."""
             env = dict(os.environ, GIT_TERMINAL_PROMPT="0")
             try:
                 proc = subprocess.run(
@@ -933,8 +936,21 @@ class SystemCog(commands.Cog):
         report = [f"✅ `{before}` → `{after}` 갱신 완료"]
         if changed:
             report.append(f"```{changed[:1200]}```")
+
+        # ── 의존성 설치 ── requirements.txt가 바뀌었을 때만. 봇을 실행 중인 인터프리터의 pip를 쓴다
+        #   (systemd ExecStart = venv/bin/python). 오래 걸릴 수 있어 이벤트 루프 밖에서 실행한다.
+        if "requirements.txt" in changed.splitlines():
+            await msg.edit(content="\n".join(report + ["📦 `requirements.txt` 변경 — 의존성 설치 중…"])[:1900])
+            ok, out = await asyncio.to_thread(
+                _run, [sys.executable, "-m", "pip", "install", "-r", "requirements.txt"], 600)
+            if not ok:
+                report.append(f"❌ 의존성 설치 실패 — 리로드·재시작을 하지 않았습니다.\n```{out[-1200:]}```")
+                await msg.edit(content="\n".join(report)[:1900])
+                return
+            report.append("📦 의존성 설치 완료")
+            needs_restart = True          # 새 패키지는 프로세스를 다시 띄워야 로드된다
         if needs_restart and mode != "재시작":
-            report.append("⚠️ `core/`·`main.py`·`prompts.py` 변경이 포함되어 **재시작이 필요**합니다. `!배포 재시작`")
+            report.append("⚠️ `core/`·`main.py`·`prompts.py`·의존성 변경이 포함되어 **재시작이 필요**합니다. `!배포 재시작`")
 
         # ── 반영 ──
         if mode == "리로드":
