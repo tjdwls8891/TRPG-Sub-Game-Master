@@ -8,7 +8,13 @@
 #   기획서는 갱신 시점을 5계층으로 구분하지만, 임베드 조립은 API 호출이 아니라
 #   문자열 작업이라 부분 갱신의 이득이 없다. refresh()는 항상 전체를 다시 그리고,
 #   계층 구분은 '언제 호출하는가'로만 표현한다.
+#
+# [상태판 이미지 — v7.10]
+#   상태판은 SVG 이미지(core.display_board → resvg PNG)다. Embed를 대체하고 버튼은 같은 메시지에 둔다.
+#   build_embed는 렌더 실패(렌더러 없음·오류) 때의 대체 표시로만 쓴다.
 import asyncio
+import hashlib
+import io
 import discord
 
 from . import media_control
@@ -27,7 +33,7 @@ def _flag_style(on: bool) -> discord.ButtonStyle:
 
 
 def build_embed(session) -> discord.Embed:
-    """표기 22종을 임베드로 조립한다."""
+    """표기 22종을 임베드로 조립한다. v7.10부터 상태판 렌더 실패 시의 대체 표시다(core.display_board와 같은 출처)."""
     # NOTE: 현재 모든 세션에 마스터 채널이 생성되므로 master_ch_id 유무로는
     #       구분할 수 없다. 기획상 마스터 세션은 권한자가 명시적으로 선택해
     #       여는 것이므로 session_kind 필드로 판정한다.
@@ -246,8 +252,9 @@ class DisplayView(discord.ui.View):
                         print(f"[BGM] 정지 실패: {e}")
                 else:
                     session.pending_bgm = None
-        await interaction.response.edit_message(
-            embed=build_embed(session), view=self)
+        # 상태판 이미지 렌더(약 1초)가 응답 제한(3초)에 걸리지 않게 먼저 응답을 보류한다.
+        await interaction.response.defer()
+        await refresh(self.bot, session, reason=f"toggle:{key}")
         if note:
             await interaction.followup.send(note, ephemeral=True)
 
@@ -276,14 +283,16 @@ class DisplayView(discord.ui.View):
     async def vol_down(self, interaction, _b):
         session = self.bot.active_sessions.get(interaction.channel.id)
         session.volume = max(0.0, round((getattr(session, "volume", 0.3) or 0) - 0.1, 2))
-        await interaction.response.edit_message(embed=build_embed(session), view=self)
+        await interaction.response.defer()
+        await refresh(self.bot, session, reason="volume")
 
     @discord.ui.button(label="🔊 +", style=discord.ButtonStyle.secondary,
                        custom_id="disp:vol_up", row=1)
     async def vol_up(self, interaction, _b):
         session = self.bot.active_sessions.get(interaction.channel.id)
         session.volume = min(1.0, round((getattr(session, "volume", 0.3) or 0) + 0.1, 2))
-        await interaction.response.edit_message(embed=build_embed(session), view=self)
+        await interaction.response.defer()
+        await refresh(self.bot, session, reason="volume")
 
     @discord.ui.button(label="⏪ 1턴 되감기", style=discord.ButtonStyle.danger,
                        custom_id="disp:rewind", row=2)
@@ -609,27 +618,67 @@ def build_view(bot, session) -> discord.ui.View:
     return view
 
 
-def _log_display(session, embed, view, reason) -> None:
+BOARD_FILENAME = "display_board.png"
+# 세션별 상태판 갱신 직렬화(턴 종료와 버튼 갱신이 겹칠 때 오래된 이미지가 나중에 덮지 않게)와
+# 현재 메시지에 올라간 상태판 SVG 해시(같으면 이미지를 다시 올리지 않는다). 런타임 전용.
+_LOCKS: dict = {}
+_SHOWN_KEY: dict = {}
+
+
+def _board_lock(session) -> asyncio.Lock:
+    sid = getattr(session, "session_id", None)
+    lk = _LOCKS.get(sid)
+    if lk is None:
+        lk = _LOCKS[sid] = asyncio.Lock()
+    return lk
+
+
+async def _board_payload(session, *, force: bool):
+    """(전송 인자, 로그 정보, 상태판 값, SVG 해시).
+
+    상태판 이미지(SVG → PNG)가 Embed를 대체한다. 렌더 실패(렌더러 없음·오류)면 기존 Embed로 대체한다.
+    force가 아니고 SVG가 지금 메시지의 것과 같으면 전송 인자를 비워(버튼만 갱신) 재업로드를 피한다.
+    """
+    from . import display_board as DB
+    data = DB.board_data(session)
+    try:
+        svg = DB.build_svg(data)
+        key = hashlib.sha256(svg).hexdigest()
+        if not force and _SHOWN_KEY.get(getattr(session, "session_id", None)) == key:
+            return {}, {"mode": "image", "unchanged": True}, data, key
+        t0 = time.monotonic()
+        png = await asyncio.to_thread(DB.render_png, svg)
+        info = {"mode": "image", "ms": int((time.monotonic() - t0) * 1000), "size": len(png)}
+        return ({"embed": None, "attachments": [discord.File(io.BytesIO(png), filename=BOARD_FILENAME)]},
+                info, data, key)
+    except Exception as e:  # noqa: BLE001 — 렌더 실패는 Embed 대체(상태판을 비우지 않는다)
+        from . import logs as _logs
+        _logs.error("display", "상태판 렌더 실패 — Embed로 대체", exc=e, session=session)
+        return ({"embed": build_embed(session), "attachments": []},
+                {"mode": "embed_fallback", "error": f"{type(e).__name__}: {e}"}, data, None)
+
+
+def _log_display(session, data, view, reason, info) -> None:
     """구조 로그: 플레이어가 보는 상태판 내용(바뀐 경우만) — 표시·정본 불일치 추적용."""
     try:
         from . import logs as _logs
-        e = embed.to_dict() if hasattr(embed, "to_dict") else {}
-        shown = {"title": e.get("title"), "description": e.get("description"),
-                 "fields": [[f.get("name"), f.get("value")] for f in e.get("fields") or ()],
-                 "footer": (e.get("footer") or {}).get("text"),
+        shown = {"board": data,
                  "buttons": [[getattr(c, "custom_id", None), getattr(c, "label", None),
                               bool(getattr(c, "disabled", False))] for c in getattr(view, "children", ())]}
-        fp = hash(repr(shown))
+        fp = hash(repr(shown) + str(info.get("mode")))
         sid = getattr(session, "session_id", None)
         if sid and _logs._display_last.get(sid) != fp:
             _logs._display_last[sid] = fp
-            _logs.domain("display", {"reason": reason, **shown}, session=session)
+            _logs.domain("display", {"reason": reason, **shown, "render": info}, session=session)
     except Exception:  # noqa: BLE001
         pass
 
 
 async def refresh(bot, session, *, reason: str = "") -> bool:
     """CANONICAL_DISPLAY 갱신 — 같은 메시지를 edit 한다. 실패해도 게임 진행을 막지 않는다.
+
+    v7.10: 상태판은 SVG 이미지(core.display_board)다 — Embed를 대체하고 버튼은 같은 메시지에 둔다.
+    렌더 실패 시 기존 Embed로 대체한다.
 
     WP-F: 기록된 메시지가 없거나(NotFound) 접근 불가(Forbidden)일 때만 새로 만들고 새 ID를
     영속한다. 일시적 오류(HTTP 5xx·레이트리밋 등)에는 두 번째 상태판을 만들지 않는다 —
@@ -643,31 +692,43 @@ async def refresh(bot, session, *, reason: str = "") -> bool:
     channel = bot.get_channel(ch_id)
     if channel is None:
         return False
+    sid = getattr(session, "session_id", None)
 
-    embed = build_embed(session)
-    view = build_view(bot, session)
-    _log_display(session, embed, view, reason)
-    msg_id = getattr(session, "display_msg_id", None)
+    async with _board_lock(session):
+        view = build_view(bot, session)
+        msg_id = getattr(session, "display_msg_id", None)
 
-    if msg_id:
+        if msg_id:
+            payload, info, data, key = await _board_payload(session, force=False)
+            _log_display(session, data, view, reason, info)
+            try:
+                msg = await channel.fetch_message(msg_id)
+                await msg.edit(view=view, **payload)
+                if payload:
+                    _SHOWN_KEY[sid] = key
+                return True
+            except Exception as e:
+                if not is_inaccessible(e):
+                    print(f"[디스플레이] 갱신 일시 실패 ({reason}) — 중복 생성 없이 다음 갱신에 맡김: {e}")
+                    return False
+                # 메시지가 삭제됐거나 접근 불가 — 새로 만든다.
+
+        payload, info, data, key = await _board_payload(session, force=True)
+        if not msg_id:
+            _log_display(session, data, view, reason, info)
+        files = payload.get("attachments") or []
         try:
-            msg = await channel.fetch_message(msg_id)
-            await msg.edit(embed=embed, view=view)
-            return True
+            if files:
+                msg = await channel.send(file=files[0], view=view)
+            else:
+                msg = await channel.send(embed=payload["embed"], view=view)
         except Exception as e:
-            if not is_inaccessible(e):
-                print(f"[디스플레이] 갱신 일시 실패 ({reason}) — 중복 생성 없이 다음 갱신에 맡김: {e}")
-                return False
-            # 메시지가 삭제됐거나 접근 불가 — 새로 만든다.
-
-    try:
-        msg = await channel.send(embed=embed, view=view)
-    except Exception as e:
-        print(f"[디스플레이] 갱신 실패 ({reason}): {e}")
-        return False
-    session.display_msg_id = msg.id
-    await _persist_display_id(bot, session)
-    return True
+            print(f"[디스플레이] 갱신 실패 ({reason}): {e}")
+            return False
+        _SHOWN_KEY[sid] = key
+        session.display_msg_id = msg.id
+        await _persist_display_id(bot, session)
+        return True
 
 
 async def _persist_display_id(bot, session) -> None:
