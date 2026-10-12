@@ -129,6 +129,9 @@ git pull
 sudo systemctl restart trpg-bot
 ```
 
+- 디스코드 `!배포 재시작`(v7.10.1+)은 `requirements.txt`가 바뀐 경우 위 pip 설치를 자동으로 수행하고, 실패하면 재시작하지 않는다.
+- SVG 렌더(화자 카드·디스플레이 상태판)는 한글 폰트가 필요하다: `sudo apt-get install -y fonts-noto-cjk`(sudo 필요 — 봇 명령으로는 불가).
+
 - **`cogs/` 만 고쳤다면** 봇을 안 내리고 마스터 채널에서 `!리로드 [모듈명]` 으로 핫스왑 가능
   (`game`·`character`·`media`·`session`·`system`·`auto_gm`).
 - **`core/`·`main.py`·`prompts.py` 변경은 핫스왑 불가** → 위처럼 `systemctl restart` 필요.
