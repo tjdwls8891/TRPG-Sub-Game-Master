@@ -45,9 +45,9 @@ aarch64 휠/패키지가 있어 그대로 동작한다.
 ```bash
 ssh ubuntu@<서버_공인IP>
 
-# 레포 가져오기 (예: ~/trpg-bot 에 배치 — systemd 유닛 기본 경로와 일치)
-git clone <당신의_레포_URL> ~/trpg-bot
-cd ~/trpg-bot
+# 레포 가져오기 (예: ~/trpgbot 에 배치 — systemd 유닛 기본 경로와 일치)
+git clone <당신의_레포_URL> ~/trpgbot
+cd ~/trpgbot
 ```
 
 > ⚠️ **미커밋 자산 주의** — `git clone` 은 **커밋된 파일만** 가져온다. 현재 작업트리에서
@@ -55,7 +55,7 @@ cd ~/trpg-bot
 > 아래처럼 직접 복사한다:
 > ```bash
 > # 로컬(맥)에서 실행 — 미디어/시나리오 통째 전송
-> rsync -avz --exclude sessions ./media ./scenarios ubuntu@<서버IP>:~/trpg-bot/
+> rsync -avz --exclude sessions ./media ./scenarios ubuntu@<서버IP>:~/trpgbot/
 > ```
 > 기존 진행 중인 **세션을 이어가려면** 로컬 `sessions/` 도 함께 복사한다(`sessions/` 는
 > `.gitignore` 대상이라 clone 에 포함되지 않는다).
@@ -65,7 +65,7 @@ cd ~/trpg-bot
 ## 3. 프로비저닝 & 환경변수
 
 ```bash
-cd ~/trpg-bot
+cd ~/trpgbot
 bash deploy/setup.sh          # ffmpeg·libopus·venv·의존성 자동 설치
 
 cp .env.example .env
@@ -76,7 +76,7 @@ chmod 600 .env                # 토큰 파일 권한 잠금
 토큰 검증을 위해 **먼저 수동으로 한 번** 띄워본다(Ctrl+C 로 종료):
 
 ```bash
-./.venv/bin/python main.py
+./venv/bin/python main.py
 # "봇 로그인 완료" 류 메시지가 뜨고 디스코드에서 온라인이면 OK
 ```
 
@@ -85,10 +85,10 @@ chmod 600 .env                # 토큰 파일 권한 잠금
 ## 4. systemd 서비스 등록 & 기동
 
 `deploy/trpg-bot.service` 의 **3줄(User·WorkingDirectory·ExecStart)** 이 본인 경로와 맞는지
-확인한다(기본값은 `ubuntu` 계정 + `~/trpg-bot`). 다르면 수정 후:
+확인한다(기본값은 `ubuntu` 계정 + `~/trpgbot`). 다르면 수정 후:
 
 ```bash
-sudo cp ~/trpg-bot/deploy/trpg-bot.service /etc/systemd/system/trpg-bot.service
+sudo cp ~/trpgbot/deploy/trpg-bot.service /etc/systemd/system/trpg-bot.service
 sudo systemctl daemon-reload
 sudo systemctl enable --now trpg-bot      # 부팅 시 자동 시작 + 지금 즉시 기동
 
@@ -122,10 +122,10 @@ sudo systemctl reset-failed trpg-bot
 ## 6. 업데이트 워크플로
 
 ```bash
-cd ~/trpg-bot
+cd ~/trpgbot
 git pull
 # 의존성이 바뀌었으면:
-./.venv/bin/pip install -r requirements.txt
+./venv/bin/pip install -r requirements.txt
 sudo systemctl restart trpg-bot
 ```
 
@@ -135,7 +135,8 @@ sudo systemctl restart trpg-bot
 - **`cogs/` 만 고쳤다면** 봇을 안 내리고 마스터 채널에서 `!리로드 [모듈명]` 으로 핫스왑 가능
   (`game`·`character`·`media`·`session`·`system`·`auto_gm`).
 - **`core/`·`main.py`·`prompts.py` 변경은 핫스왑 불가** → 위처럼 `systemctl restart` 필요.
-- `prompts.py` 의 `SYSTEM_INSTRUCTION` 을 바꿨으면 재시작 후 활성 세션에서 `!캐시 재발급`.
+- `prompts.py` 의 `SYSTEM_INSTRUCTION` 을 바꿨으면 재시작 후 **열려 있는** 세션에서만 `!캐시 재발급`(또는 닫기→열기). 닫힘·만료 세션은 다음 열기에서 자동 반영.
+- 시나리오 JSON 변경: LEGACY 세션은 재시작 때 파일을 다시 읽는다(열린 세션의 캐시만 재발급 필요). DYNAMIC(영도 단일 PC) 세션은 바인딩 스냅샷을 쓰므로 **새 세션에만** 반영된다.
 
 ---
 
@@ -148,7 +149,7 @@ sudo systemctl restart trpg-bot
   주기적으로 받아두면 안전하다:
   ```bash
   # 로컬에서: 서버 → 내 PC 로 백업
-  rsync -avz ubuntu@<서버IP>:~/trpg-bot/sessions ./backup/
+  rsync -avz ubuntu@<서버IP>:~/trpgbot/sessions ./backup/
   ```
 - **`.env` 보안** — `chmod 600 .env`. 절대 커밋 금지(`.gitignore` 에 이미 포함).
 - **시간대(선택)** — 비용 계산은 `time.time()`(UTC epoch)이라 TZ 와 무관하나, 로그 타임스탬프를
@@ -163,10 +164,10 @@ sudo systemctl restart trpg-bot
 
 ```bash
 # 서버에서
-git clone <레포URL> ~/trpg-bot && cd ~/trpg-bot
+git clone <레포URL> ~/trpgbot && cd ~/trpgbot
 bash deploy/setup.sh
 cp .env.example .env && nano .env && chmod 600 .env
-./.venv/bin/python main.py        # 수동 검증 후 Ctrl+C
+./venv/bin/python main.py        # 수동 검증 후 Ctrl+C
 sudo cp deploy/trpg-bot.service /etc/systemd/system/
 sudo systemctl daemon-reload && sudo systemctl enable --now trpg-bot
 journalctl -u trpg-bot -f         # 가동 확인

@@ -870,7 +870,7 @@ class SystemCog(commands.Cog):
             !배포 재시작    — pull 후 봇 프로세스 재시작
                              (core/·main.py·prompts.py 변경 시 필수)
 
-        requirements.txt가 바뀌었으면 pull 직후 봇을 실행 중인 파이썬(.venv)의 pip로
+        requirements.txt가 바뀌었으면 pull 직후 봇을 실행 중인 파이썬(venv)의 pip로
         의존성을 설치한다. 설치가 실패하면 리로드·재시작을 하지 않는다(깨진 환경으로 재기동 방지).
 
         Args:
@@ -938,7 +938,7 @@ class SystemCog(commands.Cog):
             report.append(f"```{changed[:1200]}```")
 
         # ── 의존성 설치 ── requirements.txt가 바뀌었을 때만. 봇을 실행 중인 인터프리터의 pip를 쓴다
-        #   (systemd ExecStart = .venv/bin/python). 오래 걸릴 수 있어 이벤트 루프 밖에서 실행한다.
+        #   (systemd ExecStart = venv/bin/python). 오래 걸릴 수 있어 이벤트 루프 밖에서 실행한다.
         if "requirements.txt" in changed.splitlines():
             await msg.edit(content="\n".join(report + ["📦 `requirements.txt` 변경 — 의존성 설치 중…"])[:1900])
             ok, out = await asyncio.to_thread(
