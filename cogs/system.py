@@ -188,7 +188,7 @@ class SystemCog(commands.Cog):
             "**디스플레이 채널** — 세션 상태 표기 + 조작\n"
             "　└ 되감기 · 턴 재시작 · TTS/이미지/BGM/효과음 토글 · 볼륨 · 세션 오픈\n"
             "**GM 스페이스** — 서버 홈\n"
-            "　└ 계정 등록 · 세션 열기 · 사전 프로필 관리(DM) · 잉크 충전\n"
+            "　└ 계정 등록 · 세션 열기 · 사전 프로필 관리(DM) · 잉크 잔액\n"
             "　└ 명전 등록/숨기기 · 월드보드 공개 · 내 통계(DM) · 보드 갱신"
         ), inline=False)
 
@@ -292,6 +292,17 @@ class SystemCog(commands.Cog):
             await ctx.send(f"⚠️ 게임 채널 잠금 실패: {e}")
 
         await core.save_session_data(self.bot, session)
+
+        # 통계·명예의 전당(기획 규정 — 세션 클로즈 시점). 종료 성공 뒤 활성 등록이 내려가므로
+        #   같은 세션에 다시 오지 않는다(!채널정리도 활성 세션만 집계 — 중복 없음).
+        try:
+            started = getattr(session, "started_at", 0.0) or 0.0
+            seconds = max(0.0, time.time() - started) if started else 0.0
+            for uid in (getattr(session, "players", {}) or {}):
+                await core.stats.bump(uid, session_seconds=seconds)
+            await core.refresh_boards(self.bot, ctx.guild)
+        except Exception as e:
+            print(f"[통계] 세션 종료 기록·보드 갱신 실패: {e}")
 
         # 3. 마스터 채널에 결산 보고
         embed = discord.Embed(title="🛑 세션 완전 종료 및 정산 완료", color=0xe74c3c)
@@ -502,6 +513,11 @@ class SystemCog(commands.Cog):
           · 플레이어 잉크 — Settlement(턴) + 캐시 창 저널(선불/환급) + 해석 청구 저널
         레거시 total_cost/total_usd 미러는 조회 근거로 쓰지 않는다.
         """
+        # 원 단위 비용은 운영자 전용 — 마스터 채널·DM에서만 응답한다(게임·디스플레이 채널 노출 금지).
+        _here = self.bot.active_sessions.get(ctx.channel.id)
+        if ctx.guild is not None and not (_here and ctx.channel.id == getattr(_here, "master_ch_id", None)):
+            await ctx.send("`!사용량`은 마스터 채널이나 DM에서만 사용할 수 있습니다.")
+            return
         if scope == "전체":
             if not await self.bot.is_owner(ctx.author):
                 await ctx.send("전체 조회는 오너만 가능합니다.")

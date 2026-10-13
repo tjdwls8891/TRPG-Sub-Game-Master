@@ -811,7 +811,7 @@ class OpenConfirmView(core.message_lifecycle.LifecyclePromptView):
             await core.display.close_notice(
                 interaction,
                 f"⚠️ 잔액이 부족합니다. 필요 **{need}잉크** / 보유 **{bal}잉크**\n"
-                f"GM 스페이스에서 충전 후 다시 시도해 주십시오.", seconds=15)
+                f"잉크 지급은 운영자에게 문의해 주십시오.", seconds=15)
             self.stop()
             return
 
@@ -1302,8 +1302,18 @@ class GMCog(commands.Cog):
         if not session:
             return
 
-        # 디스플레이 채널의 시간 입력 — chat_guard가 1회만 통과시킨 답변이다.
+        # 디스플레이 채널의 시간 입력 — 입력 대기 중인 참가자(또는 오너)의 답변 1건만 소비한다.
+        #   chat_guard와 별개로 모든 메시지가 여기에 오므로, 대기가 아니면 해석(청구)하지 않는다.
         if message.channel.id == getattr(session, "display_ch_id", None):
+            if not getattr(session, "awaiting_display_input", False):
+                return
+            if (str(message.author.id) not in (session.players or {})
+                    and not await self.bot.is_owner(message.author)):
+                return
+            if not getattr(session, "awaiting_display_input", False):   # 대기 중 다른 답변이 먼저 소비
+                return
+            session.awaiting_display_input = False
+            session._display_input_msg_id = message.id
             await self._handle_open_time_input(session, message)
             return
 
@@ -2967,7 +2977,7 @@ class GMCog(commands.Cog):
                             self.bot, session, game_ch,
                             f"⛔ **잉크가 부족합니다.**\n"
                             f"> 필요 {_pre_est['max_ink']}잉크 / 보유 {_bal}잉크\n"
-                            f"> GM 스페이스에서 충전 후 진행해 주십시오.",
+                            f"> 잉크 지급은 운영자에게 문의해 주십시오.",
                             key=core.message_lifecycle.KEY_TURN_NOTICE)
                     await m_send(f"⛔ 잔액 부족으로 턴 차단 (보유 {_bal} < 필요 {_pre_est['max_ink']})")
                     return
@@ -3814,7 +3824,7 @@ class GMCog(commands.Cog):
                 if core.is_enabled(session, "sfx"):
                     vc = getattr(session, "voice_client", None)
                     if vc and vc.is_connected():
-                        await core.play_dice_sfx(vc)
+                        await core.play_dice_sfx(self.bot, getattr(game_ch, "guild", None))
             except Exception as e:
                 print(f"[효과음] 재생 실패: {e}")
 

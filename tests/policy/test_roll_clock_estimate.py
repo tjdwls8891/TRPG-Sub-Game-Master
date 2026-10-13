@@ -77,15 +77,14 @@ def test_status_roll_modifier_is_scenario_data_only():
     assert core.status_roll_modifier({}, ["X"]) == (0, [])
 
 
-# ── C: 예상 비용 — 시뮬레이션·판정 재진입·비캐시 입력 ─────────────
+# ── C: 예상 비용 — 시뮬레이션·비캐시 입력 (판정 뒤에는 지시층위만 재호출 — 재진입 항목 없음) ──
 
 def test_estimate_includes_simulation_and_reentry_when_cache_usable(rig, monkeypatch):
     s = rig.sess
     s.cache_read_tokens = 73000
     monkeypatch.setattr(core.turn_history, "cache_usable", lambda _s: True)
     est = core.estimate_turn(s, "PROCEED")
-    assert "개연성 시뮬레이션" in est["breakdown"] and "판정 재진입(상한)" in est["breakdown"]
-    assert est["breakdown"]["판정 재진입(상한)"][0] == 0.0
+    assert "개연성 시뮬레이션" in est["breakdown"] and "판정 재진입(상한)" not in est["breakdown"]
     # 지시층위 하한 > 캐시 읽기만의 비용(비캐시 입력이 0으로 계산되지 않는다)
     i_lo = est["breakdown"]["지시층위"][0]
     lo_out = core.estimate._out_range(s, "instruction", "instruction_out")[0]
@@ -93,7 +92,7 @@ def test_estimate_includes_simulation_and_reentry_when_cache_usable(rig, monkeyp
                                                         output_tokens=lo_out, cached_read_tokens=73000)["total_krw"]
     assert est["input_tokens"]["instruction"] > 0 and i_lo > round(cache_only, 2)
     ask = core.estimate_turn(s, "ASK")
-    assert "개연성 시뮬레이션" in ask["breakdown"] and "판정 재진입(상한)" not in ask["breakdown"]
+    assert "개연성 시뮬레이션" in ask["breakdown"]
 
 
 def test_estimate_has_no_simulation_without_usable_cache(rig):

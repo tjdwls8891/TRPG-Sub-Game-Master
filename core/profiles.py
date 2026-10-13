@@ -157,7 +157,13 @@ async def create(user_id, *, name: str, scenario_id: str = None,
         store.setdefault("profiles", []).append(profile)
         if not _write(store):
             return None
-        return profile
+    # 통계 — 만든 프로필 수(내 통계 표시). 저장 성공 뒤에만 센다. 실패해도 저장은 유지.
+    try:
+        from . import stats as _stats
+        await _stats.bump(user_id, profiles_created=1)
+    except Exception as e:  # noqa: BLE001
+        print(f"[통계] 프로필 생성 집계 실패(무시): {e}")
+    return profile
 
 
 async def update(user_id, profile_id: str, field: str, value) -> bool:

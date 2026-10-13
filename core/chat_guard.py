@@ -57,8 +57,11 @@ async def chat_guard(bot, message: discord.Message) -> bool:
     # ── 디스플레이 채널 ──
     # 답변이 필요한 순간에만 1회 허용한다(세션 생성 플로우의 시간 입력 등).
     if message.channel.id == getattr(session, "display_ch_id", None):
-        if getattr(session, "awaiting_display_input", False):
-            session.awaiting_display_input = False
+        # 대기 답변의 소비(플래그 해제·해석)는 GMCog.on_message 한 곳이 한다 — 여기서는 통과 여부만 정한다.
+        #   cog 리스너가 먼저 소비했으면 그 메시지 id로 알아본다(처리 순서와 무관하게 같은 결과).
+        if message.id == getattr(session, "_display_input_msg_id", None):
+            return True
+        if getattr(session, "awaiting_display_input", False) and (is_owner or is_player):
             return True
         return await _reject(message, "ℹ️ 디스플레이 채널은 버튼으로만 조작합니다.")
 

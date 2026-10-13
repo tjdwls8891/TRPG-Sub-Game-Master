@@ -125,10 +125,7 @@ def format_confirmation(resolved: dict, open_estimate: dict) -> str:
     for n in resolved.get("notes") or []:
         lines.append(f"> {n}")
     if open_estimate:
-        lines.append(
-            f"\n💰 오픈·유지 예상 비용 **{open_estimate.get('total_ink', 0)}잉크**\n"
-            f"> 캐시 생성 {open_estimate.get('create_krw', 0):.1f}원 · "
-            f"유지 {open_estimate.get('store_krw', 0):.1f}원"
-        )
+        # 플레이어 채널에 나가는 문구 — 잉크만 표시한다(원 단위는 운영자 전용).
+        lines.append(f"\n💰 오픈·유지 예상 비용 **{open_estimate.get('total_ink', 0)}잉크**")
     lines.append("\n이대로 세션을 여시겠습니까?")
     return "\n".join(lines)

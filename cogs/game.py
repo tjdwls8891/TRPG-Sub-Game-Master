@@ -22,6 +22,16 @@ async def _asyncio_shield_wait(fut):
 
 
 # ========== [메인 게임 엔진 모듈(Game Cog)] ==========
+def _claim_tts(preparation, ctx) -> None:
+    """자동 턴 TTS 합성 비용을 그 턴의 비용 멤버로 등록한다(합성 전 — Settlement가 정확히 한 번 청구).
+
+    인트로·수동(준비 객체 없음)은 no-op. 귀속 불일치(stale)는 claim_cost_operation이 진단만 남기고 거부한다.
+    """
+    if preparation is None or ctx is None:
+        return
+    preparation.claim_cost_operation(ctx)
+
+
 def _projected_media_filter(session, preparation, keywords, master_ch=None) -> list:
     """H05(ProjectedMediaContext) — 묘사가 표현하는 투영 장면 밖의 장소 이미지를 막는다.
 
@@ -826,9 +836,12 @@ class GameCog(commands.Cog):
             # (문단별 음성 길이에 텍스트 스트리밍 속도를 맞춤.) GM(cost_log_prefix)·미연결 제외.
             # dub: 더빙 합성 누적 결과 dict (비용·경고 처리는 출력 완료 후 일원화).
             dub = None
+            # v7.11(사용자 결정 D3): 인트로(cost_log_prefix 없음)와 자동 턴(preparation 있음) 모두 더빙한다.
+            #   자동 턴의 TTS 비용은 그 턴의 비용 멤버로 claim되어 Settlement가 청구한다.
+            _dub_turn = (not cost_log_prefix) or preparation is not None
             dub_active = (
                 getattr(session, "tts_enabled", False)
-                and not cost_log_prefix
+                and _dub_turn
                 and core.get_mixer(getattr(session, "voice_client", None)) is not None
             )
 
@@ -864,7 +877,7 @@ class GameCog(commands.Cog):
             else:
                 # 비동기(또는 TTS off) 경로. 토글 ON이지만 보이스 미연결이면 no_voice 경고용으로 합성 시도.
                 dub_task = None
-                if getattr(session, "tts_enabled", False) and not cost_log_prefix:
+                if getattr(session, "tts_enabled", False) and _dub_turn:
                     tts_texts = []
                     for p in paragraphs:
                         d = core.parse_dialogue_paragraph(p)
@@ -872,7 +885,8 @@ class GameCog(commands.Cog):
                         if spoken:
                             tts_texts.append(spoken)
                     if tts_texts:
-                        dub_task = asyncio.create_task(self._synthesize_and_enqueue(session, tts_texts))
+                        dub_task = asyncio.create_task(self._synthesize_and_enqueue(
+                            session, tts_texts, preparation=preparation))
 
                 for i, paragraph in enumerate(paragraphs):
                     # 인물 대사 마커 분기: 이미지 자동 출력 + 헤더/말풍선 형식, '> ' 미부착
@@ -1088,7 +1102,7 @@ class GameCog(commands.Cog):
 
     async def _synthesize_and_enqueue(self, session, texts, voice_name=None,
                                       *, force: bool = False,
-                                      cost_scope: str = None) -> dict:
+                                      cost_scope: str = None, preparation=None) -> dict:
         """
         문단 텍스트를 순서대로 TTS 합성해 믹서 voice 큐에 적재한다. (회계는 호출 측 담당)
 
@@ -1129,6 +1143,7 @@ class GameCog(commands.Cog):
                     _v = None
             _scope = cost_scope or core.cost_ledger.OP_TTS_RUNTIME
             _ctx = core.cost_ledger.tts_context(self.bot, session, _scope)
+            _claim_tts(preparation, _ctx)
             pcm, cost, in_tok, out_tok = await core.synthesize_tts_pcm(
                 self.bot, t, voice_name=_v, cost_context=_ctx)
             if pcm:
@@ -1178,6 +1193,7 @@ class GameCog(commands.Cog):
                 return (b"", 0.0, 0, 0)
             _scope = cost_scope or core.cost_ledger.OP_TTS_RUNTIME
             _ctx = core.cost_ledger.tts_context(self.bot, session, _scope)
+            _claim_tts(preparation, _ctx)
             return await core.synthesize_tts_pcm(
                 self.bot, spoken, voice_name=voice_name, cost_context=_ctx)
 

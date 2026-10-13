@@ -255,14 +255,14 @@ class GMHomeView(discord.ui.View):
             "⚠️ DM을 보낼 수 없습니다. DM 수신을 허용해 주십시오.",
             ephemeral=True)
 
-    @discord.ui.button(label="💰 잉크 충전", style=discord.ButtonStyle.secondary,
+    @discord.ui.button(label="💰 잉크 잔액", style=discord.ButtonStyle.secondary,
                        custom_id="gmspace:charge", row=1)
     async def charge(self, interaction, _b):
         if not await self._require_account(interaction):
             return
         bal = accounts.get_balance(interaction.user.id)
         await interaction.response.send_message(
-            f"현재 잔액 **{bal:,}잉크**\n충전은 결제 시스템 도입 후 활성화됩니다.",
+            f"현재 잔액 **{bal:,}잉크**\n잉크 지급은 운영자에게 문의해 주십시오.",
             ephemeral=True)
 
     @discord.ui.button(label="🏆 명전 등록/숨기기", style=discord.ButtonStyle.secondary,
