@@ -8,12 +8,12 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 AI가 4개 층위로 나뉘어 판단·지시·묘사·추출을 분담한다. 플레이어는 서버 GM 스페이스에서 버튼으로 세션을 열고, 캐릭터를 만들고, 턴을 진행한다. **명령어는 GM의 수동 개입·복구 수단이며 일반 플레이에는 쓰지 않는다.**
 
-현재 버전: **v7.11.0** · `SCHEMA_VERSION` 4 · 총 운영 코드 ~52,600줄(main·prompts·cogs·core) · 테스트 ~27,270줄
+현재 버전: **v7.12.0** · `SCHEMA_VERSION` 4 · 총 운영 코드 ~52,600줄(main·prompts·cogs·core) · 테스트 ~27,270줄
 
 리팩터링: **7-WP 프로그램(WP-A~WP-G)** — 턴 트랜잭션·커밋·재무·이력·파생 시스템을 단일 권위로 재구성했다. WP-A~G 전부 독립 게이트 VERIFIED — **프로그램 완료**(WP-G 최종 후보 `f0fd69e`, 증거 `handoff/WP_G_COMPLETION_BUNDLE.md`). 다음 WP는 없다. 버전은 이 비호환 전환 전체를 **단일 MAJOR v6.0.0**으로 채택했다(2026-10-06, 이력 보정은 DEVLOG '버전 기록').
 
 동적 세계 구현 프로그램(통합 로드맵 v0.3, **H01~H07**, `de367c7` 기준)이 진행 중이다. H 번호는 개발 패키지명이다.
-H07 이후 패키지(v7.6.0~v7.9.1): SVG 화자 카드·영도 카드 저작 → 7.6.0, `!세션이력` → 7.7.0, 묘사↔정본 정합·만료 중 선언 보관·화자 표기 → 7.8.0, 구조 로그 → 7.9.0, 정본 시각·상태이상 판정 보정·예상 비용·판정 기록 중복 → 7.9.1, 디스플레이 상태판 SVG 이미지 → 7.10.0, `!배포` 의존성 자동 설치 → 7.10.1, 전수조사 결함 수정·자동 턴 더빙 → 7.11.0(DEVLOG '버전 기록').
+H07 이후 패키지(v7.6.0~v7.9.1): SVG 화자 카드·영도 카드 저작 → 7.6.0, `!세션이력` → 7.7.0, 묘사↔정본 정합·만료 중 선언 보관·화자 표기 → 7.8.0, 구조 로그 → 7.9.0, 정본 시각·상태이상 판정 보정·예상 비용·판정 기록 중복 → 7.9.1, 디스플레이 상태판 SVG 이미지 → 7.10.0, `!배포` 의존성 자동 설치 → 7.10.1, 전수조사 결함 수정·자동 턴 더빙 → 7.11.0, 판정 2d50 통합 → 7.12.0(DEVLOG '버전 기록').
 
 | WP | 범위 | 상태 |
 |---|---|---|
@@ -81,6 +81,7 @@ python main.py
 [판단층위]  유형 결정 (ASK / NARRATE / ROLL / PROCEED)
    │        캐시를 읽지 않는다. 맥락을 사용자 프롬프트로 직접 공급.
    │        ASK·ROLL은 여기서 끝난다 (지시·묘사 캐시 0회 → 가장 저렴. ROLL은 굴림 뒤 같은 턴에 지시층위부터 이어 감 — 시뮬레이션·판단 재진입 없음)
+   │        ROLL 판정 = 2d50 < T(=52+능력+숙련+행동+상태+난이도) — 수치·성패는 코드(`core/judgment.py`), 판단층위는 계약값만
    ↓
 [지시층위]  묘사 지시문 + 퀘스트 선택 (NARRATE·PROCEED만)
    │        캐시를 읽는다. 세계관·금지사항·정보 접근을 반영.
@@ -139,7 +140,7 @@ python main.py
 | `permissions.py` | 98 | `!권한부여` `!권한회수` `!권한목록` |
 | `presence.py` | 122 | 상태 메시지 순환 + **캐시 만료 감지**(15초 주기) |
 
-### core/ — 88개 서브모듈
+### core/ — 89개 서브모듈
 
 `core/__init__.py`가 전 심볼을 re-export하므로 외부에서는 `core.XYZ`로 접근한다.
 
@@ -219,7 +220,8 @@ python main.py
 | `quest_filter.py` | 326 | **필터 매칭 — 통과한 값이 곧 슬롯** |
 | `start_frame.py` | 239 | 시작 상황 틀 |
 | `timeline.py` | 185 | 작중 시간 정량화 |
-| `growth.py` | 215 | 능력치 성장·행운 |
+| `growth.py` | 232 | 능력치 성장·행운 — 성장 재판정 d20 고정·상한 `growth.stat_max` > `ability_stat_max` > 20, 행운 무저작 기본값 10(프로필에 쓰지 않음) |
+| `judgment.py` | 118 | **2d50 판정 수식**(v7.12) — `R=1d50+1d50 < T=52+A+S+M+H+D`(동점 실패), A=2×(원스탯−10), 난이도 6단계, 대결 결과, 판단 계약 검증(보정 없음). S는 현재 0(스킬 보너스 추후 통합) |
 | `irregular_npc.py` | 244 | 비정규 NPC 이미지·목소리 |
 | `koreantext.py` | 166 | 슬롯 치환·조사 보정, 국어 로마자 표기(`romanize`, 음절 전자) |
 
@@ -321,7 +323,7 @@ R2: 초기화 실패는 fail-closed(실패 표식 strict 저장 — LEGACY 진�
 | `media.py` · `media_control.py` | 316 | 이미지 전송, 플레이리스트, BGM 선택 |
 | `ui.py` | 282 | 주사위 뷰, 채널 삭제 뷰 |
 | `chat_guard.py` | 82 | 채널별 권한 검증 (단일 훅) |
-| `utils.py` | 326 | 캐릭터 검색, AI 설정 생성, 상태이상 판정 보정 합산(`status_roll_modifier` — 시나리오 weight를 판정 기준치에 코드가 더함) |
+| `utils.py` | 326 | 캐릭터 검색, AI 설정 생성, 상태이상 weight 합산(`status_roll_modifier` — v7.12부터 판정 경로 미사용, 상태 영향은 판단층위 status_mod) |
 
 ---
 
@@ -538,7 +540,7 @@ pip install -r requirements-dev.txt
 python3 -m pytest tests/ -q
 ```
 
-`tests/`는 **현재 동작과 권위 불변식을 고정**한다. 현재 1,279건(특성화 61 · 결함 27 · 정책 1,191)이 모두 통과하며 strict xfail은 0건이다.
+`tests/`는 **현재 동작과 권위 불변식을 고정**한다. 현재 1,301건(특성화 61 · 결함 27 · 정책 1,213)이 모두 통과하며 strict xfail은 0건이다.
 
 | 분류 | 의미 |
 |---|---|
@@ -757,7 +759,7 @@ python3 tools/scenario_check.py --all     # 전 시나리오 컴파일·진단(E
 | 디스코드 결제 | SKU 한국 미지원. `!지급`·`!잉크`로 대체 |
 | v7.x 반영 | `SCHEMA_VERSION` 4·turn-history v3·CommitPlan v2(7.1.0·7.2.0도 유지). 배포 전 `sessions/`·`accounts/` 백업. 기존 세션은 로드 시 자동 마이그레이션되며, 배포 후 6.x로 되돌리면 plan v2 PREPARED 복구를 읽지 못한다 |
 | 영도 DYNAMIC 저작 | H07 V2 저작 완료(사건 64·정보 146·일과 35·`unknown_name` 8·구간 230쌍) — 남은 판단 항목(OPEN DECISION)은 `handoff/H07_FINAL_IMPLEMENTATION_REPORT.md` |
-| 운영 반영 | v7.10.1이 main에 반영됨(`2cd55ad`), v7.11.0은 작업 브랜치(병합 대기). `!배포`는 v7.10.1부터 requirements 변경 시 pip를 실행한다 — 그 이전 코드로 실행하는 첫 배포는 서버에서 `/home/ubuntu/trpgbot/venv/bin/python -m pip install -r requirements.txt`를 직접 실행해야 한다. 배포 전 운영 `sessions/`·`accounts/` 백업. 영도 `speaker_card`·`plain_speakers`(v7.6~7.8)는 DYNAMIC 바인딩 스냅샷이라 **새 영도 세션에만** 반영된다(재발급 불필요·무효). SVG 래스터화(화자 카드·디스플레이 상태판)는 `resvg_py`(requirements 고정) 또는 resvg CLI와 `Noto Sans CJK KR` 폰트가 필요하다(없으면 카드는 생략, 상태판은 Embed 대체). 구조 로그는 세션 `logs/`·전역 `logs/bot.jsonl`에 쌓이며 옛 텍스트 로그 파일은 더 이상 쓰지 않는다 |
+| 운영 반영 | v7.11.0이 main에 반영됨(`483dd8b`), v7.12.0은 작업 브랜치(병합 대기). v7.12.0 배포 뒤 LEGACY 열린 세션은 `!캐시 재발급`(시나리오 `stat_system` 문구 정정), 영도 DYNAMIC은 새 세션부터 새 룰북 — 기존 세션은 지시층위 판정 블록의 '코드 판정 권위' 문구로 정합. `!배포`는 v7.10.1부터 requirements 변경 시 pip를 실행한다 — 그 이전 코드로 실행하는 첫 배포는 서버에서 `/home/ubuntu/trpgbot/venv/bin/python -m pip install -r requirements.txt`를 직접 실행해야 한다. 배포 전 운영 `sessions/`·`accounts/` 백업. 영도 `speaker_card`·`plain_speakers`(v7.6~7.8)는 DYNAMIC 바인딩 스냅샷이라 **새 영도 세션에만** 반영된다(재발급 불필요·무효). SVG 래스터화(화자 카드·디스플레이 상태판)는 `resvg_py`(requirements 고정) 또는 resvg CLI와 `Noto Sans CJK KR` 폰트가 필요하다(없으면 카드는 생략, 상태판은 Embed 대체). 구조 로그는 세션 `logs/`·전역 `logs/bot.jsonl`에 쌓이며 옛 텍스트 로그 파일은 더 이상 쓰지 않는다 |
 | 자동 턴 TTS | v7.11부터 인트로와 자동 턴 묘사를 더빙한다(`tts_enabled`·음성 연결 시). 자동 턴의 TTS 비용은 그 턴의 비용 멤버로 claim되어 Settlement가 청구한다. 후속 묘사·NARRATE·ASK는 더빙하지 않는다 |
 | H07 운영 활성 | 영도 단일 PC 세션은 DYNAMIC(시작 틀 `world_start` 저작), 나머지 4개 시나리오·다인 세션은 LEGACY. 프롬프트 변경은 열린 세션만 재발급, 영도 정의 변경은 새 세션에만 반영(배포 절 '캐시 재발급이 필요한 경우') |
 | H06 배포 | 새 영속 필드 `world_lifecycle`·`world_initialization`(기본값 = 레거시). 스키마·이력·CommitPlan·compiler 유지. DYNAMIC 대상 세션은 캐시 업로드가 시작 선택 뒤로 이동 |

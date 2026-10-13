@@ -15,20 +15,27 @@
 import random
 
 # 성장 판정 기본값 — 시나리오별로 덮어쓸 수 있다.
+# v7.12: 능력치 상한은 시나리오 원척도를 따른다(growth.stat_max > ability_stat_max > 20 — growth_stat_cap).
 DEFAULT_GROWTH = {
     "enabled": True,
     "fail_threshold": 3,    # 이 횟수만큼 실패가 누적되면 성장 판정
     "chance": 0.0,          # 0보다 크면 실패 시마다 이 확률로도 성장 판정
-    "stat_max": 10,         # 능력치 상한
 }
 
+# 성장 재판정 주사위 — 원척도(1~20) 비교 전용. 2d50 일반 판정과 독립이다(v7.12).
+GROWTH_DIE = 20
+DEFAULT_STAT_CAP = 20
+
 # 행운 판정 기본값.
+# v7.12: 시나리오 저작 없이도 모든 PC가 행운을 갖는다 — 프로필에 유효한 행운 값이 없으면
+#   default_value(가상 공통 능력치, 프로필에 쓰지 않음)를 쓴다. 행운 판정은 d20 롤언더 그대로.
 DEFAULT_LUCK = {
     "enabled": True,
     "stat_name": "행운",
     "chance_on_fail": 0.10,     # 판정 실패 시 백그라운드 확률 (기본 10%)
     "chance_on_success": 0.03,  # 판정 성공 시에는 낮춘다
     "sides": 20,
+    "default_value": 10,
 }
 
 
@@ -43,6 +50,17 @@ def get_growth_config(session) -> dict:
     except Exception:
         pass
     return cfg
+
+
+def growth_stat_cap(session, stat_name: str) -> int:
+    """성장 상한 — 시나리오 growth.stat_max(명시) > ability_stat_max(정수 또는 스탯별 dict) > 20."""
+    sd = getattr(session, "scenario_data", None) or {}
+    for src in ((sd.get("growth") or {}).get("stat_max"), sd.get("ability_stat_max")):
+        if isinstance(src, dict):
+            src = src.get(stat_name)
+        if isinstance(src, int) and not isinstance(src, bool) and src > 0:
+            return src
+    return DEFAULT_STAT_CAP
 
 
 def get_luck_config(session) -> dict:
@@ -93,19 +111,18 @@ def _bump_stat(session, char_name: str, stat_name: str, delta: int = 1) -> int |
     profile = player.get("profile")
     if not isinstance(profile, dict) or stat_name not in profile:
         return None
-    cfg = get_growth_config(session)
     try:
         cur = int(profile[stat_name])
     except (TypeError, ValueError):
         return None
-    new = min(cfg["stat_max"], cur + delta)
+    new = min(growth_stat_cap(session, stat_name), cur + delta)
     if new == cur:
         return None
     profile[stat_name] = new
     return new
 
 
-def check_growth(session, char_name: str, stat_name: str, sides: int = 20) -> dict | None:
+def check_growth(session, char_name: str, stat_name: str, sides: int = GROWTH_DIE) -> dict | None:
     """성장 판정. 판정 실패 직후에만 호출한다.
 
     기획 규정 — 실패 시 성장판정을 실시하고, 동일 스탯으로 주사위를 굴려
@@ -135,7 +152,7 @@ def check_growth(session, char_name: str, stat_name: str, sides: int = 20) -> di
     value = _stat_value(session, char_name, stat_name)
     if value is None:
         return None
-    if value >= cfg["stat_max"]:
+    if value >= growth_stat_cap(session, stat_name):
         return {"rolled": 0, "target": value, "grew": False,
                 "new_value": value, "reason": "상한 도달"}
 
@@ -168,7 +185,7 @@ def check_luck(session, char_name: str, *, failed: bool) -> dict | None:
 
     value = _stat_value(session, char_name, cfg["stat_name"])
     if value is None:
-        return None
+        value = cfg["default_value"]
 
     sides = int(cfg["sides"])
     roll = random.randint(1, sides)
@@ -178,7 +195,7 @@ def check_luck(session, char_name: str, *, failed: bool) -> dict | None:
 
 
 def process_roll_outcome(session, char_name: str, stat_name: str,
-                         *, failed: bool, sides: int = 20) -> dict:
+                         *, failed: bool, sides: int = GROWTH_DIE) -> dict:
     """판정 결과 후처리 — 성장·행운을 순서대로 판정한다.
 
     Returns:

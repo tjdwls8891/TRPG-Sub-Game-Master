@@ -228,10 +228,11 @@ def test_t8_untracked_npc_never_materializes_and_legacy_scenarios_compile_unchan
             w, _ = _wait_until(w, 400)
         assert NP.effective_position(D, w, SHIN)["source"] == NP.UNTRACKED
         assert all(SHIN not in _scene_npcs(w, p) for p in D["place_definitions"])
-    revs = {"scenario.example": "sha256:ee967f1c4ec515cc1b8ec6c4e6635c37ea332dd78dbcf453233180bd821ee636",
+    # v7.12: stat_system 공통 판정 문구 정정(2d50)으로 scenario.example·무협·빈시나리오 revision 갱신(다크판타지 불변)
+    revs = {"scenario.example": "sha256:eb812596eb87fefa64ddd65f8955a30b6ea45f814a6905fb087f7f95080c9e0a",
             "다크판타지": "sha256:c03dbb4221aa6666b301965c840beeb180811396ab89dbac9c44091fa5b15372",
-            "무협": "sha256:56f6f2ef0322c8eb9a228edc3bbede513376893116bae0ea14a4205d3c463e04",
-            "빈시나리오": "sha256:8a8c11f28dd0b2e75e06ba1a3aa6e6919f0948aafc15c3e872275dc6c999ceeb"}
+            "무협": "sha256:07f7f4cfda43fd9a842a528956a81d65c5629434e14fd5167cf5693e25202a24",
+            "빈시나리오": "sha256:2422a64278cbc6fbd8c0dc4f07e73b31a7e5c886a467002178ccb07236351c53"}
     for sid, rev in revs.items():
         raw = json.load(open(os.path.join(ROOT, "scenarios", f"{sid}.json"), encoding="utf-8"))
         r = dc.compile_scenario(raw, sid)

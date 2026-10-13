@@ -814,7 +814,7 @@ async def test_b1_roll_growth_staged_projected_and_applied_after_ready(rig, monk
     assert s.players["555001"]["profile"]["기술"] == 8, "성장이 정본에 선적용되었습니다"
     assert not getattr(s, "stat_fail_counts", None)
     res2 = await r.gm._execute_rolls(s, spec, r.gch, transaction_id=tx.transaction_id)
-    assert any("기준치 9" in x for x in res2), "후속 ROLL이 스테이징 투영을 읽지 않았습니다"
+    assert any("목표 T=52-2(능력)=50" in x for x in res2), "후속 ROLL이 스테이징 투영을 읽지 않았습니다"
     assert s.players["555001"]["profile"]["기술"] == 8
 
     await r.gm._finish_proceed_and_continue(

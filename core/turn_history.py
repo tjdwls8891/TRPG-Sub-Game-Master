@@ -316,6 +316,25 @@ def note_judgment(session, transaction_id, *, judgment=None, player_message=None
     tx.judgment_result = cur
 
 
+def note_rolls(session, transaction_id, records, effects) -> None:
+    """v7.12: 굴림의 타입 기록과 성장 효과를 판단 기록에 누적한다(재서술이 다시 굴리지 않고 재사용).
+
+    effects = {"growth_events": [[uid, stat, new_value]], "fail_counts": {"이름:스탯": 굴림 뒤 값}}
+    """
+    from . import turn_transaction as TT
+    if transaction_id is None or not TT.is_current_transaction(session, transaction_id):
+        return
+    tx = TT.get_active_transaction(session)
+    cur = dict(tx.judgment_result or {})
+    cur["roll_records"] = list(cur.get("roll_records") or []) + copy.deepcopy(list(records or []))
+    eff = copy.deepcopy(cur.get("roll_effects") or {"growth_events": [], "fail_counts": {}})
+    eff["growth_events"] = list(eff.get("growth_events") or []) + [list(e) for e in (effects or {}).get("growth_events") or []]
+    eff.setdefault("fail_counts", {}).update(copy.deepcopy((effects or {}).get("fail_counts") or {}))
+    cur["roll_effects"] = eff
+    cur.setdefault("roll_results", [])
+    tx.judgment_result = cur
+
+
 def judgment_is_complete(j) -> bool:
     return (isinstance(j, dict) and isinstance(j.get("judgment"), dict)
             and isinstance(j.get("player_message"), str))
