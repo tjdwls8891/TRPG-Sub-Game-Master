@@ -97,16 +97,62 @@ def _clean_proceed_instruction(instruction: str) -> str:
     return re.sub(r'\s+', ' ', result).strip()
 
 
-def _roll_target(session, char_name: str, stat_value: int, weight: int) -> tuple[int, str]:
-    """판정 기준치 = 스탯 + 현재 상태이상 가중치(시나리오 정의, 코드 합산) + 판단층위 상황 가중치.
-    Returns: (기준치, 표시 문자열) — 예: "12-1(감염 의심)+2=13"."""
-    s_total, s_parts = core.status_roll_modifier(session.scenario_data,
-                                                 (getattr(session, "statuses", None) or {}).get(char_name, []))
-    target = stat_value + s_total + weight
-    if not s_parts and not weight:
-        return target, f"{stat_value}"
-    terms = f"{stat_value}" + "".join(f"{w:+d}({n})" for n, w in s_parts) + (f"{weight:+d}" if weight else "")
-    return target, f"{terms}={target}"
+def _npc_stats(session, name: str, world_turn=None) -> dict | None:
+    """판정 대상 NPC의 정본 능력치(session.npcs[*].stats). 확인할 수 없으면 None — 허구 수치 없음.
+
+    DYNAMIC은 현재 장면 인물의 표시명으로만 찾는다(표시명이 겹치거나 장면 밖이면 확인 불가).
+    """
+    key = name
+    if world_turn is not None:
+        try:
+            _scene, projs = core.turn_world.scene_npc_projections(world_turn.ctx, None, session)
+        except Exception:
+            projs = []
+        hits = [p for p in projs if p.get("display_name") == name]
+        if len(hits) != 1:
+            return None
+        key = hits[0].get("legacy_name")
+    data = (getattr(session, "npcs", None) or {}).get(key) if key else None
+    stats = data.get("stats") if isinstance(data, dict) else None
+    return stats if isinstance(stats, dict) and stats else None
+
+
+def _judge_side(view, side: dict, name: str, world_turn=None) -> dict:
+    """한 판정 당사자의 목표치 조립. A는 코드가 정본 원스탯에서 환산, S=0(사용자 결정 — 스킬 보너스 추후 통합),
+    M·H·D는 판단층위 계약값(검증 통과분). 능력치를 확인할 수 없으면 target=None(굴리지 않음)."""
+    stat = str(side.get("stat") or "")
+    uid = core.get_uid_by_char_name(view, name)
+    if uid:
+        raw = ((view.players.get(uid) or {}).get("profile") or {}).get(stat)
+    else:
+        raw = (_npc_stats(view, name, world_turn) or {}).get(stat)
+    a = core.judgment.ability_mod(raw)
+    diff = side.get("difficulty") if side.get("difficulty") in core.judgment.DIFFICULTY else "보통"
+    m = int(side.get("method_mod") or 0)
+    h = int(side.get("status_mod") or 0)
+    d = core.judgment.DIFFICULTY[diff]
+    out = {"name": name, "stat": stat, "is_pc": bool(uid), "uid": uid, "difficulty": diff,
+           "A": a, "S": 0, "M": m, "H": h, "D": d,
+           "method_basis": str(side.get("method_basis") or ""),
+           "status_basis": str(side.get("status_basis") or ""), "T": None}
+    if a is None:
+        return out
+    out["T"] = core.judgment.target(a, 0, m, h, d)
+    terms = [(a, "능력"), (m, "행동"), (h, "상태"), (d, f"난이도 {diff}")]
+    _terms = "".join(f"{v:+d}({n})" for v, n in terms if v)
+    out["breakdown"] = f"{core.judgment.BASE}{_terms}={out['T']}" if _terms else f"{out['T']}"
+    return out
+
+
+def _judge_plan(view, spec: dict, world_turn=None) -> dict:
+    """rolls 항목 → {kind, actor, opponent}. 계약 검증은 판단층위 수신 시 끝났다(여기서 값을 보정하지 않는다)."""
+    kind = spec.get("kind") if spec.get("kind") in core.judgment.KINDS else "GENERAL"
+    actor = _judge_side(view, spec, str(spec.get("char_name") or view.gm_target_char or "?"), world_turn)
+    opp = None
+    if kind == "CONTEST" and isinstance(spec.get("opponent"), dict):
+        o = spec["opponent"]
+        opp = _judge_side(view, o, str(o.get("name") or "?"), world_turn)
+    return {"kind": kind, "actor": actor, "opponent": opp}
 
 
 def _build_judgment_user_prompt(session, player_message: str, roll_results: list,
@@ -157,22 +203,43 @@ def _build_judgment_user_prompt(session, player_message: str, roll_results: list
             prof_lines.append("    소지 자원: " + ", ".join(f"{k} {v}" for k, v in c_res.items()))
         c_sta = (session.statuses or {}).get(c_name, [])
         prof_lines.append("    상태이상: " + (", ".join(c_sta) if c_sta else "없음"))
-        _s_total, _s_parts = core.status_roll_modifier(session.scenario_data, c_sta)
-        if _s_parts:
-            prof_lines.append("    ※ 상태이상 판정 보정(" + ", ".join(f"{n} {w:+d}" for n, w in _s_parts)
-                              + ")은 코드가 기준치에 자동 반영한다 — rolls.weight에는 상태이상을 제외한 상황 가중치만 넣을 것.")
+        # v7.12: 상태 영향은 코드가 고정 가중치로 더하지 않는다 — 판단층위가 아래 정의를 보고 status_mod 하나로 종합.
+        _defs = core.get_merged_status_effects(session.scenario_data or {})
+        for _sn in c_sta:
+            _e = _defs.get(_sn)
+            if not isinstance(_e, dict):
+                continue
+            _w = _e.get("weight")
+            prof_lines.append(
+                f"    · {_sn}: 적용조건=[{_e.get('apply_condition', '')}] / 제거조건=[{_e.get('remove_condition', '')}]"
+                + (f" / 저작 가중치 {int(_w):+d}(옛 D20 척도 — T로는 ×2, 참고용)" if isinstance(_w, int) and _w else ""))
     lines.append("[플레이어 프로필]\n" + ("\n".join(prof_lines) if prof_lines else "(없음)"))
 
     # ②-2 등장 NPC — 무대에 누가 있는지 알아야 ASK 대상과 판정 대상을 정할 수 있다
     # H05 R3: DYNAMIC 세션은 정본 배치(spatial_state.placements) 기준 현재 장면 NPC만 — session.npcs 전부를
     #   현재 등장인물로 제시하지 않는다(판단층위는 세계 설정을 받지 않으므로 이름만).
+    # v7.12: 대결 판정용으로 정본 능력치가 확인되는 NPC는 수치를 함께 준다(판단 입력 전용 — 비공개 값).
+    def _npc_entry(display, stats, statuses):
+        bits = []
+        if stats:
+            bits.append("능력치 " + "·".join(f"{k} {v}" for k, v in stats.items()))
+        if statuses:
+            bits.append("상태 " + ", ".join(map(str, statuses)))
+        return display + (f"({' / '.join(bits)})" if bits else "")
+
     if world_turn is not None:
-        _scene, _names = core.turn_world.scene_npc_names(world_turn.ctx, None, session)
-        lines.append("[현재 장면 NPC — 정본 위치 기준]\n" + (", ".join(_names[:30]) if _names else "(없음)"))
+        _scene, _projs = core.turn_world.scene_npc_projections(world_turn.ctx, None, session)
+        _ents = [_npc_entry(p["display_name"], _npc_stats(session, p["display_name"], world_turn),
+                            p.get("relevant_statuses")) for p in _projs[:30]]
+        lines.append("[현재 장면 NPC — 정본 위치 기준]\n" + (", ".join(_ents) if _ents else "(없음)"))
     else:
         npc_names = list((session.npcs or {}).keys())
         if npc_names:
-            lines.append("[세션 등장 NPC]\n" + ", ".join(npc_names[:30]))
+            lines.append("[세션 등장 NPC]\n" + ", ".join(
+                _npc_entry(n, _npc_stats(session, n), (session.statuses or {}).get(n)) for n in npc_names[:30]))
+    lines.append("※ NPC 능력치는 판정 계산 전용 비공개 값이다 — bridge_message에 쓰지 말 것. 능력 차이는 코드가 "
+                 "능력 보정(A)으로 반영하므로 difficulty·method_mod에 다시 넣지 말 것. 능력치가 없는 인물과는 "
+                 "CONTEST를 만들지 말 것.")
 
     # ②-3 현재 세계 상태 — 추출층위가 갱신한 위치·시간대
     tl = getattr(session, "world_timeline", {}) or {}
@@ -305,7 +372,9 @@ def _build_logic_user_prompt(session, player_message: str, roll_results: list,
 
     roll_block = ""
     if roll_results:
-        roll_block = "\n[직전 굴림 결과 (반드시 반영하여 PROCEED를 작성)]\n" + "\n".join(roll_results)
+        roll_block = ("\n[직전 굴림 결과 (반드시 반영하여 PROCEED를 작성)]\n" + "\n".join(roll_results)
+                      + "\n※ 판정의 수치·성패는 코드 판정(2d50, 목표치 미만이면 성공)이 권위다. 룰북에 남은 옛 D20 판정·"
+                        "대성공/대실패·상태 고정 감점 서술과 다르면 이 결과를 따르고, 여기에 없는 대성공·대실패를 만들지 말 것.\n")
 
     note_block = f"\n[GM 사이드 노트 (이번 턴 적용)]\n{side_note}\n" if side_note else ""
 
@@ -2674,6 +2743,9 @@ class GMCog(commands.Cog):
                     # 세계 연산 없이 커밋하지 않는다 — 교체 시도를 묘사 전에 종결하고 기존 턴 유지
                     await self._fail_rerender_before_narration(session, tid, master_ch)
                     return False, f"턴 이전 세계가 DYNAMIC이 아닙니다({_ctx.reason}) — 기존 턴 유지"
+            # v7.12: 같은 판정 결과를 재사용하므로 원 턴 굴림의 성장·실패 누적도 그대로 다시 스테이징한다
+            #   (재추첨·이중 적용 없음, 커밋 뒤 성장 알림은 다시 내지 않음).
+            core.turn_preparation.restage_roll_effects(session, tid, (j or {}).get("roll_effects"))
             if master_ch:
                 await master_ch.send(
                     f"🔁 **[재생성]** {rec['gm_turn']}턴을 같은 선언·판단으로 다시 서술합니다 "
@@ -3487,6 +3559,16 @@ class GMCog(commands.Cog):
                 except Exception as e:
                     print(f"[GM] 판단층위 JSON 파싱 실패(시도 {attempt + 1}): {e}")
                     continue
+            # v7.12: ROLL 계약 검증 — 범위 밖·누락 값을 보정해 굴리지 않는다. 파싱 실패와 같은 재시도 경로.
+            #   (rolls가 빈 ROLL은 기존 PROCEED 폴백 경로가 처리한다)
+            if (isinstance(decision, dict) and str(decision.get("action", "")).upper() == "ROLL"
+                    and decision.get("rolls")):
+                _errs = core.judgment.validate_rolls(decision.get("rolls"))
+                if _errs:
+                    print(f"[GM] 판단층위 ROLL 계약 위반(시도 {attempt + 1}): {_errs}")
+                    core.write_log(session.session_id, "api", "[판정 계약 위반] " + "; ".join(_errs))
+                    decision = None
+                    continue
             break
 
         if not decision:
@@ -3762,62 +3844,85 @@ class GMCog(commands.Cog):
                         getattr(session, "stat_fail_counts", None) or {}),
                 })
 
+        wt = self._world_turn(session, transaction_id)
+        records: list[dict] = []
+        effects = {"growth_events": [], "fail_counts": {}}
+
+        def _roll_side(side):
+            d1, d2 = core.judgment.roll_2d50(random)
+            side["dice"] = [d1, d2]
+            side["R"] = d1 + d2
+            side["success"] = core.judgment.is_success(side["R"], side["T"])
+            side["margin"] = side["T"] - side["R"]
+
+        def _game_line(side):
+            res = "성공 🟢" if side["success"] else "실패 🔴"
+            if not side["is_pc"]:
+                # NPC 능력치·목표치는 비공개 — 플레이어에게는 주사위와 성패만
+                return f"> 🎲 [{side['name']}] 판정 — 2d50 **{side['R']}** → **{res}**"
+            return (f"> 🎲 [{side['name']}] **{side['stat']}** 판정 — 2d50 **{side['R']}** "
+                    f"({side['dice'][0]}+{side['dice'][1]}) / 목표 {side['T']} ({side['breakdown']})"
+                    f"  →  **{res}** (여유 {side['margin']:+d})")
+
+        def _logic_text(side):
+            res = "성공" if side["success"] else "실패"
+            basis = "; ".join(b for b in (
+                f"행동 근거: {side['method_basis']}" if side["method_basis"] else "",
+                f"상태 근거: {side['status_basis']}" if side["status_basis"] else "") if b)
+            return (f"{side['name']} {side['stat']} 판정(2d50): R={side['R']}, 목표 T={side['breakdown']}, "
+                    f"{res}(여유 {side['margin']:+d})" + (f" [{basis}]" if basis else ""))
+
         for r in rolls:
-            char_name = r.get("char_name") or session.gm_target_char or "?"
-            stat_name = r.get("stat") or ""
-            sides = int(r.get("sides") or 20)
-            weight = int(r.get("weight") or 0)
+            plan = _judge_plan(roll_session, r, wt)
+            kind, act, opp = plan["kind"], plan["actor"], plan["opponent"]
+            char_name, stat_name = act["name"], act["stat"]
+            game_lines: list[str] = []
+            logic_lines: list[str] = []
 
-            stat_value = None
-            uid = core.get_uid_by_char_name(roll_session, char_name)
-            if uid:
-                profile = roll_session.players.get(uid, {}).get("profile", {})
-                if stat_name in profile:
-                    try:
-                        stat_value = int(profile[stat_name])
-                    except (TypeError, ValueError):
-                        stat_value = None
-
-            roll = random.randint(1, sides)
-
-            if stat_value is None:
-                line = f"> 🎲 [{char_name}] {stat_name or 'd' + str(sides)} 굴림: **{roll}** / {sides}"
-                logic_line = (
-                    f"- {char_name} {stat_name}({sides}면, 가중치 {weight:+d}) "
-                    f"→ {roll} (스탯 미확인, 결과 해석 보류)"
-                )
+            if act["T"] is None:
+                # 능력치를 확인할 수 없다(등급제·결측·장면 밖 NPC) — 허구 수치로 굴리지 않는다.
+                game_lines.append(f"> 🎲 [{char_name}] {stat_name} 판정 — 능력치를 확인할 수 없어 판정을 보류합니다.")
+                logic_lines.append(f"- {char_name} {stat_name} 판정 불가(능력치 미확인) — 코드 성패 없음, "
+                                   f"정본 상황에 따라 서술 재량")
             else:
-                target, weight_str = _roll_target(roll_session, char_name, stat_value, weight)
-                is_success = roll <= target
-                crit = ""
-                if 5 <= target <= 16:
-                    if roll in (1, 2):
-                        crit = " 🌟대성공"
-                    elif roll in (sides - 1, sides):
-                        crit = " 💥대실패"
-                result_text = ("성공 🟢" if is_success else "실패 🔴") + crit
-                line = (
-                    f"> 🎲 [{char_name}] **{stat_name}** 판정 (1~{sides}, 기준치 {weight_str}) "
-                    f"→ **{roll}**  /  **{result_text}**"
-                )
-                logic_line = (
-                    f"- {char_name} {stat_name} 판정: 1d{sides}={roll}, 기준치 {weight_str}, "
-                    f"{result_text.replace('🟢', '').replace('🔴', '').replace('🌟', '').replace('💥', '').strip()}"
-                )
+                _roll_side(act)
+                game_lines.append(_game_line(act))
+                logic_lines.append("- " + _logic_text(act))
+                if kind == "CRAFT":
+                    logic_lines.append(
+                        f"- 제작 판정: 성공 여유 {act['margin']:+d} — 성공품은 여유가 클수록 마감·완성도가 높게 서술한다"
+                        f"(품질 단계·수치 속성은 정하지 않는다). 실패해도 재료 손실을 자동으로 가정하지 말 것.")
+                if kind == "CONTEST":
+                    if opp is None or opp["T"] is None:
+                        oname = opp["name"] if opp else "상대"
+                        logic_lines.append(f"- 대결 상대 {oname}의 판정 능력치를 확인할 수 없음 — 상대 판정 없음. "
+                                           f"우열은 코드가 정하지 않았다(정본 상황에 따라 서술).")
+                    else:
+                        _roll_side(opp)
+                        game_lines.append(_game_line(opp))
+                        logic_lines.append("- " + _logic_text(opp))
+                        outcome = core.judgment.contest_outcome(act["margin"], opp["margin"])
+                        opp["contest"] = act["contest"] = outcome
+                        if outcome in ("A", "B"):
+                            win = act if outcome == "A" else opp
+                            verdict = f"{win['name']} 우세"
+                        elif outcome == "TIE":
+                            verdict = "교착 — 같은 여유, 우열 미결"
+                        else:
+                            verdict = "쌍방 실패 — 승자 없음(상황 유지·쌍방 실패로 서술)"
+                        game_lines.append(f"> ⚔️ 대결 결과: **{verdict}**")
+                        logic_lines.append(
+                            f"- 대결 결과: {verdict} (여유 {act['margin']:+d} 대 {opp['margin']:+d}). "
+                            f"격차는 연출 근거일 뿐 피해·보상·제압 수치를 새로 만들지 말 것.")
 
             if game_ch:
-                await core.send_streamed(self.bot, game_ch, line)
-                # 판정 결과 안내 메시지 (stat_value가 확인된 경우에만 출력)
-                if stat_value is not None:
-                    if "대성공" in crit:
-                        announce = f"> 🌟 **{stat_name}** 판정이 **대성공**했습니다!"
-                    elif "대실패" in crit:
-                        announce = f"> 💥 **{stat_name}** 판정이 **대실패**했습니다!"
-                    elif is_success:
-                        announce = f"> ✅ **{stat_name}** 판정이 성공했습니다."
-                    else:
-                        announce = f"> ❌ **{stat_name}** 판정이 실패했습니다."
-                    await core.send_streamed(self.bot, game_ch, announce)
+                for gl in game_lines:
+                    await core.send_streamed(self.bot, game_ch, gl)
+                if act["T"] is not None and act["is_pc"]:
+                    await core.send_streamed(
+                        self.bot, game_ch,
+                        f"> ✅ **{stat_name}** 판정이 성공했습니다." if act["success"]
+                        else f"> ❌ **{stat_name}** 판정이 실패했습니다.")
                 # 판정 줄은 send_streamed가 게임 채널 기록([GM])에 남긴다 — 별도 기록하지 않는다(중복 방지).
             # 주사위 효과음 — 토글이 켜져 있을 때만.
             try:
@@ -3829,9 +3934,12 @@ class GMCog(commands.Cog):
                 print(f"[효과음] 재생 실패: {e}")
 
             if master_ch:
-                await master_ch.send(f"🤖 [GM 굴림]\n{line}")
-            session.current_turn_logs.append(logic_line.lstrip("- "))
-            results.append(logic_line)
+                # 운영자는 NPC 목표치까지 전부 본다
+                await master_ch.send("🤖 [GM 굴림]\n" + "\n".join(logic_lines))
+            for ll in logic_lines:
+                session.current_turn_logs.append(ll.lstrip("- "))
+            results.extend(logic_lines)
+            records.append({"kind": kind, "actor": copy.deepcopy(act), "opponent": copy.deepcopy(opp)})
 
             # 통계 — 굴린 주사위 수
             try:
@@ -3841,16 +3949,17 @@ class GMCog(commands.Cog):
                 pass
 
             # ── 성장 · 행운 판정 (기획 규정) ──
-            # 스탯이 확인된 판정에만 적용한다. 판정·주사위는 전부 코드가
-            # 담당하고 결과만 지시층위에 전달한다(4층위 설계 확정 사항).
-            # NOTE: is_success는 stat_value가 확인된 분기에서만 정의된다.
-            #       조건을 그대로 두면 미정의 참조가 되므로 함께 검사한다.
-            if stat_value is not None and stat_name:
+            # PC 본인 판정의 성패만 넘긴다. 성장 재판정은 2d50과 독립인 d20 원척도 비교다(core.growth).
+            if act["T"] is not None and act["is_pc"] and stat_name:
+                uid = act["uid"]
                 try:
                     outcome = core.process_roll_outcome(
                         roll_session, char_name, stat_name,
-                        failed=not is_success, sides=sides,
+                        failed=not act["success"], sides=core.growth.GROWTH_DIE,
                     )
+                    _fk = f"{char_name}:{stat_name}"
+                    if _fk in (getattr(roll_session, "stat_fail_counts", None) or {}):
+                        effects["fail_counts"][_fk] = roll_session.stat_fail_counts[_fk]
                     growth = outcome["growth"]
                     if growth:
                         g_line = core.format_growth(char_name, stat_name, growth)
@@ -3869,6 +3978,7 @@ class GMCog(commands.Cog):
                             if _prep is not None and uid:
                                 _prep.growth_events.append(
                                     (uid, stat_name, growth["new_value"]))
+                                effects["growth_events"].append([uid, stat_name, growth["new_value"]])
                             results.append(
                                 f"- {char_name} {stat_name} 성장: "
                                 f"{growth['new_value']}로 상승"
@@ -3890,6 +4000,9 @@ class GMCog(commands.Cog):
                 except Exception as e:
                     print(f"[성장·행운] 판정 실패(진행에는 영향 없음): {e}")
 
+        if _prep is not None:
+            # 재서술이 다시 굴리지 않고 같은 판정·성장 효과를 재사용하도록 판단 기록에 남긴다.
+            core.turn_history.note_rolls(session, transaction_id, records, effects)
         return results
 
     async def _dispatch_rolls(self, session, rolls: list, player_message: str, prior_roll_results: list,
@@ -3900,27 +4013,24 @@ class GMCog(commands.Cog):
         target_uid = core.get_uid_by_char_name(session, session.gm_target_char)
 
         roll_descs = []
+        wt = self._world_turn(session, transaction_id)
+        # 미리보기는 실행과 같은 조립(_judge_plan)을 쓴다 — 같은 tx의 스테이징 성장 투영 기준.
+        view = core.turn_preparation.PreparationView(
+            session, overrides={"players": core.turn_preparation.projected_players(session)})
         for r in rolls:
-            char_name = r.get("char_name") or session.gm_target_char or "?"
-            stat_name = r.get("stat") or ""
-            sides = int(r.get("sides") or 20)
-            weight = int(r.get("weight") or 0)
-            stat_value = None
-            uid = core.get_uid_by_char_name(session, char_name)
-            if uid:
-                profile = core.turn_preparation.projected_players(session).get(
-                    uid, {}).get("profile", {})
-                if stat_name in profile:
-                    try:
-                        stat_value = int(profile[stat_name])
-                    except (TypeError, ValueError):
-                        pass
-            if stat_value is not None:
-                target, _t_str = _roll_target(session, char_name, stat_value, weight)
-                w_str = f"({_t_str})" if "=" in _t_str else f"(기준치 {stat_value})"
-                roll_descs.append(f"**{stat_name}** {w_str} 판정 ({sides}면체)")
+            plan = _judge_plan(view, r, wt)
+            act, opp = plan["actor"], plan["opponent"]
+            label = {"CRAFT": "제작 ", "CONTEST": "대결 "}.get(plan["kind"], "")
+            if act["T"] is None:
+                desc = f"{label}**{act['stat']}** 판정 (능력치 미확인)"
+            elif act["is_pc"]:
+                desc = (f"{label}**{act['stat']}** 판정 — 목표 {act['T']} ({act['breakdown']}, "
+                        f"성공률 {core.judgment.success_chance(act['T']):.0%})")
             else:
-                roll_descs.append(f"**{stat_name}** 판정 ({sides}면체)")
+                desc = f"{label}[{act['name']}] 판정"
+            if opp is not None:
+                desc += f" vs {opp['name']}"
+            roll_descs.append(desc)
 
         desc_text = " / ".join(roll_descs)
         mention = f"<@{target_uid}>" if target_uid else "플레이어"
@@ -3938,7 +4048,7 @@ class GMCog(commands.Cog):
         roll_prompt_text = (
             f"> 🎲 {mention}, 판정이 필요합니다!\n"
             f"> {desc_text}\n"
-            f"> 아래 버튼을 눌러 주사위를 굴리세요. (5분 내 미클릭 시 자동 굴림)"
+            f"> 2d50 합이 목표보다 작으면 성공합니다. 아래 버튼을 눌러 주사위를 굴리세요. (5분 내 미클릭 시 자동 굴림)"
         )
         if game_ch:
             await game_ch.send(roll_prompt_text, view=view)

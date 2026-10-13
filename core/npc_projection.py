@@ -79,6 +79,7 @@ def project_npc(actor_id: str, definition: dict, world, *, relevant_info_ids=(),
     return {
         "actor_id": actor_id,
         "display_name": name,
+        "legacy_name": legacy_name,                          # v7.12: 판정 능력치(session.npcs) 조회 키 — 표시 금지
         "kind": (reg or {}).get("kind") or (adef or {}).get("kind"),
         "authored_profile": copy.deepcopy((adef or {}).get("profile_base") or {}),
         "placement": copy.deepcopy(placement),             # 정본 배치(override)만 — None = 정본 추적 없음

@@ -1519,6 +1519,28 @@ def apply_staged_narration_log(session, staged: dict) -> bool:
     return True
 
 
+def restage_roll_effects(session, transaction_id, effects) -> bool:
+    """v7.12: 재서술 — 원 턴 굴림의 성장·실패 누적 효과를 새 시도의 준비 객체에 다시 스테이징한다.
+
+    재서술은 턴 이전 상태(pre)로 복원한 뒤 같은 굴림 결과를 재사용하므로, 기록된 효과(굴림 뒤 값)를
+    그대로 다시 얹으면 원 턴과 같은 정본이 된다. 주사위를 다시 굴리지 않고, 커밋 뒤 알림도 다시 내지 않는다.
+    """
+    if not isinstance(effects, dict) or not (effects.get("growth_events") or effects.get("fail_counts")):
+        return False
+    prep = ensure_preparation(session, transaction_id)
+    if prep is None:
+        return False
+    growth_projection(session, prep)
+    for key, val in (effects.get("fail_counts") or {}).items():
+        prep.growth_fail_counts[key] = val
+    for uid, stat, new_value in effects.get("growth_events") or []:
+        prof = (prep.growth_players.get(uid) or {}).get("profile")
+        if isinstance(prof, dict):
+            prof[stat] = new_value
+        prep.growth_events.append((uid, stat, new_value))
+    return True
+
+
 def apply_staged_growth(session, prep) -> bool:
     """스테이징된 ROLL 성장(profile +N, stat_fail_counts)을 정본에 적용(READY 이후)."""
     if prep.growth_fail_counts is None and not prep.growth_events:

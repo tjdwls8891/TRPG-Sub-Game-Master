@@ -44,32 +44,34 @@ def test_narration_clock_block_gives_canonical_date_weekday_every_turn():
     assert "2016-10-03 월요일 07:30" in TW.narration_clock_block(wt3, SimpleNamespace(world_clock={}))
 
 
-# ── B: 상태이상 가중치 = 코드 합산 ─────────────────────────────
+# ── B: 상태 영향은 판단층위 통합값(H) 하나 — 코드 고정 가중치를 다시 더하지 않는다(v7.12) ──
 
 def _status_setup(sess):
     sess.scenario_data = dict(sess.scenario_data or {})
-    sess.scenario_data["status_effects"] = [{"name": "감염 의심", "weight": -1},
-                                           {"name": "멀쩡", "weight": 0}]
+    sess.scenario_data["status_effects"] = [{"name": "감염 의심", "weight": -1, "apply_condition": "물림",
+                                             "remove_condition": "48시간"},
+                                            {"name": "멀쩡", "weight": 0}]
     sess.statuses = {"테스터": ["감염 의심", "멀쩡"]}
 
 
-async def test_roll_target_includes_status_weight_and_shows_breakdown(rig, monkeypatch):
+async def test_status_weight_not_double_counted_only_status_mod_applies(rig, monkeypatch):
     r = rig
     _status_setup(r.sess)
-    base = r.sess.players[next(iter(r.sess.players))]["profile"]["근력"]
-    monkeypatch.setattr(random, "randint", lambda a, b: base + 2)     # 상태 보정 없으면 성공하는 눈
+    seq = iter([25, 25])                                               # R = 50
+    monkeypatch.setattr(random, "randint", lambda a, b: next(seq))
     tx = tt.get_or_begin_turn_transaction(r.sess, "문을 민다")
-    res = await r.gm._execute_rolls(r.sess, [{"char_name": "테스터", "stat": "근력", "sides": 20, "weight": 2}],
-                                    r.gch, transaction_id=tx.transaction_id)
-    assert f"기준치 {base}-1(감염 의심)+2={base + 1}" in res[0]
-    assert "실패" in res[0]                                         # base+2 > base+1
+    spec = [{"kind": "GENERAL", "char_name": "테스터", "stat": "근력", "difficulty": "보통",
+             "method_mod": 0, "method_basis": "", "status_mod": -3, "status_basis": "물린 상처"}]
+    res = await r.gm._execute_rolls(r.sess, spec, r.gch, transaction_id=tx.transaction_id)
+    # 근력 10 → A 0, H −3 → T 49. 상태 weight −1을 따로 더하지 않는다(더했다면 T 48).
+    assert "목표 T=52-3(상태)=49" in res[0] and "성공(여유 -1)" not in res[0] and "실패(여유 -1)" in res[0]
 
 
-def test_judgment_prompt_says_status_weight_is_auto_applied(rig):
+def test_judgment_prompt_gives_status_definitions_not_auto_weight(rig):
     import cogs.gm as gm_mod
     _status_setup(rig.sess)
     p = gm_mod._build_judgment_user_prompt(rig.sess, "문을 민다", [])
-    assert "감염 의심 -1" in p and "자동 반영" in p and "멀쩡 +0" not in p
+    assert "감염 의심: 적용조건=[물림] / 제거조건=[48시간]" in p and "자동 반영" not in p
 
 
 def test_status_roll_modifier_is_scenario_data_only():

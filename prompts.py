@@ -569,12 +569,44 @@ JUDGMENT_RESPONSE_SCHEMA = {
             "items": {
                 "type": "object",
                 "properties": {
+                    "kind": {
+                        "type": "string",
+                        "enum": ["GENERAL", "CONTEST", "CRAFT"],
+                        "description": "GENERAL=일반 행동, CONTEST=상대가 능동적으로 맞서는 대결, CRAFT=아이템 제작"
+                    },
                     "char_name": {"type": "string", "description": "굴림 대상 캐릭터 이름"},
-                    "stat": {"type": "string", "description": "기준 능력치 이름 (PC profile의 키)"},
-                    "sides": {"type": "integer", "description": "주사위 면 수 (보통 20)"},
-                    "weight": {"type": "integer", "description": "가중치(-5~+5 권장)"}
+                    "stat": {"type": "string", "description": "기준 능력치 이름 (해당 인물 능력치의 키)"},
+                    "difficulty": {
+                        "type": "string",
+                        "enum": ["쉬움", "약간 쉬움", "보통", "어려움", "매우 어려움", "극도로 어려움"],
+                        "description": "과제 자체의 기본 어려움(행위자의 능력·방법·상태는 넣지 않는다)"
+                    },
+                    "method_mod": {"type": "integer", "description": "행동 보정 M(-12~+12): 방법·도구·준비·협력·환경의 통합 유불리"},
+                    "method_basis": {"type": "string", "description": "method_mod 근거 한 줄 (0이면 빈 문자열 가능)"},
+                    "status_mod": {"type": "integer", "description": "상태 보정 H(-15~+15): 적용 중인 상태 전체가 이 행동에 주는 통합 영향"},
+                    "status_basis": {"type": "string", "description": "status_mod 근거 한 줄 (0이면 빈 문자열 가능)"},
+                    "opponent": {
+                        "type": "object",
+                        "description": "CONTEST일 때만: 맞서는 상대의 판정 명세(능력치가 제시된 인물만)",
+                        "properties": {
+                            "name": {"type": "string", "description": "상대 이름 (장면 NPC 목록의 표기 그대로)"},
+                    "stat": {"type": "string", "description": "기준 능력치 이름 (해당 인물 능력치의 키)"},
+                            "difficulty": {
+                                "type": "string",
+                                "enum": ["쉬움", "약간 쉬움", "보통", "어려움", "매우 어려움", "극도로 어려움"],
+                                "description": "과제 자체의 기본 어려움(행위자의 능력·방법·상태는 넣지 않는다)"
+                            },
+                            "method_mod": {"type": "integer", "description": "행동 보정 M(-12~+12): 방법·도구·준비·협력·환경의 통합 유불리"},
+                            "method_basis": {"type": "string", "description": "method_mod 근거 한 줄 (0이면 빈 문자열 가능)"},
+                            "status_mod": {"type": "integer", "description": "상태 보정 H(-15~+15): 적용 중인 상태 전체가 이 행동에 주는 통합 영향"},
+                            "status_basis": {"type": "string", "description": "status_mod 근거 한 줄 (0이면 빈 문자열 가능)"}
+                        },
+                        "required": ["name", "stat", "difficulty", "method_mod", "method_basis",
+                                     "status_mod", "status_basis"]
+                    }
                 },
-                "required": ["char_name", "stat", "sides", "weight"]
+                "required": ["kind", "char_name", "stat", "difficulty", "method_mod", "method_basis",
+                             "status_mod", "status_basis"]
             }
         },
         # ── [γ: 결정 후 자가 검증] ──
@@ -654,8 +686,24 @@ NARRATE·PROCEED의 지시문은 지시층위가 별도로 생성합니다.
    - 지시층위가 narrate_instruction을 생성하므로, 여기서는 유형만 지정한다.
 
 3. ROLL
-   - 행동 수행에 능력치 판정이 필요할 때.
-   - rolls: 굴려야 할 판정 목록. 가중치는 -5~+5 범위에서 합리적으로 선택.
+   - 결과가 실제로 불확실하고 능력치 판정이 필요할 때만. 결과가 자명한 행동은 PROCEED.
+     명시된 설정·물리·도구 제약상 불가능한 행동은 굴리지 않는다(PROCEED — 지시층위가 불가능을 서술).
+   - 판정식은 코드가 계산한다: 2d50(두 개의 1~50 합)이 목표치 T = 52 + 능력 + 숙련 + method_mod + status_mod + 난이도
+     보다 작으면 성공. 능력(원 능력치 환산)·숙련·목표치·성패는 코드 소관이며 당신은 내지 않는다.
+   - rolls 항목마다 다음을 정한다.
+     · kind: GENERAL(일반) / CONTEST(상대가 능동적으로 맞섬 — 상대도 같은 방식으로 굴린다) / CRAFT(제작 — 한 번만 굴린다).
+     · difficulty: 과제 자체의 기본 어려움 6단계(쉬움·약간 쉬움·보통·어려움·매우 어려움·극도로 어려움).
+       행위자의 능력·방법·상태를 여기에 섞지 않는다.
+     · method_mod(-12~+12): 선택한 방법·도구·준비·협력·환경의 유불리를 하나로 통합한 값. 항목별로 따로 더하지 않는다.
+     · status_mod(-15~+15): 지금 적용 중인 상태 전체가 '이 행동을 이 방법으로' 할 때 주는 통합 영향.
+       - 프롬프트에 제시된 실제 상태와 그 정의만 고려한다. 없는 상태를 만들지 않는다.
+       - 이 행동에 쓰이는 신체·인지 기능과 실제로 관련된 상태만 반영하고, 관련 없는 상태는 0.
+       - 상태의 원인·심각도·행동 방식과의 관계로 강도를 정한다. 유리한 영향(양수)도 가능하다.
+       - 같은 원인에서 나온 증상은 한 번만 반영한다. 상태별 고정 감점을 기계적으로 더하지 않는다.
+     · 같은 근거를 difficulty·method_mod·status_mod에 중복 반영하지 않는다(예: 재료가 좋아서 쉬워진 것을 method_mod에 또 넣지 않음).
+     · method_basis·status_basis: 0이 아닌 값의 근거를 한 줄로.
+     · CONTEST는 opponent에 상대의 명세를 같은 규칙으로 쓴다. 능력치가 제시되지 않은 인물과는 CONTEST를 만들지 않는다.
+     · CRAFT는 재료·도구·방법이 가능성과 난이도에 미치는 영향을 반영한다. 품질은 결과의 성공 여유로 지시층위가 서술한다.
    - 굴림 결과는 플레이어가 버튼을 눌러 산출하며, 결과가 다음 호출 컨텍스트에 주입됩니다.
      당신은 결과 선언을 하지 않습니다.
 
@@ -1355,7 +1403,7 @@ def build_compression_prompt_text(compressed_memory: str, log_text: str,
         "  - 행동의 물리적 과정(어떻게 했는가)과 결과(무슨 일이 벌어졌는가)를 함께 기록\n\n"
 
         "▶ 판정 및 수치\n"
-        "  - 주사위 굴림: 적용 스탯명, 굴림 수치, 기준치, 성공·실패 결과 및 대성공·대실패 여부\n"
+        "  - 주사위 굴림: 적용 스탯명, 굴림 수치, 목표치, 성공·실패 결과와 성공 여유\n"
         "  - 아이템 획득·소비·파괴·위치 변화: 아이템명과 수량 명시\n"
         "  - 스탯·자원 수치 변동: 항목명과 변동값 명시\n\n"
 
