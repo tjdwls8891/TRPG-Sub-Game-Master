@@ -8,12 +8,12 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 AI가 4개 층위로 나뉘어 판단·지시·묘사·추출을 분담한다. 플레이어는 서버 GM 스페이스에서 버튼으로 세션을 열고, 캐릭터를 만들고, 턴을 진행한다. **명령어는 GM의 수동 개입·복구 수단이며 일반 플레이에는 쓰지 않는다.**
 
-현재 버전: **v7.10.1** · `SCHEMA_VERSION` 4 · 총 운영 코드 ~52,450줄(main·prompts·cogs·core) · 테스트 ~26,940줄
+현재 버전: **v7.11.0** · `SCHEMA_VERSION` 4 · 총 운영 코드 ~52,600줄(main·prompts·cogs·core) · 테스트 ~27,270줄
 
 리팩터링: **7-WP 프로그램(WP-A~WP-G)** — 턴 트랜잭션·커밋·재무·이력·파생 시스템을 단일 권위로 재구성했다. WP-A~G 전부 독립 게이트 VERIFIED — **프로그램 완료**(WP-G 최종 후보 `f0fd69e`, 증거 `handoff/WP_G_COMPLETION_BUNDLE.md`). 다음 WP는 없다. 버전은 이 비호환 전환 전체를 **단일 MAJOR v6.0.0**으로 채택했다(2026-10-06, 이력 보정은 DEVLOG '버전 기록').
 
 동적 세계 구현 프로그램(통합 로드맵 v0.3, **H01~H07**, `de367c7` 기준)이 진행 중이다. H 번호는 개발 패키지명이다.
-H07 이후 패키지(v7.6.0~v7.9.1): SVG 화자 카드·영도 카드 저작 → 7.6.0, `!세션이력` → 7.7.0, 묘사↔정본 정합·만료 중 선언 보관·화자 표기 → 7.8.0, 구조 로그 → 7.9.0, 정본 시각·상태이상 판정 보정·예상 비용·판정 기록 중복 → 7.9.1, 디스플레이 상태판 SVG 이미지 → 7.10.0, `!배포` 의존성 자동 설치 → 7.10.1(DEVLOG '버전 기록').
+H07 이후 패키지(v7.6.0~v7.9.1): SVG 화자 카드·영도 카드 저작 → 7.6.0, `!세션이력` → 7.7.0, 묘사↔정본 정합·만료 중 선언 보관·화자 표기 → 7.8.0, 구조 로그 → 7.9.0, 정본 시각·상태이상 판정 보정·예상 비용·판정 기록 중복 → 7.9.1, 디스플레이 상태판 SVG 이미지 → 7.10.0, `!배포` 의존성 자동 설치 → 7.10.1, 전수조사 결함 수정·자동 턴 더빙 → 7.11.0(DEVLOG '버전 기록').
 
 | WP | 범위 | 상태 |
 |---|---|---|
@@ -80,7 +80,7 @@ python main.py
    ↓
 [판단층위]  유형 결정 (ASK / NARRATE / ROLL / PROCEED)
    │        캐시를 읽지 않는다. 맥락을 사용자 프롬프트로 직접 공급.
-   │        ASK·ROLL은 여기서 끝난다 (지시·묘사 캐시 0회 → 가장 저렴. ROLL은 결과 뒤 같은 턴에 시뮬레이션·판단 재진입)
+   │        ASK·ROLL은 여기서 끝난다 (지시·묘사 캐시 0회 → 가장 저렴. ROLL은 굴림 뒤 같은 턴에 지시층위부터 이어 감 — 시뮬레이션·판단 재진입 없음)
    ↓
 [지시층위]  묘사 지시문 + 퀘스트 선택 (NARRATE·PROCEED만)
    │        캐시를 읽는다. 세계관·금지사항·정보 접근을 반영.
@@ -129,12 +129,12 @@ python main.py
 
 | 파일 | 줄 | 명령어 |
 |---|---|---|
-| `gm.py` | 6,081 | `!자동` 그룹(시작·중단·상태·개입·재계획·서사·원장·**퀘스트**·턴제한·비용제한), `!되감기` |
-| `game.py` | 1,552 | `!재생성` `!출력물` `!주사위` `!기억압축` `!노트` `!캐시노트` `!더빙테스트` (WP-G: 수동 `!진행`·`!수정` 은퇴) |
+| `gm.py` | 6,091 | `!자동` 그룹(시작·중단·상태·개입·재계획·서사·원장·**퀘스트**·턴제한·비용제한), `!되감기` |
+| `game.py` | 1,566 | `!재생성` `!출력물` `!주사위` `!기억압축` `!노트` `!캐시노트` `!더빙테스트` (WP-G: 수동 `!진행`·`!수정` 은퇴) |
 | `character.py` | 1,253 | `!참가` `!설정` `!증감` `!외형` `!프로필` `!엔피씨` `!능력치` `!설정생성` `!캐릭터가져오기` |
-| `system.py` | 988 | `!명령어` `!배포` `!재시작` `!지급` **`!잉크`** **`!사용량`** `!스페이스` `!캐시` `!리로드` `!세션종료` `!채널정리` `!tts생성` `!세션이력` |
+| `system.py` | 1,004 | `!명령어` `!배포` `!재시작` `!지급` **`!잉크`** **`!사용량`** `!스페이스` `!캐시` `!리로드` `!세션종료` `!채널정리` `!tts생성` `!세션이력` |
 | `media.py` | 756 | `!이미지` `!브금` `!플리` `!볼륨` `!채팅` `!더빙` |
-| `session.py` | 737 | `!새세션` `!시작` `!소개` + `JoinView` + `on_voice_state_update` |
+| `session.py` | 749 | `!새세션` `!시작` `!소개` + `JoinView` + `on_voice_state_update` |
 | `errors.py` | 152 | 명령어 오류 핸들러 |
 | `permissions.py` | 98 | `!권한부여` `!권한회수` `!권한목록` |
 | `presence.py` | 122 | 상태 메시지 순환 + **캐시 만료 감지**(15초 주기) |
@@ -184,7 +184,7 @@ python main.py
 | 모듈 | 줄 | 내용 |
 |---|---|---|
 | `cost.py` | 689 | 토큰 단가 계산, 호환 미러 `accrue`, 비용 임베드, CostLedger 조회(`provider_cost_summary`·`player_ink_summary`·`auto_cost_cap_reached`) |
-| `estimate.py` | 412 | 턴·세션오픈·TTS 예상(개연성 시뮬레이션·판정 재진입 상한 포함), `approx_cache_tokens` (압축 선결제는 WP-G에서 은퇴) |
+| `estimate.py` | 412 | 턴·세션오픈·TTS 예상(개연성 시뮬레이션 포함), `approx_cache_tokens` (압축 선결제는 WP-G에서 은퇴) |
 | `ink.py` | 85 | 잉크 환산 (1잉크 = 10원) |
 | `accounts.py` | 576 | 계정 등록·약관·잔액. strict 금전 프리미티브(Settlement CHARGE·Lifecycle 조정 마커) + 운영자 `*_strict`(WP-G). 레거시 tolerant writer는 테스트 시드 전용 |
 | `terms.py` | 202 | 약관 동의 DM |
@@ -313,7 +313,7 @@ R2: 초기화 실패는 fail-closed(실패 표식 strict 저장 — LEGACY 진�
 
 | 모듈 | 줄 | 내용 |
 |---|---|---|
-| `display.py` | 743 | **디스플레이 채널** — 상태·UI 단일 메시지, `notify`/`close_notice`. v7.10: 상태판은 이미지(`display_board`)로 Embed를 대체하고 버튼은 같은 메시지, 렌더 실패 시 `build_embed`로 대체. 세션별 갱신 직렬화·같은 SVG면 재업로드 생략, 버튼은 defer 후 갱신 |
+| `display.py` | 745 | **디스플레이 채널** — 상태·UI 단일 메시지, `notify`/`close_notice`. v7.10: 상태판은 이미지(`display_board`)로 Embed를 대체하고 버튼은 같은 메시지, 렌더 실패 시 `build_embed`로 대체. 세션별 갱신 직렬화·같은 SVG면 재업로드 생략, 버튼은 defer 후 갱신 |
 | `display_board.py` | 551 | **디스플레이 상태판 SVG**(엔진 공통) — `board_data`(build_embed와 같은 출처)·코드 조립 SVG(가변 높이: 플레이어·프로필·상태·소지 칩 3줄+`+N`·세션 상태 오픈/만료/클로즈·경고)·글자 폭 근사 맞춤/말줄임. 시나리오 흔적은 이름(`scenario_id`)과 라틴 부제(선택 키 `display_latin` > `koreantext.romanize`)로만 주입. 프로필은 20자 이하·이름과 다른 값만. 만료 예정은 KST 절대 시각. 래스터화 = `speaker_card.rasterize` |
 | `speaker_card.py` | 982 | **SVG 화자 카드**(DYNAMIC 전용) — 시나리오 최상위 `speaker_card`(기본 `legacy_png`)·커밋된 PC 인지(CONTENT) 기반 항목별 공개(`all_info` AND, 슬롯당 규칙 1개)·지시층위 얼굴·이름 식별(`identified_faces`·`identified_names`)·안전 슬롯 치환·자산 SHA-256·래스터화(resvg CLI/`resvg_py`, 운영 설치 필요)·독립 저작 검사(`scenario_check`). 실패 = 이미지 생략. 미식별 표기 `???`, 시나리오 `plain_speakers`는 원문 표기·이미지 없음. 재색은 `baseline` 기준색 배율, `front_ids`로 지정 요소를 맨 앞에 그림. 영도 저작: NPC 47명 카드·얼굴·이름 InfoId 94개(`yd.info.card.*`, revision `7cfe9f16…`) |
 | `audio_mixer.py` | 393 | BGM/플리 + 효과음 + 음성 합산 |
@@ -538,7 +538,7 @@ pip install -r requirements-dev.txt
 python3 -m pytest tests/ -q
 ```
 
-`tests/`는 **현재 동작과 권위 불변식을 고정**한다. 현재 1,265건(특성화 61 · 결함 27 · 정책 1,177)이 모두 통과하며 strict xfail은 0건이다.
+`tests/`는 **현재 동작과 권위 불변식을 고정**한다. 현재 1,279건(특성화 61 · 결함 27 · 정책 1,191)이 모두 통과하며 strict xfail은 0건이다.
 
 | 분류 | 의미 |
 |---|---|
@@ -757,10 +757,10 @@ python3 tools/scenario_check.py --all     # 전 시나리오 컴파일·진단(E
 | 디스코드 결제 | SKU 한국 미지원. `!지급`·`!잉크`로 대체 |
 | v7.x 반영 | `SCHEMA_VERSION` 4·turn-history v3·CommitPlan v2(7.1.0·7.2.0도 유지). 배포 전 `sessions/`·`accounts/` 백업. 기존 세션은 로드 시 자동 마이그레이션되며, 배포 후 6.x로 되돌리면 plan v2 PREPARED 복구를 읽지 못한다 |
 | 영도 DYNAMIC 저작 | H07 V2 저작 완료(사건 64·정보 146·일과 35·`unknown_name` 8·구간 230쌍) — 남은 판단 항목(OPEN DECISION)은 `handoff/H07_FINAL_IMPLEMENTATION_REPORT.md` |
-| 운영 반영 | v7.10.0이 main에 반영됨(`11525b3`). `!배포`는 v7.10.1부터 requirements 변경 시 pip를 실행한다 — 그 이전 코드로 실행하는 첫 배포는 서버에서 `/home/ubuntu/trpgbot/venv/bin/python -m pip install -r requirements.txt`를 직접 실행해야 한다. 배포 전 운영 `sessions/`·`accounts/` 백업. 영도 `speaker_card`·`plain_speakers`(v7.6~7.8)는 DYNAMIC 바인딩 스냅샷이라 **새 영도 세션에만** 반영된다(재발급 불필요·무효). SVG 래스터화(화자 카드·디스플레이 상태판)는 `resvg_py`(requirements 고정) 또는 resvg CLI와 `Noto Sans CJK KR` 폰트가 필요하다(없으면 카드는 생략, 상태판은 Embed 대체). 구조 로그는 세션 `logs/`·전역 `logs/bot.jsonl`에 쌓이며 옛 텍스트 로그 파일은 더 이상 쓰지 않는다 |
-| 자동 턴 TTS | 더빙은 인트로에만 적용된다(자동 턴 미적용은 기존 동작). 확장은 별도 기능 |
+| 운영 반영 | v7.10.1이 main에 반영됨(`2cd55ad`), v7.11.0은 작업 브랜치(병합 대기). `!배포`는 v7.10.1부터 requirements 변경 시 pip를 실행한다 — 그 이전 코드로 실행하는 첫 배포는 서버에서 `/home/ubuntu/trpgbot/venv/bin/python -m pip install -r requirements.txt`를 직접 실행해야 한다. 배포 전 운영 `sessions/`·`accounts/` 백업. 영도 `speaker_card`·`plain_speakers`(v7.6~7.8)는 DYNAMIC 바인딩 스냅샷이라 **새 영도 세션에만** 반영된다(재발급 불필요·무효). SVG 래스터화(화자 카드·디스플레이 상태판)는 `resvg_py`(requirements 고정) 또는 resvg CLI와 `Noto Sans CJK KR` 폰트가 필요하다(없으면 카드는 생략, 상태판은 Embed 대체). 구조 로그는 세션 `logs/`·전역 `logs/bot.jsonl`에 쌓이며 옛 텍스트 로그 파일은 더 이상 쓰지 않는다 |
+| 자동 턴 TTS | v7.11부터 인트로와 자동 턴 묘사를 더빙한다(`tts_enabled`·음성 연결 시). 자동 턴의 TTS 비용은 그 턴의 비용 멤버로 claim되어 Settlement가 청구한다. 후속 묘사·NARRATE·ASK는 더빙하지 않는다 |
 | H07 운영 활성 | 영도 단일 PC 세션은 DYNAMIC(시작 틀 `world_start` 저작), 나머지 4개 시나리오·다인 세션은 LEGACY. 프롬프트 변경은 열린 세션만 재발급, 영도 정의 변경은 새 세션에만 반영(배포 절 '캐시 재발급이 필요한 경우') |
 | H06 배포 | 새 영속 필드 `world_lifecycle`·`world_initialization`(기본값 = 레거시). 스키마·이력·CommitPlan·compiler 유지. DYNAMIC 대상 세션은 캐시 업로드가 시작 선택 뒤로 이동 |
 | H07 프롬프트 | `prompts.py` 4개 층위에 동적 세계 조건부 권위 절 추가(H07-D). 추출 스키마의 레거시 `quest_progress`·`secret_awareness`는 DYNAMIC에서 쓰이지 않지만 스키마에 남아 있다(토큰 낭비 — 남은 한계) |
-| H05~H07 신규 관찰 결함 | 미수정(2026-10-10 기능도 조사): ① 초기화 실패 뒤 두 번째 플레이어 참가 시 재시도가 INIT_LEGACY로 내려가 선불·인트로가 진행되지만 턴은 계속 거부(`joins_blocked`가 `init_failed` 미포함) ② INIT_LEGACY·시작 틀 없음 분기가 캐시 업로드 결과를 무시 ③ `DynamicOpenRetryView` 비영속(재시작 후 버튼 무효) ④ `!자동 원장`·`!자동 서사`가 DYNAMIC에서 은퇴된 원장·플랜 표시 ⑤ 바인딩 세션의 `!이미지 생성`이 스냅샷 원문으로 시나리오 원본을 덮어씀 ⑥ 개연성 시뮬레이션이 DYNAMIC 계획 전 레거시 미러로 실행 |
+| H05~H07 신규 관찰 결함 | ②는 v7.11에서 부분 해소(버튼 플로우 LEGACY 업로드 실패 시 정지·재시도, 시작 틀 없는 시나리오는 선택 목록에서 숨김). 나머지 미수정(2026-10-10 기능도 조사): ① 초기화 실패 뒤 두 번째 플레이어 참가 시 재시도가 INIT_LEGACY로 내려가 선불·인트로가 진행되지만 턴은 계속 거부(`joins_blocked`가 `init_failed` 미포함) ② INIT_LEGACY·시작 틀 없음 분기가 캐시 업로드 결과를 무시 ③ `DynamicOpenRetryView` 비영속(재시작 후 버튼 무효) ④ `!자동 원장`·`!자동 서사`가 DYNAMIC에서 은퇴된 원장·플랜 표시 ⑤ 바인딩 세션의 `!이미지 생성`이 스냅샷 원문으로 시나리오 원본을 덮어씀 ⑥ 개연성 시뮬레이션이 DYNAMIC 계획 전 레거시 미러로 실행 |
 | H05 calibration | 경로 자동 선택(10분 미만·비용비 5/4)·추가 시간 상한(240분)·PC capability = 보유 소지품 이름 — 영도 정량 저작 후 조정 |

@@ -435,8 +435,10 @@ class DisplayView(discord.ui.View):
     @discord.ui.button(label="💰 결제", style=discord.ButtonStyle.primary,
                        custom_id="disp:pay", row=3)
     async def pay(self, interaction, _b):
+        from . import accounts as _acc
+        bal = _acc.get_balance(interaction.user.id)
         await interaction.response.send_message(
-            "결제 기능은 계정·약관 시스템 도입 후 활성화됩니다.", ephemeral=True)
+            f"잉크 지급은 운영자에게 문의해 주십시오. (잔액 **{bal:,}잉크**)", ephemeral=True)
 
 
 class CloseConfirmView(LifecyclePromptView):

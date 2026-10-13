@@ -631,6 +631,8 @@ class ProviderCostContext:
     actor_user_id: str | None = None
     metadata: dict = field(default_factory=dict)
     operation_id: str = ""
+    # 이 컨텍스트로 기록된 CostEvent id — 자동 턴 비용 멤버(claim)로 쓸 때 Settlement가 읽는다(v7.11 TTS).
+    event_ids: list = field(default_factory=list)
 
     def ensure_operation_id(self) -> str:
         if not self.operation_id:
@@ -972,7 +974,10 @@ def record_context_event(bot, ctx, *, cost_usd=0.0, cost_krw=0.0,
         metadata=md,
     )
     try:
-        return ledger.record_cost_event(event)
+        ok = ledger.record_cost_event(event)
     except Exception as e:  # noqa: BLE001
         print(f"[CostLedger] record_context 실패(무시): {type(e).__name__} - {e}")
         return False
+    if ok:
+        ctx.event_ids.append(event.event_id)
+    return ok

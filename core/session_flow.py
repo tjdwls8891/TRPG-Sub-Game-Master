@@ -158,16 +158,16 @@ async def render(bot, session, channel):
         e = step_embed(
             session, "기억 방식",
             "턴이 쌓이면 지난 일을 간추려 보관합니다.\n"
-            "자주 간추릴수록 세부가 오래 남지만 그만큼 비용이 듭니다.\n"
+            "자주 간추릴수록 세부가 오래 남습니다(압축 비용은 플레이어에게 청구되지 않습니다).\n"
             "**한 번 정하면 도중에 바꿀 수 없어요.**")
         for key, plan in memory_plan.PLANS.items():
             iv = plan.get("interval", 0)
             cycle = f"{iv}턴마다" if iv else "가변"
             e.add_field(
                 name=f"{plan['label']} — {cycle}",
-                value=f"{plan.get('desc', '')}\n비용: {plan.get('cost', '')}",
+                value=f"{plan.get('desc', '')}",   # WP-G D3: 압축 비용은 운영자 부담 — 비용 표기 없음
                 inline=False)
-        # 대략적 비용 증가 양상(기획 규정)
+        # 플랜별 누적 압축 횟수(기획 규정)
         curves = memory_plan.compare_curves(30)
         lines = [f"{memory_plan.PLANS[k]['label']} {v[9]}·{v[19]}·{v[29]}회"
                  for k, v in curves.items()]
@@ -202,17 +202,35 @@ def _owner(session):
 
 
 def _visible_scenarios(session) -> list:
-    """선택 가능한 시나리오. 블락 시나리오는 마스터 세션에만 노출한다."""
-    all_ids = get_available_scenarios()
-    if getattr(session, "session_kind", "solo") == "master":
-        return all_ids
+    """선택 가능한 시나리오. 블락 시나리오는 마스터 세션에만 노출한다.
+
+    시작 상황 틀(`start_frames`)이 없는 시나리오는 버튼 플로우로 인트로·첫 라운드에 닿지 못하므로
+    목록에서 뺀다(2026-10-13 사용자 결정 D4). 운영자 `!새세션` 경로는 그대로다.
+    """
+    master = getattr(session, "session_kind", "solo") == "master"
     out = []
-    for sid in all_ids:
+    for sid in get_available_scenarios():
         data = load_scenario_from_file(sid) or {}
-        if data.get("blocked"):
+        if data.get("blocked") and not master:
+            continue
+        if not data.get("start_frames"):
             continue
         out.append(sid)
     return out
+
+
+def flow_owner(session) -> str:
+    """세션 플로우를 조작할 수 있는 사람 = 세션 개설자(버튼 플로우가 기록한 creator_uid)."""
+    return str(getattr(session, "creator_uid", "") or _owner(session) or "")
+
+
+async def owner_only(bot, session, interaction) -> bool:
+    """개설자(또는 봇 오너)만 통과. 다른 사람에게는 ephemeral 안내(사용자 결정 D5)."""
+    uid = flow_owner(session)
+    if not uid or str(interaction.user.id) == uid or await bot.is_owner(interaction.user):
+        return True
+    await interaction.response.send_message(f"이 선택은 <@{uid}>님만 할 수 있습니다.", ephemeral=True)
+    return False
 
 
 # ── 단계별 뷰 ────────────────────────────────────────────
@@ -222,6 +240,9 @@ class _Step(discord.ui.View):
         self.bot = bot
         self.session = session
         self.channel = channel
+
+    async def interaction_check(self, interaction) -> bool:
+        return await owner_only(self.bot, self.session, interaction)
 
     async def _next(self, interaction, field: str, value, *, to: str = None):
         """선택을 기록하고 다음 단계로. 화면은 render가 같은 메시지를 고친다."""
@@ -668,13 +689,32 @@ async def on_open_time_done(bot, session, channel, *, quoted_tokens=None):
     # H06: DYNAMIC 대상(단일 PC·필수 capability·시작 틀 있음) 세션은 캐시를 시작 선택 → 정의 바인딩 →
     #   genesis 초기화 뒤로 미룬다(캐시 원천이 바인딩 정의 + genesis 세계여야 한다). 레거시는 그대로.
     from . import world_lifecycle as _wl
+    from .io import save_session_data
     defer_cache = bool((session.scenario_data or {}).get("start_frames")) and _wl.is_dynamic_candidate(session)
     if defer_cache:
         session.open_quoted_tokens = quoted_tokens
     if cog and not defer_cache:
         from . import message_lifecycle as _ml
-        await cog.upload_cache(session, notify=_ml.transient_notifier(bot, session, channel, ttl=60),
-                               quoted_tokens=quoted_tokens)
+        ok = await cog.upload_cache(session, notify=_ml.transient_notifier(bot, session, channel, ttl=60),
+                                    quoted_tokens=quoted_tokens)
+        if not ok:
+            # 사용자 결정 D2: 캐시 없이 진행하지 않는다 — 이 단계에 머물고 재시도를 받는다.
+            await save_session_data(bot, session)
+            await channel.send("⚠️ 세션을 열지 못했습니다. 아래 버튼으로 다시 시도해 주십시오.",
+                               view=UploadRetryView(bot, session, channel, quoted_tokens))
+            return
+
+    # 통계 — 세션 수·플레이 이력(사전 프로필 생성 가능 판정). !시작 경로와 같은 기록을 버튼 플로우도 남긴다(1회).
+    if not getattr(session, "is_started", False):
+        import time as _time
+        session.started_at = _time.time()        # 세션 시간 통계 기준(!시작 경로와 같음)
+        try:
+            from . import stats as _stats
+            for uid in (session.players or {}):
+                await _stats.bump(uid, sessions=1)
+                await _stats.mark_played(uid, session.scenario_id)
+        except Exception as e:
+            print(f"[통계] 세션 시작 기록 실패: {e}")
 
     # 세션이 실제로 열렸다. 이 플래그가 없으면 턴 진행이 차단된다.
     # !시작 명령 경로에만 있어 버튼 플로우에서는 영원히 False였다.
@@ -703,6 +743,23 @@ async def on_open_time_done(bot, session, channel, *, quoted_tokens=None):
         print(f"[세션플로우] PC가 없어 자동 GM을 켜지 못했습니다")
 
     creation.advance(session)
-    from .io import save_session_data
     await save_session_data(bot, session)
     await render(bot, session, channel)
+
+
+class UploadRetryView(_Step):
+    """캐시 업로드 실패 후 재시도(사용자 결정 D2). 개설자만 누를 수 있다."""
+
+    def __init__(self, bot, session, channel, quoted_tokens=None):
+        super().__init__(bot, session, channel)
+        self.quoted_tokens = quoted_tokens
+
+    @discord.ui.button(label="🔄 다시 시도", style=discord.ButtonStyle.primary)
+    async def retry(self, interaction, _b):
+        await interaction.response.defer()
+        try:
+            await interaction.message.delete()
+        except Exception:
+            pass
+        self.stop()
+        await on_open_time_done(self.bot, self.session, self.channel, quoted_tokens=self.quoted_tokens)

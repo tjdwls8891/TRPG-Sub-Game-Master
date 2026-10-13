@@ -168,12 +168,12 @@ def estimate_turn(session, action: str = "PROCEED") -> dict:
 
     action별 호출 구성이 다르다 (4층위 분리의 결과):
         ASK     판단만                      → 캐시 읽기 0회
-        ROLL    판단만 (이후 재진입)         → 캐시 읽기 0회
+        ROLL    판단만 (굴림 뒤 지시층위부터 이어 감) → 캐시 읽기 0회
         NARRATE 판단 + 지시 + 경량묘사        → 캐시 읽기 2회
         PROCEED 판단 + 지시 + 묘사 + 추출     → 캐시 읽기 2회
     캐시가 유효하면 매 판단 전에 개연성 시뮬레이션(캐시 읽기 1회)이 함께 돈다.
-    NARRATE·PROCEED 상한에는 판정 재진입 1회(시뮬레이션 + 판단)를 더한다 —
-    ROLL을 거친 턴은 같은 턴 안에서 시뮬레이션·판단을 다시 부른다.
+    ROLL을 거친 턴은 굴림 뒤 지시층위만 다시 부른다(시뮬레이션·판단 재진입 없음) —
+    PROCEED 구성과 호출 수가 같으므로 따로 더하지 않는다.
 
     Returns:
         {"min_krw", "max_krw", "min_ink", "max_ink",
@@ -216,11 +216,6 @@ def estimate_turn(session, action: str = "PROCEED") -> dict:
     if action == "PROCEED":
         e_lo, e_hi = _out_range(session, "extraction", "extraction_out")
         breakdown["추출층위"] = (_cost(inp["extraction"], e_lo, 0), _cost(inp["extraction"], e_hi, 0))
-
-    if action in ("NARRATE", "PROCEED"):
-        # 판정 재진입(ROLL 뒤 같은 턴의 두 번째 시뮬레이션·판단) — 상한에만 더한다.
-        re_hi = breakdown["판단층위"][1] + (breakdown.get("개연성 시뮬레이션") or (0.0, 0.0))[1]
-        breakdown["판정 재진입(상한)"] = (0.0, re_hi)
 
     for lo, hi in breakdown.values():
         lo_total += lo

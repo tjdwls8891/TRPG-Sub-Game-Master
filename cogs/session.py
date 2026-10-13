@@ -104,6 +104,9 @@ class StartFrameView(discord.ui.View):
         for i, opt in enumerate(options, 1):
             self.add_item(StartFrameButton(i, opt))
 
+    async def interaction_check(self, interaction) -> bool:
+        return await core.session_flow.owner_only(self.bot, self.session, interaction)   # D5: 개설자만
+
 
 class StartFrameButton(discord.ui.Button):
     def __init__(self, index: int, option: dict):
@@ -140,6 +143,9 @@ class DynamicOpenRetryView(discord.ui.View):
         super().__init__(timeout=3600)
         self.bot = bot
         self.session = session
+
+    async def interaction_check(self, interaction) -> bool:
+        return await core.session_flow.owner_only(self.bot, self.session, interaction)   # D5: 개설자만
 
     @discord.ui.button(label="세션 다시 열기", style=discord.ButtonStyle.primary)
     async def retry(self, interaction: discord.Interaction, _b: discord.ui.Button):
@@ -263,9 +269,11 @@ class SessionCog(commands.Cog):
         master_ch = await guild.create_text_channel(
             f"master-{session_id}", category=category, overwrites=master_overwrites)
 
+        # 사용자 결정 D6: 유지 시간 답변을 직접 입력해야 하므로 열람자에게 쓰기를 허용한다.
+        #   실제 입력 허용은 chat_guard가 정한다(참가자·입력 대기 중일 때만, 그 밖은 삭제·안내).
         display_overwrites = {
             guild.default_role: discord.PermissionOverwrite(
-                send_messages=False, read_messages=not private),
+                send_messages=True, read_messages=not private),
             guild.me: discord.PermissionOverwrite(send_messages=True),
         }
         display_ch = await guild.create_text_channel(
@@ -366,7 +374,9 @@ class SessionCog(commands.Cog):
                 f"> 캐시 선결제 **{charge_ink}잉크** (미사용분은 종료 시 환급)")
             return True
         except Exception as e:
-            await _say(f"⚠️ 캐시 업로드 실패 (일반 모드로 진행됩니다. 원인: {e})")
+            # 캐시 없이 진행하지 않는다(사용자 결정 D2). 원인은 운영 로그로만 남긴다(플레이어 채널 노출 금지).
+            print(f"[캐시] 업로드 실패 session={getattr(session, 'session_id', '?')}: {type(e).__name__}: {e}")
+            await _say("⚠️ 세션을 열지 못했습니다 — 다시 시도해 주십시오.")
             return False
 
     async def build_session(self, guild, author, scenario_id: str, notify=None):
@@ -477,7 +487,8 @@ class SessionCog(commands.Cog):
         profile = {}
         for p_data in (session.players or {}).values():
             if isinstance(p_data, dict):
-                profile = dict(p_data.get("fields") or {})
+                # 프로필 항목(직업·나이 등)은 players[uid]["profile"]에 있다 — 구형 "fields" 키는 호환으로만 읽는다.
+                profile = dict(p_data.get("fields") or p_data.get("profile") or {})
                 profile.setdefault("이름", p_data.get("name", ""))
                 prof_stat = p_data.get("profile")
                 if isinstance(prof_stat, dict):
@@ -549,7 +560,8 @@ class SessionCog(commands.Cog):
         profile = {}
         for p_data in (session.players or {}).values():
             if isinstance(p_data, dict):
-                profile = dict(p_data.get("fields") or {})
+                # 프로필 항목(직업·나이 등)은 players[uid]["profile"]에 있다 — 구형 "fields" 키는 호환으로만 읽는다.
+                profile = dict(p_data.get("fields") or p_data.get("profile") or {})
                 profile.setdefault("이름", p_data.get("name", ""))
                 prof_stat = p_data.get("profile")
                 if isinstance(prof_stat, dict):

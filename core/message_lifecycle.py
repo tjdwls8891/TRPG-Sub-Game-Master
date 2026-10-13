@@ -270,6 +270,21 @@ class LifecyclePromptView(discord.ui.View):
         self.message = message
         return message
 
+    async def interaction_check(self, interaction) -> bool:
+        """세션 확인창은 그 세션 참가자(또는 봇 오너)만 누른다(2026-10-13 사용자 결정 D5).
+
+        session·bot을 가진 하위 클래스(되감기·재생성·열기·닫기 확인)에만 적용한다.
+        """
+        session, bot = getattr(self, "session", None), getattr(self, "bot", None)
+        if session is None or bot is None:
+            return True
+        if str(interaction.user.id) in (getattr(session, "players", None) or {}):
+            return True
+        if await bot.is_owner(interaction.user):
+            return True
+        await interaction.response.send_message("이 세션의 참가자만 누를 수 있습니다.", ephemeral=True)
+        return False
+
     def claim(self, outcome: str) -> bool:
         if self.terminal is not None:
             return False

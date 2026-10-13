@@ -36,7 +36,7 @@ PRESET_MESSAGES = {
     "session.closed": "세션을 종료합니다.",
     "error.retry": "처리 중 문제가 발생하여 다시 시도하고 있습니다.",
     "error.cancelled": "이번 턴 처리에 실패하여 진행을 취소했습니다.",
-    "fund.low": "잉크가 부족합니다. 충전 후 진행해 주십시오.",
+    "fund.low": "잉크가 부족합니다. 운영자에게 문의해 주십시오.",
 }
 
 
