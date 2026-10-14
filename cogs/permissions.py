@@ -46,7 +46,9 @@ class PermissionCog(commands.Cog):
             return True
         # 차단: 자체 안내 후 플래그를 세워 errors.py의 중복 메시지를 억제
         try:
-            await ctx.send("⛔ 허가된 계정만 사용할 수 있는 명령어입니다. (진행자에게 `!권한부여`를 요청하세요.)")
+            await ctx.send("⛔ " + core.master.say("system.permission_denied",
+                                                   "허가된 계정만 사용할 수 있는 명령어입니다.")
+                           + " (진행자에게 `!권한부여`를 요청하세요.)")
         except Exception:
             pass
         ctx._perm_denied = True

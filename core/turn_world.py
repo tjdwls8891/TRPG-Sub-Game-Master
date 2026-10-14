@@ -338,10 +338,12 @@ def visible_exit_names(ctx, session) -> list:
 
 
 def destination_question(ctx, session) -> str:
+    from .master import say
     names = visible_exit_names(ctx, session)
+    q = say("turn.destination_question", "어디로 가시겠습니까?")
     if names:
-        return "어디로 가시겠습니까? 지금 보이는 길: " + ", ".join(names[:10]) + "."
-    return "어디로 가시겠습니까? 가려는 곳을 구체적으로 말씀해 주세요."
+        return q + " 지금 보이는 길: " + ", ".join(names[:10]) + "."
+    return q + " 가려는 곳을 구체적으로 말씀해 주세요."
 
 
 def narration_world_block(wt, session) -> str:

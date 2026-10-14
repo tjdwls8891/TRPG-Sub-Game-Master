@@ -27,6 +27,7 @@ import discord
 
 from . import creation
 from . import intro as intro_mod
+from . import master as _master
 from . import memory_plan
 from . import profiles as profile_store
 from . import stats
@@ -123,7 +124,7 @@ async def render(bot, session, channel):
     if step == "private":
         await show(bot, session, channel, step_embed(
             session, "공개 설정",
-            "비공개로 여시겠습니까?\n"
+            _master.say("session.private_select", "비공개로 여시겠습니까?") + "\n"
             "비공개 세션은 참가자 외에는 채널을 볼 수 없습니다."),
             PrivateView(bot, session, channel))
 
@@ -142,14 +143,14 @@ async def render(bot, session, channel):
         scenarios = _visible_scenarios(session)
         await show(bot, session, channel, step_embed(
             session, "시나리오",
-            "어느 세계에서 시작하시겠어요?\n"
+            _master.say("session.scenario_select", "어느 세계에서 시작하시겠어요?") + "\n"
             "고르시면 배경과 예상 비용을 먼저 보여드릴게요."),
             ScenarioView(bot, session, channel, scenarios))
 
     elif step == "tts":
         await show(bot, session, channel, step_embed(
             session, "음성",
-            "턴 묘사를 음성으로 들으시겠어요?\n\n"
+            _master.say("session.tts_select", "턴 묘사를 음성으로 들으시겠어요?") + "\n\n"
             "켜시면 묘사 분량만큼 비용이 더 듭니다. "
             "언제든 끄실 수 있으니 편하게 정하셔도 돼요."),
             TTSView(bot, session, channel))
@@ -157,7 +158,8 @@ async def render(bot, session, channel):
     elif step == "memory":
         e = step_embed(
             session, "기억 방식",
-            "턴이 쌓이면 지난 일을 간추려 보관합니다.\n"
+            _master.lead("session.memory_select", "턴이 쌓이면 지난 일을 간추려 보관합니다.\n", sep="\n\n")
+            + 
             "자주 간추릴수록 세부가 오래 남습니다(압축 비용은 플레이어에게 청구되지 않습니다).\n"
             "**한 번 정하면 도중에 바꿀 수 없어요.**")
         for key, plan in memory_plan.PLANS.items():
@@ -183,8 +185,8 @@ async def render(bot, session, channel):
     elif step == "open":
         await show(bot, session, channel, step_embed(
             session, "세션 열기",
-            "이제 세계를 불러올 차례입니다.\n"
-            "얼마나 플레이하실 예정인가요?\n\n"
+            _master.say("cache.time_question", "이제 세계를 불러올 차례입니다.\n얼마나 플레이하실 예정인가요?")
+            + "\n\n"
             "그 시간만큼 미리 받고, 일찍 닫으시면 남은 만큼 돌려드립니다.\n"
             "아래 버튼을 누르시면 디스플레이 채널에서 답하실 수 있어요."),
             OpenTimeView(bot, session, channel))
@@ -337,12 +339,17 @@ class IntroView(_Step):
 
         sections = intro_mod.split_sections(body)
         e = discord.Embed(title=intro_mod.get_label(key), color=0x5865F2)
+        # v7.13 마스터 대사 — 주제 도입 한 줄(본문은 그대로). 이전/다음 재렌더에도 같은 줄을 쓴다.
+        lines = self.__dict__.setdefault("_master_lines", {})
+        if key not in lines:
+            lines[key] = _master.line(f"intro.topic_{key}") or ""
+        head = f"*{lines[key]}*\n\n" if lines[key] else ""
         if sections:
-            e.description = sections[0][1]
+            e.description = head + sections[0][1]
             for _t, chunk in sections[1:]:
                 e.add_field(name="\u200b", value=chunk, inline=False)
         else:
-            e.description = body
+            e.description = head + body
 
         # 설명을 마무리하며 확인하고, 다음이 무엇인지 미리 알린다.
         tail = intro_mod.check_of(key)
@@ -522,7 +529,7 @@ class ScenarioSelect(discord.ui.Select):
         except Exception as ex:
             print(f"[비용안내] 산출 실패: {ex}")
 
-        e.set_footer(text="이 세계로 시작하시겠어요?")
+        e.set_footer(text=_master.say("session.scenario_confirm", "이 세계로 시작하시겠어요?"))
         await show(v.bot, v.session, v.channel, e,
                    ScenarioConfirmView(v.bot, v.session, v.channel, sid, data))
 
@@ -563,7 +570,7 @@ class TTSView(_Step):
         creation.get_state(self.session)["flow_msg_id"] = interaction.message.id
         await show(self.bot, self.session, self.channel, step_embed(
             self.session, "음성",
-            "어떤 목소리로 읽어드릴까요?\n"
+            _master.say("session.voice_select", "어떤 목소리로 읽어드릴까요?") + "\n"
             "나중에 디스플레이 채널에서 바꾸실 수 있어요."),
             VoiceView(self.bot, self.session, self.channel))
 
@@ -628,7 +635,7 @@ class OpenTimeView(_Step):
             ephemeral=True)
         if display:
             await display.send(
-                "⏱️ **세션을 얼마나 유지하시겠습니까?**\n"
+                f"⏱️ **{_master.say('cache.time_question', '세션을 얼마나 유지하시겠습니까?')}**\n"
                 "이 채널에 답해 주십시오. (예: `3시간`, `20턴`, `적당히`, `알아서`)")
 
 
@@ -663,7 +670,7 @@ async def _offer_start_frames(bot, session, channel):
 
     e = discord.Embed(
         title="어디에서 시작하시겠어요?",
-        description="셋 중 하나를 고르시면 그 자리에서 이야기가 열립니다.",
+        description=_master.say("session.start_frame_select", "셋 중 하나를 고르시면 그 자리에서 이야기가 열립니다."),
         color=0x5865F2)
     for i, opt in enumerate(options, 1):
         e.add_field(name=f"{i}. {opt.get('title', '')}",
@@ -696,11 +703,12 @@ async def on_open_time_done(bot, session, channel, *, quoted_tokens=None):
     if cog and not defer_cache:
         from . import message_lifecycle as _ml
         ok = await cog.upload_cache(session, notify=_ml.transient_notifier(bot, session, channel, ttl=60),
-                                    quoted_tokens=quoted_tokens)
+                                    quoted_tokens=quoted_tokens, report_failure=False)
         if not ok:
             # 사용자 결정 D2: 캐시 없이 진행하지 않는다 — 이 단계에 머물고 재시도를 받는다.
             await save_session_data(bot, session)
-            await channel.send("⚠️ 세션을 열지 못했습니다. 아래 버튼으로 다시 시도해 주십시오.",
+            await channel.send("⚠️ " + _master.say("cache.open_failed", "세션을 열지 못했습니다.")
+                               + " 아래 버튼으로 다시 시도해 주십시오.",
                                view=UploadRetryView(bot, session, channel, quoted_tokens))
             return
 

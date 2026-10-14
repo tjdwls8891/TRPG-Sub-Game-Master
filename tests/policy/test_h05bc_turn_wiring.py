@@ -233,7 +233,7 @@ async def test_route_choice_asks_before_instruction_and_resumes_same_transaction
     tx = await turn(r, "성당으로 간다")
     assert "logic" not in r.prov.calls and "narration" not in r.prov.calls
     assert tx.status == tt.TurnStatus.WAITING_FOR_PLAYER
-    assert any("어느 길로" in (m.content or "") for m in r.gch.sent)
+    assert any("1) " in (m.content or "") for m in r.gch.sent)       # v7.13: 경로 선택지(질문 문장은 마스터 대사)
     assert SP.placement_of(r.sess, PC) == SP.at_place("항구")
     # 플레이어가 두 번째 길을 고름 → 같은 트랜잭션, 매니페스트에 R 키 → 의미 서명으로 이동
     def pick(kwargs):

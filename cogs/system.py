@@ -287,7 +287,8 @@ class SystemCog(commands.Cog):
         # 7. 게임 채널 잠금(보고·표시 — 재무 완료 뒤. 실패해도 재무는 되돌리지 않는다)
         try:
             await game_channel.set_permissions(ctx.guild.default_role, send_messages=False)
-            await core.send_streamed(self.bot, game_channel, "🔒 **세션이 종료되어 채널이 잠겼습니다.**")
+            await core.send_streamed(self.bot, game_channel, core.master.lead(
+                "session.ended_by_operator", "🔒 **세션이 종료되어 채널이 잠겼습니다.**"))
         except Exception as e:
             await ctx.send(f"⚠️ 게임 채널 잠금 실패: {e}")
 
@@ -495,8 +496,11 @@ class SystemCog(commands.Cog):
             f"> 잔액 {new_bal:,}잉크 · 사유: {reason}")
 
         try:
+            # v7.13: 마스터 대사는 지급 분기에만(회수에 '지급' 대사를 쓰지 않는다)
+            _intro = core.master.line("account.ink_received") if amount > 0 else None
             await member.send(
-                f"💰 잉크가 {verb}되었습니다: **{sign}{amount:,}잉크**\n"
+                (f"{_intro}\n" if _intro else "")
+                + f"💰 잉크가 {verb}되었습니다: **{sign}{amount:,}잉크**\n"
                 f"> 현재 잔액 {new_bal:,}잉크\n> 사유: {reason}")
         except Exception:
             pass

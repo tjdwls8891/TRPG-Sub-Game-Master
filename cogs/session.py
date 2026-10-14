@@ -153,6 +153,12 @@ class DynamicOpenRetryView(discord.ui.View):
         s = self.session
         if not (getattr(s, "world_lifecycle", None) == core.world_lifecycle.LIFECYCLE_INITIALIZED
                 or core.world_lifecycle.init_failed(s) or getattr(s, "_intro_pending", False)):
+            # v7.13: 다시 열 상태가 아니면 무응답으로 끝내지 않는다(이미 열렸거나 종료된 세션).
+            try:
+                await interaction.followup.send(
+                    "ℹ️ 이 세션은 지금 다시 열 상태가 아닙니다(이미 열렸거나 종료됐습니다).", ephemeral=True)
+            except Exception:
+                pass
             return
         cog = self.bot.get_cog("SessionCog")
         if cog:
@@ -309,12 +315,15 @@ class SessionCog(commands.Cog):
         await core.save_session_data(self.bot, session)
         return session
 
-    async def upload_cache(self, session, *, notify=None, quoted_tokens=None) -> bool:
+    async def upload_cache(self, session, *, notify=None, quoted_tokens=None,
+                           report_failure: bool = True) -> bool:
         """
         장기 기억 캐시를 업로드한다. 프로필 생성 완료 후 호출된다.
 
         기획 규정 — 유지 시간은 이 시점 이전에 선택되어 있어야 하며,
         선불식으로 잔액을 확인한 뒤 진행한다.
+
+        report_failure=False — 호출부가 실패 안내와 재시도 버튼을 직접 보낸다(같은 실패 안내 중복 방지, v7.13).
         """
 
         async def _say(text, **kw):
@@ -329,7 +338,7 @@ class SessionCog(commands.Cog):
             return True
 
         try:
-            await _say("⏳ 장기 기억 캐시를 업로드하는 중…")
+            await _say("⏳ " + core.master.say("cache.open_progress", "장기 기억 캐시를 업로드하는 중…"))
             minutes = int(getattr(session, "open_minutes", 0) or 0)
             if minutes <= 0:
                 # 여기까지 왔는데 시간이 없다면 선택 단계가 건너뛰어진 것이다.
@@ -352,8 +361,9 @@ class SessionCog(commands.Cog):
                 res = await core.cache_lifecycle.open_window(
                     self.bot, session, quoted_tokens=quoted_tokens)
             except core.cache_lifecycle.CacheOpenInsufficientFunds as e:
-                await _say(f"⛔ 캐시 선불 잔액이 부족해 세션을 열지 않았습니다. "
-                           f"(필요 {e.need}잉크 / 보유 {e.balance}잉크)")
+                await _say("⛔ " + core.master.say("cache.insufficient_ink",
+                                                    "캐시 선불 잔액이 부족해 세션을 열지 않았습니다.")
+                           + f" (필요 {e.need}잉크 / 보유 {e.balance}잉크)")
                 return False
             if res.get("already"):
                 return True
@@ -370,13 +380,14 @@ class SessionCog(commands.Cog):
 
             # POLICY-CACHE-01: 캐시 선불(환급 대상)만 여기서 결제된다 — 시간 해석은 별개 거래.
             await _say(
-                f"✅ 세션이 열렸습니다. (유지 {ttl // 60}분)\n"
+                "✅ " + core.master.say("cache.open_success", "세션이 열렸습니다.") + f" (유지 {ttl // 60}분)\n"
                 f"> 캐시 선결제 **{charge_ink}잉크** (미사용분은 종료 시 환급)")
             return True
         except Exception as e:
             # 캐시 없이 진행하지 않는다(사용자 결정 D2). 원인은 운영 로그로만 남긴다(플레이어 채널 노출 금지).
             print(f"[캐시] 업로드 실패 session={getattr(session, 'session_id', '?')}: {type(e).__name__}: {e}")
-            await _say("⚠️ 세션을 열지 못했습니다 — 다시 시도해 주십시오.")
+            if report_failure:
+                await _say("⚠️ " + core.master.say("cache.open_failed", "세션을 열지 못했습니다 — 다시 시도해 주십시오."))
             return False
 
     async def build_session(self, guild, author, scenario_id: str, notify=None):
@@ -591,7 +602,9 @@ class SessionCog(commands.Cog):
             session._intro_pending = True
             await core.save_session_data(self.bot, session)
             for ch, text in ((master_ch, "⚠️ 인트로 생성·전달이 실패해 세션을 열지 않았습니다(첫 라운드 보류)."),
-                             (game_channel, "⏸️ 인트로를 내보내지 못했습니다. 아래 버튼으로 다시 시도해 주십시오.")):
+                             (game_channel, "⏸️ " + core.master.lead(
+                                 "session.intro_failed", "아래 버튼으로 다시 시도해 주십시오.",
+                                 default="인트로를 내보내지 못했습니다."))):
                 try:
                     if ch is not None:
                         await ch.send(text, **({"view": DynamicOpenRetryView(self.bot, session)}
@@ -606,7 +619,8 @@ class SessionCog(commands.Cog):
                 if master_ch:
                     await master_ch.send("⚠️ 세션 열림(OPEN) 상태를 저장하지 못했습니다 — 첫 라운드를 보류합니다.")
                 if game_channel is not None:
-                    await game_channel.send("⏸️ 세션 상태 저장에 실패했습니다. 아래 버튼으로 다시 시도해 주십시오.",
+                    await game_channel.send("⏸️ " + core.master.lead(
+                                                "session.intro_failed", "> 세션 상태 저장에 실패했습니다. 아래 버튼으로 다시 시도해 주십시오."),
                                             view=DynamicOpenRetryView(self.bot, session))
             except Exception:
                 pass
@@ -650,7 +664,9 @@ class SessionCog(commands.Cog):
                     await master_ch.send(f"⛔ [동적 세계] 초기화 실패 — 세션을 열지 않았습니다. ({res.reason})")
                 except Exception:
                     pass
-            await _say("⏸️ 세계를 준비하지 못해 세션을 열지 않았습니다. 운영자 확인 후 아래 버튼으로 다시 시도해 주십시오.",
+            await _say("⏸️ " + core.master.lead(
+                           "session.opening_failed",
+                           "> 세계를 준비하지 못해 세션을 열지 않았습니다. 운영자 확인 후 아래 버튼으로 다시 시도해 주십시오."),
                        view=DynamicOpenRetryView(self.bot, session))
             return False
         if res.outcome == core.world_lifecycle.INIT_LEGACY:
@@ -664,11 +680,14 @@ class SessionCog(commands.Cog):
         #   (시작 틀 facts를 두 번째 권위로 쓰지 않는다 — 장소·시간과 무관한 세력 표시만 유지).
         core.world_lifecycle.apply_compat_view(session, chosen)
         ok = await self.upload_cache(session, notify=_say,
-                                     quoted_tokens=getattr(session, "open_quoted_tokens", None))
+                                     quoted_tokens=getattr(session, "open_quoted_tokens", None),
+                                     report_failure=False)
         if not ok:
             await core.save_session_data(self.bot, session)
-            await _say("⏸️ 세계는 준비됐지만 세션 캐시를 열지 못해 인트로를 보류합니다. "
-                       "잔액·상태를 확인한 뒤 아래 버튼으로 다시 여십시오.",
+            await _say("⏸️ " + core.master.lead(
+                           "session.opening_failed",
+                           "> 세계는 준비됐지만 세션 캐시를 열지 못해 인트로를 보류합니다. "
+                           "잔액·상태를 확인한 뒤 아래 버튼으로 다시 여십시오."),
                        view=DynamicOpenRetryView(self.bot, session))
             return False
         return True

@@ -259,10 +259,18 @@ def get_label(key: str) -> str:
 
 
 def greeting(level: str) -> str:
+    """소개 인사. v7.13: 마스터 대사(데이터)가 있으면 그것을 쓰고, 없으면 기존 바리에이션.
+
+    처음인 분은 첫 문장만 마스터 대사로 바꾸고 '일곱 가지를 순서대로' 안내는 그대로 둔다(사용자 결정 Q2).
+    """
+    from .master import line
     if level == LEVEL_VETERAN:
-        return random.choice(VETERAN_GREETINGS)
+        return line("intro.start_veteran") or random.choice(VETERAN_GREETINGS)
     if level == LEVEL_KNOWN:
-        return random.choice(KNOWN_GREETINGS)
+        return line("intro.start_known") or random.choice(KNOWN_GREETINGS)
+    first = line("intro.start_new")
+    if first:
+        return first + "\n" + NEW_GREETING.split("\n", 1)[1]
     return NEW_GREETING
 
 

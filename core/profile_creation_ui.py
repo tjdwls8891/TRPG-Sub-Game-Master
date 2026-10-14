@@ -12,6 +12,7 @@
 #   버튼으로 가능한 것만 보여주므로 허가되지 않은 조작이 불가능하다.
 import discord
 
+from . import master
 from . import profile_gen
 from . import profile_runner as runner
 from . import profiles as profile_store
@@ -89,11 +90,58 @@ async def render(state: ProfileCreationSession, channel, *, user_input=None):
         return
 
 
+_NAME_PENDING = "(이름 미정)"
+
+
+def _title(state) -> str:
+    """단계 제목 — 이름이 정해졌으면 그 이름, 아직이면 '캐릭터 만들기'(v7.13: '(이름 미정) 만들기' 고정 표시 정정)."""
+    name = str((runner.result(state.run) or {}).get("이름") or "").strip() if state.run else ""
+    if not name and state.char_name and state.char_name != _NAME_PENDING:
+        name = state.char_name
+    return f"{name} 만들기" if name else "캐릭터 만들기"
+
+
+def _master_head(state, res: dict) -> str | None:
+    """v7.13 마스터 대사 — 단계 종류별 고정 안내 한 줄(단계 정보·선택지·AI 사유는 그대로)."""
+    if res.get("stat_module"):
+        key = "profile.stat_roll"
+    elif res.get("ai_module"):
+        key = "profile.ai_input"
+    elif res.get("type") == runner.WARN:
+        key = "profile.choice_warning"
+    elif res.get("type") == runner.CONFIRM:
+        key = "profile.choice_confirm"
+    else:
+        key = None
+    head = master.line(key) if key else None
+    if not getattr(state, "_master_begun", False):
+        state._master_begun = True
+        begin = master.line("profile.begin")
+        head = f"{begin}\n{head}" if (begin and head) else (begin or head)
+    return head
+
+
+def _message(res: dict) -> str:
+    """선택형 질문은 마스터 대사(항목명 슬롯·조사 보정)로, 그 밖은 원래 문구."""
+    msg = res.get("message") or ""
+    field = res.get("field")
+    if res.get("type") == runner.ASK and res.get("options") and field and msg == f"{field}을(를) 선택해 주십시오.":
+        return master.say("profile.field_prompt", msg, slots={"field_label": str(field)})
+    return msg
+
+
 def _embed(state, res: dict) -> discord.Embed:
     """단계 임베드. 진행도는 푸터 한 곳에만 둔다."""
+    msg = _message(res)
+    if res.get("type") == runner.ERROR:
+        msg = master.lead("profile.error", msg)
+    else:
+        head = _master_head(state, res)
+        if head:
+            msg = f"*{head}*\n\n{msg}" if msg else f"*{head}*"
     e = discord.Embed(
-        title=f"{state.char_name} 만들기",
-        description=res.get("message") or "",
+        title=_title(state),
+        description=msg,
         color=0x5865F2,
     )
     if res.get("guide"):
@@ -171,7 +219,8 @@ async def finish(state: ProfileCreationSession, channel):
     # 완성 화면도 같은 메시지를 고쳐 쓴다.
     e = discord.Embed(
         title=f"{state.char_name}",
-        description="캐릭터가 완성되었습니다.",
+        description=(master.say("profile.completed", "캐릭터가 완성되었습니다.")
+                     + ((" " + _sp) if (_sp := master.line("profile.save_prompt")) else "")),
         color=0x57F287,
     )
     stats_line = []
@@ -427,7 +476,8 @@ class InputModal(discord.ui.Modal):
                 module, self.res.get("args") or {}, text,
             )
             if outcome.get("message"):
-                self.state.notes.append(outcome["message"])
+                self.state.notes.append(master.lead(
+                    "profile.ai_warned" if outcome.get("ok") else "profile.ai_rejected", outcome["message"]))
             if not outcome.get("ok"):
                 # 반려 — 같은 단계를 다시 묻는다.
                 await render(self.state, self.channel)
@@ -499,14 +549,14 @@ class SaveProfileView(_Base):
             scenario_id=getattr(self.state.session, "scenario_id", None),
             fields=dict(self.result),
         )
-        note = (f"저장했습니다. 다음에 이 시나리오를 하실 때 불러오실 수 있어요.\n"
+        note = (master.say("profile.saved", "저장했습니다.") + " 다음에 이 시나리오를 하실 때 불러오실 수 있어요.\n"
                 f"태그: **{saved['tag']}**") if saved else "저장에 실패했습니다."
         await self._close(interaction, note)
 
     @discord.ui.button(label="저장 안 함", style=discord.ButtonStyle.secondary)
     async def skip(self, interaction, _b):
         await interaction.response.defer()
-        await self._close(interaction, "준비가 끝났습니다.")
+        await self._close(interaction, master.say("profile.save_skipped", "준비가 끝났습니다."))
 
 
 class PrefillView(_Base):
@@ -601,9 +651,9 @@ async def start(bot, session, uid, char_name: str, channel):
     candidates = profile_store.list_profiles(uid, sid)
     if candidates:
         e = discord.Embed(
-            title=f"{char_name} 만들기",
-            description=("전에 저장해두신 프로필이 있어요.\n"
-                         "불러다 쓰시겠어요, 아니면 새로 만드시겠어요?"),
+            title=_title(state),
+            description=master.say("profile.prefill", "전에 저장해두신 프로필이 있어요.\n"
+                                                      "불러다 쓰시겠어요, 아니면 새로 만드시겠어요?"),
             color=0x5865F2)
         state.message = await channel.send(
             embed=e, view=PrefillView(state, channel, candidates))

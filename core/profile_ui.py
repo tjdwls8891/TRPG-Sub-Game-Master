@@ -10,6 +10,7 @@
 # [삭제]  목록 셀렉터 → 개별 내용 표시 → 일일이 확인 메시지.
 import discord
 
+from . import master
 from . import profiles
 from . import stats
 
@@ -33,21 +34,23 @@ class ProfileHomeView(discord.ui.View):
         # 기획 규정 — 사전 프로필 생성은 플레이해 본 시나리오만 가능하다.
         played = stats.load_stats(self.user_id).get("played_scenarios") or []
         if not played:
+            # v7.13: 안내대로 공통 프로필은 플레이 이력 없이도 만들 수 있다(이전에는 여기서 끝나 도달 불가).
             await interaction.response.send_message(
                 "아직 플레이한 시나리오가 없습니다.\n"
                 "사전 프로필은 한 번이라도 플레이한 시나리오에 대해서만 만들 수 있습니다.\n"
-                "공통 프로필(이름·성별·나이·외형)은 언제든 만들 수 있습니다.",
-                ephemeral=False)
+                "공통 프로필(이름·성별·나이·외형)은 지금 아래에서 만들 수 있습니다.",
+                view=ScenarioPickView(self.bot, self.user_id, []))
             return
         await interaction.response.send_message(
-            "생성할 시나리오를 고르십시오.",
+            master.say("account.profile_select", "생성할 시나리오를 고르십시오."),
             view=ScenarioPickView(self.bot, self.user_id, played))
 
     @discord.ui.button(label="📋 출력", style=discord.ButtonStyle.primary)
     async def show(self, interaction, _b):
         items = profiles.list_profiles(self.user_id)
         if not items:
-            await interaction.response.send_message("저장된 프로필이 없습니다.")
+            await interaction.response.send_message(
+                master.say("account.profile_list_empty", "저장된 프로필이 없습니다."))
             return
         await interaction.response.send_message(
             embed=build_list_embed(self.user_id, items, 0),
@@ -152,7 +155,9 @@ class SearchModal(discord.ui.Modal, title="프로필 검색"):
         found = profiles.search(self.user_id, str(self.name))
         if not found:
             await interaction.response.send_message(
-                f"'{self.name}'을(를) 찾지 못했습니다.", ephemeral=False)
+                master.lead("account.profile_not_found", f"> 검색: '{self.name}'",
+                            default="프로필을 찾지 못했습니다."),
+                ephemeral=False)
             return
 
         if len(found) > 1:
@@ -277,7 +282,7 @@ class ProfileSelect(discord.ui.Select):
         dup = _dup(self.user_id)
         await interaction.response.send_message(
             f"{profiles.detail(picked, dup)}\n\n"
-            f"⚠️ **이 프로필을 삭제하시겠습니까?** 되돌릴 수 없습니다.",
+            f"⚠️ **{master.say('account.profile_confirm_delete', '이 프로필을 삭제하시겠습니까?')}** 되돌릴 수 없습니다.",
             view=DeleteConfirmView(self.bot, self.user_id, picked))
 
 
@@ -397,7 +402,9 @@ class CommonProfileModal(discord.ui.Modal, title="공통 프로필"):
         saved = await profiles.create(
             self.user_id, name=str(self.name), scenario_id=None, fields=fields)
         await interaction.response.send_message(
-            f"💾 공통 프로필 **{self.name}** 저장 완료 (태그: {saved['tag']})"
+            "💾 " + master.lead("account.profile_saved",
+                                f"> 공통 프로필 **{self.name}** (태그: {saved['tag']})",
+                                default="공통 프로필을 저장했습니다.")
             if saved else "⚠️ 저장에 실패했습니다.")
 
 

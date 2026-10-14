@@ -12,6 +12,8 @@ import asyncio
 
 import discord
 
+from . import master
+
 # 차단 안내를 띄우는 시간(초). 기획 규정 3초.
 NOTICE_SECONDS = 3
 
@@ -47,7 +49,8 @@ async def chat_guard(bot, message: discord.Message) -> bool:
         # GM 스페이스는 채팅 불가 (설계문서 6). 아직 채널 생성 전이면 통과.
         gm_space_id = getattr(bot, "gm_space_ch_id", None)
         if gm_space_id and message.channel.id == gm_space_id:
-            return await _reject(message, "ℹ️ 이 채널에서는 채팅할 수 없습니다. 버튼을 이용해 주십시오.")
+            return await _reject(message, "ℹ️ " + master.say(
+                "system.invalid_channel", "이 채널에서는 채팅할 수 없습니다.") + " 버튼을 이용해 주십시오.")
         return True
 
     is_owner = await bot.is_owner(message.author)
@@ -63,7 +66,8 @@ async def chat_guard(bot, message: discord.Message) -> bool:
             return True
         if getattr(session, "awaiting_display_input", False) and (is_owner or is_player):
             return True
-        return await _reject(message, "ℹ️ 디스플레이 채널은 버튼으로만 조작합니다.")
+        return await _reject(message, "ℹ️ " + master.say(
+            "system.invalid_channel", "디스플레이 채널에서는 입력을 받지 않습니다.") + " 버튼으로 조작해 주십시오.")
 
     # ── 마스터 채널 ── 권한자인 참가자만
     if message.channel.id == getattr(session, "master_ch_id", None):
@@ -74,9 +78,11 @@ async def chat_guard(bot, message: discord.Message) -> bool:
     # ── 게임 채널 ── 턴 진행 중이 아닐 때, 참가자만
     if message.channel.id == getattr(session, "game_ch_id", None):
         if not (is_owner or is_player):
-            return await _reject(message, "ℹ️ 세션 참가자만 발언할 수 있습니다.")
+            return await _reject(message, "ℹ️ " + master.say(
+                "system.not_participant", "세션 참가자만 발언할 수 있습니다."))
         if getattr(session, "is_processing", False):
-            return await _reject(message, "⏳ 턴 진행 중에는 입력할 수 없습니다.")
+            return await _reject(message, "⏳ " + master.say(
+                "turn.busy", "턴 진행 중에는 입력할 수 없습니다."))
         if getattr(session, "extraction_pending", False):
             return await _reject(
                 message, "⏸️ 이전 턴 정보 정리가 완료되지 않았습니다. 재시도 버튼을 눌러 주십시오.")

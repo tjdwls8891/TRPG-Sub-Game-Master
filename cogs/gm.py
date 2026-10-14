@@ -730,11 +730,11 @@ class RewindConfirmView(core.message_lifecycle.LifecyclePromptView):
                 await core.display.close_notice(
                     interaction, f"⚠️ {result['reason']}", seconds=8)
                 return
-            msg = (
+            msg = core.master.lead("display.rewind_done", (
                 f"⏪ **{self.target_turn}턴 종료 시점으로 되돌렸습니다.**\n"
                 f"> 제거된 턴: {', '.join(str(t) for t in result['removed_turns'])}\n"
                 f"> 정리된 봇 출력: {result.get('removed_messages', 0)}건 · 결제 이력은 그대로 유지됩니다."
-            )
+            ))
             # 확인 메시지를 결과로 바꾸고 잠시 뒤 지운다.
             # 확인·결과가 따로 남으면 상태판이 위로 밀려난다.
             await core.display.close_notice(interaction, msg)
@@ -746,7 +746,8 @@ class RewindConfirmView(core.message_lifecycle.LifecyclePromptView):
         await interaction.response.defer()
         if not self.claim(core.message_lifecycle.PROMPT_CANCEL):
             return
-        await core.display.close_notice(interaction, "되감기를 취소했습니다.", seconds=6)
+        await core.display.close_notice(
+            interaction, core.master.say("display.cancelled", "되감기를 취소했습니다."), seconds=6)
         self.stop()
 
 
@@ -784,7 +785,8 @@ class RerenderConfirmView(core.message_lifecycle.LifecyclePromptView):
         await interaction.response.defer()
         if not self.claim(core.message_lifecycle.PROMPT_CANCEL):
             return
-        await core.display.close_notice(interaction, "재생성을 취소했습니다.", seconds=6)
+        await core.display.close_notice(
+            interaction, core.master.say("display.cancelled", "재생성을 취소했습니다."), seconds=6)
         self.stop()
 
 
@@ -816,7 +818,7 @@ class RewindView(discord.ui.View):
         oldest, newest = core.available_range(session)
         if newest == 0:
             await interaction.response.send_message(
-                "되감기 기록이 아직 없습니다.", ephemeral=True)
+                core.master.say("display.no_history", "되감기 기록이 아직 없습니다."), ephemeral=True)
             return
 
         target = newest - 1
@@ -827,9 +829,10 @@ class RewindView(discord.ui.View):
 
         view = RewindConfirmView(self.bot, session, target)
         await interaction.response.send_message(
-            f"⚠️ **{newest}턴을 제거하고 {target}턴 종료 시점으로 되돌립니다.**\n"
-            f"되돌리기는 취소할 수 없으며, 이미 소모된 비용은 환불되지 않습니다.\n"
-            f"제거되는 정보는 되감기 로그로 이관됩니다.",
+            core.master.lead("display.rewind_confirm",
+                             f"⚠️ **{newest}턴을 제거하고 {target}턴 종료 시점으로 되돌립니다.**\n"
+                             f"되돌리기는 취소할 수 없으며, 이미 소모된 비용은 환불되지 않습니다.\n"
+                             f"제거되는 정보는 되감기 로그로 이관됩니다."),
             view=view,
         )
         await core.message_lifecycle.bind_interaction_prompt(interaction, view)
@@ -879,8 +882,9 @@ class OpenConfirmView(core.message_lifecycle.LifecyclePromptView):
         if bal < need:
             await core.display.close_notice(
                 interaction,
-                f"⚠️ 잔액이 부족합니다. 필요 **{need}잉크** / 보유 **{bal}잉크**\n"
-                f"잉크 지급은 운영자에게 문의해 주십시오.", seconds=15)
+                core.master.lead("cache.insufficient_ink",
+                                 f"⚠️ 잔액이 부족합니다. 필요 **{need}잉크** / 보유 **{bal}잉크**\n"
+                                 f"잉크 지급은 운영자에게 문의해 주십시오."), seconds=15)
             self.stop()
             return
 
@@ -893,7 +897,7 @@ class OpenConfirmView(core.message_lifecycle.LifecyclePromptView):
         await interaction.message.edit(view=self)
         await core.display.close_notice(
             interaction,
-            f"✅ 세션을 {self.minutes}분간 유지합니다. 예상 {need}잉크{note}")
+            core.master.lead("cache.open_confirm", f"✅ 세션을 {self.minutes}분간 유지합니다. 예상 {need}잉크{note}"))
         self.session.open_minutes = self.minutes
 
         game_ch = self.bot.get_channel(self.session.game_ch_id)
@@ -1069,6 +1073,7 @@ class GMRollView(discord.ui.View):
         # 논리 턴 시도의 불변 식별자를 View가 직접 들고 async UI 경계를 넘긴다.
         self.transaction_id = transaction_id
         self._resolved = False
+        self.message = None   # 판정 요청 메시지 — 자동 굴림 시 버튼을 비활성화한다(v7.13)
 
     @discord.ui.button(label="🎲 주사위 굴리기", style=discord.ButtonStyle.primary)
     async def roll_button(self, interaction: discord.Interaction, _button: discord.ui.Button):
@@ -1111,6 +1116,14 @@ class GMRollView(discord.ui.View):
         if self._resolved:
             return
         self._resolved = True
+        # v7.13: 자동 굴림 뒤 요청 메시지에 누를 수 있는 버튼이 남지 않게 한다.
+        for child in self.children:
+            child.disabled = True
+        if self.message is not None:
+            try:
+                await self.message.edit(view=self)
+            except Exception as e:
+                print(f"[판정] 자동 굴림 버튼 비활성화 실패: {e}")
 
         master_ch = self.cog.bot.get_channel(self.session.master_ch_id)
         if master_ch:
@@ -1460,7 +1473,9 @@ class GMCog(commands.Cog):
             ])
             prompt = f"{mention}, 현재까지 행동 선언: {others}\n{mention}은(는) 어떻게 하시겠습니까?"
         else:
-            prompt = f"{mention}님 턴입니다. 어떤 행동을 하시겠습니까?"
+            # v7.13 마스터 대사 — 차례 안내는 캐릭터 이름으로 부른다(사용자 결정 Q3). 대사가 없으면 기존(멘션) 문구.
+            prompt = core.master.say("turn.next_player", f"{mention}님 턴입니다. 어떤 행동을 하시겠습니까?",
+                                     slots={"player_name": next_char})
 
         if game_ch:
             await core.stream_text_to_channel(
@@ -1549,7 +1564,7 @@ class GMCog(commands.Cog):
         if game_ch:
             await core.message_lifecycle.send_transient(
                 self.bot, session, game_ch,
-                "⏸️ 세션이 닫혀 있습니다. 선언은 보관해 두었습니다.\n"
+                "⏸️ " + core.master.say("cache.closed_held", "세션이 닫혀 있습니다. 선언은 보관해 두었습니다.") + "\n"
                 "> 디스플레이 채널의 **세션 열기**를 누르시면 그 선언으로 이어서 진행합니다.",
                 key=core.message_lifecycle.KEY_TURN_NOTICE)
         return True
@@ -1563,7 +1578,9 @@ class GMCog(commands.Cog):
         game_ch = self.bot.get_channel(session.game_ch_id)
         if game_ch:
             await core.message_lifecycle.send_transient(
-                self.bot, session, game_ch, f"▶️ 보관된 선언으로 이어서 진행합니다: {held['content']}",
+                self.bot, session, game_ch,
+                "▶️ " + core.master.say("cache.reopen_held", "보관된 선언으로 이어서 진행합니다.")
+                + f"\n> {held['content']}",
                 key=core.message_lifecycle.KEY_TURN_NOTICE)
         shim = SimpleNamespace(content=held["content"], channel=game_ch,
                                author=SimpleNamespace(display_name=held["char"]))
@@ -1869,7 +1886,7 @@ class GMCog(commands.Cog):
 
     async def _ask_route_choice(self, session, plan, transaction_id, master_ch) -> None:
         """의미 있는 경로 차이 — 플레이어 지식 범위의 선택지를 묻는다(실제 숨은 상태 미포함)."""
-        lines = ["어느 길로 가시겠습니까?"]
+        lines = [core.master.say("turn.route_question", "어느 길로 가시겠습니까?")]
         for n, o in enumerate(plan.route_options, 1):
             mins = f" (약 {o['minutes']}분)" if o.get("minutes") is not None else ""
             lines.append(f"{n}) {o['label']}{mins}")
@@ -2299,8 +2316,9 @@ class GMCog(commands.Cog):
             game_ch = self.bot.get_channel(session.game_ch_id)
             if game_ch:
                 await game_ch.send(
-                    "⚠️ 턴 정보 정리 중 문제가 발생했습니다.\n"
-                    "아래 버튼으로 다시 시도해 주십시오. 완료 전까지 다음 턴은 진행되지 않습니다.",
+                    "⚠️ " + core.master.say("turn.extraction_retry", "턴 정보 정리 중 문제가 발생했습니다.\n"
+                                            "아래 버튼으로 다시 시도해 주십시오.")
+                    + " 완료 전까지 다음 턴은 진행되지 않습니다.",
                     view=ExtractionRetryView(self.bot),
                 )
             if master_ch:
@@ -3047,7 +3065,7 @@ class GMCog(commands.Cog):
                     if game_ch:
                         await core.message_lifecycle.send_transient(
                             self.bot, session, game_ch,
-                            f"⛔ **잉크가 부족합니다.**\n"
+                            f"⛔ **{core.master.say('cache.insufficient_ink', '잉크가 부족합니다.')}**\n"
                             f"> 필요 {_pre_est['max_ink']}잉크 / 보유 {_bal}잉크\n"
                             f"> 잉크 지급은 운영자에게 문의해 주십시오.",
                             key=core.message_lifecycle.KEY_TURN_NOTICE)
@@ -3921,8 +3939,9 @@ class GMCog(commands.Cog):
                 if act["T"] is not None and act["is_pc"]:
                     await core.send_streamed(
                         self.bot, game_ch,
-                        f"> ✅ **{stat_name}** 판정이 성공했습니다." if act["success"]
-                        else f"> ❌ **{stat_name}** 판정이 실패했습니다.")
+                        "> ✅ " + core.master.say("turn.roll_success", f"**{stat_name}** 판정이 성공했습니다.")
+                        if act["success"] else
+                        "> ❌ " + core.master.say("turn.roll_failure", f"**{stat_name}** 판정이 실패했습니다."))
                 # 판정 줄은 send_streamed가 게임 채널 기록([GM])에 남긴다 — 별도 기록하지 않는다(중복 방지).
             # 주사위 효과음 — 토글이 켜져 있을 때만.
             try:
@@ -4046,12 +4065,12 @@ class GMCog(commands.Cog):
         )
 
         roll_prompt_text = (
-            f"> 🎲 {mention}, 판정이 필요합니다!\n"
+            f"> 🎲 {mention}, " + core.master.say("turn.roll_request", "판정이 필요합니다!") + "\n"
             f"> {desc_text}\n"
             f"> 2d50 합이 목표보다 작으면 성공합니다. 아래 버튼을 눌러 주사위를 굴리세요. (5분 내 미클릭 시 자동 굴림)"
         )
         if game_ch:
-            await game_ch.send(roll_prompt_text, view=view)
+            view.message = await game_ch.send(roll_prompt_text, view=view)
             core.write_log(session.session_id, "game_chat", f"[판정 요청]: {desc_text}")
         if master_ch:
             await master_ch.send(
@@ -4443,7 +4462,7 @@ class GMCog(commands.Cog):
             core.message_lifecycle.register(
                 session, core.message_lifecycle.KEY_DISPLAY_OPEN_PROMPT,
                 await message.channel.send(
-                    "❓ 입력을 이해하지 못했습니다. 다시 답해 주십시오.\n"
+                    "❓ " + core.master.say("cache.time_unclear", "입력을 이해하지 못했습니다. 다시 답해 주십시오.") + "\n"
                     "> 예: `3시간`, `90분`, `20턴`, `적당히`, `알아서`"
                     + _interp_note(resolved)
                 ), cls=core.message_lifecycle.INTERACTION_PROMPT)
@@ -5024,7 +5043,8 @@ class GMCog(commands.Cog):
             #        소속은 사건 결과에서 파생한 읽기 전용 호환 뷰(world_player_faction)만 반영한다.
             if getattr(plan, "world_player_faction", None):
                 if session.player_faction != plan.world_player_faction:
-                    await _game(f"🏛️ **{plan.world_player_faction}**의 일원이 되었습니다.")
+                    await _game(core.master.lead("turn.faction_notice",
+                                                 f"🏛️ **{plan.world_player_faction}**의 일원이 되었습니다."))
                 session.player_faction = plan.world_player_faction
         if not core.player_world.legacy_narrative_retired(session):
             try:
@@ -5057,7 +5077,8 @@ class GMCog(commands.Cog):
                         g = moved["granted"]
                         if g.get("faction"):
                             print(f"[GM/{session.session_id}] 소속 획득: {g['faction']}")
-                            await _game(f"🏛️ **{g['faction']}**의 일원이 되었습니다.")
+                            await _game(core.master.lead("turn.faction_notice",
+                                                         f"🏛️ **{g['faction']}**의 일원이 되었습니다."))
                     if core.quest.is_ending(outcome):
                         session.pending_ending = outcome
                         await _game(
