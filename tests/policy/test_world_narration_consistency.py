@@ -40,7 +40,8 @@ async def test_unresolved_destination_asks_with_visible_exits_without_narration(
     tx = await turn(r, "사람이 있을 만한 곳으로 간다")
     assert "logic" not in r.prov.calls and "narration" not in r.prov.calls
     assert tx.status == tt.TurnStatus.WAITING_FOR_PLAYER
-    asked = [m.content for m in r.gch.sent if "어디로 가시겠습니까" in (m.content or "")]
+    # v7.13: 질문 문장은 마스터 대사(변주) — 보존되는 정보(보이는 길 목록)로 찾는다
+    asked = [m.content for m in r.gch.sent if "지금 보이는 길:" in (m.content or "")]
     assert asked and "시장" in asked[0]
     assert SP.placement_of(r.sess, PC) == SP.at_place("항구")
 

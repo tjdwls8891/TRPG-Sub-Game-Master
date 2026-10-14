@@ -30,6 +30,7 @@
 #   gm_space   — 서버 GM 스페이스 (홈·명전·보드)
 #   growth     — 능력치 성장·행운 스탯 판정
 #   judgment   — 2d50 판정 수식(T 조립·굴림·대결) 순수 함수
+#   master     — 마스터(진행자) 사전 저작 대사 선택(assets/master_dialogues_v1.json, 폴백 = 기존 문구)
 #   chat_guard — 채팅 차단 (채널별 권한 검증 단일 훅)
 #   tts_preset — 시스템 고정 문구 TTS 사전 생성 (런타임 합성 없이 파일 재생)
 #   irregular_npc — 비정규 NPC 이미지·목소리 결정 및 유지
@@ -220,6 +221,7 @@ from .growth import (
     format_luck,
 )
 from . import judgment
+from . import master
 from .chat_guard import chat_guard, NOTICE_SECONDS
 from . import tts_preset
 from . import irregular_npc

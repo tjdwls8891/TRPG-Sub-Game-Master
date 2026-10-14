@@ -70,10 +70,10 @@ async def test_rerender_preserves_semantic_route_choice_without_reasking(drig):
     _, rec = _intent_rec(r.sess)
     sig = rec["judgment"]["judgment"][core.action_intent.INTENT_FIELD]["semantic"]["route_signature"]
     assert sig and any("e_hh" in e for e in sig)
-    asked = sum("어느 길로" in (m.content or "") for m in r.gch.sent)
+    asked = sum("1) " in (m.content or "") for m in r.gch.sent)     # v7.13: 경로 선택지로 센다
     started, reason = await r.gm.rerender_latest(r.sess)
     assert started, reason
-    assert sum("어느 길로" in (m.content or "") for m in r.gch.sent) == asked     # 다시 묻지 않음
+    assert asked and sum("1) " in (m.content or "") for m in r.gch.sent) == asked     # 다시 묻지 않음
     assert SP.placement_of(r.sess, PC) == SP.at_place("성당")
     known = SP.actor_knowledge(r.sess, PC)["edges"]
     assert known["e_hh#fwd"]["last_confirmed_at"] is not None          # 같은 의미 경로(산복도로)로 재이동

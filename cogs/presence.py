@@ -89,7 +89,7 @@ class PresenceCog(commands.Cog):
                 # WP-F: TRANSIENT_GAME_STATUS — 다음 세션 열기 안내가 supersede(로그 미기록).
                 await core.message_lifecycle.send_transient(
                     self.bot, session, game_ch,
-                    "⏸️ **세션 유지 시간이 끝났습니다.**\n"
+                    f"⏸️ **{core.master.say('cache.window_expired', '세션 유지 시간이 끝났습니다.')}**\n"
                     "> 디스플레이 채널의 **세션 열기**를 누르시면 이어서 진행하실 수 있습니다.",
                     key=core.message_lifecycle.KEY_SESSION_NOTICE)
 

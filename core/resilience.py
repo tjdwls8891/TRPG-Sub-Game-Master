@@ -194,11 +194,13 @@ def build_failed_turn_notice(player_message: str) -> str:
 
     기획 규정 — 실패한 선언을 복사하기 쉽게 표기해 재입력을 돕는다.
     """
+    from .master import say
     text = (player_message or "").strip()
-    body = (
-        "⚠️ 이번 턴 처리에 실패하여 진행을 취소했습니다.\n"
-        "아래 선언을 다시 입력하시거나 새로 작성해 주십시오.\n"
-    )
+    body = "⚠️ " + say("turn.failed_retry", "이번 턴 처리에 실패하여 진행을 취소했습니다.") + "\n"
     if text:
+        body += "아래 선언을 다시 입력하시거나 새로 작성해 주십시오.\n"
         body += f"```\n{text[:1500]}\n```"
+    else:
+        # v7.13: 보여 줄 선언이 없을 때 '아래 선언'이라고 안내하지 않는다.
+        body += "선언을 다시 입력해 주십시오.\n"
     return body

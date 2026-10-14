@@ -11,6 +11,7 @@
 import discord
 
 from . import accounts
+from . import master
 
 # 약관 본문. 개정 시 accounts.CURRENT_TERMS_VERSION을 함께 올려야 한다.
 TERMS_TEXT = """**INDAIM 이용약관 (v1)**
@@ -112,7 +113,8 @@ class TermsView(discord.ui.View):
         except accounts.AccountError as ex:
             print(f"[약관] 계정 등록 저장 실패 uid={self.user_id}: {ex}")
             await interaction.response.send_message(
-                "⚠️ 계정 저장에 실패했습니다. 잠시 후 다시 시도해 주십시오.", ephemeral=True)
+                "⚠️ " + master.say("account.save_failed", "계정 저장에 실패했습니다. 잠시 후 다시 시도해 주십시오."),
+                ephemeral=True)
             return
 
         lines = []
@@ -123,13 +125,14 @@ class TermsView(discord.ui.View):
                     lines.append(f"🎁 가입선물 **{SIGNUP_GIFT_INK}잉크**가 지급되었습니다.")
                 except accounts.AccountError as ex:
                     print(f"[약관] 가입선물 저장 실패 uid={self.user_id}: {ex}")
-                    lines.append("⚠️ 가입선물 지급 저장에 실패했습니다. 운영자에게 문의해 주십시오.")
+                    lines.append("⚠️ " + master.say("account.gift_failed",
+                                                    "가입선물 지급 저장에 실패했습니다. 운영자에게 문의해 주십시오."))
             lines.append(
                 "이제 서버의 **GM 스페이스**에서 세션을 열 수 있습니다.\n"
                 "잉크가 부족하면 운영자에게 문의해 주십시오."
             )
         else:
-            lines.append("재동의가 완료되었습니다. 계속 이용하실 수 있습니다.")
+            lines.append(master.say("account.reagree_completed", "재동의가 완료되었습니다. 계속 이용하실 수 있습니다."))
 
         bal = accounts.get_balance(self.user_id)
         lines.append(f"현재 잔액: **{bal:,}잉크**")
@@ -137,7 +140,9 @@ class TermsView(discord.ui.View):
         for child in self.children:
             child.disabled = True
         await interaction.response.edit_message(
-            content="✅ **약관에 동의하셨습니다.**\n\n" + "\n\n".join(lines),
+            content="✅ **약관에 동의하셨습니다.**"
+                    + (f"\n{_m}" if first_time and (_m := master.line("account.register_completed")) else "")
+                    + "\n\n" + "\n\n".join(lines),
             embed=None, view=self,
         )
         self.stop()
@@ -151,7 +156,8 @@ class TermsView(discord.ui.View):
         for child in self.children:
             child.disabled = True
         await interaction.response.edit_message(
-            content="동의를 취소했습니다. 서비스를 이용하시려면 다시 시도해 주십시오.",
+            content=master.say("account.register_cancelled",
+                               "동의를 취소했습니다. 서비스를 이용하시려면 다시 시도해 주십시오."),
             embed=None, view=self,
         )
         self.stop()
@@ -186,7 +192,7 @@ async def ensure_agreed(bot, user) -> tuple:
     if not accounts.is_registered(uid):
         sent = await start_registration(bot, user)
         return False, (
-            "계정 등록이 필요합니다. DM을 확인해 주십시오."
+            "계정 등록이 필요합니다. " + master.say("account.terms_dm_sent", "DM을 확인해 주십시오.")
             if sent else
             "계정 등록이 필요하지만 DM을 보낼 수 없습니다. "
             "서버 개인정보 설정에서 DM 수신을 허용해 주십시오."
@@ -194,7 +200,7 @@ async def ensure_agreed(bot, user) -> tuple:
     if accounts.needs_terms_reagreement(uid):
         sent = await start_registration(bot, user, reagree=True)
         return False, (
-            "약관이 개정되었습니다. DM에서 재동의를 진행해 주십시오."
+            master.say("account.reagree_required", "약관이 개정되었습니다. DM에서 재동의를 진행해 주십시오.")
             if sent else
             "약관 재동의가 필요하지만 DM을 보낼 수 없습니다. "
             "DM 수신을 허용해 주십시오."

@@ -13,6 +13,7 @@
 import discord
 
 from . import accounts
+from . import master
 from . import stats as stats_mod
 
 CATEGORY_NAME = "GM 스페이스"
@@ -192,7 +193,8 @@ class GMHomeView(discord.ui.View):
         if accounts.is_registered(interaction.user.id):
             return True
         await interaction.response.send_message(
-            "🔒 계정 등록 후 이용할 수 있습니다. **계정 등록** 버튼을 눌러 주십시오.",
+            "🔒 " + master.say("account.register_required", "계정 등록 후 이용할 수 있습니다.")
+            + " **계정 등록** 버튼을 눌러 주십시오.",
             ephemeral=True, delete_after=NOTICE_SECONDS,
         )
         return False
@@ -206,23 +208,24 @@ class GMHomeView(discord.ui.View):
 
                 sent = await start_registration(self.bot, interaction.user, reagree=True)
                 await interaction.response.send_message(
-                    "📬 약관이 개정되었습니다. DM에서 재동의를 진행해 주십시오."
+                    "📬 " + master.say("account.reagree_required",
+                                       "약관이 개정되었습니다. DM에서 재동의를 진행해 주십시오.")
                     if sent else
                     "⚠️ 재동의가 필요하지만 DM을 보낼 수 없습니다. "
                     "DM 수신을 허용해 주십시오.",
                     ephemeral=True)
             else:
                 await interaction.response.send_message(
-                    "이미 등록된 계정입니다.", ephemeral=True)
+                    master.say("account.already_registered", "이미 등록된 계정입니다."), ephemeral=True)
             return
         from .terms import start_registration
 
         sent = await start_registration(self.bot, interaction.user)
         await interaction.response.send_message(
-            "📬 DM으로 약관을 보냈습니다. 확인 후 동의해 주십시오."
+            "📬 " + master.say("account.terms_dm_sent", "DM으로 약관을 보냈습니다. 확인 후 동의해 주십시오.")
             if sent else
-            "⚠️ DM을 보낼 수 없습니다. 서버 개인정보 설정에서 "
-            "DM 수신을 허용한 뒤 다시 시도해 주십시오.",
+            "⚠️ " + master.say("account.dm_blocked", "DM을 보낼 수 없습니다.")
+            + "\n> 서버 개인정보 설정에서 DM 수신을 허용한 뒤 다시 시도해 주십시오.",
             ephemeral=True)
 
     @discord.ui.button(label="🎲 세션 열기", style=discord.ButtonStyle.primary,
@@ -234,7 +237,7 @@ class GMHomeView(discord.ui.View):
         # 권한자면 마스터 세션 버튼을 추가한다.
         is_owner = await self.bot.is_owner(interaction.user)
         await interaction.response.send_message(
-            "**세션을 여시겠습니까?**\n"
+            f"**{master.say('session.kind_select', '세션을 여시겠습니까?')}**\n"
             "> 솔로 세션은 음성·게임·디스플레이 채널로 구성됩니다.\n"
             + ("> 마스터 세션에는 마스터 채널이 추가되며 명령어를 쓸 수 있습니다.\n"
                if is_owner else ""),
@@ -250,9 +253,10 @@ class GMHomeView(discord.ui.View):
 
         sent = await open_manager(self.bot, interaction.user)
         await interaction.response.send_message(
-            "📬 DM으로 프로필 관리 인터페이스를 보냈습니다."
+            "📬 " + master.say("account.profile_dm_sent", "DM으로 프로필 관리 인터페이스를 보냈습니다.")
             if sent else
-            "⚠️ DM을 보낼 수 없습니다. DM 수신을 허용해 주십시오.",
+            "⚠️ " + master.say("account.dm_blocked", "DM을 보낼 수 없습니다.")
+            + "\n> DM 수신을 허용해 주십시오.",
             ephemeral=True)
 
     @discord.ui.button(label="💰 잉크 잔액", style=discord.ButtonStyle.secondary,
@@ -262,7 +266,8 @@ class GMHomeView(discord.ui.View):
             return
         bal = accounts.get_balance(interaction.user.id)
         await interaction.response.send_message(
-            f"현재 잔액 **{bal:,}잉크**\n잉크 지급은 운영자에게 문의해 주십시오.",
+            master.lead("account.ink_balance_intro",
+                        f"현재 잔액 **{bal:,}잉크**\n잉크 지급은 운영자에게 문의해 주십시오."),
             ephemeral=True)
 
     @discord.ui.button(label="🏆 명전 등록/숨기기", style=discord.ButtonStyle.secondary,
@@ -274,7 +279,8 @@ class GMHomeView(discord.ui.View):
         new = not st.get("hall_registered")
         await stats_mod.set_visibility(interaction.user.id, hall_registered=new)
         await interaction.response.send_message(
-            f"명예의 전당 등록을 **{'켰습니다' if new else '껐습니다'}**.",
+            master.lead("account.visibility_updated",
+                        f"명예의 전당 등록을 **{'켰습니다' if new else '껐습니다'}**."),
             ephemeral=True)
 
     @discord.ui.button(label="🌐 월드보드 공개", style=discord.ButtonStyle.secondary,
@@ -286,7 +292,8 @@ class GMHomeView(discord.ui.View):
         new = not st.get("public")
         await stats_mod.set_visibility(interaction.user.id, public=new)
         await interaction.response.send_message(
-            f"월드보드 공개를 **{'켰습니다' if new else '껐습니다'}**.",
+            master.lead("account.visibility_updated",
+                        f"월드보드 공개를 **{'켰습니다' if new else '껐습니다'}**."),
             ephemeral=True)
 
     @discord.ui.button(label="📊 내 통계 (DM)", style=discord.ButtonStyle.secondary,
@@ -296,7 +303,8 @@ class GMHomeView(discord.ui.View):
             return
         st = stats_mod.load_stats(interaction.user.id)
         embed = discord.Embed(title="📊 내 통계",
-                              description=stats_mod.format_summary(st),
+                              description=master.lead("account.stats_intro",
+                                                      stats_mod.format_summary(st), sep="\n\n"),
                               color=0x2ECC71)
         try:
             await interaction.user.send(embed=embed)
@@ -331,7 +339,7 @@ class SessionKindView(discord.ui.View):
         for c in self.children:
             c.disabled = True
         await interaction.response.edit_message(
-            content="세션 생성을 취소했습니다.", view=self)
+            content=master.say("session.creation_cancelled", "세션 생성을 취소했습니다."), view=self)
         self.stop()
 
 
@@ -351,7 +359,7 @@ async def _begin_flow(bot, interaction, kind: str):
     임시로 첫 시나리오를 로드해 세션 객체만 만든 뒤 flow가 교체한다.
     """
     await interaction.response.edit_message(
-        content="⏳ 채널을 만드는 중…", view=None)
+        content="⏳ " + master.say("session.creation_in_progress", "채널을 만드는 중…"), view=None)
 
     from .io import get_available_scenarios
     from . import session_flow, creation
@@ -380,13 +388,15 @@ async def _begin_flow(bot, interaction, kind: str):
     voice_ch = bot.get_channel(getattr(session, "voice_ch_id", 0) or 0)
 
     await interaction.followup.send(
-        f"✅ 채널이 준비되었습니다. {game_ch.mention if game_ch else ''}", ephemeral=True)
+        "✅ " + master.say("session.channels_ready", "채널이 준비되었습니다.")
+        + f" {game_ch.mention if game_ch else ''}", ephemeral=True)
 
     if game_ch:
         # 참가자 호출 + 음성채널 참가 안내 (기획 규정)
         msg = (
-            f"{interaction.user.mention} 님, 여기서 세션을 만들어 갑니다.\n"
-            "몇 가지를 여쭙고 캐릭터를 만든 뒤 이야기가 시작됩니다."
+            f"{interaction.user.mention} 님, " + master.say(
+                "session.first_game_greeting",
+                "여기서 세션을 만들어 갑니다.\n몇 가지를 여쭙고 캐릭터를 만든 뒤 이야기가 시작됩니다.")
         )
         if voice_ch:
             msg += (f"\n\n🎧 음성 채널 {voice_ch.mention} 에 들어오시면 "

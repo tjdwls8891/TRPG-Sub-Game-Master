@@ -17,6 +17,7 @@ import hashlib
 import io
 import discord
 
+from . import master
 from . import media_control
 from .message_lifecycle import (LifecyclePromptView, PROMPT_CANCEL, PROMPT_CONFIRM,
                                 bind_interaction_prompt)
@@ -224,7 +225,7 @@ class DisplayView(discord.ui.View):
         if str(interaction.user.id) in (getattr(session, "players", {}) or {}):
             return True
         await interaction.response.send_message(
-            "이 세션의 참가자만 조작할 수 있습니다.", ephemeral=True)
+            master.say("display.denied", "이 세션의 참가자만 조작할 수 있습니다."), ephemeral=True)
         return False
 
     def _busy(self, session) -> bool:
@@ -307,7 +308,7 @@ class DisplayView(discord.ui.View):
         oldest, newest = available_range(session)
         if newest == 0:
             await interaction.response.send_message(
-                "되감기 기록이 아직 없습니다.", ephemeral=True)
+                master.say("display.no_history", "되감기 기록이 아직 없습니다."), ephemeral=True)
             return
         target = newest - 1
         if target < oldest:
@@ -319,8 +320,9 @@ class DisplayView(discord.ui.View):
                               "RewindConfirmView")
         view = confirm_cls(self.bot, session, target)
         await interaction.response.send_message(
-            f"⚠️ **{newest}턴을 제거하고 {target}턴 종료 시점으로 되돌립니다.**\n"
-            f"되돌리기는 취소할 수 없으며, 이미 소모된 비용은 환불되지 않습니다.",
+            master.lead("display.rewind_confirm",
+                        f"⚠️ **{newest}턴을 제거하고 {target}턴 종료 시점으로 되돌립니다.**\n"
+                        f"되돌리기는 취소할 수 없으며, 이미 소모된 비용은 환불되지 않습니다."),
             view=view,
             ephemeral=False,
         )
@@ -339,7 +341,7 @@ class DisplayView(discord.ui.View):
         oldest, newest = available_range(session)
         if newest == 0:
             await interaction.response.send_message(
-                "되감기 기록이 아직 없습니다.", ephemeral=True)
+                master.say("display.no_history", "되감기 기록이 아직 없습니다."), ephemeral=True)
             return
         await interaction.response.send_modal(
             RewindTargetModal(self.bot, session, oldest, newest))
@@ -365,8 +367,9 @@ class DisplayView(discord.ui.View):
                               "RerenderConfirmView")
         view = confirm_cls(self.bot, session)
         await interaction.response.send_message(
-            f"⚠️ **{entry['gm_turn']}턴을 같은 선언으로 다시 서술합니다.**\n"
-            f"새 서술이 확정되면 기존 턴 출력이 교체됩니다. 이미 소모된 비용은 환불되지 않습니다.",
+            master.lead("display.rerender_confirm",
+                        f"⚠️ **{entry['gm_turn']}턴을 같은 선언으로 다시 서술합니다.**\n"
+                        f"새 서술이 확정되면 기존 턴 출력이 교체됩니다. 이미 소모된 비용은 환불되지 않습니다."),
             view=view,
         )
         await bind_interaction_prompt(interaction, view)
@@ -393,7 +396,7 @@ class DisplayView(discord.ui.View):
         from . import message_lifecycle as _ml
         await _ml.clear(self.bot, session, _ml.KEY_DISPLAY_OPEN_PROMPT)
         await interaction.response.send_message(
-            "⏱️ **세션을 얼마나 유지하시겠습니까?**\n"
+            f"⏱️ **{master.say('cache.time_question', '세션을 얼마나 유지하시겠습니까?')}**\n"
             "이 채널에 답해 주십시오. (예: `3시간`, `20턴`, `적당히`, `알아서`)\n"
             "> 유지 시간에 비례해 캐시 유지비가 발생합니다.\n"
             f"> 최소 {MIN_MINUTES}분 · 최대 {MAX_MINUTES // 60}시간"
@@ -425,7 +428,7 @@ class DisplayView(discord.ui.View):
 
         view = CloseConfirmView(self.bot, session, refund)
         await interaction.response.send_message(
-            f"⚠️ **세션을 닫으시겠습니까?**\n"
+            f"⚠️ **{master.say('cache.close_confirm', '세션을 닫으시겠습니까?')}**\n"
             f"> 사용 {used_h:.1f}시간 · 선결제 {prepaid}잉크\n"
             f"> 환급 예정 **{refund}잉크**\n"
             f"> 닫으면 캐시가 파기되며 다시 열 때 업로드 비용이 재발생합니다.",
@@ -438,7 +441,8 @@ class DisplayView(discord.ui.View):
         from . import accounts as _acc
         bal = _acc.get_balance(interaction.user.id)
         await interaction.response.send_message(
-            f"잉크 지급은 운영자에게 문의해 주십시오. (잔액 **{bal:,}잉크**)", ephemeral=True)
+            master.lead("display.no_payment", f"잉크 지급은 운영자에게 문의해 주십시오. (잔액 **{bal:,}잉크**)"),
+            ephemeral=True)
 
 
 class CloseConfirmView(LifecyclePromptView):
@@ -474,7 +478,7 @@ class CloseConfirmView(LifecyclePromptView):
                 disposition=cache_lifecycle.WINDOW_SETTLE_REFUND)
         except Exception as e:
             print(f"[세션] 세션 닫기 정산 실패(재시도 가능): {e}")
-            await close_notice(interaction, f"⚠️ 세션을 닫지 못했습니다. 잠시 후 다시 시도해 주십시오. ({e})")
+            await close_notice(interaction, "⚠️ 세션을 닫지 못했습니다. 잠시 후 다시 시도해 주십시오.")
             self.stop()
             return
         refunds = set((res.get("refund") or {}).values())
@@ -483,7 +487,7 @@ class CloseConfirmView(LifecyclePromptView):
         # 확인 메시지를 결과로 바꿔 쓴다. 둘을 따로 남기면 상태판이 밀린다.
         await close_notice(
             interaction,
-            f"⚫ 세션을 닫았습니다.\n> 💰 **{refund}잉크 환급**"
+            "⚫ " + master.say("cache.closed", "세션을 닫았습니다.") + f"\n> 💰 **{refund}잉크 환급**"
             + ("" if res.get("settled") else "\n> ⚠️ 환급 기록이 완료되지 않아 다음 조작 시 재시도합니다."))
         await refresh(self.bot, self.session, reason="close")
         self.stop()
@@ -493,7 +497,7 @@ class CloseConfirmView(LifecyclePromptView):
         await interaction.response.defer()
         if not self.claim(PROMPT_CANCEL):
             return
-        await close_notice(interaction, "세션 클로즈를 취소했습니다.", seconds=6)
+        await close_notice(interaction, master.say("display.cancelled", "세션 클로즈를 취소했습니다."), seconds=6)
         self.stop()
 
 
@@ -528,9 +532,10 @@ class RewindTargetModal(discord.ui.Modal, title="여러 턴 되감기"):
         removed = self.newest - t
         view = confirm_cls(self.bot, self.session, t)
         await interaction.response.send_message(
-            f"⚠️ **{t}턴 종료 시점으로 되돌립니다.** ({removed}개 턴 제거)\n"
-            f"되돌리기는 취소할 수 없으며, 이미 소모된 비용은 환불되지 않습니다.\n"
-            f"제거되는 정보는 되감기 로그로 이관됩니다.",
+            master.lead("display.rewind_confirm",
+                        f"⚠️ **{t}턴 종료 시점으로 되돌립니다.** ({removed}개 턴 제거)\n"
+                        f"되돌리기는 취소할 수 없으며, 이미 소모된 비용은 환불되지 않습니다.\n"
+                        f"제거되는 정보는 되감기 로그로 이관됩니다."),
             view=view)
         await bind_interaction_prompt(interaction, view)
 

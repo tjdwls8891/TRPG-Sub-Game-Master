@@ -22,6 +22,8 @@ import time
 
 import discord
 
+from . import master
+
 CANONICAL_DISPLAY = "CANONICAL_DISPLAY"
 INTERACTION_PROMPT = "INTERACTION_PROMPT"
 TRANSIENT_GAME_STATUS = "TRANSIENT_GAME_STATUS"
@@ -282,7 +284,8 @@ class LifecyclePromptView(discord.ui.View):
             return True
         if await bot.is_owner(interaction.user):
             return True
-        await interaction.response.send_message("이 세션의 참가자만 누를 수 있습니다.", ephemeral=True)
+        await interaction.response.send_message(
+            master.say("display.denied", "이 세션의 참가자만 누를 수 있습니다."), ephemeral=True)
         return False
 
     def claim(self, outcome: str) -> bool:
@@ -297,7 +300,8 @@ class LifecyclePromptView(discord.ui.View):
         if not self.claim(PROMPT_TIMEOUT):
             return
         await self.on_expired()
-        await collapse_message(self.message, self.TIMEOUT_TEXT, seconds=self.COLLAPSE_SECONDS)
+        await collapse_message(self.message, "⌛ " + master.say("display.timeout", self.TIMEOUT_TEXT[2:]),
+                               seconds=self.COLLAPSE_SECONDS)
         self.stop()
 
     async def on_expired(self):
