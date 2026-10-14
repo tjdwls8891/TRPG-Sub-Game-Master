@@ -8,12 +8,12 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 AI가 4개 층위로 나뉘어 판단·지시·묘사·추출을 분담한다. 플레이어는 서버 GM 스페이스에서 버튼으로 세션을 열고, 캐릭터를 만들고, 턴을 진행한다. **명령어는 GM의 수동 개입·복구 수단이며 일반 플레이에는 쓰지 않는다.**
 
-현재 버전: **v7.13.0** · `SCHEMA_VERSION` 4 · 총 운영 코드 ~52,600줄(main·prompts·cogs·core) · 테스트 ~27,270줄
+현재 버전: **v7.14.0** · `SCHEMA_VERSION` 4 · 총 운영 코드 ~52,600줄(main·prompts·cogs·core) · 테스트 ~27,270줄
 
 리팩터링: **7-WP 프로그램(WP-A~WP-G)** — 턴 트랜잭션·커밋·재무·이력·파생 시스템을 단일 권위로 재구성했다. WP-A~G 전부 독립 게이트 VERIFIED — **프로그램 완료**(WP-G 최종 후보 `f0fd69e`, 증거 `handoff/WP_G_COMPLETION_BUNDLE.md`). 다음 WP는 없다. 버전은 이 비호환 전환 전체를 **단일 MAJOR v6.0.0**으로 채택했다(2026-10-06, 이력 보정은 DEVLOG '버전 기록').
 
 동적 세계 구현 프로그램(통합 로드맵 v0.3, **H01~H07**, `de367c7` 기준)이 진행 중이다. H 번호는 개발 패키지명이다.
-H07 이후 패키지(v7.6.0~v7.9.1): SVG 화자 카드·영도 카드 저작 → 7.6.0, `!세션이력` → 7.7.0, 묘사↔정본 정합·만료 중 선언 보관·화자 표기 → 7.8.0, 구조 로그 → 7.9.0, 정본 시각·상태이상 판정 보정·예상 비용·판정 기록 중복 → 7.9.1, 디스플레이 상태판 SVG 이미지 → 7.10.0, `!배포` 의존성 자동 설치 → 7.10.1, 전수조사 결함 수정·자동 턴 더빙 → 7.11.0, 판정 2d50 통합 → 7.12.0, 마스터 인물화 UI 표현 승격 → 7.13.0(DEVLOG '버전 기록').
+H07 이후 패키지(v7.6.0~v7.9.1): SVG 화자 카드·영도 카드 저작 → 7.6.0, `!세션이력` → 7.7.0, 묘사↔정본 정합·만료 중 선언 보관·화자 표기 → 7.8.0, 구조 로그 → 7.9.0, 정본 시각·상태이상 판정 보정·예상 비용·판정 기록 중복 → 7.9.1, 디스플레이 상태판 SVG 이미지 → 7.10.0, `!배포` 의존성 자동 설치 → 7.10.1, 전수조사 결함 수정·자동 턴 더빙 → 7.11.0, 판정 2d50 통합 → 7.12.0, 마스터 인물화 UI 표현 승격 → 7.13.0, 역사칭·발견 선언 → 7.14.0(DEVLOG '버전 기록').
 
 | WP | 범위 | 상태 |
 |---|---|---|
@@ -115,7 +115,7 @@ python main.py
 | 파일 | 역할 |
 |---|---|
 | `main.py` | `TRPGBot`, `active_sessions`, cog 자동 로드, 세션 복구, 초대 링크 생성, GM 홈 갱신 |
-| `prompts.py` (1,726줄) | 시스템 지시문 + 응답 스키마 12종. 권위 서술은 WP-G D1(아래 '프롬프트 권위') |
+| `prompts.py` (1,831줄) | 시스템 지시문 + 응답 스키마 12종. 권위 서술은 WP-G D1(아래 '프롬프트 권위') |
 | `scenarios/*.json` | 시나리오 데이터. 퀘스트는 `{이름}.quests.json`으로 분리 |
 | `media/{시나리오명}/` | 인물 이미지·BGM. **폴더명은 시나리오 id와 같아야 한다** |
 | `assets/master_dialogues_v1.json` | 마스터(진행자) 사전 저작 대사 데이터(키 126·변주 252) — 문구 교정은 이 파일만 고친다. 마스터 이미지 자산은 아직 없다 |
@@ -289,7 +289,7 @@ H04는 세계가 스스로 진행되는 데 필요한 정본과 **순수 투영*
 |---|---|---|
 | `action_intent.py` | 409 | `ActionReferenceManifest`(PC 지식 기반 후보 → transient 키 P/R/K/I, world_version·revision 결속)·판단 스키마 런타임 확장(`action_intent`, 추가 provider 호출 0)·`ResolvedActionIntent`(목적지·시간·경로 선택·접근 확인 토큰·명시 PC 태도, 후보 밖 키는 거부)·시간 목표 계산 |
 | `player_world.py` | 745 | 세계 모드(`definition_revision` 바인딩 + 정량 시간·구조화 장소 + 시계 초기화 + PC 배치 = DYNAMIC, 그 외 LEGACY)·경로 선택 정책(의미 있는 차이는 ASK, 자동은 (비용, 서명) 결정적)·구간별 실제 접근 + 구간 사이 H04 세계 진행(관찰 신호 중단·숨은 봉쇄는 도달 시 관찰)·대기/수면 ActivityContext·PLAYER_EXPLICIT 태도·`namespace_ops`/`chain` |
-| `turn_world.py` | 891 | 묘사 오버레이(투영 장면·관찰 가능한 결과만 · 정본 이동 없는 턴은 장소 고정 문구 · 묘사층위 세계 블록 `narration_world_block` — 정본 날짜·요일·시각·장소·출구·장면 인물 독립 블록 · 목적지 불명 이동은 보이는 출구로 되묻기)·레거시 `world_timeline` 표시 미러(정본에서 파생)·관찰 매니페스트(장면 행위자가 아는 정보·장면 신호·선후 선택지)·`process_observation`(노출 → PC 획득, 비코드 소유 추가 시간, 선후 검증, 보충 진행)·`ForegroundContinuationPlan`·투영 미디어 허용 장소 |
+| `turn_world.py` | 1,050 | 묘사 오버레이(투영 장면·관찰 가능한 결과만 · 정본 이동 없는 턴은 장소 고정 문구 · 묘사층위 세계 블록 `narration_world_block` — 정본 날짜·요일·시각·장소·출구·장면 인물 독립 블록 · 목적지 불명 이동은 보이는 출구로 되묻기)·레거시 `world_timeline` 표시 미러(정본에서 파생)·관찰 매니페스트(장면 행위자가 아는 정보·장면 신호·선후 선택지)·`process_observation`(노출 → PC 획득, 비코드 소유 추가 시간, 선후 검증, 보충 진행)·`ForegroundContinuationPlan`·투영 미디어 허용 장소 · v7.14 주변 발견(`ambient_discovery` RUNTIME 정보 + PC 인지, 관찰 매니페스트 D키 수거·소진 → SUPERSEDED·소지품 +1) |
 
 자동 턴 순서(DYNAMIC): 판단(매니페스트·`action_intent`) → 코드 계획(경로 ASK는 지시층위 전) → 지시·묘사(오버레이·투영 장소 블록·투영 장면 이미지) → 추출(`world_observation`) → 보충 진행 → (필요 시 후속 묘사 1회, 같은 턴 비용) → READY(`stage_world_ops`) → CommitCoordinator → 후속 묘사 송출(시도 소유) → 다음 행동 질문. 장소·시간 권위는 정본 세계이며 추출의 장소·날짜는 적용되지 않는다. 묘사 전 결정적 충돌은 묘사 호출 없이, 묘사 후 충돌·모호한 선후는 재시도 없이 FAILED_SYSTEM(청구 0). LEGACY 세션은 기존 경로와 동일하다. 운영 세션이 DYNAMIC이 되려면 H06 정의 바인딩·genesis가 필요하다(현재 영도 단일 PC만).
 
@@ -411,6 +411,16 @@ H02: `TurnPreparation`은 world_version·definition_revision 기준선과 `World
 - **GM 지시·`[진행자]` 중계·사이드 노트** — 위 사실과 제약 안의 진행 지시.
 - **압축 기억** — 파생 기억. **플레이어의 외부 세계 주장** — 확인되지 않은 주장.
 - 판단층위는 세계 설정을 받지 않으므로 세계 사실을 판정하지 않는다. 추출층위는 스토리 권위가 아니다. 자원·상태 변화는 묘사 → 추출 → 코드 검증으로만 적용된다(`자:/태:` 태그 권위 없음, `상:/중:/하:` 이미지 태그는 유지).
+
+### 선언 게이트 — 역사칭·주변 발견 (v7.14)
+
+개연성 시뮬레이션(기존 캐시 호출)의 `declaration_gate`가 선언을 ORDINARY·AMBIENT_PROPOSAL·IMPROPER_ASSERTION으로 나누고 CONTINUE·ACCEPT_NO_ROLL·ROLL·BLOCK·CLARIFY를 정한다(새 provider 호출 0). 코드 검증(`cogs/gm.py` `_parse_gate`): 열거값이 깨지면 게이트 없음, 발견 대상명은 플레이어 원문 낱말만(아니면 CLARIFY). 판단·지시층위에는 열거값과 대상명만 — 시뮬레이션 자유 서술은 판단층위로 가지 않는다.
+
+- BLOCK·CLARIFY → 판단 호출 없이 중립 안내(굴림 0). 게이트 없음(캐시 불가) + 발견 제안 → "확인할 수 없다" 안내(굴림·정보 연산 0). IMPROPER_ASSERTION + CONTINUE → 시도만 진행(지시층위 `[선언 처리 — 코드 확정]`에 판단 `player_intent`를 권위 있는 시도로).
+- 게이트 ROLL → 판단의 `discovery=true` GENERAL 굴림 1개 필수(없으면 계약 위반 재시도). 발견 성공 = 그 굴림의 성패만. 굴림 기록 `roll_records[*].discovery`. 실패는 '이번에 찾지 못함' — 정본 무변경.
+- DYNAMIC만 영속: 승인·성공 → 관찰 단계 `INFORMATION_CREATE`(`rt.ambient.<tx digest>`, `ambient_discovery`, `place:<PlaceId>`) + PC `COGNITION_ACQUIRE(CONTENT)` → READY → CommitCoordinator. 관찰 매니페스트 D키(현재 장소 유효 발견 + `DNEW`)로 추출이 `discovery_taken`·`discovery_gone`을 지목 → `INFORMATION_VALIDITY_SET(SUPERSEDED)`, 수거(OBJECT만)는 같은 커밋 소지품 +1(같은 이름 + 중복 제거). 지시층위 '현재 장소에서 PC가 발견해 둔 것' 블록(최근 인지 12건과 무관), `pc_knowledge_block`은 CURRENT만.
+- 반복 탐색: 시뮬레이션 입력에 이 장소의 유효 발견(D키 — `existing_key` 재사용)과 찾지 못한 이전 탐색(`turn_history.recent_failed_discoveries` — 선택 이력 roll_records)을 넣고 조건 불변이면 BLOCK(UNCHANGED_RETRY). 횟수 제한·쿨다운·부재 기록 없음.
+- LEGACY: 발견 승인·판정은 일반 행동으로(정보 연산 0), BLOCK·CLARIFY·역사칭 처리만 적용.
 
 ### 장소 계층 (`places.py`)
 
@@ -542,7 +552,7 @@ pip install -r requirements-dev.txt
 python3 -m pytest tests/ -q
 ```
 
-`tests/`는 **현재 동작과 권위 불변식을 고정**한다. 현재 1,318건(특성화 61 · 결함 27 · 정책 1,230)이 모두 통과하며 strict xfail은 0건이다.
+`tests/`는 **현재 동작과 권위 불변식을 고정**한다. 현재 1,343건(특성화 61 · 결함 27 · 정책 1,255)이 모두 통과하며 strict xfail은 0건이다.
 
 | 분류 | 의미 |
 |---|---|
@@ -761,7 +771,7 @@ python3 tools/scenario_check.py --all     # 전 시나리오 컴파일·진단(E
 | 디스코드 결제 | SKU 한국 미지원. `!지급`·`!잉크`로 대체 |
 | v7.x 반영 | `SCHEMA_VERSION` 4·turn-history v3·CommitPlan v2(7.1.0·7.2.0도 유지). 배포 전 `sessions/`·`accounts/` 백업. 기존 세션은 로드 시 자동 마이그레이션되며, 배포 후 6.x로 되돌리면 plan v2 PREPARED 복구를 읽지 못한다 |
 | 영도 DYNAMIC 저작 | H07 V2 저작 완료(사건 64·정보 146·일과 35·`unknown_name` 8·구간 230쌍) — 남은 판단 항목(OPEN DECISION)은 `handoff/H07_FINAL_IMPLEMENTATION_REPORT.md` |
-| 운영 반영 | v7.12.0이 main에 반영됨(`8f4b3f6`), v7.13.0은 작업 브랜치(병합 대기 — 코드 재시작만으로 반영, 재발급 불필요). v7.12.0 배포 뒤 LEGACY 열린 세션은 `!캐시 재발급`(시나리오 `stat_system` 문구 정정), 영도 DYNAMIC은 새 세션부터 새 룰북 — 기존 세션은 지시층위 판정 블록의 '코드 판정 권위' 문구로 정합. `!배포`는 v7.10.1부터 requirements 변경 시 pip를 실행한다 — 그 이전 코드로 실행하는 첫 배포는 서버에서 `/home/ubuntu/trpgbot/venv/bin/python -m pip install -r requirements.txt`를 직접 실행해야 한다. 배포 전 운영 `sessions/`·`accounts/` 백업. 영도 `speaker_card`·`plain_speakers`(v7.6~7.8)는 DYNAMIC 바인딩 스냅샷이라 **새 영도 세션에만** 반영된다(재발급 불필요·무효). SVG 래스터화(화자 카드·디스플레이 상태판)는 `resvg_py`(requirements 고정) 또는 resvg CLI와 `Noto Sans CJK KR` 폰트가 필요하다(없으면 카드는 생략, 상태판은 Embed 대체). 구조 로그는 세션 `logs/`·전역 `logs/bot.jsonl`에 쌓이며 옛 텍스트 로그 파일은 더 이상 쓰지 않는다 |
+| 운영 반영 | v7.12.0이 main에 반영됨(`8f4b3f6`), v7.13.0 main 반영(`3329ce8`), v7.14.0은 작업 브랜치(병합 대기 — `prompts.py` 변경: **열린** 세션은 `!캐시 재발급` 또는 닫기→열기). v7.12.0 배포 뒤 LEGACY 열린 세션은 `!캐시 재발급`(시나리오 `stat_system` 문구 정정), 영도 DYNAMIC은 새 세션부터 새 룰북 — 기존 세션은 지시층위 판정 블록의 '코드 판정 권위' 문구로 정합. `!배포`는 v7.10.1부터 requirements 변경 시 pip를 실행한다 — 그 이전 코드로 실행하는 첫 배포는 서버에서 `/home/ubuntu/trpgbot/venv/bin/python -m pip install -r requirements.txt`를 직접 실행해야 한다. 배포 전 운영 `sessions/`·`accounts/` 백업. 영도 `speaker_card`·`plain_speakers`(v7.6~7.8)는 DYNAMIC 바인딩 스냅샷이라 **새 영도 세션에만** 반영된다(재발급 불필요·무효). SVG 래스터화(화자 카드·디스플레이 상태판)는 `resvg_py`(requirements 고정) 또는 resvg CLI와 `Noto Sans CJK KR` 폰트가 필요하다(없으면 카드는 생략, 상태판은 Embed 대체). 구조 로그는 세션 `logs/`·전역 `logs/bot.jsonl`에 쌓이며 옛 텍스트 로그 파일은 더 이상 쓰지 않는다 |
 | 자동 턴 TTS | v7.11부터 인트로와 자동 턴 묘사를 더빙한다(`tts_enabled`·음성 연결 시). 자동 턴의 TTS 비용은 그 턴의 비용 멤버로 claim되어 Settlement가 청구한다. 후속 묘사·NARRATE·ASK는 더빙하지 않는다 |
 | H07 운영 활성 | 영도 단일 PC 세션은 DYNAMIC(시작 틀 `world_start` 저작), 나머지 4개 시나리오·다인 세션은 LEGACY. 프롬프트 변경은 열린 세션만 재발급, 영도 정의 변경은 새 세션에만 반영(배포 절 '캐시 재발급이 필요한 경우') |
 | H06 배포 | 새 영속 필드 `world_lifecycle`·`world_initialization`(기본값 = 레거시). 스키마·이력·CommitPlan·compiler 유지. DYNAMIC 대상 세션은 캐시 업로드가 시작 선택 뒤로 이동 |

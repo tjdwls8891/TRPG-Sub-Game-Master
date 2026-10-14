@@ -109,6 +109,13 @@ def validate_rolls(rolls) -> list[str]:
                 errs.append(f"{where}.opponent.name 누락")
             else:
                 errs += _side_errors(opp, f"{where}.opponent")
+        # v7.14: 주변 발견 탐색 굴림 — 일반 판정(GENERAL)만
+        if "discovery" in r and not isinstance(r["discovery"], bool):
+            errs.append(f"{where}.discovery 불리언 아님")
+        elif r.get("discovery") is True and r.get("kind") != "GENERAL":
+            errs.append(f"{where}.discovery는 GENERAL만")
+    if sum(1 for r in rolls if isinstance(r, dict) and r.get("discovery") is True) > 1:
+        errs.append("discovery 굴림은 한 턴에 최대 1개")
     return errs
 
 
