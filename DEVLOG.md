@@ -450,7 +450,9 @@ H07 이후 패키지는 번호 없이 main·작업 브랜치에 쌓였다. 2026-
 - DYNAMIC 영속: 성공·승인 → RUNTIME 정보(`ambient_discovery`·`place:`) + PC CONTENT 인지(관찰 → READY → CommitCoordinator). 수거·소진은 추출 D키 → SUPERSEDED(같은 턴 찾고 줍기는 생성 연산을 인과 부모로 한 묶음), 수거는 같은 커밋 소지품 +1. 현재 장소 발견 블록(12건 제한 무관), `pc_knowledge_block` CURRENT 필터.
 - 반복 탐색: 커밋 턴 이력 roll_records의 '이 장소에서 찾지 못한 탐색'을 시뮬레이션에 넣어 조건 불변이면 BLOCK(UNCHANGED_RETRY). 부재 기록·횟수 제한 없음.
 - 역사칭: 묘사 규칙(`prompts.py:122`) '문을 열었다 → 열린 결과' 수용을 '선언은 시도'로 정정, 지시층위에 `[선언 처리 — 코드 확정]`(판단 `player_intent` = 권위 있는 시도).
-- LEGACY: 역사칭 제지만(발견 정보 연산 0). 테스트 1,343건(신규 `test_v714_discovery_assertion.py` 25건).
+- LEGACY: 역사칭 제지만(발견 정보 연산 0).
+- A1 보정(2026-10-15 표적 검수 후 사용자 승인): 추출이 D키 없이 `item_changes`만 내면 발견이 CURRENT로 남아 재수거될 수 있었다. 게이트가 검증한 선언 대상·유일 동명 후보·PC +1 단일 변경·명시 키 없음·턴 전 미소지를 모두 만족할 때만 키 기반 수거로 정규화한다(이름만으로는 연결하지 않음). 추출 지시문에 D키 수거 기록 1줄.
+- 테스트 1,353건(신규 `test_v714_discovery_assertion.py` 35건).
 
 **v7.13.0** — 마스터(전 시나리오 공통 진행자, E안 '여유로운 신사형')의 인물화를 UI 표현으로만 반영했다(구현 패키지 `INDAIM_MASTER_PERSONA_IMPLEMENTATION_v1`, 사용자 결정 Q1~Q5).
 - 대사 데이터 `assets/master_dialogues_v1.json`(126키·252변주) + `core/master.py`(`line`/`say`/`lead`). 키·슬롯·파일 실패 시 기존 문구 그대로. 새 이벤트·메시지·AI 호출·상태 플래그 없음.

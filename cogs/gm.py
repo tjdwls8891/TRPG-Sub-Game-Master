@@ -99,7 +99,11 @@ def _parse_gate(raw, player_message: str, *, dynamic: bool, place=None, place_na
     if c not in GATE_CLASSES or res not in GATE_RESOLUTIONS or rc not in GATE_REASONS:
         return None
     gate = {"classification": c, "resolution": res, "reason_code": rc, "target": "", "kind": "NONE",
-            "existing_info_id": None, "place": None, "place_name": None}
+            "existing_info_id": None, "place": None, "place_name": None, "referenced_info_id": None}
+    # A1 보정: 선언이 이 장소의 기존 발견물(D키)을 가리킨다는 시뮬레이션 구조화 근거(분류 무관, 검증된 키만)
+    _ref = next((r for r in rows if r[0] == raw.get("existing_key")), None)
+    if _ref is not None and res not in ("BLOCK", "CLARIFY"):
+        gate["referenced_info_id"] = _ref[1]
     if c != "AMBIENT_PROPOSAL":
         if res not in ("CONTINUE", "BLOCK", "CLARIFY"):
             gate["resolution"] = "CONTINUE"
@@ -117,7 +121,8 @@ def _parse_gate(raw, player_message: str, *, dynamic: bool, place=None, place_na
             hit = (next((r for r in rows if r[0] == raw.get("existing_key")), None)
                    or next((r for r in rows if core.turn_world.same_target(r[2], target)), None))
             if hit:
-                gate.update(resolution="ACCEPT_NO_ROLL", existing_info_id=hit[1], target=hit[2], kind=hit[3])
+                gate.update(resolution="ACCEPT_NO_ROLL", existing_info_id=hit[1], target=hit[2], kind=hit[3],
+                            referenced_info_id=hit[1])
     elif res not in ("BLOCK", "CLARIFY"):
         gate["resolution"] = "CONTINUE"
     if gate["resolution"] in ("BLOCK", "CLARIFY") and gate["reason_code"] == "NONE":
@@ -2128,9 +2133,17 @@ class GMCog(commands.Cog):
         """추출 관찰 처리(순수) + 레거시 장소/시간 값을 정본 미러로 대체 + 후속 묘사 등록."""
         wt = prep.world_turn
         ctx = wt.ctx
+        _man = wt.obs_manifest or core.turn_world.ObservationManifest()
+        _raw = prep.world_observation_raw
+        # A1 보정: 추출이 D키를 빠뜨린 명확·유일한 현장 발견물 수거만 키 기반 수거로 정규화(이름만으로는 연결 안 함)
+        _implied = self._implied_discovery_take(session, prep.transaction_id, ctx, wt, _man, _raw, plan)
+        if _implied:
+            _raw = {**(_raw if isinstance(_raw, dict) else {}),
+                    "discovery_taken": list((_raw or {}).get("discovery_taken") or []) + [_implied]}
+            core.write_log(session.session_id, "api", f"[v7.14 발견 수거 키 복구] {_implied}")
         res = core.turn_world.process_observation(
-            ctx, session, wt.plan, wt.obs_manifest or core.turn_world.ObservationManifest(),
-            prep.world_observation_raw, transaction_id=prep.transaction_id,
+            ctx, session, wt.plan, _man,
+            _raw, transaction_id=prep.transaction_id,
             narrative_seed=getattr(session, "narrative_seed", None) or session.session_id,
             replan=wt.replan,
             face_info_ids=core.speaker_card.identity_info_ids(
@@ -2162,6 +2175,20 @@ class GMCog(commands.Cog):
                 "foreground_continuation", core.turn_preparation.TASK_FOREGROUND_CONTINUATION,
                 coro=self._generate_continuation(session, prep, cplan),
                 required_success=True, parent="extraction")
+
+    def _implied_discovery_take(self, session, transaction_id, ctx, wt, manifest, raw, plan):
+        """A1 보정 근거 조립 — 게이트가 검증한 선언 대상(기존 발견 D키 또는 이번 턴 새 발견)만 후보."""
+        gate = (self._tx_judgment(session, transaction_id) or {}).get("gate")
+        if wt.discovery and wt.discovery.get("status") == "NEW":
+            ref_key = core.turn_world.DISCOVERY_NEW_KEY
+        else:
+            iid = (gate or {}).get("referenced_info_id")
+            ref_key = next((r[0] for r in manifest.discoveries if iid and r[1] == iid), None)
+        uid = ctx.uid_of.get(ctx.lead_pc)
+        pc_name = ((getattr(session, "players", None) or {}).get(uid) or {}).get("name")
+        return core.turn_world.implied_discovery_take(
+            manifest, raw, ref_key, plan.item_deltas, pc_name,
+            ((getattr(session, "resources", None) or {}).get(pc_name) or {}) if pc_name else {})
 
     @staticmethod
     def _apply_discovery_gains(session, ctx, plan, gains) -> None:

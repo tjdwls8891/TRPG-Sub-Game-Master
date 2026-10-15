@@ -418,3 +418,96 @@ async def test_r_rerender_and_rewind_keep_world_and_items_consistent(grig):
     res = await r.gm.history_rewind(s, 1)
     assert res
     assert bag(s).get("나뭇조각") is None and validity(s, ambient_ids(s)[0]) == INFO.CURRENT
+
+
+# ══════════════════════════════════════════════════════════════
+# A1 보정 — 추출 D키 누락의 엄격한 조건부 복구(이름만으로는 연결하지 않는다)
+# ══════════════════════════════════════════════════════════════
+
+PICK = {"target": "테스터", "item": "쇠파이프", "delta": 1}
+
+
+async def _pipe(r):
+    iid = await _found(r, "쇠파이프", text="주변에서 쇠파이프를 찾아본다")
+    return iid
+
+
+async def _take(r, *, gate=None, items=(PICK,), obs=None, text="아까 발견한 쇠파이프를 집어 든다"):
+    r.prov.routes["simulation"] = [gate or sim(existing="D1")]
+    r.prov.routes["extraction"] = [extraction(obs or {}, item_changes=list(items))]
+    return await turn(r, text)
+
+
+async def test_a1_missing_key_unique_referenced_find_is_taken_once(grig):
+    r = grig
+    s = r.sess
+    iid = await _pipe(r)
+    tx = await _take(r)                                   # 게이트 ORDINARY + existing_key D1, 추출은 item_changes만
+    assert tx.judgment_result["gate"]["referenced_info_id"] == iid
+    assert validity(s, iid) == INFO.SUPERSEDED and bag(s)["쇠파이프"] == 1
+    # 후속 턴 재노출·재수거 없음
+    r.prov.routes["simulation"] = [sim()]
+    r.prov.routes["extraction"] = [extraction({"discovery_taken": ["D1"]})]
+    await turn(r, "쇠파이프를 또 집는다")
+    assert "D1=" not in r.prov.prompts["extraction"][-1][0] and bag(s)["쇠파이프"] == 1
+    assert "현장 발견물(D키)을 PC가 실제로 획득했다면" in prompts.EXTRACTION_SYSTEM_INSTRUCTION
+
+
+async def test_a1_missing_key_same_turn_new_find_is_taken_once(grig):
+    r = grig
+    s = r.sess
+    r.prov.routes["simulation"] = [sim("AMBIENT_PROPOSAL", "ACCEPT_NO_ROLL", target="쇠파이프", kind="OBJECT")]
+    r.prov.routes["extraction"] = [extraction({}, item_changes=[PICK])]
+    tx = await turn(r, "쓸 만한 쇠파이프를 찾아 집어 든다")
+    iid = TW.ambient_info_id(tx.transaction_id)
+    assert validity(s, iid) == INFO.SUPERSEDED and bag(s)["쇠파이프"] == 1
+
+
+async def test_a1_failed_find_with_item_change_does_not_link(grig, monkeypatch):
+    r = grig
+    r.prov.routes["simulation"] = [sim("AMBIENT_PROPOSAL", "ROLL", target="쇠파이프", kind="OBJECT")]
+    r.prov.routes["judgment"] = [jdg("ROLL", rolls=[droll()])]
+    r.prov.routes["extraction"] = [extraction({}, item_changes=[PICK])]
+    await roll_turn(r, monkeypatch, "쇠파이프를 찾아 집어 든다", (50, 50))
+    assert ambient_ids(r.sess) == []                      # 실패한 발견은 만들지도 연결하지도 않는다
+
+
+@pytest.mark.parametrize("case", ["no_reference", "other_source_npc", "not_pc", "delta_2", "already_held",
+                                  "explicit_gone"])
+async def test_a1_ambiguous_cases_do_not_link_by_name(grig, case):
+    r = grig
+    s = r.sess
+    iid = await _pipe(r)
+    kw = {}
+    if case == "no_reference":
+        kw["gate"] = sim()                                # 선언이 발견물을 가리킨다는 구조화 근거 없음
+    elif case == "other_source_npc":
+        kw["items"] = (PICK, {"target": "강도", "item": "쇠파이프", "delta": -1})   # NPC에게서 받은 정황
+        s.npcs = {**(s.npcs or {}), "강도": {}}
+    elif case == "not_pc":
+        s.npcs = {**(s.npcs or {}), "강도": {}}
+        kw["items"] = ({"target": "강도", "item": "쇠파이프", "delta": 1},)
+    elif case == "delta_2":
+        kw["items"] = ({**PICK, "delta": 2},)
+    elif case == "already_held":
+        s.resources = {**(s.resources or {}), "테스터": {"쇠파이프": 1}}
+    elif case == "explicit_gone":
+        kw["obs"] = {"discovery_gone": ["D1"]}
+    await _take(r, **kw)
+    if case == "explicit_gone":
+        assert validity(s, iid) == INFO.SUPERSEDED        # 명시 키가 우선(기존 처리)
+    else:
+        assert validity(s, iid) == INFO.CURRENT           # 자동 소멸·연결 없음
+
+
+def test_a1_helper_rejects_duplicate_names_wrong_row_and_environment():
+    man = TW.ObservationManifest(discoveries=(("D1", "i1", "쇠파이프", "OBJECT"), ("D2", "i2", "쇠파이프", "OBJECT"),
+                                              ("D3", "i3", "벽 틈", "ENVIRONMENT")))
+    deltas = [PICK]
+    assert TW.implied_discovery_take(man, {}, "D1", deltas, "테스터", {}) is None          # 동명 후보 복수
+    assert TW.implied_discovery_take(man, {}, "D9", deltas, "테스터", {}) is None          # 매니페스트 밖(다른 장소·무효)
+    assert TW.implied_discovery_take(man, {}, "D3", [{**PICK, "item": "벽 틈"}], "테스터", {}) is None
+    one = TW.ObservationManifest(discoveries=(("D1", "i1", "쇠파이프", "OBJECT"),))
+    assert TW.implied_discovery_take(one, {}, "D1", deltas, "테스터", {}) == "D1"
+    assert TW.implied_discovery_take(one, {}, None, deltas, "테스터", {}) is None          # 근거 없음
+    assert TW.implied_discovery_take(one, {"discovery_taken": ["D1"]}, "D1", deltas, "테스터", {}) is None

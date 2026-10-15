@@ -115,7 +115,7 @@ python main.py
 | 파일 | 역할 |
 |---|---|
 | `main.py` | `TRPGBot`, `active_sessions`, cog 자동 로드, 세션 복구, 초대 링크 생성, GM 홈 갱신 |
-| `prompts.py` (1,831줄) | 시스템 지시문 + 응답 스키마 12종. 권위 서술은 WP-G D1(아래 '프롬프트 권위') |
+| `prompts.py` (1,833줄) | 시스템 지시문 + 응답 스키마 12종. 권위 서술은 WP-G D1(아래 '프롬프트 권위') |
 | `scenarios/*.json` | 시나리오 데이터. 퀘스트는 `{이름}.quests.json`으로 분리 |
 | `media/{시나리오명}/` | 인물 이미지·BGM. **폴더명은 시나리오 id와 같아야 한다** |
 | `assets/master_dialogues_v1.json` | 마스터(진행자) 사전 저작 대사 데이터(키 126·변주 252) — 문구 교정은 이 파일만 고친다. 마스터 이미지 자산은 아직 없다 |
@@ -289,7 +289,7 @@ H04는 세계가 스스로 진행되는 데 필요한 정본과 **순수 투영*
 |---|---|---|
 | `action_intent.py` | 409 | `ActionReferenceManifest`(PC 지식 기반 후보 → transient 키 P/R/K/I, world_version·revision 결속)·판단 스키마 런타임 확장(`action_intent`, 추가 provider 호출 0)·`ResolvedActionIntent`(목적지·시간·경로 선택·접근 확인 토큰·명시 PC 태도, 후보 밖 키는 거부)·시간 목표 계산 |
 | `player_world.py` | 745 | 세계 모드(`definition_revision` 바인딩 + 정량 시간·구조화 장소 + 시계 초기화 + PC 배치 = DYNAMIC, 그 외 LEGACY)·경로 선택 정책(의미 있는 차이는 ASK, 자동은 (비용, 서명) 결정적)·구간별 실제 접근 + 구간 사이 H04 세계 진행(관찰 신호 중단·숨은 봉쇄는 도달 시 관찰)·대기/수면 ActivityContext·PLAYER_EXPLICIT 태도·`namespace_ops`/`chain` |
-| `turn_world.py` | 1,050 | 묘사 오버레이(투영 장면·관찰 가능한 결과만 · 정본 이동 없는 턴은 장소 고정 문구 · 묘사층위 세계 블록 `narration_world_block` — 정본 날짜·요일·시각·장소·출구·장면 인물 독립 블록 · 목적지 불명 이동은 보이는 출구로 되묻기)·레거시 `world_timeline` 표시 미러(정본에서 파생)·관찰 매니페스트(장면 행위자가 아는 정보·장면 신호·선후 선택지)·`process_observation`(노출 → PC 획득, 비코드 소유 추가 시간, 선후 검증, 보충 진행)·`ForegroundContinuationPlan`·투영 미디어 허용 장소 · v7.14 주변 발견(`ambient_discovery` RUNTIME 정보 + PC 인지, 관찰 매니페스트 D키 수거·소진 → SUPERSEDED·소지품 +1) |
+| `turn_world.py` | 1,077 | 묘사 오버레이(투영 장면·관찰 가능한 결과만 · 정본 이동 없는 턴은 장소 고정 문구 · 묘사층위 세계 블록 `narration_world_block` — 정본 날짜·요일·시각·장소·출구·장면 인물 독립 블록 · 목적지 불명 이동은 보이는 출구로 되묻기)·레거시 `world_timeline` 표시 미러(정본에서 파생)·관찰 매니페스트(장면 행위자가 아는 정보·장면 신호·선후 선택지)·`process_observation`(노출 → PC 획득, 비코드 소유 추가 시간, 선후 검증, 보충 진행)·`ForegroundContinuationPlan`·투영 미디어 허용 장소 · v7.14 주변 발견(`ambient_discovery` RUNTIME 정보 + PC 인지, 관찰 매니페스트 D키 수거·소진 → SUPERSEDED·소지품 +1) |
 
 자동 턴 순서(DYNAMIC): 판단(매니페스트·`action_intent`) → 코드 계획(경로 ASK는 지시층위 전) → 지시·묘사(오버레이·투영 장소 블록·투영 장면 이미지) → 추출(`world_observation`) → 보충 진행 → (필요 시 후속 묘사 1회, 같은 턴 비용) → READY(`stage_world_ops`) → CommitCoordinator → 후속 묘사 송출(시도 소유) → 다음 행동 질문. 장소·시간 권위는 정본 세계이며 추출의 장소·날짜는 적용되지 않는다. 묘사 전 결정적 충돌은 묘사 호출 없이, 묘사 후 충돌·모호한 선후는 재시도 없이 FAILED_SYSTEM(청구 0). LEGACY 세션은 기존 경로와 동일하다. 운영 세션이 DYNAMIC이 되려면 H06 정의 바인딩·genesis가 필요하다(현재 영도 단일 PC만).
 
@@ -418,7 +418,7 @@ H02: `TurnPreparation`은 world_version·definition_revision 기준선과 `World
 
 - BLOCK·CLARIFY → 판단 호출 없이 중립 안내(굴림 0). 게이트 없음(캐시 불가) + 발견 제안 → "확인할 수 없다" 안내(굴림·정보 연산 0). IMPROPER_ASSERTION + CONTINUE → 시도만 진행(지시층위 `[선언 처리 — 코드 확정]`에 판단 `player_intent`를 권위 있는 시도로).
 - 게이트 ROLL → 판단의 `discovery=true` GENERAL 굴림 1개 필수(없으면 계약 위반 재시도). 발견 성공 = 그 굴림의 성패만. 굴림 기록 `roll_records[*].discovery`. 실패는 '이번에 찾지 못함' — 정본 무변경.
-- DYNAMIC만 영속: 승인·성공 → 관찰 단계 `INFORMATION_CREATE`(`rt.ambient.<tx digest>`, `ambient_discovery`, `place:<PlaceId>`) + PC `COGNITION_ACQUIRE(CONTENT)` → READY → CommitCoordinator. 관찰 매니페스트 D키(현재 장소 유효 발견 + `DNEW`)로 추출이 `discovery_taken`·`discovery_gone`을 지목 → `INFORMATION_VALIDITY_SET(SUPERSEDED)`, 수거(OBJECT만)는 같은 커밋 소지품 +1(같은 이름 + 중복 제거). 지시층위 '현재 장소에서 PC가 발견해 둔 것' 블록(최근 인지 12건과 무관), `pc_knowledge_block`은 CURRENT만.
+- DYNAMIC만 영속: 승인·성공 → 관찰 단계 `INFORMATION_CREATE`(`rt.ambient.<tx digest>`, `ambient_discovery`, `place:<PlaceId>`) + PC `COGNITION_ACQUIRE(CONTENT)` → READY → CommitCoordinator. 관찰 매니페스트 D키(현재 장소 유효 발견 + `DNEW`)로 추출이 `discovery_taken`·`discovery_gone`을 지목 → `INFORMATION_VALIDITY_SET(SUPERSEDED)`, 수거(OBJECT만)는 같은 커밋 소지품 +1(같은 이름 + 중복 제거). 지시층위 '현재 장소에서 PC가 발견해 둔 것' 블록(최근 인지 12건과 무관), `pc_knowledge_block`은 CURRENT만. A1 보정: 추출이 D키를 빠뜨려도 게이트가 검증한 선언 대상(`referenced_info_id` 또는 이번 턴 DNEW)이 매니페스트의 유일한 동명 OBJECT이고, 같은 이름 소지 변경이 PC +1 한 건뿐이며, 명시 키가 없고, PC가 턴 전에 같은 이름을 갖고 있지 않을 때만 키 기반 수거로 정규화한다(`turn_world.implied_discovery_take`). 그 밖에는 이름으로 연결하지 않는다.
 - 반복 탐색: 시뮬레이션 입력에 이 장소의 유효 발견(D키 — `existing_key` 재사용)과 찾지 못한 이전 탐색(`turn_history.recent_failed_discoveries` — 선택 이력 roll_records)을 넣고 조건 불변이면 BLOCK(UNCHANGED_RETRY). 횟수 제한·쿨다운·부재 기록 없음.
 - LEGACY: 발견 승인·판정은 일반 행동으로(정보 연산 0), BLOCK·CLARIFY·역사칭 처리만 적용.
 
@@ -552,7 +552,7 @@ pip install -r requirements-dev.txt
 python3 -m pytest tests/ -q
 ```
 
-`tests/`는 **현재 동작과 권위 불변식을 고정**한다. 현재 1,343건(특성화 61 · 결함 27 · 정책 1,255)이 모두 통과하며 strict xfail은 0건이다.
+`tests/`는 **현재 동작과 권위 불변식을 고정**한다. 현재 1,353건(특성화 61 · 결함 27 · 정책 1,265)이 모두 통과하며 strict xfail은 0건이다.
 
 | 분류 | 의미 |
 |---|---|

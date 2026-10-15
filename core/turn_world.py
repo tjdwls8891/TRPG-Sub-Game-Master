@@ -640,6 +640,33 @@ def discovery_block(ctx, plan, session) -> str:
             "획득·사용으로 서술]\n" + "\n".join(f"· {t} ({_KIND_WORD.get(kd, kd)})" for _k, _i, t, kd in rows) + "\n")
 
 
+def implied_discovery_take(obs_manifest, raw, ref_key, item_deltas, pc_name, pc_bag_before) -> str | None:
+    """A1 보정: 추출이 D키를 빠뜨린 발견물 수거의 엄격한 조건부 복구 — 복구할 D키 또는 None. 순수.
+
+    모두 충족할 때만: ① 선언이 가리킨 후보(ref_key — 게이트가 검증한 기존 발견 키 또는 이번 턴 DNEW)가 이번 턴
+    매니페스트의 OBJECT 행이다 ② 그 키(다른 키 포함 어떤 D키)도 추출이 명시하지 않았다 ③ 매니페스트에 같은 이름
+    행이 정확히 하나다 ④ 같은 이름 소지 변경이 추출 전체에서 PC +1 한 건뿐이다(다른 인물 증감 = 다른 출처 정황)
+    ⑤ PC가 턴 전부터 같은 이름을 갖고 있지 않다(기존 소지품 정리와 구분). 이름 일치는 후보 좁히기일 뿐이다.
+    """
+    if not ref_key or not pc_name or not isinstance(raw, dict):
+        return None
+    if any(k not in (None, "", "NONE") for k in list(raw.get("discovery_taken") or ())
+           + list(raw.get("discovery_gone") or ())):
+        return None
+    row = obs_manifest.discovery_of(ref_key)
+    if row is None or row[3] != "OBJECT":
+        return None
+    target = row[2]
+    if sum(1 for r in obs_manifest.discoveries if same_target(r[2], target)) != 1:
+        return None
+    hits = [e for e in item_deltas or () if same_target(e.get("item"), target)]
+    if len(hits) != 1 or hits[0].get("target") != pc_name or int(hits[0].get("delta") or 0) != 1:
+        return None
+    if any(same_target(k, target) and (v or 0) > 0 for k, v in (pc_bag_before or {}).items()):
+        return None
+    return ref_key
+
+
 def discovery_ops(ctx, world, obs_manifest, raw: dict, outcome, *, prefix: str, transaction_id: str, at_minute):
     """발견 생성(NEW) + 추출이 키로 지목한 수거·소진 → (ops, 수거한 대상명 목록, 진단). 순수.
 
