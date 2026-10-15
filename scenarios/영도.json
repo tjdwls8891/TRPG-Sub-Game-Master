@@ -1965,8 +1965,40 @@
       "field": "외형",
       "module": "ai_merge",
       "args": {
-        "prompt": "외형을 알려 주십시오. 여러 번에 나눠 적으셔도 됩니다.",
-        "max_length": 250
+        "prompt": "외형을 알려 주십시오.",
+        "max_length": 250,
+        "creation_guide": {
+          "direct": true,
+          "compose_rules": "플레이어가 답한 외형 요소만 자연스럽게 잇는다. 흉터·문신·장애·특이 체질처럼 답하지 않은 특징은 새로 넣지 않는다.",
+          "questions": [
+            {
+              "id": "build",
+              "prompt": "체격은 어떤 편입니까?",
+              "required": true,
+              "options": [
+                "마른 편",
+                "보통",
+                "다부진 편",
+                "큰 체구"
+              ]
+            },
+            {
+              "id": "face",
+              "prompt": "얼굴과 머리 모양은 어떻습니까? (예: 짧게 깎은 머리, 덥수룩한 수염)",
+              "required": true
+            },
+            {
+              "id": "impression",
+              "prompt": "처음 본 사람은 어떤 인상을 받습니까?",
+              "required": false
+            },
+            {
+              "id": "mark",
+              "prompt": "눈에 띄는 특징이 있다면 적어 주십시오. (예: 안경, 오래된 흉터)",
+              "required": false
+            }
+          ]
+        }
       }
     },
     {
@@ -1974,7 +2006,33 @@
       "module": "ai_validate",
       "args": {
         "prompt": "사태 이전 무엇을 하던 사람이었는지, 어떻게 지금까지 살아남았는지 적어 주십시오.",
-        "rules": "2016년 부산 배경. 초자연적 능력이나 군사 특수훈련 이력은 불가."
+        "rules": "2016년 부산 배경. 초자연적 능력이나 군사 특수훈련 이력은 불가.",
+        "creation_guide": {
+          "direct": true,
+          "compose_rules": "사태 이전의 삶 → 사태 이후 버텨 온 과정 순서로 잇는다. 답에 없는 가족·인맥·과거 사건·특수 훈련·능력은 만들지 않는다.",
+          "questions": [
+            {
+              "id": "before",
+              "prompt": "사태 이전에는 무엇을 하며 살았습니까?",
+              "required": true
+            },
+            {
+              "id": "survival",
+              "prompt": "사태 이후 지금까지 어떻게 살아남았습니까?",
+              "required": true
+            },
+            {
+              "id": "reason",
+              "prompt": "영도로 건너온 이유가 있다면 적어 주십시오.",
+              "required": false
+            },
+            {
+              "id": "trait",
+              "prompt": "성격이나 버릇을 한두 가지 적어 주십시오.",
+              "required": false
+            }
+          ]
+        }
       }
     },
     {
@@ -1982,7 +2040,33 @@
       "module": "ai_merge",
       "args": {
         "prompt": "지금 입고 있는 옷과 소지품을 알려 주십시오.",
-        "max_length": 200
+        "max_length": 200,
+        "creation_guide": {
+          "direct": true,
+          "compose_rules": "답한 옷차림과 물건만 적는다. 무기·귀한 물자를 새로 보태지 않는다.",
+          "questions": [
+            {
+              "id": "clothes",
+              "prompt": "지금 무엇을 입고 있습니까?",
+              "required": true
+            },
+            {
+              "id": "condition",
+              "prompt": "옷의 상태는 어떻습니까?",
+              "required": false,
+              "options": [
+                "깨끗한 편",
+                "해지고 낡음",
+                "흙과 얼룩투성이"
+              ]
+            },
+            {
+              "id": "carry",
+              "prompt": "몸에 지니고 다니는 물건이 있다면 적어 주십시오.",
+              "required": false
+            }
+          ]
+        }
       }
     }
   ],

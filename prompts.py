@@ -374,10 +374,9 @@ PROFILE_VALIDATE_RESPONSE_SCHEMA = {
             "enum": ["ok", "warn", "reject"],
             "description": "ok 통과 / warn 통과하되 안내 / reject 재입력 필요"
         },
-        "reason": {"type": "string", "description": "판정 사유 한두 문장. ok면 빈 문자열."},
-        "suggestion": {"type": "string", "description": "reject일 때 대안 예시. 없으면 빈 문자열."}
+        "reason": {"type": "string", "description": "판정 사유 한두 문장. ok면 빈 문자열."}
     },
-    "required": ["verdict", "reason", "suggestion"]
+    "required": ["verdict", "reason"]
 }
 
 PROFILE_VALIDATE_SYSTEM_INSTRUCTION = """당신은 한국어 TRPG의 캐릭터 생성 검증기입니다.
@@ -396,6 +395,7 @@ PROFILE_VALIDATE_SYSTEM_INSTRUCTION = """당신은 한국어 TRPG의 캐릭터 �
 ■ 취향을 판정하지 마십시오. 촌스럽다·평범하다는 reject 사유가 아닙니다.
 ■ 플레이어의 선택을 존중하십시오. 애매하면 ok입니다.
 ■ 제시된 시나리오 정보에 없는 규칙을 만들어내지 마십시오.
+■ 대안 설정을 제시하거나 입력을 고쳐 쓰지 마십시오. reject면 무엇이 왜 충돌하는지만 설명합니다.
 
 [출력] 지정된 JSON 스키마에 정확히 부합하는 JSON만 출력합니다.
        추가 텍스트, 마크다운, 코드블럭 모두 금지.
@@ -425,6 +425,9 @@ PROFILE_MERGE_SYSTEM_INSTRUCTION = """당신은 한국어 TRPG의 캐릭터 정�
 ■ 플레이어가 쓴 표현을 최대한 살리십시오.
   문장을 매끄럽게 잇는 것이 목적이지 다시 쓰는 것이 아닙니다.
 ■ 서로 모순되는 입력이 있으면 나중 것을 채택하고 dropped에 적으십시오.
+■ 사소한 연결어·문장 흐름·분위기 표현만 보탤 수 있습니다. 과거 사건·가족·인맥·직업 경력·장애·특별한 능력·
+  핵심 동기처럼 플레이어가 정하지 않은 중요한 사실은 만들지 마십시오.
+■ [조합 지침]이 있으면 따르되, 그것이 위 금지를 풀어 주지는 않습니다.
 ■ 지정된 길이를 넘기지 마십시오.
 
 [출력] 지정된 JSON 스키마에 정확히 부합하는 JSON만 출력합니다.

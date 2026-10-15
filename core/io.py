@@ -158,6 +158,7 @@ SESSION_FIELDS: dict = {
     "display_ch_id": None,
     "display_msg_id": None,
     "awaiting_display_input": False,
+    "profile_creation_progress": {},   # v7.15 세션 안 캐릭터 생성 진행(플레이어별 — 재시작 복원)
     "is_private": False,
     "pending_bgm": None,
     "media_flags": {},

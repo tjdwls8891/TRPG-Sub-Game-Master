@@ -138,6 +138,13 @@ class TRPGBot(commands.Bot):
         # [디스크에 저장된 세션 복구 및 캐시 재연동 실행]
         # 봇 재시작으로 인한 데이터 증발을 막기 위해 sessions 폴더의 data.json을 메모리에 재적재.
         await core.restore_sessions_from_disk(self)
+        # v7.15: 세션 안 캐릭터 생성 진행(답변·초안·질문 위치)을 이어 그린다 — 낡은 버튼은 무효.
+        try:
+            n = await core.profile_creation_ui.resume_all(self)
+            if n:
+                print(f"캐릭터 생성 진행 복원: {n}건")
+        except Exception as e:
+            print(f"⚠️ 캐릭터 생성 복원 실패(무시): {e}")
 
         # [GM 홈 갱신·복구] GM 스페이스는 오너가 아닌 유저의 유일한 세션
         # 진입점이다. 명령어는 마스터 채널 전용이므로, 스페이스가 없으면

@@ -184,6 +184,8 @@ class TRPGSession:
         self.display_msg_id = None
         # 디스플레이 채널에서 1회 텍스트 입력을 기다리는 중인지
         self.awaiting_display_input = False
+        # v7.15 세션 안 캐릭터 생성 진행 {uid: {...run...}} — 재시작 뒤 core.profile_creation_ui.resume_all이 복원
+        self.profile_creation_progress = {}
         # 비공개 세션 여부
         self.is_private = False
         # 미디어 온오프 토글 (이미지·TTS·BGM·효과음)

@@ -66,6 +66,11 @@ def line(key: str, *, slots: dict | None = None) -> str | None:
     return text
 
 
+def has_key(key: str) -> bool:
+    """대사 데이터에 그 키가 있는가(저작 검사용)."""
+    return bool(_load()["events"].get(key))
+
+
 def say(key: str, fallback: str, *, slots: dict | None = None) -> str:
     """마스터 대사 또는 기존 문구."""
     return line(key, slots=slots) or fallback

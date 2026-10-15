@@ -1519,6 +1519,12 @@ class GMCog(commands.Cog):
         if message.content.startswith("!"):
             return
 
+        # v7.15: 캐릭터 생성 중인 플레이어의 채팅은 생성 답변 경로가 소유한다(지금 텍스트를 기다리면 1건 소비,
+        #   아니면 무시). GM 활성 여부·턴 처리보다 먼저 판정한다 — DM 사전 생성도 같은 경로.
+        if core.profile_creation_ui.claims(self.bot, message):
+            asyncio.create_task(core.profile_creation_ui.on_chat(self.bot, message))
+            return
+
         session = self.bot.active_sessions.get(message.channel.id)
         if not session:
             return
