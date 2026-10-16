@@ -741,6 +741,20 @@ def apply_plan(session, plan: ItemPlan) -> list:
     return sim.report
 
 
+def current_facts(session) -> dict:
+    """다음 계획이 볼 사용·지급 사실 — 마지막 커밋 턴이 바로 그 사실을 만든 턴일 때만(그 외 빈 사실).
+
+    item_facts.tx = 사실을 만든 트랜잭션, world_version.cause_id = 마지막 커밋 원인. 커밋된 플레이어 턴은 빈 묶음이어도
+    world_version을 전진시키므로, 아이템 계획 없이 커밋된 뒤 턴(NARRATE 등)이 끼면 옛 사실은 더 이상 새 사실이 아니다.
+    커밋하지 않은 시도(ASK 등)는 둘 다 바꾸지 않아 사실이 실제 다음 커밋 계획까지 남는다. 둘 다 되감기 대상이라 함께 복원된다.
+    """
+    facts = getattr(session, "item_facts", None) or {}
+    wv = getattr(session, "world_version", None) or {}
+    if not facts.get("tx") or wv.get("cause_id") != facts.get("tx"):
+        return {"used": [], "paid": []}
+    return {"used": list(facts.get("used") or ()), "paid": list(facts.get("paid") or ())}
+
+
 # ══════════════════════════════════════════════════════════════
 #  접근 지급(R4) · 정의 · 프롬프트 블록
 # ══════════════════════════════════════════════════════════════

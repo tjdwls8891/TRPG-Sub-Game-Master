@@ -2067,7 +2067,7 @@ class GMCog(commands.Cog):
             ctx, session, intent, transaction_id=transaction_id,
             narrative_seed=getattr(session, "narrative_seed", None) or session.session_id,
             capabilities=core.player_world.pc_capabilities(session, ctx.uid_of.get(ctx.lead_pc), ctx.definition),
-            item_facts=getattr(session, "item_facts", None) or {},
+            item_facts=core.items.current_facts(session),           # v7.17: 직전 커밋 턴의 사실만
             stats=core.player_world.pc_stats(session, ctx.uid_of.get(ctx.lead_pc)),       # H07: 스탯 조건
             resolved_tie_orders=resolved_tie_orders)
 

@@ -117,6 +117,11 @@ async def _complete(state):
         prog = dict(getattr(s, PROGRESS_FIELD) or {})
         prog.pop(state.uid, None)
         setattr(s, PROGRESS_FIELD, prog)
+        # v7.17 안정화 P3: 세션 플로우의 프로필 단계라면 '승인·저장 선택 완료'를 같은 strict 저장에 남긴다 —
+        #   다음 단계(on_profile_done) 전에 재시작돼도 resume_all이 확정 프로필로 이어 간다(질문 반복 없음).
+        st = getattr(s, "creation_state", None)
+        if isinstance(st, dict) and st.get("step") == "profile":
+            st.setdefault("data", {})["profile"] = "완료"
         try:
             from .io import save_session_data_strict
             await save_session_data_strict(state.bot, s)
@@ -1539,4 +1544,27 @@ async def resume_all(bot) -> int:
                     n += 1
             except Exception as e:
                 print(f"[프로필 생성] 복원 실패: {e}")
+        try:
+            if await _resume_after_profile(bot, session):
+                n += 1
+        except Exception as e:
+            print(f"[프로필 생성] 완료 뒤 단계 복원 실패: {e}")
     return n
+
+
+async def _resume_after_profile(bot, session) -> bool:
+    """v7.17 안정화 P3: 프로필 확정·저장 선택까지 끝났는데 세션 플로우가 프로필 단계에 남은 세션 → 기존
+    on_profile_done으로 이어 간다(PROFILE 초기 지식은 멱등·영수증·UNCERTAIN 규칙 그대로, 새 AI 호출 정책 불변)."""
+    st = getattr(session, "creation_state", None)
+    if not (isinstance(st, dict) and st.get("step") == "profile" and (st.get("data") or {}).get("profile") == "완료"):
+        return False
+    from . import session_flow
+    uid = session_flow._owner(session)
+    if not uid or uid in (getattr(session, PROGRESS_FIELD, None) or {}) \
+            or not ((getattr(session, "players", None) or {}).get(uid) or {}).get("profile"):
+        return False
+    channel = bot.get_channel(getattr(session, "game_ch_id", 0))
+    if channel is None:
+        return False
+    await session_flow.on_profile_done(bot, session, channel)
+    return True

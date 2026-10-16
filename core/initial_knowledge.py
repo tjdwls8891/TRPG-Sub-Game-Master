@@ -298,7 +298,8 @@ async def prepare(bot, session, uid, phase, definition: dict, *, frame=None) -> 
                      for r in delivered_rows(session, uid, PHASE_PROFILE) if r["id"] in valid]
     base = {"scenario_revision": _definition_revision(definition), "profile_digest": profile_digest(session, uid),
             "start_frame_id": frame_id}
-    if not req and not opt and not recontext:
+    if not req and not opt:
+        # 새로 전달할 적격 후보가 없으면 호출하지 않는다 — 상기(recontext)만을 위한 호출 없음(안정화 P1)
         rec.clear()
         rec.update(base, state=SKIPPED, reason="NO_CANDIDATES", selected_info=[], ai_calls=0)
         await _strict_save(bot, session)       # 생략은 안전 상태 — 저장 실패해도 정본 영향 없음
