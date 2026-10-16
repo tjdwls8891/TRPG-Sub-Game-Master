@@ -11,7 +11,7 @@ from discord.ext import commands
 import core
 
 # 비허가 유저도 사용할 수 있는 명령 (게임 채널의 플레이어 참가 전용)
-EXEMPT_COMMANDS = {"참가"}
+EXEMPT_COMMANDS = {"참가", "세션관리"}   # 세션관리: 생성자 본인 세션 — 명령 안에서 서버 측 권한 검사
 
 
 class PermissionCog(commands.Cog):

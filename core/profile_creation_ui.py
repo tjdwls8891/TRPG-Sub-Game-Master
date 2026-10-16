@@ -124,6 +124,17 @@ async def _complete(state):
             print(f"[프로필 생성] 완료 기록 저장 실패: {e}")
 
 
+def release_session(session) -> int:
+    """세션 관리(종료·제거): 그 세션의 생성 화면 등록을 내린다 — 이후 채팅·버튼이 생성 경로로 오지 않는다.
+
+    진행 중인 AI 작업은 강제로 끊지 않는다. 끝난 뒤의 저장은 종료·삭제 상태가 막는다. 내린 수를 돌려준다.
+    """
+    gone = [k for k, st in list(_ACTIVE.items()) if getattr(st, "session", None) is session]
+    for k in gone:
+        _ACTIVE.pop(k, None)
+    return len(gone)
+
+
 def claims(bot, message) -> bool:
     """이 메시지가 진행 중인 캐릭터 생성(그 채널·그 플레이어)에 속하는가 — 턴 맥락 기록·턴 처리 제외 판정.
 

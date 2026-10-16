@@ -155,6 +155,8 @@ SESSION_FIELDS: dict = {
     "irregular_npcs": {},
     "voice_ch_id": None,
     "creator_uid": "",
+    "guild_id": None,         # 세션 관리 — 개설 길드(채널이 사라져도 권한 범위를 안다). 구 세션은 None
+    "category_id": None,      # 세션 관리 — 세션 카테고리 id(이름 패턴이 아니라 id로 정리). 구 세션은 None
     "display_ch_id": None,
     "display_msg_id": None,
     "awaiting_display_input": False,
@@ -388,6 +390,23 @@ def _serialize_session(session) -> dict:
     return data
 
 
+# 세션 관리: 게임 데이터 삭제가 시작된 세션 id(프로세스 수명). 늦게 끝난 비동기 작업의 저장이
+#   삭제된 세션 폴더(data.json)를 되살리지 못하게 한다. 영구 삭제 이력이 아니다(재시작 뒤엔 참조할 객체가 없다).
+_REMOVED_SESSION_IDS: set = set()
+
+
+class SessionRemovedError(RuntimeError):
+    """게임 데이터 삭제가 시작된 세션에 쓰려 했다."""
+
+
+def mark_session_removed(session_id) -> None:
+    _REMOVED_SESSION_IDS.add(str(session_id))
+
+
+def is_session_removed(session_id) -> bool:
+    return str(session_id) in _REMOVED_SESSION_IDS
+
+
 def _atomic_write_session(session, data: dict) -> None:
     """tmp → os.replace 원자적 쓰기. 실패 시 자신의 tmp 를 제거하고 예외를 전파.
 
@@ -396,6 +415,8 @@ def _atomic_write_session(session, data: dict) -> None:
     - os.replace 는 원자적이므로 실패해도 기존 data.json(캐노니컬)은 훼손되지 않는다.
     - 여기서는 예외를 삼키지 않는다 — strict/tolerant 래퍼가 실패 계약을 정한다.
     """
+    if is_session_removed(session.session_id):
+        raise SessionRemovedError(f"세션 {session.session_id}은(는) 제거 중입니다 — 저장하지 않습니다")
     session_dir = f"sessions/{session.session_id}"
     final_path = f"{session_dir}/data.json"
     tmp_path = f"{session_dir}/data.json.{os.getpid()}.{time.time_ns()}.tmp"

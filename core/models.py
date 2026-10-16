@@ -179,6 +179,9 @@ class TRPGSession:
         self.voice_ch_id = None
         # 세션 개설자 uid — players가 비기 전 단계에서 소유자를 안다
         self.creator_uid = ""
+        # 세션 관리 — 개설 길드·카테고리 id(채널이 사라져도 권한·정리 범위를 id로 안다)
+        self.guild_id = None
+        self.category_id = None
         # 디스플레이 채널 — 상태 표기와 UI를 단일 메시지로 유지한다
         self.display_ch_id = None
         self.display_msg_id = None

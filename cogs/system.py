@@ -109,7 +109,8 @@ class SystemCog(commands.Cog):
             "`!새세션 [시나리오명]` — (수동) 채널 3종 생성 + 룰북 캐시 업로드\n"
             "`!시작` — 시작 상황 삼지선다 제시 → 선택 시 인트로 재생 (1회 한정)\n"
             "`!소개` — 인트로·캐릭터 생성 안내를 게임 채널에 스트리밍\n"
-            "`!세션종료` — 게임 채널 잠금 · 캐시 파기 · 과금 정산"
+            "`!세션종료` — 게임 채널 잠금 · 캐시 파기 · 과금 정산\n"
+            "`!세션관리` — 세션 정리(종료만·채널 삭제·게임 데이터 삭제·완전 제거, 생성자는 자기 세션)"
         ), inline=False)
 
         embed.add_field(name="🧙  캐릭터 설정", value=(
@@ -226,6 +227,18 @@ class SystemCog(commands.Cog):
             if channel.category is None and ("game-" in channel.name or "master-" in channel.name):
                 target_items[channel.id] = channel
 
+        # 세션 관리: 세션이 소유한 채널·카테고리는 정산 없이 지우지 않는다 — `!세션관리`로 안내한다.
+        owned = core.session_removal.owned_resource_ids(self.bot)
+        protected = 0
+        for cid, item in list(target_items.items()):
+            subs = [c.id for c in getattr(item, "channels", None) or ()]
+            if cid in owned or any(s in owned for s in subs):
+                target_items.pop(cid)
+                protected += 1
+        if protected:
+            await ctx.send(f"ℹ️ 세션 소유 채널·카테고리 {protected}개는 제외했습니다. "
+                           "세션 정리는 `!세션관리`에서 종료·정산과 함께 하십시오.")
+
         if not target_items:
             return await ctx.send("⚠️ 삭제 후보로 필터링된 TRPG 관련 채널이나 카테고리가 없습니다.")
 
@@ -242,6 +255,20 @@ class SystemCog(commands.Cog):
         if isinstance(error, commands.MissingPermissions):
             await ctx.send("⚠️ 이 명령어를 사용하려면 '채널 관리' 권한이 필요합니다.")
 
+
+    @commands.command(name="세션관리")
+    async def manage_sessions(self, ctx):
+        """세션 종료·제거 통합 관리 — 종료만 / 채널 삭제 / 게임 데이터 삭제 / 완전 제거.
+
+        운영자는 기존 허가 범위, 세션 생성자는 자기 세션만 다룬다(전역 권한 예외는 이 명령뿐 — 권한은
+        화면의 모든 선택·확인·실행에서 서버 측으로 다시 검사한다).
+        """
+        if ctx.guild is None:
+            return await ctx.send("서버 채널에서 사용해 주십시오.")
+        view = core.session_removal.ManageView(self.bot, ctx.author, ctx.guild)
+        if not await view.prepare():
+            return await ctx.send("관리할 수 있는 세션이 없습니다.")
+        view.message = await ctx.send(embed=view.home_embed(), view=view)
 
     @commands.command(name="세션종료")
     async def end_session(self, ctx):

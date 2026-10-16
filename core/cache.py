@@ -434,6 +434,95 @@ NPC의 현재 위치·상태처럼 변하는 런타임 상태는 프롬프트의
         return rulebook_text + ("." * 150000), 38000, rulebook_text
 
 
+def _session_from_data(data: dict):
+    """data.json dict → TRPGSession(마이그레이션·필드 복구·런타임 초기화). 시나리오를 읽지 못하면 None.
+
+    재시작 복구와 세션 관리(디스크에서 종료된 세션 읽기)가 같은 규칙을 쓴다. 활성 등록·복구 처분은 하지 않는다.
+    """
+    session_id = data.get("session_id")
+    # ── 스키마 마이그레이션 ──
+    # 필드명이 바뀐 버전은 값을 옮겨 담는다. 이관하지 않으면
+    # 구세션의 GM 진행 상태가 통째로 초기화된다.
+    saved_version = data.get("schema_version", 1)
+    if saved_version < SCHEMA_VERSION:
+        print(f"⚠️ {session_id}: 저장 스키마 v{saved_version} → 현재 v{SCHEMA_VERSION} — 마이그레이션 수행")
+        data = migrate_session_data(data)
+
+    scenario_data = load_scenario_from_file(data["scenario_id"])
+    if not scenario_data:
+        return None
+
+    session = TRPGSession(
+        data["session_id"], data["game_ch_id"], data["master_ch_id"],
+        data["scenario_id"], scenario_data
+    )
+
+    # ── 핵심 필드 복구 ──
+    session.players = data.get("players", {})
+    session.npcs = data.get("npcs", {})
+    session.resources = data.get("resources", {})
+    session.statuses = data.get("statuses", {})
+    session.compressed_memory = data.get("compressed_memory", "")
+    session.cache_name = data.get("cache_name")
+    session.current_turn_logs = data.get("current_turn_logs", [])
+    session.turn_count = data.get("turn_count", 0)
+    session.uncompressed_logs = data.get("uncompressed_logs", [])
+
+    # ── 선택적 필드 — SESSION_FIELDS 레지스트리로 일괄 복구 ──
+    # _MISSING 센티널로 실제 누락(기본값 사용)과 None 저장값을 구분한다.
+    for field, default in SESSION_FIELDS.items():
+        value = data.get(field, _MISSING)
+        if value is _MISSING:
+            setattr(session, field, copy.deepcopy(default))
+        else:
+            setattr(session, field, value)
+
+    # ── 재시작 시 항상 초기화되는 필드 (SESSION_RESET_FIELDS) ──
+    for field, reset_val in SESSION_RESET_FIELDS.items():
+        setattr(session, field, copy.deepcopy(reset_val))
+
+    # ── 런타임 전용 필드 초기화 ──
+    session.is_processing = False
+    session.gm_lock = False
+
+    # ── 후처리: None으로 저장된 cache_model을 DEFAULT_MODEL로 복원 ──
+    # (process_cache_deletion이 cache_model = None으로 저장하는 경우 대비)
+    if not session.cache_model:
+        session.cache_model = DEFAULT_MODEL
+
+    # ── raw_logs 복원 (_deserialize_log_entry로 안전 변환) ──
+    restored_raw_logs = []
+    for item in data.get("raw_logs", []):
+        entry = _deserialize_log_entry(item)
+        if entry is not None:
+            restored_raw_logs.append(entry)
+    session.raw_logs = restored_raw_logs
+    return session
+
+
+def load_session_from_disk(session_id: str):
+    """디스크의 세션 하나를 객체로 읽는다(활성 등록·복구 처분 없음). 없거나 읽을 수 없으면 None.
+
+    정의가 바인딩된 세션은 재시작 복구와 같이 스냅샷 원문을 시나리오로 쓴다.
+    """
+    data_path = f"sessions/{session_id}/data.json"
+    if not os.path.isfile(data_path):
+        return None
+    with open(data_path, "r", encoding="utf-8") as f:
+        data = json.load(f)
+    session = _session_from_data(data)
+    if session is None:
+        return None
+    try:
+        from . import cache_source as _src
+        from . import world_lifecycle as _wlc
+        if _wlc.world_bound(session) and getattr(session, "definition_revision", None):
+            session.scenario_data = _src.bound_scenario_data(session)
+    except Exception as e:  # noqa: BLE001 — 종료·정리 용도: 원본 시나리오로 둔다
+        print(f"⚠️ {session_id}: 바인딩 정의 스냅샷을 읽지 못했습니다: {e}")
+    return session
+
+
 async def restore_sessions_from_disk(bot):
     """
     봇 재시작 시 로컬 디스크에 저장된 모든 세션의 JSON 데이터를 읽어와 복구.
@@ -449,63 +538,9 @@ async def restore_sessions_from_disk(bot):
                 with open(data_path, "r", encoding="utf-8") as f:
                     data = json.load(f)
 
-                # ── 스키마 마이그레이션 ──
-                # 필드명이 바뀐 버전은 값을 옮겨 담는다. 이관하지 않으면
-                # 구세션의 GM 진행 상태가 통째로 초기화된다.
-                saved_version = data.get("schema_version", 1)
-                if saved_version < SCHEMA_VERSION:
-                    print(f"⚠️ {session_id}: 저장 스키마 v{saved_version} → 현재 v{SCHEMA_VERSION} — 마이그레이션 수행")
-                    data = migrate_session_data(data)
-
-                scenario_data = load_scenario_from_file(data["scenario_id"])
-                if not scenario_data:
+                session = _session_from_data(data)
+                if session is None:
                     continue
-
-                session = TRPGSession(
-                    data["session_id"], data["game_ch_id"], data["master_ch_id"],
-                    data["scenario_id"], scenario_data
-                )
-
-                # ── 핵심 필드 복구 ──
-                session.players = data.get("players", {})
-                session.npcs = data.get("npcs", {})
-                session.resources = data.get("resources", {})
-                session.statuses = data.get("statuses", {})
-                session.compressed_memory = data.get("compressed_memory", "")
-                session.cache_name = data.get("cache_name")
-                session.current_turn_logs = data.get("current_turn_logs", [])
-                session.turn_count = data.get("turn_count", 0)
-                session.uncompressed_logs = data.get("uncompressed_logs", [])
-
-                # ── 선택적 필드 — SESSION_FIELDS 레지스트리로 일괄 복구 ──
-                # _MISSING 센티널로 실제 누락(기본값 사용)과 None 저장값을 구분한다.
-                for field, default in SESSION_FIELDS.items():
-                    value = data.get(field, _MISSING)
-                    if value is _MISSING:
-                        setattr(session, field, copy.deepcopy(default))
-                    else:
-                        setattr(session, field, value)
-
-                # ── 재시작 시 항상 초기화되는 필드 (SESSION_RESET_FIELDS) ──
-                for field, reset_val in SESSION_RESET_FIELDS.items():
-                    setattr(session, field, copy.deepcopy(reset_val))
-
-                # ── 런타임 전용 필드 초기화 ──
-                session.is_processing = False
-                session.gm_lock = False
-
-                # ── 후처리: None으로 저장된 cache_model을 DEFAULT_MODEL로 복원 ──
-                # (process_cache_deletion이 cache_model = None으로 저장하는 경우 대비)
-                if not session.cache_model:
-                    session.cache_model = DEFAULT_MODEL
-
-                # ── raw_logs 복원 (_deserialize_log_entry로 안전 변환) ──
-                restored_raw_logs = []
-                for item in data.get("raw_logs", []):
-                    entry = _deserialize_log_entry(item)
-                    if entry is not None:
-                        restored_raw_logs.append(entry)
-                session.raw_logs = restored_raw_logs
 
                 # ── H06 R2: 종료(CLOSED)된 세션은 활성 게임 표면에 다시 올리지 않는다(저장·감사·재무 기록은 보존) ──
                 if getattr(session, "world_lifecycle", None) == "CLOSING":
@@ -580,6 +615,17 @@ async def restore_sessions_from_disk(bot):
                     await _ib.settle(bot, session)
                 except Exception as _ie:
                     print(f"⚠️ {session_id}: 시간 해석 청구 재개 실패(다음 해석·열기 시 재시도): {_ie}")
+
+                # 세션 관리: 승인된 제거가 진행 중인 세션은 다시 활성화하지 않는다(캐시 재연결·재생성 없음).
+                #   위 커밋·청구 복구는 그대로 마쳤다. 남은 종료·정산은 `!세션관리` 재개가 단일 경로로 잇는다.
+                try:
+                    from . import session_removal as _srm
+                    if _srm.read_checkpoint(session_id) is not None:
+                        _srm.hold(bot, session)
+                        print(f"🗑️ {session_id}: 제거 진행 중 — 활성 등록하지 않습니다(`!세션관리`로 재개).")
+                        continue
+                except Exception as _re:
+                    print(f"⚠️ {session_id}: 제거 진행 기록 확인 실패: {_re}")
 
                 # WP-F: 캐시 연동·교체·만료는 캐시 생애주기 서비스가 소유한다 — 중단된 종료/정산을
                 #   먼저 재개하고, 복구 재생성은 생성 성공 뒤에만 사실을 기록한다(사전 accrue 없음).

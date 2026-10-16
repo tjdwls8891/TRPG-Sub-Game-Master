@@ -269,6 +269,7 @@ from . import admin_world_edit  # H06: typed ADMIN_EDIT service
 from . import speaker_card  # SVG 화자 카드(DYNAMIC 전용, 시나리오 speaker_card)
 from . import display_board  # 디스플레이 상태판 SVG(엔진 공통, v7.10)
 from . import logs  # 구조 로그(세션 logs/·전역 logs/bot.jsonl)
+from . import session_removal  # 세션 종료·제거 통합 관리(!세션관리)
 from .cost import (
     extract_token_usage,
     format_cost,

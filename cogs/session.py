@@ -296,6 +296,8 @@ class SessionCog(commands.Cog):
         session = core.TRPGSession(session_id, game_ch.id, master_ch.id,
                                    scenario_id, scenario_data)
         session.display_ch_id = display_ch.id
+        session.guild_id = guild.id
+        session.category_id = category.id
         session.session_kind = kind
         session.is_private = private
         if voice_ch:
