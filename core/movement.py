@@ -506,7 +506,9 @@ def plan_actual_traversal(definition: dict, *, actor_id: str, edge_sequence, mod
                 break
             cps.append({"kind": ACCESS_ACTION, "edge_id": eid, "place_id": e["from"],
                         "minute": at(), "raw_offset_us": cum, "action_policy": dec.action_policy,
-                        "action_id": aid})
+                        "action_id": aid,
+                        **({"payment": {"capability": dec.matched_capability, **dec.payment}}
+                           if dec.payment else {})})
             delay = dec.action_delay_minutes
         cum += delay * US_PER_MINUTE
         cps.append({"kind": EDGE_START, "edge_id": eid, "place_id": e["from"], "minute": at(), "raw_offset_us": cum})

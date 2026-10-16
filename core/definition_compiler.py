@@ -103,7 +103,19 @@ PROFILE_BASE_EXCLUDED = ("actor_id", "name", INLINE_SECRET_FIELD, "resources", "
 #      지름길·숨은 길·위험 회피 같은 경로 선택 품질의 근거다(H07 최종 지시 §6). 저작된 경우에만 정의에 키가 생긴다.
 # H07: default_npcs[*].routine — 선택적 평상시 일과(요일·시간대 → 장소). 정본 배치가 아니라 정의 + 정본 시계의
 #      순수 함수로 해석되는 파생 위치다(core.npc_position). 저작된 경우에만 정의에 키가 생긴다.
-INFO_EXPLICIT_KEYS = ("proposition", "summary", "subject_refs", "tags", "fragments", "sensitivity", "reveals")
+INFO_EXPLICIT_KEYS = ("proposition", "summary", "subject_refs", "tags", "fragments", "sensitivity", "reveals",
+                      "initial_knowledge")
+# v7.17 초기 지식(선택 opt-in) — 미표기 = 초기 전달 금지
+IK_KEYS = ("tier", "phases", "access", "start_frame_ids", "kind")
+IK_TIERS = ("required", "optional")
+IK_PHASES = ("PROFILE", "START")
+IK_KINDS = ("fact", "reported_claim")
+IK_OPS = ("equals", "one_of")
+IK_SUMMARY_MAX = 300
+# v7.17 아이템 정의(선택) — 저작한 시나리오만 정의에 키가 생긴다(미저작 revision 불변)
+ITEM_DEF_KEYS = ("aliases", "categories", "units", "mass_grade", "bulk_grade", "parts", "info_refs",
+                 "special", "unique", "recipe_only", "instances", "name")
+ITEM_GRADE_MAX = 5
 # H07: information_definitions[*].reveals = {"places": [PlaceId], "edges": [EdgeId|pair id]} — PC가 이 정보를 실제로
 #      알게 되면(CONTENT 획득) 함께 얻는 공간 지식(장소 이름·숨은 길 발견: NPC 제보·문서·지도·수색·사건 효과).
 #      노출 ≠ 믿음 원칙은 그대로 — 공간 지식은 '그런 길·이름이 있다고 들었다'는 인지다. 저작된 경우에만 키가 생긴다.
@@ -390,9 +402,12 @@ def _compile_inline_secrets(raw, actors, d, explicit_infos=None):
     return out
 
 
-def _compile_explicit_infos(raw, actors, places, d):
+def _compile_explicit_infos(raw, actors, places, d, items=None):
     """top-level information_definitions {InfoId: {proposition, summary?, subject_refs?, tags?,
-    fragments?: [{fragment_id, proposition}], sensitivity?}} (v3)."""
+    fragments?: [{fragment_id, proposition}], sensitivity?}} (v3).
+
+    v7.17: subject_refs에 'item:<종류>'(저작 아이템 정의가 있을 때만) — 정보가 그 물건에 관한 것임을 표시할 뿐
+    소유·읽음·인지 권한을 만들지 않는다. initial_knowledge는 _compile_initial_knowledge가 검증·정규화한다."""
     src = raw.get("information_definitions")
     out = {}
     if src is None:
@@ -419,10 +434,10 @@ def _compile_explicit_infos(raw, actors, places, d):
             ok, refs = False, []
         for r in refs:
             kind, _, ident = (r.partition(":") if isinstance(r, str) else ("", "", ""))
-            pool = {"actor": actors, "place": places}.get(kind)
+            pool = {"actor": actors, "place": places, "item": items or {}}.get(kind)
             if pool is None or ident not in pool:
                 d.add(ERROR, "INFO_SUBJECT_REF_UNKNOWN", f"{p}.subject_refs",
-                      f"subject_ref {r!r}는 'actor:<ActorId>'·'place:<PlaceId>' 실재 참조여야 합니다")
+                      f"subject_ref {r!r}는 'actor:<ActorId>'·'place:<PlaceId>'·'item:<아이템 종류>' 실재 참조여야 합니다")
                 ok = False
         tags = _str_list(body.get("tags"))
         if tags is None or isinstance(body.get("tags"), str):
@@ -1090,7 +1105,7 @@ def _compile_access(raw, caps, d):
 
 def _access_outcome(oc, p, d, *, allow_overrides):
     keys = {"result", "action_policy", "action_delay_minutes"} | (
-        {"actor_overrides"} if allow_overrides else {"requires_capability", "override_id"})
+        {"actor_overrides"} if allow_overrides else {"requires_capability", "override_id", "payment"})
     if not isinstance(oc, dict) or set(oc) - keys:
         d.add(ERROR, "ACCESS_OUTCOME_INVALID", p, f"결과 정의 키는 {sorted(keys)} 안이어야 합니다")
         return None
@@ -1139,6 +1154,16 @@ def _access_outcome(oc, p, d, *, allow_overrides):
             return None
         if oid is not None:
             out["override_id"] = oid
+        pay = oc.get("payment")
+        if pay is not None:
+            # v7.17(R4): 확인 행동이 실제 물건 인계를 요구한다 — 보유 이름(requires_capability)을 quantity만큼 치른다
+            if not (isinstance(pay, dict) and set(pay) == {"quantity"} and isinstance(pay["quantity"], int)
+                    and not isinstance(pay["quantity"], bool) and pay["quantity"] > 0) \
+                    or res != "ACTION_REQUIRED" or pol != "CONFIRM":
+                d.add(ERROR, "ACCESS_PAYMENT_INVALID", f"{p}.payment",
+                      "payment는 CONFIRM 행동의 {quantity: 양의 정수}만")
+                return None
+            out["payment"] = {"quantity": pay["quantity"]}
     return out
 
 
@@ -2035,6 +2060,235 @@ def _compile_world_starts(raw, init, place_defs, seeds, calendar, caps, d):
                                           "minute_index": minute, "knowledge_seed": seed}
 
 
+# ── v7.17 아이템 정의 · 제작법 · 운반 한도 ─────────────────────
+
+def _grade_ok(v) -> bool:
+    return v is None or (isinstance(v, int) and not isinstance(v, bool) and 0 <= v <= ITEM_GRADE_MAX)
+
+
+def _compile_items(raw, actor_index, places, d) -> tuple:
+    """item_definitions {종류: {...}} · item_recipes {제작법 id: {inputs, tools?, outputs, name?}} · carry_limits.
+
+    모두 선택 저작 — 없으면 ({}, {}, None). 수량 환산(units.*.contains)은 저작된 정확한 수만(R1).
+    instances(특수 물건 초기 위치)는 저작 NPC 레거시 키 또는 PlaceId 하나.
+    """
+    defs, recipes, limits = {}, {}, None
+    src = raw.get("item_definitions")
+    if src is not None and not isinstance(src, dict):
+        d.add(ERROR, "ITEM_DEFINITIONS_INVALID", "item_definitions", "{종류: 정의} 객체여야 합니다")
+        src = {}
+    seen_inst, alias_owner = set(), {}
+    for kind, body in (src or {}).items():
+        p = f"item_definitions.{kind}"
+        if not isinstance(kind, str) or not kind.strip() or any(c in kind for c in "[]〈〉") or not isinstance(body, dict):
+            d.add(ERROR, "ITEM_DEFINITION_INVALID", p, "종류 이름(괄호 기호 없음)과 객체 정의가 필요합니다")
+            continue
+        for k in body:
+            if k not in ITEM_DEF_KEYS:
+                d.add(WARNING, "ITEM_UNKNOWN_KEY", f"{p}.{k}", "알 수 없는 아이템 정의 키(무시)")
+        rec = {"kind": kind}
+        ok = True
+        for k in ("aliases", "categories", "info_refs"):
+            vals = _str_list(body.get(k))
+            if vals is None:
+                d.add(ERROR, "ITEM_FIELD_INVALID", f"{p}.{k}", f"{k}는 문자열 목록이어야 합니다")
+                ok = False
+                continue
+            rec[k] = vals
+        for a in rec.get("aliases") or ():
+            if a in alias_owner and alias_owner[a] != kind:
+                d.add(ERROR, "ITEM_ALIAS_DUPLICATE", f"{p}.aliases", f"별칭 {a!r}이(가) {alias_owner[a]}와 겹칩니다")
+                ok = False
+            alias_owner[a] = kind
+        for g in ("mass_grade", "bulk_grade"):
+            if not _grade_ok(body.get(g)):
+                d.add(ERROR, "ITEM_GRADE_INVALID", f"{p}.{g}", f"{g}는 0~{ITEM_GRADE_MAX} 정수")
+                ok = False
+            elif body.get(g) is not None:
+                rec[g] = body[g]
+        units = body.get("units") or {}
+        if not isinstance(units, dict):
+            d.add(ERROR, "ITEM_UNITS_INVALID", f"{p}.units", "{단위: {contains?}} 객체")
+            ok, units = False, {}
+        rec_units = {}
+        for u, ub in units.items():
+            con = (ub or {}).get("contains") if isinstance(ub, dict) else None
+            if con is not None and not (isinstance(con, dict) and isinstance(con.get("unit"), str)
+                                        and isinstance(con.get("count"), int) and con["count"] > 0):
+                d.add(ERROR, "ITEM_CONTAINS_INVALID", f"{p}.units.{u}", "contains는 {unit, count(양의 정수)}")
+                ok = False
+                continue
+            rec_units[u] = {"contains": dict(con)} if con else {}
+        if rec_units:
+            rec["units"] = rec_units
+        parts = body.get("parts")
+        if parts is not None:
+            if not isinstance(parts, list) or not all(isinstance(x, dict) and isinstance(x.get("kind"), str)
+                                                      and isinstance(x.get("count", 1), int) for x in parts):
+                d.add(ERROR, "ITEM_PARTS_INVALID", f"{p}.parts", "parts는 [{kind, unit?, count}]")
+                ok = False
+            else:
+                rec["parts"] = [{"kind": x["kind"], "unit": x.get("unit"), "count": x.get("count", 1)} for x in parts]
+        for flag in ("special", "unique", "recipe_only"):
+            if body.get(flag) is not None:
+                if not isinstance(body[flag], bool):
+                    d.add(ERROR, "ITEM_FLAG_INVALID", f"{p}.{flag}", "참/거짓")
+                    ok = False
+                elif body[flag]:
+                    rec[flag] = True
+        if isinstance(body.get("name"), str):
+            rec["name"] = body["name"]
+        insts = body.get("instances") or []
+        if insts and not rec.get("unique"):
+            d.add(ERROR, "ITEM_INSTANCES_NOT_UNIQUE", f"{p}.instances", "instances는 unique 물건에만 저작합니다")
+            ok = False
+        norm_insts = []
+        for j, it in enumerate(insts if isinstance(insts, list) else []):
+            ip = f"{p}.instances[{j}]"
+            iid = (it or {}).get("instance_id") if isinstance(it, dict) else None
+            owner, place = (it or {}).get("owner"), (it or {}).get("place")
+            if not is_valid_explicit_id(iid) or iid in seen_inst:
+                d.add(ERROR, "ITEM_INSTANCE_ID_INVALID", ip, "instance_id는 고유한 명시 id")
+                ok = False
+                continue
+            if (owner is None) == (place is None) or (owner is not None and owner not in actor_index) \
+                    or (place is not None and place not in places):
+                d.add(ERROR, "ITEM_INSTANCE_LOCATION_INVALID", ip, "owner(저작 NPC 키) 또는 place(장소) 중 하나만")
+                ok = False
+                continue
+            seen_inst.add(iid)
+            norm_insts.append({"instance_id": iid, "owner": owner, "place": place})
+        if norm_insts:
+            rec["instances"] = norm_insts
+        if ok:
+            defs[kind] = rec
+    rsrc = raw.get("item_recipes")
+    if rsrc is not None and not isinstance(rsrc, dict):
+        d.add(ERROR, "ITEM_RECIPES_INVALID", "item_recipes", "{제작법 id: 정의} 객체여야 합니다")
+        rsrc = {}
+    for rid, body in (rsrc or {}).items():
+        p = f"item_recipes.{rid}"
+        if not is_valid_explicit_id(rid) or not isinstance(body, dict):
+            d.add(ERROR, "ITEM_RECIPE_INVALID", p, "명시 id와 객체가 필요합니다")
+            continue
+
+        def _rows(v):
+            return isinstance(v, list) and v and all(
+                isinstance(x, dict) and isinstance(x.get("kind"), str) and isinstance(x.get("count", 1), int)
+                and x.get("count", 1) > 0 for x in v)
+        if not _rows(body.get("inputs")) or not _rows(body.get("outputs")) \
+                or (body.get("tools") is not None and _str_list(body.get("tools")) is None):
+            d.add(ERROR, "ITEM_RECIPE_INVALID", p, "inputs·outputs는 [{kind, unit?, count}], tools는 종류 목록")
+            continue
+        recipes[rid] = {"recipe_id": rid, "name": body.get("name") if isinstance(body.get("name"), str) else rid,
+                        "inputs": [{"kind": x["kind"], "unit": x.get("unit"), "count": x.get("count", 1)}
+                                   for x in body["inputs"]],
+                        "outputs": [{"kind": x["kind"], "unit": x.get("unit"), "count": x.get("count", 1)}
+                                    for x in body["outputs"]],
+                        "tools": list(body.get("tools") or [])}
+    lim = raw.get("carry_limits")
+    if lim is not None:
+        if not isinstance(lim, dict) or set(lim) - {"mass", "bulk"} or not all(
+                isinstance(v, int) and not isinstance(v, bool) and v > 0 for v in lim.values()):
+            d.add(ERROR, "CARRY_LIMITS_INVALID", "carry_limits", "{mass?, bulk?: 양의 정수}")
+        else:
+            limits = dict(lim)
+    return defs, recipes, limits
+
+
+def _check_item_info_refs(items, infos, d) -> None:
+    for kind, rec in items.items():
+        for iid in rec.get("info_refs") or ():
+            if iid not in infos or infos[iid].get("kind") != "EXPLICIT":
+                d.add(ERROR, "ITEM_INFO_REF_UNKNOWN", f"item_definitions.{kind}.info_refs",
+                      f"{iid!r}는 information_definitions의 명시 정보여야 합니다(NPC 비밀·이면 금지)")
+
+
+# ── v7.17 초기 지식(Information 선택 opt-in) ─────────────────────
+
+def _ik_access_ok(node, path, d, depth=0, fields=None) -> bool:
+    if depth > 3 or not isinstance(node, dict):
+        d.add(ERROR, "IK_ACCESS_INVALID", path, "access는 {all|any: [조건]} 또는 조건(깊이 3 이하)")
+        return False
+    if set(node) == {"all"} or set(node) == {"any"}:
+        items = node.get("all") if "all" in node else node.get("any")
+        if not isinstance(items, list) or not items:
+            d.add(ERROR, "IK_ACCESS_INVALID", path, "all/any는 비어 있지 않은 목록")
+            return False
+        return all(_ik_access_ok(x, f"{path}[{i}]", d, depth + 1, fields) for i, x in enumerate(items))
+    op = node.get("op")
+    if op not in IK_OPS or not isinstance(node.get("field"), str) or not node["field"]:
+        d.add(ERROR, "IK_ACCESS_OP_INVALID", path, f"조건은 {{field, op: {list(IK_OPS)}, value|values}}")
+        return False
+    if fields is not None and node["field"] not in fields:
+        d.add(ERROR, "IK_ACCESS_FIELD_UNKNOWN", path, f"field {node['field']!r}는 승인 프로필 항목이 아닙니다")
+        return False
+    if op == "equals" and (set(node) != {"field", "op", "value"} or not isinstance(node["value"], (str, int))
+                           or isinstance(node["value"], bool)):
+        d.add(ERROR, "IK_ACCESS_VALUE_INVALID", path, "equals는 value(문자열·정수) 하나")
+        return False
+    if op == "one_of" and (set(node) != {"field", "op", "values"} or not isinstance(node["values"], list)
+                           or not node["values"]
+                           or not all(isinstance(v, (str, int)) and not isinstance(v, bool) for v in node["values"])):
+        d.add(ERROR, "IK_ACCESS_VALUE_INVALID", path, "one_of는 values(문자열·정수 목록)")
+        return False
+    return True
+
+
+def _compile_initial_knowledge(raw, infos, init, d) -> None:
+    """information_definitions[*].initial_knowledge 검증·정규화 → 정보 기록의 initial_knowledge.
+
+    미표기·null = 초기 전달 금지(opt-in). summary 없는 정보는 opt-in할 수 없다. 정의가 잘못되면 공개가 아니라 오류.
+    """
+    src = raw.get("information_definitions") if isinstance(raw.get("information_definitions"), dict) else {}
+    frame_ids = {f["frame_id"] for f in (init or {}).get("start_frames") or ()}
+    # 접근 조건 field = 승인 프로필의 평면 항목(생성 단계 field ∪ pc_template 키). 둘 다 없으면 이름 검사 생략
+    pf = {s_.get("field") for s_ in (raw.get("profile_creation") or ()) if isinstance(s_, dict)} - {None}
+    pf |= set(raw.get("pc_template") or {}) if isinstance(raw.get("pc_template"), dict) else set()
+    allowed_fields = pf or None
+    for iid, body in src.items():
+        ik = (body or {}).get("initial_knowledge") if isinstance(body, dict) else None
+        if ik is None:
+            continue
+        p = f"information_definitions.{iid}.initial_knowledge"
+        rec = infos.get(iid)
+        if rec is None or rec.get("kind") != "EXPLICIT":
+            continue
+        if not isinstance(ik, dict) or set(ik) - set(IK_KEYS) or ik.get("tier") not in IK_TIERS:
+            d.add(ERROR, "IK_INVALID", p, f"initial_knowledge는 {{tier: {list(IK_TIERS)}, ...}} (키 {list(IK_KEYS)})")
+            continue
+        summ = rec.get("summary")
+        if not isinstance(summ, str) or not summ.strip():
+            d.add(ERROR, "IK_SUMMARY_REQUIRED", p, "초기 지식에는 플레이어가 봐도 되는 완결 summary가 필요합니다")
+            continue
+        if len(summ) > IK_SUMMARY_MAX:
+            d.add(ERROR, "IK_SUMMARY_TOO_LONG", p, f"summary {len(summ)}자 > {IK_SUMMARY_MAX}자(정본 원문을 자르지 않는다)")
+            continue
+        phases = ik.get("phases", list(IK_PHASES))
+        if not isinstance(phases, list) or not phases or len(set(phases)) != len(phases) \
+                or any(x not in IK_PHASES for x in phases):
+            d.add(ERROR, "IK_PHASES_INVALID", f"{p}.phases", f"phases는 {list(IK_PHASES)} 중 중복 없는 목록")
+            continue
+        sf = ik.get("start_frame_ids")
+        if sf is not None:
+            if _str_list(sf) is None or not sf or any(x not in frame_ids for x in sf):
+                d.add(ERROR, "IK_START_FRAME_UNKNOWN", f"{p}.start_frame_ids", "실재하는 시작 틀 id 목록이어야 합니다")
+                continue
+            if phases != ["START"]:
+                d.add(ERROR, "IK_START_FRAME_PHASE", f"{p}.start_frame_ids", "start_frame_ids는 phases=[START]에만")
+                continue
+        kind = ik.get("kind", "fact")
+        if kind not in IK_KINDS:
+            d.add(ERROR, "IK_KIND_INVALID", f"{p}.kind", f"kind는 {list(IK_KINDS)}")
+            continue
+        if ik.get("access") is not None and not _ik_access_ok(ik["access"], f"{p}.access", d,
+                                                              fields=allowed_fields):
+            continue
+        rec["initial_knowledge"] = {"tier": ik["tier"], "phases": sorted(phases), "kind": kind,
+                                    "access": copy.deepcopy(ik.get("access")),
+                                    "start_frame_ids": sorted(sf) if sf else None}
+
+
 # ── 진입점 ────────────────────────────────────────────────────
 
 def compile_scenario(raw: dict, scenario_id: str, quests: dict | None = None) -> CompileResult:
@@ -2078,7 +2332,8 @@ def compile_scenario(raw: dict, scenario_id: str, quests: dict | None = None) ->
     calendar = _compile_calendar(raw, cap["capabilities"], d)
     _compile_routines(actors, places, calendar, d)
     _compile_world_starts(raw, init, places, seeds, calendar, cap["capabilities"], d)
-    explicit = _compile_explicit_infos(raw, actors, places, d)
+    items, recipes, carry_limits = _compile_items(raw, actor_index, places, d)
+    explicit = _compile_explicit_infos(raw, actors, places, d, items)
     infos = {}
     for src in (explicit, _compile_inline_secrets(raw, actors, d, explicit),
                 _compile_quest_hidden(scenario_id, quests, places, d)):
@@ -2097,6 +2352,8 @@ def compile_scenario(raw: dict, scenario_id: str, quests: dict | None = None) ->
             d.add(WARNING, "INFO_DUPLICATE_PROPOSITION", "information_definitions",
                   f"같은 명제가 여러 InfoId로 정의됐습니다: {', '.join(ids)} — 합치지 않습니다(info_ref 사용 권장)")
     _compile_info_reveals(raw, infos, places, edges, d)
+    _compile_initial_knowledge(raw, infos, init, d)
+    _check_item_info_refs(items, infos, d)
     series = _compile_info_series(raw, _ref_scope(actors, places, infos, access, modes, calendar=calendar), d)
     event_tpls = _compile_event_templates(raw, cap["capabilities"], actors, actor_index, places, infos, access,
                                           modes, edges, calendar, d)
@@ -2144,6 +2401,13 @@ def compile_scenario(raw: dict, scenario_id: str, quests: dict | None = None) ->
         "legacy_source": src_copy,
         "legacy_source_order_digest": order_digest(src_copy),
     }
+    # v7.17: 아이템 정의·제작법·운반 한도는 저작한 시나리오에만 키가 생긴다(미저작 시나리오 revision 불변)
+    if items:
+        definition["item_definitions"] = items
+    if recipes:
+        definition["item_recipes"] = recipes
+    if carry_limits:
+        definition["carry_limits"] = carry_limits
     return CompileResult(scenario_id, definition["compiler_version"], definition,
                          definition_revision(definition), diagnostics)
 

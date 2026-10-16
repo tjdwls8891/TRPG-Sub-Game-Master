@@ -206,6 +206,10 @@ SESSION_FIELDS: dict = {
 }
 # H02: 동적 세계 정본(되감기 대상) 11필드 + 정체성(비가역) 2필드 — 단일 출처 core.world_state
 SESSION_FIELDS.update(_world_state.ALL_WORLD_FIELDS)
+# v7.17: 아이템(되감기 대상 — 단일 출처 core.items) + 초기 지식 전달 기록(세션 단위·되감기 대상 아님)
+from .items import ITEM_FIELDS as _ITEM_FIELDS  # noqa: E402
+SESSION_FIELDS.update(_ITEM_FIELDS)
+SESSION_FIELDS["initial_knowledge_progress"] = {}
 
 # 저장은 되지만 봇 재시작 시 항상 초기값으로 리셋되는 필드
 SESSION_RESET_FIELDS: dict = {

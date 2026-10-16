@@ -8,12 +8,12 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 AI가 4개 층위로 나뉘어 판단·지시·묘사·추출을 분담한다. 플레이어는 서버 GM 스페이스에서 버튼으로 세션을 열고, 캐릭터를 만들고, 턴을 진행한다. **명령어는 GM의 수동 개입·복구 수단이며 일반 플레이에는 쓰지 않는다.**
 
-현재 버전: **v7.16.0** · `SCHEMA_VERSION` 4 · 총 운영 코드 ~52,600줄(main·prompts·cogs·core) · 테스트 ~27,270줄
+현재 버전: **v7.17.0** · `SCHEMA_VERSION` 4 · 총 운영 코드 ~52,600줄(main·prompts·cogs·core) · 테스트 ~27,270줄
 
 리팩터링: **7-WP 프로그램(WP-A~WP-G)** — 턴 트랜잭션·커밋·재무·이력·파생 시스템을 단일 권위로 재구성했다. WP-A~G 전부 독립 게이트 VERIFIED — **프로그램 완료**(WP-G 최종 후보 `f0fd69e`, 증거 `handoff/WP_G_COMPLETION_BUNDLE.md`). 다음 WP는 없다. 버전은 이 비호환 전환 전체를 **단일 MAJOR v6.0.0**으로 채택했다(2026-10-06, 이력 보정은 DEVLOG '버전 기록').
 
 동적 세계 구현 프로그램(통합 로드맵 v0.3, **H01~H07**, `de367c7` 기준)이 진행 중이다. H 번호는 개발 패키지명이다.
-H07 이후 패키지(v7.6.0~v7.9.1): SVG 화자 카드·영도 카드 저작 → 7.6.0, `!세션이력` → 7.7.0, 묘사↔정본 정합·만료 중 선언 보관·화자 표기 → 7.8.0, 구조 로그 → 7.9.0, 정본 시각·상태이상 판정 보정·예상 비용·판정 기록 중복 → 7.9.1, 디스플레이 상태판 SVG 이미지 → 7.10.0, `!배포` 의존성 자동 설치 → 7.10.1, 전수조사 결함 수정·자동 턴 더빙 → 7.11.0, 판정 2d50 통합 → 7.12.0, 마스터 인물화 UI 표현 승격 → 7.13.0, 역사칭·발견 선언 → 7.14.0, 캐릭터 생성 개선 → 7.15.0, 세션 종료·제거 통합 관리 → 7.16.0(DEVLOG '버전 기록').
+H07 이후 패키지(v7.6.0~v7.9.1): SVG 화자 카드·영도 카드 저작 → 7.6.0, `!세션이력` → 7.7.0, 묘사↔정본 정합·만료 중 선언 보관·화자 표기 → 7.8.0, 구조 로그 → 7.9.0, 정본 시각·상태이상 판정 보정·예상 비용·판정 기록 중복 → 7.9.1, 디스플레이 상태판 SVG 이미지 → 7.10.0, `!배포` 의존성 자동 설치 → 7.10.1, 전수조사 결함 수정·자동 턴 더빙 → 7.11.0, 판정 2d50 통합 → 7.12.0, 마스터 인물화 UI 표현 승격 → 7.13.0, 역사칭·발견 선언 → 7.14.0, 캐릭터 생성 개선 → 7.15.0, 세션 종료·제거 통합 관리 → 7.16.0, 아이템 시스템·초기 지식 → 7.17.0(DEVLOG '버전 기록').
 
 | WP | 범위 | 상태 |
 |---|---|---|
@@ -141,7 +141,7 @@ python main.py
 | `permissions.py` | 98 | `!권한부여` `!권한회수` `!권한목록` |
 | `presence.py` | 122 | 상태 메시지 순환 + **캐시 만료 감지**(15초 주기) |
 
-### core/ — 91개 서브모듈
+### core/ — 93개 서브모듈
 
 `core/__init__.py`가 전 심볼을 re-export하므로 외부에서는 `core.XYZ`로 접근한다.
 
@@ -168,7 +168,7 @@ python main.py
 |---|---|---|
 | `constants.py` | 143 | 모델 ID, `EXCHANGE_RATE`, `PRICING_1M`, `TTS_VOICES`, `__version__` |
 | `models.py` | 319 | `TRPGSession` — 단일 세션의 모든 상태 |
-| `io.py` | 535 | `SCHEMA_VERSION`, `SESSION_FIELDS`(100), `migrate_session_data`, 직렬화·로그 |
+| `io.py` | 535 | `SCHEMA_VERSION`, `SESSION_FIELDS`(104), `migrate_session_data`, 직렬화·로그 |
 | `cache.py` | 604 | 룰북 캐시 빌드, `remaining_ttl`, `is_cache_expired`, `is_session_open`, 세션 복구 |
 | `resilience.py` | 207 | `call_with_retry` — 재시도·타임아웃. 시도 실패는 구조 로그 ERROR, provider 호출 맥락(층위·작업·시도·세션)을 설정 |
 | `logs.py` | 440 | **구조 로그 단일 owner** — 세션 `logs/`(`calls`·`blobs`·`events`·`domain`·`chat` JSONL)·전역 `logs/bot.jsonl`(회전 10MB×5, 모든 print 포착·세션 ID 출력은 세션 이벤트에도). provider 호출은 `install_client_proxy`가 `genai_client.models`를 감싸 1건씩 기록(동작 불변). 요청·응답은 줄 조각 해시 델타(반복 줄은 참조만, 테스트 세션 요청 원문 대비 27%). 도메인 사실: `tx.*`·`turn.delta`(되감기 레코드 pre→post 상태 차이)·`commit`(청구·세계 typed op)·`cost.event`·`cost.usage`·`ink.charge`·`ink.lifecycle`·`display`(바뀐 상태판)·`history.*`·`card.*`. 열람은 `tools/log_view.py` |
@@ -226,6 +226,8 @@ python main.py
 | `judgment.py` | 118 | **2d50 판정 수식**(v7.12) — `R=1d50+1d50 < T=52+A+S+M+H+D`(동점 실패), A=2×(원스탯−10), 난이도 6단계, 대결 결과, 판단 계약 검증(보정 없음). S는 현재 0(스킬 보너스 추후 통합) |
 | `irregular_npc.py` | 244 | 비정규 NPC 이미지·목소리 |
 | `koreantext.py` | 166 | 슬롯 치환·조사 보정, 국어 로마자 표기(`romanize`, 음절 전자) |
+| `items.py` | 827 | **아이템**(v7.17, DYNAMIC 전용) — `resources` 정규 해석 `종류[단위]〈상태〉`(수량 분명한 옛 문구만)·특수 객체 `item_instances`·현장 물건 `place_items`·추출 `item_ops`(O·H·L·D·C 키) 순차 가상 적용(하나라도 어긋나면 재추출)·운반 등급·제작/분해·READ→정보 인지·접근 확인 실지급 PAY·직전 턴 사용/지급 사실 `item_facts`(사건 ref `OBSERVER_USED_ITEM`·`OBSERVER_PAID_ITEM`)·genesis 초기 재고. 새 provider 호출 0 |
+| `initial_knowledge.py` | 544 | **페르소나 초기 지식**(v7.17) — 정보 `initial_knowledge` opt-in·코드 접근 게이트(승인 프로필 equals/one_of)·PROFILE(캐릭터 승인 직후)·START(시작 틀 직후·genesis 전) 각 최대 1회 비캐시 운영자 부담 호출(`OP_INITIAL_KNOWLEDGE`)·summary 코드 렌더·nonce 영수증·UNCERTAIN은 자동 재전송·인지 없음·DELIVERED만 genesis INITIALIZATION 인지·재열람 `disp:knowledge`(0호출) |
 
 #### 세계 정의 (H01 — H06부터 세션 바인딩)
 
@@ -563,7 +565,7 @@ pip install -r requirements-dev.txt
 python3 -m pytest tests/ -q
 ```
 
-`tests/`는 **현재 동작과 권위 불변식을 고정**한다. 현재 1,377건(특성화 61 · 결함 27 · 정책 1,289)이 모두 통과하며 strict xfail은 0건이다.
+`tests/`는 **현재 동작과 권위 불변식을 고정**한다. 현재 1,459건(특성화 61 · 결함 27 · 정책 1,371)이 모두 통과하며 strict xfail은 0건이다.
 
 | 분류 | 의미 |
 |---|---|
@@ -788,4 +790,5 @@ python3 tools/scenario_check.py --all     # 전 시나리오 컴파일·진단(E
 | H06 배포 | 새 영속 필드 `world_lifecycle`·`world_initialization`(기본값 = 레거시). 스키마·이력·CommitPlan·compiler 유지. DYNAMIC 대상 세션은 캐시 업로드가 시작 선택 뒤로 이동 |
 | H07 프롬프트 | `prompts.py` 4개 층위에 동적 세계 조건부 권위 절 추가(H07-D). 추출 스키마의 레거시 `quest_progress`·`secret_awareness`는 DYNAMIC에서 쓰이지 않지만 스키마에 남아 있다(토큰 낭비 — 남은 한계) |
 | H05~H07 신규 관찰 결함 | ②는 v7.11에서 부분 해소(버튼 플로우 LEGACY 업로드 실패 시 정지·재시도, 시작 틀 없는 시나리오는 선택 목록에서 숨김). 나머지 미수정(2026-10-10 기능도 조사): ① 초기화 실패 뒤 두 번째 플레이어 참가 시 재시도가 INIT_LEGACY로 내려가 선불·인트로가 진행되지만 턴은 계속 거부(`joins_blocked`가 `init_failed` 미포함) ② INIT_LEGACY·시작 틀 없음 분기가 캐시 업로드 결과를 무시 ③ `DynamicOpenRetryView` 비영속(재시작 후 버튼 무효) ④ `!자동 원장`·`!자동 서사`가 DYNAMIC에서 은퇴된 원장·플랜 표시 ⑤ 바인딩 세션의 `!이미지 생성`이 스냅샷 원문으로 시나리오 원본을 덮어씀 ⑥ 개연성 시뮬레이션이 DYNAMIC 계획 전 레거시 미러로 실행 |
+| v7.17 반영 | `prompts.py`(추출 item_ops 규칙·초기 지식 지시문) — **열린** 세션은 `!캐시 재발급` 또는 닫기→열기. 영도 초기 지식 2·남항 교환 지급(`payment`·`OBSERVER_PAID_ITEM`)은 DYNAMIC 바인딩 스냅샷이라 **새 영도 세션에만** 반영 |
 | H05 calibration | 경로 자동 선택(10분 미만·비용비 5/4)·추가 시간 상한(240분)·PC capability = 보유 소지품 이름 — 영도 정량 저작 후 조정 |

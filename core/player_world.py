@@ -157,11 +157,18 @@ def pc_stats(session, uid) -> dict:
     return out
 
 
-def pc_capabilities(session, uid) -> tuple:
-    """PC capability = 그 PC가 가진 수량 > 0 소지품 이름(접근 규칙 requires_capability와 대조)."""
+def pc_capabilities(session, uid, definition=None) -> tuple:
+    """PC capability = 그 PC가 가진 수량 > 0 소지품의 보유 이름(접근 규칙 requires_capability·OBSERVER_HAS_ITEM과 대조).
+
+    v7.17: 원문 키 ∪ 정규 종류(예: '항생제 두 알' → 항생제) ∪ 저작 범주 — 보유(HAS)만 뜻한다(사용·지급과 다름, R2).
+    이름 부분 문자열로 넓히지 않는다(C10).
+    """
+    from . import items as _items
     name = ((getattr(session, "players", None) or {}).get(uid) or {}).get("name")
-    items = ((getattr(session, "resources", None) or {}).get(name) or {}) if name else {}
-    return tuple(sorted(k for k, v in items.items() if isinstance(v, (int, float)) and v > 0))
+    bag = ((getattr(session, "resources", None) or {}).get(name) or {}) if name else {}
+    owned = [r.get("kind") for r in (getattr(session, "item_instances", None) or {}).values()
+             if name and r.get("owner") == name and r.get("kind")]
+    return tuple(sorted(set(_items.capabilities(bag, _items.definitions_of(definition))) | set(owned)))
 
 
 # ══════════════════════════════════════════════════════════════
@@ -249,6 +256,7 @@ class PlayerWorldPlan:
     scene_place: str | None = None                  # 묘사가 표현할 투영 장면 장소
     transit: dict | None = None                     # 중단 시 TRANSIT 맥락
     reason: str | None = None
+    item_payments: list = field(default_factory=list)   # v7.17(R4): 통과한 확인 행동의 실제 지급 {capability, quantity, action_id}
 
     @property
     def has_world_ops(self) -> bool:
@@ -440,7 +448,10 @@ def access_confirm_options(definition: dict, world, pc: str, capabilities=()) ->
         if dec.get("result") != _acc.ACTION_REQUIRED or dec.get("action_policy") != _acc.CONFIRM:
             continue
         aid = _mv.access_action_id(eid, e["access_ref"], fact["observed_state"], _acc.CONFIRM, dec.get("variant_id"))
-        out.append({"action_id": aid, "label": f"{e['to']} 쪽 {e['access_ref']}({fact['observed_state']}) 통과"})
+        label = f"{e['to']} 쪽 {e['access_ref']}({fact['observed_state']}) 통과"
+        if dec.get("payment"):                     # v7.17(R4): 보여 주기가 아니라 실제로 건네야 통과
+            label += f" — {dec.get('requires_capability')} {dec['payment']['quantity']}개를 실제로 건넨다"
+        out.append({"action_id": aid, "label": label})
     return tuple(sorted(out, key=lambda o: o["action_id"]))
 
 
@@ -455,7 +466,8 @@ def default_mode(definition: dict) -> str | None:
 
 def plan_player_turn(ctx: WorldContext, world, intent: _ai.ResolvedActionIntent, *, transaction_id: str,
                      narrative_seed: str, capabilities=(), resolved_tie_orders=None,
-                     policy: RouteChoicePolicy = DEFAULT_ROUTE_POLICY, stats=None) -> PlayerWorldPlan:
+                     policy: RouteChoicePolicy = DEFAULT_ROUTE_POLICY, stats=None,
+                     item_facts=None) -> PlayerWorldPlan:
     """ResolvedActionIntent → PlayerWorldPlan(순수). world는 세션 또는 ProjectedWorld."""
     D = ctx.definition
     src = world if isinstance(world, _wm.ProjectedWorld) else _wm.ProjectedWorld.capture(world)
@@ -474,6 +486,10 @@ def plan_player_turn(ctx: WorldContext, world, intent: _ai.ResolvedActionIntent,
         plan.status, plan.reason = PLAN_REJECTED, "DEFINITION_STALE"     # 옛 정의 문맥·의도로 계획하지 않는다
         return plan
     observer = {"observer_items": tuple(sorted(capabilities or ()))}
+    if item_facts is not None:
+        # v7.17: 직전 커밋 턴의 사용·지급 사실(보유와 구별 — R2·R4). 이번 턴 계획에서만 재평가 입력(Q11)
+        observer["observer_used_items"] = tuple(sorted(set((item_facts or {}).get("used") or ())))
+        observer["observer_paid_items"] = tuple(sorted(set((item_facts or {}).get("paid") or ())))
     if stats is not None:
         observer["observer_stats"] = {k: v for k, v in dict(stats).items()
                                       if isinstance(v, int) and not isinstance(v, bool)}
@@ -594,6 +610,8 @@ def _plan_transit_movement(ctx, plan, run, tr, now, dest, intent, pre_ops, *, ca
         plan.status, plan.reason = PLAN_REJECTED, "TRANSIT_ROUTE_STALE"
         plan.outcome["access_interruption"] = {"edge_id": eid, "kind": trav.interruption.get("kind")}
         return plan
+    plan.item_payments += [dict(c["payment"], action_id=c.get("action_id")) for c in trav.checkpoint_times
+                           if c["kind"] == _mv.ACCESS_ACTION and c.get("payment")]
     pcs = tuple(p for p in ctx.pcs if (_sp.placement_of(run.world, p) or {}).get("edge_id") == eid)
     r = run.step(chain(pre_ops), end, _progress(lead, None, movement={"edge_id": eid}))
     if r is None:
@@ -694,6 +712,9 @@ def _plan_movement(ctx, plan, run, src, here, now, dest, intent, pre_ops, *, cap
                 plan.outcome["interrupt"] = r.foreground_interrupt
                 break
             minute = start
+        # v7.17(R4): 확인 행동을 마쳐 구간에 들어섰다 — 그 행동이 요구한 실제 인계를 이 턴의 아이템 연산으로 남긴다
+        plan.item_payments += [dict(c["payment"], action_id=c.get("action_id")) for c in trav.checkpoint_times
+                               if c["kind"] == _mv.ACCESS_ACTION and c.get("payment")]
         if end == start:                                    # 0분 구간 — 같은 분 도착
             pending = chain(pending, obs, _arrival_ops(f"{run.prefix}.a{i}", pcs, eid, e["to"], minute,
                                                                     definition=D, world=run.world))

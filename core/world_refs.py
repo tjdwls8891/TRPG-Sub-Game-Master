@@ -29,6 +29,7 @@ UNSET = object()
 
 REF_TYPES = (
     "CLOCK_MINUTE", "SCENE_PLACE", "OBSERVER_ACTIVITY", "OBSERVER_HAS_ITEM", "OBSERVER_STAT",
+    "OBSERVER_USED_ITEM", "OBSERVER_PAID_ITEM",
     "ACTOR_PLACE", "ACTOR_PLACEMENT_KIND", "ACTOR_POSITION_SOURCE", "ACCESS_STATE", "INFO_VALIDITY",
     "COGNITION_AWARENESS", "COGNITION_BELIEF",
     "EVENT_LIFECYCLE", "EVENT_PHASE", "EVENT_LOCAL", "ROUTE_KNOWN_EXISTS",
@@ -39,6 +40,8 @@ _PARAMS = {
     "OBSERVER_ACTIVITY": ((), ()),
     "OBSERVER_HAS_ITEM": (("item",), ()),
     "OBSERVER_STAT": (("stat",), ()),
+    "OBSERVER_USED_ITEM": (("item",), ()),       # v7.17: 직전 커밋 턴에 실제로 사용한 물건 종류(소모 없음 포함)
+    "OBSERVER_PAID_ITEM": (("item",), ()),       # v7.17(R4): 직전 커밋 턴에 실제로 넘긴(지급한) 물건 종류
     "ACTOR_PLACE": (("actor",), ()),
     "ACTOR_PLACEMENT_KIND": (("actor",), ()),
     "ACTOR_POSITION_SOURCE": (("actor",), ()),
@@ -62,6 +65,9 @@ OBSERVER_ACTIVITY_KEY = "observer:activity"
 # 소지품·스탯 조건 사건을 재평가한다. 공급되지 않은 진행(오프스크린·초기화)에서는 UNKNOWN.
 OBSERVER_ITEMS_KEY = "observer:items"
 OBSERVER_STATS_KEY = "observer:stats"
+# v7.17: 사용·지급 사실(보유와 다른 사실 — R2). 직전 커밋 턴의 item_facts를 다음 턴 계획이 공급한다(Q11 다음 턴 재평가).
+OBSERVER_USED_KEY = "observer:used_items"
+OBSERVER_PAID_KEY = "observer:paid_items"
 
 
 def session_pc_actor(world):
@@ -189,6 +195,18 @@ def _r_has_item(ctx, item):
     return known(item in set(ctx.progress["observer_items"] or ()))
 
 
+def _r_used_item(ctx, item):
+    if "observer_used_items" not in ctx.progress:
+        return UNKNOWN
+    return known(item in set(ctx.progress["observer_used_items"] or ()))
+
+
+def _r_paid_item(ctx, item):
+    if "observer_paid_items" not in ctx.progress:
+        return UNKNOWN
+    return known(item in set(ctx.progress["observer_paid_items"] or ()))
+
+
 def _r_stat(ctx, stat):
     st = ctx.progress.get("observer_stats")
     if not isinstance(st, dict) or not isinstance(st.get(stat), int) or isinstance(st.get(stat), bool):
@@ -305,6 +323,7 @@ def _r_route(ctx, actor, to, mode, **kw):
 _RESOLVERS = {
     "CLOCK_MINUTE": _r_clock, "SCENE_PLACE": _r_scene, "OBSERVER_ACTIVITY": _r_activity,
     "OBSERVER_HAS_ITEM": _r_has_item, "OBSERVER_STAT": _r_stat,
+    "OBSERVER_USED_ITEM": _r_used_item, "OBSERVER_PAID_ITEM": _r_paid_item,
     "ACTOR_PLACE": _r_actor_place, "ACTOR_PLACEMENT_KIND": _r_actor_kind, "ACTOR_POSITION_SOURCE": _r_actor_source,
     "ACCESS_STATE": _r_access, "INFO_VALIDITY": _r_info_validity,
     "COGNITION_AWARENESS": _r_awareness, "COGNITION_BELIEF": _r_belief,
@@ -356,6 +375,10 @@ def dependency_keys(ref: dict) -> list:
         return [OBSERVER_ACTIVITY_KEY]
     if t == "OBSERVER_HAS_ITEM":
         return [OBSERVER_ITEMS_KEY]
+    if t == "OBSERVER_USED_ITEM":
+        return [OBSERVER_USED_KEY]
+    if t == "OBSERVER_PAID_ITEM":
+        return [OBSERVER_PAID_KEY]
     if t == "OBSERVER_STAT":
         return [OBSERVER_STATS_KEY]              # H07: 진행 문맥 키 — 정본이 아니라 진행 시작 시 '변경'으로 공급
     return []                                       # CLOCK_MINUTE

@@ -4689,6 +4689,9 @@
                 "result": "ACTION_REQUIRED",
                 "action_policy": "CONFIRM",
                 "action_delay_minutes": 15,
+                "payment": {
+                  "quantity": 1
+                },
                 "override_id": "namhang_trade_0"
               },
               {
@@ -4696,6 +4699,9 @@
                 "result": "ACTION_REQUIRED",
                 "action_policy": "CONFIRM",
                 "action_delay_minutes": 15,
+                "payment": {
+                  "quantity": 1
+                },
                 "override_id": "namhang_trade_1"
               },
               {
@@ -4703,6 +4709,9 @@
                 "result": "ACTION_REQUIRED",
                 "action_policy": "CONFIRM",
                 "action_delay_minutes": 15,
+                "payment": {
+                  "quantity": 1
+                },
                 "override_id": "namhang_trade_2"
               },
               {
@@ -4710,6 +4719,9 @@
                 "result": "ACTION_REQUIRED",
                 "action_policy": "CONFIRM",
                 "action_delay_minutes": 15,
+                "payment": {
+                  "quantity": 1
+                },
                 "override_id": "namhang_trade_3"
               },
               {
@@ -4717,6 +4729,9 @@
                 "result": "ACTION_REQUIRED",
                 "action_policy": "CONFIRM",
                 "action_delay_minutes": 15,
+                "payment": {
+                  "quantity": 1
+                },
                 "override_id": "namhang_trade_4"
               }
             ]
@@ -8585,6 +8600,38 @@
     }
   },
   "information_definitions": {
+    "yd.info.ik.infected_nature": {
+      "proposition": "감염자는 죽어 움직이는 시체가 아니라, 원인 미상의 바이러스로 이성을 잃고 극도로 광포해진 살아 있는 인간이다.",
+      "summary": "감염자는 죽어 움직이는 시체가 아니다. 바이러스로 이성을 잃고 극도로 광포해진 '살아 있는 인간'이며, 끔찍한 폭력성과 생리적 갈증을 보이고 위험하고 끈질기다.",
+      "subject_refs": [],
+      "tags": [
+        "감염자",
+        "초기지식"
+      ],
+      "initial_knowledge": {
+        "tier": "required",
+        "phases": [
+          "PROFILE"
+        ],
+        "kind": "fact"
+      }
+    },
+    "yd.info.ik.bridges_cut": {
+      "proposition": "군대가 영도대교·부산대교 등 육지와 영도를 잇는 교량을 폭파해 영도를 고립시켰다.",
+      "summary": "군대가 영도대교·부산대교 등 육지와 영도를 잇는 다리를 끊어 영도를 봉쇄했다는 소식을 본토에서 전해 들었다.",
+      "subject_refs": [],
+      "tags": [
+        "봉쇄",
+        "초기지식"
+      ],
+      "initial_knowledge": {
+        "tier": "required",
+        "phases": [
+          "PROFILE"
+        ],
+        "kind": "fact"
+      }
+    },
     "yd.info.q.early_first_water": {
       "proposition": "이 일대의 고인 물은 감염자가 모여드는 자리이기도 하다.",
       "summary": "고인 물 둘레에 감염자가 엎드려 모여든 흔적이 있다는 것",
@@ -14250,7 +14297,7 @@
               {
                 "cmp": "EQ",
                 "ref": {
-                  "ref": "OBSERVER_HAS_ITEM",
+                  "ref": "OBSERVER_PAID_ITEM",
                   "item": "발전기 부품"
                 },
                 "value": true
@@ -14258,7 +14305,7 @@
               {
                 "cmp": "EQ",
                 "ref": {
-                  "ref": "OBSERVER_HAS_ITEM",
+                  "ref": "OBSERVER_PAID_ITEM",
                   "item": "정수 필터"
                 },
                 "value": true
@@ -14266,7 +14313,7 @@
               {
                 "cmp": "EQ",
                 "ref": {
-                  "ref": "OBSERVER_HAS_ITEM",
+                  "ref": "OBSERVER_PAID_ITEM",
                   "item": "항생제"
                 },
                 "value": true
@@ -14274,7 +14321,7 @@
               {
                 "cmp": "EQ",
                 "ref": {
-                  "ref": "OBSERVER_HAS_ITEM",
+                  "ref": "OBSERVER_PAID_ITEM",
                   "item": "공구"
                 },
                 "value": true
@@ -14282,7 +14329,7 @@
               {
                 "cmp": "EQ",
                 "ref": {
-                  "ref": "OBSERVER_HAS_ITEM",
+                  "ref": "OBSERVER_PAID_ITEM",
                   "item": "연료"
                 },
                 "value": true

@@ -49,6 +49,7 @@ import uuid
 
 from . import io as _io
 from . import world_state as _world_state
+from . import items as _items_fields
 
 # v2: 캐시 파생 필드 포함(E-E3) — v1 레코드는 복원 대상 불가
 # v3: H02 동적 세계 정본 11필드 포함 — v2 레코드는 누락 필드를 레거시 기본값으로 합성해 복원
@@ -72,7 +73,8 @@ REVERSIBLE_FIELDS = (
     "gm_side_note", "gm_clarify_count", "gm_narrate_count",
     # E-E3: 캐시 파생 필드 — 프롬프트(캐시 없는 폴백 포함)가 읽으므로 선택 이력과 함께 복원
     "cached_compressed_memory", "cached_session_npcs", "cached_worldview_sections",
-) + tuple(_world_state.GAMEPLAY_WORLD_FIELDS)
+) + tuple(_world_state.GAMEPLAY_WORLD_FIELDS) + tuple(_items_fields.ITEM_FIELDS)
+# v7.17: 아이템 3필드(특수 물건·현장 물건·사용/지급 사실)는 resources와 같은 되감기 단위. 초기 지식 전달 기록은 제외
 # H02: 동적 세계 게임 정본은 가역. definition_revision·narrative_seed는 가역이 아니다(세션 정체성).
 WORLD_REVERSIBLE_FIELDS = tuple(_world_state.GAMEPLAY_WORLD_FIELDS)
 NON_REVERSIBLE_IDENTITY_FIELDS = tuple(_world_state.IDENTITY_FIELDS) + tuple(_world_state.LIFECYCLE_FIELDS)
@@ -272,7 +274,7 @@ def restore_reversible(session, state: dict) -> None:
     definition_revision·narrative_seed는 가역 집합 밖이라 어떤 레코드로도 바뀌지 않는다.
     """
     from .cache import _deserialize_log_entry
-    world_defaults = _world_state.gameplay_defaults()
+    world_defaults = {**_world_state.gameplay_defaults(), **_items_fields.item_field_defaults()}
     for f in REVERSIBLE_FIELDS:
         if f not in state:
             if f in world_defaults:

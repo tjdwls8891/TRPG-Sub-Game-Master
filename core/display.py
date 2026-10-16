@@ -444,6 +444,19 @@ class DisplayView(discord.ui.View):
             master.lead("display.no_payment", f"잉크 지급은 운영자에게 문의해 주십시오. (잔액 **{bal:,}잉크**)"),
             ephemeral=True)
 
+    @discord.ui.button(label="📜 초기 지식", style=discord.ButtonStyle.secondary,
+                       custom_id="disp:knowledge", row=3)
+    async def knowledge(self, interaction, _b):
+        """v7.17 — 누른 사람 본인의 초기 지식 안내 원문(전달 당시 스냅샷)만 비공개로 다시 보여 준다(호출·인지·비용 0)."""
+        from . import initial_knowledge as _ik
+        session = self.bot.active_sessions.get(interaction.channel.id)
+        text = _ik.review_text(session, interaction.user.id) if session else None
+        if not text:
+            text = "다시 볼 초기 지식 안내가 없습니다."
+        # 정본 문장을 자르지 않는다 — 임베드 페이지로 나눠 보인다
+        await interaction.response.send_message(
+            embeds=[discord.Embed(description=pg, color=0x5865F2) for pg in _ik.pages_of(text)[:10]], ephemeral=True)
+
 
 class CloseConfirmView(LifecyclePromptView):
     """세션 클로즈 확인 — 캐시 파기 후 환급액을 몇 초간 알린다(기획 규정).

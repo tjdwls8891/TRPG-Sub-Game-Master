@@ -75,8 +75,12 @@ def _accrue(session, response, label: str = "프로필 AI") -> float:
 
 
 async def _call(bot, system_instruction, schema, user_prompt: str,
-                session=None, temperature: float = 0.2):
-    """공통 호출. 실패 시 (False, None)."""
+                session=None, temperature: float = 0.2, *, operation=None, billing_hint=None,
+                accrue: bool = True):
+    """공통 호출. 실패 시 (False, None).
+
+    v7.17: operation·billing_hint로 다른 비캐시 단발 호출(초기 지식 — 운영자 부담)이 같은 provider·재시도·JSON
+    경로를 쓴다. accrue=False면 프로필 AI 무료 집계(profile_ai_cost_krw)에 섞지 않는다(CostLedger 기록은 그대로)."""
     from .resilience import call_with_retry
 
     config = types.GenerateContentConfig(
@@ -91,9 +95,9 @@ async def _call(bot, system_instruction, schema, user_prompt: str,
 
     from . import cost_ledger
     _cl_op = cost_ledger.begin_operation(
-        bot, cost_ledger.OP_PROFILE_AI, session=session, model=PROFILE_AI_MODEL,
+        bot, operation or cost_ledger.OP_PROFILE_AI, session=session, model=PROFILE_AI_MODEL,
         actor_kind=cost_ledger.ACTOR_SYSTEM,
-        billing_hint=cost_ledger.HINT_FREE_FEATURE, copy_transaction=False)
+        billing_hint=billing_hint or cost_ledger.HINT_FREE_FEATURE, copy_transaction=False)
     ok, response = await call_with_retry(
         lambda: asyncio.to_thread(
             bot.genai_client.models.generate_content,
@@ -106,7 +110,7 @@ async def _call(bot, system_instruction, schema, user_prompt: str,
     )
     if not ok:
         return False, None
-    if session is not None:
+    if session is not None and accrue:
         _accrue(session, response)
     # WP-02: 무료 기능이라도 실제 provider 비용은 발생 — FREE_FEATURE 힌트로 관측.
     try:

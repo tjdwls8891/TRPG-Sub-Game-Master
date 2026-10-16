@@ -221,7 +221,10 @@ async def build_scenario_cache_text(bot, model_id, scenario_data: dict, cache_no
                 stats = npc_data.get("stats", {})
                 if stats:
                     field_lines.append(f"  스탯: {', '.join(f'{k}={v}' for k, v in stats.items())}")
-            if isinstance(npc_template, dict) and npc_template.get("has_resources"):
+            # v7.17: 정의가 바인딩된(DYNAMIC) 세션은 NPC 소지품을 런타임 정본(장면 인물·물건 블록)으로만 준다 —
+            #   캐시에 굽힌 저작 초기값이 실제 소지보다 앞서지 않게 한다(초기값 반복 주입 금지).
+            if isinstance(npc_template, dict) and npc_template.get("has_resources") \
+                    and not getattr(session, "definition_revision", None):
                 resources = npc_data.get("resources", {})
                 if resources:
                     field_lines.append(f"  기본 자원: {', '.join(f'{k}: {v}' for k, v in resources.items())}")
@@ -295,7 +298,8 @@ async def build_scenario_cache_text(bot, model_id, scenario_data: dict, cache_no
                     stats = npc_data.get("stats", {})
                     if stats:
                         field_lines.append(f"  스탯: {', '.join(f'{k}={v}' for k, v in stats.items())}")
-                if isinstance(npc_template, dict) and npc_template.get("has_resources"):
+                if isinstance(npc_template, dict) and npc_template.get("has_resources") \
+                        and not getattr(session, "definition_revision", None):   # v7.17: DYNAMIC은 런타임 블록만
                     # 런타임 자원 값을 반영 (session.resources 우선)
                     res_val = session.resources.get(npc_name, npc_data.get("resources", {}))
                     if res_val:

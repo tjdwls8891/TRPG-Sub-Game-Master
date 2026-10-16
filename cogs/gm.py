@@ -779,6 +779,15 @@ def _build_logic_user_prompt(session, player_message: str, roll_results: list,
             if _db:
                 place_block += _db
                 manifest.append("현장 발견")
+            # v7.17: 정본 소지(PC·장면 인물)·현장 물건·사용 불가 상태 — 캐시 초기 소지품보다 우선
+            _wc = world_turn.ctx
+            _sc, _pj = core.turn_world.scene_npc_projections(_wc, world_turn.plan, session)
+            _pcn = ((session.players or {}).get(_wc.uid_of.get(_wc.lead_pc)) or {}).get("name")
+            if _pcn:
+                place_block += core.items.item_block(
+                    session, pc_name=_pcn, scene_owner_names=[p.get("legacy_name") for p in _pj if p.get("legacy_name")],
+                    scene_place=_sc, defs=core.items.definitions_of(_wc.definition))
+                manifest.append("정본 소지")
         except Exception as e:
             print(f"[지시층위] 사건 국면 지침 블록 실패: {e}")
 
@@ -2046,7 +2055,7 @@ class GMCog(commands.Cog):
         routes = wt.plan.route_options if (wt.plan is not None and wt.plan.status
                                            == core.player_world.PLAN_NEEDS_CHOICE) else ()
         access = core.player_world.access_confirm_options(
-            ctx.definition, session, ctx.lead_pc, core.player_world.pc_capabilities(session, uid))
+            ctx.definition, session, ctx.lead_pc, core.player_world.pc_capabilities(session, uid, ctx.definition))
         wt.manifest = core.action_intent.build_manifest(
             ctx.definition, session, ctx.lead_pc, definition_revision=ctx.definition_revision,
             route_options=routes, access_options=access)
@@ -2057,7 +2066,8 @@ class GMCog(commands.Cog):
         return core.player_world.plan_player_turn(
             ctx, session, intent, transaction_id=transaction_id,
             narrative_seed=getattr(session, "narrative_seed", None) or session.session_id,
-            capabilities=core.player_world.pc_capabilities(session, ctx.uid_of.get(ctx.lead_pc)),
+            capabilities=core.player_world.pc_capabilities(session, ctx.uid_of.get(ctx.lead_pc), ctx.definition),
+            item_facts=getattr(session, "item_facts", None) or {},
             stats=core.player_world.pc_stats(session, ctx.uid_of.get(ctx.lead_pc)),       # H07: 스탯 조건
             resolved_tie_orders=resolved_tie_orders)
 
@@ -2147,6 +2157,17 @@ class GMCog(commands.Cog):
             _raw = {**(_raw if isinstance(_raw, dict) else {}),
                     "discovery_taken": list((_raw or {}).get("discovery_taken") or []) + [_implied]}
             core.write_log(session.session_id, "api", f"[v7.14 발견 수거 키 복구] {_implied}")
+            # 복구된 수거는 그 PC +1(item_changes) 한 건이 설명한다 — 같은 물리 수거를 두 번 세지 않는다
+            _row = _man.discovery_of(_implied)
+            _pc = self._pc_name(session, ctx)
+            _hit = next((e for e in plan.item_deltas if _row and e.get("target") == _pc and int(e.get("delta") or 0) == 1
+                         and core.turn_world.same_target(e.get("item"), _row[2])), None)
+            if _hit is not None:
+                plan.item_deltas = [e for e in plan.item_deltas if e is not _hit]
+        # v7.17 아이템: 같은 기준 재고에 모든 연산을 순서대로 가상 적용 — 하나라도 어긋나면 전체를 재추출(부분 적용 없음).
+        #   발견물 수거(D키)·코드 지급(접근 확인)·문서 읽기를 하나의 계획으로 묶고, 수거한 D키만 소진(SUPERSEDED)한다.
+        item_plan = self._build_item_plan(session, prep, ctx, wt, _raw, plan)
+        _raw = {**(_raw if isinstance(_raw, dict) else {}), "discovery_taken": list(item_plan.discovery_takes)}
         res = core.turn_world.process_observation(
             ctx, session, wt.plan, _man,
             _raw, transaction_id=prep.transaction_id,
@@ -2158,7 +2179,7 @@ class GMCog(commands.Cog):
             name_info_ids=core.speaker_card.identity_info_ids(
                 core.speaker_card.config_of(session.scenario_data), wt.identified_names, "name")
             if core.speaker_card.card_world(session) else (),
-            discovery=wt.discovery)
+            discovery=wt.discovery, read_info_ids=item_plan.read_info_ids)
         wt.result = res
         core.write_log(session.session_id, "api",
                        f"[H05 관찰] status={res.status} exposures={list(res.exposures)} "
@@ -2174,7 +2195,14 @@ class GMCog(commands.Cog):
         plan.location_before = prev_tl.get("current_location")
         plan.location_after = new_tl.get("current_location")
         plan.location_moved = plan.location_before != plan.location_after
-        self._apply_discovery_gains(session, ctx, plan, res.item_gains)
+        # v7.17: 동적 세계의 소지품 권위 = 검증된 아이템 계획 하나(발견물 수거 +1도 그 안의 ACQUIRE). item_deltas는 쓰지 않는다.
+        plan.item_plan = item_plan
+        plan.item_deltas = []
+        plan.entries = [e for e in plan.entries if e.get("domain") != "item"] + [
+            {"domain": "item", "target": r["target"], "op": "delta", "payload": {"item": r["item"], "delta": r["delta"]}}
+            for r in item_plan.report]
+        if item_plan.diagnostics:
+            plan.diagnostics["item_plan"] = list(item_plan.diagnostics)
         cplan = core.turn_world.continuation_plan(prep.transaction_id, res)
         if cplan is not None:
             prep.register_task(
@@ -2195,6 +2223,44 @@ class GMCog(commands.Cog):
         return core.turn_world.implied_discovery_take(
             manifest, raw, ref_key, plan.item_deltas, pc_name,
             ((getattr(session, "resources", None) or {}).get(pc_name) or {}) if pc_name else {})
+
+    @staticmethod
+    def _pc_name(session, ctx):
+        uid = ctx.uid_of.get(ctx.lead_pc)
+        return ((getattr(session, "players", None) or {}).get(uid) or {}).get("name")
+
+    def _item_manifest(self, session, wt):
+        """v7.17: 이번 추출의 아이템 후보(PC + 장면 정의 NPC의 정본 소지·현장 물건·발견물·저작 제작법·코드 지급)."""
+        ctx = wt.ctx
+        pc_name = self._pc_name(session, ctx)
+        scene, projs = core.turn_world.scene_npc_projections(ctx, wt.plan, session)
+        owners = [p.get("legacy_name") for p in projs if p.get("legacy_name")]
+        pays = [f"{p.get('capability')} ×{p.get('quantity')}(접근 확인 지급)"
+                for p in (getattr(wt.plan, "item_payments", None) or ())]
+        return core.items.build_manifest(
+            session, pc_name=pc_name, scene_owner_names=owners, scene_place=scene,
+            defs=core.items.definitions_of(ctx.definition),
+            discovery_rows=(wt.obs_manifest.discoveries if wt.obs_manifest is not None else ()),
+            recipes=ctx.definition.get("item_recipes"), payments=pays)
+
+    def _build_item_plan(self, session, prep, ctx, wt, raw, plan):
+        """v7.17: 추출 item_ops(+ 발견 D키 수거·코드 지급) → 검증된 ItemPlan. 실패하면 ItemContractError(재추출)."""
+        pc_name = self._pc_name(session, ctx)
+        defs = core.items.definitions_of(ctx.definition)
+        man = getattr(wt, "item_manifest", None) or self._item_manifest(session, wt)
+        pays = []
+        for p in (getattr(wt.plan, "item_payments", None) or ()):
+            op = core.items.payment_op(session, pc_name=pc_name, capability=p.get("capability"),
+                                       quantity=int(p.get("quantity") or 1), defs=defs)
+            if op is None:
+                raise core.items.ItemContractError(f"접근 확인 지급 불가: {p.get('capability')} ×{p.get('quantity')}")
+            pays.append(op)
+        obs = raw if isinstance(raw, dict) else {}
+        return core.items.build_plan(
+            session, man, obs.get(core.items.OPS_FIELD), defs=defs, recipes=ctx.definition.get("item_recipes"),
+            pc_name=pc_name, transaction_id=prep.transaction_id,
+            discovery_taken=[k for k in (obs.get("discovery_taken") or ()) if isinstance(k, str)],
+            legacy_item_deltas=plan.item_deltas, payments=pays)
 
     @staticmethod
     def _apply_discovery_gains(session, ctx, plan, gains) -> None:
@@ -5305,11 +5371,15 @@ class GMCog(commands.Cog):
             print(f"[동행] 갱신 실패: {e}")
 
         # ── 상태이상 / 소지품 (정규화 DTO만; 임계·검증은 이미 계획 빌드에서 끝남) ──
+        _ip = getattr(plan, "item_plan", None)
         applied = core.apply_normalized_status_item(session, {
             "status_apply": plan.status_apply,
             "status_clear": plan.status_clear,
-            "item_deltas": plan.item_deltas,
+            "item_deltas": [] if _ip is not None else plan.item_deltas,
             "npcs": plan.npcs_met})
+        if _ip is not None:
+            # v7.17 DYNAMIC: 검증된 아이템 계획을 같은 커밋에서 다시 검증·적용(불일치는 커밋 owner로 전파 — 부분 적용 없음)
+            applied["items"] = core.items.apply_plan(session, _ip)
 
         # ── 퀘스트 진전 / 이면정보 / 메인 해금 / 엔딩 (좁은 정규화 입력만) ──
         moved = None
@@ -5515,6 +5585,11 @@ class GMCog(commands.Cog):
             _ext_schema = copy.deepcopy(core.EXTRACTION_RESPONSE_SCHEMA)
             _ext_schema.setdefault("properties", {})[core.turn_world.OBS_FIELD] = _wt.obs_manifest.schema()
             _obs_block = _wt.obs_manifest.render()
+            # v7.17 아이템: 같은 추출 호출의 런타임 확장(새 provider 호출 0) — 소유자·소지·현장 물건 키만
+            _wt.item_manifest = self._item_manifest(session, _wt)
+            _ext_schema["properties"][core.turn_world.OBS_FIELD]["properties"][core.items.OPS_FIELD] = \
+                _wt.item_manifest.schema()
+            _obs_block += _wt.item_manifest.render()
             # SVG 카드: 장면 카드 인물별 허용 바리에이션 — 인물당 턴 하나(턴 로컬, 정본 저장 없음)
             _cw = core.speaker_card.card_world(session)
             _var_manifest = core.speaker_card.variation_manifest(_cw, _wt, session) if _cw else {}
