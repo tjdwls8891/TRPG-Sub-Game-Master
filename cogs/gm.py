@@ -2055,7 +2055,8 @@ class GMCog(commands.Cog):
         routes = wt.plan.route_options if (wt.plan is not None and wt.plan.status
                                            == core.player_world.PLAN_NEEDS_CHOICE) else ()
         access = core.player_world.access_confirm_options(
-            ctx.definition, session, ctx.lead_pc, core.player_world.pc_capabilities(session, uid, ctx.definition))
+            ctx.definition, session, ctx.lead_pc,
+            core.player_world.pc_access_capabilities(session, uid, ctx.definition))   # v7.17.2: 소속 포함(접근 전용)
         wt.manifest = core.action_intent.build_manifest(
             ctx.definition, session, ctx.lead_pc, definition_revision=ctx.definition_revision,
             route_options=routes, access_options=access)
@@ -2067,6 +2068,8 @@ class GMCog(commands.Cog):
             ctx, session, intent, transaction_id=transaction_id,
             narrative_seed=getattr(session, "narrative_seed", None) or session.session_id,
             capabilities=core.player_world.pc_capabilities(session, ctx.uid_of.get(ctx.lead_pc), ctx.definition),
+            access_capabilities=core.player_world.pc_access_capabilities(
+                session, ctx.uid_of.get(ctx.lead_pc), ctx.definition),                     # v7.17.2: 접근 판정 전용
             item_facts=core.items.current_facts(session),           # v7.17: 직전 커밋 턴의 사실만
             stats=core.player_world.pc_stats(session, ctx.uid_of.get(ctx.lead_pc)),       # H07: 스탯 조건
             resolved_tie_orders=resolved_tie_orders)

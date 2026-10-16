@@ -171,6 +171,34 @@ def pc_capabilities(session, uid, definition=None) -> tuple:
     return tuple(sorted(set(_items.capabilities(bag, _items.definitions_of(definition))) | set(owned)))
 
 
+def faction_access_capabilities(definition, world) -> tuple:
+    """v7.17.2: 정본 소속 → 접근 capability(시나리오 저작 faction_capabilities가 있을 때만).
+
+    소속 근거 = RESOLVED 사건 인스턴스의 지역 상태 grant_faction 값 '전부'(최근 하나만 쓰는 표시 뷰
+    derived_player_faction·session.player_faction 미러가 아니다). 관계·프로필 서술·소지품 이름으로 추론하지 않는다.
+    """
+    mapping = (definition or {}).get("faction_capabilities") or {}
+    if not mapping:
+        return ()
+    ev = (world.domain("event_instances") if isinstance(world, _wm.ProjectedWorld)
+          else getattr(world, "event_instances", None)) or {}
+    out = set()
+    for inst in ev.values():
+        if not isinstance(inst, dict) or inst.get("lifecycle") != "RESOLVED":
+            continue
+        f = (inst.get("local_state") or {}).get("grant_faction")
+        if isinstance(f, str) and f in mapping:
+            out.update(mapping[f])
+    return tuple(sorted(out))
+
+
+def pc_access_capabilities(session, uid, definition=None, world=None) -> tuple:
+    """접근 판정용 capability = 소지품(pc_capabilities) ∪ 정본 소속 capability. 사건 조건의 보유(OBSERVER_HAS_ITEM)
+    입력에는 쓰지 않는다 — 소속 권한이 아이템 보유로 오인되지 않게 한다."""
+    return tuple(sorted(set(pc_capabilities(session, uid, definition))
+                        | set(faction_access_capabilities(definition, world if world is not None else session))))
+
+
 # ══════════════════════════════════════════════════════════════
 #  경로 선택 정책
 # ══════════════════════════════════════════════════════════════
@@ -467,7 +495,7 @@ def default_mode(definition: dict) -> str | None:
 def plan_player_turn(ctx: WorldContext, world, intent: _ai.ResolvedActionIntent, *, transaction_id: str,
                      narrative_seed: str, capabilities=(), resolved_tie_orders=None,
                      policy: RouteChoicePolicy = DEFAULT_ROUTE_POLICY, stats=None,
-                     item_facts=None) -> PlayerWorldPlan:
+                     item_facts=None, access_capabilities=None) -> PlayerWorldPlan:
     """ResolvedActionIntent → PlayerWorldPlan(순수). world는 세션 또는 ProjectedWorld."""
     D = ctx.definition
     src = world if isinstance(world, _wm.ProjectedWorld) else _wm.ProjectedWorld.capture(world)
@@ -516,12 +544,14 @@ def plan_player_turn(ctx: WorldContext, world, intent: _ai.ResolvedActionIntent,
                 "instance_id": iid, "key": _ev.RESOLUTION_KEY, "value": oid}))
             plan.outcome["resolution"] = {"instance_id": iid, "option_id": oid}
     mv = intent.movement
+    # v7.17.2: 실제 접근 판정은 소속 capability까지(access_capabilities), 사건 보유 조건(observer_items)은 소지품만
+    move_caps = tuple(access_capabilities) if access_capabilities is not None else capabilities
     if mv is not None and mv.kind == _ai.MOVE_DESTINATION:
         if transit is not None:
             return _plan_transit_movement(ctx, plan, run, transit, now, mv.destination_place, intent, pre_ops,
-                                          capabilities=capabilities, policy=policy, transaction_id=transaction_id)
+                                          capabilities=move_caps, policy=policy, transaction_id=transaction_id)
         return _plan_movement(ctx, plan, run, src, here, now, mv.destination_place, intent, pre_ops,
-                              capabilities=capabilities, policy=policy, transaction_id=transaction_id)
+                              capabilities=move_caps, policy=policy, transaction_id=transaction_id)
     if intent.time_advance is not None:
         if transit is not None:
             try:

@@ -4642,6 +4642,17 @@
       "base_speed_m_per_min": 48
     }
   },
+  "faction_capabilities": {
+    "남항 중공업 연대": [
+      "member:namhang"
+    ],
+    "해련 자치 마을": [
+      "member:haeryeon"
+    ],
+    "조도 방위 사령부": [
+      "member:jodo"
+    ]
+  },
   "access_control_definitions": {
     "rules": {
       "yd_guarded_door": {

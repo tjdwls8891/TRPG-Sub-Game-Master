@@ -2204,6 +2204,44 @@ def _check_item_info_refs(items, infos, d) -> None:
                       f"{iid!r}는 information_definitions의 명시 정보여야 합니다(NPC 비밀·이면 금지)")
 
 
+# ── v7.17.2 소속 → 접근 capability(선택 저작) ─────────────────────
+
+def _compile_faction_capabilities(raw, event_tpls, access, d) -> dict:
+    """faction_capabilities {<grant_faction 값>: [<capability>]} 검증·정규화. 없으면 {}.
+
+    키는 사건 템플릿이 실제로 기록하는 SET_EVENT_LOCAL grant_faction 값, 값은 접근 규칙 override가 실제로
+    요구하는 capability여야 한다(오타·존재하지 않는 세력은 오류 — 조용히 권한이 사라지거나 생기지 않게).
+    """
+    src = raw.get("faction_capabilities")
+    if src is None:
+        return {}
+    if not isinstance(src, dict):
+        d.add(ERROR, "FACTION_CAPABILITIES_INVALID", "faction_capabilities", "{소속 값: [capability]} 객체여야 합니다")
+        return {}
+    granted = {st.get("value") for t in (event_tpls or {}).values() for c in t.get("transition_cases") or ()
+               for st in c.get("steps") or () if st.get("type") == "SET_EVENT_LOCAL"
+               and st.get("key") == "grant_faction" and isinstance(st.get("value"), str)}
+    required = {o.get("requires_capability") for r in ((access or {}).get("rules") or {}).values()
+                for stt in (r.get("states") or {}).values() for o in stt.get("actor_overrides") or ()
+                if isinstance(o.get("requires_capability"), str)}
+    out = {}
+    for name, caps in src.items():
+        p = f"faction_capabilities.{name}"
+        vals = _str_list(caps)
+        if not isinstance(name, str) or not name.strip() or vals is None or not vals or len(set(vals)) != len(vals):
+            d.add(ERROR, "FACTION_CAPABILITIES_INVALID", p, "소속 값 하나에 중복 없는 capability 문자열 목록")
+            continue
+        if name not in granted:
+            d.add(ERROR, "FACTION_UNKNOWN", p, f"{name!r}는 어떤 사건도 grant_faction으로 기록하지 않습니다")
+            continue
+        missing = [c for c in vals if c not in required]
+        if missing:
+            d.add(ERROR, "FACTION_CAPABILITY_UNUSED", p, f"접근 규칙이 요구하지 않는 capability {missing}")
+            continue
+        out[name] = sorted(vals)
+    return out
+
+
 # ── v7.17 초기 지식(Information 선택 opt-in) ─────────────────────
 
 def _ik_access_ok(node, path, d, depth=0, fields=None) -> bool:
@@ -2358,6 +2396,8 @@ def compile_scenario(raw: dict, scenario_id: str, quests: dict | None = None) ->
     event_tpls = _compile_event_templates(raw, cap["capabilities"], actors, actor_index, places, infos, access,
                                           modes, edges, calendar, d)
 
+    faction_caps = _compile_faction_capabilities(raw, event_tpls, access, d)
+
     diagnostics = d.sorted()
     if any(x.severity == ERROR for x in diagnostics):
         return CompileResult(scenario_id, COMPILER_VERSION, None, None, diagnostics)
@@ -2408,6 +2448,9 @@ def compile_scenario(raw: dict, scenario_id: str, quests: dict | None = None) ->
         definition["item_recipes"] = recipes
     if carry_limits:
         definition["carry_limits"] = carry_limits
+    # v7.17.2: 소속(사건 결과 grant_faction) → 접근 capability 매핑 — 저작한 시나리오에만 키가 생긴다
+    if faction_caps:
+        definition["faction_capabilities"] = faction_caps
     return CompileResult(scenario_id, definition["compiler_version"], definition,
                          definition_revision(definition), diagnostics)
 
