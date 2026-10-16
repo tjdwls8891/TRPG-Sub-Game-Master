@@ -53,6 +53,8 @@ class WorldTurn:
     replan: object = None                         # 선후 확정 재계획 호출(callable(orders) -> plan)
     identified_faces: tuple = ()                  # SVG 카드: 지시층위가 지정한 얼굴 식별 ActorId(검증됨)
     identified_names: tuple = ()                  # SVG 카드: 지시층위가 지정한 이름 식별 ActorId(검증됨)
+    discovery: dict | None = None                 # v7.14 이번 턴 주변 발견 결과(NEW만 정본화 — 추출 시점 고정)
+    item_manifest: object = None                  # v7.17 core.items.ItemManifest(추출 시점 — 소유자·소지·현장 키)
 
 
 # ══════════════════════════════════════════════════════════════
@@ -121,23 +123,47 @@ def derived_player_faction(world):
 def pc_knowledge_block(ctx, plan, session) -> str:
     """H07-C: 지시층위용 PC 인지 블록 — 레거시 info_ledger를 대신한다(정보·인지가 권위).
     PC가 CONTENT로 아는 정보의 공개 안전 요약만 싣는다(명제 원문·NPC 비밀 없음)."""
-    world, _scene = _scene_world_and_place(ctx, plan, session)
+    world, scene = _scene_world_and_place(ctx, plan, session)
     recs = ((world.domain("cognition_state") if isinstance(world, _wm.ProjectedWorld)
              else getattr(world, "cognition_state", None)) or {}).get(_cog.actor_holder(ctx.lead_pc)) or {}
     st = (world.domain("information_state") if isinstance(world, _wm.ProjectedWorld)
           else getattr(world, "information_state", None)) or {}
-    lines = []
+    scene_refs = set()
+    if scene is not None:
+        scene_refs.add(f"place:{scene}")
+        try:
+            from . import npc_position as _npos
+            scene_refs |= {f"actor:{aid}" for aid, _src in _npos.actors_at(ctx.definition, world, scene,
+                                                                          exclude=ctx.pcs)}
+        except Exception:
+            pass
+    ranked = []
     for iid in sorted(recs):
         r = recs[iid]
         if not isinstance(r, dict) or r.get("awareness") != _cog.CONTENT:
             continue
+        if _info.effective_validity(ctx.definition, st, iid) != _info.CURRENT:
+            continue                                   # v7.14: 대체·반증된 정보는 지금 사실로 싣지 않는다
         d = _info.resolve_definition(ctx.definition, st, iid) or {}
-        if d.get("summary"):
-            lines.append(f"· {d['summary']}" + (f" (PC 태도: {r['belief']})" if r.get("belief") else ""))
-    if not lines:
+        if AMBIENT_TAG in (d.get("tags") or ()):
+            continue                                   # 주변 발견은 현재 장소 블록(discovery_block)이 싣는다
+        if not d.get("summary"):
+            continue
+        # v7.17 관련성 선택(T19): 장면 장소·인물 관련 → 필수 초기 지식 → 최근 획득. InfoId 사전순 절단 없음.
+        acqs = [a for a in (r.get("acquisitions") or ()) if isinstance(a, dict)]
+        initial_req = (any(str(a.get("acquisition_id") or "").startswith("initial:") for a in acqs)
+                       and ((d.get("initial_knowledge") or {}).get("tier") == "required"))
+        recent = max([a.get("at_minute") for a in acqs if isinstance(a.get("at_minute"), int)], default=-1)
+        rank = (0 if scene_refs & set(d.get("subject_refs") or ()) else 1, 0 if initial_req else 1, -recent, iid)
+        ranked.append((rank, f"· {d['summary']}" + (f" (PC 태도: {r['belief']})" if r.get("belief") else "")))
+    if not ranked:
         return ""
+    lines = [line for _rk, line in sorted(ranked)[:PC_KNOWLEDGE_BUDGET]]
     return ("\n[PC가 알게 된 것 — 정본 인지(노출 ≠ 믿음). 여기 없는 이면을 PC가 아는 것처럼 다루지 말 것]\n"
-            + "\n".join(lines[-12:]) + "\n")
+            + "\n".join(lines) + "\n")
+
+
+PC_KNOWLEDGE_BUDGET = 12
 
 
 def mirror_timeline(prev_tl: dict, definition: dict, world, pc: str) -> dict:
@@ -558,6 +584,162 @@ def tie_orders_for(plan, key) -> dict | None:
 
 
 # ══════════════════════════════════════════════════════════════
+#  v7.14 주변 발견 — 선언 게이트가 승인·판정 성공한 주변 물건·환경 요소
+#   · 정본 = 기존 정보·인지 typed 연산뿐(RUNTIME InfoId + PC CONTENT 인지). 새 세계 필드·도메인 없음.
+#   · 실패는 '이번에 찾지 못함' — 부재 정보·부재 인지·소지품을 만들지 않는다.
+#   · 발견만으로 소지품에 넣지 않는다. 추출이 키(D…)로 지목한 실제 수거만 소지품 +1과 SUPERSEDED.
+# ══════════════════════════════════════════════════════════════
+
+AMBIENT_TAG = "ambient_discovery"
+DISCOVERY_KINDS = ("OBJECT", "ENVIRONMENT")
+DISCOVERY_NEW_KEY = "DNEW"
+_KIND_WORD = {"OBJECT": "물건", "ENVIRONMENT": "환경"}
+
+
+def ambient_info_id(transaction_id: str) -> str:
+    """이번 시도의 발견 InfoId — tx에서 결정적(같은 시도의 재추출·재처리에서 중복 생성 없음)."""
+    return "rt.ambient." + stable_digest("ambient.discovery.v1", transaction_id, length=12)
+
+
+def ambient_record(info_id: str, target: str, kind: str, place_id: str, place_name: str, at_minute=None) -> dict:
+    """발견 정보 정의 — 플레이어 대상명 + 장소 표시명의 고정 문형(캐시·숨은 설정 문구 없음)."""
+    return _info.runtime_definition_record(
+        info_id, f"[주변 발견] {place_name}에서 찾아낸 {_KIND_WORD.get(kind, '물건')}: {target}",
+        summary=f"{place_name} — {target}", subject_refs=[f"place:{place_id}"],
+        tags=[AMBIENT_TAG, kind], fragments=[target], created_at_minute=at_minute)
+
+
+def same_target(a, b) -> bool:
+    return isinstance(a, str) and isinstance(b, str) and "".join(a.split()) == "".join(b.split()) != ""
+
+
+def discoveries_at(definition: dict, world, pc: str, place_id) -> list:
+    """현재 장소에서 PC가 CONTENT로 아는 CURRENT 주변 발견 — [(D키, info_id, 대상명, 종류)](생성 순)."""
+    if not place_id or not pc:
+        return []
+    dom = (lambda k: world.domain(k)) if isinstance(world, _wm.ProjectedWorld) else \
+        (lambda k: getattr(world, k, None))
+    recs = (dom("cognition_state") or {}).get(_cog.actor_holder(pc)) or {}
+    st = dom("information_state") or {}
+    rows = []
+    for iid, r in recs.items():
+        if not isinstance(r, dict) or r.get("awareness") != _cog.CONTENT:
+            continue
+        d = _info.runtime_definition(st, iid) or {}
+        if AMBIENT_TAG not in (d.get("tags") or ()) or f"place:{place_id}" not in (d.get("subject_refs") or ()):
+            continue
+        if _info.effective_validity(definition, st, iid) != _info.CURRENT:
+            continue
+        frag = (d.get("fragments") or [""])[0]
+        kind = next((t for t in d.get("tags") or () if t in DISCOVERY_KINDS), "OBJECT")
+        rows.append((d.get("created_at_minute") or 0, iid, frag, kind))
+    rows.sort(key=lambda x: (x[0], x[1]))
+    return [(f"D{n}", iid, frag, kind) for n, (_m, iid, frag, kind) in enumerate(rows, 1)]
+
+
+def pc_place(ctx, session):
+    pl = _sp.placement_of(session, ctx.lead_pc) or {}
+    return pl.get("place_id") if pl.get("kind") == _sp.AT_PLACE else None
+
+
+def pc_place_name(ctx, session, place_id) -> str:
+    """PC 지식 수준의 장소 표시명(발견 명제·요약용 — 내부 PlaceId를 문장에 쓰지 않는다)."""
+    return _pd.display_for(ctx.definition, session, ctx.lead_pc, place_id, require_known=False)
+
+
+def discovery_rows_text(rows) -> str:
+    return ", ".join(f"{k}={t}({_KIND_WORD.get(kd, kd)})" for k, _i, t, kd in rows)
+
+
+def discovery_block(ctx, plan, session) -> str:
+    """지시층위: 현재 장소에서 PC가 발견해 둔 것(최근 인지 12건 제한과 무관)."""
+    world, scene = _scene_world_and_place(ctx, plan, session)
+    rows = discoveries_at(ctx.definition, world, ctx.lead_pc, scene)
+    if not rows:
+        return ""
+    return ("\n[현재 장소에서 PC가 발견해 둔 것 — 정본(아직 그 자리에 있다). 플레이어가 줍거나 쓴다고 선언할 때만 "
+            "획득·사용으로 서술]\n" + "\n".join(f"· {t} ({_KIND_WORD.get(kd, kd)})" for _k, _i, t, kd in rows) + "\n")
+
+
+def implied_discovery_take(obs_manifest, raw, ref_key, item_deltas, pc_name, pc_bag_before) -> str | None:
+    """A1 보정: 추출이 D키를 빠뜨린 발견물 수거의 엄격한 조건부 복구 — 복구할 D키 또는 None. 순수.
+
+    모두 충족할 때만: ① 선언이 가리킨 후보(ref_key — 게이트가 검증한 기존 발견 키 또는 이번 턴 DNEW)가 이번 턴
+    매니페스트의 OBJECT 행이다 ② 그 키(다른 키 포함 어떤 D키)도 추출이 명시하지 않았다 ③ 매니페스트에 같은 이름
+    행이 정확히 하나다 ④ 같은 이름 소지 변경이 추출 전체에서 PC +1 한 건뿐이다(다른 인물 증감 = 다른 출처 정황)
+    ⑤ PC가 턴 전부터 같은 이름을 갖고 있지 않다(기존 소지품 정리와 구분). 이름 일치는 후보 좁히기일 뿐이다.
+    """
+    if not ref_key or not pc_name or not isinstance(raw, dict):
+        return None
+    if any(k not in (None, "", "NONE") for k in list(raw.get("discovery_taken") or ())
+           + list(raw.get("discovery_gone") or ())):
+        return None
+    row = obs_manifest.discovery_of(ref_key)
+    if row is None or row[3] != "OBJECT":
+        return None
+    target = row[2]
+    if sum(1 for r in obs_manifest.discoveries if same_target(r[2], target)) != 1:
+        return None
+    hits = [e for e in item_deltas or () if same_target(e.get("item"), target)]
+    if len(hits) != 1 or hits[0].get("target") != pc_name or int(hits[0].get("delta") or 0) != 1:
+        return None
+    if any(same_target(k, target) and (v or 0) > 0 for k, v in (pc_bag_before or {}).items()):
+        return None
+    return ref_key
+
+
+def discovery_ops(ctx, world, obs_manifest, raw: dict, outcome, *, prefix: str, transaction_id: str, at_minute):
+    """발견 생성(NEW) + 추출이 키로 지목한 수거·소진 → (ops, 수거한 대상명 목록, 진단). 순수.
+
+    outcome: None 또는 {"status": "NEW"|"EXISTING", "target", "kind", "place", "place_name", "info_id"}.
+    """
+    ops, gains, diags = [], [], []
+    lead = ctx.lead_pc
+    create_id = None
+    new_iid = None
+    if outcome and outcome.get("status") == "NEW":
+        new_iid = outcome["info_id"]
+        st = (world.domain("information_state") if isinstance(world, _wm.ProjectedWorld) else
+              getattr(world, "information_state", None)) or {}
+        if _info.exists(ctx.definition, st, new_iid):
+            diags.append({"code": "DISCOVERY_ALREADY_EXISTS", "info_id": new_iid})
+        else:
+            create = _wm.make_op(f"{prefix}.dc", _info.OP_INFORMATION_CREATE, "OBSERVATION", {
+                "definition": ambient_record(new_iid, outcome["target"], outcome["kind"], outcome["place"],
+                                             outcome.get("place_name") or outcome["place"], at_minute)})
+            ops.append(create)
+            create_id = create.op_id
+            ops.append(_wm.make_op(f"{prefix}.da", _cog.OP_COGNITION_ACQUIRE, "OBSERVATION", {
+                "holder": _cog.actor_holder(lead), "info_id": new_iid, "awareness": _cog.CONTENT,
+                "acquisition": _cog.acquisition_record(f"turn:{transaction_id}:discovery:{new_iid}", "WITNESS",
+                                                       at_minute=at_minute)}, causal_parent_op_ids=(create_id,)))
+    taken = {k for k in (raw.get("discovery_taken") or ()) if isinstance(k, str)}
+    gone = {k for k in (raw.get("discovery_gone") or ()) if isinstance(k, str)} - taken
+    for n, key in enumerate(sorted(taken | gone)):
+        if key == "NONE":
+            continue
+        row = obs_manifest.discovery_of(key)
+        if row is None:
+            diags.append({"code": "DISCOVERY_KEY_INVALID", "key": key})
+            continue
+        _k, iid, target, kind = row
+        parents = ()
+        if key == DISCOVERY_NEW_KEY:
+            if create_id is None:
+                diags.append({"code": "DISCOVERY_NEW_NOT_CREATED", "key": key})
+                continue
+            parents = (create_id,)
+        if key in taken and kind != "OBJECT":
+            diags.append({"code": "DISCOVERY_ENVIRONMENT_NOT_TAKEN", "key": key})
+            continue
+        ops.append(_wm.make_op(f"{prefix}.dv{n}", _info.OP_INFORMATION_VALIDITY_SET, "OBSERVATION",
+                               {"info_id": iid, "validity": _info.SUPERSEDED}, causal_parent_op_ids=parents))
+        if key in taken:
+            gains.append(target)
+    return ops, gains, diags
+
+
+# ══════════════════════════════════════════════════════════════
 #  관찰 매니페스트(추출) · 처리
 # ══════════════════════════════════════════════════════════════
 
@@ -567,6 +749,7 @@ class ObservationManifest:
     signals: tuple = ()           # (S키, (signal_id, instance_id), cue)
     ties: tuple = ()              # (O키, 설명)
     extra_time_allowed: bool = True
+    discoveries: tuple = ()       # v7.14 (D키, info_id, 대상명, 종류) — 현재 장소 유효 발견 + DNEW(이번 턴)
 
     def schema(self) -> dict:
         def enum(rows):
@@ -577,7 +760,10 @@ class ObservationManifest:
                     "info_exposed": {"type": "array", "items": enum(self.infos)},
                     "extra_minutes": {"type": "integer"},
                     "tie_order": enum(self.ties),
-                    "represented_signals": {"type": "array", "items": enum(self.signals)}}}
+                    "represented_signals": {"type": "array", "items": enum(self.signals)},
+                    **({"discovery_taken": {"type": "array", "items": enum(self.discoveries)},
+                        "discovery_gone": {"type": "array", "items": enum(self.discoveries)}}
+                       if self.discoveries else {})}}
 
     def render(self) -> str:
         lines = ["\n[세계 관찰 — world_observation]"]
@@ -589,6 +775,11 @@ class ObservationManifest:
                          + ", ".join(f"{k}={cue}" for k, _, cue in self.signals))
         if self.ties:
             lines.append("묘사가 택한 선후 순서 하나를 tie_order에: " + ", ".join(f"{k}={lbl}" for k, lbl in self.ties))
+        if self.discoveries:
+            lines.append("PC가 이번 묘사에서 실제로 집어 소지한 발견물만 discovery_taken에, 사용·소모·파손·이동으로 "
+                         "그 자리에서 사라진 것만 discovery_gone에(보기만 했거나 그대로 둔 것은 넣지 말 것 · "
+                         "discovery_taken에 넣은 물건은 item_changes에 따로 넣지 말 것): "
+                         + discovery_rows_text(self.discoveries))
         if self.extra_time_allowed:
             lines.append("이동·대기가 아닌 행동으로 묘사상 분명히 흐른 추가 시간이 있으면 extra_minutes(분, 없으면 0).")
         else:
@@ -602,6 +793,9 @@ class ObservationManifest:
     def signal_of(self, key):
         return next((r[1] for r in self.signals if r[0] == key), None)
 
+    def discovery_of(self, key):
+        return next((r for r in self.discoveries if r[0] == key), None)
+
 
 def _scene_relevant(g, scene, rec) -> bool:
     """정보 정의의 장소 주제가 현재 장면(또는 그 상·하위)에 닿는가. 장소 주제가 없으면 장면 무관하게 허용."""
@@ -612,7 +806,7 @@ def _scene_relevant(g, scene, rec) -> bool:
     return any(p in path or scene in g.path_of(p) for p in places if p in g.places)
 
 
-def build_observation_manifest(definition: dict, ctx, plan, base_world) -> ObservationManifest:
+def build_observation_manifest(definition: dict, ctx, plan, base_world, *, discovery=None) -> ObservationManifest:
     """추출 관찰 후보 — **이번 턴 노출 근거가 있는 것만**(R2).
 
     정보: 이번 턴 코드 계획(stage-1)의 사건이 결정적으로 만든 정보 중 장면과 관련되고 공개 안전 요약
@@ -657,7 +851,11 @@ def build_observation_manifest(definition: dict, ctx, plan, base_world) -> Obser
     signals = tuple((f"S{n}", k, cue) for n, (k, cue) in enumerate(sigs, 1))
     ties = tuple(tie_option_labels(plan, definition, ctx)) if plan is not None and plan.status == _pw.PLAN_TIE else ()
     extra = not (plan is not None and plan.code_owned_minutes)
-    return ObservationManifest(infos, signals, ties, extra)
+    # v7.14: 현재 장면의 유효 발견(SUPERSEDED는 나오지 않는다 — 같은 물건 두 번 수거 불가) + 이번 턴 새 발견
+    drows = list(discoveries_at(definition, world, lead, scene))
+    if discovery and discovery.get("status") == "NEW":
+        drows.append((DISCOVERY_NEW_KEY, discovery["info_id"], discovery["target"], discovery["kind"]))
+    return ObservationManifest(infos, signals, ties, extra, tuple(drows))
 
 
 def unrepresented_signals(signals, represented) -> list:
@@ -679,6 +877,7 @@ class TurnWorldResult:
     exposures: tuple = ()
     extra_minutes: int = 0
     conflict: dict | None = None
+    item_gains: tuple = ()                  # v7.14 수거한 발견물 대상명(PC 소지품 +1 — 커밋 경로에서 적용)
 
 
 def reveal_ops(definition: dict, pc: str, info_ids, *, prefix: str, at_minute=None) -> list:
@@ -708,8 +907,12 @@ def reveal_ops(definition: dict, pc: str, info_ids, *, prefix: str, at_minute=No
 
 def process_observation(ctx, base_world, plan, obs_manifest: ObservationManifest, raw_obs, *,
                         transaction_id: str, narrative_seed: str, replan=None,
-                        face_info_ids=(), name_info_ids=()) -> TurnWorldResult:
-    """확정 묘사 관찰 → 보충 typed 연산 + 보충 세계 진행 → 최종 묶음 연산(순수)."""
+                        face_info_ids=(), name_info_ids=(), discovery=None,
+                        read_info_ids=()) -> TurnWorldResult:
+    """확정 묘사 관찰 → 보충 typed 연산 + 보충 세계 진행 → 최종 묶음 연산(순수).
+
+    v7.17 read_info_ids: 코드가 검증한 아이템 READ(실제 소지·현장 물건의 저작 info_refs)로 PC가 내용을 알게 된 정보 —
+    같은 정보·인지 경로(DOCUMENT, 믿음 불변)로 같은 묶음에 합류한다. 아이템 소유만으로는 생기지 않는다."""
     D, lead = ctx.definition, ctx.lead_pc
     raw = raw_obs if isinstance(raw_obs, dict) else {}
     diags = []
@@ -753,9 +956,26 @@ def process_observation(ctx, base_world, plan, obs_manifest: ObservationManifest
                 "acquisition": _cog.acquisition_record(
                     f"turn:{transaction_id}:{tag}:{iid}", route,
                     at_minute=(start_world.domain("world_clock") or {}).get("minute_index"))}))
+    # ②-a' v7.17 아이템 읽기 — 검증된 READ 대상 물건의 저작 정보(DOCUMENT 경로, 믿음 불변)
+    read_ids = []
+    for n, iid in enumerate(sorted(set(read_info_ids or ()))):
+        if not _info.exists(D, start_world.domain("information_state") or {}, iid):
+            diags.append({"code": "ITEM_READ_INFO_UNKNOWN", "info_id": iid})
+            continue
+        read_ids.append(iid)
+        acq.append(_wm.make_op(f"{prefix}.read{n}", _cog.OP_COGNITION_ACQUIRE, "OBSERVATION", {
+            "holder": _cog.actor_holder(lead), "info_id": iid, "awareness": _cog.CONTENT,
+            "acquisition": _cog.acquisition_record(f"turn:{transaction_id}:read:{iid}", "DOCUMENT",
+                                                   at_minute=(start_world.domain("world_clock") or {}).get("minute_index"))}))
     # ②-b H07 §5.2: 정보가 드러낸 공간 지식(장소 이름·숨은 길 발견) — 실제로 알게 된 정보의 저작 reveals만
-    acq += reveal_ops(D, lead, exposures, prefix=f"{prefix}.rv", at_minute=(start_world.domain("world_clock") or {})
-                      .get("minute_index"))
+    acq += reveal_ops(D, lead, list(exposures) + read_ids, prefix=f"{prefix}.rv",
+                      at_minute=(start_world.domain("world_clock") or {}).get("minute_index"))
+    # ②-c v7.14 주변 발견: 승인·성공 발견 생성 + PC 인지, 추출이 키로 지목한 수거·소진(같은 묶음 — 원자적)
+    d_ops, gains, d_diags = discovery_ops(ctx, start_world, obs_manifest, raw, discovery, prefix=prefix,
+                                          transaction_id=transaction_id,
+                                          at_minute=(start_world.domain("world_clock") or {}).get("minute_index"))
+    acq += d_ops
+    diags += d_diags
     # ③ 추가 시간(코드 소유 경과가 있으면 버린다)
     extra = raw.get("extra_minutes")
     extra = extra if isinstance(extra, int) and not isinstance(extra, bool) and extra > 0 else 0
@@ -795,7 +1015,7 @@ def process_observation(ctx, base_world, plan, obs_manifest: ObservationManifest
         world, sigs = r.projected_world, list(r.signals)
     cont = unrepresented_signals(sigs, represented)
     return TurnWorldResult(TW_READY, tuple(ops), world, plan, sigs, cont, tuple(sorted(represented)),
-                           diags, tuple(exposures), extra)
+                           diags, tuple(exposures), extra, item_gains=tuple(gains))
 
 
 # ══════════════════════════════════════════════════════════════

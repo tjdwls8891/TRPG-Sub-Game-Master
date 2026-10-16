@@ -77,6 +77,10 @@ async def chat_guard(bot, message: discord.Message) -> bool:
 
     # ── 게임 채널 ── 턴 진행 중이 아닐 때, 참가자만
     if message.channel.id == getattr(session, "game_ch_id", None):
+        # v7.15: 캐릭터를 만드는 중인 사람(아직 players에 없는 개설자 포함)의 채팅은 생성 답변이다
+        from .profile_creation_ui import claims
+        if claims(bot, message):
+            return True
         if not (is_owner or is_player):
             return await _reject(message, "ℹ️ " + master.say(
                 "system.not_participant", "세션 참가자만 발언할 수 있습니다."))

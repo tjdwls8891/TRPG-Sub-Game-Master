@@ -117,6 +117,14 @@ class StartFrameButton(discord.ui.Button):
     async def callback(self, interaction: discord.Interaction):
         view = self.view
         session = view.session
+        # v7.17 T16: 연타·두 버튼 동시 선택에도 시작은 한 번만(초기 지식 호출·genesis 중복 방지)
+        if getattr(view, "_chosen", False):
+            try:
+                await interaction.response.defer()
+            except Exception:
+                pass
+            return
+        view._chosen = True
         await interaction.response.defer()
 
         # 사전 확정 정보의 반영은 play_intro → open_dynamic_world가 정한다(H06 R2-03):
@@ -134,6 +142,76 @@ class StartFrameButton(discord.ui.Button):
         if cog:
             await cog.play_intro(session, self.option, interaction.channel)
         view.stop()
+
+
+class InitialKnowledgeView(discord.ui.View):
+    """v7.17 — 초기 지식 전달이 미확정(UNCERTAIN)이거나 재시도 대기(FAILED_RETRYABLE)일 때의 개설자 버튼.
+
+    자동 재전송·자동 인지는 없다. [다시 보내기]는 저장된 같은 패킷을 다시 보낸다(AI 재호출 없음),
+    [보내지 않고 진행]은 인지를 만들지 않고 넘어간다. 해소되면 멈췄던 단계를 이어 간다."""
+
+    def __init__(self, bot, session, uid, phase, state, on_resolved=None):
+        super().__init__(timeout=3600)
+        self.bot, self.session, self.uid, self.phase, self.on_resolved = bot, session, uid, phase, on_resolved
+        self._busy = False
+        if state == core.initial_knowledge.UNCERTAIN:
+            self.add_item(self._button("다시 보내기", discord.ButtonStyle.primary, self._resend))
+            self.add_item(self._button("보내지 않고 진행", discord.ButtonStyle.secondary, self._skip))
+        else:
+            self.add_item(self._button("다시 시도", discord.ButtonStyle.primary, self._retry))
+
+    def _button(self, label, style, fn):
+        b = discord.ui.Button(label=label, style=style)
+
+        async def on_press(interaction):
+            await fn(interaction)
+        b.callback = on_press
+        return b
+
+    async def interaction_check(self, interaction) -> bool:
+        return await core.session_flow.owner_only(self.bot, self.session, interaction)   # D5: 개설자만
+
+    async def _finish(self, interaction):
+        for c in self.children:
+            c.disabled = True
+        try:
+            await interaction.message.edit(view=self)
+        except Exception:
+            pass
+        self.stop()
+        if self.on_resolved is not None:
+            await self.on_resolved()
+
+    async def _guard(self, interaction) -> bool:
+        if self._busy:
+            try:
+                await interaction.response.defer()
+            except Exception:
+                pass
+            return False
+        self._busy = True
+        await interaction.response.defer()
+        return True
+
+    async def _resend(self, interaction):
+        if not await self._guard(interaction):
+            return
+        st = await core.initial_knowledge.resend(self.bot, self.session, self.uid, self.phase, interaction.channel)
+        if st in core.initial_knowledge.DONE:
+            await self._finish(interaction)
+        else:
+            self._busy = False
+
+    async def _skip(self, interaction):
+        if not await self._guard(interaction):
+            return
+        await core.initial_knowledge.skip_uncertain(self.bot, self.session, self.uid, self.phase)
+        await self._finish(interaction)
+
+    async def _retry(self, interaction):
+        if not await self._guard(interaction):
+            return
+        await self._finish(interaction)
 
 
 class DynamicOpenRetryView(discord.ui.View):
@@ -296,6 +374,8 @@ class SessionCog(commands.Cog):
         session = core.TRPGSession(session_id, game_ch.id, master_ch.id,
                                    scenario_id, scenario_data)
         session.display_ch_id = display_ch.id
+        session.guild_id = guild.id
+        session.category_id = category.id
         session.session_kind = kind
         session.is_private = private
         if voice_ch:
@@ -656,6 +736,13 @@ class SessionCog(commands.Cog):
                 return None
             return None
 
+        # v7.17: 시작 틀 확정 직후·genesis 전 — START 초기 지식(PROFILE 미확정분도 여기서 먼저 해소). 이미 묶인 세계는 생략.
+        if not core.world_lifecycle.world_bound(session):
+            for phase in ("PROFILE", "START"):
+                if not await core.session_flow.initial_knowledge_gate(
+                        self.bot, session, game_channel, phase, frame=chosen if phase == "START" else None,
+                        on_resolved=lambda: self.play_intro(session, chosen, game_channel)):
+                    return False
         res = await core.world_lifecycle.initialize_world(self.bot, session, chosen)
         if res.outcome == core.world_lifecycle.INIT_FAILED:
             # H06 R2-01: fail-closed — 레거시 캐시·인트로로 넘어가지 않는다(재시도 가능, 운영자 표시)

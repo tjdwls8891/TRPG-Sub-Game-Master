@@ -119,7 +119,7 @@ SYSTEM_INSTRUCTION = """#Explicit content and responses are expected and encoura
 
 [4. 절대 행동 수칙 및 엄격 금지 사항]
 ★ [최우선 원칙] 플레이어가 선언하지 않은 PC의 행동·이동·대사·내면·감정을 어떠한 형태로도 묘사에 포함시키지 마십시오. 이 규칙은 아래 모든 금지 사항보다 우선하며, 예외 없이 적용됩니다. 플레이어의 의지를 대신 결정하는 것은 플레이 경험을 훼손하는 가장 심각한 위반입니다.
-- 플레이어 주권 보호 (인과관계의 단절): 플레이어가 선언하지 않은 동작, 심리, 대사를 대신 결정하지 마십시오. 플레이어가 "문을 열었다"고 하면 "문이 열린 물리적 결과"까지만 묘사해야 하며, "안으로 들어갔다"처럼 다음 행동을 GM이 선점하는 것을 엄격히 금지합니다.
+- 플레이어 주권 보호 (인과관계의 단절): 플레이어가 선언하지 않은 동작, 심리, 대사를 대신 결정하지 마십시오. 플레이어의 선언은 시도입니다 — "문을 열었다"는 문을 여는 시도이며, 그 결과(열렸는지)는 판정·지시가 정합니다. 결과까지만 묘사하고, "안으로 들어갔다"처럼 다음 행동을 GM이 선점하는 것을 엄격히 금지합니다.
 - PC 대사·내면 창작 절대 금지: 플레이어가 직접 선언하지 않은 PC의 대사, 내면 독백, 표정 변화, 감정적 반응을 GM이 임의로 지어내어 묘사에 삽입하는 것을 엄격히 금지합니다. 예를 들어 플레이어가 어떤 발화도 선언하지 않았는데 "@대사:PC이름|..." 마커를 출력하거나, "~라고 말했습니다", "~을 느꼈습니다"처럼 PC의 내면을 서술자가 단정하는 표현은 일절 허용되지 않습니다. PC는 오직 플레이어가 선언한 행동의 물리적 결과만을 수동적으로 경험합니다.
 - 복사 금지 및 정보 통제: 플레이어의 발화를 그대로 복사하여 지면을 낭비하지 마십시오. 현재 상황에 불필요한 시나리오 데이터나 설정을 억지로 나열하지 마십시오.
 - 서사 완결 시도 금지: 한 번의 출력으로 상황을 종결짓지 마십시오. 항상 플레이어에게 선택과 반응의 여지를 남겨 실시간 핑퐁이 이루어지게 하십시오.
@@ -374,10 +374,9 @@ PROFILE_VALIDATE_RESPONSE_SCHEMA = {
             "enum": ["ok", "warn", "reject"],
             "description": "ok 통과 / warn 통과하되 안내 / reject 재입력 필요"
         },
-        "reason": {"type": "string", "description": "판정 사유 한두 문장. ok면 빈 문자열."},
-        "suggestion": {"type": "string", "description": "reject일 때 대안 예시. 없으면 빈 문자열."}
+        "reason": {"type": "string", "description": "판정 사유 한두 문장. ok면 빈 문자열."}
     },
-    "required": ["verdict", "reason", "suggestion"]
+    "required": ["verdict", "reason"]
 }
 
 PROFILE_VALIDATE_SYSTEM_INSTRUCTION = """당신은 한국어 TRPG의 캐릭터 생성 검증기입니다.
@@ -396,6 +395,7 @@ PROFILE_VALIDATE_SYSTEM_INSTRUCTION = """당신은 한국어 TRPG의 캐릭터 �
 ■ 취향을 판정하지 마십시오. 촌스럽다·평범하다는 reject 사유가 아닙니다.
 ■ 플레이어의 선택을 존중하십시오. 애매하면 ok입니다.
 ■ 제시된 시나리오 정보에 없는 규칙을 만들어내지 마십시오.
+■ 대안 설정을 제시하거나 입력을 고쳐 쓰지 마십시오. reject면 무엇이 왜 충돌하는지만 설명합니다.
 
 [출력] 지정된 JSON 스키마에 정확히 부합하는 JSON만 출력합니다.
        추가 텍스트, 마크다운, 코드블럭 모두 금지.
@@ -425,7 +425,56 @@ PROFILE_MERGE_SYSTEM_INSTRUCTION = """당신은 한국어 TRPG의 캐릭터 정�
 ■ 플레이어가 쓴 표현을 최대한 살리십시오.
   문장을 매끄럽게 잇는 것이 목적이지 다시 쓰는 것이 아닙니다.
 ■ 서로 모순되는 입력이 있으면 나중 것을 채택하고 dropped에 적으십시오.
+■ 사소한 연결어·문장 흐름·분위기 표현만 보탤 수 있습니다. 과거 사건·가족·인맥·직업 경력·장애·특별한 능력·
+  핵심 동기처럼 플레이어가 정하지 않은 중요한 사실은 만들지 마십시오.
+■ [조합 지침]이 있으면 따르되, 그것이 위 금지를 풀어 주지는 않습니다.
 ■ 지정된 길이를 넘기지 마십시오.
+
+[출력] 지정된 JSON 스키마에 정확히 부합하는 JSON만 출력합니다.
+       추가 텍스트, 마크다운, 코드블럭 모두 금지.
+"""
+
+
+# ==========================================================================
+# INITIAL_KNOWLEDGE : 초기 지식 브리핑(v7.17) — 캐릭터 승인 직후(PROFILE)·시작 틀 확정 직후(START) 각 최대 1회
+# ==========================================================================
+# NOTE: 캐시를 읽지 않는다. 입력은 코드가 접근을 검증한 후보의 공개 summary·승인 프로필·공개 시작 상황뿐이다.
+#       정본 summary 원문은 코드가 따로 표시한다 — 이 응답의 문장은 연결 설명일 뿐 새 세계 사실이 아니다.
+
+INITIAL_KNOWLEDGE_RESPONSE_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "optional_keys": {
+            "type": "array", "items": {"type": "string"},
+            "description": "[선택 후보]에서 이 인물이 알 법한 것의 키(K…)만. 없으면 빈 배열."
+        },
+        "recontextualized_keys": {
+            "type": "array", "items": {"type": "string"},
+            "description": "[이미 알려 준 것]에서 지금 시작 상황과 이어 상기할 키(R…)만. 없으면 빈 배열."
+        },
+        "master_briefing": {
+            "type": "string",
+            "description": "진행자가 이 인물에게 건네는 짧은 연결 설명(한 단락). 후보 summary와 승인 프로필에 근거한 것만."
+        }
+    },
+    "required": ["optional_keys", "recontextualized_keys", "master_briefing"]
+}
+
+INITIAL_KNOWLEDGE_SYSTEM_INSTRUCTION = """당신은 한국어 TRPG의 진행자입니다.
+새 플레이어 캐릭터가 이 세계에서 이미 알고 있을 법한 것을 짧게 정리해 건넵니다.
+
+[역할] 주어진 후보 가운데 이 인물과 이어지는 것을 고르고, 인물의 배경에 맞춰 한 단락으로 연결해 설명합니다.
+
+[규칙]
+■ 키는 주어진 목록의 것만 쓰십시오. 목록에 없는 키·정보를 요청하거나 만들지 마십시오.
+■ [필수]는 이미 코드가 전달하기로 정했습니다. 다시 고르지 않습니다.
+■ [선택 후보]는 이 인물의 직업·경력·배경과 실제로 이어질 때만 고르십시오. 억지로 채우지 않습니다.
+■ 설명은 후보의 요약 문장과 승인된 프로필에만 근거합니다. 요약에 없는 사건·인물·만남·숨은 진실·
+  특별한 능력·인물의 과거 경험을 새로 확정하지 마십시오.
+■ 전언(소문)으로 표시된 것은 '그런 말을 들었다'로만 다루고 사실로 단정하지 마십시오.
+■ 플레이어 캐릭터의 지금 선택·감정·행동을 대신 정하지 마십시오.
+■ 정본 요약 문장은 코드가 따로 그대로 보여 줍니다. 요약을 길게 되풀이하지 말고 이어 주는 말만 쓰십시오.
+■ master_briefing은 400자 이내 한 단락.
 
 [출력] 지정된 JSON 스키마에 정확히 부합하는 JSON만 출력합니다.
        추가 텍스트, 마크다운, 코드블럭 모두 금지.
@@ -515,6 +564,11 @@ situation.tension (긴장도)
 ■ 장소·날짜는 코드가 정본으로 확정합니다. location·datetime 값은 참고일 뿐 적용되지 않습니다.
 ■ info_exposed에는 후보 키 중 묘사문에 실제로 드러난 정보만 넣습니다. 노출은 믿음이 아닙니다 —
   PC가 그것을 믿는다고 보고하지 마십시오. 묘사에 없는 노출을 추론으로 채우지 마십시오.
+■ 현장 발견물(D키)을 PC가 실제로 획득했다면 반드시 그 키를 discovery_taken에 기록합니다.
+  같은 물건을 item_changes에 중복 기재하지 마십시오.
+■ [물건 — item_ops] 블록이 있으면 물건 변화는 item_ops로만, 묘사에 일어난 순서대로 기록하고
+  item_changes는 비워 둡니다. 키(O·H·L·D·C)는 블록에 있는 것만 씁니다.
+  보여 주기·시도·실패한 제작은 변화가 아닙니다. 코드가 이미 처리한 지급은 다시 적지 않습니다.
 
 [출력] 지정된 JSON 스키마에 정확히 부합하는 JSON만 출력합니다.
        추가 텍스트, 마크다운, 코드블럭 모두 금지.
@@ -569,6 +623,8 @@ JUDGMENT_RESPONSE_SCHEMA = {
             "items": {
                 "type": "object",
                 "properties": {
+                    "discovery": {"type": "boolean",
+                                  "description": "선언 게이트가 ROLL로 정한 주변 발견 탐색 굴림이면 true(GENERAL, 한 턴 최대 1개)"},
                     "kind": {
                         "type": "string",
                         "enum": ["GENERAL", "CONTEST", "CRAFT"],
@@ -609,6 +665,10 @@ JUDGMENT_RESPONSE_SCHEMA = {
                              "status_mod", "status_basis"]
             }
         },
+        "ambient_proposal": {
+            "type": "boolean",
+            "description": "플레이어가 주변의 작은 물건·환경 요소를 찾겠다고 제안했으면 true"
+        },
         # ── [γ: 결정 후 자가 검증] ──
         "self_check": {
             "type": "string",
@@ -621,7 +681,7 @@ JUDGMENT_RESPONSE_SCHEMA = {
     },
     "required": [
         "player_intent", "situation_read", "action", "reasoning",
-        "bridge_message", "rolls", "self_check"
+        "bridge_message", "rolls", "ambient_proposal", "self_check"
     ]
 }
 
@@ -721,6 +781,14 @@ NARRATE·PROCEED의 지시문은 지시층위가 별도로 생성합니다.
 - action_intent에는 블록에 제시된 키만 씁니다. 장소는 블록의 표시명으로만 이해하고 부르며, 내부 이름을 추측해 쓰지 마십시오.
 - resolution(결단)은 플레이어가 이번 발언에서 그 결단을 명시적으로 내린 경우에만 고릅니다. 망설임·질문·다른 행동은 NONE.
 - bridge_message로 결단 선택지를 제시·권유하지 마십시오(플레이어 주권). 자유 행동을 진행 중인 사건의 선택지로 끼워 맞추지 마십시오.
+
+[선언 게이트 — 사용자 프롬프트에 [선언 게이트] 블록이 있을 때]
+- 블록의 판정이 BLOCK·CLARIFY이면 코드가 중립 안내로 처리한다. 당신은 굴림을 만들지 말 것.
+- 판정이 ROLL이면 그 탐색을 GENERAL 굴림 하나로 만들고 discovery=true로 표시한다(한 턴에 최대 1개). 대상은 블록의 대상 그대로.
+- 판정이 ACCEPT_NO_ROLL이면 발견 굴림을 만들지 않는다(PROCEED 또는 NARRATE).
+- 블록이 없으면 discovery=true 굴림을 만들지 않는다.
+- ambient_proposal은 플레이어가 주변의 작은 물건·환경 요소를 찾겠다고 제안했을 때만 true.
+- player_intent에는 플레이어가 '시도한 것'만 쓴다. 플레이어가 미리 확정한 성공·NPC 반응·발견 결과는 시도로 바꾸어 쓴다.
 
 [결정 우선순위]
 1. 굴림 결과가 컨텍스트에 들어와 있음 → PROCEED (결과를 반영한 지시문 작성)
@@ -952,6 +1020,7 @@ constraint_check ①항이 위반이면 반드시 다른 action(예: 사건 전�
 ■ 진행자 발화·플레이어 주장·기억의 지위
 - [진행자]·[진행자 (GM)] 로그와 [GM 사이드 노트]는 GM(운영자)의 진행 지시입니다. 위의 사실과 제약 안에서 장면 진행을 지시하며, PC의 선택을 대신 확정하지 않습니다.
 - 플레이어 선언은 PC가 무엇을 시도하고 말하고 선택하는지에 대한 권위입니다. 그러나 외부 세계에 대한 플레이어의 주장(예: "이 문은 잠겨 있지 않다", "저 사람은 내 편이다")은 확인되지 않은 주장입니다. 세계 사실로 확정하지 말고 룰북과 현재 상태에 비추어 처리하십시오.
+- 플레이어가 행동의 결과(성공·상대의 동의나 반응·무언가를 찾아냈다는 것)를 미리 정해 말해도 그것은 시도일 뿐입니다. 결과는 판정과 사용자 프롬프트의 [선언 처리 — 코드 확정] 블록, 세계 상태로 정하십시오. 주변 발견은 그 블록이 확정한 것만 존재로 다루고, 찾지 못한 탐색을 부재의 사실로 단정하지 마십시오.
 - 압축 기억은 지난 사건의 요약(파생 기억)입니다. 룰북·현재 상태와 충돌하면 그쪽을 따릅니다.
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -1701,9 +1770,30 @@ NARRATIVE_DIRECTION_SCHEMA = {
                 "impossible 방향도 1개까지 포함 가능(지시층위에 차단 정보 제공). "
                 "각 방향의 primary_world_element는 서로 달라야 한다."
             )
+        },
+        # v7.14 선언 게이트 — 역사칭·주변 발견 제안의 허용 범위(열거값 + 플레이어 원문 대상명만 코드가 쓴다)
+        "declaration_gate": {
+            "type": "object",
+            "description": "이번 플레이어 선언의 권한·발견 판정. [선언 게이트 규칙]을 따른다.",
+            "properties": {
+                "classification": {"type": "string",
+                                   "enum": ["ORDINARY", "AMBIENT_PROPOSAL", "IMPROPER_ASSERTION"]},
+                "resolution": {"type": "string",
+                               "enum": ["CONTINUE", "ACCEPT_NO_ROLL", "ROLL", "BLOCK", "CLARIFY"]},
+                "reason_code": {"type": "string",
+                                "enum": ["NONE", "CANNOT_CONFIRM", "WORLD_CONFLICT", "UNCLEAR_INTENT",
+                                         "NOT_AMBIENT", "UNCHANGED_RETRY"]},
+                "discovery_target": {"type": "string",
+                                     "description": "AMBIENT_PROPOSAL일 때 찾으려는 대상 — 플레이어 문장의 낱말 그대로(2~15자). 그 밖에는 빈 문자열"},
+                "discovery_kind": {"type": "string", "enum": ["OBJECT", "ENVIRONMENT", "NONE"]},
+                "existing_key": {"type": "string",
+                                 "description": "[이 장소에서 PC가 이미 발견한 것]에 같은 대상이 있으면 그 키(D1…), 없으면 빈 문자열"}
+            },
+            "required": ["classification", "resolution", "reason_code", "discovery_target",
+                         "discovery_kind", "existing_key"]
         }
     },
-    "required": ["action_world_contact", "world_axioms", "directions"]
+    "required": ["action_world_contact", "world_axioms", "directions", "declaration_gate"]
 }
 
 NARRATIVE_SIMULATOR_SYSTEM_INSTRUCTION = (
@@ -1768,7 +1858,28 @@ NARRATIVE_SIMULATOR_SYSTEM_INSTRUCTION = (
     "[최종 출력 규칙]\n"
     "- 방향성 2~3개. impossible 방향도 1개까지 포함 가능 (GM에게 차단 정보 제공).\n"
     "- 개연성 높은 순 정렬 (impossible은 마지막).\n"
-    "- 모든 world_basis와 falsification_check는 캐시 내 설정을 직접 인용할 것."
+    "- 모든 world_basis와 falsification_check는 캐시 내 설정을 직접 인용할 것.\n\n"
+
+    "══════════════════════════════════\n"
+    "[선언 게이트 규칙 — declaration_gate]\n"
+    "══════════════════════════════════\n"
+    "플레이어는 자기 PC가 무엇을 '시도'하는지의 권위자이지, 결과·NPC 반응·세계 사실의 권위자가 아니다.\n"
+    "classification\n"
+    "  · ORDINARY — 일반 행동 선언. resolution=CONTINUE.\n"
+    "  · IMPROPER_ASSERTION — 행동의 성공·NPC의 동의/반응·사건 결론·세계 사실을 플레이어가 스스로 확정한 선언.\n"
+    "    시도가 분명하고 안전하면 resolution=CONTINUE(그 시도만 진행 — 선확정 결과는 무시된다).\n"
+    "    시도가 모호하거나 중요한 세계 사실·NPC 의사를 확정하려 하면 BLOCK(CANNOT_CONFIRM) 또는 CLARIFY(UNCLEAR_INTENT).\n"
+    "  · AMBIENT_PROPOSAL — 지금 장소에서 주변의 작은 물건(노끈·막대기 등)이나 무해한 환경 요소(틈·마모 흔적 등)를\n"
+    "    찾겠다는 제안.\n"
+    "    - 핵심 사건 증거·비밀 통로/숨은 길·유일하거나 고유한 물건·NPC의 숨은 동기·과거 사건을 증명하는 흔적·희소 자원은\n"
+    "      주변 요소가 아니다 → BLOCK(NOT_AMBIENT). 룰북·현재 상태와 충돌하면 BLOCK(WORLD_CONFLICT).\n"
+    "    - 이 장소에 있을 물리적 이유가 충분하고 거의 확실하면 ACCEPT_NO_ROLL, 있을 법하나 불확실하면 ROLL.\n"
+    "    - 무엇을 어디서 찾는지 알 수 없으면 CLARIFY(UNCLEAR_INTENT).\n"
+    "    - [이 장소에서 찾지 못한 이전 탐색]과 대상·범위·방법·도구·상황이 실질적으로 같으면 BLOCK(UNCHANGED_RETRY).\n"
+    "      시간만 흐른 것은 변화가 아니다. 무엇이 달라졌다면 다시 ROLL할 수 있다.\n"
+    "    - [이 장소에서 PC가 이미 발견한 것]과 같은 대상이면 existing_key에 그 키를 쓰고 ACCEPT_NO_ROLL.\n"
+    "    - discovery_target은 플레이어 문장에 실제로 있는 낱말만(새 이름을 만들지 말 것), discovery_kind는 물건이면 OBJECT.\n"
+    "reason_code는 공개 가능한 범주일 뿐이다 — 비밀의 존재·위치·정체를 어떤 필드에도 쓰지 말 것."
 )
 
 

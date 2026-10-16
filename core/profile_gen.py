@@ -665,4 +665,79 @@ def validate_steps(scenario_data: dict) -> list:
                 errors.append(f"'{field}' 단계가 아직 정해지지 않은 '{dep}'에 의존합니다.")
         if args.get("from") and args["from"] not in (scenario_data or {}):
             errors.append(f"'{field}' 단계의 from '{args['from']}'이 시나리오에 없습니다.")
+        errors += _guide_errors(field, module, args)
     return errors
+
+
+# ── v7.15 장문 필드 질문형 가이드(선택 저작) ─────────────────
+# args.creation_guide = {"direct": bool(기본 True), "compose_rules": str,
+#                        "questions": [{"id", "prompt", "required": bool, "options": [str]?}]}
+# args.master_keys = {"<슬롯>": "<assets/master_dialogues_v1.json 키>"}  — 공용 반응의 단계별 오버라이드
+GUIDE_KEY = "creation_guide"
+MASTER_KEYS_ARG = "master_keys"
+MASTER_KEY_SLOTS = ("text_prompt", "mode_choice", "guide_question", "draft_review", "edit_prompt",
+                    "final_review")
+
+
+def creation_guide(step: dict) -> dict | None:
+    """단계의 질문형 가이드 정의(검증 통과분만). 없거나 깨졌으면 None — 그 단계는 기존 직접 입력으로 진행."""
+    args = (step or {}).get("args") or {}
+    g = args.get(GUIDE_KEY)
+    if not isinstance(g, dict) or _guide_errors((step or {}).get("field"), (step or {}).get("module"), args):
+        return None
+    return g
+
+
+def is_long_form(step: dict) -> bool:
+    """장문 창작 필드 — 질문형 가이드가 저작됐거나 병합(ai_merge) 모듈인 텍스트 단계."""
+    return (step or {}).get("module") == "ai_merge" or creation_guide(step) is not None
+
+
+def _guide_errors(field, module, args: dict) -> list:
+    errs = []
+    g = args.get(GUIDE_KEY)
+    if g is not None:
+        where = f"'{field}' 단계의 {GUIDE_KEY}"
+        if not isinstance(g, dict):
+            return [f"{where}는 객체여야 합니다."]
+        if module not in AI_MODULES:
+            errs.append(f"{where}는 텍스트 단계(ai_validate·ai_merge)에만 쓸 수 있습니다.")
+        qs = g.get("questions")
+        if not isinstance(qs, list) or not qs:
+            errs.append(f"{where}.questions가 비어 있습니다.")
+            qs = []
+        seen = set()
+        for i, q in enumerate(qs):
+            if not isinstance(q, dict):
+                errs.append(f"{where}.questions[{i}]는 객체여야 합니다.")
+                continue
+            qid = q.get("id")
+            if not isinstance(qid, str) or not qid.strip():
+                errs.append(f"{where}.questions[{i}].id가 없습니다.")
+            elif qid in seen:
+                errs.append(f"{where}.questions의 id '{qid}'가 중복됩니다.")
+            seen.add(qid)
+            if not isinstance(q.get("prompt"), str) or not q["prompt"].strip():
+                errs.append(f"{where}.questions[{i}].prompt가 없습니다.")
+            if not isinstance(q.get("required", False), bool):
+                errs.append(f"{where}.questions[{i}].required는 true/false여야 합니다.")
+            opts = q.get("options")
+            if opts is not None and (not isinstance(opts, list) or not opts or len(opts) > 25
+                                     or not all(isinstance(o, str) and o.strip() for o in opts)):
+                errs.append(f"{where}.questions[{i}].options는 1~25개의 문자열이어야 합니다.")
+        if not isinstance(g.get("direct", True), bool):
+            errs.append(f"{where}.direct는 true/false여야 합니다.")
+        if not isinstance(g.get("compose_rules", ""), str):
+            errs.append(f"{where}.compose_rules는 문자열이어야 합니다.")
+    mk = args.get(MASTER_KEYS_ARG)
+    if mk is not None:
+        if not isinstance(mk, dict):
+            errs.append(f"'{field}' 단계의 {MASTER_KEYS_ARG}는 객체여야 합니다.")
+        else:
+            from .master import has_key
+            for slot, key in mk.items():
+                if slot not in MASTER_KEY_SLOTS:
+                    errs.append(f"'{field}' 단계의 {MASTER_KEYS_ARG}.{slot}는 알 수 없는 슬롯입니다.")
+                elif not isinstance(key, str) or not has_key(key):
+                    errs.append(f"'{field}' 단계의 {MASTER_KEYS_ARG}.{slot}: 마스터 대사 키 '{key}'가 없습니다.")
+    return errs

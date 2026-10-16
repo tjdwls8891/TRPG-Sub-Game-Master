@@ -51,6 +51,9 @@ def session_dir(sid) -> str:
 def _append(sid, name: str, obj: dict) -> None:
     if not sid:
         return
+    from .io import is_session_removed
+    if is_session_removed(sid):
+        return                       # 세션 관리: 삭제된 세션 폴더를 로그로 되살리지 않는다
     try:
         line = json.dumps(obj, ensure_ascii=False, default=str)
         with _lock:

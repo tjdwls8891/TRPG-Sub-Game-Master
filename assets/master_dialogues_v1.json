@@ -1142,6 +1142,60 @@
         "방금 요청은 새로운 요청으로 대체됐습니다."
       ],
       "notes": ""
+    },
+    "profile.mode_choice": {
+      "category": "profile",
+      "presentation": "normal",
+      "variants": [
+        "직접 적어 주셔도 되고, 제가 몇 가지 여쭤 함께 정리해 드릴 수도 있습니다.",
+        "편하신 쪽을 고르시죠. 직접 쓰셔도, 질문에 답하셔도 됩니다."
+      ],
+      "notes": "v7.15 캐릭터 생성 개선"
+    },
+    "profile.guide_question": {
+      "category": "profile",
+      "presentation": "normal",
+      "variants": [
+        "{field_label}에 대해 하나씩 여쭙겠습니다.",
+        "{field_label}을 함께 그려 보시죠. 떠오르는 대로 답해 주십시오."
+      ],
+      "notes": "v7.15 캐릭터 생성 개선"
+    },
+    "profile.draft_review": {
+      "category": "profile",
+      "presentation": "normal",
+      "variants": [
+        "말씀하신 내용을 정리해 보았습니다. 원하시는 모습과 맞는지 살펴봐 주십시오.",
+        "이렇게 적어 두면 되겠습니까? 고칠 곳이 있으면 말씀해 주십시오."
+      ],
+      "notes": "v7.15 캐릭터 생성 개선"
+    },
+    "profile.edit_prompt": {
+      "category": "profile",
+      "presentation": "normal",
+      "variants": [
+        "어디를 어떻게 바꾸고 싶으신지 적어 주십시오.",
+        "고치고 싶은 부분만 말씀해 주시면 반영하겠습니다."
+      ],
+      "notes": "v7.15 캐릭터 생성 개선"
+    },
+    "profile.final_review": {
+      "category": "profile",
+      "presentation": "normal",
+      "variants": [
+        "마지막으로 전체를 한 번 훑어보시죠. 고칠 곳이 없으면 이대로 시작합니다.",
+        "이 인물로 들어가시겠습니까? 바꾸고 싶은 항목이 있으면 지금 고르시면 됩니다."
+      ],
+      "notes": "v7.15 캐릭터 생성 개선"
+    },
+    "profile.resume": {
+      "category": "profile",
+      "presentation": "normal",
+      "variants": [
+        "잠시 끊겼군요. 하던 곳에서 이어 가겠습니다.",
+        "중단된 자리부터 다시 이어 가시죠."
+      ],
+      "notes": "v7.15 캐릭터 생성 개선"
     }
   }
 }

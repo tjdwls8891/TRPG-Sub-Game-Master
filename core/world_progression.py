@@ -951,6 +951,10 @@ class _Engine:
                 changed = set(changed) | {_refs.OBSERVER_ITEMS_KEY}
             if "observer_stats" in self.progress:
                 changed = set(changed) | {_refs.OBSERVER_STATS_KEY}
+            if "observer_used_items" in self.progress:                # v7.17: 직전 턴 사용·지급 사실(다음 턴 재평가)
+                changed = set(changed) | {_refs.OBSERVER_USED_KEY}
+            if "observer_paid_items" in self.progress:
+                changed = set(changed) | {_refs.OBSERVER_PAID_KEY}
             minutes = 0
             forced = {}
             if self.initial_full_scan:

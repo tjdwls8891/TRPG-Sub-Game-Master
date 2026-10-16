@@ -75,8 +75,12 @@ def _accrue(session, response, label: str = "프로필 AI") -> float:
 
 
 async def _call(bot, system_instruction, schema, user_prompt: str,
-                session=None, temperature: float = 0.2):
-    """공통 호출. 실패 시 (False, None)."""
+                session=None, temperature: float = 0.2, *, operation=None, billing_hint=None,
+                accrue: bool = True):
+    """공통 호출. 실패 시 (False, None).
+
+    v7.17: operation·billing_hint로 다른 비캐시 단발 호출(초기 지식 — 운영자 부담)이 같은 provider·재시도·JSON
+    경로를 쓴다. accrue=False면 프로필 AI 무료 집계(profile_ai_cost_krw)에 섞지 않는다(CostLedger 기록은 그대로)."""
     from .resilience import call_with_retry
 
     config = types.GenerateContentConfig(
@@ -91,9 +95,9 @@ async def _call(bot, system_instruction, schema, user_prompt: str,
 
     from . import cost_ledger
     _cl_op = cost_ledger.begin_operation(
-        bot, cost_ledger.OP_PROFILE_AI, session=session, model=PROFILE_AI_MODEL,
+        bot, operation or cost_ledger.OP_PROFILE_AI, session=session, model=PROFILE_AI_MODEL,
         actor_kind=cost_ledger.ACTOR_SYSTEM,
-        billing_hint=cost_ledger.HINT_FREE_FEATURE, copy_transaction=False)
+        billing_hint=billing_hint or cost_ledger.HINT_FREE_FEATURE, copy_transaction=False)
     ok, response = await call_with_retry(
         lambda: asyncio.to_thread(
             bot.genai_client.models.generate_content,
@@ -106,7 +110,7 @@ async def _call(bot, system_instruction, schema, user_prompt: str,
     )
     if not ok:
         return False, None
-    if session is not None:
+    if session is not None and accrue:
         _accrue(session, response)
     # WP-02: 무료 기능이라도 실제 provider 비용은 발생 — FREE_FEATURE 힌트로 관측.
     try:
@@ -136,7 +140,8 @@ async def validate(bot, session, *, field: str, value: str,
     막아서는 안 되기 때문이다.
 
     Returns:
-        {"verdict": "ok"|"warn"|"reject", "reason": str, "suggestion": str}
+        {"verdict": "ok"|"warn"|"reject", "reason": str}
+        대안 제시(suggestion)는 없다 — 세계관 충돌은 사유 안내 후 재입력(v7.15).
     """
     from prompts import (PROFILE_VALIDATE_RESPONSE_SCHEMA,
                          PROFILE_VALIDATE_SYSTEM_INSTRUCTION)
@@ -154,24 +159,23 @@ async def validate(bot, session, *, field: str, value: str,
         bot, PROFILE_VALIDATE_SYSTEM_INSTRUCTION,
         PROFILE_VALIDATE_RESPONSE_SCHEMA, user_prompt, session)
     if not ok or not isinstance(data, dict):
-        return {"verdict": "ok", "reason": "", "suggestion": ""}
+        return {"verdict": "ok", "reason": ""}
 
     verdict = data.get("verdict")
     if verdict not in ("ok", "warn", "reject"):
         verdict = "ok"
-    return {"verdict": verdict,
-            "reason": data.get("reason") or "",
-            "suggestion": data.get("suggestion") or ""}
+    return {"verdict": verdict, "reason": data.get("reason") or ""}
 
 
 async def merge(bot, session, *, field: str, values: list,
-                max_length: int = 300) -> dict:
+                max_length: int = 300, rules: str = "") -> dict:
     """여러 입력을 하나의 서술로 합친다 (기능 9번).
 
     호출 실패 시 코드 병합(profile_gen.merge_inputs)으로 폴백한다.
+    결과를 자르지 않는다(v7.15) — 길이 초과는 too_long으로 알려 호출자가 플레이어에게 줄이기를 청한다.
 
     Returns:
-        {"merged": str, "dropped": [str], "fallback": bool}
+        {"merged": str, "dropped": [str], "fallback": bool, "too_long": bool}
     """
     from prompts import (PROFILE_MERGE_RESPONSE_SCHEMA,
                          PROFILE_MERGE_SYSTEM_INSTRUCTION)
@@ -179,14 +183,15 @@ async def merge(bot, session, *, field: str, values: list,
 
     items = [str(v).strip() for v in (values or []) if str(v or "").strip()]
     if not items:
-        return {"merged": "", "dropped": [], "fallback": False}
+        return {"merged": "", "dropped": [], "fallback": False, "too_long": False}
     if len(items) == 1:
-        return {"merged": items[0][:max_length], "dropped": [], "fallback": False}
+        return {"merged": items[0], "dropped": [], "fallback": False, "too_long": len(items[0]) > max_length}
 
     user_prompt = (
         f"[항목]\n{field}\n\n"
         f"[입력 목록 — 순서대로]\n"
         + "\n".join(f"{i + 1}. {v}" for i, v in enumerate(items))
+        + (f"\n\n[조합 지침]\n{rules}" if rules else "")
         + f"\n\n[길이 제한]\n{max_length}자 이내"
     )
 
@@ -194,22 +199,20 @@ async def merge(bot, session, *, field: str, values: list,
         bot, PROFILE_MERGE_SYSTEM_INSTRUCTION,
         PROFILE_MERGE_RESPONSE_SCHEMA, user_prompt, session, temperature=0.4)
     if not ok or not isinstance(data, dict) or not data.get("merged"):
-        return {"merged": merge_inputs(items)[:max_length],
-                "dropped": [], "fallback": True}
+        merged = merge_inputs(items)
+        return {"merged": merged, "dropped": [], "fallback": True, "too_long": len(merged) > max_length}
 
-    return {"merged": str(data["merged"])[:max_length],
+    merged = str(data["merged"])
+    return {"merged": merged,
             "dropped": [str(d) for d in (data.get("dropped") or [])],
-            "fallback": False}
+            "fallback": False, "too_long": len(merged) > max_length}
 
 
 def format_validation(field: str, result: dict) -> str:
     """검증 결과 표시 문자열."""
     v = result.get("verdict")
     if v == "reject":
-        msg = f"⚠️ **{field}**: {result.get('reason') or '시나리오와 맞지 않습니다.'}"
-        if result.get("suggestion"):
-            msg += f"\n> 예시: {result['suggestion']}"
-        return msg
+        return f"⚠️ **{field}**: {result.get('reason') or '시나리오와 맞지 않습니다.'}"
     if v == "warn":
         return f"ℹ️ **{field}**: {result.get('reason') or ''}".rstrip()
     return ""

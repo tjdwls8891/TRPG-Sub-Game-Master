@@ -54,13 +54,14 @@ class AccessDecision:
     matched_capability: str | None = None
     reason: str = ""
     matched_variant: str | None = None        # H04: 안정 variant id(기본 "<rule>:<state>:base")
+    payment: dict | None = None               # v7.17(R4): 확인 행동의 실제 물건 인계 {quantity}
 
     def to_dict(self) -> dict:
         return {"result": self.result, "action_policy": self.action_policy,
                 "action_delay_minutes": self.action_delay_minutes, "control_id": self.control_id,
                 "state": self.state, "rule_id": self.rule_id,
                 "matched_capability": self.matched_capability, "reason": self.reason,
-                "matched_variant": self.matched_variant}
+                "matched_variant": self.matched_variant, **({"payment": dict(self.payment)} if self.payment else {})}
 
 
 # ══════════════════════════════════════════════════════════════
@@ -135,7 +136,7 @@ def actual_access(definition: dict, access_state: dict, edge: dict, actor_capabi
     out = registry.evaluator_for(rule["rule_type"])(rule, state, actor_capabilities)
     return AccessDecision(out["result"], out.get("action_policy"), out.get("action_delay_minutes", 0),
                           cid, state, rid, out.get("requires_capability"),
-                          f"{cid}={state}", out.get("variant_id") or f"{rid}:{state}:base")
+                          f"{cid}={state}", out.get("variant_id") or f"{rid}:{state}:base", out.get("payment"))
 
 
 # ══════════════════════════════════════════════════════════════

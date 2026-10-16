@@ -681,8 +681,42 @@ async def _offer_start_frames(bot, session, channel):
     await channel.send(embed=e, view=view_cls(bot, session, options))
 
 
+async def initial_knowledge_gate(bot, session, channel, phase, *, frame=None, on_resolved=None) -> bool:
+    """v7.17 초기 지식 한 시점 — True면 다음 단계로 간다. DYNAMIC 후보(단일 PC·필수 capability)만 대상이고
+    LEGACY·후보 아님은 아무것도 하지 않는다(호출 0). 미확정·재시도 상태면 개설자 버튼을 띄우고 False."""
+    from . import initial_knowledge as _ik
+    from . import world_lifecycle as _wl
+    definition, _why = _wl.compile_candidate(session)
+    uids = _wl.player_uids(session)
+    if definition is None or len(uids) != 1:
+        return True
+    frames = (definition.get("initialization_definitions") or {}).get("start_frames") or ()
+    if phase == "START" and _wl.resolve_start_choices(definition, frame)[0] is None:
+        return True                                   # 이 틀은 genesis가 없다(LEGACY 시작) — 인지할 곳이 없으므로 생략
+    if phase == "PROFILE" and not any(f.get("world_start") for f in frames):
+        return True
+    st = await _ik.run_phase(bot, session, uids[0], phase, channel, definition, frame=frame)
+    if st in _ik.DONE:
+        return True
+    try:
+        view_cls = getattr(__import__("cogs.session", fromlist=["InitialKnowledgeView"]), "InitialKnowledgeView")
+        if st == _ik.UNCERTAIN:
+            text = ("⏸️ 초기 안내가 전달됐는지 확인하지 못했습니다. 위에 안내가 보이지 않으면 [다시 보내기]를, "
+                    "보였거나 건너뛰려면 [보내지 않고 진행]을 눌러 주십시오. (다시 보내면 같은 안내가 두 번 보일 수 있습니다)")
+        else:
+            text = "⏸️ 초기 안내를 준비하거나 보내지 못했습니다. 아래 버튼으로 다시 시도해 주십시오."
+        await channel.send(text, view=view_cls(bot, session, uids[0], phase, st, on_resolved))
+    except Exception as e:  # noqa: BLE001
+        print(f"[초기지식] 안내 버튼 표시 실패: {e}")
+    return False
+
+
 async def on_profile_done(bot, session, channel):
     """프로필 생성 완료 시 호출된다. 다음 단계로 진행한다."""
+    # v7.17: 캐릭터 전체 승인 직후·시작 틀 전 — PROFILE 초기 지식(미확정이면 여기서 멈추고 버튼으로 재개)
+    if not await initial_knowledge_gate(bot, session, channel, "PROFILE",
+                                        on_resolved=lambda: on_profile_done(bot, session, channel)):
+        return
     creation.record(session, "profile", "완료")
     creation.advance(session)
     await render(bot, session, channel)

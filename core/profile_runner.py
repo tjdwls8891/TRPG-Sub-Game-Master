@@ -297,6 +297,41 @@ def jump_to(scenario_data: dict, run: dict, field: str) -> tuple:
     return True, field
 
 
+def dependents_of(scenario_data: dict, field: str) -> list:
+    """field에 의존하는 뒤 단계 필드(args.depends 기준 — 예: 직업 → 스킬)."""
+    out = []
+    for st in profile_gen.get_steps(scenario_data):
+        if field in ((st.get("args") or {}).get("depends") or []) and st.get("field"):
+            out.append(st["field"])
+    return out
+
+
+def edit_field(scenario_data: dict, run: dict, field: str) -> tuple:
+    """v7.15 최종 검토의 필드 수정 — 그 필드와 의존 필드만 비우고 나머지 값·자료형은 그대로 둔다.
+
+    jump_to는 대상 필드만 지운다(뒤 단계 선택 유지). 의존 필드(직업 → 스킬)는 원래 값이 새 선택과
+    어긋날 수 있으므로 함께 비워 다시 정하게 한다.
+    """
+    ok, f = jump_to(scenario_data, run, field)
+    if not ok:
+        return ok, f
+    for dep in dependents_of(scenario_data, field):
+        run["chosen"].pop(dep, None)
+    return True, field
+
+
+def expected_type_ok(step: dict, value) -> bool:
+    """단계 모듈이 기대하는 값 자료형인가(불러온 저장 프로필 검증용 — 자동 형변환 없음)."""
+    module = (step or {}).get("module")
+    args = (step or {}).get("args") or {}
+    if module == "roll_stats":
+        return isinstance(value, dict) and all(isinstance(v, int) and not isinstance(v, bool)
+                                               for v in value.values())
+    if module == "intersect_list":
+        return isinstance(value, list) if args.get("pick") else isinstance(value, (str, list))
+    return isinstance(value, str)
+
+
 async def run_ai_module(bot, session, scenario_data: dict, run: dict,
                         module: str, args: dict, user_input) -> dict:
     """AI 모듈을 실행한다. 실행부가 별도 경로로 처리하는 둘이다.

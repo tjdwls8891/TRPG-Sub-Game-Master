@@ -49,6 +49,7 @@ import uuid
 
 from . import io as _io
 from . import world_state as _world_state
+from . import items as _items_fields
 
 # v2: 캐시 파생 필드 포함(E-E3) — v1 레코드는 복원 대상 불가
 # v3: H02 동적 세계 정본 11필드 포함 — v2 레코드는 누락 필드를 레거시 기본값으로 합성해 복원
@@ -72,7 +73,8 @@ REVERSIBLE_FIELDS = (
     "gm_side_note", "gm_clarify_count", "gm_narrate_count",
     # E-E3: 캐시 파생 필드 — 프롬프트(캐시 없는 폴백 포함)가 읽으므로 선택 이력과 함께 복원
     "cached_compressed_memory", "cached_session_npcs", "cached_worldview_sections",
-) + tuple(_world_state.GAMEPLAY_WORLD_FIELDS)
+) + tuple(_world_state.GAMEPLAY_WORLD_FIELDS) + tuple(_items_fields.ITEM_FIELDS)
+# v7.17: 아이템 3필드(특수 물건·현장 물건·사용/지급 사실)는 resources와 같은 되감기 단위. 초기 지식 전달 기록은 제외
 # H02: 동적 세계 게임 정본은 가역. definition_revision·narrative_seed는 가역이 아니다(세션 정체성).
 WORLD_REVERSIBLE_FIELDS = tuple(_world_state.GAMEPLAY_WORLD_FIELDS)
 NON_REVERSIBLE_IDENTITY_FIELDS = tuple(_world_state.IDENTITY_FIELDS) + tuple(_world_state.LIFECYCLE_FIELDS)
@@ -272,7 +274,7 @@ def restore_reversible(session, state: dict) -> None:
     definition_revision·narrative_seed는 가역 집합 밖이라 어떤 레코드로도 바뀌지 않는다.
     """
     from .cache import _deserialize_log_entry
-    world_defaults = _world_state.gameplay_defaults()
+    world_defaults = {**_world_state.gameplay_defaults(), **_items_fields.item_field_defaults()}
     for f in REVERSIBLE_FIELDS:
         if f not in state:
             if f in world_defaults:
@@ -299,7 +301,7 @@ def _digest(obj) -> str:
 # ══════════════════════════════════════════════════════════════
 
 def note_judgment(session, transaction_id, *, judgment=None, player_message=None,
-                  roll_results=None) -> None:
+                  roll_results=None, gate=None) -> None:
     """현재 tx에 구조화 판단 기록을 남긴다(판단층위 결과 + 지시층위 입력)."""
     from . import turn_transaction as TT
     if transaction_id is None or not TT.is_current_transaction(session, transaction_id):
@@ -312,6 +314,8 @@ def note_judgment(session, transaction_id, *, judgment=None, player_message=None
         cur["player_message"] = str(player_message)
     if roll_results is not None:
         cur["roll_results"] = list(roll_results)
+    if gate is not None:
+        cur["gate"] = copy.deepcopy(gate)       # v7.14 선언 게이트(ROLL 뒤 재개·재서술이 같은 게이트를 쓴다)
     cur.setdefault("roll_results", [])
     tx.judgment_result = cur
 
@@ -333,6 +337,35 @@ def note_rolls(session, transaction_id, records, effects) -> None:
     cur["roll_effects"] = eff
     cur.setdefault("roll_results", [])
     tx.judgment_result = cur
+
+
+def recent_failed_discoveries(session_id, place_id, *, limit: int = 5, scan: int = 30) -> list:
+    """v7.14: 이 장소에서 찾지 못한 최근 주변 발견 탐색 — 선택된 커밋 턴의 roll_records에서만 읽는다.
+
+    실패는 부재 사실이 아니다 — 정본이 아니라 반복 판별(조건 불변 재굴림 제한)의 입력일 뿐이다.
+    되감기·재서술 뒤에는 선택 이력을 따른다. 반환 [{"target", "declaration"}](최근 순).
+    """
+    if not place_id:
+        return []
+    out = []
+    try:
+        hv = view(session_id)
+    except Exception:
+        return []
+    for g in sorted(hv.selected, reverse=True)[:scan]:
+        try:
+            rec = load_record(session_id, hv.selected[g]["transaction_id"]) or {}
+        except Exception:
+            continue
+        j = rec.get("judgment") or {}
+        for rr in j.get("roll_records") or ():
+            d = rr.get("discovery") if isinstance(rr, dict) else None
+            if isinstance(d, dict) and not d.get("success") and d.get("place") == place_id:
+                out.append({"target": str(d.get("target") or ""),
+                            "declaration": str(j.get("player_message") or "")[:120]})
+        if len(out) >= limit:
+            break
+    return out[:limit]
 
 
 def judgment_is_complete(j) -> bool:

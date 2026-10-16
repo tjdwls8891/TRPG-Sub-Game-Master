@@ -167,6 +167,19 @@ def main(argv=None) -> int:
                 for sev, code, path, msg in card_diags:
                     print(f"     [{sev}] {code} {path}: {msg}")
 
+        # v7.15 캐릭터 생성 단계(profile_creation·질문형 가이드) — 독립 검사(정의 없음은 오류가 아니다)
+        if (src.raw or {}).get("profile_creation") is not None:
+            from core import profile_gen
+            pc_errs = profile_gen.validate_steps(src.raw)
+            if pc_errs:
+                worst = 1
+                if args.json:
+                    summaries[-1]["profile_creation_errors"] = pc_errs
+                else:
+                    print(f"   profile_creation: ERROR {len(pc_errs)}")
+                    for m in pc_errs:
+                        print(f"     {m}")
+
         if args.compile_out:
             if not res.ok:
                 print("ERROR가 있어 정의를 기록하지 않습니다", file=sys.stderr)

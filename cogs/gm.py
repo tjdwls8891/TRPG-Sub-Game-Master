@@ -69,6 +69,139 @@ COST_LOG_PREFIX = "[GM] "
 #       prompts.py로 이동. 위 import 블록에서 불러옵니다.
 
 
+# ========== [v7.14 선언 게이트 — 역사칭·주변 발견] ==========
+# 개연성 시뮬레이션(기존 캐시 호출)의 구조화 판정. 판단·지시층위에는 열거값과 플레이어 원문 대상명만 넘긴다
+# (시뮬레이션 자유 서술·공리·방향은 판단층위로 가지 않는다 — 캐시의 숨은 설정 누설 방지).
+GATE_CLASSES = ("ORDINARY", "AMBIENT_PROPOSAL", "IMPROPER_ASSERTION")
+GATE_RESOLUTIONS = ("CONTINUE", "ACCEPT_NO_ROLL", "ROLL", "BLOCK", "CLARIFY")
+GATE_REASONS = ("NONE", "CANNOT_CONFIRM", "WORLD_CONFLICT", "UNCLEAR_INTENT", "NOT_AMBIENT", "UNCHANGED_RETRY")
+GATE_TARGET_MAX = 30
+# 중립 안내 — 이유는 공개 범주만(비밀의 존재·위치를 암시하지 않도록 WORLD_CONFLICT·NOT_AMBIENT는 같은 문구)
+_GATE_NOTICE_CLARIFY = "무엇을, 어디에서, 어떻게 하시려는지 조금 더 구체적으로 선언해 주십시오."
+_GATE_NOTICE_BLOCK = {
+    "CANNOT_CONFIRM": "선언하신 결과나 상대의 반응은 미리 정할 수 없습니다. 인물이 무엇을 시도하는지로 다시 선언해 주십시오.",
+    "UNCHANGED_RETRY": "같은 방법으로는 다시 찾아볼 수 없습니다. 범위·방법·도구 등 무엇이 달라졌는지 함께 선언해 주십시오.",
+}
+_GATE_NOTICE_DEFAULT = "그 결과는 선언으로 정할 수 없습니다. 인물이 직접 시도할 행동으로 다시 선언해 주십시오."
+GATE_UNVERIFIABLE_NOTICE = "지금은 그 탐색 결과를 확인할 수 없습니다. 다른 행동을 선언해 주십시오."
+
+
+def _parse_gate(raw, player_message: str, *, dynamic: bool, place=None, place_name=None, rows=()) -> dict | None:
+    """시뮬레이션 declaration_gate → 코드 검증된 게이트. 열거값이 깨졌으면 None(검증 불가).
+
+    · 대상명은 플레이어 원문에 (공백 무시) 실제로 있는 낱말만 — 아니면 CLARIFY.
+    · LEGACY(P6): 주변 발견 승인·판정은 일반 행동으로 되돌린다(BLOCK·CLARIFY·역사칭 제지만 적용).
+    · 이미 이 장소에서 발견한 같은 대상(existing_key 또는 같은 이름)은 새로 만들지 않고 재사용한다.
+    """
+    if not isinstance(raw, dict):
+        return None
+    c, res, rc = raw.get("classification"), raw.get("resolution"), raw.get("reason_code")
+    if c not in GATE_CLASSES or res not in GATE_RESOLUTIONS or rc not in GATE_REASONS:
+        return None
+    gate = {"classification": c, "resolution": res, "reason_code": rc, "target": "", "kind": "NONE",
+            "existing_info_id": None, "place": None, "place_name": None, "referenced_info_id": None}
+    # A1 보정: 선언이 이 장소의 기존 발견물(D키)을 가리킨다는 시뮬레이션 구조화 근거(분류 무관, 검증된 키만)
+    _ref = next((r for r in rows if r[0] == raw.get("existing_key")), None)
+    if _ref is not None and res not in ("BLOCK", "CLARIFY"):
+        gate["referenced_info_id"] = _ref[1]
+    if c != "AMBIENT_PROPOSAL":
+        if res not in ("CONTINUE", "BLOCK", "CLARIFY"):
+            gate["resolution"] = "CONTINUE"
+    elif res in ("ACCEPT_NO_ROLL", "ROLL"):
+        target = raw.get("discovery_target")
+        target = " ".join(target.split()) if isinstance(target, str) else ""
+        kind = raw.get("discovery_kind")
+        if not dynamic or not place:
+            gate.update(classification="ORDINARY", resolution="CONTINUE", reason_code="NONE")
+        elif (not target or len(target) > GATE_TARGET_MAX or kind not in core.turn_world.DISCOVERY_KINDS
+              or "".join(target.split()) not in "".join(str(player_message or "").split())):
+            gate.update(resolution="CLARIFY", reason_code="UNCLEAR_INTENT")
+        else:
+            gate.update(target=target, kind=kind, place=place, place_name=place_name or place)
+            hit = (next((r for r in rows if r[0] == raw.get("existing_key")), None)
+                   or next((r for r in rows if core.turn_world.same_target(r[2], target)), None))
+            if hit:
+                gate.update(resolution="ACCEPT_NO_ROLL", existing_info_id=hit[1], target=hit[2], kind=hit[3],
+                            referenced_info_id=hit[1])
+    elif res not in ("BLOCK", "CLARIFY"):
+        gate["resolution"] = "CONTINUE"
+    if gate["resolution"] in ("BLOCK", "CLARIFY") and gate["reason_code"] == "NONE":
+        gate["reason_code"] = "UNCLEAR_INTENT" if gate["resolution"] == "CLARIFY" else "CANNOT_CONFIRM"
+    return gate
+
+
+def _gate_blocks(gate) -> bool:
+    return bool(gate) and gate.get("resolution") in ("BLOCK", "CLARIFY")
+
+
+def _gate_rolls_discovery(gate) -> bool:
+    return bool(gate) and gate.get("classification") == "AMBIENT_PROPOSAL" and gate.get("resolution") == "ROLL"
+
+
+def _gate_notice(gate) -> str:
+    if gate.get("resolution") == "CLARIFY":
+        return _GATE_NOTICE_CLARIFY
+    return _GATE_NOTICE_BLOCK.get(gate.get("reason_code"), _GATE_NOTICE_DEFAULT)
+
+
+def _gate_judgment_block(gate) -> str:
+    """판단층위 입력 — 열거값 + 플레이어 원문 대상명만(시뮬레이션 서술 없음)."""
+    if not gate:
+        return ""
+    line = f"분류 {gate['classification']} / 처리 {gate['resolution']} / 사유 {gate['reason_code']}"
+    if gate.get("target"):
+        line += f" / 대상 {gate['target']}({gate['kind']})"
+    return "[선언 게이트 — 코드 확정(공개 범주)]\n" + line
+
+
+def _discovery_outcome(jr, transaction_id) -> dict | None:
+    """판단 기록(게이트 + 굴림 기록) → 이번 턴 발견 결과. 다른 판정의 성공은 쓰지 않는다(그 굴림의 성패만).
+
+    status: NEW(승인·성공 — 새 발견) / EXISTING(이미 발견한 것) / FAILED(이번에 찾지 못함) / None(발견 아님)
+    """
+    gate = (jr or {}).get("gate")
+    if not gate or gate.get("classification") != "AMBIENT_PROPOSAL" \
+            or gate.get("resolution") not in ("ACCEPT_NO_ROLL", "ROLL") or not gate.get("place"):
+        return None
+    out = {"target": gate["target"], "kind": gate["kind"], "place": gate["place"],
+           "place_name": gate.get("place_name") or gate["place"], "info_id": gate.get("existing_info_id")}
+    if gate.get("existing_info_id"):
+        return {**out, "status": "EXISTING"}
+    if gate["resolution"] == "ROLL":
+        rec = next((r for r in (jr.get("roll_records") or ()) if isinstance(r, dict)
+                    and isinstance(r.get("discovery"), dict)), None)
+        if rec is None or not rec["discovery"].get("success"):
+            return {**out, "status": "FAILED"}
+    return {**out, "status": "NEW", "info_id": core.turn_world.ambient_info_id(transaction_id)}
+
+
+def _declaration_block(jr, transaction_id) -> str:
+    """지시층위 — 권위 있는 시도(판단 player_intent) · 게이트 분류 · 이번 턴 발견 결과."""
+    jr = jr or {}
+    intent = ((jr.get("judgment") or {}).get("player_intent") or "").strip()
+    gate = jr.get("gate")
+    lines = []
+    if intent:
+        lines.append(f"· 권위 있는 시도(판단층위 확정): {intent}")
+    lines.append("· 플레이어 문장 속 결과 선취(성공·상대의 동의/반응·발견 결과)는 확정 사실이 아니다 — 시도로만 다루고 "
+                 "결과는 판정·세계 상태·위 지시로 정한다.")
+    if gate and gate.get("classification") == "IMPROPER_ASSERTION":
+        lines.append("· 이번 선언은 결과를 미리 정했다. 그 시도만 진행한다.")
+    d = _discovery_outcome(jr, transaction_id)
+    if d is not None:
+        what = f"'{d['target']}'({'물건' if d['kind'] == 'OBJECT' else '환경 요소'})"
+        if d["status"] == "FAILED":
+            lines.append(f"· 주변 발견 {what}: 이번 탐색에서는 찾지 못했다. 그것이 없다고 단정하지 말 것.")
+        elif d["status"] == "EXISTING":
+            lines.append(f"· 주변 발견 {what}: PC가 이 장소에서 이미 발견해 둔 것이다(그 자리에 있다).")
+        else:
+            how = "판정 성공" if gate.get("resolution") == "ROLL" else "자명함(무판정 승인)"
+            lines.append(f"· 주변 발견 {what}: {how} — 이 장소에서 찾아냈다. 평범한 것으로만 서술하고, 핵심 단서·고유 물건·"
+                         f"숨은 길로 키우지 말 것.")
+        lines.append("· 발견은 소지가 아니다 — 플레이어가 줍거나 쓴다고 선언했을 때만 획득·사용으로 서술한다.")
+    return "\n[선언 처리 — 코드 확정]\n" + "\n".join(lines) + "\n"
+
+
 # ========== [유틸리티 함수] ==========
 def _cap_display(cap, *, is_cost: bool = False) -> str:
     """턴/비용 상한을 표시용 문자열로. None이면 '무제한'."""
@@ -156,7 +289,7 @@ def _judge_plan(view, spec: dict, world_turn=None) -> dict:
 
 
 def _build_judgment_user_prompt(session, player_message: str, roll_results: list,
-                                world_turn=None) -> str:
+                                world_turn=None, gate=None) -> str:
     """
     판단층위 호출용 사용자 프롬프트 조립.
 
@@ -284,6 +417,8 @@ def _build_judgment_user_prompt(session, player_message: str, roll_results: list
         except Exception as e:
             print(f"[장소] 이동 안내 생성 실패: {e}")
 
+    if gate:
+        lines.append(_gate_judgment_block(gate))   # v7.14 — 열거값 + 원문 대상명만
     lines.append(f"[플레이어 신규 발언]\n{player_message}")
     return "\n\n".join(lines)
 
@@ -640,6 +775,19 @@ def _build_logic_user_prompt(session, player_message: str, roll_results: list,
             if _kb:
                 place_block += _kb
                 manifest.append("PC 인지")
+            _db = core.turn_world.discovery_block(world_turn.ctx, world_turn.plan, session)   # v7.14
+            if _db:
+                place_block += _db
+                manifest.append("현장 발견")
+            # v7.17: 정본 소지(PC·장면 인물)·현장 물건·사용 불가 상태 — 캐시 초기 소지품보다 우선
+            _wc = world_turn.ctx
+            _sc, _pj = core.turn_world.scene_npc_projections(_wc, world_turn.plan, session)
+            _pcn = ((session.players or {}).get(_wc.uid_of.get(_wc.lead_pc)) or {}).get("name")
+            if _pcn:
+                place_block += core.items.item_block(
+                    session, pc_name=_pcn, scene_owner_names=[p.get("legacy_name") for p in _pj if p.get("legacy_name")],
+                    scene_place=_sc, defs=core.items.definitions_of(_wc.definition))
+                manifest.append("정본 소지")
         except Exception as e:
             print(f"[지시층위] 사건 국면 지침 블록 실패: {e}")
 
@@ -1380,6 +1528,12 @@ class GMCog(commands.Cog):
         if message.content.startswith("!"):
             return
 
+        # v7.15: 캐릭터 생성 중인 플레이어의 채팅은 생성 답변 경로가 소유한다(지금 텍스트를 기다리면 1건 소비,
+        #   아니면 무시). GM 활성 여부·턴 처리보다 먼저 판정한다 — DM 사전 생성도 같은 경로.
+        if core.profile_creation_ui.claims(self.bot, message):
+            asyncio.create_task(core.profile_creation_ui.on_chat(self.bot, message))
+            return
+
         session = self.bot.active_sessions.get(message.channel.id)
         if not session:
             return
@@ -1851,13 +2005,58 @@ class GMCog(commands.Cog):
             tx.world_turn = wt
         return wt
 
+    def _tx_judgment(self, session, transaction_id) -> dict | None:
+        tx = core.turn_transaction.get_active_transaction(session)
+        if tx is None or transaction_id is None or tx.transaction_id != transaction_id:
+            return None
+        return tx.judgment_result or None
+
+    def _gate_inputs(self, session, transaction_id) -> dict:
+        """v7.14 선언 게이트 입력 — DYNAMIC만: PC 정본 장소·표시명·유효 발견(D키)·찾지 못한 이전 탐색."""
+        out = {"dynamic": False, "place": None, "place_name": None, "rows": [], "failed": []}
+        wt = self._world_turn(session, transaction_id, create=True)
+        if wt is None:
+            return out
+        ctx = wt.ctx
+        place = core.turn_world.pc_place(ctx, session)
+        out["dynamic"] = True
+        if not place:
+            return out
+        out["place"] = place
+        try:
+            out["place_name"] = core.turn_world.pc_place_name(ctx, session, place)
+            out["rows"] = core.turn_world.discoveries_at(ctx.definition, session, ctx.lead_pc, place)
+            out["failed"] = core.turn_history.recent_failed_discoveries(session.session_id, place)
+        except Exception as e:
+            print(f"[선언 게이트] 입력 조립 실패(발견 목록 생략): {e}")
+        return out
+
+    async def _hold_declaration(self, session, transaction_id, player_message, gate, text, master_ch) -> None:
+        """v7.14: 게이트 BLOCK·CLARIFY·검증 불가 — 굴림·세계 연산 없이 중립 안내 후 플레이어 재선언 대기."""
+        core.turn_history.note_judgment(
+            session, transaction_id,
+            judgment={"action": "ASK", "bridge_message": text, "player_intent": "",
+                      "reasoning": "선언 게이트 " + (f"{gate['resolution']}/{gate['reason_code']}" if gate else "검증 불가")},
+            player_message=player_message, roll_results=[], gate=gate)
+        game_ch = self.bot.get_channel(session.game_ch_id)
+        if game_ch:
+            await core.stream_text_to_channel(self.bot, game_ch, text, words_per_tick=15, tick_interval=1.5)
+        session.current_turn_logs.append(f"[진행자 (GM)]: {text}")
+        core.turn_transaction.mark_waiting_for_player(session, transaction_id)
+        if master_ch:
+            await master_ch.send("🚧 **[선언 게이트]** " + (
+                f"{gate['classification']} → {gate['resolution']} ({gate['reason_code']})" if gate
+                else "검증 불가(시뮬레이션 게이트 없음) — 발견 제안 미처리"))
+        await core.save_session_data(self.bot, session)
+
     def _build_world_manifest(self, session, wt) -> None:
         ctx = wt.ctx
         uid = ctx.uid_of.get(ctx.lead_pc)
         routes = wt.plan.route_options if (wt.plan is not None and wt.plan.status
                                            == core.player_world.PLAN_NEEDS_CHOICE) else ()
         access = core.player_world.access_confirm_options(
-            ctx.definition, session, ctx.lead_pc, core.player_world.pc_capabilities(session, uid))
+            ctx.definition, session, ctx.lead_pc,
+            core.player_world.pc_access_capabilities(session, uid, ctx.definition))   # v7.17.2: 소속 포함(접근 전용)
         wt.manifest = core.action_intent.build_manifest(
             ctx.definition, session, ctx.lead_pc, definition_revision=ctx.definition_revision,
             route_options=routes, access_options=access)
@@ -1868,7 +2067,10 @@ class GMCog(commands.Cog):
         return core.player_world.plan_player_turn(
             ctx, session, intent, transaction_id=transaction_id,
             narrative_seed=getattr(session, "narrative_seed", None) or session.session_id,
-            capabilities=core.player_world.pc_capabilities(session, ctx.uid_of.get(ctx.lead_pc)),
+            capabilities=core.player_world.pc_capabilities(session, ctx.uid_of.get(ctx.lead_pc), ctx.definition),
+            access_capabilities=core.player_world.pc_access_capabilities(
+                session, ctx.uid_of.get(ctx.lead_pc), ctx.definition),                     # v7.17.2: 접근 판정 전용
+            item_facts=core.items.current_facts(session),           # v7.17: 직전 커밋 턴의 사실만
             stats=core.player_world.pc_stats(session, ctx.uid_of.get(ctx.lead_pc)),       # H07: 스탯 조건
             resolved_tie_orders=resolved_tie_orders)
 
@@ -1950,9 +2152,28 @@ class GMCog(commands.Cog):
         """추출 관찰 처리(순수) + 레거시 장소/시간 값을 정본 미러로 대체 + 후속 묘사 등록."""
         wt = prep.world_turn
         ctx = wt.ctx
+        _man = wt.obs_manifest or core.turn_world.ObservationManifest()
+        _raw = prep.world_observation_raw
+        # A1 보정: 추출이 D키를 빠뜨린 명확·유일한 현장 발견물 수거만 키 기반 수거로 정규화(이름만으로는 연결 안 함)
+        _implied = self._implied_discovery_take(session, prep.transaction_id, ctx, wt, _man, _raw, plan)
+        if _implied:
+            _raw = {**(_raw if isinstance(_raw, dict) else {}),
+                    "discovery_taken": list((_raw or {}).get("discovery_taken") or []) + [_implied]}
+            core.write_log(session.session_id, "api", f"[v7.14 발견 수거 키 복구] {_implied}")
+            # 복구된 수거는 그 PC +1(item_changes) 한 건이 설명한다 — 같은 물리 수거를 두 번 세지 않는다
+            _row = _man.discovery_of(_implied)
+            _pc = self._pc_name(session, ctx)
+            _hit = next((e for e in plan.item_deltas if _row and e.get("target") == _pc and int(e.get("delta") or 0) == 1
+                         and core.turn_world.same_target(e.get("item"), _row[2])), None)
+            if _hit is not None:
+                plan.item_deltas = [e for e in plan.item_deltas if e is not _hit]
+        # v7.17 아이템: 같은 기준 재고에 모든 연산을 순서대로 가상 적용 — 하나라도 어긋나면 전체를 재추출(부분 적용 없음).
+        #   발견물 수거(D키)·코드 지급(접근 확인)·문서 읽기를 하나의 계획으로 묶고, 수거한 D키만 소진(SUPERSEDED)한다.
+        item_plan = self._build_item_plan(session, prep, ctx, wt, _raw, plan)
+        _raw = {**(_raw if isinstance(_raw, dict) else {}), "discovery_taken": list(item_plan.discovery_takes)}
         res = core.turn_world.process_observation(
-            ctx, session, wt.plan, wt.obs_manifest or core.turn_world.ObservationManifest(),
-            prep.world_observation_raw, transaction_id=prep.transaction_id,
+            ctx, session, wt.plan, _man,
+            _raw, transaction_id=prep.transaction_id,
             narrative_seed=getattr(session, "narrative_seed", None) or session.session_id,
             replan=wt.replan,
             face_info_ids=core.speaker_card.identity_info_ids(
@@ -1960,7 +2181,8 @@ class GMCog(commands.Cog):
             if core.speaker_card.card_world(session) else (),
             name_info_ids=core.speaker_card.identity_info_ids(
                 core.speaker_card.config_of(session.scenario_data), wt.identified_names, "name")
-            if core.speaker_card.card_world(session) else ())
+            if core.speaker_card.card_world(session) else (),
+            discovery=wt.discovery, read_info_ids=item_plan.read_info_ids)
         wt.result = res
         core.write_log(session.session_id, "api",
                        f"[H05 관찰] status={res.status} exposures={list(res.exposures)} "
@@ -1976,12 +2198,87 @@ class GMCog(commands.Cog):
         plan.location_before = prev_tl.get("current_location")
         plan.location_after = new_tl.get("current_location")
         plan.location_moved = plan.location_before != plan.location_after
+        # v7.17: 동적 세계의 소지품 권위 = 검증된 아이템 계획 하나(발견물 수거 +1도 그 안의 ACQUIRE). item_deltas는 쓰지 않는다.
+        plan.item_plan = item_plan
+        plan.item_deltas = []
+        plan.entries = [e for e in plan.entries if e.get("domain") != "item"] + [
+            {"domain": "item", "target": r["target"], "op": "delta", "payload": {"item": r["item"], "delta": r["delta"]}}
+            for r in item_plan.report]
+        if item_plan.diagnostics:
+            plan.diagnostics["item_plan"] = list(item_plan.diagnostics)
         cplan = core.turn_world.continuation_plan(prep.transaction_id, res)
         if cplan is not None:
             prep.register_task(
                 "foreground_continuation", core.turn_preparation.TASK_FOREGROUND_CONTINUATION,
                 coro=self._generate_continuation(session, prep, cplan),
                 required_success=True, parent="extraction")
+
+    def _implied_discovery_take(self, session, transaction_id, ctx, wt, manifest, raw, plan):
+        """A1 보정 근거 조립 — 게이트가 검증한 선언 대상(기존 발견 D키 또는 이번 턴 새 발견)만 후보."""
+        gate = (self._tx_judgment(session, transaction_id) or {}).get("gate")
+        if wt.discovery and wt.discovery.get("status") == "NEW":
+            ref_key = core.turn_world.DISCOVERY_NEW_KEY
+        else:
+            iid = (gate or {}).get("referenced_info_id")
+            ref_key = next((r[0] for r in manifest.discoveries if iid and r[1] == iid), None)
+        uid = ctx.uid_of.get(ctx.lead_pc)
+        pc_name = ((getattr(session, "players", None) or {}).get(uid) or {}).get("name")
+        return core.turn_world.implied_discovery_take(
+            manifest, raw, ref_key, plan.item_deltas, pc_name,
+            ((getattr(session, "resources", None) or {}).get(pc_name) or {}) if pc_name else {})
+
+    @staticmethod
+    def _pc_name(session, ctx):
+        uid = ctx.uid_of.get(ctx.lead_pc)
+        return ((getattr(session, "players", None) or {}).get(uid) or {}).get("name")
+
+    def _item_manifest(self, session, wt):
+        """v7.17: 이번 추출의 아이템 후보(PC + 장면 정의 NPC의 정본 소지·현장 물건·발견물·저작 제작법·코드 지급)."""
+        ctx = wt.ctx
+        pc_name = self._pc_name(session, ctx)
+        scene, projs = core.turn_world.scene_npc_projections(ctx, wt.plan, session)
+        owners = [p.get("legacy_name") for p in projs if p.get("legacy_name")]
+        pays = [f"{p.get('capability')} ×{p.get('quantity')}(접근 확인 지급)"
+                for p in (getattr(wt.plan, "item_payments", None) or ())]
+        return core.items.build_manifest(
+            session, pc_name=pc_name, scene_owner_names=owners, scene_place=scene,
+            defs=core.items.definitions_of(ctx.definition),
+            discovery_rows=(wt.obs_manifest.discoveries if wt.obs_manifest is not None else ()),
+            recipes=ctx.definition.get("item_recipes"), payments=pays)
+
+    def _build_item_plan(self, session, prep, ctx, wt, raw, plan):
+        """v7.17: 추출 item_ops(+ 발견 D키 수거·코드 지급) → 검증된 ItemPlan. 실패하면 ItemContractError(재추출)."""
+        pc_name = self._pc_name(session, ctx)
+        defs = core.items.definitions_of(ctx.definition)
+        man = getattr(wt, "item_manifest", None) or self._item_manifest(session, wt)
+        pays = []
+        for p in (getattr(wt.plan, "item_payments", None) or ()):
+            op = core.items.payment_op(session, pc_name=pc_name, capability=p.get("capability"),
+                                       quantity=int(p.get("quantity") or 1), defs=defs)
+            if op is None:
+                raise core.items.ItemContractError(f"접근 확인 지급 불가: {p.get('capability')} ×{p.get('quantity')}")
+            pays.append(op)
+        obs = raw if isinstance(raw, dict) else {}
+        return core.items.build_plan(
+            session, man, obs.get(core.items.OPS_FIELD), defs=defs, recipes=ctx.definition.get("item_recipes"),
+            pc_name=pc_name, transaction_id=prep.transaction_id,
+            discovery_taken=[k for k in (obs.get("discovery_taken") or ()) if isinstance(k, str)],
+            legacy_item_deltas=plan.item_deltas, payments=pays)
+
+    @staticmethod
+    def _apply_discovery_gains(session, ctx, plan, gains) -> None:
+        """v7.14: 키로 지목된 발견물 수거 → 같은 커밋의 소지품 +1(추출이 같은 이름으로 이미 +를 냈으면 중복 없음)."""
+        uid = ctx.uid_of.get(ctx.lead_pc)
+        pc_name = ((getattr(session, "players", None) or {}).get(uid) or {}).get("name")
+        if not pc_name:
+            return
+        for item in gains or ():
+            if any(e.get("target") == pc_name and core.turn_world.same_target(e.get("item"), item)
+                   and int(e.get("delta") or 0) > 0 for e in plan.item_deltas):
+                continue
+            plan.item_deltas.append({"target": pc_name, "item": item, "delta": 1})
+            plan.entries.append({"domain": "item", "target": pc_name, "op": "delta",
+                                 "payload": {"item": item, "delta": 1}})
 
     async def _generate_continuation(self, session, prep, cplan) -> str:
         """후속 묘사 1회(provider) — 같은 턴 비용 멤버십. 실패하면 예외 → READY 불가."""
@@ -3093,33 +3390,56 @@ class GMCog(commands.Cog):
         # 층위별 문구 — 4층위 도입으로 대기가 길어져 같은 문구 반복은 멈춘 듯 보인다.
         # WP-F: TRANSIENT_GAME_STATUS — 성공·실패·예외·취소 어느 경로든 finally 에서 멱등 정리.
         status_msg = await core.WaitingStatus.begin(game_ch, "judgment", session=session)
+        gate = None
+        judgment = None
+        # v7.14: 선언 게이트 입력(DYNAMIC — 현재 장소의 유효 발견·찾지 못한 이전 탐색)
+        gate_in = self._gate_inputs(session, transaction_id)
         try:
             if do_simulation:
                 if game_ch:
                     async with game_ch.typing():
                         sim_result = await self._simulate_narrative_directions(
                             session, player_message, master_ch,
-                            transaction_id=transaction_id)
+                            transaction_id=transaction_id, gate_inputs=gate_in)
                 else:
                     sim_result = await self._simulate_narrative_directions(
                         session, player_message, master_ch,
-                        transaction_id=transaction_id)
+                        transaction_id=transaction_id, gate_inputs=gate_in)
+            gate = _parse_gate((sim_result or {}).get("declaration_gate"), player_message,
+                               dynamic=gate_in["dynamic"], place=gate_in["place"],
+                               place_name=gate_in["place_name"], rows=gate_in["rows"])
 
             # ── [판단층위] 캐시 미사용 — 진행 유형과 ASK 질문·ROLL 명세를 결정 ──
-            if game_ch:
-                async with game_ch.typing():
+            # v7.14: 게이트 BLOCK·CLARIFY는 판단 호출 없이 중립 안내로 끝난다(굴림 0).
+            if not _gate_blocks(gate):
+                if game_ch:
+                    async with game_ch.typing():
+                        judgment = await self._call_judgment(
+                            session, player_message, roll_results, master_ch,
+                            transaction_id=transaction_id, gate=gate)
+                else:
                     judgment = await self._call_judgment(
                         session, player_message, roll_results, master_ch,
-                        transaction_id=transaction_id)
-            else:
-                judgment = await self._call_judgment(
-                    session, player_message, roll_results, master_ch,
-                    transaction_id=transaction_id)
+                        transaction_id=transaction_id, gate=gate)
         finally:
             await status_msg.done()
 
+        if _gate_blocks(gate):
+            await self._hold_declaration(session, transaction_id, player_message, gate,
+                                         _gate_notice(gate), master_ch)
+            return
         if not judgment:
             return
+        _rolls = [r for r in (judgment.get("rolls") or []) if isinstance(r, dict)]
+        if gate is None and gate_in["dynamic"] and (
+                judgment.get("ambient_proposal") is True or any(r.get("discovery") is True for r in _rolls)):
+            # P7: 게이트를 확인할 수 없다 — 새 발견 제안은 미처리(실패 아님·부재 단정 없음). 굴림·정보 연산 0.
+            await self._hold_declaration(session, transaction_id, player_message, None,
+                                         GATE_UNVERIFIABLE_NOTICE, master_ch)
+            return
+        if not _gate_rolls_discovery(gate):
+            for _r in _rolls:
+                _r.pop("discovery", None)        # 발견 굴림 표식은 게이트 ROLL에서만 유효(그 밖은 일반 판정)
         # WP-E: 재생성이 판단을 다시 돌리지 않도록 구조화 판단과 지시층위 입력을 tx에 기록한다.
         # H05: 이력에는 transient 후보 키(P1·R2…)가 아니라 의미 기록(PlaceId·경로 서명·접근 토큰)을 남긴다.
         _wt = self._world_turn(session, transaction_id)
@@ -3131,7 +3451,7 @@ class GMCog(commands.Cog):
                                                        "definition_revision": _wt.ctx.definition_revision}
         core.turn_history.note_judgment(
             session, transaction_id, judgment=_jnote,
-            player_message=player_message, roll_results=list(roll_results))
+            player_message=player_message, roll_results=list(roll_results), gate=gate)
 
         # 정합: 이동 선언인데 목적지가 없거나 후보 밖이면 진행(묘사가 임의로 이동시킴)하지 않고 되묻는다.
         if _wt is not None and _wt.intent is not None \
@@ -3472,7 +3792,7 @@ class GMCog(commands.Cog):
         return _clean_proceed_instruction(decision.get("proceed_instruction") or fallback)
 
     async def _call_judgment(self, session, player_message: str, roll_results: list,
-                             master_ch, *, transaction_id: str | None = None) -> dict | None:
+                             master_ch, *, transaction_id: str | None = None, gate=None) -> dict | None:
         """
         판단층위 호출 — 진행 유형(ASK/NARRATE/ROLL/PROCEED)을 결정한다.
 
@@ -3494,7 +3814,7 @@ class GMCog(commands.Cog):
         if _wt is not None:
             self._build_world_manifest(session, _wt)
             _schema = core.action_intent.extend_judgment_schema(JUDGMENT_RESPONSE_SCHEMA, _wt.manifest)
-        user_prompt = _build_judgment_user_prompt(session, player_message, roll_results, world_turn=_wt)
+        user_prompt = _build_judgment_user_prompt(session, player_message, roll_results, world_turn=_wt, gate=gate)
 
         contents = [types.Content(role="user", parts=[types.Part.from_text(text=user_prompt)])]
         config = types.GenerateContentConfig(
@@ -3587,6 +3907,15 @@ class GMCog(commands.Cog):
                     core.write_log(session.session_id, "api", "[판정 계약 위반] " + "; ".join(_errs))
                     decision = None
                     continue
+            # v7.14: 게이트가 ROLL이면 그 발견 탐색 굴림(discovery=true)이 있어야 한다 — 없으면 같은 재시도 경로.
+            if _gate_rolls_discovery(gate) and not (
+                    isinstance(decision, dict) and str(decision.get("action", "")).upper() == "ROLL"
+                    and any(isinstance(r, dict) and r.get("discovery") is True
+                            for r in decision.get("rolls") or ())):
+                print(f"[GM] 판단층위 발견 굴림 누락(시도 {attempt + 1}) — 게이트 ROLL")
+                core.write_log(session.session_id, "api", "[판정 계약 위반] 게이트 ROLL인데 discovery 굴림 없음")
+                decision = None
+                continue
             break
 
         if not decision:
@@ -3636,6 +3965,9 @@ class GMCog(commands.Cog):
                                                 sim_result=sim_result, world_turn=_wt)
         if _wt is not None and _wt.plan is not None:
             user_prompt += core.turn_world.narration_overlay(_wt.plan, _wt.ctx.definition, _wt.ctx, world=session)
+        _jr = self._tx_judgment(session, transaction_id)
+        if _jr:
+            user_prompt += _declaration_block(_jr, transaction_id)     # v7.14 권위 있는 시도·발견 결과
         # 판단층위가 확정한 진행 유형을 지시층위에 전달한다. 지시층위는 이 유형을 바꾸지 않는다.
         user_prompt = (
             f"[확정된 진행 유형] {action}\n"
@@ -3957,8 +4289,20 @@ class GMCog(commands.Cog):
                 await master_ch.send("🤖 [GM 굴림]\n" + "\n".join(logic_lines))
             for ll in logic_lines:
                 session.current_turn_logs.append(ll.lstrip("- "))
+            _rec = {"kind": kind, "actor": copy.deepcopy(act), "opponent": copy.deepcopy(opp)}
+            if r.get("discovery") is True:
+                # v7.14: 발견 성공 = 이 굴림의 성패만(다른 판정의 성공을 전용하지 않는다). 실패는 '이번에 찾지 못함'.
+                _g = (self._tx_judgment(session, transaction_id) or {}).get("gate")
+                if _gate_rolls_discovery(_g):
+                    _ok = act["T"] is not None and bool(act["success"])
+                    _rec["discovery"] = {"target": _g["target"], "kind": _g["kind"], "place": _g["place"],
+                                         "success": _ok}
+                    _dl = (f"- 주변 발견 탐색 '{_g['target']}': " + (
+                        "찾아냈다." if _ok else "이번 탐색에서는 찾지 못했다(없다고 단정하지 말 것)."))
+                    logic_lines.append(_dl)
+                    session.current_turn_logs.append(_dl.lstrip("- "))
             results.extend(logic_lines)
-            records.append({"kind": kind, "actor": copy.deepcopy(act), "opponent": copy.deepcopy(opp)})
+            records.append(_rec)
 
             # 통계 — 굴린 주사위 수
             try:
@@ -5030,11 +5374,15 @@ class GMCog(commands.Cog):
             print(f"[동행] 갱신 실패: {e}")
 
         # ── 상태이상 / 소지품 (정규화 DTO만; 임계·검증은 이미 계획 빌드에서 끝남) ──
+        _ip = getattr(plan, "item_plan", None)
         applied = core.apply_normalized_status_item(session, {
             "status_apply": plan.status_apply,
             "status_clear": plan.status_clear,
-            "item_deltas": plan.item_deltas,
+            "item_deltas": [] if _ip is not None else plan.item_deltas,
             "npcs": plan.npcs_met})
+        if _ip is not None:
+            # v7.17 DYNAMIC: 검증된 아이템 계획을 같은 커밋에서 다시 검증·적용(불일치는 커밋 owner로 전파 — 부분 적용 없음)
+            applied["items"] = core.items.apply_plan(session, _ip)
 
         # ── 퀘스트 진전 / 이면정보 / 메인 해금 / 엔딩 (좁은 정규화 입력만) ──
         moved = None
@@ -5232,11 +5580,19 @@ class GMCog(commands.Cog):
         _var_manifest = {}
         if _wt is not None:
             # H05-B: 관찰 후보(장면 행위자가 아는 정보·장면 신호·선후 선택지)만 — 숨은 진실 미포함.
+            # v7.14: 이번 턴 발견(게이트 승인·발견 굴림 성공)만 DNEW로 — 판단 기록에서 고정
+            _disc = _discovery_outcome(self._tx_judgment(session, transaction_id), transaction_id)
+            _wt.discovery = _disc if _disc and _disc.get("status") == "NEW" else None
             _wt.obs_manifest = core.turn_world.build_observation_manifest(
-                _wt.ctx.definition, _wt.ctx, _wt.plan, session)
+                _wt.ctx.definition, _wt.ctx, _wt.plan, session, discovery=_wt.discovery)
             _ext_schema = copy.deepcopy(core.EXTRACTION_RESPONSE_SCHEMA)
             _ext_schema.setdefault("properties", {})[core.turn_world.OBS_FIELD] = _wt.obs_manifest.schema()
             _obs_block = _wt.obs_manifest.render()
+            # v7.17 아이템: 같은 추출 호출의 런타임 확장(새 provider 호출 0) — 소유자·소지·현장 물건 키만
+            _wt.item_manifest = self._item_manifest(session, _wt)
+            _ext_schema["properties"][core.turn_world.OBS_FIELD]["properties"][core.items.OPS_FIELD] = \
+                _wt.item_manifest.schema()
+            _obs_block += _wt.item_manifest.render()
             # SVG 카드: 장면 카드 인물별 허용 바리에이션 — 인물당 턴 하나(턴 로컬, 정본 저장 없음)
             _cw = core.speaker_card.card_world(session)
             _var_manifest = core.speaker_card.variation_manifest(_cw, _wt, session) if _cw else {}
@@ -5448,7 +5804,8 @@ class GMCog(commands.Cog):
 
     async def _simulate_narrative_directions(self, session, player_message: str,
                                               master_ch,
-                                              *, transaction_id: str | None = None) -> dict | None:
+                                              *, transaction_id: str | None = None,
+                                              gate_inputs: dict | None = None) -> dict | None:
         """
         지시층위 호출 전 세계관 캐시를 활용하여 고차원 서사 방향성을 사전 시뮬레이션.
 
@@ -5489,14 +5846,31 @@ class GMCog(commands.Cog):
                 f"세력: {tl.get('faction_context', '미확인')}\n"
             )
 
+        # v7.14 선언 게이트 입력 — PC 지식 범위(이 장소의 유효 발견·찾지 못한 이전 탐색)만
+        gate_note = ""
+        gi = gate_inputs or {}
+        if gi.get("dynamic") and gi.get("place"):
+            rows = gi.get("rows") or []
+            failed = gi.get("failed") or []
+            gate_note = (
+                "\n[이 장소에서 PC가 이미 발견한 것]\n"
+                + (core.turn_world.discovery_rows_text(rows) if rows else "(없음)")
+                + "\n[이 장소에서 찾지 못한 이전 탐색 — 실패는 부재가 아니다]\n"
+                + ("\n".join(f"· {f['target']} — 당시 선언: {f['declaration']}" for f in failed) if failed else "(없음)")
+                + "\n")
+        elif not gi.get("dynamic"):
+            gate_note = "\n[세션 형식] 이 세션은 주변 발견을 영속하지 않는다 — 발견 제안은 일반 행동(ORDINARY)으로 분류한다.\n"
+
         user_prompt = (
             f"[현재 턴]: {session.turn_count + 1}\n"
             f"{tl_note}"
             f"\n[최근 게임 로그]\n{recent_str}\n\n"
-            f"[이번 턴 플레이어 행동]\n{player_message}\n\n"
+            f"[이번 턴 플레이어 행동]\n{player_message}\n"
+            f"{gate_note}\n"
             "[지시사항]\n"
             "위 상황에서 다음에 일어날 수 있는 서사 방향성 2~3개를 세계관 논리에 근거하여 평가하십시오.\n"
-            "반드시 시나리오 캐시의 세력 정보·지역 규칙·세계관 설정을 인용하여 판단하십시오."
+            "반드시 시나리오 캐시의 세력 정보·지역 규칙·세계관 설정을 인용하여 판단하십시오.\n"
+            "이번 플레이어 선언을 [선언 게이트 규칙]에 따라 declaration_gate로 판정하십시오."
         )
 
         try:

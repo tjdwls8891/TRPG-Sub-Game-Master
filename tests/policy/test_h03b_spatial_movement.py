@@ -132,7 +132,8 @@ def test_legacy_connected_is_never_promoted_to_edges():
     d = json.load(open(os.path.join(REPO_ROOT, "scenarios", "영도.json"), encoding="utf-8"))
     # H07: 영도는 구간을 사람이 저작했다 — 저작 구간을 걷어 내면 connected만으로는 구간이 하나도 생기지 않는다
     h07 = ("scenario_schema", "calendar", "movement_modes", "movement_edges", "access_control_definitions",
-           "spatial_knowledge_seeds", "information_definitions", "event_templates", "start_frames")
+           "spatial_knowledge_seeds", "information_definitions", "event_templates", "start_frames",
+           "faction_capabilities")   # v7.17.2: 사건·접근 저작에 의존하는 선택 키(동적 저작과 함께 걷어 낸다)
     bare = {k: v for k, v in d.items() if k not in h07}
     bare["default_npcs"] = {n: {k: v for k, v in prof.items() if k not in ("knowledge_seed", "routine")}
                             for n, prof in d["default_npcs"].items()}

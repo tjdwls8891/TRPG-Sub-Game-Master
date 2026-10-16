@@ -201,8 +201,12 @@ def _mk(prefix, name, op_type, payload):
 
 
 def build_initial_world_plan(definition: dict, session, choices: StartChoices, *,
-                             initialization_id: str, narrative_seed: str) -> InitialWorldPlan:
-    """정의 + 시작 선택 → INITIALIZATION typed 연산(세션 불변)."""
+                             initialization_id: str, narrative_seed: str,
+                             knowledge_entries=()) -> InitialWorldPlan:
+    """정의 + 시작 선택 → INITIALIZATION typed 연산(세션 불변).
+
+    v7.17 knowledge_entries: 전달이 증명된 초기 지식 [(phase, InfoId, kind)] — 같은 묶음에서 PC 인지 + 저작 reveals.
+    """
     from . import player_world as _pw
     from . import world_progression as _wp
     uids = player_uids(session)
@@ -275,7 +279,9 @@ def build_initial_world_plan(definition: dict, session, choices: StartChoices, *
                                 diagnostics=[c.message for c in pr.conflicts])
     w1 = pr.world
     wake = _wp.initial_template_wakeups(definition, w1, narrative_seed=narrative_seed, op_prefix=f"{prefix}.wk")
-    base_ops = _pw.chain(base, know, visit, view, wake)
+    ik_acq, ik_rv = initial_knowledge_ops(definition, session, uid, pc, list(knowledge_entries or ()),
+                                          prefix=prefix, at_minute=choices.start_minute)
+    base_ops = _pw.chain(base, know, visit, view, ik_acq, ik_rv, wake)
     # ② 시작 분에서 전수 검사 1회 — 성립하는 spawn·정보 계열만(정규 진행 규칙 그대로)
     r = _wp.project_world_progression(definition, w1, choices.start_minute, base_ops=base_ops,
                                       progress={"observer_actor": pc, "scene_place": choices.start_place},
@@ -289,6 +295,36 @@ def build_initial_world_plan(definition: dict, session, choices: StartChoices, *
         return InitialWorldPlan("CONFLICT", reason="BASE_REJECTED", diagnostics=rejected)
     ops = [clock_op] + _pw.namespace_ops(r.ops, f"{prefix}.p", [clock_op.op_id])
     return InitialWorldPlan("READY", tuple(ops), list(r.diagnostics), r.projected_world)
+
+
+def definition_revision_of(definition) -> str | None:
+    """정의 정체성(revision) — 초기 지식 전달 기록이 genesis 시점과 대조한다."""
+    from . import definition_compiler as _dc
+    try:
+        return _dc.definition_revision(definition)
+    except Exception:  # noqa: BLE001
+        return None
+
+
+def initial_knowledge_ops(definition: dict, session, uid, pc: str, entries, *, prefix: str, at_minute) -> tuple:
+    """v7.17: 전달이 증명된 초기 지식 [(phase, InfoId, kind)] → (PC 인지 연산, 저작 reveals 연산).
+
+    acquisition_id는 (세션, PC, 시점, InfoId)에서 결정적 — 같은 초기화를 다시 계획해도 같은 획득이다.
+    경로 = SYSTEM_GRANTED, 전언(reported_claim)은 RUMOR. 믿음은 건드리지 않는다.
+    """
+    from . import cognition as _cog
+    from . import initial_knowledge as _ik
+    from . import turn_world as _tw
+    acq = []
+    for n, (phase, iid, kind) in enumerate(entries):
+        acq.append(_mk(prefix, f"ik{n}", _cog.OP_COGNITION_ACQUIRE, {
+            "holder": _cog.actor_holder(pc), "info_id": iid, "awareness": _cog.CONTENT,
+            "acquisition": _cog.acquisition_record(
+                _ik.acquisition_id(session.session_id, uid, phase, iid),
+                "RUMOR" if kind == "reported_claim" else "SYSTEM_GRANTED", at_minute=at_minute)}))
+    reveal = _tw.reveal_ops(definition, pc, [iid for _p, iid, _k in entries], prefix=f"{prefix}.ikrv",
+                            at_minute=at_minute)
+    return acq, reveal
 
 
 # ══════════════════════════════════════════════════════════════
@@ -328,8 +364,16 @@ async def initialize_world(bot, session, chosen: dict) -> InitResult:
         if init_failed(session):
             return await _fail(bot, session, why)        # 이미 DYNAMIC 대상으로 실패한 세션은 LEGACY로 내리지 않는다
         return InitResult(INIT_LEGACY, why)
+    from . import initial_knowledge as _ik
+    from . import items as _items
+    uids = player_uids(session)
+    entries, blocked, excluded = _ik.genesis_entries(definition, session, uids[0] if uids else None,
+                                                     frame_id=choices.frame_id)
+    if blocked:
+        return await _fail(bot, session, blocked)       # 전달 여부 미확정 — 인지·세계를 만들지 않는다
     saved = {k: copy.deepcopy(getattr(session, k, None))
-             for k in ("definition_revision", "world_lifecycle", "world_initialization")}
+             for k in ("definition_revision", "world_lifecycle", "world_initialization", "resources",
+                       "item_instances", _ik.FIELD)}
     try:
         rev = bind_definition(session, definition)
     except Exception as e:  # noqa: BLE001 — 바인딩 실패 = 초기화 안 함(정본 불변)
@@ -338,7 +382,7 @@ async def initialize_world(bot, session, chosen: dict) -> InitResult:
     init_id = initialization_id_for(session.session_id, rev, choices)
     seed = getattr(session, "narrative_seed", None) or _ws.derive_narrative_seed(session.session_id)
     plan = build_initial_world_plan(definition, session, choices, initialization_id=init_id,
-                                    narrative_seed=seed)
+                                    narrative_seed=seed, knowledge_entries=entries)
     if plan.status != "READY":
         _restore(session, saved)
         return await _fail(bot, session, f"plan:{plan.reason}", init_id)
@@ -354,6 +398,10 @@ async def initialize_world(bot, session, chosen: dict) -> InitResult:
                                                                        _ws.CAUSE_INITIALIZATION, init_id),
                                     "definition_revision": rev, "start_choices": choices.to_dict(),
                                     "genesis_version_id": genesis["version_id"]}
+    # v7.17: 아이템 초기 재고 정규화·저작 특수 객체 + 초기 지식 COMMITTED 표식 — genesis와 같은 strict 저장
+    for k, v in _items.genesis_item_state(definition, session).items():
+        setattr(session, k, v)
+    _ik.mark_committed(session, uids[0], entries, excluded)
     mres = await _cm.CanonicalMutationCoordinator(bot).apply(
         session, batch, cause_kind=_ws.CAUSE_INITIALIZATION, cause_id=init_id)
     if mres.outcome not in (_cm.OUTCOME_COMMITTED, _cm.OUTCOME_RECOVERY_PENDING):

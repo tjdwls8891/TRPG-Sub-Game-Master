@@ -29,6 +29,7 @@ from dataclasses import dataclass, field
 from . import quest as _quest
 from . import turn_transaction as _tx
 from . import world_state as _world_state
+from . import items as _items_fields
 
 
 # quest_state 투영 뷰·복제는 core.quest가 소유한다(순환 임포트 회피):
@@ -363,7 +364,8 @@ class ExtractionMutationPlan:
     # ── 정규화된 도메인 DTO (적용 권위) ──
     status_apply: list = _field(default_factory=list)     # [{target,status,score}]
     status_clear: list = _field(default_factory=list)
-    item_deltas: list = _field(default_factory=list)      # [{target,item,delta}]
+    item_deltas: list = _field(default_factory=list)      # [{target,item,delta}] — LEGACY 적용 권위
+    item_plan: object = None    # v7.17 DYNAMIC: core.items.ItemPlan(검증된 의미 연산) — 있으면 item_deltas 대신 이것만 적용
     npcs_met: list = _field(default_factory=list)
     companions_joined: list = _field(default_factory=list)
     companions_left: list = _field(default_factory=list)
@@ -867,7 +869,7 @@ CANONICAL_DOMAINS = (
     "_rewind_snapshot",         # 되감기 델타 기준 스냅샷(continuation)
     # WP-D — CommitCoordinator만 쓰는 커밋 소유 필드
     "commit_marker", "last_turn_ink", "rewind_degraded_turns",
-) + tuple(_world_state.GAMEPLAY_WORLD_FIELDS)
+) + tuple(_world_state.GAMEPLAY_WORLD_FIELDS) + tuple(_items_fields.ITEM_FIELDS)
 # H02 — 동적 세계 게임 정본(world_version 포함) 11필드. definition_revision·narrative_seed는
 #   되감기 대상이 아닌 세션 정체성이라 넣지 않는다(definition_revision은 별도 명시 가드).
 # 명시적 제외(배경/운영) — 근거는 completion bundle §23 필드 커버리지 매트릭스:
