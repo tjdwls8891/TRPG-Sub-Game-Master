@@ -193,10 +193,15 @@ def faction_access_capabilities(definition, world) -> tuple:
 
 
 def pc_access_capabilities(session, uid, definition=None, world=None) -> tuple:
-    """접근 판정용 capability = 소지품(pc_capabilities) ∪ 정본 소속 capability. 사건 조건의 보유(OBSERVER_HAS_ITEM)
-    입력에는 쓰지 않는다 — 소속 권한이 아이템 보유로 오인되지 않게 한다."""
-    return tuple(sorted(set(pc_capabilities(session, uid, definition))
-                        | set(faction_access_capabilities(definition, world if world is not None else session))))
+    """접근 판정용 capability = (소지품 capability − 소속 전용 토큰) ∪ 정본 소속 capability.
+
+    출처 분리(v7.17.3): 시나리오가 faction_capabilities 값으로 선언한 토큰은 정본 소속(RESOLVED 사건 grant_faction)
+    에서 파생될 때만 인정한다 — 같은 이름의 물건을 들고 있어도 소속 권한이 되지 않는다. 매핑이 없으면 보호 집합은
+    비어 기존 아이템 접근 의미 그대로. 사건 조건의 보유(OBSERVER_HAS_ITEM) 입력에는 쓰지 않는다(실물 보유는 그대로).
+    """
+    protected = {c for caps in ((definition or {}).get("faction_capabilities") or {}).values() for c in caps}
+    items = set(pc_capabilities(session, uid, definition)) - protected
+    return tuple(sorted(items | set(faction_access_capabilities(definition, world if world is not None else session))))
 
 
 # ══════════════════════════════════════════════════════════════

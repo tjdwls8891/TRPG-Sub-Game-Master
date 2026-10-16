@@ -205,3 +205,65 @@ def test_no_new_fields_calls_or_hardcoding():
     assert "generate_content" not in src
     gm = (ROOT / "cogs/gm.py").read_text(encoding="utf-8")
     assert gm.count("pc_access_capabilities(") == 2
+
+
+# ── v7.17.3 접근 능력 출처 분리 — 매핑에 선언된 토큰은 정본 소속에서만 ─────────────────
+
+def _confirm_and_rule_pass(s, D, acc):
+    """출입 확인 후보(미리보기)와 실제 규칙 판정이 같은 집합을 쓰는지 — LOCKED 규칙을 그 집합으로 평가."""
+    rule = D["access_control_definitions"]["rules"]["door_rule"]
+    dec = core.access.evaluate_state_table(rule, "LOCKED", acc)
+    opts = PW.access_confirm_options(D, s, PW.session_world_context(s).lead_pc, acc)
+    return dec, opts
+
+
+def test_same_named_item_does_not_grant_membership_in_preview_or_plan():
+    s, D = _session(instances={}, items={"guild:star": 1})
+    acc = PW.pc_access_capabilities(s, PLAYER_UID, D)
+    assert "guild:star" in PW.pc_capabilities(s, PLAYER_UID, D)          # 실물 보유는 그대로(아이템 의미)
+    assert "guild:star" not in acc                                           # 소속 접근 권한은 아님
+    dec, opts = _confirm_and_rule_pass(s, D, acc)
+    assert dec["result"] != core.access.PASSABLE and not any("star_pass" in o["action_id"] for o in opts)
+    p, _ = _try_enter(s, D)
+    assert not p.outcome.get("arrived")
+    # 같은 물건 + 유효한 가입 정본 → 회원 경로 통과(물건 유무와 무관)
+    s.event_instances = {"ev1": _inst(STAR)}
+    acc2 = PW.pc_access_capabilities(s, PLAYER_UID, D)
+    assert "guild:star" in acc2 and _confirm_and_rule_pass(s, D, acc2)[0]["result"] == core.access.PASSABLE
+    assert _try_enter(s, D)[0].outcome["arrived"]
+
+
+def test_ordinary_item_access_and_payment_preserved():
+    key = {"requires_capability": "청동 열쇠", "result": "PASSABLE", "override_id": "key_pass"}
+    s, D = _session(_raw(extra_override=key), items={"청동 열쇠": 1})
+    assert "청동 열쇠" in PW.pc_access_capabilities(s, PLAYER_UID, D)          # 매핑 밖 토큰은 기존대로
+    assert _try_enter(s, D)[0].outcome["arrived"]
+    pay = {"requires_capability": "통행료", "result": "ACTION_REQUIRED", "action_policy": "CONFIRM",
+           "action_delay_minutes": 1, "payment": {"quantity": 1}}
+    s2, D2 = _session(_raw(extra_override=pay), items={"통행료": 1})
+    pc = PW.session_world_context(s2).lead_pc
+    s2.spatial_knowledge[pc]["access"]["door_1"] = dict(SEEN["door_1"], action_policy="CONFIRM")
+    acc = PW.pc_access_capabilities(s2, PLAYER_UID, D2)
+    opts = PW.access_confirm_options(D2, s2, PW.session_world_context(s2).lead_pc, acc)
+    assert len(opts) == 1 and "실제로 건넨다" in opts[0]["label"]                 # PAY 경로 유지
+
+
+def test_without_mapping_item_named_token_keeps_legacy_meaning():
+    s, D = _session(_raw(mapping=False), items={"guild:star": 1})
+    assert "faction_capabilities" not in D
+    assert PW.pc_access_capabilities(s, PLAYER_UID, D) == PW.pc_capabilities(s, PLAYER_UID, D)
+    assert _try_enter(s, D)[0].outcome["arrived"]                               # 기존 시나리오 의미 불변
+
+
+def test_yeongdo_member_named_item_is_not_membership():
+    raw = json.loads((ROOT / "scenarios/영도.json").read_text(encoding="utf-8"))
+    D = core.definition_compiler.compile_scenario(raw, "영도").definition
+    sess = type("S", (), {})()
+    sess.players = {PLAYER_UID: {"name": "주인공"}}
+    sess.resources = {"주인공": {"member:namhang": 1, "항생제": 1}}
+    sess.item_instances = {}
+    sess.event_instances = {}
+    acc = PW.pc_access_capabilities(sess, PLAYER_UID, D)
+    assert "member:namhang" not in acc and "항생제" in acc                       # 교환 지급 토큰은 그대로
+    sess.event_instances = {"i": _inst("남항 중공업 연대", phase="assigned")}
+    assert "member:namhang" in PW.pc_access_capabilities(sess, PLAYER_UID, D)
