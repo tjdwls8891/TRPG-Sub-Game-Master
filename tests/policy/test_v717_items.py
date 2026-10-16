@@ -577,3 +577,26 @@ async def test_E03_turn_commits_payment_through_gm_wiring(drig):
     assert core.spatial.placement_of(r.sess, PC) == core.spatial.at_place("성당")
     assert r.sess.resources["테스터"] == {"통행료": 1} and r.sess.item_facts["paid"] == ["통행료"]
     assert "코드가 이미 처리한 지급" in r.prov.prompts["extraction"][-1][0]
+
+
+async def test_F02_strict_save_failure_rolls_back_items_with_world(drig, monkeypatch):
+    """커밋 임계구역(적용 + strict 저장)이 실패하면 아이템 필드도 정본 세계·재고와 함께 롤백된다(부분 반영 없음)."""
+    r = drig
+    r.make()
+    r.sess.resources = {"테스터": {"붕대": 2}}
+    r.prov.routes["judgment"] = judgment()
+    r.prov.routes["extraction"] = [extraction({"item_ops": [
+        {"op": "DROP", "owner": "O1", "item": "H1", "quantity": 1}]})]
+    before = {f: copy.deepcopy(getattr(r.sess, f)) for f in ("resources", "world_version", *IT.ITEM_FIELDS)}
+    real = core.io.write_session_strict_locked
+    state = {"n": 0}
+
+    async def boom(session):
+        state["n"] += 1
+        raise OSError("disk full")
+    monkeypatch.setattr(core.io, "write_session_strict_locked", boom)
+    tx = await turn(r, "붕대 하나를 내려놓는다")
+    monkeypatch.setattr(core.io, "write_session_strict_locked", real)
+    assert state["n"] >= 1 and tx.status != tt.TurnStatus.COMMITTED
+    assert {f: getattr(r.sess, f) for f in before} == before
+    assert "item_instances" in core.commit_coordinator.COMMIT_OWNED_FIELDS
