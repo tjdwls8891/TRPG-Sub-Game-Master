@@ -198,7 +198,7 @@ async def test_join_commit_then_rewind_removes_capability(drig):
 
 # 10 데이터·호출 영향 없음 · 범용(코드 하드코딩 없음)
 def test_no_new_fields_calls_or_hardcoding():
-    assert len(core.SESSION_FIELDS) == 104
+    assert len(core.SESSION_FIELDS) == 105          # P1: world_pending_signals(전달 대기) 1필드 추가
     src = (ROOT / "core/player_world.py").read_text(encoding="utf-8")
     for s in ("member:", "남항", "해련", "조도", "중리"):
         assert s not in src

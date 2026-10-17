@@ -1,19 +1,19 @@
-# 턴 세계 — 묘사 투영·관찰·같은 분 선후·보충 진행·후속 묘사·투영 미디어 (H05-B·C)
+# 턴 세계 — 묘사 투영·관찰·같은 분 선후·보충 진행·전달 대기·투영 미디어 (H05-B·C, P1)
 #
 # [권위 — DESIGN 12 · 11 §28~33 · 09 §18~22 · H05 handoff §4~5]
 #   전부 순수 함수다(세션 불변). 결과 ops는 PLAYER_TURN 묶음에 담겨 READY → CommitCoordinator로만 커밋된다.
 #   · 묘사 입력: 준비된 계획의 **투영 장면**(목적지 도착이면 목적지, 중단이면 중간 장소/TRANSIT)과
 #     PC가 관찰할 수 있는 결과만 준다. 실제 숨은 경로·접근·미래 진실은 넣지 않는다.
 #   · 추출(NarrationObservation): 확정 묘사를 관찰할 뿐 두 번째 세계 시뮬레이터가 아니다.
-#       허용: 실제로 묘사된 정보 노출(후보 키) · 코드가 소유하지 않은 추가 시간 · 같은 분 선후 선택 ·
-#             이미 표현된 신호 표시.
+#       허용: 실제로 묘사된 정보 노출(후보 키) · 실제로 표현된 신호 표시(필수 서사 근거).
 #       금지: 사건 국면/케이스 선택 · 숨은 경로/접근 발견 · 코드 소유 이동/시간 덮어쓰기 · PC 믿음 창작.
-#   · 코드 소유 경과(이동·대기)가 있으면 추출의 추가 시간은 버린다(이중 계상 금지).
-#   · 같은 분 서사 선후: 묘사가 고른 **허용 순서 하나**만 받는다 — 모호·무효면 READY 불가(임의 last-write 없음).
+#   · P1(D1): 시간은 묘사 전에만 흐른다(이동·대기·행동 소요 시간 — 코드 소유). 추출의 추가 시간은 쓰지 않는다.
+#   · P1(D2): 같은 분 서사 선후는 묘사 전에 정한다(지시층위 선택, 무효면 코드 결정 — resolve_plan_tie).
 #     장면 밖 충돌은 H04가 이미 WORLD_PROJECTION_CONFLICT로 끝낸다(선택지로 보내지 않는다).
-#   · 보충 진행의 결정적 충돌은 재시도 사유가 아니다(provider 재호출·RETRY_PENDING 없음).
-#   · ForegroundContinuationPlan: 추출이 만든 새 결과가 현재 장면에서 관찰 가능(IF_OBSERVABLE)하고
-#     아직 표현되지 않았을 때만. 같은 논리 턴·추가 시간 0·재추출 없음.
+#   · 보충 진행(묘사 후 인지·아이템 사실의 같은 분 평가)은 묘사 전 계획과 같은 관찰자 문맥을 쓴다.
+#     결정적 충돌은 재시도 사유가 아니다(provider 재호출·RETRY_PENDING 없음).
+#   · P1(#1): 후속 묘사 없음. 본문이 표현하지 못한 관찰 신호(필수 서사 누락·보충 진행 결과)는 버리지 않고
+#     world_pending_signals(되감기 대상 정본)에 남겨 다음 본문이 '그동안' 일어난 일로 전한다.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
@@ -35,6 +35,9 @@ TW_READY = "READY"
 TW_TIE_UNRESOLVED = "TIE_UNRESOLVED"   # 묘사 선후가 모호·무효 — READY 불가
 TW_CONFLICT = "CONFLICT"               # WORLD_PROJECTION_CONFLICT — 결정적, 재시도 없음
 
+# P1 — 본문 전달 대기 필드 world_pending_signals(단일 출처 core.world_state.DELIVERY_FIELDS)
+MAX_PENDING_CARRY = 3                  # 같은 신호를 본문이 거듭 빠뜨리면 이 횟수 뒤 진단과 함께 은퇴(무한 대기 방지)
+
 
 # ══════════════════════════════════════════════════════════════
 #  런타임 턴 세계 기록(준비 객체에 붙는다 — 영속하지 않는다)
@@ -48,9 +51,8 @@ class WorldTurn:
     plan: object = None                           # PlayerWorldPlan(묘사 전)
     obs_manifest: object = None                   # ObservationManifest(추출 시점)
     result: object = None                         # TurnWorldResult(추출 후)
-    continuation_text: str | None = None          # READY 전 생성, COMMITTED 후 전달
-    continuation_delivered: bool = False
     replan: object = None                         # 선후 확정 재계획 호출(callable(orders) -> plan)
+    tie_choice: str | None = None                 # P1(D2): 지시층위가 고른 선후 키(O키, 검증 전)
     identified_faces: tuple = ()                  # SVG 카드: 지시층위가 지정한 얼굴 식별 ActorId(검증됨)
     identified_names: tuple = ()                  # SVG 카드: 지시층위가 지정한 이름 식별 ActorId(검증됨)
     discovery: dict | None = None                 # v7.14 이번 턴 주변 발견 결과(NEW만 정본화 — 추출 시점 고정)
@@ -256,8 +258,32 @@ def narration_overlay(plan, definition: dict, ctx=None, *, world=None) -> str:
     elif kind in (_pw.OUT_TIME_DONE, _pw.OUT_TIME_INTERRUPTED):
         act = o.get("activity")
         lines.append(f"· PC의 활동({act})이 " + ("중간에 끊겼다." if kind == _pw.OUT_TIME_INTERRUPTED else "끝났다."))
-    for sig in observable_signals(plan.signals):
+    elif kind in (_pw.OUT_ACTION_DONE, _pw.OUT_ACTION_INTERRUPTED):
+        lines.append("· PC가 이번 행동을 하는 동안 위 경과 시간이 흘렀다"
+                     + (" — 아래 일이 끼어들어 행동이 중간에 끊겼다." if kind == _pw.OUT_ACTION_INTERRUPTED else "."))
+    sigs = observable_signals(plan.signals)
+    if sigs:
+        lines.append("[필수 서사 — 이번 본문에 반드시 담을 것(PC가 직접 보고 듣는 일). 표현은 자유, 사실·순서는 바꾸지 말 것]")
+    for sig in sigs:
         lines.append(f"· 지금 관찰되는 일: {sig['cue']}")
+    return "\n".join(lines) + "\n"
+
+
+def pending_signals(session) -> list:
+    return [r for r in (getattr(session, "world_pending_signals", None) or []) if isinstance(r, dict) and r.get("cue")]
+
+
+def pending_delivery_block(ctx, session) -> str:
+    """P1: 지난 본문이 전하지 못한 관찰된 일 — 이번 본문 앞부분에 '그동안' 일어난 일로 담는다(새로 일어난 일처럼 쓰지 않음)."""
+    rows = pending_signals(session)
+    if not rows:
+        return ""
+    lines = ["\n[필수 서사 — 직전 장면에서 이미 일어났으나 아직 전하지 못한 일. 이번 본문 앞부분에 '그사이' 있었던 일로 담을 것. "
+             "지금 막 일어난 일처럼 쓰지 말 것]"]
+    cal = (ctx.definition if ctx is not None else {}) or {}
+    for r in rows:
+        cv = clock_view(cal, r.get("at_minute")) if r.get("at_minute") is not None else {}
+        lines.append(f"· {r['cue']}" + (f" (작중 {clock_text(cv)})" if cv else ""))
     return "\n".join(lines) + "\n"
 
 
@@ -382,6 +408,7 @@ def narration_world_block(wt, session) -> str:
     parts = [narration_clock_block(wt, session), dynamic_place_block(wt.ctx, wt.plan, session, for_narration=True)]
     if wt.plan is not None:
         parts.append(narration_overlay(wt.plan, wt.ctx.definition, wt.ctx, world=session))
+    parts.append(pending_delivery_block(wt.ctx, session))
     parts.append(scene_npc_block(wt.ctx, wt.plan, session))
     return "".join(p for p in parts if p)
 
@@ -806,14 +833,17 @@ def _scene_relevant(g, scene, rec) -> bool:
     return any(p in path or scene in g.path_of(p) for p in places if p in g.places)
 
 
-def build_observation_manifest(definition: dict, ctx, plan, base_world, *, discovery=None) -> ObservationManifest:
+def build_observation_manifest(definition: dict, ctx, plan, base_world, *, discovery=None,
+                               pending=()) -> ObservationManifest:
     """추출 관찰 후보 — **이번 턴 노출 근거가 있는 것만**(R2).
 
     정보: 이번 턴 코드 계획(stage-1)의 사건이 결정적으로 만든 정보 중 장면과 관련되고 공개 안전 요약
           (summary)이 있는 것. 명제 전문·숨은 정보로 대체하지 않는다. 같은 장면 NPC가 내용을 안다는
           사실만으로는 후보가 아니다(노출 계획 없음 = 후보 없음).
           H07: 본 묘사에 준 관찰 신호의 exposes(저작 정보 — summary 필수)도 후보다(신호 = 노출 계획).
-    신호: 본 묘사에 실제로 준 관찰 신호만. ACTIVE 사건의 미래 EMIT_SIGNAL은 나열하지 않는다.
+    신호: 본 묘사에 실제로 준 관찰 신호만(P1: 이번 계획 신호 + 지난 본문이 전하지 못한 전달 대기 신호).
+          ACTIVE 사건의 미래 EMIT_SIGNAL은 나열하지 않는다. 추출이 표시한 신호가 필수 서사의 표현 근거다.
+    시간: P1(D1) 경과는 묘사 전에 코드가 정한다 — 추출 추가 시간은 받지 않는다.
     """
     world = plan.projected_world if plan is not None and plan.projected_world is not None else (
         base_world if isinstance(base_world, _wm.ProjectedWorld) else _wm.ProjectedWorld.capture(base_world))
@@ -848,9 +878,15 @@ def build_observation_manifest(definition: dict, ctx, plan, base_world, *, disco
     infos = tuple((f"X{n}", iid, cand[iid]) for n, iid in enumerate(sorted(cand), 1))
     sigs = [((s["signal_id"], s["instance_id"]), s["cue"])
             for s in observable_signals(plan.signals if plan is not None else ())]
+    seen = {k for k, _ in sigs}
+    for r in pending or ():
+        k = (r.get("signal_id"), r.get("instance_id"))
+        if k not in seen and r.get("cue"):
+            seen.add(k)
+            sigs.append((k, r["cue"]))
     signals = tuple((f"S{n}", k, cue) for n, (k, cue) in enumerate(sigs, 1))
     ties = tuple(tie_option_labels(plan, definition, ctx)) if plan is not None and plan.status == _pw.PLAN_TIE else ()
-    extra = not (plan is not None and plan.code_owned_minutes)
+    extra = False
     # v7.14: 현재 장면의 유효 발견(SUPERSEDED는 나오지 않는다 — 같은 물건 두 번 수거 불가) + 이번 턴 새 발견
     drows = list(discoveries_at(definition, world, lead, scene))
     if discovery and discovery.get("status") == "NEW":
@@ -871,7 +907,7 @@ class TurnWorldResult:
     projected_world: object = None
     plan: object = None                     # 확정된(선후 반영) 묘사 전 계획
     signals: list = field(default_factory=list)            # 보충 진행 신호
-    continuation_signals: list = field(default_factory=list)
+    pending: list = field(default_factory=list)            # P1: 커밋 후 world_pending_signals(다음 본문 전달 대기)
     represented: tuple = ()
     diagnostics: list = field(default_factory=list)
     exposures: tuple = ()
@@ -908,11 +944,15 @@ def reveal_ops(definition: dict, pc: str, info_ids, *, prefix: str, at_minute=No
 def process_observation(ctx, base_world, plan, obs_manifest: ObservationManifest, raw_obs, *,
                         transaction_id: str, narrative_seed: str, replan=None,
                         face_info_ids=(), name_info_ids=(), discovery=None,
-                        read_info_ids=()) -> TurnWorldResult:
-    """확정 묘사 관찰 → 보충 typed 연산 + 보충 세계 진행 → 최종 묶음 연산(순수).
+                        read_info_ids=(), pending=(), item_facts=None) -> TurnWorldResult:
+    """확정 묘사 관찰 → 보충 typed 연산 + 같은 분 보충 진행 → 최종 묶음 연산(순수).
 
     v7.17 read_info_ids: 코드가 검증한 아이템 READ(실제 소지·현장 물건의 저작 info_refs)로 PC가 내용을 알게 된 정보 —
-    같은 정보·인지 경로(DOCUMENT, 믿음 불변)로 같은 묶음에 합류한다. 아이템 소유만으로는 생기지 않는다."""
+    같은 정보·인지 경로(DOCUMENT, 믿음 불변)로 같은 묶음에 합류한다. 아이템 소유만으로는 생기지 않는다.
+
+    P1: pending = 이번 본문에 함께 준 전달 대기 신호. item_facts = 이번 턴 검증된 아이템 사용·지급 사실(묘사 후 확정)
+    — 같은 턴 보충 진행의 관찰자 문맥에 더한다(D4 · 다음 턴으로 미루지 않음). 보충 진행은 묘사 전 계획과 같은
+    관찰자 문맥(plan.observer)을 쓴다. 본문이 표현하지 못한 관찰 신호는 result.pending으로 남는다(유실 금지)."""
     D, lead = ctx.definition, ctx.lead_pc
     raw = raw_obs if isinstance(raw_obs, dict) else {}
     diags = []
@@ -976,7 +1016,7 @@ def process_observation(ctx, base_world, plan, obs_manifest: ObservationManifest
                                           at_minute=(start_world.domain("world_clock") or {}).get("minute_index"))
     acq += d_ops
     diags += d_diags
-    # ③ 추가 시간(코드 소유 경과가 있으면 버린다)
+    # ③ 추가 시간 — P1(D1) 시간은 묘사 전에 코드가 정한다. 매니페스트가 막으면 버린다(이중 계상 금지)
     extra = raw.get("extra_minutes")
     extra = extra if isinstance(extra, int) and not isinstance(extra, bool) and extra > 0 else 0
     if extra and not obs_manifest.extra_time_allowed:
@@ -990,16 +1030,23 @@ def process_observation(ctx, base_world, plan, obs_manifest: ObservationManifest
         sk = obs_manifest.signal_of(k) if isinstance(k, str) else None
         if sk:
             represented.add(tuple(sk))
-    for s in observable_signals(plan.signals if plan is not None else ()):
-        represented.add((s["signal_id"], s["instance_id"]))          # 묘사 전 신호는 본 묘사가 표현했다
-    # ④ 보충 진행(노출로 인한 연쇄 + 추가 시간)
+    # ④ 보충 진행(노출·식별·READ·발견·아이템 사용/지급 사실로 인한 같은 분 연쇄)
+    #    관찰자 문맥 = 묘사 전 계획과 같은 기준선(plan.observer) + 이번 턴 묘사 후 확정 아이템 사실(P1·D4)
     scene = (plan.scene_place if plan is not None and plan.status == _pw.PLAN_PLANNED else None) or \
         (_sp.placement_of(start_world, lead) or {}).get("place_id")
     now = (start_world.domain("world_clock") or {}).get("minute_index")
+    observer = dict(getattr(plan, "observer", None) or {})
+    new_facts = False
+    for key, src in (("observer_used_items", "used"), ("observer_paid_items", "paid")):
+        add = set((item_facts or {}).get(src) or ())
+        if add - set(observer.get(key) or ()):
+            new_facts = True
+        if add or key in observer:
+            observer[key] = tuple(sorted(set(observer.get(key) or ()) | add))
     ops, world, sigs = list(stage1), start_world, []
-    if acq or extra:
+    if acq or extra or new_facts:
         r = _wp.project_world_progression(D, start_world, now + extra, base_ops=acq,
-                                          progress={"observer_actor": lead, "scene_place": scene},
+                                          progress={"observer_actor": lead, "scene_place": scene, **observer},
                                           narrative_seed=narrative_seed, outer_origin="PLAYER_TURN")
         diags += r.diagnostics
         if r.status == _wp.TIE_PENDING:
@@ -1013,38 +1060,75 @@ def process_observation(ctx, base_world, plan, obs_manifest: ObservationManifest
                                              "base_rejected": _pw.base_rejected(r.diagnostics)})
         ops += _pw.namespace_ops(r.ops, f"{prefix}.sup", [o.op_id for o in stage1])
         world, sigs = r.projected_world, list(r.signals)
-    cont = unrepresented_signals(sigs, represented)
-    return TurnWorldResult(TW_READY, tuple(ops), world, plan, sigs, cont, tuple(sorted(represented)),
+    # ⑤ 전달 대기(P1 #1): 본문에 준 필수 신호(이번 계획·지난 대기) 중 추출이 표현을 확인하지 못한 것 +
+    #    보충 진행이 새로 만든 관찰 신호 → 다음 본문 '그동안'으로. 같은 신호를 거듭 놓치면 은퇴(진단).
+    end_minute = (world.domain("world_clock") or {}).get("minute_index")
+    old = {(r.get("signal_id"), r.get("instance_id")): r for r in pending or () if isinstance(r, dict)}
+    out_pending, seen = [], set()
+
+    def _keep(k, cue, at, carried):
+        if k in seen or k in represented:
+            return
+        seen.add(k)
+        if carried > MAX_PENDING_CARRY:
+            diags.append({"code": "PENDING_SIGNAL_RETIRED", "signal": list(k), "carried": carried})
+            return
+        out_pending.append({"signal_id": k[0], "instance_id": k[1], "cue": cue, "at_minute": at,
+                            "scene_place": scene, "source_tx": transaction_id, "carried": carried})
+    for k, r in old.items():
+        _keep(k, r.get("cue"), r.get("at_minute"), int(r.get("carried") or 0) + 1)
+    for s in observable_signals(plan.signals if plan is not None and plan.status == _pw.PLAN_PLANNED else ()):
+        _keep((s["signal_id"], s["instance_id"]), s["cue"], s.get("minute", end_minute), 1)
+    for s in observable_signals(sigs):
+        _keep((s["signal_id"], s["instance_id"]), s["cue"], s.get("minute", end_minute), 0)
+    if out_pending:
+        diags.append({"code": "SIGNALS_PENDING_DELIVERY", "count": len(out_pending)})
+    return TurnWorldResult(TW_READY, tuple(ops), world, plan, sigs, out_pending, tuple(sorted(represented)),
                            diags, tuple(exposures), extra, item_gains=tuple(gains))
 
 
 # ══════════════════════════════════════════════════════════════
-#  ForegroundContinuationPlan · 투영 미디어
+#  같은 분 선후(묘사 전 확정 — P1 D2) · 투영 미디어
 # ══════════════════════════════════════════════════════════════
 
-@dataclass(frozen=True)
-class ForegroundContinuationPlan:
-    source_transaction_id: str
-    at_minute: int | None
-    projected_scene: str | None
-    signals: tuple
-
-    def prompt(self) -> str:
-        cues = "\n".join(f"- {s['cue']}" for s in self.signals)
-        return ("[후속 묘사 — 같은 턴의 마지막 세계 반응]\n"
-                "[이미 확정된 즉시 세계 반응 — 아래만 짧게 묘사한다]\n" + cues + "\n"
-                f"[현재 장면] {self.projected_scene or '현재 장소'}\n"
-                "[금지] 새 사건·새 이동·시간 경과·새 인물 계획을 만들지 말 것. PC의 선택·생각·감정·행동을 "
-                "정하지 말 것. 앞으로 일어날 일을 암시하거나 밝히지 말 것.")
+MAX_TIE_ROUNDS = 8
 
 
-def continuation_plan(transaction_id: str, result: TurnWorldResult) -> ForegroundContinuationPlan | None:
-    if result is None or result.status != TW_READY or not result.continuation_signals:
-        return None
-    w = result.projected_world
-    minute = (w.domain("world_clock") or {}).get("minute_index") if w is not None else None
-    scene = result.plan.scene_place if result.plan is not None else None
-    return ForegroundContinuationPlan(transaction_id, minute, scene, tuple(result.continuation_signals))
+def resolve_plan_tie(plan, replan, choice_key=None, definition=None, ctx=None):
+    """P1(D2): 묘사 전 계획이 같은 분 서사 선후(TIE)에서 멈췄으면 순서를 정해 다시 계획한다(순수).
+
+    정본 인과·우선순위는 엔진이 이미 적용했다 — TIE는 남은 자유 경합뿐이다. 첫 경합은 지시층위가 고른
+    허용 키(choice_key)를, 그 밖(무효·미선택·이어지는 경합)은 정렬 첫 허용 순서를 쓴다(결정적 — 재시도 동일).
+    Returns: (plan, record) — record = [{"by": INSTRUCTION|CODE_DEFAULT, "key"}] (진단·재현 근거).
+    """
+    record, acc = [], {}
+    for n in range(MAX_TIE_ROUNDS):
+        if plan is None or plan.status != _pw.PLAN_TIE or replan is None:
+            break
+        keys = [k for k, _ in tie_option_labels(plan, definition, ctx)]
+        if not keys:
+            break
+        key, by = (choice_key, "INSTRUCTION") if (n == 0 and choice_key in keys) else (keys[0], "CODE_DEFAULT")
+        orders = tie_orders_for(plan, key)
+        if orders is None:
+            break
+        acc.update(orders)
+        record.append({"by": by, "key": key})
+        plan = replan(dict(acc))
+    return plan, record
+
+
+def tie_choice_schema(plan, definition=None, ctx=None) -> tuple:
+    """(지시층위 프롬프트 블록, 스키마 속성) — 계획이 TIE일 때만. 키는 O키 enum."""
+    if plan is None or plan.status != _pw.PLAN_TIE:
+        return "", None
+    opts = tie_option_labels(plan, definition, ctx)
+    if not opts:
+        return "", None
+    block = ("\n[같은 순간의 서사 선후 — tie_order]\n같은 분에 아래 일들이 겹친다. 결과·시각은 코드가 정했다. "
+             "어느 쪽을 먼저 보여 줄지 서사에 맞는 순서 하나를 tie_order에 고른다(모르면 첫 번째):\n"
+             + "\n".join(f"- {k}: {lbl}" for k, lbl in opts) + "\n")
+    return block, {"type": "string", "enum": [k for k, _ in opts]}
 
 
 def media_allowed_places(definition: dict, plan) -> set | None:

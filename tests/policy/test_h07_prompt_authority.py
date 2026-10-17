@@ -30,7 +30,7 @@ def test_legacy_quest_meaning_preserved():
     assert "quest_progress.advance" in prompts.EXTRACTION_SYSTEM_INSTRUCTION
 
 
-def test_provider_production_callsites_stay_19():
+def test_provider_production_callsites_stay_18():
     n = 0
     for base in ("cogs", "core"):
         for f in sorted(os.listdir(os.path.join(REPO_ROOT, base))):
@@ -39,7 +39,7 @@ def test_provider_production_callsites_stay_19():
                 n += sum(1 for x in ast.walk(tree) if isinstance(x, ast.Attribute) and x.attr == "generate_content")
     tree = ast.parse(open(os.path.join(REPO_ROOT, "main.py"), encoding="utf-8").read())
     n += sum(1 for x in ast.walk(tree) if isinstance(x, ast.Attribute) and x.attr == "generate_content")
-    assert n == 19                                                              # H07은 provider 호출 단계를 늘리지 않는다
+    assert n == 18                                                              # H07은 늘리지 않는다 · P1 후속 묘사 은퇴(19 → 18)
     # core/logs.py 기록 프록시는 호출 단계가 아니라 통과 전달 1회뿐이다(새 provider 호출 없음)
     tree = ast.parse(open(os.path.join(REPO_ROOT, "core", "logs.py"), encoding="utf-8").read())
     assert sum(1 for x in ast.walk(tree) if isinstance(x, ast.Attribute) and x.attr == "generate_content") == 1

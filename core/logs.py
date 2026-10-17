@@ -255,6 +255,7 @@ def state_diff(a, b, depth: int = 0):
 # ══════════════════════════════════════════════════════════════
 
 def _usage(resp) -> dict:
+    """provider 원본 usage(용어: core.cost_ledger — out = 가시 출력, thought = 사고, 과금 출력 = out + thought)."""
     um = getattr(resp, "usage_metadata", None)
     if um is None:
         return {}

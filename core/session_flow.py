@@ -506,18 +506,20 @@ class ScenarioSelect(discord.ui.Select):
 
         # 가격 안내 — 오픈·유지비용과 턴 진행비용을 함께 제시한다(기획 규정).
         try:
-            from .estimate import estimate_session_open, DEFAULT_BASELINE
+            from .estimate import estimate_session_open, DEFAULT_BASELINE, approx_cache_tokens
             from .ink import cost_to_ink
             from .cost import calculate_text_gen_cost_breakdown
             from .constants import DEFAULT_MODEL
 
             probe = type("P", (), {"cache_tokens": 0, "cache_read_tokens": 0})()
             # 룰북 분량으로 캐시 토큰을 근사한다(실제 값은 업로드 시 확정).
-            rough = int(len(str(data.get("worldview", ""))) * 0.65)
+            # P1: 세션 열기 예상(estimate_session_open)과 같은 근사(approx_cache_tokens — 캐시에 실리는 항목 전부·
+            #     실측 계수 0.33)를 쓴다. 이전의 worldview × 0.65는 같은 양을 다른 산식으로 셌다.
+            rough = approx_cache_tokens(data) or int(len(str(data.get("worldview", ""))) * 0.33)
             probe.cache_tokens = rough
             open3 = estimate_session_open(probe, 3.0)
             turn_krw = calculate_text_gen_cost_breakdown(
-                DEFAULT_MODEL, input_tokens=rough // 3,
+                DEFAULT_MODEL, input_tokens=rough + rough // 3,   # P1: 단가 함수의 입력은 캐시분 포함 총량
                 output_tokens=DEFAULT_BASELINE["narration_out"],
                 cached_read_tokens=rough)["total_krw"]
             e.add_field(

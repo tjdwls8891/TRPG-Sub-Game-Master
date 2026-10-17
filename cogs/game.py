@@ -948,7 +948,8 @@ class GameCog(commands.Cog):
                                         dub["in"], 0, dub["out"], dub["cost"], session.total_cost)
                     session.turn_cost_log.append(
                         {"label": f"TTS 더빙({dub['enqueued']}/{dub['total']}문단)", "cost": dub["cost"],
-                         "in": dub["in"], "cached": 0, "out": dub["out"]})
+                         "in": dub["in"], "cached": 0, "out": dub["out"],
+                         "model": core.TTS_MODEL})            # P1: 오디오 단가로 분해(텍스트 단가 금지)
 
             # 턴 비용 보고 임베드 송출 (PROCEED + 지시층위 등 누적 + TTS 더빙 합산)
             _turn_no = session.turn_count if turn_no is None else turn_no

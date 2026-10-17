@@ -2121,6 +2121,12 @@ class GMCog(commands.Cog):
         if plan.status == core.player_world.PLAN_NEEDS_CHOICE:
             # 선택을 물을 수 없는 경로(ROLL 후·강제 PROCEED) — 이동 없이 묘사(선택은 다음 선언에서).
             plan.status, plan.reason = core.player_world.PLAN_REJECTED, "ROUTE_CHOICE_PENDING"
+        if plan.status == core.player_world.PLAN_TIE:
+            # P1(D2): 묘사 전에 같은 분 선후를 정한다 — 지시층위 선택(허용 키) 우선, 무효·미선택은 코드 결정
+            plan, rec = core.turn_world.resolve_plan_tie(plan, wt.replan, wt.tie_choice, wt.ctx.definition, wt.ctx)
+            wt.plan = plan
+            core.write_log(session.session_id, "api",
+                           f"[P1 선후] {json.dumps(rec, ensure_ascii=False)} → status={plan.status}")
         prep.world_turn = wt
         if plan.projected_world is not None:
             prep.world_prompt_timeline = core.turn_world.mirror_timeline(
@@ -2170,6 +2176,7 @@ class GMCog(commands.Cog):
         # v7.17 아이템: 같은 기준 재고에 모든 연산을 순서대로 가상 적용 — 하나라도 어긋나면 전체를 재추출(부분 적용 없음).
         #   발견물 수거(D키)·코드 지급(접근 확인)·문서 읽기를 하나의 계획으로 묶고, 수거한 D키만 소진(SUPERSEDED)한다.
         item_plan = self._build_item_plan(session, prep, ctx, wt, _raw, plan)
+        item_plan.facts["evaluated_same_turn"] = True     # P1(D4): 이 턴 보충 진행이 사용·지급 사실을 평가한다
         _raw = {**(_raw if isinstance(_raw, dict) else {}), "discovery_taken": list(item_plan.discovery_takes)}
         res = core.turn_world.process_observation(
             ctx, session, wt.plan, _man,
@@ -2182,11 +2189,12 @@ class GMCog(commands.Cog):
             name_info_ids=core.speaker_card.identity_info_ids(
                 core.speaker_card.config_of(session.scenario_data), wt.identified_names, "name")
             if core.speaker_card.card_world(session) else (),
-            discovery=wt.discovery, read_info_ids=item_plan.read_info_ids)
+            discovery=wt.discovery, read_info_ids=item_plan.read_info_ids,
+            pending=core.turn_world.pending_signals(session), item_facts=item_plan.facts)
         wt.result = res
         core.write_log(session.session_id, "api",
                        f"[H05 관찰] status={res.status} exposures={list(res.exposures)} "
-                       f"extra={res.extra_minutes} continuation={len(res.continuation_signals)} "
+                       f"extra={res.extra_minutes} pending={len(res.pending)} "
                        f"diag={json.dumps(res.diagnostics, ensure_ascii=False, default=str)[:600]}")
         if res.status != core.turn_world.TW_READY:
             return
@@ -2206,12 +2214,10 @@ class GMCog(commands.Cog):
             for r in item_plan.report]
         if item_plan.diagnostics:
             plan.diagnostics["item_plan"] = list(item_plan.diagnostics)
-        cplan = core.turn_world.continuation_plan(prep.transaction_id, res)
-        if cplan is not None:
-            prep.register_task(
-                "foreground_continuation", core.turn_preparation.TASK_FOREGROUND_CONTINUATION,
-                coro=self._generate_continuation(session, prep, cplan),
-                required_success=True, parent="extraction")
+        if res.pending:
+            # P1(#1): 후속 묘사 없음 — 본문이 전하지 못한 관찰 신호는 커밋과 함께 전달 대기로 남는다(유실 금지)
+            self._world_diagnostic(session, prep, "SIGNALS_PENDING_DELIVERY",
+                                   {"signals": [[r["signal_id"], r["instance_id"]] for r in res.pending]})
 
     def _implied_discovery_take(self, session, transaction_id, ctx, wt, manifest, raw, plan):
         """A1 보정 근거 조립 — 게이트가 검증한 선언 대상(기존 발견 D키 또는 이번 턴 새 발견)만 후보."""
@@ -2279,67 +2285,6 @@ class GMCog(commands.Cog):
             plan.item_deltas.append({"target": pc_name, "item": item, "delta": 1})
             plan.entries.append({"domain": "item", "target": pc_name, "op": "delta",
                                  "payload": {"item": item, "delta": 1}})
-
-    async def _generate_continuation(self, session, prep, cplan) -> str:
-        """후속 묘사 1회(provider) — 같은 턴 비용 멤버십. 실패하면 예외 → READY 불가."""
-        wt = prep.world_turn
-        main_text = getattr(prep.narration, "text", "") or ""
-        prompt = (f"[직전 본 묘사]\n{main_text[-1500:]}\n\n" + cplan.prompt()
-                  + "\n\n2~4문장으로만 쓴다.")
-        _cl_op = core.cost_ledger.begin_operation(
-            self.bot, core.cost_ledger.OP_TURN_FOREGROUND_CONTINUATION, session=session,
-            model=core.DEFAULT_MODEL, actor_kind=core.cost_ledger.ACTOR_PLAYER,
-            billing_hint=core.cost_ledger.HINT_PLAYER_CANDIDATE)
-        prep.claim_cost_operation(_cl_op)
-        if core.turn_history.cache_usable(session) and getattr(session, "cache_name", None):
-            config = types.GenerateContentConfig(
-                http_options=core.resilience.provider_http_options("narration"),
-                cached_content=session.cache_name, temperature=0.65,
-                safety_settings=core.TRPG_SAFETY_SETTINGS)
-        else:
-            config = types.GenerateContentConfig(
-                http_options=core.resilience.provider_http_options("narration"),
-                system_instruction=self.bot.system_instruction, temperature=0.65,
-                safety_settings=core.TRPG_SAFETY_SETTINGS)
-        ok, response = await core.call_with_retry(
-            lambda: asyncio.to_thread(
-                self.bot.genai_client.models.generate_content, model=core.DEFAULT_MODEL,
-                contents=[types.Content(role="user", parts=[types.Part.from_text(text=prompt)])],
-                config=config),
-            layer="narration", session_id=session.session_id,
-            on_attempt_result=_cl_op.on_attempt, operation_id=_cl_op.operation_id)
-        if not ok:
-            raise RuntimeError("후속 묘사 provider 실패")
-        try:
-            in_t, out_t, cached_t, th_t = core.extract_token_usage(response.usage_metadata)
-            bd = core.calculate_text_gen_cost_breakdown(core.DEFAULT_MODEL, input_tokens=in_t,
-                                                        output_tokens=out_t, cached_read_tokens=cached_t)
-            core.accrue(session, bd["total_krw"], bd["total_usd"])
-            _cl_op.record(input_tokens=in_t, cached_input_tokens=cached_t, output_tokens=out_t,
-                          thought_tokens=th_t, cost_usd=bd["total_usd"], cost_krw=bd["total_krw"],
-                          usage_source=core.cost_ledger.SOURCE_PROVIDER_METADATA)
-            session.turn_cost_log = list(getattr(session, "turn_cost_log", None) or []) + [{
-                "label": "후속 묘사", "cost": bd["total_krw"], "in": in_t, "cached": cached_t,
-                "out": out_t, "manifest": []}]
-        except Exception as e:
-            print(f"[H05] 후속 묘사 비용 정산 실패: {e}")
-        text = (getattr(response, "text", "") or "").strip()
-        if not text:
-            raise RuntimeError("후속 묘사 빈 응답")
-        wt.continuation_text = text
-        # 같은 시도의 대화 이력에 붙인다(다음 턴 맥락) — 재추출하지 않는다.
-        sl = prep.staged_log
-        if isinstance(sl, dict) and not sl.get("applied"):
-            raw = list(sl.get("raw_entries") or [])
-            if raw and getattr(raw[-1], "role", None) == "model":
-                raw[-1] = types.Content(role="model", parts=[types.Part.from_text(
-                    text=(raw[-1].parts[0].text or "") + "\n\n" + text)])
-                sl["raw_entries"] = raw
-            unc = list(sl.get("uncompressed_entries") or [])
-            if unc:
-                unc[-1] = unc[-1] + "\n\n" + text
-                sl["uncompressed_entries"] = unc
-        return text
 
     def _stage_world_turn(self, session, prep):
         """READY 직전 — 관찰 결과 검증 후 최종 연산을 PLAYER_TURN 묶음에 담는다. 실패 코드 또는 None."""
@@ -2714,13 +2659,13 @@ class GMCog(commands.Cog):
         TP = core.turn_preparation
         # WP-F: 커밋된 ROLL 성장의 확정 알림(CANONICAL_GAME_EVENT) — 성장은 코디네이터가
         #   이미 정본에 적용했다. derived 로만 쌓여 durable COMMITTED 이후 송출 의도와 함께 나간다.
+        # P1(#1): 본문 전달 대기 — 관찰 처리 결과(이번 본문이 전하지 못한 신호 · 지난 대기 중 미전달분)로 교체.
+        #   세계 연산과 같은 커밋 단위(롤백 스냅샷·strict 저장 안). 동적 세계 턴만 쓴다.
+        _wt = getattr(prep, "world_turn", None)
+        _res = getattr(_wt, "result", None) if _wt is not None else None
+        if _res is not None and _res.status == core.turn_world.TW_READY:
+            session.world_pending_signals = [dict(r) for r in _res.pending]
         if derived is not None:
-            # H05-C: 후속 묘사(READY 전 생성) — durable COMMITTED 이후, 다음 행동 질문 전에 이 시도 소유로 송출.
-            _wt = getattr(prep, "world_turn", None)
-            _ct = getattr(_wt, "continuation_text", None) if _wt is not None else None
-            if _ct:
-                for _i in range(0, len(_ct), 1900):
-                    derived.game(_ct[_i:_i + 1900])
             for _line in list(getattr(prep, "growth_notices", None) or []):
                 derived.game(_line)
         if prep.irregular_plan is not None and not prep.irregular_plan.applied:
@@ -2836,7 +2781,8 @@ class GMCog(commands.Cog):
                 total_ink=int(getattr(session, "total_ink_spent", 0) or 0),
                 total_usd=float(getattr(session, "total_usd", 0.0) or 0.0),
                 free_krw=float(getattr(session, "profile_ai_cost_krw", 0.0) or 0.0),
-                settlement=settlement)
+                settlement=settlement,
+                estimate=getattr(session, "last_estimate", None) or None)     # P1: 예상 대비(운영자 점검)
             await master_ch.send(embed=embed)
         except Exception as e:
             print(f"[WP-D] 턴 비용 보고 실패(커밋 유지): {e}")
@@ -3378,6 +3324,13 @@ class GMCog(commands.Cog):
             #   누적·정산 표시를 은퇴했다. 압축 provider 비용은 CostEvent(운영 사실)로만 남는다.
             session.last_estimate = est
             _tts = core.estimate_tts(session)
+            # P1: 예상은 정산이 아니다 — 운영 예측 정확도 점검용 구조 로그(커밋 보고의 '예상 대비'와 같은 값)
+            core.logs.domain("cost.estimate", {"tx": transaction_id, "min_ink": est["min_ink"],
+                                               "max_ink": est["max_ink"], "min_krw": est["min_krw"],
+                                               "max_krw": est["max_krw"], "basis": est.get("basis"),
+                                               "confidence": est.get("confidence"),
+                                               "breakdown": est.get("breakdown"),
+                                               "tts": _tts if _tts.get("enabled") else None}, session=session)
             await m_send(
                 f"💰 **[예상]** {core.format_estimate(est, _tts if _tts['enabled'] else None)}\n"
                 f"> 입력 {est['input_tokens']['instruction']:,} + 캐시 "
@@ -3963,8 +3916,13 @@ class GMCog(commands.Cog):
             self._ensure_world_plan(session, _wt, transaction_id)
         user_prompt = _build_logic_user_prompt(session, player_message, roll_results,
                                                 sim_result=sim_result, world_turn=_wt)
+        _tie_schema = None
         if _wt is not None and _wt.plan is not None:
             user_prompt += core.turn_world.narration_overlay(_wt.plan, _wt.ctx.definition, _wt.ctx, world=session)
+            user_prompt += core.turn_world.pending_delivery_block(_wt.ctx, session)
+            # P1(D2): 남은 자유 경합(같은 분 서사 선후)은 묘사 전에 지시층위가 고른다 — 무효면 코드 결정
+            _tie_block, _tie_schema = core.turn_world.tie_choice_schema(_wt.plan, _wt.ctx.definition, _wt.ctx)
+            user_prompt += _tie_block
         _jr = self._tx_judgment(session, transaction_id)
         if _jr:
             user_prompt += _declaration_block(_jr, transaction_id)     # v7.14 권위 있는 시도·발견 결과
@@ -4030,6 +3988,10 @@ class GMCog(commands.Cog):
                 for _kind, _m in _id_manifests.items():
                     logic_schema["properties"][core.speaker_card.identity_field(_kind)] = \
                         core.speaker_card.identity_schema(_m, _kind)
+            if _tie_schema is not None:
+                logic_schema = dict(logic_schema)
+                logic_schema["properties"] = dict(logic_schema["properties"])
+                logic_schema["properties"]["tie_order"] = _tie_schema
 
             if use_cache:
                 # ── 캐시 활용 경로 (방안 ①) ──
@@ -4144,6 +4106,10 @@ class GMCog(commands.Cog):
                 if master_ch:
                     await master_ch.send("⚠️ 자동 지시층위 응답이 JSON 형식이 아닙니다. 이번 발언 스킵.")
                 return None
+
+        if _tie_schema is not None and _wt is not None:
+            _tc = decision.get("tie_order")
+            _wt.tie_choice = _tc if isinstance(_tc, str) else None      # 검증은 resolve_plan_tie(허용 키만)
 
         if _id_manifests and _wt is not None:
             # 이 시도의 WorldTurn에 누적 — process_observation이 저작 얼굴·이름 InfoId 획득으로 합류시킨다(커밋 후 공개)
@@ -5584,7 +5550,8 @@ class GMCog(commands.Cog):
             _disc = _discovery_outcome(self._tx_judgment(session, transaction_id), transaction_id)
             _wt.discovery = _disc if _disc and _disc.get("status") == "NEW" else None
             _wt.obs_manifest = core.turn_world.build_observation_manifest(
-                _wt.ctx.definition, _wt.ctx, _wt.plan, session, discovery=_wt.discovery)
+                _wt.ctx.definition, _wt.ctx, _wt.plan, session, discovery=_wt.discovery,
+                pending=core.turn_world.pending_signals(session))     # P1: 전달 대기 신호도 표현 근거 후보
             _ext_schema = copy.deepcopy(core.EXTRACTION_RESPONSE_SCHEMA)
             _ext_schema.setdefault("properties", {})[core.turn_world.OBS_FIELD] = _wt.obs_manifest.schema()
             _obs_block = _wt.obs_manifest.render()

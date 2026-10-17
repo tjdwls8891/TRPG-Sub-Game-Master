@@ -45,6 +45,8 @@ OUT_INTERRUPTED_ACCESS = "INTERRUPTED_ACCESS"
 OUT_INTERRUPTED_BLOCKED = "INTERRUPTED_BLOCKED"
 OUT_TIME_DONE = "TIME_COMPLETED"
 OUT_TIME_INTERRUPTED = "TIME_INTERRUPTED"
+OUT_ACTION_DONE = "ACTION_DONE"                  # P1(D1): 이동·대기 아닌 행동의 소요 시간 진행
+OUT_ACTION_INTERRUPTED = "ACTION_INTERRUPTED"
 
 # ActivityContext → 진행 관찰 문맥(OBSERVER_ACTIVITY ref가 읽는 값). 장르 규칙을 하드코딩하지 않는다 —
 #   어떤 신호가 어떤 활동 중 관찰 가능한지는 저작된 observable_when이 정한다.
@@ -290,6 +292,7 @@ class PlayerWorldPlan:
     transit: dict | None = None                     # 중단 시 TRANSIT 맥락
     reason: str | None = None
     item_payments: list = field(default_factory=list)   # v7.17(R4): 통과한 확인 행동의 실제 지급 {capability, quantity, action_id}
+    observer: dict = field(default_factory=dict)        # P1: 계획 진행이 쓴 관찰자 문맥 — 묘사 후 보충 진행도 같은 기준선
 
     @property
     def has_world_ops(self) -> bool:
@@ -527,6 +530,7 @@ def plan_player_turn(ctx: WorldContext, world, intent: _ai.ResolvedActionIntent,
         observer["observer_stats"] = {k: v for k, v in dict(stats).items()
                                       if isinstance(v, int) and not isinstance(v, bool)}
     run = _Run(D, src, seed=narrative_seed, tie_orders=resolved_tie_orders, prefix=prefix, observer=observer)
+    plan.observer = dict(observer)                 # P1: 진행 없이 끝나는 계획도 보충 진행에 같은 관찰자 문맥을 준다
     pre_ops = []
     if intent.stance is not None:
         holder = _cog.actor_holder(lead)
@@ -569,6 +573,12 @@ def plan_player_turn(ctx: WorldContext, world, intent: _ai.ResolvedActionIntent,
                 plan.transit = {k: transit.get(k) for k in ("edge_id", "from_place", "to_place")}
                 return plan
         return _plan_time(ctx, plan, run, here, now, intent.time_advance, pre_ops)
+    if intent.action_minutes:
+        if transit is not None:
+            # 구간 안(TRANSIT)에서는 구간 끝을 넘겨 머물 수 없다 — 행동 시간은 이동을 이어 갈 때 흐른다
+            plan.diagnostics.append({"code": "ACTION_TIME_IN_TRANSIT", "minutes": intent.action_minutes})
+        else:
+            return _plan_action(ctx, plan, run, here, now, intent.action_minutes, pre_ops)
     if pre_ops:
         run.step(pre_ops, now, _progress(lead, here))
         return _finish(plan, run, None)
@@ -576,6 +586,7 @@ def plan_player_turn(ctx: WorldContext, world, intent: _ai.ResolvedActionIntent,
 
 
 def _finish(plan, run, outcome_kind):
+    plan.observer = dict(run.observer)
     if run.stop is not None:
         plan.status, plan.reason = run.stop
         plan.ties = list(run.ties)
@@ -591,6 +602,32 @@ def _finish(plan, run, outcome_kind):
     if outcome_kind:
         plan.outcome.setdefault("kind", outcome_kind)
     return plan
+
+
+def _note_payments(plan, run, trav) -> None:
+    """v7.17(R4) 확인 행동의 실제 인계를 이 턴 아이템 연산으로 남기고, P1(D4) 이후 진행 단계가 같은 턴에
+    그 지급 사실(OBSERVER_PAID_ITEM)을 보게 한다 — 다음 턴으로 미루지 않는다."""
+    pays = [dict(c["payment"], action_id=c.get("action_id")) for c in trav.checkpoint_times
+            if c["kind"] == _mv.ACCESS_ACTION and c.get("payment")]
+    if not pays:
+        return
+    plan.item_payments += pays
+    paid = set(run.observer.get("observer_paid_items") or ()) | {p["capability"] for p in pays if p.get("capability")}
+    run.observer["observer_paid_items"] = tuple(sorted(paid))
+
+
+def _plan_action(ctx, plan, run, here, now, minutes, pre_ops):
+    """P1(D1): 이동·대기 아닌 행동(대화·조사·작업)의 소요 시간을 묘사 전에 진행한다(코드 소유 경과).
+
+    활동 문맥(OBSERVER_ACTIVITY)은 주지 않는다 — 대기·수면 같은 저작 활동이 아니다(이동 단계와 같은 규칙).
+    관찰 신호가 끼어들면 그 분에 멈춘다(행동이 끊김)."""
+    r = run.step(pre_ops, now + minutes, _progress(ctx.lead_pc, here))
+    if r is None:
+        return _finish(plan, run, None)
+    reached = r.reached_minute
+    plan.code_owned_minutes = reached - now
+    plan.outcome.update({"action_minutes": minutes, "reached_minute": reached, "interrupt": r.foreground_interrupt})
+    return _finish(plan, run, OUT_ACTION_INTERRUPTED if reached < now + minutes else OUT_ACTION_DONE)
 
 
 def _plan_time(ctx, plan, run, here, now, ta: _ai.TimeAdvanceIntent, pre_ops):
@@ -645,8 +682,7 @@ def _plan_transit_movement(ctx, plan, run, tr, now, dest, intent, pre_ops, *, ca
         plan.status, plan.reason = PLAN_REJECTED, "TRANSIT_ROUTE_STALE"
         plan.outcome["access_interruption"] = {"edge_id": eid, "kind": trav.interruption.get("kind")}
         return plan
-    plan.item_payments += [dict(c["payment"], action_id=c.get("action_id")) for c in trav.checkpoint_times
-                           if c["kind"] == _mv.ACCESS_ACTION and c.get("payment")]
+    _note_payments(plan, run, trav)
     pcs = tuple(p for p in ctx.pcs if (_sp.placement_of(run.world, p) or {}).get("edge_id") == eid)
     r = run.step(chain(pre_ops), end, _progress(lead, None, movement={"edge_id": eid}))
     if r is None:
@@ -748,8 +784,7 @@ def _plan_movement(ctx, plan, run, src, here, now, dest, intent, pre_ops, *, cap
                 break
             minute = start
         # v7.17(R4): 확인 행동을 마쳐 구간에 들어섰다 — 그 행동이 요구한 실제 인계를 이 턴의 아이템 연산으로 남긴다
-        plan.item_payments += [dict(c["payment"], action_id=c.get("action_id")) for c in trav.checkpoint_times
-                               if c["kind"] == _mv.ACCESS_ACTION and c.get("payment")]
+        _note_payments(plan, run, trav)
         if end == start:                                    # 0분 구간 — 같은 분 도착
             pending = chain(pending, obs, _arrival_ops(f"{run.prefix}.a{i}", pcs, eid, e["to"], minute,
                                                                     definition=D, world=run.world))

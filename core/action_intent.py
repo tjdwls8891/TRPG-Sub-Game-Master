@@ -40,6 +40,8 @@ STANCE_CLEAR = "CLEAR"
 STANCE_BELIEFS = tuple(_cog.BELIEFS) + (STANCE_CLEAR,)
 
 MAX_DURATION_MINUTES = 7 * 1440            # 한 선언의 명시 대기 상한(안전) — 초과는 거부
+MAX_ACTION_MINUTES = 240                   # P1(D1): 이동·대기 아닌 행동 소요 시간 상한(구 추출 추가 시간 상한과 같음)
+ACTION_MINUTES_FIELD = "action_minutes"
 INTENT_FIELD = "action_intent"
 
 
@@ -137,6 +139,9 @@ class ActionReferenceManifest:
                      "LOCAL_MICRO_MOVE. 목적지가 후보에 없으면 destination=NONE.")
         lines.append("· 기다림/잠은 time_kind(DURATION·TARGET_DAYPART·TARGET_CLOCK)와 activity. "
                      "시간을 명시하지 않았으면 NONE.")
+        lines.append("· action_minutes: 이동·대기·잠이 아닌 이번 행동(대화·조사·작업 등)이 작중에서 걸리는 분. "
+                     f"플레이어가 시간을 말했으면 그 값, 아니면 행동에 맞는 현실적인 값(0~{MAX_ACTION_MINUTES}). "
+                     "순간적인 행동·질문·이동·대기 선언은 0(이동·대기 시간은 코드가 따로 계산한다).")
         lines.append("· 플레이어가 정보를 믿는다/의심한다/믿지 않는다고 **직접 말한 경우에만** stance_*를 채운다. "
                      "추측으로 채우지 말 것.")
         if self.resolutions:
@@ -164,8 +169,9 @@ class ActionReferenceManifest:
                 "stance_info": enum(r[0] for r in self.infos),
                 "stance_belief": {"type": "string", "enum": [NONE] + list(STANCE_BELIEFS)},
                 "resolution": enum(r[0] for r in self.resolutions),
+                ACTION_MINUTES_FIELD: {"type": "integer"},
             },
-            "required": ["movement_kind", "time_kind"],
+            "required": ["movement_kind", "time_kind", ACTION_MINUTES_FIELD],
         }
 
     def to_record(self) -> dict:
@@ -271,6 +277,7 @@ class ResolvedActionIntent:
     resolution: tuple | None = None               # H07: (instance_id, option_id) — 플레이어 명시 결단
     route_signature: tuple | None = None          # 안정 의미 선택(구간 id 서명)
     access_action_ids: tuple = ()                 # H04 access_action_id(확인 토큰)
+    action_minutes: int | None = None             # P1(D1): 이동·대기 아닌 행동 소요 분(묘사 전 코드 진행) — None = 미제시
     unresolved: tuple = ()                        # (field, code)
     stale: bool = False
     definition_revision: str | None = None        # 해석한 매니페스트의 revision(런타임 결속 — 의미 기록 아님)
@@ -278,7 +285,7 @@ class ResolvedActionIntent:
     @property
     def empty(self) -> bool:
         return not (self.movement and self.movement.kind == MOVE_DESTINATION) and self.time_advance is None \
-            and self.stance is None and self.resolution is None
+            and self.stance is None and self.resolution is None and not self.action_minutes
 
     @classmethod
     def from_semantic(cls, record: dict, *, definition_revision: str | None) -> "ResolvedActionIntent":
@@ -297,6 +304,7 @@ class ResolvedActionIntent:
             resolution=tuple(r["resolution"]) if r.get("resolution") else None,
             route_signature=tuple(r["route_signature"]) if r.get("route_signature") else None,
             access_action_ids=tuple(r.get("access_action_ids") or ()),
+            action_minutes=r.get("action_minutes") if isinstance(r.get("action_minutes"), int) else None,
             definition_revision=definition_revision)
 
     def semantic_record(self) -> dict:
@@ -307,7 +315,8 @@ class ResolvedActionIntent:
                 "stance": None if self.stance is None else dict(self.stance.__dict__),
                 "resolution": list(self.resolution) if self.resolution else None,
                 "route_signature": list(self.route_signature) if self.route_signature else None,
-                "access_action_ids": list(self.access_action_ids)}
+                "access_action_ids": list(self.access_action_ids),
+                "action_minutes": self.action_minutes}
 
 
 def _s(v):
@@ -390,8 +399,18 @@ def resolve_intent(manifest: ActionReferenceManifest, raw, *, world=None) -> Res
         resolution = manifest.resolution_of(rk)
         if resolution is None:
             bad.append(("resolution", "INVALID_CANDIDATE"))
+    # P1(D1): 행동 소요 시간 제안 — 정수만, 상한 초과는 상한으로(근거 없는 장시간 강제 방지), 그 밖은 미제시
+    action_minutes = None
+    am = raw.get(ACTION_MINUTES_FIELD)
+    if isinstance(am, int) and not isinstance(am, bool) and am >= 0:
+        action_minutes = min(am, MAX_ACTION_MINUTES)
+        if am > MAX_ACTION_MINUTES:
+            bad.append((ACTION_MINUTES_FIELD, "CLAMPED"))
+    else:
+        bad.append((ACTION_MINUTES_FIELD, "MISSING" if am is None else "INVALID"))
     return ResolvedActionIntent(movement=movement, time_advance=time_adv, stance=stance, resolution=resolution,
                                 route_signature=route_sig, access_action_ids=access_ids,
+                                action_minutes=action_minutes,
                                 unresolved=tuple(bad), definition_revision=rev)
 
 

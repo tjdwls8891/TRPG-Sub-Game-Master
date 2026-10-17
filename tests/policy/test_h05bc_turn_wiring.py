@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
-"""H05-B·C — 실제 자동 턴(GMCog/GameCog) 배선: 판단 매니페스트 → 계획 → 묘사 오버레이 → 관찰 →
-보충 진행 → (후속 묘사) → READY → CommitCoordinator → 후속 전달 → 다음 행동 질문.
+"""H05-B·C·P1 — 실제 자동 턴(GMCog/GameCog) 배선: 판단 매니페스트(+행동 소요 시간) → 계획(묘사 전 진행·선후 확정)
+→ 지시·단일 묘사 오버레이(필수 서사) → 관찰 → 같은 분 보충 진행 → READY → CommitCoordinator(+전달 대기) → 다음 행동 질문.
 
 provider는 호출 종류별 라우팅 대역(네트워크 없음). DYNAMIC 세션 = 정의 바인딩 + 시계 + PC 배치.
 """
@@ -68,7 +68,7 @@ class H05Provider:
         if schema is not None:
             return "simulation"
         if "[후속 묘사" in self._text(kwargs):
-            return "continuation"
+            return "continuation"                                         # P1: 생기면 안 된다(단일 묘사)
         return "narration"
 
     def generate_content(self, **kwargs):
@@ -264,13 +264,36 @@ async def test_code_owned_duration_not_double_counted(drig):
     assert "코드가 정했다" in ext_prompt
 
 
-async def test_extraction_extra_time_applies_when_not_code_owned(drig):
+async def test_action_minutes_advance_before_narration_and_extraction_time_is_ignored(drig):
+    # P1(D1): 이동·대기 아닌 행동의 소요 시간은 판단층위가 제안하고 묘사 전에 코드가 진행한다(이중 가산 없음)
     r = drig
     r.make()
-    r.prov.routes["judgment"] = judgment(None)
-    r.prov.routes["extraction"] = [extraction({"extra_minutes": 20})]
+    r.prov.routes["judgment"] = judgment(None, action_minutes=20)
+    r.prov.routes["extraction"] = [extraction({"extra_minutes": 45})]
     await turn(r, "벽의 낙서를 천천히 읽는다")
-    assert r.sess.world_clock["minute_index"] == K + 20
+    assert r.sess.world_clock["minute_index"] == K + 20                  # 판단 제안 20분만(추출 45분 버림)
+    assert "경과 시간: 20분" in r.prov.prompts["narration"][0][0]         # 묘사가 이미 흐른 시간을 안다
+    assert "코드가 정했다" in r.prov.prompts["extraction"][0][0]
+    assert "action_minutes" in r.prov.prompts["judgment"][0][0]          # 판단층위 안내(런타임 블록)
+
+
+@pytest.mark.parametrize("ai", [{}, {"action_minutes": -5}, {"action_minutes": True}])
+async def test_missing_or_invalid_action_minutes_never_invent_time(drig, ai):
+    r = drig
+    r.make()
+    r.prov.routes["judgment"] = judgment(None, **ai)
+    r.prov.routes["extraction"] = [extraction({"extra_minutes": 30})]
+    await turn(r, "주위를 둘러본다")
+    assert r.sess.world_clock["minute_index"] == K                       # 근거 없는 시간 없음(추출 시간도 안 씀)
+
+
+async def test_explicit_wait_wins_over_action_minutes(drig):
+    r = drig
+    r.make()
+    r.prov.routes["judgment"] = judgment(None, time_kind="DURATION", duration_minutes=10, activity="WAIT",
+                                         action_minutes=40)
+    await turn(r, "10분 기다린다")
+    assert r.sess.world_clock["minute_index"] == K + 10                  # 명시 대기만(행동 시간 중복 없음)
 
 
 def _npc_knows_world():
@@ -361,34 +384,43 @@ def _fx(r, ctl, states=("OPEN", "BARRED"), at="시장"):
         "world_schedule": {"a": _due("a", K + 5, ctl, states[0]), "b": _due("b", K + 5, ctl, states[1])}})
 
 
-async def test_foreground_same_minute_tie_order_chosen_by_narration_observation(drig):
+def _logic_tie(pick):
+    """지시층위 응답 — 프롬프트의 선후 블록에서 O키를 읽어 pick(keys)을 tie_order로 낸다."""
+    def route(kwargs):
+        keys = re.findall(r"- (O\d+): ", H05Provider._text(kwargs))
+        out = {"proceed_instruction": "선언대로 진행한다", "event_assessment": "ongoing"}
+        val = pick(keys)
+        if val is not None:
+            out["tie_order"] = val
+        return _json(out)
+    return route
+
+
+async def test_foreground_same_minute_tie_order_chosen_by_instruction_before_narration(drig):
+    # P1(D2): 남은 자유 경합은 묘사 전에 지시층위가 고른다 — 묘사는 확정된 결과만 받는다
     r = drig
     _fx(r, "door_1")                                                      # door_1 = 시장 장면 관련
     r.prov.routes["judgment"] = judgment(None, time_kind="DURATION", duration_minutes=10, activity="WAIT")
-
-    def ext(kwargs):
-        text = H05Provider._text(kwargs)
-        keys = re.findall(r"(O\d+)=", text)
-        return extraction({"tie_order": keys[1]})                         # 두 번째 허용 순서
-    r.prov.routes["extraction"] = ext
+    r.prov.routes["logic"] = _logic_tie(lambda keys: keys[1])            # 두 번째 허용 순서
     await turn(r, "10분 기다린다")
-    nprompt = r.prov.prompts["narration"][0][0]
-    assert "같은 순간" in nprompt and "O1" in nprompt and "O2" in nprompt
+    lprompt = r.prov.prompts["logic"][0][0]
+    assert "tie_order" in lprompt and "- O1: " in lprompt and "- O2: " in lprompt
+    assert "같은 순간" not in r.prov.prompts["narration"][0][0]           # 묘사에 선후 선택을 넘기지 않는다
     assert r.sess.world_clock["minute_index"] == K + 10 and r.sess.world_schedule == {}
     # O2 = (due:b → due:a) — 뒤 효과(a: OPEN)가 최종값. 정본 분은 바뀌지 않는다(K+5 일괄, K+10 종료)
     assert r.sess.access_control_state["door_1"] == {"state": "OPEN"}
 
 
-async def test_ambiguous_tie_order_cannot_ready(drig):
+@pytest.mark.parametrize("pick", [lambda keys: "NONE", lambda keys: "O9", lambda keys: None])
+async def test_invalid_tie_choice_falls_back_to_deterministic_code_order(drig, pick):
     r = drig
     _fx(r, "door_1")
     r.prov.routes["judgment"] = judgment(None, time_kind="DURATION", duration_minutes=10, activity="WAIT")
-    r.prov.routes["extraction"] = [extraction({"tie_order": "NONE"})]
-    before = world_of(r.sess)
+    r.prov.routes["logic"] = _logic_tie(pick)
     tx = await turn(r, "10분 기다린다")
-    assert tx.status == tt.TurnStatus.FAILED_SYSTEM
-    assert tx.failure_code == tt.FailureCode.COMMIT_VALIDATION_FAILURE     # 임의 last-write 없음
-    assert world_of(r.sess) == before and not r.sess.extraction_pending          # 재시도 아님
+    assert tx.status == tt.TurnStatus.COMMITTED                          # 무효 선택은 코드가 정한다(실패 아님)
+    # O1 = (due:a → due:b) — 정렬 첫 허용 순서(재시도 결정적): 뒤 효과 b(BARRED)가 최종값
+    assert r.sess.access_control_state["door_1"] == {"state": "BARRED"}
 
 
 async def test_offscreen_conflict_is_not_a_tie_and_stops_before_narration(drig):
@@ -403,18 +435,17 @@ async def test_offscreen_conflict_is_not_a_tie_and_stops_before_narration(drig):
     assert world_of(r.sess) == before and not r.sess.extraction_pending
 
 
-async def test_post_narration_conflict_no_retry_no_mutation(drig):
+async def test_action_time_conflict_stops_before_narration(drig):
+    # P1(D1): 행동 시간도 묘사 전에 진행한다 — 그 시간이 넘는 장면 밖 충돌은 묘사 호출 없이 끝난다
     r = drig
     _fx(r, "door_2")
-    r.prov.routes["judgment"] = judgment(None)                            # 0분 턴 — 묘사 전 충돌 없음
-    r.prov.routes["extraction"] = [extraction({"extra_minutes": 10})]     # 추가 시간이 충돌을 넘는다
+    r.prov.routes["judgment"] = judgment(None, action_minutes=10)
     before = world_of(r.sess)
     tx = await turn(r, "한참 생각에 잠긴다")
-    assert r.prov.calls.count("extraction") == 1 and r.prov.calls.count("narration") == 1
+    assert "narration" not in r.prov.calls and "extraction" not in r.prov.calls
     assert tx.status == tt.TurnStatus.FAILED_SYSTEM
     assert tx.failure_code == tt.FailureCode.WORLD_PROJECTION_CONFLICT
     assert world_of(r.sess) == before and not r.sess.extraction_pending
-    assert any(e.get("operation") == "TURN_EXTRACTION" for e in r.ledger.list_cost_events())   # 비용 사실 유지
 
 
 async def test_main_narration_failure_discards_plan(drig):
@@ -441,11 +472,11 @@ async def test_extraction_failure_keeps_pre_state_then_retry_commits(drig):
 
 
 # ══════════════════════════════════════════════════════════════
-# H05-C 후속 묘사
+# P1 #1 — 후속 묘사 없음 · 단일 본문 필수 서사 · 전달 대기
 # ══════════════════════════════════════════════════════════════
 
 def _alert_tpl(observable_place="항구", after=5):
-    """활성 사건의 예약 효과 — after분 뒤 현재 장면 신호. 추출의 추가 시간이 이 시각을 넘으면 새 결과."""
+    """활성 사건의 예약 효과 — after분 뒤 현재 장면 신호. 행동 소요 시간이 이 시각을 넘으면 새 결과."""
     sig = {"step_id": "draw", "type": "EMIT_SIGNAL", "signal_id": "guard_draws", "cue": "경비가 칼을 뽑아 든다",
            "interrupt_policy": "IF_OBSERVABLE", "observable_when": eq({"ref": "SCENE_PLACE"}, observable_place)}
     return {"version": 1, "spawn_when": eq({"ref": "ACCESS_STATE", "control": "door_2"}, "BARRED"),
@@ -464,96 +495,96 @@ def _arm_alert(r, **kw):
     for f in WS.GAMEPLAY_WORLD_FIELDS:
         if f != "world_version":
             setattr(r.sess, f, copy.deepcopy(res.projected_world.domain(f)))
-    r.prov.routes["judgment"] = judgment(None)                            # 0분 턴(코드 소유 시간 없음)
+    r.prov.routes["judgment"] = judgment(None, action_minutes=10)       # 대화 10분(판단 제안 — 묘사 전 진행)
 
 
-def _expose(represent=False, minutes=10):
+def _expose(represent=False):
     def ext(kwargs):
         text = H05Provider._text(kwargs)
-        obs = {"extra_minutes": minutes}
+        obs = {}
         if represent:
             obs["represented_signals"] = [re.search(r"(S\d+)=경비가", text).group(1)]
         return extraction(obs)
     return ext
 
 
-async def test_extraction_triggered_reaction_creates_one_continuation_after_commit(drig, monkeypatch):
+async def test_action_time_reaction_is_in_the_single_narration(drig, monkeypatch):
     r = drig
     _arm_alert(r)
-    r.prov.routes["extraction"] = _expose()
-    r.prov.routes["continuation"] = [FakeGenAIResponse("경비가 칼집에서 칼을 뽑아 든다.", usage=_usage())]
+    r.prov.routes["extraction"] = _expose(represent=True)
     order = []
-    orig_send = r.gch.send
-
-    async def send(content=None, **kw):
-        if content and "칼집" in content:
-            order.append("continuation_sent")
-        return await orig_send(content, **kw)
-    monkeypatch.setattr(r.gch, "send", send)
-    orig_commit = r.gm._commit_ready_turn
-
-    async def commit(*a, **k):
-        res = await orig_commit(*a, **k)
-        order.append("committed")
-        return res
-    monkeypatch.setattr(r.gm, "_commit_ready_turn", commit)
 
     async def start_round(session):
         order.append("next_prompt")
     monkeypatch.setattr(r.gm, "_start_round", start_round)
     tx = await turn(r, "한동안 강지수와 이야기한다")
-    assert r.prov.calls.count("continuation") == 1
-    cprompt = r.prov.prompts["continuation"][0][0]
-    assert "경비가 칼을 뽑아 든다" in cprompt and "새 사건" in cprompt
-    assert order == ["committed", "continuation_sent", "next_prompt"]
-    # 후속 묘사 provider 비용이 같은 턴 Settlement 멤버십에 정확히 1회
+    nprompt = r.prov.prompts["narration"][0][0]
+    assert "경비가 칼을 뽑아 든다" in nprompt and "필수 서사" in nprompt      # 반응이 본문 입력에 필수로
+    assert r.prov.calls.count("narration") == 1 and "continuation" not in r.prov.calls
+    assert r.sess.world_clock["minute_index"] == K + 5                   # 신호가 대화를 끊음(5분)
+    assert r.sess.world_pending_signals == []                            # 표현 확인 — 대기 없음
     ev = [e for e in r.ledger.list_cost_events() if e.get("transaction_id") == tx.transaction_id]
-    assert sum(1 for e in ev if e.get("operation") == "TURN_FOREGROUND_CONTINUATION") == 1
-    cont_ids = {e["event_id"] for e in ev if e.get("operation") == "TURN_FOREGROUND_CONTINUATION"}
-    assert cont_ids <= set(tx.preparation.frozen_cost_event_ids)
-    # 같은 턴 — 논리 턴 증가 1회, 판단 1회
-    assert r.prov.calls.count("judgment") == 1 and r.sess.gm_turns_done == 1
+    assert not any(e.get("operation") == "TURN_FOREGROUND_CONTINUATION" for e in ev)
+    assert order == ["next_prompt"] and r.prov.calls.count("judgment") == 1 and r.sess.gm_turns_done == 1
+
+
+async def test_unrepresented_signal_is_kept_pending_then_delivered_next_body(drig):
+    r = drig
+    _arm_alert(r)
+    r.prov.routes["extraction"] = _expose(represent=False)              # 추출이 본문 표현을 확인하지 못함
+    await turn(r, "한동안 강지수와 이야기한다")
+    assert "continuation" not in r.prov.calls
+    (p,) = r.sess.world_pending_signals                                  # 버리지 않고 정본 대기로 남는다
+    assert p["cue"] == "경비가 칼을 뽑아 든다" and p["signal_id"] == "guard_draws" and p["carried"] == 1
+    assert p["at_minute"] == K + 5
+    # 다음 턴 — 본문이 '그사이' 일로 받고, 표현이 확인되면 대기에서 빠진다
+    r.prov.routes["judgment"] = judgment(None, action_minutes=0)
+    r.prov.routes["extraction"] = _expose(represent=True)
+    await turn(r, "주위를 살핀다")
+    nprompt = r.prov.prompts["narration"][-1][0]
+    assert "아직 전하지 못한 일" in nprompt and "경비가 칼을 뽑아 든다" in nprompt
+    assert r.sess.world_pending_signals == []
+
+
+async def test_pending_signal_retires_after_repeated_misses(drig):
+    r = drig
+    _arm_alert(r)
+    r.prov.routes["extraction"] = _expose(represent=False)
+    await turn(r, "한동안 강지수와 이야기한다")
+    r.prov.routes["judgment"] = judgment(None, action_minutes=0)
+    for n in range(TW.MAX_PENDING_CARRY):
+        assert r.sess.world_pending_signals, n
+        await turn(r, "주위를 살핀다")
+    assert r.sess.world_pending_signals == []                            # 무한 대기 없음(진단과 함께 은퇴)
 
 
 @pytest.mark.parametrize("kw", [{"observable_place": "외딴곳"}, {"after": 30}])
-async def test_offscreen_transition_or_future_schedule_has_no_continuation(drig, kw):
+async def test_offscreen_transition_or_future_schedule_creates_no_obligation(drig, kw):
     r = drig
     _arm_alert(r, **kw)
     r.prov.routes["extraction"] = _expose()
     await turn(r, "한동안 강지수와 이야기한다")
-    assert "continuation" not in r.prov.calls, kw
-    assert r.sess.world_clock["minute_index"] == K + 10                  # 보충 시간은 적용됨
+    assert "경비가 칼을 뽑아 든다" not in r.prov.prompts["narration"][0][0], kw   # 비가시·미래 사건 비노출
+    assert r.sess.world_clock["minute_index"] == K + 10 and r.sess.world_pending_signals == []
 
 
-async def test_already_represented_signal_has_no_duplicate_continuation(drig):
+async def test_already_represented_signal_has_no_duplicate_delivery(drig):
     # R2: 표현된 신호 후보는 본 묘사에 실제로 준 신호뿐 — 미래 사건 신호는 후보가 아니다
     r = drig
     _arm_alert(r)
     r.prov.routes["judgment"] = judgment(None, time_kind="DURATION", duration_minutes=10, activity="WAIT")
-    r.prov.routes["extraction"] = _expose(represent=True, minutes=0)
+    r.prov.routes["extraction"] = _expose(represent=True)
     await turn(r, "10분 기다린다")
     assert "경비가 칼을 뽑아 든다" in r.prov.prompts["narration"][0][0]
     assert re.search(r"S\d+=경비가", r.prov.prompts["extraction"][0][0])
-    assert "continuation" not in r.prov.calls
+    assert "continuation" not in r.prov.calls and r.sess.world_pending_signals == []
     assert r.sess.world_clock["minute_index"] == K + 5                   # 신호가 대기를 끊음 — 커밋됨(공허한 통과 아님)
 
 
-async def test_continuation_provider_failure_blocks_commit(drig):
+async def test_commit_failure_keeps_pending_and_world_unchanged(drig, monkeypatch):
     r = drig
     _arm_alert(r)
-    r.prov.routes["extraction"] = _expose()
-    r.prov.routes["continuation"] = [RuntimeError("후속 실패")]
-    before = world_of(r.sess)
-    tx = await turn(r, "한동안 강지수와 이야기한다")
-    assert tx.status == tt.TurnStatus.FAILED_SYSTEM and world_of(r.sess) == before
-    assert not any("칼" in (m.content or "") for m in r.gch.sent)
-
-
-async def test_commit_failure_does_not_deliver_continuation(drig, monkeypatch):
-    r = drig
-    _arm_alert(r)
-    r.prov.routes["extraction"] = _expose()
-    r.prov.routes["continuation"] = [FakeGenAIResponse("경비가 칼집에서 칼을 뽑아 든다.", usage=_usage())]
+    r.prov.routes["extraction"] = _expose(represent=False)
 
     def boom(*a, **k):
         raise OSError("디스크 실패(테스트)")
@@ -561,10 +592,16 @@ async def test_commit_failure_does_not_deliver_continuation(drig, monkeypatch):
     monkeypatch.setattr(core.commit_coordinator, "write_session_strict_locked", boom, raising=False)
     before = world_of(r.sess)
     await turn(r, "한동안 강지수와 이야기한다")
-    assert world_of(r.sess) == before
-    assert not any("칼집" in (m.content or "") for m in r.gch.sent)       # 후속 묘사는 전달되지 않음
+    assert world_of(r.sess) == before and r.sess.world_pending_signals == []
     main = [m for m in r.gch.sent if "길을 따라" in (m.content or "")]
     assert main and all(m.deleted for m in main)                         # 커밋 전 본 묘사는 기존 수명주기로 정리
+
+
+def test_pending_delivery_field_is_reversible_canonical():
+    # 되감기·재서술이 그 턴 이전 대기로 돌아간다(같은 이력 단위)
+    assert "world_pending_signals" in core.turn_history.REVERSIBLE_FIELDS
+    assert "world_pending_signals" in core.turn_preparation.CANONICAL_DOMAINS
+    assert core.SESSION_FIELDS["world_pending_signals"] == []
 
 
 # ══════════════════════════════════════════════════════════════
@@ -627,8 +664,42 @@ def test_automatic_turn_production_wiring_exists():
     src = inspect.getsource(gm.GMCog)
     for needle in ("core.player_world.plan_player_turn", "core.turn_world.process_observation",
                    "core.action_intent.extend_judgment_schema", "core.turn_preparation.stage_world_ops",
-                   "core.turn_world.narration_overlay", "TASK_FOREGROUND_CONTINUATION"):
+                   "core.turn_world.narration_overlay", "core.turn_world.resolve_plan_tie",
+                   "core.turn_world.pending_delivery_block"):
         assert needle in src, needle
+    assert "_generate_continuation" not in src and "TURN_FOREGROUND_CONTINUATION" not in src   # P1: 후속 묘사 은퇴
     # H02~H04 도메인 엔진은 cogs에서 직접 부르지 않는다(H05 모듈 경유)
     for banned in ("project_world_progression", "plan_known_routes", "plan_actual_traversal"):
         assert banned not in src, banned
+
+
+@pytest.mark.parametrize("display_fails", [False, True])
+async def test_committed_display_refresh_precedes_next_prompt_and_failure_is_bounded(drig, monkeypatch, display_fails):
+    # P1 W11: COMMITTED 뒤 정본 기반 표시 갱신 → 다음 행동 질문. 표시 실패는 재커밋·재청구·무한 대기가 아니다.
+    r = drig
+    _arm_alert(r)
+    r.prov.routes["extraction"] = _expose(represent=True)
+    order = []
+    orig_commit = r.gm._commit_ready_turn
+
+    async def commit(*a, **k):
+        res = await orig_commit(*a, **k)
+        order.append("committed")
+        return res
+    monkeypatch.setattr(r.gm, "_commit_ready_turn", commit)
+
+    async def display(bot, session, reason=None, **kw):
+        order.append(f"display:{reason}")
+        if display_fails:
+            raise RuntimeError("디스코드 편집 실패(테스트)")
+    monkeypatch.setattr(core, "refresh_display", display)
+
+    async def start_round(session):
+        order.append("next_prompt")
+    monkeypatch.setattr(r.gm, "_start_round", start_round)
+    tx = await turn(r, "한동안 강지수와 이야기한다")
+    assert tx.status == tt.TurnStatus.COMMITTED
+    assert order == ["committed", "display:turn_end", "next_prompt"]
+    assert r.sess.world_clock["minute_index"] == K + 5                    # 표시 실패가 정본을 되돌리지 않음
+    assert sum(1 for e in r.ledger.list_cost_events() if e.get("operation") == "TURN_NARRATION"
+               and e.get("transaction_id") == tx.transaction_id) == 1             # 재생성·재청구 없음

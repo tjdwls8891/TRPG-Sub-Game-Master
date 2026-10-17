@@ -1,6 +1,6 @@
 # 비용 산출 및 포맷팅 유틸리티 — 토큰 단가 계산, 캐시 스토리지 정산
 import discord
-from .constants import DEFAULT_MODEL, EXCHANGE_RATE, PRICING_1M, IMAGE_MODEL
+from .constants import DEFAULT_MODEL, EXCHANGE_RATE, PRICING_1M, IMAGE_MODEL, TTS_MODEL
 
 
 # ========== [비용 산출 및 포맷팅 유틸리티] ==========
@@ -327,50 +327,50 @@ def build_compression_cost_embed(label: str, in_tokens: int, cached_tokens: int,
     return embed
 
 
-def format_breakdown(entry: dict) -> str:
-    """호출 하나의 비용을 계산식으로 펼친다.
-
-    기획 규정 — 캐시입력토큰×단가 + 순수입력토큰×단가 + 출력토큰×단가
-    + 기타 발생 비용의 구조로 표기해 어디서 비용이 나는지 드러낸다.
-    """
+def _entry_parts(entry: dict) -> tuple:
+    """(model, rates, [(라벨, 토큰, 단가, 원)]) — 항목의 **자기 모델 단가**로 분해한다(P1: TTS에 텍스트 단가 금지)."""
     in_t = int(entry.get("in") or 0)
     cached = int(entry.get("cached") or 0)
     out_t = int(entry.get("out") or 0)
     fresh = max(in_t - cached, 0)
     model = entry.get("model") or DEFAULT_MODEL
     rates = PRICING_1M.get(model, PRICING_1M[DEFAULT_MODEL])
-
+    out_label = "오디오 출력" if model == TTS_MODEL else "출력"
     parts = []
-    if cached:
-        krw = (cached / 1_000_000) * rates["CACHE_READ"] * EXCHANGE_RATE
-        parts.append(f"캐시 `{cached:,}`×${rates['CACHE_READ']} = {krw:,.2f}원")
-    if fresh:
-        krw = (fresh / 1_000_000) * rates["INPUT"] * EXCHANGE_RATE
-        parts.append(f"입력 `{fresh:,}`×${rates['INPUT']} = {krw:,.2f}원")
-    if out_t:
-        krw = (out_t / 1_000_000) * rates["OUTPUT"] * EXCHANGE_RATE
-        parts.append(f"출력 `{out_t:,}`×${rates['OUTPUT']} = {krw:,.2f}원")
+    for label, tok, key in (("캐시", cached, "CACHE_READ"), ("입력", fresh, "INPUT"), (out_label, out_t, "OUTPUT")):
+        if tok:
+            parts.append((label, tok, rates[key], (tok / 1_000_000) * rates[key] * EXCHANGE_RATE))
+    return model, rates, parts
 
+
+def format_breakdown(entry: dict) -> str:
+    """호출 하나의 비용을 계산식으로 펼친다.
+
+    기획 규정 — 캐시입력토큰×단가 + 순수입력토큰×단가 + 출력토큰×단가
+    + 기타 발생 비용의 구조로 표기해 어디서 비용이 나는지 드러낸다.
+    P1: 단가는 그 항목의 모델(TTS 등)로 — 줄의 합이 '합'과 같다(소수 둘째 자리 반올림 표기).
+    """
+    _model, _rates, parts = _entry_parts(entry)
+    lines = [f"{label} `{tok:,}`×${rate} = {krw:,.2f}원" for label, tok, rate, krw in parts]
     extra = entry.get("extra_krw") or 0.0
     if extra:
-        parts.append(f"{entry.get('extra_label', '기타')} = {extra:,.2f}원")
-
+        lines.append(f"{entry.get('extra_label', '기타')} = {extra:,.2f}원")
     cost = entry.get("cost", 0.0)
-    if not parts:
+    if not lines:
         return f"**{format_cost(cost)}**"
-    return "\n".join(f"· {x}" for x in parts) + f"\n**합 {format_cost(cost)}**"
+    return "\n".join(f"· {x}" for x in lines) + f"\n**합 {format_cost(cost)}**"
 
 
 def build_turn_cost_embed(turn_number: int, cost_log: list, total_cost: float,
                           *, total_ink: int = None,
                           total_usd: float = None,
                           free_krw: float = 0.0,
-                          settlement=None) -> discord.Embed:
+                          settlement=None, estimate: dict | None = None) -> discord.Embed:
     """
     한 턴의 비용을 호출별로 분해해 보고한다(마스터 채널 전용).
 
     각 호출을 계산식으로 펼쳐 캐시·신규입력·출력의 기여를 드러낸다.
-    합계에도 같은 구조를 적용해, 소계가 어떻게 나왔는지 추적할 수 있다.
+    합계도 같은 항목·같은 단가에서 구한다(P1 — 모델별 단가, TTS 오디오 단가 포함).
 
     Args:
         turn_number: 현재 진행 턴 번호
@@ -381,6 +381,7 @@ def build_turn_cost_embed(turn_number: int, cost_log: list, total_cost: float,
         settlement: (WP-D) 정상 자동 턴의 불변 TurnSettlement. 주어지면 턴 청구액은
             Settlement의 charge_ink_per_user/player_billable_cost_krw만 표시한다
             (재환산·재반올림 금지 — 청구 금액의 단일 출처). 호출 내역은 참고용.
+        estimate: (P1) 이 턴 시작 전 예상(estimate_turn 결과) — 운영자 예측 오차 비교용(청구와 무관).
     """
     embed = discord.Embed(
         title=f"🎲 턴 비용 리포트 · #{turn_number}",
@@ -388,16 +389,14 @@ def build_turn_cost_embed(turn_number: int, cost_log: list, total_cost: float,
         color=0xE67E22,
     )
     total_turn_cost = sum(entry.get("cost", 0.0) for entry in cost_log)
-    total_in = total_out = total_cached = 0
+    sums = {}
     merged_manifest: list = []
 
     for entry in cost_log:
         label = entry.get("label", "?")
-        in_t = entry.get("in")
-        if in_t is not None:
-            total_in += int(in_t or 0)
-            total_cached += int(entry.get("cached", 0) or 0)
-            total_out += int(entry.get("out", 0) or 0)
+        for plabel, tok, _rate, krw in _entry_parts(entry)[2]:
+            t, k = sums.get(plabel, (0, 0.0))
+            sums[plabel] = (t + tok, k + krw)
         embed.add_field(name=f"▫️ {label}",
                         value=format_breakdown(entry)[:1020], inline=False)
 
@@ -410,35 +409,41 @@ def build_turn_cost_embed(turn_number: int, cost_log: list, total_cost: float,
         embed.add_field(name="📥 입력에 주입된 정보 (온디맨드)",
                         value=manifest_text[:1020], inline=False)
 
-    # 합계도 같은 구조로 — 어느 항목이 얼마를 차지했는지 보인다.
-    if total_in or total_out:
-        rates = PRICING_1M[DEFAULT_MODEL]
-        fresh = max(total_in - total_cached, 0)
-        c_krw = (total_cached / 1_000_000) * rates["CACHE_READ"] * EXCHANGE_RATE
-        i_krw = (fresh / 1_000_000) * rates["INPUT"] * EXCHANGE_RATE
-        o_krw = (total_out / 1_000_000) * rates["OUTPUT"] * EXCHANGE_RATE
+    # 합계도 같은 구조로 — 각 항목을 자기 모델 단가로 계산한 값의 합(항목 합 = 호출 내역 합계)
+    if sums:
         embed.add_field(
             name="🧾 토큰 합계",
-            value=(f"· 캐시 `{total_cached:,}` = {c_krw:,.2f}원\n"
-                   f"· 입력 `{fresh:,}` = {i_krw:,.2f}원\n"
-                   f"· 출력 `{total_out:,}` = {o_krw:,.2f}원"),
+            value="\n".join(f"· {lbl} `{t:,}` = {k:,.2f}원" for lbl, (t, k) in sums.items()),
             inline=False)
 
     # ink는 cost를 임포트하므로 여기서 지연 임포트한다.
     if settlement is not None:
         _users = len(getattr(settlement, "billing_user_ids", ()) or ())
-        embed.add_field(
-            name="🧮 턴 청구(Settlement)",
-            value=(f"**{format_cost(settlement.player_billable_cost_krw)}**\n"
-                   f"= 1인당 {settlement.charge_ink_per_user}잉크 × {_users}명\n"
-                   f"(호출 내역 합계 {format_cost(total_turn_cost)} · 참고)"),
-            inline=True)
+        prov = float(getattr(settlement, "provider_cost_krw", 0.0) or 0.0)
+        gap = prov - total_turn_cost
+        lines = [f"**{format_cost(settlement.player_billable_cost_krw)}**",
+                 f"= 1인당 {settlement.charge_ink_per_user}잉크 × {_users}명",
+                 f"공급자 원가(원장) {format_cost(prov)} · 호출 내역 {format_cost(total_turn_cost)}"
+                 + (f" · 차이 {format_cost(gap)}" if abs(gap) >= 0.005 else "")]
+        non_player = float(getattr(settlement, "non_player_cost_krw", 0.0) or 0.0)
+        if non_player:
+            lines.append(f"운영자 부담 {format_cost(non_player)}")
+        embed.add_field(name="🧮 턴 청구(Settlement)", value="\n".join(lines), inline=True)
     else:
         from .ink import cost_to_ink
         embed.add_field(name="🧮 턴 소계",
                         value=f"**{format_cost(total_turn_cost)}**\n"
                               f"= {cost_to_ink(total_turn_cost)}잉크",
                         inline=True)
+    if estimate:
+        # 예상은 정산과 별개 — 예측 정확도 점검용(플레이어 표시와 같은 값)
+        actual = getattr(settlement, "charge_ink_per_user", None) if settlement is not None else None
+        embed.add_field(
+            name="🔮 예상 대비",
+            value=(f"예상 {estimate.get('min_ink', 0)}~{estimate.get('max_ink', 0)}잉크"
+                   + (f" · 실제 {actual}잉크" if actual is not None else "")
+                   + f"\n근거 {estimate.get('basis') or '세션 통계'} · 신뢰 {estimate.get('confidence', '?')}"),
+            inline=True)
     # WP-G(AUD-033): 서로 다른 우주를 등식(=)으로 잇지 않는다. 플레이어 청구는 Settlement 파생
     #   잉크, 원화/달러 누적은 호환 미러(집계 범위가 서로 다름)로 각각 따로 표기한다.
     #   권위 있는 제공자 비용은 `!사용량`(CostLedger 기록값)으로 본다.

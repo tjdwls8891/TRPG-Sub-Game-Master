@@ -306,13 +306,15 @@ def write_log(session_id: str, log_type: str, content: str):
 
 
 def write_cost_log(session_id: str, usage_context: str, in_tokens: int, cached_tokens: int, out_tokens: int, cost: float, total_cost: float):
-    """비용 발생(사용처·토큰·원화/달러·세션 누적 미러) — domain.jsonl. 권위는 CostLedger."""
+    """비용 발생(사용처·토큰·원화/달러·세션 누적 미러) — domain.jsonl. 권위는 CostLedger.
+
+    P1: out_tokens는 호출자가 넘긴 과금 출력(사고 포함·TTS는 오디오) — 로그 키 out_billed(용어: core.cost_ledger)."""
     if not session_id:
         return
     from . import logs as _logs
     usd = (cost / EXCHANGE_RATE) if EXCHANGE_RATE else 0.0
     _logs.domain("cost.usage", {"context": usage_context, "in": in_tokens, "cached": cached_tokens,
-                                "out": out_tokens, "krw": round(cost, 4), "usd": round(usd, 6),
+                                "out_billed": out_tokens, "krw": round(cost, 4), "usd": round(usd, 6),
                                 "session_total_krw": round(total_cost, 4)}, sid=session_id)
 
 

@@ -173,17 +173,40 @@ def _registry_for(path: str) -> dict:
 #  authoritative Settlement 는 "손상/누락 CostEvent 가 조용히 0/생략" 되면 안 된다.
 #  strict 경로는 성공을 SUCCESS 로만, 실패를 아래 타입드 예외로만 신호한다.
 
+# P1 — 구조 로그 사용량 용어(모든 로그 공통, core.logs calls.usage와 같은 뜻):
+#   in        prompt 토큰(캐시 적중분 포함)      cached   그중 캐시 읽기분
+#   out       가시 출력(candidates — 사고 제외)  thought  사고 토큰
+#   out_billed 출력 과금 토큰(= out + thought; CostEvent.output_tokens 그대로)
+#   audio_out / image_out  모달리티 출력(TTS·이미지 — 각 모델 단가)
 def _log_cost_event(event) -> None:
     """구조 로그: 새 CostEvent 1건(domain.jsonl) — 관측 전용, 실패 흡수."""
     try:
         from . import logs as _logs
+        md = event.metadata or {}
         _logs.domain("cost.event", {
             "event_id": event.event_id, "op": event.operation, "model": event.model,
             "tx": event.transaction_id, "turn": event.logical_turn, "attempt": event.provider_attempt,
             "actor": event.actor_user_id, "actor_kind": event.actor_kind, "billing_hint": event.billing_hint,
-            "in": event.input_tokens, "cached": event.cached_input_tokens, "out": event.output_tokens,
-            "thought": event.thought_tokens, "usd": event.cost_usd, "krw": event.cost_krw,
-            "source": event.usage_source, "success": event.success}, sid=event.session_id)
+            "in": event.input_tokens, "cached": event.cached_input_tokens,
+            "out": max(0, event.output_tokens - event.thought_tokens), "thought": event.thought_tokens,
+            "out_billed": event.output_tokens, "audio_out": event.audio_output_tokens,
+            "image_out": event.image_output_tokens, "usd": event.cost_usd, "krw": event.cost_krw,
+            "source": event.usage_source, "success": event.success,
+            "scenario": md.get("scenario_id"), "world_mode": md.get("world_mode"),
+            "late": bool(md.get("late_after_wrapper_timeout"))}, sid=event.session_id)
+    except Exception:  # noqa: BLE001
+        pass
+
+
+def log_unknown_cost(operation, *, operation_id=None, attempt=None, session_id=None, transaction_id=None,
+                     model=None, reason="") -> None:
+    """P1: 실제 청구 여부·사용량을 알 수 없는 provider 시도(타임아웃 뒤 응답 없음 등) — 구조 로그 cost.unknown.
+
+    CostEvent를 만들지 않는다(0원·추정 실비를 사실로 확정하지 않음). 운영 보고·외부 청구 대조의 근거로만 쓴다."""
+    try:
+        from . import logs as _logs
+        _logs.domain("cost.unknown", {"op": operation, "operation_id": operation_id, "attempt": attempt,
+                                      "tx": transaction_id, "model": model, "reason": reason}, sid=session_id)
     except Exception:  # noqa: BLE001
         pass
 
@@ -235,8 +258,17 @@ class StrictAppendResult:
 _COST_ENVELOPE_FIELDS = ("event_id", "created_at")
 
 
+# P1: 세션에서 파생한 통계 차원 — 사실의 정체성이 아니다. 배포 전후 같은 멱등키 재기록(예: 캐시 창 생성비)이
+#   차원 유무만으로 상충이 되지 않게 지문에서 뺀다.
+_DERIVED_DIM_KEYS = ("scenario_id", "definition_revision", "world_mode")
+
+
 def _canonical_cost_payload(obj: dict) -> dict:
-    return {k: v for k, v in obj.items() if k not in _COST_ENVELOPE_FIELDS}
+    out = {k: v for k, v in obj.items() if k not in _COST_ENVELOPE_FIELDS}
+    md = out.get("metadata")
+    if isinstance(md, dict) and any(k in md for k in _DERIVED_DIM_KEYS):
+        out["metadata"] = {k: v for k, v in md.items() if k not in _DERIVED_DIM_KEYS}
+    return out
 
 
 def _cost_fingerprint(obj: dict) -> str:
@@ -593,6 +625,21 @@ def get_ledger(bot):
     return getattr(bot, "cost_ledger", None)
 
 
+def session_dims(session) -> dict:
+    """P1: 통계 차원(CostEvent.metadata) — 세션 폴더가 지워져도 원장에 남는다. 세션 수명 동안 불변인 값만
+    (같은 멱등키 재기록이 다른 지문이 되지 않게): scenario_id · definition_revision · world_mode(정의 바인딩 기준)."""
+    if session is None:
+        return {}
+    out = {}
+    sc = getattr(session, "scenario_id", None)
+    if sc:
+        out["scenario_id"] = sc
+    rev = getattr(session, "definition_revision", None)
+    out["definition_revision"] = rev
+    out["world_mode"] = "DYNAMIC" if rev else "LEGACY"
+    return out
+
+
 def _attr_from_session(session):
     """(session_id, transaction_id, logical_turn, turn_attempt) — 비파괴적.
 
@@ -662,7 +709,7 @@ class ProviderOperation:
         self.billing_hint = billing_hint
         self.actor_user_id = actor_user_id
         self.operation_id = operation_id or new_operation_id(operation)
-        self.metadata = dict(metadata or {})
+        self.metadata = {**session_dims(session), **dict(metadata or {})}
         self._attempt = 0
         self.last_success = None
         # WP-C: 이 오퍼레이션이 원장에 실제로 append한 CostEvent의 event_id(기록 순서).
@@ -741,8 +788,15 @@ class ProviderOperation:
         self._late_observed.add(provider_attempt)
         try:
             if fut.cancelled() or fut.exception() is not None:
+                # P1: 응답이 끝내 오지 않았다 — 0원으로 확정하지 않고 '미확정'으로 남긴다(외부 대조 대상)
+                log_unknown_cost(self.operation, operation_id=self.operation_id, attempt=provider_attempt,
+                                 session_id=self.session_id, transaction_id=self.transaction_id,
+                                 model=self.model, reason="LATE_ATTEMPT_NO_RESPONSE")
                 return
-            self._record_late(fut.result(), provider_attempt)
+            if not self._record_late(fut.result(), provider_attempt):
+                log_unknown_cost(self.operation, operation_id=self.operation_id, attempt=provider_attempt,
+                                 session_id=self.session_id, transaction_id=self.transaction_id,
+                                 model=self.model, reason="LATE_ATTEMPT_NO_USAGE")
         except Exception as e:  # noqa: BLE001
             print(f"[CostLedger] 늦은 attempt 관측 실패(무시): {type(e).__name__} - {e}")
 
@@ -924,7 +978,7 @@ def tts_context(bot, session, scope) -> ProviderCostContext:
     ctx = ProviderCostContext(
         operation=scope, session_id=sid, transaction_id=tid,
         logical_turn=lt, turn_attempt=ta, actor_kind=actor,
-        billing_hint=hint, model=TTS_MODEL)
+        billing_hint=hint, model=TTS_MODEL, metadata=session_dims(session))
     ctx.ensure_operation_id()
     return ctx
 
