@@ -272,6 +272,9 @@ from . import logs  # 구조 로그(세션 logs/·전역 logs/bot.jsonl)
 from . import session_removal  # 세션 종료·제거 통합 관리(!세션관리)
 from . import items  # v7.17 아이템(일반 재고 정규 해석·특수 객체·현장 물건·DYNAMIC 의미 연산)
 from . import initial_knowledge  # v7.17 초기 지식(PROFILE·START 2단계 전달·전송 증명·genesis 인지)
+from . import voice_profile  # P2 음성 프로필(마스터 성별 목소리·NPC 고정 배정·문단 화자·절제 스타일)
+from . import master_art  # P2 마스터 이미지 슬롯(manifest)·공용 로딩/오류 이미지
+from . import conversational  # P2 대화형 안내 = 일반 메시지(content) 변환
 from .cost import (
     extract_token_usage,
     format_cost,

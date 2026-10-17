@@ -29,3 +29,4 @@ Backup_Bot.py
 # scenarios/
 # WP-02: append-only shadow CostLedger (운영 산출물 — 커밋 제외)
 data/cost_ledger.jsonl
+data/voice_assignments.json

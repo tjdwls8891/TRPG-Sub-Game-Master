@@ -165,7 +165,8 @@ class TRPGSession:
         # 직전 턴 비용(원). 디스플레이 '직전 턴 금액' 표기용
         self.last_turn_cost = 0.0
         # TTS 목소리 — 세션 생성 시 선택. 미지정이면 기본 나레이터 보이스
-        self.tts_voice = ""
+        self.tts_voice = ""             # 레거시 — P2부터 master_gender가 진행자 목소리를 정한다
+        self.master_gender = "male"     # P2: 진행자 성별 표현(male|female)
         # 기억 압축 방식 — normal(기본) | high | low | ultra
         self.memory_plan = "normal"
         # 서사설계 유형 — quest(기본) | free(풀자유). 퀘스트 시스템 도입 시 사용

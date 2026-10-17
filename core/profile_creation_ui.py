@@ -26,7 +26,9 @@ import time
 
 import discord
 
+from . import conversational as _conv
 from . import master
+from . import master_art as _master_art
 from . import profile_gen
 from . import profile_runner as runner
 from . import profiles as profile_store
@@ -334,11 +336,11 @@ async def _send(state, channel, res: dict, *, view, await_kind: str | None = Non
     await _persist(state)
     if state.message:
         try:
-            await state.message.edit(embed=embed, view=view, content=None)
+            await state.message.edit(**_conv.edit_kwargs(embed, view=view))
             return
         except Exception:
             state.message = None
-    state.message = await channel.send(embed=embed, view=view)
+    state.message = await channel.send(**_first_send_kwargs(state, embed, view))
 
 
 # ══════════════════════════════════════════════════════════════
@@ -787,10 +789,22 @@ def _completion_embed(state, result: dict) -> discord.Embed:
     return e
 
 
+def _first_send_kwargs(state, embed, view, master_key="profile.step"):
+    """새 메시지 송출 인자 — 대화 본문은 content(P2 #4), 마스터 이미지는 첫 송출에만 붙인다(편집은 첨부 유지)."""
+    try:
+        mfile, _path, _state = _master_art.file_for(state.session, master_key)
+    except Exception:  # noqa: BLE001 — 이미지는 부가 요소: 실패해도 화면은 나간다
+        mfile = None
+    extra = {"view": view}
+    if mfile is not None:
+        extra["file"] = mfile
+    return _conv.send_kwargs(embed, **extra)
+
+
 async def _show_save(state, channel):
     """완성 화면 + 저장 여부(최종 승인 뒤). 재시작 복원도 이 화면부터 — finish를 다시 하지 않는다."""
     result = runner.result(state.run)
-    view = SaveProfileView(state, result)
+    view = SaveProfileView(state, result, offer_save=profile_changed(state.run) is not False)
     state.run["gen"] = int(state.run.get("gen") or 0) + 1
     view.gen = state.run["gen"]
     state.run["await"] = None
@@ -798,12 +812,12 @@ async def _show_save(state, channel):
     e = _completion_embed(state, result)
     if state.message:
         try:
-            await state.message.edit(embed=e, view=view, content=None)
+            await state.message.edit(**_conv.edit_kwargs(e, view=view))
             view.message = state.message
         except Exception:
             state.message = None
     if not state.message:
-        state.message = await channel.send(embed=e, view=view)
+        state.message = await channel.send(**_first_send_kwargs(state, e, view, "profile.completed"))
         view.message = state.message
 
     # NOTE: 다음 단계로 넘기는 것은 SaveProfileView가 한다.
@@ -1324,27 +1338,37 @@ class BackOnlyView(_Base):
         self.add_item(BackButton())
 
 
+def profile_changed(run) -> bool | None:
+    """P2(#3): 불러온 사전 프로필 대비 최종 값이 실제로 바뀌었는가. 불러온 프로필이 없으면 None(신규 생성).
+
+    화면 방문·같은 값 재입력·바꿨다가 되돌림은 변경이 아니다 — 최종 구조화 값만 비교한다."""
+    loaded = (run or {}).get("loaded_profile")
+    if not isinstance(loaded, dict):
+        return None
+    return runner.result(run) != dict(loaded.get("fields") or {})
+
+
 class SaveProfileView(_Base):
     """완성 후 사전 프로필 저장 여부를 묻는다(기획 규정).
 
     어느 쪽을 고르든 화면을 정리하고 세션 플로우로 넘긴다.
     버튼만 비활성화하고 두면 다음 단계가 시작되지 않는다.
+    P2(#3): 불러온 프로필을 바꾸지 않았으면 저장 버튼을 내지 않는다(계속만). 저장은 확인 1회 뒤에만 한다 —
+    새 사전 프로필로 저장하며 불러온 원본은 그대로 남는다(덮어쓰지 않음).
     """
 
-    def __init__(self, state, result: dict):
+    def __init__(self, state, result: dict, *, offer_save: bool = True):
         super().__init__(state, None)
         self.result = result
         self.message = None
+        if not offer_save:
+            self.remove_item(self.save)
+            self.skip.label = "계속"
 
     async def _close(self, interaction, note: str):
         self.clear_items()
-        e = discord.Embed(
-            title=f"{self.state.char_name}",
-            description=note,
-            color=0x57F287,
-        )
         try:
-            await interaction.message.edit(embed=e, view=None)
+            await interaction.message.edit(content=f"**{self.state.char_name}**\n{note}", embeds=[], view=None)
         except Exception:
             pass
         self.state.message = None
@@ -1355,24 +1379,68 @@ class SaveProfileView(_Base):
     @discord.ui.button(label="💾 사전 프로필로 저장", style=discord.ButtonStyle.success)
     async def save(self, interaction, _b):
         async def fn():
-            self.state.run["gen"] = int(self.state.run.get("gen") or 0) + 1   # 이 화면은 한 번만 처리
-            saved = await profile_store.create(
-                self.state.uid,
-                name=self.state.char_name,
-                scenario_id=getattr(self.state.session, "scenario_id", None),
-                fields=dict(self.result),
-            )
-            note = (master.say("profile.saved", "저장했습니다.") + " 다음에 이 시나리오를 하실 때 불러오실 수 있어요.\n"
-                    f"태그: **{saved['tag']}**") if saved else "저장에 실패했습니다."
-            await self._close(interaction, note)
+            run = self.state.run
+            run["gen"] = int(run.get("gen") or 0) + 1                    # 이 화면은 한 번만 처리
+            view = ConfirmSaveView(self.state, self.result)
+            view.gen = run["gen"]
+            loaded = run.get("loaded_profile") or {}
+            where = (f"불러온 프로필 **{loaded.get('name') or '저장한 프로필'}**은 그대로 두고, "
+                     if loaded else "")
+            await _persist(self.state)
+            await interaction.message.edit(
+                content=(f"**{self.state.char_name}** — 사전 프로필 저장 확인\n"
+                         f"{where}지금 캐릭터를 **새 사전 프로필**로 저장할까요?"),
+                view=view)
+            view.message = interaction.message
         await _guarded(self, interaction, fn)
 
     @discord.ui.button(label="저장 안 함", style=discord.ButtonStyle.secondary)
     async def skip(self, interaction, _b):
         async def fn():
             self.state.run["gen"] = int(self.state.run.get("gen") or 0) + 1
-            await self._close(interaction, master.say("profile.save_skipped", "준비가 끝났습니다."))
+            unchanged = profile_changed(self.state.run) is False
+            note = master.say("profile.save_skipped", "준비가 끝났습니다.")
+            if unchanged:
+                note = "불러온 프로필에서 바뀐 것이 없어 따로 저장하지 않았습니다.\n" + note
+            await self._close(interaction, note)
         await _guarded(self, interaction, fn)
+
+
+class ConfirmSaveView(SaveProfileView):
+    """저장 확인(정확히 1회) — 확인하면 저장, 취소하면 저장 여부 화면으로 돌아간다(원본 불변)."""
+
+    def __init__(self, state, result: dict):
+        super().__init__(state, result)
+        self.clear_items()
+        self.add_item(_ConfirmButton(True))
+        self.add_item(_ConfirmButton(False))
+
+
+class _ConfirmButton(discord.ui.Button):
+    def __init__(self, ok: bool):
+        super().__init__(label="저장" if ok else "취소",
+                         style=discord.ButtonStyle.success if ok else discord.ButtonStyle.secondary)
+        self.ok = ok
+
+    async def callback(self, interaction):
+        v = self.view
+
+        async def fn():
+            v.state.run["gen"] = int(v.state.run.get("gen") or 0) + 1     # 중복 클릭·이전 화면 무효
+            if not self.ok:
+                v.state.message = interaction.message
+                await _show_save(v.state, interaction.channel)
+                return
+            saved = await profile_store.create(
+                v.state.uid,
+                name=v.state.char_name,
+                scenario_id=getattr(v.state.session, "scenario_id", None),
+                fields=dict(v.result),
+            )
+            note = (master.say("profile.saved", "저장했습니다.") + " 다음에 이 시나리오를 하실 때 불러오실 수 있어요.\n"
+                    f"태그: **{saved['tag']}**") if saved else "저장에 실패했습니다. 캐릭터는 그대로 진행합니다."
+            await v._close(interaction, note)
+        await _guarded(v, interaction, fn)
 
 
 class PrefillView(_Base):
@@ -1422,6 +1490,9 @@ class PrefillSelect(discord.ui.Select):
                     v.state.session.scenario_data,
                     prefill=copy.deepcopy(dict(picked.get("fields") or {})))
                 v.state.run["gen"] = gen
+                # P2(#3): 불러온 원본 — 저장 여부 판단의 기준(진행 기록과 함께 영속 → 재시작에도 같은 판정)
+                v.state.run["loaded_profile"] = {"id": picked.get("id"), "name": picked.get("name"),
+                                                 "fields": copy.deepcopy(dict(picked.get("fields") or {}))}
                 v.state.notes.append(
                     f"{picked.get('name', '저장한 프로필')}을(를) 불러왔습니다")
 
@@ -1466,11 +1537,8 @@ async def start(bot, session, uid, char_name: str, channel):
     steps = profile_gen.get_steps(session.scenario_data)
     if not steps:
         # 알고리즘이 없으면 흐름이 끊기지 않도록 안내 후 다음 단계로 넘긴다.
-        await channel.send(embed=discord.Embed(
-            title="캐릭터 설정",
-            description=("이 시나리오에는 자동 생성 절차가 준비되어 있지 않습니다.\n"
-                         "`!능력치` `!외형` `!설정` 명령으로 직접 정해 주세요."),
-            color=0xFEE75C))
+        await channel.send("**캐릭터 설정**\n이 시나리오에는 자동 생성 절차가 준비되어 있지 않습니다.\n"
+                           "`!능력치` `!외형` `!설정` 명령으로 직접 정해 주세요.")
         await _advance_flow(state, channel)
         return None
 
@@ -1494,7 +1562,7 @@ async def start(bot, session, uid, char_name: str, channel):
             state.run["gen"] = int(state.run.get("gen") or 0) + 1
             view.gen = state.run["gen"]
             await _persist(state)
-            state.message = await channel.send(embed=e, view=view)
+            state.message = await channel.send(**_first_send_kwargs(state, e, view, "profile.prefill"))
             return state
 
         await render(state, channel)

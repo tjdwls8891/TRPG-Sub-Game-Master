@@ -55,6 +55,26 @@ def is_enabled(session, key: str) -> bool:
     return flags.get(key, True)
 
 
+def tts_status(session) -> tuple:
+    """P2(#9): (설정 켜짐, 실제 재생 가능, 사유) — 켜짐을 '실제 출력'으로 오인시키지 않는다.
+
+    재생 가능 = 설정 켜짐 ∧ 봇이 음성 채널에 붙어 믹서가 있음. 사유: OFF·NO_VOICE(미연결)·OK."""
+    on = is_enabled(session, "tts")
+    if not on:
+        return False, False, "OFF"
+    try:
+        from .audio_mixer import get_mixer
+        live = get_mixer(getattr(session, "voice_client", None)) is not None
+    except Exception:
+        live = False
+    return True, live, "OK" if live else "NO_VOICE"
+
+
+def tts_status_label(session) -> str:
+    on, live, _r = tts_status(session)
+    return "ON" if live else ("미연결" if on else "OFF")
+
+
 def sync_tts_flag(session, value: bool):
     """TTS 토글을 두 필드에 동시 반영한다(디스플레이 UI에서 사용)."""
     set_media_flag(session, "tts", value)

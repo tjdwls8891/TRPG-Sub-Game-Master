@@ -25,13 +25,15 @@
 #   아직 답을 받지 못했다.
 import discord
 
+from . import conversational as _conv
 from . import creation
 from . import intro as intro_mod
 from . import master as _master
+from . import master_art as _master_art
+from . import voice_profile as _voice
 from . import memory_plan
 from . import profiles as profile_store
 from . import stats
-from .constants import TTS_VOICES
 from .io import get_available_scenarios, load_scenario_from_file
 
 # 소개 단계에서 보여줄 항목 (기획 규정 — TRPG 개념·특성·진행·과금·예시·디스플레이)
@@ -75,24 +77,28 @@ def step_embed(session, title: str, desc: str, *, color: int = 0x5865F2):
     return e
 
 
-async def show(bot, session, channel, embed, view=None, *, replace: bool = True):
+async def show(bot, session, channel, embed, view=None, *, replace: bool = True, master_key: str | None = None):
     """제작 화면을 갱신한다. 기존 메시지가 있으면 고치고, 없으면 보낸다.
 
     replace=False면 새 메시지를 보낸다. 프로필 생성처럼 별도 흐름이
     이어지는 경우에 쓴다.
+    P2(#4): 마스터가 말을 거는 화면이라 일반 메시지(content)로 보낸다 — 이름 있는 구조 필드만 데이터 카드로 남는다
+    (core.conversational). P2(#7): 마스터 이미지 슬롯(세션 진행자 성별·대사 톤)을 같은 메시지에 붙인다 —
+    원화 미제작이면 공용 로딩 이미지(의도된 임시 표시, core.master_art).
     """
     st = creation.get_state(session)
     mid = st.get("flow_msg_id") if replace else None
+    mfile, _path, _state = _master_art.file_for(session, master_key)
 
     if mid:
         try:
             msg = await channel.fetch_message(mid)
-            await msg.edit(embed=embed, view=view, attachments=[])
+            await msg.edit(**_conv.edit_kwargs(embed, view=view, attachments=[mfile]))
             return msg
         except Exception:
-            pass
+            mfile, _path, _state = _master_art.file_for(session, master_key)   # 사용한 File은 다시 못 쓴다
 
-    msg = await channel.send(embed=embed, view=view)
+    msg = await channel.send(**_conv.send_kwargs(embed, view=view, file=mfile))
     st["flow_msg_id"] = msg.id
     return msg
 
@@ -106,8 +112,7 @@ async def close_flow_message(bot, session, channel, text: str = None):
     try:
         msg = await channel.fetch_message(mid)
         if text:
-            await msg.edit(embed=discord.Embed(
-                description=text, color=0x5865F2), view=None, attachments=[])
+            await msg.edit(content=text, embeds=[], view=None, attachments=[])
         else:
             await msg.delete()
     except Exception:
@@ -403,7 +408,7 @@ class IntroView(_Step):
 
     # ── 조작 ──
     async def open(self, channel):
-        self.message = await channel.send(embed=self._embed(), view=self)
+        self.message = await channel.send(**_conv.send_kwargs(self._embed(), view=self))
 
     async def go(self, interaction, action: str):
         if action == "end":
@@ -431,25 +436,21 @@ class IntroView(_Step):
             except Exception:
                 pass
             self.message = await self.channel.send(
-                embed=embed, view=self,
-                file=discord.File(self._pending_image))
+                **_conv.send_kwargs(embed, view=self, file=discord.File(self._pending_image)))
             return
         try:
-            await interaction.message.edit(
-                embed=embed, view=self, attachments=[])
+            await interaction.message.edit(**_conv.edit_kwargs(embed, view=self, attachments=[]))
         except Exception:
             try:
-                await interaction.message.edit(embed=embed, view=self)
+                await interaction.message.edit(**_conv.edit_kwargs(embed, view=self))
             except Exception:
                 pass
 
     async def _close(self, interaction, note: str):
         self.clear_items()
         try:
-            await interaction.message.edit(embed=discord.Embed(
-                title="소개를 마쳤습니다",
-                description="이제 세계를 고를 차례입니다.",
-                color=0x5865F2), view=None, attachments=[])
+            await interaction.message.edit(content="**소개를 마쳤습니다**\n이제 세계를 고를 차례입니다.",
+                                           embeds=[], view=None, attachments=[])
         except Exception:
             pass
         creation.get_state(self.session)["flow_msg_id"] = interaction.message.id
@@ -564,45 +565,48 @@ class ScenarioConfirmView(_Step):
 
 
 class TTSView(_Step):
-    @discord.ui.button(label="🔊 사용", style=discord.ButtonStyle.primary)
-    async def on(self, interaction, _b):
+    async def _choose(self, interaction, on: bool):
         await interaction.response.defer()
-        self.session.tts_enabled = True
-        # 같은 메시지를 목소리 선택 화면으로 바꾼다.
+        from .media_control import sync_tts_flag
+        sync_tts_flag(self.session, on)            # P2(#9): 설정 게이트 두 곳을 함께(어긋남 방지)
+        # 같은 메시지를 진행자(마스터) 성별 선택 화면으로 바꾼다 — 이미지·목소리 모두에 쓰이므로 TTS와 무관하게 묻는다.
         creation.get_state(self.session)["flow_msg_id"] = interaction.message.id
         await show(self.bot, self.session, self.channel, step_embed(
-            self.session, "음성",
+            self.session, "진행자",
             _master.say("session.voice_select", "어떤 목소리로 읽어드릴까요?") + "\n"
-            "나중에 디스플레이 채널에서 바꾸실 수 있어요."),
-            VoiceView(self.bot, self.session, self.channel))
+            "진행자의 모습과 목소리를 남성·여성 중에서 고르실 수 있어요. 같은 진행자예요.\n"
+            "나중에 디스플레이 채널에서 개설자가 바꾸실 수 있어요."),
+            MasterGenderView(self.bot, self.session, self.channel, on), master_key="session.voice_select")
+
+    @discord.ui.button(label="🔊 사용", style=discord.ButtonStyle.primary)
+    async def on(self, interaction, _b):
+        await self._choose(interaction, True)
 
     @discord.ui.button(label="사용 안 함", style=discord.ButtonStyle.secondary)
     async def off(self, interaction, _b):
-        await interaction.response.defer()
-        self.session.tts_enabled = False
-        await self._next(interaction, "tts", "끔")
+        await self._choose(interaction, False)
 
 
-class VoiceView(_Step):
-    def __init__(self, bot, session, channel):
+class MasterGenderView(_Step):
+    """P2 Q2: 세션 개설자가 진행자 성별(이미지·목소리 표현)을 정한다 — 세션 단위·영속(master_gender)."""
+
+    def __init__(self, bot, session, channel, tts_on: bool):
         super().__init__(bot, session, channel)
-        voices = list(TTS_VOICES)[:25] if TTS_VOICES else []
-        if voices:
-            self.add_item(VoiceSelect(voices))
+        self.tts_on = tts_on
+        for g in _voice.MASTER_GENDERS:
+            self.add_item(MasterGenderButton(g))
 
 
-class VoiceSelect(discord.ui.Select):
-    def __init__(self, voices):
-        super().__init__(
-            placeholder="목소리 선택",
-            options=[discord.SelectOption(label=str(v)[:100], value=str(v))
-                     for v in voices])
+class MasterGenderButton(discord.ui.Button):
+    def __init__(self, gender: str):
+        super().__init__(label=f"{_voice.GENDER_LABEL[gender]} 진행자", style=discord.ButtonStyle.primary)
+        self.gender = gender
 
     async def callback(self, interaction):
         await interaction.response.defer()
         v = self.view
-        v.session.tts_voice = self.values[0]
-        await v._next(interaction, "tts", f"켬 ({self.values[0]})")
+        v.session.master_gender = self.gender
+        await v._next(interaction, "tts", f"{'켬' if v.tts_on else '끔'} · {_voice.GENDER_LABEL[self.gender]} 진행자")
 
 
 class MemoryPlanView(_Step):
@@ -661,9 +665,7 @@ async def _offer_start_frames(bot, session, channel):
 
     options = start_frame.offer(session.scenario_data, profile)
     if not options:
-        await channel.send(embed=discord.Embed(
-            description="시작 상황 틀이 없어 기본 인트로로 진행합니다.",
-            color=0x5865F2))
+        await channel.send("시작 상황 틀이 없어 기본 인트로로 진행합니다.")
         # H06: 캐시를 연기했던 세션도 시작 선택이 없으면 기존(LEGACY) 의미로 지금 연다.
         cog = bot.get_cog("SessionCog")
         if cog and not getattr(session, "cache_name", None):
@@ -680,7 +682,8 @@ async def _offer_start_frames(bot, session, channel):
 
     view_cls = getattr(__import__("cogs.session", fromlist=["StartFrameView"]),
                        "StartFrameView")
-    await channel.send(embed=e, view=view_cls(bot, session, options))
+    mfile, _p, _st = _master_art.file_for(session, "session.start_frame_select")
+    await channel.send(**_conv.send_kwargs(e, view=view_cls(bot, session, options), file=mfile))
 
 
 async def initial_knowledge_gate(bot, session, channel, phase, *, frame=None, on_resolved=None) -> bool:

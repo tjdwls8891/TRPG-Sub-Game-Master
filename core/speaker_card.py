@@ -613,22 +613,119 @@ async def turn_variation(preparation, actor_id):
     return (getattr(preparation, "card_variations", None) or {}).get(actor_id)
 
 
+async def _render_card(session, ctx: DisplayContext, preparation=None) -> bytes:
+    """카드 PNG — 실패는 예외로 올린다(호출부가 '카드 없음'과 '실패'를 구분한다)."""
+    # 바리에이션이 하나뿐이면 고를 것이 없다 — 추출을 기다리지 않는다
+    variation = (await turn_variation(preparation, ctx.actor_id)
+                 if len(ctx.card.get("variations") or {}) > 1 else None)
+    t0 = time.monotonic()
+    png = await asyncio.to_thread(render_png, ctx.world, ctx.card, ctx.known, variation)
+    _log_card(session, ctx, variation, ms=int((time.monotonic() - t0) * 1000), size=len(png or b""))
+    return png
+
+
 async def prepare_card(session, ctx: DisplayContext | None, preparation=None):
     """카드 PNG 바이트 또는 None(카드 없음·실패 — 이미지 생략)."""
     if ctx is None or ctx.card is None or ctx.world is None:
         return None
     try:
-        # 바리에이션이 하나뿐이면 고를 것이 없다 — 추출을 기다리지 않는다
-        variation = (await turn_variation(preparation, ctx.actor_id)
-                     if len(ctx.card.get("variations") or {}) > 1 else None)
-        t0 = time.monotonic()
-        png = await asyncio.to_thread(render_png, ctx.world, ctx.card, ctx.known, variation)
-        _log_card(session, ctx, variation, ms=int((time.monotonic() - t0) * 1000), size=len(png or b""))
-        return png
+        return await _render_card(session, ctx, preparation)
     except Exception as e:  # noqa: BLE001 — 카드 실패는 이미지 생략(대사 유지)
         from . import logs as _logs
         _logs.error("card", f"카드 생략 — {ctx.actor_id}", exc=e, session=session)
         return None
+
+
+# ── 지연 표시(P2 #6 — Q9·Q10) ──
+# 렌더가 임계 시간 안에 끝나면 카드만 보낸다(로딩 이미지 없음). 넘으면 공용 로딩 이미지를 먼저 보내고 대사를 이어 가며,
+# 렌더가 끝나면 같은 메시지의 첨부를 카드로 교체한다(render_pending — 마스터 슬롯 UNPRODUCED와 다른 상태).
+# 렌더 실패·제한 시간 초과는 공용 오류 이미지(텍스트 자동 대체 없음) + 구조 로그.
+# 임계값 근거: 이 환경 실측 — 상태판 SVG 0.4~1.1초, 원본 카드 템플릿 13~17초(handoff/P2_IMPLEMENTATION_REPORT.md).
+def loading_threshold_sec() -> float:
+    try:
+        return max(0.0, float(os.environ.get("SVG_LOADING_THRESHOLD_SEC", "1.5")))
+    except ValueError:
+        return 1.5
+
+
+CARD_DEADLINE_SEC = RENDER_TIMEOUT_SEC + 30      # 로딩 표시 뒤 최종 대기 상한(넘으면 오류 이미지)
+_PENDING: set = set()                             # 교체 작업 참조 유지(GC 방지)
+
+
+def _ui_file(path: str, stem: str):
+    import discord
+    return discord.File(path, filename=f"{stem}{os.path.splitext(path)[1] or '.webp'}")
+
+
+def _card_name(session) -> str:
+    return f"speaker_card_{int(getattr(session, 'turn_count', 0) or 0) + 1}_{next(_FILE_SEQ)}.png"
+
+
+async def deliver_card(channel, session, ctx: DisplayContext | None, preparation=None, collector=None,
+                       *, threshold: float | None = None) -> str:
+    """카드 전달 — 반환: NONE(카드 없음) · CARD · PENDING(로딩 표시 후 교체 예약) · ERROR · SEND_FAILED."""
+    import discord
+    from . import logs as _logs
+    from . import master_art as _art
+    if ctx is None or ctx.card is None or ctx.world is None:
+        return "NONE"
+    task = asyncio.ensure_future(_render_card(session, ctx, preparation))
+    wait = loading_threshold_sec() if threshold is None else threshold
+    try:
+        png = await asyncio.wait_for(asyncio.shield(task), timeout=wait)
+        err = None
+    except asyncio.TimeoutError:
+        png, err = None, "pending"
+    except Exception as e:  # noqa: BLE001
+        png, err = None, e
+    try:
+        if png is not None:
+            msg = await channel.send(file=discord.File(io.BytesIO(png), filename=_card_name(session)))
+            state = "CARD"
+        elif err != "pending":
+            _logs.error("card", f"카드 렌더 실패 — 오류 이미지 {ctx.actor_id}", exc=err, session=session)
+            msg = await channel.send(file=_ui_file(_art.ERROR_IMAGE, "card_error"))
+            state = "ERROR"
+        else:
+            msg = await channel.send(file=_ui_file(_art.LOADING_IMAGE, "card_loading"))
+            state = "PENDING"
+    except Exception as e:  # noqa: BLE001
+        _logs.error("card", "카드 전송 실패(이미지 생략)", exc=e, session=session)
+        if not task.done():
+            task.cancel()
+        return "SEND_FAILED"
+    if collector is not None:
+        collector.append(msg)
+    if state == "PENDING":
+        job = asyncio.ensure_future(_replace_pending(msg, session, ctx, task))
+        _PENDING.add(job)
+        job.add_done_callback(_PENDING.discard)
+    return state
+
+
+async def _replace_pending(msg, session, ctx, task) -> str:
+    """로딩 이미지 메시지의 첨부를 카드(성공) 또는 오류 이미지(실패·시간 초과)로 교체."""
+    import discord
+    from . import logs as _logs
+    from . import master_art as _art
+    try:
+        png = await asyncio.wait_for(task, timeout=CARD_DEADLINE_SEC)
+        new_file, state = discord.File(io.BytesIO(png), filename=_card_name(session)), "CARD"
+    except Exception as e:  # noqa: BLE001 — 시간 초과 포함
+        _logs.error("card", f"카드 렌더 실패(지연 후) — 오류 이미지 {ctx.actor_id}", exc=e, session=session)
+        new_file, state = _ui_file(_art.ERROR_IMAGE, "card_error"), "ERROR"
+    try:
+        await msg.edit(attachments=[new_file])
+        return state
+    except Exception as e:  # noqa: BLE001 — 429·권한·삭제: 로딩이 영구히 남지 않게 오류 이미지로 1회만 더 시도
+        _logs.error("card", "카드 교체 실패", exc=e, session=session)
+    if state == "CARD":
+        try:
+            await msg.edit(attachments=[_ui_file(_art.ERROR_IMAGE, "card_error")])
+            return "ERROR"
+        except Exception as e:  # noqa: BLE001
+            _logs.error("card", "오류 이미지 교체도 실패(로딩 이미지 잔류)", exc=e, session=session)
+    return "EDIT_FAILED"
 
 
 def _log_card(session, ctx, variation, **extra) -> None:

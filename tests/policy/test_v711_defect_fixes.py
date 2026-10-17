@@ -192,7 +192,7 @@ async def test_runtime_tts_cost_context_claimed_into_turn(session_auto_ready, mo
     bot = SimpleNamespace(cost_ledger=CostLedger(str(tmp_path / "l.jsonl")))
     monkeypatch.setattr(core, "get_mixer", lambda vc: SimpleNamespace(enqueue_voice=lambda src: None))
 
-    async def _synth(_bot, text, voice_name=None, cost_context=None):
+    async def _synth(_bot, text, voice_name=None, cost_context=None, style=None):
         core.cost_ledger.record_context_event(bot, cost_context, cost_usd=0.001, cost_krw=1.5,
                                               audio_output_tokens=10)
         return b"pcm", 1.5, 1, 10

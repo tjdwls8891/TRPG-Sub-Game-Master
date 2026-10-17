@@ -23,10 +23,15 @@ from .message_lifecycle import (LifecyclePromptView, PROMPT_CANCEL, PROMPT_CONFI
                                 bind_interaction_prompt)
 from .ink import format_ink, cost_to_ink
 from .timeline import format_timeline
-from .constants import CACHE_TTL_SECONDS, TTS_NARRATOR_VOICE
+from .constants import CACHE_TTL_SECONDS
 from .session_open import MIN_MINUTES, MAX_MINUTES
 from .estimate import estimate_session_open
 import time
+
+
+def _voice_label(session) -> str:
+    from .voice_profile import GENDER_LABEL, master_gender
+    return GENDER_LABEL[master_gender(session)]
 
 
 def _flag_style(on: bool) -> discord.ButtonStyle:
@@ -136,10 +141,10 @@ def build_embed(session) -> discord.Embed:
         name="미디어",
         value=(
             f"{media_control.format_flags(session)}\n"
-            f"(TTS 실효: {'ON' if media_control.is_enabled(session, 'tts') else 'OFF'})\n"
+            f"(TTS 실효: {media_control.tts_status_label(session)})\n"
             f"볼륨 {int((getattr(session, 'volume', 0.3) or 0) * 100)}% · "
             f"BGM {getattr(session, 'current_bgm', None) or '(없음)'}\n"
-            f"목소리 {getattr(session, 'tts_voice', '') or TTS_NARRATOR_VOICE}"
+            f"진행자 {_voice_label(session)}"
         ),
         inline=False,
     )
@@ -294,6 +299,27 @@ class DisplayView(discord.ui.View):
         session.volume = min(1.0, round((getattr(session, "volume", 0.3) or 0) + 0.1, 2))
         await interaction.response.defer()
         await refresh(self.bot, session, reason="volume")
+
+    @discord.ui.button(label="🎩 진행자 남/여", style=discord.ButtonStyle.secondary,
+                       custom_id="disp:master_gender", row=1)
+    async def master_gender(self, interaction, _b):
+        """P2 Q6: 세션 개설자만 진행자 성별 표현을 바꾼다 — 이후 출력(이미지·목소리·내레이션)부터, 소급 없음."""
+        session = self.bot.active_sessions.get(interaction.channel.id)
+        from .session_flow import flow_owner
+        from .voice_profile import GENDER_LABEL, master_gender
+        owner = flow_owner(session)
+        if str(interaction.user.id) != owner and not await self.bot.is_owner(interaction.user):
+            await interaction.response.send_message(
+                f"진행자 설정은 세션 개설자(<@{owner}>)만 바꿀 수 있습니다." if owner
+                else "진행자 설정은 세션 개설자만 바꿀 수 있습니다.", ephemeral=True)
+            return
+        session.master_gender = "female" if master_gender(session) == "male" else "male"
+        await interaction.response.defer()
+        from .io import save_session_data
+        await save_session_data(self.bot, session)
+        await refresh(self.bot, session, reason="master_gender")
+        await interaction.followup.send(
+            f"진행자를 **{GENDER_LABEL[session.master_gender]}**으로 바꿨습니다. 다음 출력부터 적용됩니다.", ephemeral=True)
 
     @discord.ui.button(label="⏪ 1턴 되감기", style=discord.ButtonStyle.danger,
                        custom_id="disp:rewind", row=2)

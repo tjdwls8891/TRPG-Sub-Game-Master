@@ -149,7 +149,7 @@ class _TTSObserver:
 
 
 async def synthesize_tts_pcm(bot, text: str, voice_name: str = None, *,
-                             cost_context=None):
+                             cost_context=None, style: str | None = None):
     """
     텍스트를 Gemini TTS로 합성해 (48kHz stereo PCM bytes, 비용KRW, in_tokens, out_tokens) 반환.
 
@@ -159,6 +159,8 @@ async def synthesize_tts_pcm(bot, text: str, voice_name: str = None, *,
     WP-02: cost_context(ProviderCostContext)를 받으면 SDK를 소유한 이 헬퍼가
     provider attempt를 관측해 shadow CostEvent를 기록한다. 호출자가 operation
     (TTS_RUNTIME/TTS_TEST/TTS_PRESET_BUILD)·session·transaction·actor/billing을 정한다.
+
+    P2: style = 공급자 자연어 스타일 지시(core.voice_profile — 마스터 안내·NPC 대사). None이면 기존 나레이터 프로필.
     """
     cleaned = clean_text_for_tts(text)
     if not cleaned:
@@ -167,9 +169,10 @@ async def synthesize_tts_pcm(bot, text: str, voice_name: str = None, *,
     # 공식 "강력 프롬프트" 구조: 스타일 프로필(AUDIO PROFILE/SCENE/DIRECTOR'S NOTES) 뒤에
     # `#### TRANSCRIPT` 섹션으로 본문을 둔다. 모델은 TRANSCRIPT의 따옴표 안 본문만 낭독하고
     # 프로필은 톤 지시로만 사용한다. 내부 큰따옴표는 래퍼와 충돌하므로 치환한다.
-    if TTS_STYLE_PROMPT:
+    profile = style or TTS_STYLE_PROMPT
+    if profile:
         body = cleaned.replace('"', "'")
-        prompt = f'{TTS_STYLE_PROMPT}\n\n#### TRANSCRIPT\n"{body}"'
+        prompt = f'{profile}\n\n#### TRANSCRIPT\n"{body}"'
     else:
         prompt = cleaned
 

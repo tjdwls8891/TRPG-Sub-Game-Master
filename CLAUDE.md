@@ -8,12 +8,12 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 AI가 4개 층위로 나뉘어 판단·지시·묘사·추출을 분담한다. 플레이어는 서버 GM 스페이스에서 버튼으로 세션을 열고, 캐릭터를 만들고, 턴을 진행한다. **명령어는 GM의 수동 개입·복구 수단이며 일반 플레이에는 쓰지 않는다.**
 
-현재 버전: **v7.18.0** · `SCHEMA_VERSION` 4 · 총 운영 코드 ~52,600줄(main·prompts·cogs·core) · 테스트 ~27,270줄
+현재 버전: **v7.19.0** · `SCHEMA_VERSION` 4 · 총 운영 코드 ~52,600줄(main·prompts·cogs·core) · 테스트 ~27,270줄
 
 리팩터링: **7-WP 프로그램(WP-A~WP-G)** — 턴 트랜잭션·커밋·재무·이력·파생 시스템을 단일 권위로 재구성했다. WP-A~G 전부 독립 게이트 VERIFIED — **프로그램 완료**(WP-G 최종 후보 `f0fd69e`, 증거 `handoff/WP_G_COMPLETION_BUNDLE.md`). 다음 WP는 없다. 버전은 이 비호환 전환 전체를 **단일 MAJOR v6.0.0**으로 채택했다(2026-10-06, 이력 보정은 DEVLOG '버전 기록').
 
 동적 세계 구현 프로그램(통합 로드맵 v0.3, **H01~H07**, `de367c7` 기준)이 진행 중이다. H 번호는 개발 패키지명이다.
-H07 이후 패키지(v7.6.0~v7.9.1): SVG 화자 카드·영도 카드 저작 → 7.6.0, `!세션이력` → 7.7.0, 묘사↔정본 정합·만료 중 선언 보관·화자 표기 → 7.8.0, 구조 로그 → 7.9.0, 정본 시각·상태이상 판정 보정·예상 비용·판정 기록 중복 → 7.9.1, 디스플레이 상태판 SVG 이미지 → 7.10.0, `!배포` 의존성 자동 설치 → 7.10.1, 전수조사 결함 수정·자동 턴 더빙 → 7.11.0, 판정 2d50 통합 → 7.12.0, 마스터 인물화 UI 표현 승격 → 7.13.0, 역사칭·발견 선언 → 7.14.0, 캐릭터 생성 개선 → 7.15.0, 세션 종료·제거 통합 관리 → 7.16.0, 아이템 시스템·초기 지식 → 7.17.0, 소규모 안정화 → 7.17.1, 소속 접근 capability → 7.17.2, 접근 능력 출처 분리 → 7.17.3, P1 묘사 전 세계 진행·후속 묘사 은퇴·비용 정합 → 7.18.0(DEVLOG '버전 기록', `handoff/P1_IMPLEMENTATION_REPORT.md`).
+H07 이후 패키지(v7.6.0~v7.9.1): SVG 화자 카드·영도 카드 저작 → 7.6.0, `!세션이력` → 7.7.0, 묘사↔정본 정합·만료 중 선언 보관·화자 표기 → 7.8.0, 구조 로그 → 7.9.0, 정본 시각·상태이상 판정 보정·예상 비용·판정 기록 중복 → 7.9.1, 디스플레이 상태판 SVG 이미지 → 7.10.0, `!배포` 의존성 자동 설치 → 7.10.1, 전수조사 결함 수정·자동 턴 더빙 → 7.11.0, 판정 2d50 통합 → 7.12.0, 마스터 인물화 UI 표현 승격 → 7.13.0, 역사칭·발견 선언 → 7.14.0, 캐릭터 생성 개선 → 7.15.0, 세션 종료·제거 통합 관리 → 7.16.0, 아이템 시스템·초기 지식 → 7.17.0, 소규모 안정화 → 7.17.1, 소속 접근 capability → 7.17.2, 접근 능력 출처 분리 → 7.17.3, P1 묘사 전 세계 진행·후속 묘사 은퇴·비용 정합 → 7.18.0(`handoff/P1_IMPLEMENTATION_REPORT.md`), P2 음성·마스터 성별·대화형 UI·SVG 로딩 → 7.19.0(DEVLOG '버전 기록', `handoff/P2_IMPLEMENTATION_REPORT.md`).
 
 | WP | 범위 | 상태 |
 |---|---|---|
@@ -141,7 +141,7 @@ python main.py
 | `permissions.py` | 98 | `!권한부여` `!권한회수` `!권한목록` |
 | `presence.py` | 122 | 상태 메시지 순환 + **캐시 만료 감지**(15초 주기) |
 
-### core/ — 93개 서브모듈
+### core/ — 96개 서브모듈
 
 `core/__init__.py`가 전 심볼을 re-export하므로 외부에서는 `core.XYZ`로 접근한다.
 
@@ -168,7 +168,7 @@ python main.py
 |---|---|---|
 | `constants.py` | 143 | 모델 ID, `EXCHANGE_RATE`, `PRICING_1M`, `TTS_VOICES`, `__version__` |
 | `models.py` | 319 | `TRPGSession` — 단일 세션의 모든 상태 |
-| `io.py` | 535 | `SCHEMA_VERSION`, `SESSION_FIELDS`(105), `migrate_session_data`, 직렬화·로그 |
+| `io.py` | 535 | `SCHEMA_VERSION`, `SESSION_FIELDS`(106), `migrate_session_data`, 직렬화·로그 |
 | `cache.py` | 604 | 룰북 캐시 빌드, `remaining_ttl`, `is_cache_expired`, `is_session_open`, 세션 복구 |
 | `resilience.py` | 207 | `call_with_retry` — 재시도·타임아웃. 시도 실패는 구조 로그 ERROR, provider 호출 맥락(층위·작업·시도·세션)을 설정 |
 | `logs.py` | 440 | **구조 로그 단일 owner** — 세션 `logs/`(`calls`·`blobs`·`events`·`domain`·`chat` JSONL)·전역 `logs/bot.jsonl`(회전 10MB×5, 모든 print 포착·세션 ID 출력은 세션 이벤트에도). provider 호출은 `install_client_proxy`가 `genai_client.models`를 감싸 1건씩 기록(동작 불변). 요청·응답은 줄 조각 해시 델타(반복 줄은 참조만, 테스트 세션 요청 원문 대비 27%). 도메인 사실: `tx.*`·`turn.delta`(되감기 레코드 pre→post 상태 차이)·`commit`(청구·세계 typed op)·`cost.event`·`cost.usage`·`ink.charge`·`ink.lifecycle`·`display`(바뀐 상태판)·`history.*`·`card.*`. 열람은 `tools/log_view.py` |
@@ -180,6 +180,9 @@ python main.py
 | `prompt.py` | 346 | `PromptBuilder` — 체이닝으로 블록 조립 |
 | `extraction.py` | 664 | 추출 스키마·파싱·적용, 동행 갱신, **소지품 반영**, `build_extraction_limits` |
 | `master.py` | 86 | **마스터 대사 선택**(v7.13) — `line`/`say`/`lead`, 실패(키·슬롯·파일) 시 기존 문구 폴백, 슬롯 이스케이프·조사 보정, API 호출 없음. 플레이어 대상 고정 안내만 대체(GM 홈·운영자 메시지·본편·결과 블록 제외) |
+| `voice_profile.py` | 184 | **음성 프로필**(v7.19 P2) — 세션 `master_gender`(남·여 = 같은 진행자) 목소리, 본문 내레이션·직접 발화 공용, NPC 목소리 결정적 배정 + 전역 기록 `data/voice_assignments.json`(시나리오+NPC 키), 문단별 화자·절제 스타일 지시. 새 LLM 호출 없음 |
+| `master_art.py` | 103 | **마스터 이미지 슬롯**(v7.19) — `assets/master/manifest.json` 6슬롯(남·여 × 기본·경고·긍정). null = 미제작(공용 로딩 이미지), 파일 이상 = 오류 이미지 + 로그. 공용 `assets/indaim_loading_neutral.webp`·`indaim_error_neutral.webp` |
+| `conversational.py` | 67 | **대화형 안내 content화**(v7.19) — Embed 빌더 결과를 송출 경계에서 content(제목·본문·진행도)와 정형 데이터 카드로 나눈다 |
 | `dialogue.py` | 516 | `@대사:이름\|본문` 파싱, 인물 이미지 송출, 스트리밍, `WaitingStatus` |
 
 #### 비용·결제
@@ -546,6 +549,7 @@ disp:vol_down  disp:vol_up                   볼륨
 disp:rewind  disp:rewind_multi  disp:restart 되감기·재시작
 disp:open  disp:close                        세션 열기/닫기 (분리)
 disp:pay                                     결제
+disp:master_gender                           진행자 남/여(세션 개설자, v7.19)
 ```
 
 상태에 맞지 않는 버튼은 미리 잠근다 — 열림이면 `disp:open`, 닫힘·만료면 `disp:close`.
@@ -565,7 +569,7 @@ pip install -r requirements-dev.txt
 python3 -m pytest tests/ -q
 ```
 
-`tests/`는 **현재 동작과 권위 불변식을 고정**한다. 현재 1,518건(특성화 61 · 결함 27 · 정책 1,430)이 모두 통과하며 strict xfail은 0건이다.
+`tests/`는 **현재 동작과 권위 불변식을 고정**한다. 현재 1,548건(특성화 61 · 결함 27 · 정책 1,460)이 모두 통과하며 strict xfail은 0건이다.
 
 | 분류 | 의미 |
 |---|---|
@@ -793,4 +797,5 @@ python3 tools/scenario_check.py --all     # 전 시나리오 컴파일·진단(E
 | v7.17 반영 | `prompts.py`(추출 item_ops 규칙·초기 지식 지시문) — **열린** 세션은 `!캐시 재발급` 또는 닫기→열기. 영도 초기 지식 2·남항 교환 지급(`payment`·`OBSERVER_PAID_ITEM`)은 DYNAMIC 바인딩 스냅샷이라 **새 영도 세션에만** 반영 |
 | v7.17.2 소속 접근 | 시나리오 선택 키 `faction_capabilities`(사건 `grant_faction` 값 → 접근 capability). PC 접근 판정만 RESOLVED 가입 사건 전체에서 파생 — v7.17.3: 매핑에 선언된 토큰은 같은 이름 소지품으로 만족되지 않음(표시용 `derived_player_faction`·`player_faction` 미러는 근거 아님, 해제 정본 없음 — 되감기로만 사라짐). 영도 남항·해련·조도 매핑은 새 영도 세션에만 반영 |
 | v7.18 반영(P1) | `prompts.py`·시나리오 불변 — 판단·지시·묘사·추출의 P1 지시는 런타임 사용자 프롬프트 블록·스키마 사본이라 캐시 재발급 불필요. 새 되감기 필드 `world_pending_signals`(기본 [])는 로드 시 기본값. 외부 청구 대조(GCP Cloud Billing BigQuery 내보내기)는 미구성 — 내부 원장·정산·보고·로그 정합만(보고서 참조) |
+| v7.19 반영(P2) | `prompts.py`·시나리오 불변 — 재발급 불필요. 새 세션 필드 `master_gender`(기본 male = 기존 나레이터 목소리). TTS 스타일은 런타임 지시. SVG 화자 카드 로딩 임계값은 환경변수 `SVG_LOADING_THRESHOLD_SEC`(기본 1.5초). 마스터 원화 6슬롯은 미제작이 정상 상태(공용 로딩 이미지) — 원화를 `assets/master/`에 두고 manifest에 파일명을 적으면 반영. NPC 목소리 기록 `data/voice_assignments.json`은 운영 산출물(커밋 제외) |
 | H05 calibration | 경로 자동 선택(10분 미만·비용비 5/4)·추가 시간 상한(240분)·PC capability = 보유 소지품 이름 — 영도 정량 저작 후 조정 |

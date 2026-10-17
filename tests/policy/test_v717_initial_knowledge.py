@@ -190,7 +190,7 @@ async def test_T11_T12_summary_rendered_verbatim_rumor_as_hearsay(rig, ai):
     ch = Ch()
     ai.resp = {"optional_keys": ["K2"], "recontextualized_keys": [], "master_briefing": "안개 이야기는 잊어도 됩니다."}
     await deliver(r, s, ch, "PROFILE")
-    text = ch.sent[-1].embeds[0].description
+    text = str(ch.sent[-1].content)   # P2 #4: content
     assert "· 항구에는 밤마다 짙은 안개가 낀다." in text                                   # AI 문장이 덮어도 원문 유지
     assert "· 전해 들은 말 — 성당 지하에 옛 기록이 있다는 소문" in text
     assert text.index("안개 이야기는") < text.index("**알고 있는 것**")

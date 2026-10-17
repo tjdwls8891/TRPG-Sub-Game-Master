@@ -148,7 +148,8 @@ SESSION_FIELDS: dict = {
     "started_at": 0.0,
     "stat_fail_counts": {},
     "last_turn_cost": 0.0,
-    "tts_voice": "",
+    "tts_voice": "",            # 레거시(v7.17 이전 목소리 선택 — P2부터 쓰지 않음, 호환 유지)
+    "master_gender": "male",    # P2: 진행자 성별 표현(male|female) — 개설자 선택·변경, 이미지·마스터 목소리
     "memory_plan": "normal",
     "narrative_mode": "quest",
     "session_kind": "solo",

@@ -2031,6 +2031,43 @@ class GMCog(commands.Cog):
             print(f"[선언 게이트] 입력 조립 실패(발견 목록 생략): {e}")
         return out
 
+    async def _voice_lines(self, session, lines, *, transaction_id, kind: str = "master") -> None:
+        """P2 Q7: 액자 밖 마스터 직접 발화(ASK·경로/목적지 질문·게이트 안내)와 NARRATE 본문을 더빙한다.
+
+        TTS 실효(설정 켜짐 ∧ 음성 채널 연결)일 때만 합성한다 — 꺼짐·미연결이면 provider 호출 0(P2 #9).
+        이 턴 트랜잭션의 비용 멤버로 claim해 같은 Settlement로 정산한다(판단층위 ASK 비용과 같은 귀속).
+        트랜잭션이 없는 안내(라운드 차례 안내 등)는 정산 귀속이 없어 더빙하지 않는다.
+        """
+        on, live, _r = core.media_control.tts_status(session)
+        if not (on and live) or not lines or transaction_id is None:
+            return
+        game_cog = self.bot.get_cog("GameCog")
+        if game_cog is None or not hasattr(game_cog, "_synthesize_and_enqueue"):
+            return
+        VP = core.voice_profile
+        items = []
+        for t in lines:
+            if kind == "master":
+                txt = core.clean_text_for_tts(t)
+                if txt:
+                    items.append((VP.master_voice(session), VP.style_for(VP.KIND_MASTER), txt))
+            else:
+                v, st, sp, _k = VP.paragraph_voice(session, t)
+                if sp:
+                    items.append((v, st, sp))
+        if not items:
+            return
+        try:
+            dub = await game_cog._synthesize_and_enqueue(session, items, claim_tx=transaction_id)
+        except Exception as e:  # noqa: BLE001 — 음성 실패는 턴 진행을 막지 않는다
+            print(f"[TTS] 진행자 안내 더빙 실패(진행 유지): {type(e).__name__}: {e}")
+            return
+        if dub.get("cost", 0) > 0:
+            core.accrue(session, dub["cost"], dub.get("usd"))
+            session.turn_cost_log = list(getattr(session, "turn_cost_log", None) or []) + [{
+                "label": f"TTS {'진행자 안내' if kind == 'master' else 'NARRATE'}({dub['enqueued']}/{dub['total']})",
+                "cost": dub["cost"], "in": dub["in"], "cached": 0, "out": dub["out"], "model": core.TTS_MODEL}]
+
     async def _hold_declaration(self, session, transaction_id, player_message, gate, text, master_ch) -> None:
         """v7.14: 게이트 BLOCK·CLARIFY·검증 불가 — 굴림·세계 연산 없이 중립 안내 후 플레이어 재선언 대기."""
         core.turn_history.note_judgment(
@@ -2041,6 +2078,7 @@ class GMCog(commands.Cog):
         game_ch = self.bot.get_channel(session.game_ch_id)
         if game_ch:
             await core.stream_text_to_channel(self.bot, game_ch, text, words_per_tick=15, tick_interval=1.5)
+            await self._voice_lines(session, [text], transaction_id=transaction_id)
         session.current_turn_logs.append(f"[진행자 (GM)]: {text}")
         core.turn_transaction.mark_waiting_for_player(session, transaction_id)
         if master_ch:
@@ -2096,6 +2134,7 @@ class GMCog(commands.Cog):
         game_ch = self.bot.get_channel(session.game_ch_id)
         if game_ch:
             await core.stream_text_to_channel(self.bot, game_ch, bridge, words_per_tick=15, tick_interval=1.5)
+            await self._voice_lines(session, [bridge], transaction_id=transaction_id)
         session.current_turn_logs.append(f"[진행자 (GM)]: {bridge}")
         if master_ch:
             await master_ch.send(f"🧭 **[경로 선택]** 후보 {len(plan.route_options)}개 — 플레이어 선택 대기")
@@ -2107,6 +2146,7 @@ class GMCog(commands.Cog):
         game_ch = self.bot.get_channel(session.game_ch_id)
         if game_ch:
             await core.stream_text_to_channel(self.bot, game_ch, bridge, words_per_tick=15, tick_interval=1.5)
+            await self._voice_lines(session, [bridge], transaction_id=transaction_id)
         session.current_turn_logs.append(f"[진행자 (GM)]: {bridge}")
         if master_ch:
             await master_ch.send("🧭 **[목적지 확인]** 이동 목적지가 정본 후보에 없어 되묻습니다")
@@ -3486,6 +3526,7 @@ class GMCog(commands.Cog):
                         self.bot, game_ch, bridge,
                         words_per_tick=15, tick_interval=1.5
                     )
+                    await self._voice_lines(session, [bridge], transaction_id=transaction_id)
                 # ASK 브리지를 current_turn_logs에 기록 → 다음 지시층위 호출 시 맥락 유지
                 session.current_turn_logs.append(f"[진행자 (GM)]: {bridge}")
                 print(f"[GM/{session.session_id}] ASK -> '{bridge[:80]}'")
@@ -4635,6 +4676,8 @@ class GMCog(commands.Cog):
                         self.bot, game_ch, paragraph,
                         words_per_tick=15, tick_interval=1.5
                     )
+            # P2 Q7: NARRATE 본문도 더빙 대상(대사는 NPC 목소리, 그 밖은 진행자 내레이션 목소리)
+            await self._voice_lines(session, paragraphs, transaction_id=transaction_id, kind="paragraphs")
 
         # current_turn_logs에 추가 — PROCEED 시 AI가 맥락을 볼 수 있도록
         session.current_turn_logs.append(f"[진행자 (GM)]: {narrate_text}")
