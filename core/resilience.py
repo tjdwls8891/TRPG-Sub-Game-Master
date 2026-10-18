@@ -134,8 +134,10 @@ async def call_with_retry(fn, *, layer: str, session_id: str = "",
         #   underlying 호출은 잊지 않고 관측자에게 in-flight로 넘겨 종료까지 추적한다.
         #   (기존 wait_for(fn()) 취소는 to_thread 스레드를 멈추지 못해 비용 사실이 유실됐다.)
         from . import logs as _logs
-        _op = getattr(getattr(on_attempt_result, "__self__", None), "operation", None)
-        with _logs.call_context(session_id or None, layer, attempt=attempt, op=_op):
+        _obs = getattr(on_attempt_result, "__self__", None)
+        _op = getattr(_obs, "operation", None)
+        _op_id = getattr(_obs, "operation_id", None) or operation_id        # P3 G1: cost.event와 같은 조인 키
+        with _logs.call_context(session_id or None, layer, attempt=attempt, op=_op, op_id=_op_id):
             task = asyncio.ensure_future(fn())         # 태스크가 맥락(층위·세션·시도)을 복사한다
         try:
             result = await asyncio.wait_for(asyncio.shield(task), timeout=timeout)

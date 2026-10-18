@@ -393,6 +393,7 @@ class SessionCog(commands.Cog):
         self.bot.active_sessions[master_ch.id] = session
         self.bot.active_sessions[display_ch.id] = session
         await core.save_session_data(self.bot, session)
+        core.logs.session_meta(session, "create")
         return session
 
     async def upload_cache(self, session, *, notify=None, quoted_tokens=None,

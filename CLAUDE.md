@@ -8,12 +8,12 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 AI가 4개 층위로 나뉘어 판단·지시·묘사·추출을 분담한다. 플레이어는 서버 GM 스페이스에서 버튼으로 세션을 열고, 캐릭터를 만들고, 턴을 진행한다. **명령어는 GM의 수동 개입·복구 수단이며 일반 플레이에는 쓰지 않는다.**
 
-현재 버전: **v7.20.0** · `SCHEMA_VERSION` 4 · 총 운영 코드 ~52,600줄(main·prompts·cogs·core) · 테스트 ~27,270줄
+현재 버전: **v7.21.0** · `SCHEMA_VERSION` 4 · 총 운영 코드 ~52,600줄(main·prompts·cogs·core) · 테스트 ~27,270줄
 
 리팩터링: **7-WP 프로그램(WP-A~WP-G)** — 턴 트랜잭션·커밋·재무·이력·파생 시스템을 단일 권위로 재구성했다. WP-A~G 전부 독립 게이트 VERIFIED — **프로그램 완료**(WP-G 최종 후보 `f0fd69e`, 증거 `handoff/WP_G_COMPLETION_BUNDLE.md`). 다음 WP는 없다. 버전은 이 비호환 전환 전체를 **단일 MAJOR v6.0.0**으로 채택했다(2026-10-06, 이력 보정은 DEVLOG '버전 기록').
 
 동적 세계 구현 프로그램(통합 로드맵 v0.3, **H01~H07**, `de367c7` 기준)이 진행 중이다. H 번호는 개발 패키지명이다.
-H07 이후 패키지(v7.6.0~v7.9.1): SVG 화자 카드·영도 카드 저작 → 7.6.0, `!세션이력` → 7.7.0, 묘사↔정본 정합·만료 중 선언 보관·화자 표기 → 7.8.0, 구조 로그 → 7.9.0, 정본 시각·상태이상 판정 보정·예상 비용·판정 기록 중복 → 7.9.1, 디스플레이 상태판 SVG 이미지 → 7.10.0, `!배포` 의존성 자동 설치 → 7.10.1, 전수조사 결함 수정·자동 턴 더빙 → 7.11.0, 판정 2d50 통합 → 7.12.0, 마스터 인물화 UI 표현 승격 → 7.13.0, 역사칭·발견 선언 → 7.14.0, 캐릭터 생성 개선 → 7.15.0, 세션 종료·제거 통합 관리 → 7.16.0, 아이템 시스템·초기 지식 → 7.17.0, 소규모 안정화 → 7.17.1, 소속 접근 capability → 7.17.2, 접근 능력 출처 분리 → 7.17.3, P1 묘사 전 세계 진행·후속 묘사 은퇴·비용 정합 → 7.18.0, P2 음성·마스터 성별·대화형 UI·SVG 로딩 → 7.19.0, `!명령어` 갱신 → 7.19.1, 턴 서사·지시층위 정합·같은 턴 식별 → 7.20.0(DEVLOG '버전 기록').
+H07 이후 패키지(v7.6.0~v7.9.1): SVG 화자 카드·영도 카드 저작 → 7.6.0, `!세션이력` → 7.7.0, 묘사↔정본 정합·만료 중 선언 보관·화자 표기 → 7.8.0, 구조 로그 → 7.9.0, 정본 시각·상태이상 판정 보정·예상 비용·판정 기록 중복 → 7.9.1, 디스플레이 상태판 SVG 이미지 → 7.10.0, `!배포` 의존성 자동 설치 → 7.10.1, 전수조사 결함 수정·자동 턴 더빙 → 7.11.0, 판정 2d50 통합 → 7.12.0, 마스터 인물화 UI 표현 승격 → 7.13.0, 역사칭·발견 선언 → 7.14.0, 캐릭터 생성 개선 → 7.15.0, 세션 종료·제거 통합 관리 → 7.16.0, 아이템 시스템·초기 지식 → 7.17.0, 소규모 안정화 → 7.17.1, 소속 접근 capability → 7.17.2, 접근 능력 출처 분리 → 7.17.3, P1 묘사 전 세계 진행·후속 묘사 은퇴·비용 정합 → 7.18.0, P2 음성·마스터 성별·대화형 UI·SVG 로딩 → 7.19.0, `!명령어` 갱신 → 7.19.1, 턴 서사·지시층위 정합·같은 턴 식별 → 7.20.0, P3 에이전트 판독용 로그 → 7.21.0(DEVLOG '버전 기록').
 
 | WP | 범위 | 상태 |
 |---|---|---|
@@ -141,7 +141,7 @@ python main.py
 | `permissions.py` | 98 | `!권한부여` `!권한회수` `!권한목록` |
 | `presence.py` | 122 | 상태 메시지 순환 + **캐시 만료 감지**(15초 주기) |
 
-### core/ — 96개 서브모듈
+### core/ — 97개 서브모듈
 
 `core/__init__.py`가 전 심볼을 re-export하므로 외부에서는 `core.XYZ`로 접근한다.
 
@@ -171,7 +171,8 @@ python main.py
 | `io.py` | 535 | `SCHEMA_VERSION`, `SESSION_FIELDS`(106), `migrate_session_data`, 직렬화·로그 |
 | `cache.py` | 604 | 룰북 캐시 빌드, `remaining_ttl`, `is_cache_expired`, `is_session_open`, 세션 복구 |
 | `resilience.py` | 207 | `call_with_retry` — 재시도·타임아웃. 시도 실패는 구조 로그 ERROR, provider 호출 맥락(층위·작업·시도·세션)을 설정 |
-| `logs.py` | 440 | **구조 로그 단일 owner** — 세션 `logs/`(`calls`·`blobs`·`events`·`domain`·`chat` JSONL)·전역 `logs/bot.jsonl`(회전 10MB×5, 모든 print 포착·세션 ID 출력은 세션 이벤트에도). provider 호출은 `install_client_proxy`가 `genai_client.models`를 감싸 1건씩 기록(동작 불변). 요청·응답은 줄 조각 해시 델타(반복 줄은 참조만, 테스트 세션 요청 원문 대비 27%). 도메인 사실: `tx.*`·`turn.delta`(되감기 레코드 pre→post 상태 차이)·`commit`(청구·세계 typed op)·`cost.event`·`cost.usage`·`ink.charge`·`ink.lifecycle`·`display`(바뀐 상태판)·`history.*`·`card.*`. 열람은 `tools/log_view.py` |
+| `logs.py` | 589 | **구조 로그 단일 owner** — 세션 `logs/`(`calls`·`blobs`·`events`·`domain`·`chat` JSONL)·전역 `logs/bot.jsonl`(회전 10MB×5, 모든 print 포착 — 세션 ID 출력·세션 이벤트는 전역에 위치·길이만(P3 D1), 원문은 세션 events). provider 호출은 `install_client_proxy`가 `genai_client.models`를 감싸 1건씩 기록(동작 불변). 요청·응답은 줄 조각 해시 델타(반복 줄은 참조만, 테스트 세션 요청 원문 대비 27%). 모든 세션 줄 `b`(부팅)·`seq`(단조), 호출 `op_id` = `cost.event.operation_id`(P3). 도메인 kind는 등록부 `DOMAIN_KINDS`(필드 사전 `docs/LOG_SCHEMA.md` — `!세션이력` zip에 `_index/LOG_README.md`로 동봉): `session.meta`·`tx.*`·`turn.summary`·`turn.delta`(되감기 레코드 pre→post 상태 차이)·`commit`(청구·세계 typed op)·`cost.*`·`ink.*`·`display`·`history.*`(+`history.selection`)·`card.*`. 열람은 `tools/log_view.py` |
+| `turn_log.py` | 120 | **`turn.summary`**(P3) — 트랜잭션 대기·종결마다 1줄: 판단·세계 계획·관찰·준비·세계 연산 개수·비용 이벤트·단계 ms·호출 참조(메모리 값만 모음, 실패 흡수) |
 
 #### 프롬프트·AI
 
@@ -569,7 +570,7 @@ pip install -r requirements-dev.txt
 python3 -m pytest tests/ -q
 ```
 
-`tests/`는 **현재 동작과 권위 불변식을 고정**한다. 현재 1,567건(특성화 61 · 결함 27 · 정책 1,479)이 모두 통과하며 strict xfail은 0건이다.
+`tests/`는 **현재 동작과 권위 불변식을 고정**한다. 현재 1,579건(특성화 61 · 결함 27 · 정책 1,491)이 모두 통과하며 strict xfail은 0건이다.
 
 | 분류 | 의미 |
 |---|---|
@@ -802,4 +803,5 @@ python3 tools/scenario_check.py --all     # 전 시나리오 컴파일·진단(E
 | v7.18 반영(P1) | `prompts.py`·시나리오 불변 — 판단·지시·묘사·추출의 P1 지시는 런타임 사용자 프롬프트 블록·스키마 사본이라 캐시 재발급 불필요. 새 되감기 필드 `world_pending_signals`(기본 [])는 로드 시 기본값. 외부 청구 대조(GCP Cloud Billing BigQuery 내보내기)는 미구성 — 내부 원장·정산·보고·로그 정합만(보고서 참조) |
 | v7.19 반영(P2) | `prompts.py`·시나리오 불변 — 재발급 불필요. 새 세션 필드 `master_gender`(기본 male = 기존 나레이터 목소리). TTS 스타일은 런타임 지시. SVG 화자 카드 로딩 임계값은 환경변수 `SVG_LOADING_THRESHOLD_SEC`(기본 1.5초). 마스터 원화 6슬롯은 미제작이 정상 상태(공용 로딩 이미지) — 원화를 `assets/master/`에 두고 manifest에 파일명을 적으면 반영. NPC 목소리 기록 `data/voice_assignments.json`은 운영 산출물(커밋 제외) |
 | v7.20 반영 | `prompts.py` 지시층위 시스템 지시 변경(캐시에 구워짐) — **열린** 세션은 `!캐시 재발급` 또는 닫기→열기(구 캐시도 새 사용자 프롬프트와 호환되나 새 지침은 재발급 뒤 적용). 시나리오·세션 필드 불변. 같은 턴 이름·얼굴 표시는 추출의 공개 인용이 본문에서 확인될 때만 — 확인 실패 시 `???` 유지, 그 턴 정본 인지도 생기지 않음 |
+| v7.21 반영(P3 로그) | `prompts.py`·시나리오·세션 필드 불변 — 재발급 불필요. 코드 재시작만. `!세션이력` zip에 `_index/manifest.json`·`LOG_README.md` 동봉, 한도 초과 jsonl은 줄 경계 조각(`.partNNN.`). 기존 로그 줄(`b`·`seq` 없음)도 `log_view`로 읽힌다. 세션 통계 결함(영구 0 카운터·주사위 집계 시점)은 별도 과제(D2) |
 | H05 calibration | 경로 자동 선택(10분 미만·비용비 5/4)·추가 시간 상한(240분)·PC capability = 보유 소지품 이름 — 영도 정량 저작 후 조정 |

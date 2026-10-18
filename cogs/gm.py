@@ -1847,8 +1847,8 @@ class GMCog(commands.Cog):
                 core.turn_preparation.PREP_READY,
                 core.turn_preparation.PREP_COMMITTING,
                 core.turn_preparation.PREP_RETRY_PENDING):
-            print(f"[WP-C/{session.session_id}] 준비 중인 시도가 있어 새 선언 차단 "
-                  f"(phase={_aprep.phase})")
+            core.logs.event("turn", "새 선언 차단 — 준비 중 시도", level="WARN", session=session,
+                            data={"code": "PREP_IN_FLIGHT", "tx": _aprep.transaction_id, "phase": _aprep.phase})
             if master_ch:
                 await master_ch.send("⏸️ 이전 턴 준비가 끝나지 않아 새 선언을 처리하지 않습니다.")
             return
@@ -1861,7 +1861,8 @@ class GMCog(commands.Cog):
             if _atx is not None and getattr(_atx, "world_turn", None) is not None and \
                     core.action_intent.is_definition_stale(_atx.world_turn.ctx.definition_revision, session):
                 _atx.world_turn = None                     # 옛 정의 WorldTurn 재사용 금지(R2)
-            print(f"[H06/{session.session_id}] 턴 차단: {_blocked}")
+            core.logs.event("turn", "턴 차단 — 동적 세계", level="WARN", session=session,
+                            data={"code": "WORLD_BLOCKED", "reason": _blocked})
             if master_ch:
                 await master_ch.send(f"⏸️ [동적 세계] {_blocked}")
             return
@@ -1965,7 +1966,8 @@ class GMCog(commands.Cog):
                     outcome = await self._join_and_ready(session, prep)
             except Exception as e:
                 # 사전 READY 예기치 못한 예외 — 준비 작업을 합류시키고 실패로 처리한다.
-                print(f"[WP-C/{prep.transaction_id[:8]}] 준비 중 예외: {type(e).__name__}: {e}")
+                core.logs.event("turn", "준비 중 예외", level="ERROR", session=session, exc=e,
+                                data={"code": "PREP_EXCEPTION", "tx": prep.transaction_id})
                 prep.violations.append(f"exception:{type(e).__name__}")
                 outcome = await self._join_after_exception(session, prep)
             if outcome == _OUTCOME_READY:
@@ -2545,7 +2547,8 @@ class GMCog(commands.Cog):
                           f"cost_events={len(proof.frozen_cost_event_ids)} "
                           f"canonical_unchanged={proof.canonical_unchanged}")
                     return _OUTCOME_READY
-                print(f"[WP-C/{prep.transaction_id[:8]}] READY 불가: {reasons}")
+                core.logs.event("turn", "READY 불가", level="WARN", session=session,
+                                data={"code": "READY_REJECTED", "tx": prep.transaction_id, "reasons": list(reasons or ())})
                 prep.failure_stage = "READY_PREDICATE"
                 outcome = _OUTCOME_NOT_READY
         if outcome != _OUTCOME_EXTRACTION_FAILED:
@@ -3510,7 +3513,8 @@ class GMCog(commands.Cog):
                 decision = dict(judgment)
 
             label = action_labels.get(action, action)
-            print(f"[GM/{session.session_id}] iter={iteration} action={action} :: {reasoning[:120]}")
+            core.logs.event("turn", f"판단 {action}", session=session,
+                            data={"stage": "judgment", "iter": iteration, "action": action, "reasoning": reasoning})
             await m_send(
                 f"🤖 **[GM 판단 #{iteration + 1}]** {label}\n"
                 f"> {reasoning[:200]}"
@@ -3540,7 +3544,8 @@ class GMCog(commands.Cog):
                     await self._voice_lines(session, [bridge], transaction_id=transaction_id)
                 # ASK 브리지를 current_turn_logs에 기록 → 다음 지시층위 호출 시 맥락 유지
                 session.current_turn_logs.append(f"[진행자 (GM)]: {bridge}")
-                print(f"[GM/{session.session_id}] ASK -> '{bridge[:80]}'")
+                core.logs.event("turn", "ASK 대기", session=session,
+                                data={"stage": "ask", "tx": transaction_id, "bridge": bridge})
                 # WP-01: 플레이어 입력 대기(비종료). 재입력 시 같은 트랜잭션을 재사용한다.
                 core.turn_transaction.mark_waiting_for_player(session, transaction_id)
                 # 저장은 루프 종료 후 트레일링 save가 일괄 처리 (중복 제거)
@@ -3568,7 +3573,9 @@ class GMCog(commands.Cog):
                 narrate_text = await self._dispatch_narrate(
                     session, narrate_instr, transaction_id=transaction_id)
                 if narrate_text:
-                    print(f"[GM/{session.session_id}] NARRATE #{session.gm_narrate_count} -> '{narrate_text[:60]}'")
+                    core.logs.event("turn", "NARRATE 대기", session=session,
+                                    data={"stage": "narrate", "tx": transaction_id, "n": session.gm_narrate_count,
+                                          "text": narrate_text})
                 # WP-01: 플레이어 입력 대기(비종료). 재입력 시 같은 트랜잭션을 재사용한다.
                 core.turn_transaction.mark_waiting_for_player(session, transaction_id)
                 # 저장은 루프 종료 후 트레일링 save가 일괄 처리 (중복 제거)
@@ -3900,7 +3907,8 @@ class GMCog(commands.Cog):
                 try:
                     decision = json.loads(cleaned)
                 except Exception as e:
-                    print(f"[GM] 판단층위 JSON 파싱 실패(시도 {attempt + 1}): {e}")
+                    core.logs.event("turn", "판단층위 JSON 파싱 실패", level="WARN", session=session, exc=e,
+                                    data={"code": "JUDGMENT_JSON", "attempt": attempt + 1})
                     continue
             # v7.12: ROLL 계약 검증 — 범위 밖·누락 값을 보정해 굴리지 않는다. 파싱 실패와 같은 재시도 경로.
             #   (rolls가 빈 ROLL은 기존 PROCEED 폴백 경로가 처리한다)
@@ -4159,7 +4167,8 @@ class GMCog(commands.Cog):
             try:
                 decision = json.loads(cleaned)
             except Exception as e:
-                print(f"[GM] JSON 파싱 실패: {e}\n응답 원문: {raw_text[:500]}")
+                core.logs.event("turn", "지시층위 JSON 파싱 실패", level="WARN", session=session, exc=e,
+                                data={"code": "DIRECTOR_JSON", "raw": raw_text})
                 if master_ch:
                     await master_ch.send("⚠️ 자동 지시층위 응답이 JSON 형식이 아닙니다. 이번 발언 스킵.")
                 return None
@@ -4499,7 +4508,8 @@ class GMCog(commands.Cog):
                 "ROLL":    "🎲 ROLL (주사위 판정)",
                 "PROCEED": "🟢 PROCEED (턴 진행)",
             }
-            print(f"[GM/{session.session_id}] post-roll action={action} :: {reasoning[:120]}")
+            core.logs.event("turn", f"굴림 후 판단 {action}", session=session,
+                            data={"stage": "post_roll", "action": action, "reasoning": reasoning})
             await m_send(
                 f"🤖 **[GM 판단 (굴림 후)]** {action_labels.get(action, action)}\n"
                 f"> {reasoning[:200]}"
@@ -4622,7 +4632,8 @@ class GMCog(commands.Cog):
                 if not _ok:
                     raise RuntimeError("AI 호출 실패")
         except Exception as e:
-            print(f"[GM] NARRATE 호출 실패: {type(e).__name__} - {e}")
+            core.logs.event("turn", "NARRATE 호출 실패", level="ERROR", session=session, exc=e,
+                            data={"code": "NARRATE_CALL"})
             if master_ch:
                 await master_ch.send(f"⚠️ GM NARRATE 호출 실패: {type(e).__name__}")
             return None
@@ -4766,7 +4777,8 @@ class GMCog(commands.Cog):
         narr = getattr(preparation, "narration", None) if preparation is not None else None
         full_text = getattr(narr, "text", "") or ""
         if not full_text:
-            print(f"[GM/{session.session_id}] 묘사층위 실패 — 턴 취소")
+            core.logs.event("turn", "묘사층위 출력 없음 — 턴 취소", level="ERROR", session=session,
+                            data={"code": "NARRATION_EMPTY"})
             core.write_error_log(session.session_id, "narration",
                                  RuntimeError("묘사 출력 없음"), 1)
             game_ch = self.bot.get_channel(session.game_ch_id)
@@ -5829,7 +5841,8 @@ class GMCog(commands.Cog):
         if result.get("has_violation"):
             detail   = result.get("violation_detail", "")
             corrected = result.get("corrected_instruction", instruction) or instruction
-            print(f"[GM/{session.session_id}] PROCEED 위반 감지: {detail[:120]}")
+            core.logs.event("turn", "PROCEED 위반 감지", level="WARN", session=session,
+                            data={"code": "PROCEED_VIOLATION", "detail": detail})
             if master_ch:
                 await master_ch.send(
                     f"⚠️ **[GM 검증]** proceed_instruction에 PC 자율성 침해 감지 — 자동 수정\n"
@@ -5995,7 +6008,8 @@ class GMCog(commands.Cog):
             try:
                 sim_data = json.loads(cleaned)
             except Exception as e:
-                print(f"[GM] 개연성 시뮬레이션 JSON 파싱 실패: {e}")
+                core.logs.event("turn", "개연성 시뮬레이션 JSON 파싱 실패", level="WARN", session=session, exc=e,
+                                data={"code": "SIMULATION_JSON"})
                 return None
 
         # 결과를 마스터에 알린다. 비용이 드는 호출인데 무엇을 얻었는지
@@ -6606,7 +6620,8 @@ class GMCog(commands.Cog):
             try:
                 plan = json.loads(cleaned)
             except Exception as e:
-                print(f"[GM] 서사 계획 JSON 파싱 실패: {e}\n원문: {raw_text[:400]}")
+                core.logs.event("turn", "서사 계획 JSON 파싱 실패", level="WARN", session=session, exc=e,
+                                data={"code": "PLAN_JSON", "raw": raw_text})
                 if master_ch:
                     await master_ch.send("⚠️ 서사 계획 JSON 파싱 실패. 기존 계획을 유지합니다.")
                 return None

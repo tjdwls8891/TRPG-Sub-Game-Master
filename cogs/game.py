@@ -658,6 +658,7 @@ class GameCog(commands.Cog):
                     _narr_op.mark_attempt()  # WP-02: 실제 provider 호출 1회 계수
                     with core.logs.call_context(session.session_id, "narration",
                                                 op=getattr(_narr_op, "operation", None),
+                                                op_id=getattr(_narr_op, "operation_id", None),
                                                 attempt=retry_count + 1):
                         return await asyncio.to_thread(
                             self.bot.genai_client.models.generate_content,

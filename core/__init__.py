@@ -235,6 +235,7 @@ from . import settlement  # WP-SETTLEMENT-01: immutable TurnSettlement + durable
 from . import ink_transactions  # WP-SETTLEMENT-01: exactly-once InkTransaction executor
 from . import commit_coordinator  # WP-D: authoritative commit / recovery / billing cutover
 from . import turn_history  # WP-E: selected committed-attempt history / rewind / rerender
+from . import turn_log  # P3: turn.summary (agent-readable per-attempt log line)
 from . import cache_lifecycle  # WP-F: cache lifecycle finance single owner
 from . import message_lifecycle  # WP-F: player-channel message lifecycle owner
 from . import interpretation_billing  # WP-F: cache-time interpretation billing (separate from cache window)

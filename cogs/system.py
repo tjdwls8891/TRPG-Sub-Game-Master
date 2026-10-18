@@ -1,5 +1,6 @@
 import asyncio
 import io
+import json
 import os
 import subprocess
 import zipfile
@@ -33,24 +34,126 @@ def _zip_entries(entries) -> bytes:
     return buf.getvalue()
 
 
+_LINE_EXT = (".jsonl", ".txt", ".log")          # 줄 경계로 나눌 수 있는 파일(P3 G7)
+_LOG_SCHEMA_DOC = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "docs", "LOG_SCHEMA.md")
+_MANIFEST_FIELDS = ("session_id", "scenario_id", "definition_revision", "world_lifecycle", "turn_count",
+                    "gm_turns_done", "cache_name", "cache_model", "total_ink_spent", "master_gender")
+
+
+def _split_lines(data: bytes, limit: int) -> list:
+    """줄 경계 조각(각 원본 ≤ limit). 한 줄이 limit보다 길면 그 줄만 단독 조각."""
+    chunks, cur = [], bytearray()
+    for line in data.splitlines(keepends=True):
+        if cur and len(cur) + len(line) > limit:
+            chunks.append(bytes(cur))
+            cur = bytearray()
+        cur += line
+    if cur:
+        chunks.append(bytes(cur))
+    return chunks
+
+
+def _iso(t) -> str | None:
+    if not t:
+        return None
+    return time.strftime("%Y-%m-%dT%H:%M:%S", time.gmtime(float(t) + 9 * 3600)) + "+09:00"
+
+
+def _jsonl(data: bytes) -> list:
+    out = []
+    for line in data.decode("utf-8", "replace").splitlines():
+        try:
+            out.append(json.loads(line))
+        except Exception:  # noqa: BLE001
+            pass
+    return out
+
+
+def build_manifest(rel_files: dict, entries: list, skipped: list, session_id: str) -> dict:
+    """묶음 자기 서술(P3 G6) — 에이전트가 파일 목록·세션 정체·시간 범위·선택 가지를 추측 없이 읽게 한다."""
+    m = {"manifest_version": 1, "log_schema": core.logs.LOG_SCHEMA_VERSION, "session_id": session_id,
+         "generated_at": _iso(time.time()), "tz": "Asia/Seoul (ISO는 +09:00, 각 줄 ts는 epoch 초)",
+         "packer": core.logs.code_revision(), "readme": f"{session_id}/_index/LOG_README.md"}
+    try:
+        d = json.loads(rel_files.get("data.json", b"{}") or b"{}")
+        m["session"] = {k: d.get(k) for k in _MANIFEST_FIELDS if k in d}
+        m["session"]["players"] = len(d.get("players") or {})
+    except Exception as e:  # noqa: BLE001
+        m["session"] = {"error": f"data.json 읽기 실패: {e}"}
+    metas = [r for r in _jsonl(rel_files.get("logs/domain.jsonl", b"")) if r.get("kind") == "session.meta"]
+    if metas:
+        m["last_session_meta"] = metas[-1].get("data")
+    lo = hi = None
+    for rel, data in rel_files.items():
+        if rel.startswith("logs/") and rel.endswith(".jsonl") and rel != "logs/blobs.jsonl":
+            for r in _jsonl(data):
+                t = r.get("ts")
+                if isinstance(t, (int, float)):
+                    lo, hi = (t if lo is None else min(lo, t)), (t if hi is None else max(hi, t))
+    m["time_range"] = {"first": _iso(lo), "last": _iso(hi)}
+    try:
+        hv = core.turn_history.HistoryView(_jsonl(rel_files.get("turn_history.jsonl", b"")))
+        m["selection"] = {"head_gm_turn": hv.head, "rewinds": len(hv.rewind_ops),
+                          "selected": {str(g): {"tx": e.get("transaction_id"), "logical_turn": e.get("logical_turn"),
+                                                "attempt": e.get("attempt")}
+                                       for g, e in sorted(hv.selected.items())},
+                          "unselected_tx": sorted(set(hv.all_attempts) - {e.get("transaction_id")
+                                                                          for e in hv.selected.values()})}
+    except Exception as e:  # noqa: BLE001
+        m["selection"] = {"error": f"turn_history 읽기 실패: {e}"}
+    files = {}
+    for arc, data, orig in entries:
+        f = files.setdefault(orig, {"path": orig, "size": len(rel_files[orig]), "parts": []})
+        if orig.endswith(_LINE_EXT):
+            f["lines"] = rel_files[orig].count(b"\n")
+        if arc != f"{session_id}/{orig}":
+            f["parts"].append(arc.split("/", 1)[1])
+    m["files"] = [{k: v for k, v in f.items() if v != []} for _k, f in sorted(files.items())]
+    m["excluded"] = [{"path": arc.split("/", 1)[1], "size": size} for arc, size in skipped]
+    return m
+
+
 def pack_session_dir(path: str, session_id: str, limit: int = HISTORY_PART_LIMIT):
     """sessions/{id}/ 전체를 zip 묶음 목록으로. 반환: ([(파일명, bytes)], [(상대경로, 원본 크기)] 한도 초과로 제외).
 
-    파일 단위로 순서대로 채우고 다음 파일이 한도를 넘기면 새 묶음을 연다. 압축해도 한 파일이 한도를 넘으면 제외한다.
+    파일 단위로 순서대로 채우고 다음 파일이 한도를 넘기면 새 묶음을 연다. 압축해도 한도를 넘는 줄 기반 파일
+    (.jsonl·.txt·.log)은 줄 경계 조각 `이름.partNNN.확장자`로 나눠 넣고(P3 G7), 그 밖의 파일만 제외한다.
+    첫 묶음 맨 앞에 `{id}/_index/manifest.json`·`LOG_README.md`(P3 G6)를 넣는다.
     """
-    files = []
+    rel_files = {}
     for root, _dirs, names in os.walk(path):
         for n in names:
             full = os.path.join(root, n)
             rel = os.path.relpath(full, path).replace(os.sep, "/")
             with open(full, "rb") as f:
-                files.append((f"{session_id}/{rel}", f.read()))
-    files.sort()
-    parts, skipped, cur, cur_size = [], [], [], 0
-    for arc, data in files:
-        size = len(_zip_entries([(arc, data)]))
-        if size > limit:
+                rel_files[rel] = f.read()
+    entries, skipped = [], []                       # entries: (arc, data, 원본 상대경로)
+    for rel in sorted(rel_files):
+        data, arc = rel_files[rel], f"{session_id}/{rel}"
+        if len(_zip_entries([(arc, data)])) <= limit:
+            entries.append((arc, data, rel))
+        elif rel.endswith(_LINE_EXT):
+            stem, ext = os.path.splitext(rel)
+            for i, chunk in enumerate(_split_lines(data, int(limit * 0.9)), 1):
+                entries.append((f"{session_id}/{stem}.part{i:03d}{ext}", chunk, rel))
+        else:
             skipped.append((arc, len(data)))
+    try:
+        manifest = json.dumps(build_manifest(rel_files, entries, skipped, session_id),
+                              ensure_ascii=False, indent=1).encode("utf-8")
+    except Exception as e:  # noqa: BLE001 — 묶음 전송을 막지 않는다
+        manifest = json.dumps({"error": f"manifest 생성 실패: {e}"}, ensure_ascii=False).encode("utf-8")
+    try:
+        with open(_LOG_SCHEMA_DOC, "rb") as f:
+            readme = f.read()
+    except OSError:
+        readme = b"docs/LOG_SCHEMA.md missing"
+    index = [(f"{session_id}/_index/LOG_README.md", readme), (f"{session_id}/_index/manifest.json", manifest)]
+    parts, cur, cur_size = [], [], 0
+    for arc, data in index + [(a, d) for a, d, _r in entries]:
+        size = len(_zip_entries([(arc, data)]))
+        if size > limit and not arc.startswith(f"{session_id}/_index/"):
+            skipped.append((arc, len(data)))      # 단일 줄이 한도보다 긴 조각(실측상 없음)
             continue
         if cur and cur_size + size > limit:
             parts.append(cur)
@@ -60,9 +163,9 @@ def pack_session_dir(path: str, session_id: str, limit: int = HISTORY_PART_LIMIT
     if cur:
         parts.append(cur)
     out = []
-    for i, entries in enumerate(parts, 1):
+    for i, ents in enumerate(parts, 1):
         suffix = f"_part{i}of{len(parts)}" if len(parts) > 1 else ""
-        out.append((f"session_{session_id}{suffix}.zip", _zip_entries(entries)))
+        out.append((f"session_{session_id}{suffix}.zip", _zip_entries(ents)))
     return out, skipped
 
 

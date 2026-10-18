@@ -185,6 +185,8 @@ def _log_cost_event(event) -> None:
         md = event.metadata or {}
         _logs.domain("cost.event", {
             "event_id": event.event_id, "op": event.operation, "model": event.model,
+            "operation_id": str(event.idempotency_key or "").split(":attempt:")[0] or None,   # P3 G1: calls.op_id
+            "idempotency_key": event.idempotency_key,
             "tx": event.transaction_id, "turn": event.logical_turn, "attempt": event.provider_attempt,
             "actor": event.actor_user_id, "actor_kind": event.actor_kind, "billing_hint": event.billing_hint,
             "in": event.input_tokens, "cached": event.cached_input_tokens,

@@ -1280,8 +1280,32 @@ _abort_rerender_impl = abort_rerender
 _settle_rerender_impl = settle_rerender
 
 
+_select_committed_impl = select_committed
+
+
+def select_committed(session, plan) -> dict:  # noqa: F811
+    res = _select_committed_impl(session, plan)
+    if not res.get("duplicate"):
+        # P3 G4: 선택 인덱스 변화 — 이 gm_turn의 현재 이야기 시도와 버려진 시도
+        sup = res.get("superseded") or {}
+        _log_history("history.selection", session, {
+            "reason": "SELECT", "gm_turn": plan.gm_turn, "tx": plan.transaction_id, "attempt": plan.attempt,
+            "superseded_tx": sup.get("transaction_id"), "record": res.get("record")})
+    return res
+
+
 async def rewind(bot, session, target_gm_turn: int) -> dict:  # noqa: F811
+    _before = None
+    try:
+        _before = dict(view(session.session_id).selected)
+    except Exception:  # noqa: BLE001
+        pass
     res = await _rewind_impl(bot, session, target_gm_turn)
+    if res.get("ok") and _before is not None:
+        _log_history("history.selection", session, {
+            "reason": "REWIND", "head_after": target_gm_turn,
+            "deselected": {str(g): e.get("transaction_id") for g, e in sorted(_before.items())
+                           if g > target_gm_turn}})
     _log_history("history.rewind", session, {"target_gm_turn": target_gm_turn, "ok": res.get("ok"),
                                              "reason": res.get("reason"),
                                              "removed_turns": res.get("removed_turns")})
