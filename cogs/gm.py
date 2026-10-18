@@ -4,6 +4,7 @@ import json
 import copy
 import random
 import asyncio
+import dataclasses
 from types import SimpleNamespace
 import discord
 from discord.ext import commands
@@ -424,7 +425,7 @@ def _build_judgment_user_prompt(session, player_message: str, roll_results: list
 
 
 def _build_logic_user_prompt(session, player_message: str, roll_results: list,
-                              sim_result: dict | None = None, world_turn=None) -> str:
+                              sim_result: dict | None = None, world_turn=None, action: str | None = None) -> str:
     """
     지시층위 호출용 사용자 프롬프트 조립.
 
@@ -632,6 +633,11 @@ def _build_logic_user_prompt(session, player_message: str, roll_results: list,
         )
     else:
         world_tl_block = ""
+    if world_turn is not None:
+        # P3(G2): DYNAMIC — 행동 시작 전(정본)과 이번 턴 진행 후(묘사층위와 같은 투영)를 구별한다.
+        #   NARRATE는 실행하지 않을 투영 없이 정본 하나만(G1).
+        world_tl_block = core.turn_world.instruction_world_state_block(
+            world_turn, session, world_tl, hold=(action or "").upper() == "NARRATE")
 
     # 정보 인지 원장 블록 (지속형): 비공개·플롯 정보별 '누가 아는가'의 확립된 기록.
     # 지시층위가 info_access 필드로 갱신하며, 적·NPC가 도달 경로 없는 정보로 행동하지 않도록 하는 진실 기준.
@@ -837,7 +843,7 @@ def _build_logic_user_prompt(session, player_message: str, roll_results: list,
 [플레이어 신규 발언]
 {player_message}
 
-위 컨텍스트를 분석하여 다음 단일 action(ASK / NARRATE / ROLL / PROCEED)을 결정하고 JSON 스키마에 맞춰 응답하십시오."""
+위 컨텍스트를 분석하여, 맨 앞 [확정된 진행 유형]에 필요한 지시문을 JSON 스키마에 맞춰 작성하십시오(진행 유형은 바꾸지 않습니다)."""
 
 
 # ── WP-C 배리어 결과 ──
@@ -2223,12 +2229,8 @@ class GMCog(commands.Cog):
             _raw, transaction_id=prep.transaction_id,
             narrative_seed=getattr(session, "narrative_seed", None) or session.session_id,
             replan=wt.replan,
-            face_info_ids=core.speaker_card.identity_info_ids(
-                core.speaker_card.config_of(session.scenario_data), wt.identified_faces, "face")
-            if core.speaker_card.card_world(session) else (),
-            name_info_ids=core.speaker_card.identity_info_ids(
-                core.speaker_card.config_of(session.scenario_data), wt.identified_names, "name")
-            if core.speaker_card.card_world(session) else (),
+            face_info_ids=self._revealed_identity_ids(session, prep, wt.identified_faces, "face"),
+            name_info_ids=self._revealed_identity_ids(session, prep, wt.identified_names, "name"),
             discovery=wt.discovery, read_info_ids=item_plan.read_info_ids,
             pending=core.turn_world.pending_signals(session), item_facts=item_plan.facts)
         wt.result = res
@@ -2258,6 +2260,15 @@ class GMCog(commands.Cog):
             # P1(#1): 후속 묘사 없음 — 본문이 전하지 못한 관찰 신호는 커밋과 함께 전달 대기로 남는다(유실 금지)
             self._world_diagnostic(session, prep, "SIGNALS_PENDING_DELIVERY",
                                    {"signals": [[r["signal_id"], r["instance_id"]] for r in res.pending]})
+
+    @staticmethod
+    def _revealed_identity_ids(session, prep, actor_ids, kind) -> tuple:
+        """P3 G3: 식별 후보 중 본문에서 실제 공개가 확인된 InfoId만 정본 인지로 — 이미 아는 것은 그대로(멱등)."""
+        if not core.speaker_card.card_world(session):
+            return ()
+        ids = core.speaker_card.identity_info_ids(core.speaker_card.config_of(session.scenario_data), actor_ids, kind)
+        shown = set(getattr(prep, "identity_reveals", None) or {})
+        return tuple(i for i in ids if i in shown)
 
     def _implied_discovery_take(self, session, transaction_id, ctx, wt, manifest, raw, plan):
         """A1 보정 근거 조립 — 게이트가 검증한 선언 대상(기존 발견 D키 또는 이번 턴 새 발견)만 후보."""
@@ -3952,13 +3963,18 @@ class GMCog(commands.Cog):
         core.turn_transaction.mark_transaction_status(
             session, transaction_id, core.turn_transaction.TurnStatus.INSTRUCTING)
         _wt = self._world_turn(session, transaction_id)
-        if _wt is not None and _wt.plan is None:
-            # 지시층위도 이번 턴 정본 계획(장소 고정 포함)을 본다 — ROLL 뒤 PROCEED·NARRATE 경로(순수 계획)
+        _narrate = (action or "").upper() == "NARRATE"
+        if _wt is not None and _wt.plan is None and not _narrate:
+            # 지시층위도 이번 턴 정본 계획(장소 고정 포함)을 본다 — ROLL 뒤 PROCEED 경로(순수 계획)
             self._ensure_world_plan(session, _wt, transaction_id)
+        # P3(G1): NARRATE는 세계를 커밋하지 않는다 — 계획·투영·필수 서사·전달 대기 없이 정본 기준 뷰로 지시한다.
+        _wv = dataclasses.replace(_wt, plan=None) if (_wt is not None and _narrate) else _wt
         user_prompt = _build_logic_user_prompt(session, player_message, roll_results,
-                                                sim_result=sim_result, world_turn=_wt)
+                                                sim_result=sim_result, world_turn=_wv, action=action)
         _tie_schema = None
-        if _wt is not None and _wt.plan is not None:
+        if _wv is not None and _narrate:
+            user_prompt += core.turn_world.narrate_hold_block(_wv, session)
+        elif _wt is not None and _wt.plan is not None:
             user_prompt += core.turn_world.narration_overlay(_wt.plan, _wt.ctx.definition, _wt.ctx, world=session)
             user_prompt += core.turn_world.pending_delivery_block(_wt.ctx, session)
             # P1(D2): 남은 자유 경합(같은 분 서사 선후)은 묘사 전에 지시층위가 고른다 — 무효면 코드 결정
@@ -3978,7 +3994,7 @@ class GMCog(commands.Cog):
         _card_world = core.speaker_card.card_world(session) if _wt is not None else None
         _id_manifests = {}
         for _kind in ("face", "name"):
-            _m = core.speaker_card.identity_manifest(_card_world, _wt, session, _kind) if _card_world else {}
+            _m = core.speaker_card.identity_manifest(_card_world, _wv, session, _kind) if _card_world else {}
             if _m:
                 _id_manifests[_kind] = _m
                 user_prompt += core.speaker_card.identity_block(_m, _card_world.definition, session, _kind)
@@ -4542,6 +4558,10 @@ class GMCog(commands.Cog):
         current_turn_str = "\n".join(session.current_turn_logs) if session.current_turn_logs else "(없음)"
 
         narrate_prompt = build_narrate_prompt(recent_str, current_turn_str, narrate_instruction)
+        _nwt = self._world_turn(session, transaction_id)
+        if _nwt is not None:
+            # P3(G1): 지시층위와 같은 비진행 경계 — 정본 시각·장소에서 짧게 답한다(세계 진행 없음)
+            narrate_prompt += "\n" + core.turn_world.narrate_hold_block(_nwt, session)
 
 
         # NOTE: max_output_tokens를 설정하지 않음 — PROCEED(_execute_proceed)와 동일한 방침.
@@ -5587,6 +5607,7 @@ class GMCog(commands.Cog):
         _ext_schema = core.EXTRACTION_RESPONSE_SCHEMA
         _obs_block = ""
         _var_manifest = {}
+        _rev_manifest = {}
         if _wt is not None:
             # H05-B: 관찰 후보(장면 행위자가 아는 정보·장면 신호·선후 선택지)만 — 숨은 진실 미포함.
             # v7.14: 이번 턴 발견(게이트 승인·발견 굴림 성공)만 DNEW로 — 판단 기록에서 고정
@@ -5609,6 +5630,12 @@ class GMCog(commands.Cog):
             if _var_manifest:
                 _ext_schema["properties"]["speaker_variations"] = core.speaker_card.variation_schema(_var_manifest)
                 _obs_block += core.speaker_card.variation_block(_var_manifest, _cw.definition, session)
+            # P3 G3: 이번 턴 이름·얼굴 식별 후보의 실제 공개 문장(같은 추출 호출 — 새 provider 호출 0)
+            _rev_manifest = core.speaker_card.reveal_manifest(_cw, _wt, session) if _cw else {}
+            if _rev_manifest:
+                _ext_schema["properties"][core.speaker_card.REVEAL_FIELD] = \
+                    core.speaker_card.reveal_schema(_rev_manifest)
+                _obs_block += core.speaker_card.reveal_block(_rev_manifest, _cw.definition, session)
             # 장소·시간 권위는 정본 세계다 — 레거시 요약 대신 정본 미러를 보여 준다.
             _tl = core.turn_world.mirror_timeline(prev_tl, _wt.ctx.definition,
                                                   _wt.plan.projected_world if _wt.plan is not None
@@ -5717,6 +5744,11 @@ class GMCog(commands.Cog):
         if _wt is not None and _var_manifest:
             preparation.card_variations = core.speaker_card.parse_variations(
                 _var_manifest, result.get("speaker_variations"))
+        if _wt is not None and _rev_manifest:
+            _narr = getattr(preparation, "narration", None)
+            preparation.identity_reveals = core.speaker_card.parse_reveals(
+                _rev_manifest, result.get(core.speaker_card.REVEAL_FIELD),
+                getattr(_narr, "paragraphs", ()) or (), _cw.definition, session)
         return plan
 
     async def _verify_proceed_instruction(self, session, instruction: str,

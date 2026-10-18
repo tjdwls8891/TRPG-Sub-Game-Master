@@ -104,6 +104,56 @@ def narration_clock_block(wt, session) -> str:
             "(경과일 등 다른 표기를 쓰더라도 이 날짜와 어긋나지 않게).\n")
 
 
+NARRATE_HOLD_TEXT = ("· 이번 응답(NARRATE)은 세계 시계·사건을 진행시키지 않는다. 위 정본 시각·장소에서 질문에 답하거나 "
+                     "이미 있는 것을 짧게 설명·반응하는 데 그친다. 시간이 흐르거나 새 사건이 일어난 것처럼 지시·서술하지 말 것.")
+
+
+def narrate_hold_block(wt, session) -> str:
+    """NARRATE 경계(지시층위·경량 묘사 공용) — 정본 시각·장소 + 비진행 문구. 계획·투영·전달 대기는 싣지 않는다."""
+    D = wt.ctx.definition
+    minute = (getattr(session, "world_clock", {}) or {}).get("minute_index")
+    cv = clock_view(D, minute)
+    lines = ["\n[이번 응답 — 세계 진행 없음(정본 기준)]"]
+    if cv:
+        lines.append(f"· 현재 시각: {clock_text(cv)}")
+    pl = _sp.placement_of(session, wt.ctx.lead_pc) or {}
+    if pl.get("kind") == _sp.AT_PLACE:
+        lines.append(f"· PC의 현재 장소: {_pd.display_for(D, session, wt.ctx.lead_pc, pl['place_id'], require_known=False)}")
+    lines.append(NARRATE_HOLD_TEXT)
+    return "\n".join(lines) + "\n"
+
+
+def _state_lines(D, world, pc, prev_tl) -> list:
+    tl = mirror_timeline(prev_tl, D, world, pc)
+    minute = ((world.domain("world_clock") if isinstance(world, _wm.ProjectedWorld)
+               else getattr(world, "world_clock", {})) or {}).get("minute_index")
+    cv = clock_view(D, minute)
+    return [f"날짜·시각: {clock_text(cv)}" if cv else f"날짜: {tl.get('current_date', '(미확인)')}",
+            f"위치: {tl.get('current_location_display') or tl.get('current_location', '(미확인)')}",
+            f"시간대: {tl.get('time_of_day', '(미확인)')}",
+            f"세력/지역 컨텍스트: {tl.get('faction_context', '(미확인)')}"]
+
+
+def instruction_world_state_block(wt, session, prev_tl, *, hold: bool) -> str:
+    """지시층위용 세계 상태 — 정본(행동 시작 전)과 이번 턴 진행 후(미커밋 투영)를 구별해 준다(P3 G2).
+
+    진행 후 상태는 묘사층위가 받는 투영(prep.world_prompt_timeline)과 같은 계획에서 만든다. NARRATE(hold)나 계획이
+    없으면 정본 하나만 '현재'로 준다 — 실행하지 않을 투영을 '현재'로 소개하지 않는다.
+    """
+    D, pc = wt.ctx.definition, wt.ctx.lead_pc
+    plan = None if hold else wt.plan
+    planned = plan is not None and plan.status == _pw.PLAN_PLANNED and plan.projected_world is not None
+    before = _state_lines(D, session, pc, prev_tl)
+    if not planned:
+        title = "현재 세계 상태 — 정본" + (" · 이번 응답은 진행 없음" if hold else "")
+        return f"\n[{title}]\n" + "\n".join(before) + "\n"
+    after = _state_lines(D, plan.projected_world, pc, prev_tl)
+    return ("\n[세계 상태 — 행동 시작 전(정본)]\n" + "\n".join(before)
+            + "\n[세계 상태 — 이번 턴 진행 후(미커밋 투영 · 묘사층위와 같은 기준) — 이번 장면의 '현재'는 이 상태]\n"
+            + "\n".join(after)
+            + "\n※ 이번 장면은 시작 전 상태에서 출발해 아래 [세계 진행] 결과를 거쳐 진행 후 상태로 끝난다.\n")
+
+
 def derived_player_faction(world):
     """H07-C 호환 뷰: 사건 결과에서 파생한 PC 소속(읽기 전용). RESOLVED 사건의 지역 상태 grant_faction 중
     가장 최근(국면 진입 분·인스턴스 id 순). 없으면 None(기존 표시 유지). 새 병렬 권위가 아니라 사건의 파생이다."""

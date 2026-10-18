@@ -895,7 +895,8 @@ class GameCog(commands.Cog):
                     dialogue = core.parse_dialogue_paragraph(paragraph)
                     if dialogue:
                         speaker, content = dialogue
-                        _dctx = core.speaker_card.display_context(session, speaker)
+                        # P3 G3: 이번 본문에서 이 문단보다 앞서 실제로 공개된 이름·얼굴만 더한다(표시 전용)
+                        _dctx = await core.speaker_card.turn_display_context(session, speaker, preparation, i)
                         if _dctx is None:
                             await core.maybe_send_speaker_image(game_channel, session, speaker, collector=media_collector)
                             formatted = core.format_dialogue_block(speaker, content)
@@ -1225,6 +1226,10 @@ class GameCog(commands.Cog):
             total_in += in_tok
             total_out += out_tok
 
+            # P3 G3: 이 문단보다 앞서 실제로 공개된 이름·얼굴이 있으면 헤더·카드를 그 기준으로 다시 정한다(표시 전용)
+            if is_dialogue and dctx is not None:
+                dctx = await core.speaker_card.turn_display_context(session, speaker, preparation, i)
+                display = core.format_dialogue_block(dctx.header, core.parse_dialogue_paragraph(raw)[1])
             # SVG 카드: 추출 대기·카드 준비를 음성 적재보다 먼저(음성·텍스트 동기 유지). 임계 시간을 넘으면
             # 로딩 이미지를 먼저 보내고 같은 메시지에서 교체한다(P2 #6). 실패는 오류 이미지.
             if is_dialogue and dctx is not None:

@@ -162,12 +162,15 @@ def _logged(session, ctx: DisplayContext) -> DisplayContext:
     return ctx
 
 
-def display_context(session, speaker: str) -> DisplayContext | None:
-    """SVG 카드 세션이면 표시 컨텍스트, 아니면 None(호출자는 기존 PNG·실명 헤더 경로를 그대로 쓴다)."""
+def display_context(session, speaker: str, *, extra_known=frozenset()) -> DisplayContext | None:
+    """SVG 카드 세션이면 표시 컨텍스트, 아니면 None(호출자는 기존 PNG·실명 헤더 경로를 그대로 쓴다).
+
+    extra_known: 이번 본문에서 이 대사보다 앞서 실제로 공개된 이름·얼굴 InfoId(표시 전용 · 정본 아님 — P3 G3).
+    """
     world = card_world(session)
     if world is None:
         return None
-    known = known_infos(session, world.pc_actor)
+    known = known_infos(session, world.pc_actor) | frozenset(extra_known or ())
     if speaker in (world.config.get("plain_speakers") or ()):
         return _logged(session, DisplayContext(speaker, SPEAKER_PLAIN, None, speaker, None, known, world))
     status, aid = resolve_speaker(world, session, speaker)
@@ -871,6 +874,103 @@ def identity_info_ids(config: dict, actor_ids, kind: str) -> tuple:
         if isinstance(iid, str) and iid:
             out.append(iid)
     return tuple(sorted(set(out)))
+
+
+# ── 같은 턴 실제 공개(P3 G3) ──
+# 지시층위 식별(identified_names/faces)은 '이번 턴에 드러나게 하라'는 후보일 뿐이다. 실제 공개 = 같은 추출 호출이
+# 본문에서 그 공개 문장을 그대로 인용(identity_reveals)하고, 그 인용이 본문 문단에서 실제로 발견될 때만이다(이름은
+# 인용에 그 이름이 있어야 한다). 공개 문단보다 뒤의 대사 헤더·카드만 그 InfoId를 임시로 안다(표시 전용).
+# 정본 인지는 같은 근거로 확인된 것만 기존 관찰 → READY → COMMITTED 경로가 반영한다.
+REVEAL_FIELD = "identity_reveals"
+REVEAL_MIN_QUOTE = 4
+
+
+def reveal_manifest(world: CardWorld, wt, session) -> dict:
+    """{transient_key: (ActorId, kind, InfoId)} — 이번 턴 식별 후보 중 PC가 아직 모르는 이름·얼굴."""
+    known = known_infos(session, world.pc_actor)
+    actors = world.config.get("actors") or {}
+    out = {}
+    for kind, ids in (("name", getattr(wt, "identified_names", ())), ("face", getattr(wt, "identified_faces", ()))):
+        for aid in ids or ():
+            iid = ((actors.get(aid) or {}).get("knowledge") or {}).get(kind)
+            if isinstance(iid, str) and iid and iid not in known:
+                out[f"R{len(out) + 1}"] = (aid, kind, iid)
+    return out
+
+
+def reveal_schema(manifest: dict) -> dict:
+    return {"type": "array", "description": "본문에서 이름·얼굴이 실제로 드러난 문장(본문 그대로 인용). 없으면 빈 배열.",
+            "items": {"type": "object",
+                      "properties": {"key": {"type": "string", "enum": list(manifest)},
+                                     "quote": {"type": "string"}},
+                      "required": ["key", "quote"]}}
+
+
+def reveal_block(manifest: dict, definition: dict, session) -> str:
+    from . import actors as _actors
+    if not manifest:
+        return ""
+    lines = [f"\n[이름·얼굴 실제 공개 — {REVEAL_FIELD}]",
+             "본문에서 PC가 그 인물의 이름을 실제로 알게 된 문장(본인이 밝히거나, 다른 인물이 그 인물을 그 이름으로 분명히 "
+             "소개·호명) 또는 그 인물의 얼굴·모습을 직접 본 문장이 있으면 키와 그 문장의 연속 구절(20~40자)을 본문 그대로 "
+             "quote에 옮긴다. 소문·추측·부정·다른 인물에 대한 언급은 넣지 말 것. 없으면 빈 배열."]
+    for k, (aid, kind, _iid) in manifest.items():
+        lines.append(f"- {k}: {_actors.display_name(definition, session, aid) or aid} — {'이름' if kind == 'name' else '얼굴'}")
+    return "\n".join(lines) + "\n"
+
+
+def _squash(text) -> str:
+    return re.sub(r"\s+", "", str(text or ""))
+
+
+def parse_reveals(manifest: dict, raw, paragraphs, definition=None, session=None) -> dict:
+    """{InfoId: 공개 문단 번호} — 인용이 실제 본문 문단에서 발견된 것만(보수적). 못 찾으면 공개 아님."""
+    from . import actors as _actors
+    if not isinstance(raw, list) or not manifest:
+        return {}
+    paras = [_squash(p) for p in paragraphs or ()]
+    out = {}
+    for row in raw:
+        if not isinstance(row, dict) or row.get("key") not in manifest:
+            continue
+        aid, kind, iid = manifest[row["key"]]
+        q = _squash(row.get("quote"))
+        if len(q) < REVEAL_MIN_QUOTE:
+            continue
+        if kind == "name":
+            nm = _squash(_actors.display_name(definition or {}, session, aid) if definition is not None else "")
+            if not nm or nm not in q:
+                continue                                  # 이름 공개 근거에 그 이름이 없다 — 공개로 보지 않는다
+        idx = next((i for i, p in enumerate(paras) if q in p), None)
+        if idx is not None:
+            out[iid] = min(out.get(iid, idx), idx)
+    return out
+
+
+async def turn_display_context(session, speaker: str, preparation=None, paragraph_index: int = 0):
+    """대사 문단 하나의 표시 컨텍스트 — 이번 본문에서 이 문단보다 앞서 실제로 공개된 것만 더한다.
+
+    이 화자에게 미확인 식별 후보가 있을 때만 이번 턴 추출을 기다린다(바리에이션 대기와 같은 지점). 추출 실패·
+    인용 불일치면 공개 없음(??? 유지).
+    """
+    ctx = display_context(session, speaker)
+    wt = getattr(preparation, "world_turn", None) if preparation is not None else None
+    if ctx is None or wt is None or ctx.actor_id is None or ctx.card is None:
+        return ctx
+    know = ctx.card.get("knowledge") or {}
+    pending = [know.get(kind) for kind, ids in (("name", wt.identified_names), ("face", wt.identified_faces))
+               if ctx.actor_id in (ids or ()) and know.get(kind) and know.get(kind) not in ctx.known]
+    if not pending:
+        return ctx
+    fut = preparation.task_future("extraction") if hasattr(preparation, "task_future") else None
+    if fut is not None:
+        try:
+            await asyncio.shield(fut)
+        except Exception:
+            pass
+    reveals = getattr(preparation, "identity_reveals", None) or {}
+    extra = frozenset(iid for iid in pending if iid in reveals and reveals[iid] < paragraph_index)
+    return display_context(session, speaker, extra_known=extra) if extra else ctx
 
 
 # 얼굴 식별(기존 호출 이름 유지)

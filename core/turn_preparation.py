@@ -1022,6 +1022,7 @@ class TurnPreparation:
         self.world_quiescence = None             # H03: BaseQuiescenceReport(READY 증명)
         self.world_turn = None                   # H05: core.turn_world.WorldTurn(DYNAMIC 세션만)
         self.card_variations = None              # SVG 카드: 추출층위가 고른 {ActorId: variation}(턴 로컬)
+        self.identity_reveals = None             # P3 G3: 본문에서 실제 공개된 이름·얼굴 {InfoId: 문단 번호}(턴 로컬)
         self.world_observation_raw = None        # H05: 추출의 world_observation(원본 — 처리 전)
 
     # ── 정체성 ──
