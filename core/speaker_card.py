@@ -640,7 +640,7 @@ async def prepare_card(session, ctx: DisplayContext | None, preparation=None):
 # 렌더가 임계 시간 안에 끝나면 카드만 보낸다(로딩 이미지 없음). 넘으면 공용 로딩 이미지를 먼저 보내고 대사를 이어 가며,
 # 렌더가 끝나면 같은 메시지의 첨부를 카드로 교체한다(render_pending — 마스터 슬롯 UNPRODUCED와 다른 상태).
 # 렌더 실패·제한 시간 초과는 공용 오류 이미지(텍스트 자동 대체 없음) + 구조 로그.
-# 임계값 근거: 이 환경 실측 — 상태판 SVG 0.4~1.1초, 원본 카드 템플릿 13~17초(handoff/P2_IMPLEMENTATION_REPORT.md).
+# 임계값 근거: 이 환경 실측 — 상태판 SVG 0.4~1.1초, 원본 카드 템플릿 13~17초.
 def loading_threshold_sec() -> float:
     try:
         return max(0.0, float(os.environ.get("SVG_LOADING_THRESHOLD_SEC", "1.5")))
