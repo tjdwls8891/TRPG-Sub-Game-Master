@@ -60,14 +60,16 @@ async def test_A4_narrate_does_not_touch_pending_delivery(drig):
     r = drig
     _arm_alert(r)
     r.prov.routes["extraction"] = _expose(represent=False)
-    await turn(r, "한동안 강지수와 이야기한다")                          # 미표현 → 전달 대기 1건
+    await turn(r, "한동안 강지수와 이야기한다")
+    # v7.21.1: 계획 신호는 이월하지 않으므로 대기는 묘사 후 보충 진행 행으로 둔다(정본 대기 1건)
+    r.sess.world_pending_signals = [{"signal_id": "late", "instance_id": "evt_x", "cue": CUE, "at_minute": None,
+                                     "scene_place": None, "source_tx": "t0", "exposes": []}]
     (before,) = [dict(x) for x in r.sess.world_pending_signals]
     r.prov.routes["judgment"] = judgment(None, action="NARRATE", action_minutes=0)
     r.prov.routes["logic"] = _narrate_logic()
     await turn(r, "지금 몇 시쯤이지?")
     assert "아직 전하지 못한 일" not in r.prov.prompts["logic"][-1][0]
-    assert [dict(x) for x in r.sess.world_pending_signals] == [before]          # 소모·횟수 변화 없음
-    assert TW.MAX_PENDING_CARRY == 3
+    assert [dict(x) for x in r.sess.world_pending_signals] == [before]          # 소모 없음
 
 
 # ── G2 · 지시층위 세계 시점 ──────────────────────────────────────

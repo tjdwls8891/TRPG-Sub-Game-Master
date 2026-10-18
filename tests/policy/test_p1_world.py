@@ -4,7 +4,7 @@
   · D1: 행동 소요 시간(action_minutes) — 판단 제안을 코드가 검증(상한·정수·미제시는 시간 없음), 의미 기록 재현.
   · W5: 묘사 후 보충 진행이 묘사 전 계획과 같은 관찰자 문맥(소지품·능력치·지급)을 쓴다 — 판정 불가로 떨어지지 않는다.
   · W8: PC 인지 조건 사건(합성 — 영도 저작 0건과 무관하게 엔진 수준 검증) — 묘사 후 인지로 성립한 가시 사건은
-        유실되지 않고 전달 대기(pending)로 남는다.
+        유실되지 않고 전달 대기(pending)로 남는다(v7.21.1: 다음 본문 1회).
   · D4: 이번 턴 지급·사용 사실은 같은 턴에 평가되고 다음 턴에 다시 평가되지 않는다(이중 반응 금지).
 """
 from __future__ import annotations
@@ -85,12 +85,12 @@ def test_pc_awareness_event_after_narration_is_kept_pending_not_lost():
     res = _observe(s, p, {"info_exposed": ["X1"]})
     assert res.status == TW.TW_READY
     (pend,) = res.pending                                                # 같은 분 보충 진행 → 본문 밖 가시 사건
-    assert pend["signal_id"] == "door_creak" and pend["carried"] == 0
+    assert pend["signal_id"] == "door_creak" and "carried" not in pend   # v7.21.1: 횟수 없음(1회 전달)
     assert any(o.op_type == "EVENT_INSTANCE_CREATE" or "EVENT" in o.op_type for o in res.ops)
-    # 표현이 확인된 신호는 대기에 남지 않는다(같은 키를 추출이 지목)
+    # 이번 본문에 이미 준 대기(같은 키)는 다시 남지 않는다 — 표현 판정과 무관(재이월 없음)
     m = TW.ObservationManifest(infos=EXPOSE.infos, signals=(("S1", ("door_creak", pend["instance_id"]), "x"),))
-    res2 = TW.process_observation(ctx_of(s), s, p, m, {"info_exposed": ["X1"], "represented_signals": ["S1"]},
-                                  transaction_id="tx-p1", narrative_seed="seed")
+    res2 = TW.process_observation(ctx_of(s), s, p, m, {"info_exposed": ["X1"]},
+                                  transaction_id="tx-p1", narrative_seed="seed", pending=[pend])
     assert res2.pending == []
 
 

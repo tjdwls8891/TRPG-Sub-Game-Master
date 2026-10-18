@@ -12,8 +12,8 @@
 #     장면 밖 충돌은 H04가 이미 WORLD_PROJECTION_CONFLICT로 끝낸다(선택지로 보내지 않는다).
 #   · 보충 진행(묘사 후 인지·아이템 사실의 같은 분 평가)은 묘사 전 계획과 같은 관찰자 문맥을 쓴다.
 #     결정적 충돌은 재시도 사유가 아니다(provider 재호출·RETRY_PENDING 없음).
-#   · P1(#1): 후속 묘사 없음. 본문이 표현하지 못한 관찰 신호(필수 서사 누락·보충 진행 결과)는 버리지 않고
-#     world_pending_signals(되감기 대상 정본)에 남겨 다음 본문이 '그동안' 일어난 일로 전한다.
+#   · P1(#1): 후속 묘사 없음. v7.21.1: 묘사 후 보충 진행이 처음 만든 관찰 신호만 world_pending_signals(되감기 대상
+#     정본)에 남겨 다음 커밋되는 소설형 본문 1회가 '그사이' 일로 전한다. 묘사 전 계획 신호는 이월하지 않는다.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
@@ -36,7 +36,7 @@ TW_TIE_UNRESOLVED = "TIE_UNRESOLVED"   # 묘사 선후가 모호·무효 — REA
 TW_CONFLICT = "CONFLICT"               # WORLD_PROJECTION_CONFLICT — 결정적, 재시도 없음
 
 # P1 — 본문 전달 대기 필드 world_pending_signals(단일 출처 core.world_state.DELIVERY_FIELDS)
-MAX_PENDING_CARRY = 3                  # 같은 신호를 본문이 거듭 빠뜨리면 이 횟수 뒤 진단과 함께 은퇴(무한 대기 방지)
+#   v7.21.1: 묘사 후 보충 진행 신호만, 다음 커밋된 PROCEED 본문 1회(재이월·횟수·은퇴 없음)
 
 
 # ══════════════════════════════════════════════════════════════
@@ -333,7 +333,12 @@ def pending_delivery_block(ctx, session) -> str:
     cal = (ctx.definition if ctx is not None else {}) or {}
     for r in rows:
         cv = clock_view(cal, r.get("at_minute")) if r.get("at_minute") is not None else {}
-        lines.append(f"· {r['cue']}" + (f" (작중 {clock_text(cv)})" if cv else ""))
+        where = []
+        if cv:
+            where.append(f"작중 {clock_text(cv)}")
+        if r.get("scene_place") and ctx is not None:               # 발생 장소 — 지금 장소의 일처럼 쓰지 않게(v7.21.1)
+            where.append(f"장소: {_pd.display_for(cal, session, ctx.lead_pc, r['scene_place'], require_known=False)}")
+        lines.append(f"· {r['cue']}" + (f" ({' · '.join(where)})" if where else ""))
     return "\n".join(lines) + "\n"
 
 
@@ -891,6 +896,7 @@ def build_observation_manifest(definition: dict, ctx, plan, base_world, *, disco
           (summary)이 있는 것. 명제 전문·숨은 정보로 대체하지 않는다. 같은 장면 NPC가 내용을 안다는
           사실만으로는 후보가 아니다(노출 계획 없음 = 후보 없음).
           H07: 본 묘사에 준 관찰 신호의 exposes(저작 정보 — summary 필수)도 후보다(신호 = 노출 계획).
+          v7.21.1: 함께 준 전달 대기 신호의 exposes도 같은 조건으로 후보다(옛 행은 exposes 없음 → 후보 없음).
     신호: 본 묘사에 실제로 준 관찰 신호만(P1: 이번 계획 신호 + 지난 본문이 전하지 못한 전달 대기 신호).
           ACTIVE 사건의 미래 EMIT_SIGNAL은 나열하지 않는다. 추출이 표시한 신호가 필수 서사의 표현 근거다.
     시간: P1(D1) 경과는 묘사 전에 코드가 정한다 — 추출 추가 시간은 받지 않는다.
@@ -914,9 +920,12 @@ def build_observation_manifest(definition: dict, ctx, plan, base_world, *, disco
             continue
         cand[iid] = summary
     # H07: 이번 본 묘사에 준 관찰 신호가 노출할 수 있는 정보(저작 정의의 공개 안전 summary만)
-    if planned:
+    # v7.21.1: 이번 본문에 함께 준 전달 대기 신호의 exposes도 같은 조건으로 후보(인지는 추출 노출 확인 때만)
+    exposing = list(observable_signals(plan.signals)) if planned else []
+    exposing += [r for r in pending or () if isinstance(r, dict) and r.get("cue")]
+    if exposing:
         istate = world.domain("information_state") or {}
-        for s in observable_signals(plan.signals):
+        for s in exposing:
             for iid in s.get("exposes") or ():
                 rec = _info.resolve_definition(definition, istate, iid) or {}
                 summary = rec.get("summary")
@@ -1110,27 +1119,23 @@ def process_observation(ctx, base_world, plan, obs_manifest: ObservationManifest
                                              "base_rejected": _pw.base_rejected(r.diagnostics)})
         ops += _pw.namespace_ops(r.ops, f"{prefix}.sup", [o.op_id for o in stage1])
         world, sigs = r.projected_world, list(r.signals)
-    # ⑤ 전달 대기(P1 #1): 본문에 준 필수 신호(이번 계획·지난 대기) 중 추출이 표현을 확인하지 못한 것 +
-    #    보충 진행이 새로 만든 관찰 신호 → 다음 본문 '그동안'으로. 같은 신호를 거듭 놓치면 은퇴(진단).
+    # ⑤ 전달 대기(v7.21.1): 묘사 후 보충 진행이 **처음 만든** 관찰 신호만 다음 소설형 본문에 한 번 전한다.
+    #    묘사 전 계획 신호는 이번 지시·묘사에 이미 주었으므로 표현 판정과 무관하게 남기지 않는다. 지난 대기는
+    #    이번 본문에 한 번 주었으므로(이 결과가 커밋되면) 표현 여부와 무관하게 끝난다 — 재이월 없음.
+    #    exposes(정보 노출 후보)·발생 시각·장소를 함께 보존한다(인지는 다음 턴 추출 노출 확인 때만).
     end_minute = (world.domain("world_clock") or {}).get("minute_index")
-    old = {(r.get("signal_id"), r.get("instance_id")): r for r in pending or () if isinstance(r, dict)}
+    already = {(r.get("signal_id"), r.get("instance_id")) for r in pending or () if isinstance(r, dict)}
+    already |= {(s["signal_id"], s["instance_id"])
+                for s in observable_signals(plan.signals if plan is not None and plan.status == _pw.PLAN_PLANNED else ())}
     out_pending, seen = [], set()
-
-    def _keep(k, cue, at, carried):
-        if k in seen or k in represented:
-            return
-        seen.add(k)
-        if carried > MAX_PENDING_CARRY:
-            diags.append({"code": "PENDING_SIGNAL_RETIRED", "signal": list(k), "carried": carried})
-            return
-        out_pending.append({"signal_id": k[0], "instance_id": k[1], "cue": cue, "at_minute": at,
-                            "scene_place": scene, "source_tx": transaction_id, "carried": carried})
-    for k, r in old.items():
-        _keep(k, r.get("cue"), r.get("at_minute"), int(r.get("carried") or 0) + 1)
-    for s in observable_signals(plan.signals if plan is not None and plan.status == _pw.PLAN_PLANNED else ()):
-        _keep((s["signal_id"], s["instance_id"]), s["cue"], s.get("minute", end_minute), 1)
     for s in observable_signals(sigs):
-        _keep((s["signal_id"], s["instance_id"]), s["cue"], s.get("minute", end_minute), 0)
+        k = (s["signal_id"], s["instance_id"])
+        if k in seen or k in already:
+            continue
+        seen.add(k)
+        out_pending.append({"signal_id": k[0], "instance_id": k[1], "cue": s["cue"],
+                            "at_minute": s.get("minute", end_minute), "scene_place": scene,
+                            "source_tx": transaction_id, "exposes": list(s.get("exposes") or ())})
     if out_pending:
         diags.append({"code": "SIGNALS_PENDING_DELIVERY", "count": len(out_pending)})
     return TurnWorldResult(TW_READY, tuple(ops), world, plan, sigs, out_pending, tuple(sorted(represented)),

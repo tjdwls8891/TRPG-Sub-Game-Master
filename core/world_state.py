@@ -51,7 +51,8 @@ LIFECYCLE_FIELDS = {
 }
 
 # P1: 본문 전달 대기(되감기 대상 게임 정본 — 커밋 경로만 씀, typed 세계 연산 도메인 아님).
-#   world_pending_signals  [{signal_id, instance_id, cue, at_minute, scene_place, source_tx, carried}]
+#   world_pending_signals  [{signal_id, instance_id, cue, at_minute, scene_place, source_tx, exposes}]
+#   v7.21.1: 묘사 후 보충 진행 신호만, 다음 커밋된 PROCEED 본문 1회. 옛 행(carried·exposes 없음)도 같은 규칙으로 1회 전달 후 소멸.
 #   본문이 아직 전하지 못한 관찰 신호 — 다음 본문이 '그동안' 일어난 일로 전한다(core.turn_world).
 DELIVERY_FIELDS = {
     "world_pending_signals": [],

@@ -528,34 +528,19 @@ async def test_action_time_reaction_is_in_the_single_narration(drig, monkeypatch
     assert order == ["next_prompt"] and r.prov.calls.count("judgment") == 1 and r.sess.gm_turns_done == 1
 
 
-async def test_unrepresented_signal_is_kept_pending_then_delivered_next_body(drig):
+async def test_unrepresented_plan_signal_is_not_carried_to_next_body(drig):
+    # v7.21.1(사용자 정책 A): 묘사 전 계획 신호는 이번 지시·묘사에 이미 주었다 — 표현 판정과 무관하게 이월 없음.
+    #   묘사 후 보충 진행 신호의 1회 전달·반복 이월 제거는 tests/policy/test_v7211_pending_lifecycle.py.
     r = drig
     _arm_alert(r)
     r.prov.routes["extraction"] = _expose(represent=False)              # 추출이 본문 표현을 확인하지 못함
     await turn(r, "한동안 강지수와 이야기한다")
     assert "continuation" not in r.prov.calls
-    (p,) = r.sess.world_pending_signals                                  # 버리지 않고 정본 대기로 남는다
-    assert p["cue"] == "경비가 칼을 뽑아 든다" and p["signal_id"] == "guard_draws" and p["carried"] == 1
-    assert p["at_minute"] == K + 5
-    # 다음 턴 — 본문이 '그사이' 일로 받고, 표현이 확인되면 대기에서 빠진다
+    assert r.sess.world_pending_signals == []
     r.prov.routes["judgment"] = judgment(None, action_minutes=0)
-    r.prov.routes["extraction"] = _expose(represent=True)
     await turn(r, "주위를 살핀다")
     nprompt = r.prov.prompts["narration"][-1][0]
-    assert "아직 전하지 못한 일" in nprompt and "경비가 칼을 뽑아 든다" in nprompt
-    assert r.sess.world_pending_signals == []
-
-
-async def test_pending_signal_retires_after_repeated_misses(drig):
-    r = drig
-    _arm_alert(r)
-    r.prov.routes["extraction"] = _expose(represent=False)
-    await turn(r, "한동안 강지수와 이야기한다")
-    r.prov.routes["judgment"] = judgment(None, action_minutes=0)
-    for n in range(TW.MAX_PENDING_CARRY):
-        assert r.sess.world_pending_signals, n
-        await turn(r, "주위를 살핀다")
-    assert r.sess.world_pending_signals == []                            # 무한 대기 없음(진단과 함께 은퇴)
+    assert "아직 전하지 못한 일" not in nprompt and "경비가 칼을 뽑아 든다" not in nprompt
 
 
 @pytest.mark.parametrize("kw", [{"observable_place": "외딴곳"}, {"after": 30}])
