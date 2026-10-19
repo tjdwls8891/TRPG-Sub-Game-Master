@@ -290,18 +290,26 @@ async def test_initial_knowledge_receipt_found_in_content():
 BUNDLED = {"indaim_loading_neutral.webp": "a28a590e", "indaim_error_neutral.webp": "75820e4e"}
 
 
-def test_bundled_ui_assets_unchanged_and_no_master_art_created():
+def test_bundled_ui_assets_unchanged_and_master_art_slots_produced():
     for name, prefix in BUNDLED.items():
         h = hashlib.sha256(pathlib.Path(MA.UI_DIR, name).read_bytes()).hexdigest()
         assert h.startswith(prefix)
     assert sorted(f for f in os.listdir(MA.UI_DIR) if f.endswith(".webp")) == sorted(BUNDLED)
-    assert os.listdir(MA.MASTER_DIR) == ["manifest.json"]                            # 원화 미제작
+    # 2026-10-19 원화 반영: 6슬롯 전부 저장소 안 WEBP 파일(필기 포즈 2장은 슬롯 미배정 보관본)
     slots = json.loads(pathlib.Path(MA.MANIFEST).read_text(encoding="utf-8"))["slots"]
-    assert sorted(slots) == sorted(MA.SLOTS) and all(v is None for v in slots.values())
+    assert sorted(slots) == sorted(MA.SLOTS) and all(v and v.endswith(".webp") for v in slots.values())
+    assert sorted(os.listdir(MA.MASTER_DIR)) == sorted(
+        ["manifest.json", *slots.values(), "master_female_writing.webp", "master_male_writing.webp"])
+    MA.reload()
+    for slot in MA.SLOTS:
+        g, t = slot.split(".")
+        path, state = MA.resolve(g, t)
+        assert state == MA.PRODUCED and os.path.basename(path) == slots[slot]
 
 
 def test_slot_states_distinct(monkeypatch, tmp_path):
     MA.reload()
+    monkeypatch.setattr(MA, "_manifest", {"female.warning": None})                  # 의도적 미제작 슬롯
     assert MA.resolve("female", "warning") == (MA.LOADING_IMAGE, MA.UNPRODUCED)
     warned = []
     monkeypatch.setattr(core.logs, "warn", lambda *a, **k: warned.append(a))
