@@ -470,6 +470,7 @@ async def on_chat(bot, message):
     """생성 중인 플레이어의 채팅 1건 — 지금 화면이 텍스트를 기다릴 때만 소비한다(그 밖은 무시).
 
     자연어를 조작 명령으로 해석하지 않는다("이전으로"도 답변 텍스트일 뿐이다).
+    소비한 답변 메시지는 인식 뒤 채널에서 지운다(값은 생성 화면이 보여 준다). 삭제 실패(DM·권한)는 무시한다.
     """
     state = _ACTIVE.get((message.channel.id, str(message.author.id)))
     if state is None:
@@ -498,6 +499,10 @@ async def on_chat(bot, message):
         run["await"] = None                     # 슬롯을 먼저 닫는다 — 같은 질문의 두 번째 답은 받지 않는다
         run["last_msg_id"] = message.id
         job = await _on_text(state, message.channel, aw["kind"], text)
+    try:
+        await message.delete()                  # 인식한 답변은 채널에 남기지 않는다
+    except Exception:  # noqa: BLE001 — DM(타인 메시지 삭제 불가)·권한·이미 삭제됨
+        pass
     if job:
         await job()
 

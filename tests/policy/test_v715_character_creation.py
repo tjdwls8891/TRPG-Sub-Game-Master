@@ -662,3 +662,31 @@ async def test_dm_standalone_creation_uses_chat_without_persistence(fake_bot, mo
     await PCU.on_chat(fake_bot, m)
     assert st0.run["pending"] == {"field": "이름", "value": "홍길동"}
     assert not hasattr(stub, PCU.PROGRESS_FIELD)
+
+
+# ── 답변 메시지 정리 ─────────────────────────────────────────
+
+async def test_recognized_answer_message_is_deleted_and_ignored_one_is_kept(pc):
+    r = pc
+    await start(r)
+    await press(r, "남")
+    await press(r, "확정")
+    m = await chat(r, "홍길동")
+    assert st(r).run["pending"] == {"field": "이름", "value": "홍길동"}
+    assert m.deleted                                              # 인식한 답변은 지운다
+    other = await chat(r, "아무 말")                              # 텍스트를 기다리지 않는 화면 — 소비하지 않음
+    assert not other.deleted
+
+
+async def test_answer_delete_failure_does_not_block_creation(pc, monkeypatch):
+    r = pc
+    await start(r)
+    await press(r, "남")
+    await press(r, "확정")
+    m = msg(r, "홍길동")
+
+    async def boom():
+        raise RuntimeError("권한 없음(테스트)")
+    m.delete = boom
+    await PCU.on_chat(r.bot, m)
+    assert st(r).run["pending"] == {"field": "이름", "value": "홍길동"}
