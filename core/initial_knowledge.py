@@ -351,8 +351,10 @@ async def find_receipt(bot, channel, nonce: str, n_pages: int):
         async for m in channel.history(limit=HISTORY_SCAN):
             if me is not None and getattr(m, "author", None) is not None and m.author.id != me.id:
                 continue
-            for e in getattr(m, "embeds", None) or ():
-                ft = getattr(getattr(e, "footer", None), "text", None) or ""
+            texts = [ln[3:] for ln in str(getattr(m, "content", None) or "").splitlines() if ln.startswith("-# ")]
+            texts += [getattr(getattr(e, "footer", None), "text", None) or ""     # v7.17 임베드 영수증 호환
+                      for e in getattr(m, "embeds", None) or ()]
+            for ft in texts:
                 if nonce in ft:
                     idx = 1
                     tail = ft.rsplit("·", 1)[-1].strip()
@@ -380,9 +382,14 @@ async def send(bot, session, uid, phase, channel) -> str:
     ids = []
     try:
         for i, page in enumerate(pages, 1):
-            e = discord.Embed(title=rec.get("title") or TITLES[phase], description=page, color=0x5865F2)
-            e.set_footer(text=_footer(rec["delivery_nonce"], i, len(pages)))
-            msg = await channel.send(embed=e)
+            # 대화형 안내 = content(P2 #4). 영수증 줄(-# nonce)은 항상 content에 둔다 — 긴 페이지는 본문만 카드로.
+            title, ft = rec.get("title") or TITLES[phase], _footer(rec["delivery_nonce"], i, len(pages))
+            body = f"**{title}**\n{page}\n-# {ft}"
+            if len(body) <= 1900:
+                msg = await channel.send(content=body)
+            else:
+                msg = await channel.send(content=f"**{title}**\n-# {ft}",
+                                         embed=discord.Embed(description=page, color=0x5865F2))
             ids.append(str(getattr(msg, "id", "")))
     except Exception as e:  # noqa: BLE001
         print(f"[초기지식] 전송 실패: {type(e).__name__}: {e}")

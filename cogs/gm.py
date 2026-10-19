@@ -4,6 +4,7 @@ import json
 import copy
 import random
 import asyncio
+import dataclasses
 from types import SimpleNamespace
 import discord
 from discord.ext import commands
@@ -424,7 +425,7 @@ def _build_judgment_user_prompt(session, player_message: str, roll_results: list
 
 
 def _build_logic_user_prompt(session, player_message: str, roll_results: list,
-                              sim_result: dict | None = None, world_turn=None) -> str:
+                              sim_result: dict | None = None, world_turn=None, action: str | None = None) -> str:
     """
     지시층위 호출용 사용자 프롬프트 조립.
 
@@ -632,6 +633,11 @@ def _build_logic_user_prompt(session, player_message: str, roll_results: list,
         )
     else:
         world_tl_block = ""
+    if world_turn is not None:
+        # P3(G2): DYNAMIC — 행동 시작 전(정본)과 이번 턴 진행 후(묘사층위와 같은 투영)를 구별한다.
+        #   NARRATE는 실행하지 않을 투영 없이 정본 하나만(G1).
+        world_tl_block = core.turn_world.instruction_world_state_block(
+            world_turn, session, world_tl, hold=(action or "").upper() == "NARRATE")
 
     # 정보 인지 원장 블록 (지속형): 비공개·플롯 정보별 '누가 아는가'의 확립된 기록.
     # 지시층위가 info_access 필드로 갱신하며, 적·NPC가 도달 경로 없는 정보로 행동하지 않도록 하는 진실 기준.
@@ -837,7 +843,7 @@ def _build_logic_user_prompt(session, player_message: str, roll_results: list,
 [플레이어 신규 발언]
 {player_message}
 
-위 컨텍스트를 분석하여 다음 단일 action(ASK / NARRATE / ROLL / PROCEED)을 결정하고 JSON 스키마에 맞춰 응답하십시오."""
+위 컨텍스트를 분석하여, 맨 앞 [확정된 진행 유형]에 필요한 지시문을 JSON 스키마에 맞춰 작성하십시오(진행 유형은 바꾸지 않습니다)."""
 
 
 # ── WP-C 배리어 결과 ──
@@ -1841,8 +1847,8 @@ class GMCog(commands.Cog):
                 core.turn_preparation.PREP_READY,
                 core.turn_preparation.PREP_COMMITTING,
                 core.turn_preparation.PREP_RETRY_PENDING):
-            print(f"[WP-C/{session.session_id}] 준비 중인 시도가 있어 새 선언 차단 "
-                  f"(phase={_aprep.phase})")
+            core.logs.event("turn", "새 선언 차단 — 준비 중 시도", level="WARN", session=session,
+                            data={"code": "PREP_IN_FLIGHT", "tx": _aprep.transaction_id, "phase": _aprep.phase})
             if master_ch:
                 await master_ch.send("⏸️ 이전 턴 준비가 끝나지 않아 새 선언을 처리하지 않습니다.")
             return
@@ -1855,7 +1861,8 @@ class GMCog(commands.Cog):
             if _atx is not None and getattr(_atx, "world_turn", None) is not None and \
                     core.action_intent.is_definition_stale(_atx.world_turn.ctx.definition_revision, session):
                 _atx.world_turn = None                     # 옛 정의 WorldTurn 재사용 금지(R2)
-            print(f"[H06/{session.session_id}] 턴 차단: {_blocked}")
+            core.logs.event("turn", "턴 차단 — 동적 세계", level="WARN", session=session,
+                            data={"code": "WORLD_BLOCKED", "reason": _blocked})
             if master_ch:
                 await master_ch.send(f"⏸️ [동적 세계] {_blocked}")
             return
@@ -1959,7 +1966,8 @@ class GMCog(commands.Cog):
                     outcome = await self._join_and_ready(session, prep)
             except Exception as e:
                 # 사전 READY 예기치 못한 예외 — 준비 작업을 합류시키고 실패로 처리한다.
-                print(f"[WP-C/{prep.transaction_id[:8]}] 준비 중 예외: {type(e).__name__}: {e}")
+                core.logs.event("turn", "준비 중 예외", level="ERROR", session=session, exc=e,
+                                data={"code": "PREP_EXCEPTION", "tx": prep.transaction_id})
                 prep.violations.append(f"exception:{type(e).__name__}")
                 outcome = await self._join_after_exception(session, prep)
             if outcome == _OUTCOME_READY:
@@ -2031,6 +2039,43 @@ class GMCog(commands.Cog):
             print(f"[선언 게이트] 입력 조립 실패(발견 목록 생략): {e}")
         return out
 
+    async def _voice_lines(self, session, lines, *, transaction_id, kind: str = "master") -> None:
+        """P2 Q7: 액자 밖 마스터 직접 발화(ASK·경로/목적지 질문·게이트 안내)와 NARRATE 본문을 더빙한다.
+
+        TTS 실효(설정 켜짐 ∧ 음성 채널 연결)일 때만 합성한다 — 꺼짐·미연결이면 provider 호출 0(P2 #9).
+        이 턴 트랜잭션의 비용 멤버로 claim해 같은 Settlement로 정산한다(판단층위 ASK 비용과 같은 귀속).
+        트랜잭션이 없는 안내(라운드 차례 안내 등)는 정산 귀속이 없어 더빙하지 않는다.
+        """
+        on, live, _r = core.media_control.tts_status(session)
+        if not (on and live) or not lines or transaction_id is None:
+            return
+        game_cog = self.bot.get_cog("GameCog")
+        if game_cog is None or not hasattr(game_cog, "_synthesize_and_enqueue"):
+            return
+        VP = core.voice_profile
+        items = []
+        for t in lines:
+            if kind == "master":
+                txt = core.clean_text_for_tts(t)
+                if txt:
+                    items.append((VP.master_voice(session), VP.style_for(VP.KIND_MASTER), txt))
+            else:
+                v, st, sp, _k = VP.paragraph_voice(session, t)
+                if sp:
+                    items.append((v, st, sp))
+        if not items:
+            return
+        try:
+            dub = await game_cog._synthesize_and_enqueue(session, items, claim_tx=transaction_id)
+        except Exception as e:  # noqa: BLE001 — 음성 실패는 턴 진행을 막지 않는다
+            print(f"[TTS] 진행자 안내 더빙 실패(진행 유지): {type(e).__name__}: {e}")
+            return
+        if dub.get("cost", 0) > 0:
+            core.accrue(session, dub["cost"], dub.get("usd"))
+            session.turn_cost_log = list(getattr(session, "turn_cost_log", None) or []) + [{
+                "label": f"TTS {'진행자 안내' if kind == 'master' else 'NARRATE'}({dub['enqueued']}/{dub['total']})",
+                "cost": dub["cost"], "in": dub["in"], "cached": 0, "out": dub["out"], "model": core.TTS_MODEL}]
+
     async def _hold_declaration(self, session, transaction_id, player_message, gate, text, master_ch) -> None:
         """v7.14: 게이트 BLOCK·CLARIFY·검증 불가 — 굴림·세계 연산 없이 중립 안내 후 플레이어 재선언 대기."""
         core.turn_history.note_judgment(
@@ -2041,6 +2086,7 @@ class GMCog(commands.Cog):
         game_ch = self.bot.get_channel(session.game_ch_id)
         if game_ch:
             await core.stream_text_to_channel(self.bot, game_ch, text, words_per_tick=15, tick_interval=1.5)
+            await self._voice_lines(session, [text], transaction_id=transaction_id)
         session.current_turn_logs.append(f"[진행자 (GM)]: {text}")
         core.turn_transaction.mark_waiting_for_player(session, transaction_id)
         if master_ch:
@@ -2096,6 +2142,7 @@ class GMCog(commands.Cog):
         game_ch = self.bot.get_channel(session.game_ch_id)
         if game_ch:
             await core.stream_text_to_channel(self.bot, game_ch, bridge, words_per_tick=15, tick_interval=1.5)
+            await self._voice_lines(session, [bridge], transaction_id=transaction_id)
         session.current_turn_logs.append(f"[진행자 (GM)]: {bridge}")
         if master_ch:
             await master_ch.send(f"🧭 **[경로 선택]** 후보 {len(plan.route_options)}개 — 플레이어 선택 대기")
@@ -2107,6 +2154,7 @@ class GMCog(commands.Cog):
         game_ch = self.bot.get_channel(session.game_ch_id)
         if game_ch:
             await core.stream_text_to_channel(self.bot, game_ch, bridge, words_per_tick=15, tick_interval=1.5)
+            await self._voice_lines(session, [bridge], transaction_id=transaction_id)
         session.current_turn_logs.append(f"[진행자 (GM)]: {bridge}")
         if master_ch:
             await master_ch.send("🧭 **[목적지 확인]** 이동 목적지가 정본 후보에 없어 되묻습니다")
@@ -2121,6 +2169,12 @@ class GMCog(commands.Cog):
         if plan.status == core.player_world.PLAN_NEEDS_CHOICE:
             # 선택을 물을 수 없는 경로(ROLL 후·강제 PROCEED) — 이동 없이 묘사(선택은 다음 선언에서).
             plan.status, plan.reason = core.player_world.PLAN_REJECTED, "ROUTE_CHOICE_PENDING"
+        if plan.status == core.player_world.PLAN_TIE:
+            # P1(D2): 묘사 전에 같은 분 선후를 정한다 — 지시층위 선택(허용 키) 우선, 무효·미선택은 코드 결정
+            plan, rec = core.turn_world.resolve_plan_tie(plan, wt.replan, wt.tie_choice, wt.ctx.definition, wt.ctx)
+            wt.plan = plan
+            core.write_log(session.session_id, "api",
+                           f"[P1 선후] {json.dumps(rec, ensure_ascii=False)} → status={plan.status}")
         prep.world_turn = wt
         if plan.projected_world is not None:
             prep.world_prompt_timeline = core.turn_world.mirror_timeline(
@@ -2170,23 +2224,21 @@ class GMCog(commands.Cog):
         # v7.17 아이템: 같은 기준 재고에 모든 연산을 순서대로 가상 적용 — 하나라도 어긋나면 전체를 재추출(부분 적용 없음).
         #   발견물 수거(D키)·코드 지급(접근 확인)·문서 읽기를 하나의 계획으로 묶고, 수거한 D키만 소진(SUPERSEDED)한다.
         item_plan = self._build_item_plan(session, prep, ctx, wt, _raw, plan)
+        item_plan.facts["evaluated_same_turn"] = True     # P1(D4): 이 턴 보충 진행이 사용·지급 사실을 평가한다
         _raw = {**(_raw if isinstance(_raw, dict) else {}), "discovery_taken": list(item_plan.discovery_takes)}
         res = core.turn_world.process_observation(
             ctx, session, wt.plan, _man,
             _raw, transaction_id=prep.transaction_id,
             narrative_seed=getattr(session, "narrative_seed", None) or session.session_id,
             replan=wt.replan,
-            face_info_ids=core.speaker_card.identity_info_ids(
-                core.speaker_card.config_of(session.scenario_data), wt.identified_faces, "face")
-            if core.speaker_card.card_world(session) else (),
-            name_info_ids=core.speaker_card.identity_info_ids(
-                core.speaker_card.config_of(session.scenario_data), wt.identified_names, "name")
-            if core.speaker_card.card_world(session) else (),
-            discovery=wt.discovery, read_info_ids=item_plan.read_info_ids)
+            face_info_ids=self._revealed_identity_ids(session, prep, wt.identified_faces, "face"),
+            name_info_ids=self._revealed_identity_ids(session, prep, wt.identified_names, "name"),
+            discovery=wt.discovery, read_info_ids=item_plan.read_info_ids,
+            pending=core.turn_world.pending_signals(session), item_facts=item_plan.facts)
         wt.result = res
         core.write_log(session.session_id, "api",
                        f"[H05 관찰] status={res.status} exposures={list(res.exposures)} "
-                       f"extra={res.extra_minutes} continuation={len(res.continuation_signals)} "
+                       f"extra={res.extra_minutes} pending={len(res.pending)} "
                        f"diag={json.dumps(res.diagnostics, ensure_ascii=False, default=str)[:600]}")
         if res.status != core.turn_world.TW_READY:
             return
@@ -2206,12 +2258,19 @@ class GMCog(commands.Cog):
             for r in item_plan.report]
         if item_plan.diagnostics:
             plan.diagnostics["item_plan"] = list(item_plan.diagnostics)
-        cplan = core.turn_world.continuation_plan(prep.transaction_id, res)
-        if cplan is not None:
-            prep.register_task(
-                "foreground_continuation", core.turn_preparation.TASK_FOREGROUND_CONTINUATION,
-                coro=self._generate_continuation(session, prep, cplan),
-                required_success=True, parent="extraction")
+        if res.pending:
+            # P1(#1): 후속 묘사 없음 — 본문이 전하지 못한 관찰 신호는 커밋과 함께 전달 대기로 남는다(유실 금지)
+            self._world_diagnostic(session, prep, "SIGNALS_PENDING_DELIVERY",
+                                   {"signals": [[r["signal_id"], r["instance_id"]] for r in res.pending]})
+
+    @staticmethod
+    def _revealed_identity_ids(session, prep, actor_ids, kind) -> tuple:
+        """P3 G3: 식별 후보 중 본문에서 실제 공개가 확인된 InfoId만 정본 인지로 — 이미 아는 것은 그대로(멱등)."""
+        if not core.speaker_card.card_world(session):
+            return ()
+        ids = core.speaker_card.identity_info_ids(core.speaker_card.config_of(session.scenario_data), actor_ids, kind)
+        shown = set(getattr(prep, "identity_reveals", None) or {})
+        return tuple(i for i in ids if i in shown)
 
     def _implied_discovery_take(self, session, transaction_id, ctx, wt, manifest, raw, plan):
         """A1 보정 근거 조립 — 게이트가 검증한 선언 대상(기존 발견 D키 또는 이번 턴 새 발견)만 후보."""
@@ -2279,67 +2338,6 @@ class GMCog(commands.Cog):
             plan.item_deltas.append({"target": pc_name, "item": item, "delta": 1})
             plan.entries.append({"domain": "item", "target": pc_name, "op": "delta",
                                  "payload": {"item": item, "delta": 1}})
-
-    async def _generate_continuation(self, session, prep, cplan) -> str:
-        """후속 묘사 1회(provider) — 같은 턴 비용 멤버십. 실패하면 예외 → READY 불가."""
-        wt = prep.world_turn
-        main_text = getattr(prep.narration, "text", "") or ""
-        prompt = (f"[직전 본 묘사]\n{main_text[-1500:]}\n\n" + cplan.prompt()
-                  + "\n\n2~4문장으로만 쓴다.")
-        _cl_op = core.cost_ledger.begin_operation(
-            self.bot, core.cost_ledger.OP_TURN_FOREGROUND_CONTINUATION, session=session,
-            model=core.DEFAULT_MODEL, actor_kind=core.cost_ledger.ACTOR_PLAYER,
-            billing_hint=core.cost_ledger.HINT_PLAYER_CANDIDATE)
-        prep.claim_cost_operation(_cl_op)
-        if core.turn_history.cache_usable(session) and getattr(session, "cache_name", None):
-            config = types.GenerateContentConfig(
-                http_options=core.resilience.provider_http_options("narration"),
-                cached_content=session.cache_name, temperature=0.65,
-                safety_settings=core.TRPG_SAFETY_SETTINGS)
-        else:
-            config = types.GenerateContentConfig(
-                http_options=core.resilience.provider_http_options("narration"),
-                system_instruction=self.bot.system_instruction, temperature=0.65,
-                safety_settings=core.TRPG_SAFETY_SETTINGS)
-        ok, response = await core.call_with_retry(
-            lambda: asyncio.to_thread(
-                self.bot.genai_client.models.generate_content, model=core.DEFAULT_MODEL,
-                contents=[types.Content(role="user", parts=[types.Part.from_text(text=prompt)])],
-                config=config),
-            layer="narration", session_id=session.session_id,
-            on_attempt_result=_cl_op.on_attempt, operation_id=_cl_op.operation_id)
-        if not ok:
-            raise RuntimeError("후속 묘사 provider 실패")
-        try:
-            in_t, out_t, cached_t, th_t = core.extract_token_usage(response.usage_metadata)
-            bd = core.calculate_text_gen_cost_breakdown(core.DEFAULT_MODEL, input_tokens=in_t,
-                                                        output_tokens=out_t, cached_read_tokens=cached_t)
-            core.accrue(session, bd["total_krw"], bd["total_usd"])
-            _cl_op.record(input_tokens=in_t, cached_input_tokens=cached_t, output_tokens=out_t,
-                          thought_tokens=th_t, cost_usd=bd["total_usd"], cost_krw=bd["total_krw"],
-                          usage_source=core.cost_ledger.SOURCE_PROVIDER_METADATA)
-            session.turn_cost_log = list(getattr(session, "turn_cost_log", None) or []) + [{
-                "label": "후속 묘사", "cost": bd["total_krw"], "in": in_t, "cached": cached_t,
-                "out": out_t, "manifest": []}]
-        except Exception as e:
-            print(f"[H05] 후속 묘사 비용 정산 실패: {e}")
-        text = (getattr(response, "text", "") or "").strip()
-        if not text:
-            raise RuntimeError("후속 묘사 빈 응답")
-        wt.continuation_text = text
-        # 같은 시도의 대화 이력에 붙인다(다음 턴 맥락) — 재추출하지 않는다.
-        sl = prep.staged_log
-        if isinstance(sl, dict) and not sl.get("applied"):
-            raw = list(sl.get("raw_entries") or [])
-            if raw and getattr(raw[-1], "role", None) == "model":
-                raw[-1] = types.Content(role="model", parts=[types.Part.from_text(
-                    text=(raw[-1].parts[0].text or "") + "\n\n" + text)])
-                sl["raw_entries"] = raw
-            unc = list(sl.get("uncompressed_entries") or [])
-            if unc:
-                unc[-1] = unc[-1] + "\n\n" + text
-                sl["uncompressed_entries"] = unc
-        return text
 
     def _stage_world_turn(self, session, prep):
         """READY 직전 — 관찰 결과 검증 후 최종 연산을 PLAYER_TURN 묶음에 담는다. 실패 코드 또는 None."""
@@ -2549,7 +2547,8 @@ class GMCog(commands.Cog):
                           f"cost_events={len(proof.frozen_cost_event_ids)} "
                           f"canonical_unchanged={proof.canonical_unchanged}")
                     return _OUTCOME_READY
-                print(f"[WP-C/{prep.transaction_id[:8]}] READY 불가: {reasons}")
+                core.logs.event("turn", "READY 불가", level="WARN", session=session,
+                                data={"code": "READY_REJECTED", "tx": prep.transaction_id, "reasons": list(reasons or ())})
                 prep.failure_stage = "READY_PREDICATE"
                 outcome = _OUTCOME_NOT_READY
         if outcome != _OUTCOME_EXTRACTION_FAILED:
@@ -2714,13 +2713,13 @@ class GMCog(commands.Cog):
         TP = core.turn_preparation
         # WP-F: 커밋된 ROLL 성장의 확정 알림(CANONICAL_GAME_EVENT) — 성장은 코디네이터가
         #   이미 정본에 적용했다. derived 로만 쌓여 durable COMMITTED 이후 송출 의도와 함께 나간다.
+        # P1(#1): 본문 전달 대기 — 관찰 처리 결과(이번 본문이 전하지 못한 신호 · 지난 대기 중 미전달분)로 교체.
+        #   세계 연산과 같은 커밋 단위(롤백 스냅샷·strict 저장 안). 동적 세계 턴만 쓴다.
+        _wt = getattr(prep, "world_turn", None)
+        _res = getattr(_wt, "result", None) if _wt is not None else None
+        if _res is not None and _res.status == core.turn_world.TW_READY:
+            session.world_pending_signals = [dict(r) for r in _res.pending]
         if derived is not None:
-            # H05-C: 후속 묘사(READY 전 생성) — durable COMMITTED 이후, 다음 행동 질문 전에 이 시도 소유로 송출.
-            _wt = getattr(prep, "world_turn", None)
-            _ct = getattr(_wt, "continuation_text", None) if _wt is not None else None
-            if _ct:
-                for _i in range(0, len(_ct), 1900):
-                    derived.game(_ct[_i:_i + 1900])
             for _line in list(getattr(prep, "growth_notices", None) or []):
                 derived.game(_line)
         if prep.irregular_plan is not None and not prep.irregular_plan.applied:
@@ -2836,7 +2835,8 @@ class GMCog(commands.Cog):
                 total_ink=int(getattr(session, "total_ink_spent", 0) or 0),
                 total_usd=float(getattr(session, "total_usd", 0.0) or 0.0),
                 free_krw=float(getattr(session, "profile_ai_cost_krw", 0.0) or 0.0),
-                settlement=settlement)
+                settlement=settlement,
+                estimate=getattr(session, "last_estimate", None) or None)     # P1: 예상 대비(운영자 점검)
             await master_ch.send(embed=embed)
         except Exception as e:
             print(f"[WP-D] 턴 비용 보고 실패(커밋 유지): {e}")
@@ -3378,6 +3378,13 @@ class GMCog(commands.Cog):
             #   누적·정산 표시를 은퇴했다. 압축 provider 비용은 CostEvent(운영 사실)로만 남는다.
             session.last_estimate = est
             _tts = core.estimate_tts(session)
+            # P1: 예상은 정산이 아니다 — 운영 예측 정확도 점검용 구조 로그(커밋 보고의 '예상 대비'와 같은 값)
+            core.logs.domain("cost.estimate", {"tx": transaction_id, "min_ink": est["min_ink"],
+                                               "max_ink": est["max_ink"], "min_krw": est["min_krw"],
+                                               "max_krw": est["max_krw"], "basis": est.get("basis"),
+                                               "confidence": est.get("confidence"),
+                                               "breakdown": est.get("breakdown"),
+                                               "tts": _tts if _tts.get("enabled") else None}, session=session)
             await m_send(
                 f"💰 **[예상]** {core.format_estimate(est, _tts if _tts['enabled'] else None)}\n"
                 f"> 입력 {est['input_tokens']['instruction']:,} + 캐시 "
@@ -3506,7 +3513,8 @@ class GMCog(commands.Cog):
                 decision = dict(judgment)
 
             label = action_labels.get(action, action)
-            print(f"[GM/{session.session_id}] iter={iteration} action={action} :: {reasoning[:120]}")
+            core.logs.event("turn", f"판단 {action}", session=session,
+                            data={"stage": "judgment", "iter": iteration, "action": action, "reasoning": reasoning})
             await m_send(
                 f"🤖 **[GM 판단 #{iteration + 1}]** {label}\n"
                 f"> {reasoning[:200]}"
@@ -3533,9 +3541,11 @@ class GMCog(commands.Cog):
                         self.bot, game_ch, bridge,
                         words_per_tick=15, tick_interval=1.5
                     )
+                    await self._voice_lines(session, [bridge], transaction_id=transaction_id)
                 # ASK 브리지를 current_turn_logs에 기록 → 다음 지시층위 호출 시 맥락 유지
                 session.current_turn_logs.append(f"[진행자 (GM)]: {bridge}")
-                print(f"[GM/{session.session_id}] ASK -> '{bridge[:80]}'")
+                core.logs.event("turn", "ASK 대기", session=session,
+                                data={"stage": "ask", "tx": transaction_id, "bridge": bridge})
                 # WP-01: 플레이어 입력 대기(비종료). 재입력 시 같은 트랜잭션을 재사용한다.
                 core.turn_transaction.mark_waiting_for_player(session, transaction_id)
                 # 저장은 루프 종료 후 트레일링 save가 일괄 처리 (중복 제거)
@@ -3563,7 +3573,9 @@ class GMCog(commands.Cog):
                 narrate_text = await self._dispatch_narrate(
                     session, narrate_instr, transaction_id=transaction_id)
                 if narrate_text:
-                    print(f"[GM/{session.session_id}] NARRATE #{session.gm_narrate_count} -> '{narrate_text[:60]}'")
+                    core.logs.event("turn", "NARRATE 대기", session=session,
+                                    data={"stage": "narrate", "tx": transaction_id, "n": session.gm_narrate_count,
+                                          "text": narrate_text})
                 # WP-01: 플레이어 입력 대기(비종료). 재입력 시 같은 트랜잭션을 재사용한다.
                 core.turn_transaction.mark_waiting_for_player(session, transaction_id)
                 # 저장은 루프 종료 후 트레일링 save가 일괄 처리 (중복 제거)
@@ -3895,7 +3907,8 @@ class GMCog(commands.Cog):
                 try:
                     decision = json.loads(cleaned)
                 except Exception as e:
-                    print(f"[GM] 판단층위 JSON 파싱 실패(시도 {attempt + 1}): {e}")
+                    core.logs.event("turn", "판단층위 JSON 파싱 실패", level="WARN", session=session, exc=e,
+                                    data={"code": "JUDGMENT_JSON", "attempt": attempt + 1})
                     continue
             # v7.12: ROLL 계약 검증 — 범위 밖·누락 값을 보정해 굴리지 않는다. 파싱 실패와 같은 재시도 경로.
             #   (rolls가 빈 ROLL은 기존 PROCEED 폴백 경로가 처리한다)
@@ -3958,13 +3971,23 @@ class GMCog(commands.Cog):
         core.turn_transaction.mark_transaction_status(
             session, transaction_id, core.turn_transaction.TurnStatus.INSTRUCTING)
         _wt = self._world_turn(session, transaction_id)
-        if _wt is not None and _wt.plan is None:
-            # 지시층위도 이번 턴 정본 계획(장소 고정 포함)을 본다 — ROLL 뒤 PROCEED·NARRATE 경로(순수 계획)
+        _narrate = (action or "").upper() == "NARRATE"
+        if _wt is not None and _wt.plan is None and not _narrate:
+            # 지시층위도 이번 턴 정본 계획(장소 고정 포함)을 본다 — ROLL 뒤 PROCEED 경로(순수 계획)
             self._ensure_world_plan(session, _wt, transaction_id)
+        # P3(G1): NARRATE는 세계를 커밋하지 않는다 — 계획·투영·필수 서사·전달 대기 없이 정본 기준 뷰로 지시한다.
+        _wv = dataclasses.replace(_wt, plan=None) if (_wt is not None and _narrate) else _wt
         user_prompt = _build_logic_user_prompt(session, player_message, roll_results,
-                                                sim_result=sim_result, world_turn=_wt)
-        if _wt is not None and _wt.plan is not None:
+                                                sim_result=sim_result, world_turn=_wv, action=action)
+        _tie_schema = None
+        if _wv is not None and _narrate:
+            user_prompt += core.turn_world.narrate_hold_block(_wv, session)
+        elif _wt is not None and _wt.plan is not None:
             user_prompt += core.turn_world.narration_overlay(_wt.plan, _wt.ctx.definition, _wt.ctx, world=session)
+            user_prompt += core.turn_world.pending_delivery_block(_wt.ctx, session)
+            # P1(D2): 남은 자유 경합(같은 분 서사 선후)은 묘사 전에 지시층위가 고른다 — 무효면 코드 결정
+            _tie_block, _tie_schema = core.turn_world.tie_choice_schema(_wt.plan, _wt.ctx.definition, _wt.ctx)
+            user_prompt += _tie_block
         _jr = self._tx_judgment(session, transaction_id)
         if _jr:
             user_prompt += _declaration_block(_jr, transaction_id)     # v7.14 권위 있는 시도·발견 결과
@@ -3979,7 +4002,7 @@ class GMCog(commands.Cog):
         _card_world = core.speaker_card.card_world(session) if _wt is not None else None
         _id_manifests = {}
         for _kind in ("face", "name"):
-            _m = core.speaker_card.identity_manifest(_card_world, _wt, session, _kind) if _card_world else {}
+            _m = core.speaker_card.identity_manifest(_card_world, _wv, session, _kind) if _card_world else {}
             if _m:
                 _id_manifests[_kind] = _m
                 user_prompt += core.speaker_card.identity_block(_m, _card_world.definition, session, _kind)
@@ -4030,6 +4053,10 @@ class GMCog(commands.Cog):
                 for _kind, _m in _id_manifests.items():
                     logic_schema["properties"][core.speaker_card.identity_field(_kind)] = \
                         core.speaker_card.identity_schema(_m, _kind)
+            if _tie_schema is not None:
+                logic_schema = dict(logic_schema)
+                logic_schema["properties"] = dict(logic_schema["properties"])
+                logic_schema["properties"]["tie_order"] = _tie_schema
 
             if use_cache:
                 # ── 캐시 활용 경로 (방안 ①) ──
@@ -4140,10 +4167,15 @@ class GMCog(commands.Cog):
             try:
                 decision = json.loads(cleaned)
             except Exception as e:
-                print(f"[GM] JSON 파싱 실패: {e}\n응답 원문: {raw_text[:500]}")
+                core.logs.event("turn", "지시층위 JSON 파싱 실패", level="WARN", session=session, exc=e,
+                                data={"code": "DIRECTOR_JSON", "raw": raw_text})
                 if master_ch:
                     await master_ch.send("⚠️ 자동 지시층위 응답이 JSON 형식이 아닙니다. 이번 발언 스킵.")
                 return None
+
+        if _tie_schema is not None and _wt is not None:
+            _tc = decision.get("tie_order")
+            _wt.tie_choice = _tc if isinstance(_tc, str) else None      # 검증은 resolve_plan_tie(허용 키만)
 
         if _id_manifests and _wt is not None:
             # 이 시도의 WorldTurn에 누적 — process_observation이 저작 얼굴·이름 InfoId 획득으로 합류시킨다(커밋 후 공개)
@@ -4476,7 +4508,8 @@ class GMCog(commands.Cog):
                 "ROLL":    "🎲 ROLL (주사위 판정)",
                 "PROCEED": "🟢 PROCEED (턴 진행)",
             }
-            print(f"[GM/{session.session_id}] post-roll action={action} :: {reasoning[:120]}")
+            core.logs.event("turn", f"굴림 후 판단 {action}", session=session,
+                            data={"stage": "post_roll", "action": action, "reasoning": reasoning})
             await m_send(
                 f"🤖 **[GM 판단 (굴림 후)]** {action_labels.get(action, action)}\n"
                 f"> {reasoning[:200]}"
@@ -4535,6 +4568,10 @@ class GMCog(commands.Cog):
         current_turn_str = "\n".join(session.current_turn_logs) if session.current_turn_logs else "(없음)"
 
         narrate_prompt = build_narrate_prompt(recent_str, current_turn_str, narrate_instruction)
+        _nwt = self._world_turn(session, transaction_id)
+        if _nwt is not None:
+            # P3(G1): 지시층위와 같은 비진행 경계 — 정본 시각·장소에서 짧게 답한다(세계 진행 없음)
+            narrate_prompt += "\n" + core.turn_world.narrate_hold_block(_nwt, session)
 
 
         # NOTE: max_output_tokens를 설정하지 않음 — PROCEED(_execute_proceed)와 동일한 방침.
@@ -4595,7 +4632,8 @@ class GMCog(commands.Cog):
                 if not _ok:
                     raise RuntimeError("AI 호출 실패")
         except Exception as e:
-            print(f"[GM] NARRATE 호출 실패: {type(e).__name__} - {e}")
+            core.logs.event("turn", "NARRATE 호출 실패", level="ERROR", session=session, exc=e,
+                            data={"code": "NARRATE_CALL"})
             if master_ch:
                 await master_ch.send(f"⚠️ GM NARRATE 호출 실패: {type(e).__name__}")
             return None
@@ -4669,6 +4707,8 @@ class GMCog(commands.Cog):
                         self.bot, game_ch, paragraph,
                         words_per_tick=15, tick_interval=1.5
                     )
+            # P2 Q7: NARRATE 본문도 더빙 대상(대사는 NPC 목소리, 그 밖은 진행자 내레이션 목소리)
+            await self._voice_lines(session, paragraphs, transaction_id=transaction_id, kind="paragraphs")
 
         # current_turn_logs에 추가 — PROCEED 시 AI가 맥락을 볼 수 있도록
         session.current_turn_logs.append(f"[진행자 (GM)]: {narrate_text}")
@@ -4737,7 +4777,8 @@ class GMCog(commands.Cog):
         narr = getattr(preparation, "narration", None) if preparation is not None else None
         full_text = getattr(narr, "text", "") or ""
         if not full_text:
-            print(f"[GM/{session.session_id}] 묘사층위 실패 — 턴 취소")
+            core.logs.event("turn", "묘사층위 출력 없음 — 턴 취소", level="ERROR", session=session,
+                            data={"code": "NARRATION_EMPTY"})
             core.write_error_log(session.session_id, "narration",
                                  RuntimeError("묘사 출력 없음"), 1)
             game_ch = self.bot.get_channel(session.game_ch_id)
@@ -5578,13 +5619,15 @@ class GMCog(commands.Cog):
         _ext_schema = core.EXTRACTION_RESPONSE_SCHEMA
         _obs_block = ""
         _var_manifest = {}
+        _rev_manifest = {}
         if _wt is not None:
             # H05-B: 관찰 후보(장면 행위자가 아는 정보·장면 신호·선후 선택지)만 — 숨은 진실 미포함.
             # v7.14: 이번 턴 발견(게이트 승인·발견 굴림 성공)만 DNEW로 — 판단 기록에서 고정
             _disc = _discovery_outcome(self._tx_judgment(session, transaction_id), transaction_id)
             _wt.discovery = _disc if _disc and _disc.get("status") == "NEW" else None
             _wt.obs_manifest = core.turn_world.build_observation_manifest(
-                _wt.ctx.definition, _wt.ctx, _wt.plan, session, discovery=_wt.discovery)
+                _wt.ctx.definition, _wt.ctx, _wt.plan, session, discovery=_wt.discovery,
+                pending=core.turn_world.pending_signals(session))     # P1: 전달 대기 신호도 표현 근거 후보
             _ext_schema = copy.deepcopy(core.EXTRACTION_RESPONSE_SCHEMA)
             _ext_schema.setdefault("properties", {})[core.turn_world.OBS_FIELD] = _wt.obs_manifest.schema()
             _obs_block = _wt.obs_manifest.render()
@@ -5599,6 +5642,12 @@ class GMCog(commands.Cog):
             if _var_manifest:
                 _ext_schema["properties"]["speaker_variations"] = core.speaker_card.variation_schema(_var_manifest)
                 _obs_block += core.speaker_card.variation_block(_var_manifest, _cw.definition, session)
+            # P3 G3: 이번 턴 이름·얼굴 식별 후보의 실제 공개 문장(같은 추출 호출 — 새 provider 호출 0)
+            _rev_manifest = core.speaker_card.reveal_manifest(_cw, _wt, session) if _cw else {}
+            if _rev_manifest:
+                _ext_schema["properties"][core.speaker_card.REVEAL_FIELD] = \
+                    core.speaker_card.reveal_schema(_rev_manifest)
+                _obs_block += core.speaker_card.reveal_block(_rev_manifest, _cw.definition, session)
             # 장소·시간 권위는 정본 세계다 — 레거시 요약 대신 정본 미러를 보여 준다.
             _tl = core.turn_world.mirror_timeline(prev_tl, _wt.ctx.definition,
                                                   _wt.plan.projected_world if _wt.plan is not None
@@ -5707,6 +5756,11 @@ class GMCog(commands.Cog):
         if _wt is not None and _var_manifest:
             preparation.card_variations = core.speaker_card.parse_variations(
                 _var_manifest, result.get("speaker_variations"))
+        if _wt is not None and _rev_manifest:
+            _narr = getattr(preparation, "narration", None)
+            preparation.identity_reveals = core.speaker_card.parse_reveals(
+                _rev_manifest, result.get(core.speaker_card.REVEAL_FIELD),
+                getattr(_narr, "paragraphs", ()) or (), _cw.definition, session)
         return plan
 
     async def _verify_proceed_instruction(self, session, instruction: str,
@@ -5787,7 +5841,8 @@ class GMCog(commands.Cog):
         if result.get("has_violation"):
             detail   = result.get("violation_detail", "")
             corrected = result.get("corrected_instruction", instruction) or instruction
-            print(f"[GM/{session.session_id}] PROCEED 위반 감지: {detail[:120]}")
+            core.logs.event("turn", "PROCEED 위반 감지", level="WARN", session=session,
+                            data={"code": "PROCEED_VIOLATION", "detail": detail})
             if master_ch:
                 await master_ch.send(
                     f"⚠️ **[GM 검증]** proceed_instruction에 PC 자율성 침해 감지 — 자동 수정\n"
@@ -5953,7 +6008,8 @@ class GMCog(commands.Cog):
             try:
                 sim_data = json.loads(cleaned)
             except Exception as e:
-                print(f"[GM] 개연성 시뮬레이션 JSON 파싱 실패: {e}")
+                core.logs.event("turn", "개연성 시뮬레이션 JSON 파싱 실패", level="WARN", session=session, exc=e,
+                                data={"code": "SIMULATION_JSON"})
                 return None
 
         # 결과를 마스터에 알린다. 비용이 드는 호출인데 무엇을 얻었는지
@@ -6564,7 +6620,8 @@ class GMCog(commands.Cog):
             try:
                 plan = json.loads(cleaned)
             except Exception as e:
-                print(f"[GM] 서사 계획 JSON 파싱 실패: {e}\n원문: {raw_text[:400]}")
+                core.logs.event("turn", "서사 계획 JSON 파싱 실패", level="WARN", session=session, exc=e,
+                                data={"code": "PLAN_JSON", "raw": raw_text})
                 if master_ch:
                     await master_ch.send("⚠️ 서사 계획 JSON 파싱 실패. 기존 계획을 유지합니다.")
                 return None

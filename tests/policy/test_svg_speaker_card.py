@@ -377,8 +377,9 @@ async def test_general_path_streams_text_before_extraction_and_masks_header(
     assert legacy == []                                                     # 기존 실명 PNG 경로 미사용
 
 
-async def test_render_failure_omits_image_but_keeps_dialogue(
+async def test_render_failure_shows_error_image_and_keeps_dialogue(
         wired_bot, card_session, game_channel, master_channel, monkeypatch):
+    # P2 Q10: 렌더 실패 = 공용 오류 이미지(텍스트 자동 대체 없음) — 대사는 유지
     def boom(svg):
         raise SC.CardError("renderer down")
     monkeypatch.setattr(SC, "rasterize", boom)
@@ -387,6 +388,8 @@ async def test_render_failure_omits_image_but_keeps_dialogue(
     res = await _deliver(GameCog(wired_bot), card_session, _narr(["@대사:김노인|누구냐."]), game_channel,
                          master_channel)
     assert res.ok and not _card_msgs(game_channel) and legacy == []
+    assert any(getattr(m.files, "filename", "").startswith("card_error") for m in game_channel.sent
+               if m.files is not None)
     assert any("누구냐" in str(m.content) for m in game_channel.sent)
 
 
@@ -428,25 +431,19 @@ async def test_tts_synced_prepares_card_before_voice_enqueue(
             order.append("voice")
     monkeypatch.setattr(core, "get_mixer", lambda vc: Mixer())
 
-    async def synth(bot, text, voice_name=None, cost_context=None):
+    async def synth(bot, text, voice_name=None, cost_context=None, style=None):
         return (b"\x00" * 48000, 0.0, 0, 0)
     monkeypatch.setattr(core, "synthesize_tts_pcm", synth)
-    real_prepare = SC.prepare_card
+    real_deliver = SC.deliver_card
 
-    async def prepare(session, ctx, preparation=None):
-        order.append("card_prepare")
-        return await real_prepare(session, ctx, preparation)
-    monkeypatch.setattr(SC, "prepare_card", prepare)
-    real_send = SC.send_card
-
-    async def send(channel, session, png, collector=None):
-        order.append("card_send")
-        return await real_send(channel, session, png, collector)
-    monkeypatch.setattr(SC, "send_card", send)
+    async def deliver(channel, session, ctx, preparation=None, collector=None, **kw):
+        order.append("card")
+        return await real_deliver(channel, session, ctx, preparation, collector, **kw)
+    monkeypatch.setattr(SC, "deliver_card", deliver)
     cog = GameCog(wired_bot)
     await cog._stream_paragraphs_synced(card_session, ["@대사:김노인|누구냐."], game_channel, master_channel,
                                         [], [], [], collector=[], media_collector=[])
-    assert order == ["card_prepare", "voice", "card_send"]
+    assert order == ["card", "voice"]
     assert any("## ▍?" in str(m.content) for m in game_channel.sent)
 
 

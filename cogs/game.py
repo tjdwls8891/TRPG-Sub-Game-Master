@@ -658,6 +658,7 @@ class GameCog(commands.Cog):
                     _narr_op.mark_attempt()  # WP-02: 실제 provider 호출 1회 계수
                     with core.logs.call_context(session.session_id, "narration",
                                                 op=getattr(_narr_op, "operation", None),
+                                                op_id=getattr(_narr_op, "operation_id", None),
                                                 attempt=retry_count + 1):
                         return await asyncio.to_thread(
                             self.bot.genai_client.models.generate_content,
@@ -840,8 +841,9 @@ class GameCog(commands.Cog):
             # v7.11(사용자 결정 D3): 인트로(cost_log_prefix 없음)와 자동 턴(preparation 있음) 모두 더빙한다.
             #   자동 턴의 TTS 비용은 그 턴의 비용 멤버로 claim되어 Settlement가 청구한다.
             _dub_turn = (not cost_log_prefix) or preparation is not None
+            # P2(#9): 합성 게이트는 단일 판정(core.is_enabled — tts_enabled ∧ 미디어 플래그)
             dub_active = (
-                getattr(session, "tts_enabled", False)
+                core.is_enabled(session, "tts")
                 and _dub_turn
                 and core.get_mixer(getattr(session, "voice_client", None)) is not None
             )
@@ -878,13 +880,13 @@ class GameCog(commands.Cog):
             else:
                 # 비동기(또는 TTS off) 경로. 토글 ON이지만 보이스 미연결이면 no_voice 경고용으로 합성 시도.
                 dub_task = None
-                if getattr(session, "tts_enabled", False) and _dub_turn:
+                if core.is_enabled(session, "tts") and _dub_turn:
+                    # P2(#10): 문단별 화자 — 대사는 NPC 고정 목소리, 그 밖은 마스터(세션 성별) 내레이션 목소리
                     tts_texts = []
                     for p in paragraphs:
-                        d = core.parse_dialogue_paragraph(p)
-                        spoken = core.clean_text_for_tts(d[1] if d else p)
+                        v, style, spoken, _k = core.voice_profile.paragraph_voice(session, p)
                         if spoken:
-                            tts_texts.append(spoken)
+                            tts_texts.append((v, style, spoken))
                     if tts_texts:
                         dub_task = asyncio.create_task(self._synthesize_and_enqueue(
                             session, tts_texts, preparation=preparation))
@@ -894,14 +896,15 @@ class GameCog(commands.Cog):
                     dialogue = core.parse_dialogue_paragraph(paragraph)
                     if dialogue:
                         speaker, content = dialogue
-                        _dctx = core.speaker_card.display_context(session, speaker)
+                        # P3 G3: 이번 본문에서 이 문단보다 앞서 실제로 공개된 이름·얼굴만 더한다(표시 전용)
+                        _dctx = await core.speaker_card.turn_display_context(session, speaker, preparation, i)
                         if _dctx is None:
                             await core.maybe_send_speaker_image(game_channel, session, speaker, collector=media_collector)
                             formatted = core.format_dialogue_block(speaker, content)
                         else:
                             # SVG 카드: 이미지 지점에서만 추출을 기다린다(앞선 문단 스트리밍은 지연 없음)
-                            _png = await core.speaker_card.prepare_card(session, _dctx, preparation)
-                            await core.speaker_card.send_card(game_channel, session, _png, collector=media_collector)
+                            await core.speaker_card.deliver_card(game_channel, session, _dctx, preparation,
+                                                                 collector=media_collector)
                             formatted = core.format_dialogue_block(_dctx.header, content)
                         await core.stream_text_to_channel(self.bot, game_channel, formatted,
                                                           words_per_tick=15, tick_interval=1.5,
@@ -948,7 +951,8 @@ class GameCog(commands.Cog):
                                         dub["in"], 0, dub["out"], dub["cost"], session.total_cost)
                     session.turn_cost_log.append(
                         {"label": f"TTS 더빙({dub['enqueued']}/{dub['total']}문단)", "cost": dub["cost"],
-                         "in": dub["in"], "cached": 0, "out": dub["out"]})
+                         "in": dub["in"], "cached": 0, "out": dub["out"],
+                         "model": core.TTS_MODEL})            # P1: 오디오 단가로 분해(텍스트 단가 금지)
 
             # 턴 비용 보고 임베드 송출 (PROCEED + 지시층위 등 누적 + TTS 더빙 합산)
             _turn_no = session.turn_count if turn_no is None else turn_no
@@ -1103,7 +1107,7 @@ class GameCog(commands.Cog):
 
     async def _synthesize_and_enqueue(self, session, texts, voice_name=None,
                                       *, force: bool = False,
-                                      cost_scope: str = None, preparation=None) -> dict:
+                                      cost_scope: str = None, preparation=None, claim_tx=None) -> dict:
         """
         문단 텍스트를 순서대로 TTS 합성해 믹서 voice 큐에 적재한다. (회계는 호출 측 담당)
 
@@ -1117,7 +1121,7 @@ class GameCog(commands.Cog):
         # 호출부가 막고 있지만 여기서도 확인한다. 새 경로가 추가될 때
         # 가드를 빠뜨리면 꺼둔 세션에 비용이 붙는다.
         # force는 !더빙테스트처럼 명시적으로 요청한 경우에만 쓴다.
-        if not force and not getattr(session, "tts_enabled", False):
+        if not force and not core.is_enabled(session, "tts"):
             print(f"[TTS] 비활성 세션 합성 차단: {getattr(session, 'session_id', '?')}")
             return {"enqueued": 0, "total": len(texts), "cost": 0.0,
                     "in": 0, "out": 0, "no_voice": False, "disabled": True}
@@ -1131,22 +1135,20 @@ class GameCog(commands.Cog):
         total_in = total_out = 0
         enqueued = 0
         for t in texts:
-            # 문단이 대사면 그 인물의 목소리를 쓴다. voice_for가 정규 NPC의
-            # npcs[name]["voice"]와 비정규 NPC 등록부를 모두 본다.
-            # 이 연결이 없으면 시나리오가 목소리를 지정해도 전부 나레이터로 나갔다.
-            _v = voice_name
-            if _v is None:
-                try:
-                    parsed = core.parse_dialogue_paragraph(t)
-                    if parsed:
-                        _v = core.irregular_npc.voice_for(session, parsed[0])
-                except Exception:
-                    _v = None
+            # P2(#10): 항목 = (voice, style, text) — 호출자가 core.voice_profile로 화자·스타일을 정했다.
+            #   문자열이면 voice_name(명시 — !더빙테스트) 또는 마스터 내레이션 목소리.
+            if isinstance(t, tuple):
+                _v, _style, t = t[0], t[1], t[2]
+            else:
+                _v, _style = voice_name or core.voice_profile.master_voice(session), None
             _scope = cost_scope or core.cost_ledger.OP_TTS_RUNTIME
             _ctx = core.cost_ledger.tts_context(self.bot, session, _scope)
-            _claim_tts(preparation, _ctx)
+            if preparation is not None:
+                _claim_tts(preparation, _ctx)
+            elif claim_tx is not None:
+                core.turn_preparation.claim_cost_operation(session, claim_tx, _ctx)   # P2: ASK·NARRATE 마스터 발화
             pcm, cost, in_tok, out_tok = await core.synthesize_tts_pcm(
-                self.bot, t, voice_name=_v, cost_context=_ctx)
+                self.bot, t, voice_name=_v, cost_context=_ctx, style=_style)
             if pcm:
                 mixer.enqueue_voice(core.PCMBytesAudioSource(pcm, volume=core.TTS_NARRATION_VOLUME))
                 enqueued += 1
@@ -1179,24 +1181,29 @@ class GameCog(commands.Cog):
 
         # (raw_paragraph, display_text, spoken_text, is_dialogue, speaker, card_display_context)
         items = []
+        # P2(#10): 화자 목소리 — 이전에는 이 동기 경로가 대사 문단도 나레이터 한 목소리로 읽었다(voice_name 고정)
+        voices = []
         for p in paragraphs:
             d = core.parse_dialogue_paragraph(p)
+            v, style, spoken, _k = core.voice_profile.paragraph_voice(session, p)
+            voices.append((voice_name or v, style))
             if d:
                 speaker, content = d
                 _dctx = core.speaker_card.display_context(session, speaker)
                 items.append((p, core.format_dialogue_block(_dctx.header if _dctx else speaker, content),
-                              core.clean_text_for_tts(content), True, speaker, _dctx))
+                              spoken, True, speaker, _dctx))
             else:
-                items.append((p, p, core.clean_text_for_tts(p), False, None, None))
+                items.append((p, p, spoken, False, None, None))
 
-        async def _synth(spoken):
+        async def _synth(idx):
+            spoken = items[idx][2]
             if not spoken:
                 return (b"", 0.0, 0, 0)
             _scope = cost_scope or core.cost_ledger.OP_TTS_RUNTIME
             _ctx = core.cost_ledger.tts_context(self.bot, session, _scope)
             _claim_tts(preparation, _ctx)
             return await core.synthesize_tts_pcm(
-                self.bot, spoken, voice_name=voice_name, cost_context=_ctx)
+                self.bot, spoken, voice_name=voices[idx][0], cost_context=_ctx, style=voices[idx][1])
 
 
         total_cost = 0.0
@@ -1206,7 +1213,7 @@ class GameCog(commands.Cog):
         # 첫 문단 선합성 (합성 대기 동안 타이핑 인디케이터 노출)
         if items:
             async with game_channel.typing():
-                pcm, cost, in_tok, out_tok = await _synth(items[0][2])
+                pcm, cost, in_tok, out_tok = await _synth(0)
         else:
             pcm, cost, in_tok, out_tok = (b"", 0.0, 0, 0)
 
@@ -1214,16 +1221,21 @@ class GameCog(commands.Cog):
             # 다음 문단 prefetch (현재 문단 출력 동안 백그라운드 합성)
             next_task = None
             if i + 1 < len(items):
-                next_task = asyncio.create_task(_synth(items[i + 1][2]))
+                next_task = asyncio.create_task(_synth(i + 1))
 
             total_cost += cost
             total_in += in_tok
             total_out += out_tok
 
-            # SVG 카드: 추출 대기·카드 준비를 음성 적재보다 먼저(음성·텍스트 동기 유지). 실패는 이미지 생략.
-            card_png = None
+            # P3 G3: 이 문단보다 앞서 실제로 공개된 이름·얼굴이 있으면 헤더·카드를 그 기준으로 다시 정한다(표시 전용)
             if is_dialogue and dctx is not None:
-                card_png = await core.speaker_card.prepare_card(session, dctx, preparation)
+                dctx = await core.speaker_card.turn_display_context(session, speaker, preparation, i)
+                display = core.format_dialogue_block(dctx.header, core.parse_dialogue_paragraph(raw)[1])
+            # SVG 카드: 추출 대기·카드 준비를 음성 적재보다 먼저(음성·텍스트 동기 유지). 임계 시간을 넘으면
+            # 로딩 이미지를 먼저 보내고 같은 메시지에서 교체한다(P2 #6). 실패는 오류 이미지.
+            if is_dialogue and dctx is not None:
+                await core.speaker_card.deliver_card(game_channel, session, dctx, preparation,
+                                                     collector=media_collector)
 
             # 음성 적재(재생 시작) + 재생 길이 산출
             duration = None
@@ -1234,8 +1246,6 @@ class GameCog(commands.Cog):
 
             if is_dialogue and dctx is None:
                 await core.maybe_send_speaker_image(game_channel, session, speaker, collector=media_collector)
-            elif is_dialogue:
-                await core.speaker_card.send_card(game_channel, session, card_png, collector=media_collector)
 
             await core.stream_text_to_channel(
                 self.bot, game_channel, display,

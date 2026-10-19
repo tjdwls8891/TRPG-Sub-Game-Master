@@ -750,6 +750,8 @@ def current_facts(session) -> dict:
     """
     facts = getattr(session, "item_facts", None) or {}
     wv = getattr(session, "world_version", None) or {}
+    if facts.get("evaluated_same_turn"):
+        return {"used": [], "paid": []}      # P1(D4): 만든 턴의 보충 진행이 이미 평가했다 — 다음 턴 재평가 없음(이중 반응 금지)
     if not facts.get("tx") or wv.get("cause_id") != facts.get("tx"):
         return {"used": [], "paid": []}
     return {"used": list(facts.get("used") or ()), "paid": list(facts.get("paid") or ())}

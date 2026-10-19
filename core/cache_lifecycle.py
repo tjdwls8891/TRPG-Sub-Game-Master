@@ -256,7 +256,7 @@ def _record_cost(bot, session, *, key, operation, model, actor_kind, billing_hin
     ledger = CL.get_ledger(bot)
     if ledger is None:
         return None
-    md = dict(metadata or {})
+    md = {**CL.session_dims(session), **dict(metadata or {})}
     md["pricing_basis"] = CL.pricing_basis_for(model)
     ev = CL.CostEvent(
         event_id=uuid.uuid4().hex, idempotency_key=key, created_at=time.time(),

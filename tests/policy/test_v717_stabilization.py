@@ -105,10 +105,12 @@ def test_P2_current_facts_bound_to_last_commit():
     assert IT.current_facts(s)["paid"] == ["빵"]
     assert IT.current_facts(SimpleNamespace(item_facts={}, world_version=None)) == {"used": [], "paid": []}
     src = (ROOT / "cogs/gm.py").read_text(encoding="utf-8")
-    assert "item_facts=core.items.current_facts(session)" in src and src.count("item_facts=") == 1
+    assert "item_facts=core.items.current_facts(session)" in src and src.count("item_facts=core.items.current_facts(") == 1
 
 
-async def test_P2_use_seen_by_next_plan_then_not_refired_and_rewind_consistent(drig):
+async def test_P2_use_evaluated_same_turn_then_not_refired_and_rewind_consistent(drig):
+    # P1(D4, 사용자 승인으로 v7.17 Q11 다음 턴 재평가를 대체): 사용·지급 사실은 만든 턴의 보충 진행이 평가하고
+    #   다음 계획은 다시 평가하지 않는다(이중 반응 금지). 사실 기록·되감기 일치는 그대로다.
     r = drig
     r.make()
     r.sess.resources = {"테스터": {"손전등": 1}}
@@ -117,7 +119,8 @@ async def test_P2_use_seen_by_next_plan_then_not_refired_and_rewind_consistent(d
         {"op": "USE", "owner": "O1", "item": "H1", "quantity": 1}]})]
     tx1 = await turn(r, "손전등을 비춘다")
     assert tx1.status == tt.TurnStatus.COMMITTED
-    assert IT.current_facts(r.sess)["used"] == ["손전등"]                          # (a)/(c) 다음 계획에서 인식
+    assert r.sess.item_facts["used"] == ["손전등"] and r.sess.item_facts["evaluated_same_turn"] is True
+    assert IT.current_facts(r.sess)["used"] == []                                  # (a)/(c) 같은 턴 평가 — 다음 계획 재평가 없음
     after1 = (copy.deepcopy(r.sess.item_facts), copy.deepcopy(r.sess.world_version))
     # 아이템 계획 없이 커밋된 턴(정본 version만 전진)과 같은 효과 — 옛 사실은 새 사실이 아니다
     r.sess.item_facts = dict(r.sess.item_facts)
@@ -128,7 +131,7 @@ async def test_P2_use_seen_by_next_plan_then_not_refired_and_rewind_consistent(d
     res = await core.turn_history.rewind(r.bot, r.sess, 1)
     assert res["ok"], res
     assert (r.sess.item_facts, r.sess.world_version) == after1                     # (d) 되감기 후 시간 일치
-    assert IT.current_facts(r.sess)["used"] == ["손전등"]
+    assert IT.current_facts(r.sess)["used"] == []
 
 
 def test_P2_non_item_commit_without_plan_does_not_refresh_facts_but_retires_them():

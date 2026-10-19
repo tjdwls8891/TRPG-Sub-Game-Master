@@ -275,6 +275,9 @@ def mark_transaction_status(session, transaction_id, status, *,
     if failure_message is not None:
         active.failure_message = failure_message
     active.updated_at = time.time()
+    if active.status != _prev:
+        from . import turn_log as _tl
+        _tl.note_status(active, active.status)            # P3 G3: 단계 시각 · 대기/종료 시 turn.summary
     return True
 
 
@@ -309,6 +312,8 @@ def begin_attempt(session, *, logical_turn: int,
     if active is not None and not is_terminal(active.status):
         active.status = TurnStatus.SUPERSEDED
         active.updated_at = time.time()
+        from . import turn_log as _tl
+        _tl.note_status(active, active.status)
     return _begin(session, logical_turn=logical_turn,
                   player_declaration=player_declaration)
 

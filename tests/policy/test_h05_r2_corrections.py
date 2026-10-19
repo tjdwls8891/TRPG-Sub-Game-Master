@@ -136,6 +136,7 @@ async def test_r2_2_same_scene_npc_hidden_info_not_disclosed_to_extraction(drig)
 async def test_r2_2_future_event_signal_cue_not_in_extraction_prompt(drig):
     r = drig
     _arm_alert(r)                                                     # 활성 사건 — 5분 뒤 신호(아직 미발생)
+    r.prov.routes["judgment"] = judgment(None, action_minutes=0)      # 순간 행동 — 시간 경과 없음
     r.prov.routes["extraction"] = [extraction({})]
     await turn(r, "가만히 숨을 고른다")
     eprompt = r.prov.prompts["extraction"][0][0]
@@ -212,9 +213,9 @@ async def test_r2_3_tie_options_name_competing_observable_facts(drig):
     r = drig
     _fx(r, "door_1")                                                  # 시장→성당 통로 출입: 열림 vs 막힘(같은 우선순위)
     r.prov.routes["judgment"] = judgment(None, time_kind="DURATION", duration_minutes=10, activity="WAIT")
-    r.prov.routes["extraction"] = [extraction({"tie_order": "NONE"})]
     await turn(r, "10분 기다린다")
-    sec = _tie_section(r.prov.prompts["narration"][0][0])
+    # P1(D2): 선후 선택지는 묘사 전 지시층위 입력에 실린다(묘사·추출은 확정 결과만 받는다)
+    sec = _tie_section(r.prov.prompts["logic"][0][0])
     opts = dict(re.findall(r"(O\d+): (.+?)(?= - O\d+:| \[|\n|$)", sec))
     assert set(opts) == {"O1", "O2"}
     for label in opts.values():
@@ -225,8 +226,7 @@ async def test_r2_3_tie_options_name_competing_observable_facts(drig):
     assert ("열" in first["O1"]) != ("열" in first["O2"])
     for bad in ("due:", "evt_fx", "door_1", "예약된 일"):              # 내부 opaque id로만 표현하지 않는다
         assert bad not in sec
-    esec = r.prov.prompts["extraction"][0][0]
-    assert all(v in esec for v in opts.values())                       # 추출도 같은 의미 라벨
+    assert "같은 순간" not in r.prov.prompts["narration"][0][0]
 
 
 async def test_r2_3_offscreen_conflict_never_presented_as_tie(drig):

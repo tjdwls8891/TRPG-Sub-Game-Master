@@ -165,7 +165,8 @@ class TRPGSession:
         # 직전 턴 비용(원). 디스플레이 '직전 턴 금액' 표기용
         self.last_turn_cost = 0.0
         # TTS 목소리 — 세션 생성 시 선택. 미지정이면 기본 나레이터 보이스
-        self.tts_voice = ""
+        self.tts_voice = ""             # 레거시 — P2부터 master_gender가 진행자 목소리를 정한다
+        self.master_gender = "male"     # P2: 진행자 성별 표현(male|female)
         # 기억 압축 방식 — normal(기본) | high | low | ultra
         self.memory_plan = "normal"
         # 서사설계 유형 — quest(기본) | free(풀자유). 퀘스트 시스템 도입 시 사용
@@ -270,7 +271,9 @@ class TRPGSession:
         # ========== [v7.17 아이템 — 단일 출처 core.items.ITEM_FIELDS(되감기 대상, resources와 같은 커밋 단위)] ==========
         self.item_instances = {}      # 특수 개별 물건(고유 ID·소유자 또는 장소·상태·정보 참조)
         self.place_items = {}         # 장소에 놓인 물건 원천(내려놓기 — 남은 수량의 단일 권위)
-        self.item_facts = {}          # 직전 커밋 턴의 사용·지급 사실(다음 턴 사건 조건 입력)
+        self.item_facts = {}          # 직전 커밋 턴의 사용·지급 사실(P1: 같은 턴 보충 진행에서 평가 — 기록용)
+        # ========== [P1 전달 대기 — 단일 출처 core.world_state.DELIVERY_FIELDS(되감기 대상)] ==========
+        self.world_pending_signals = []   # 본문이 아직 전하지 못한 관찰 신호(다음 본문 '그동안')
         # ========== [v7.17 초기 지식 — genesis 이전 세션 단위 전달 기록(되감기 대상 아님)] ==========
         self.initial_knowledge_progress = {}
         self.definition_revision = None

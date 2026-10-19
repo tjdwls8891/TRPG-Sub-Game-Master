@@ -732,7 +732,7 @@ class MediaCog(commands.Cog):
         else:
             return await ctx.send("⚠️ 사용법: `!더빙 켜기` / `!더빙 끄기` (인자 생략 시 토글)")
 
-        session.tts_enabled = new_state
+        core.media_control.sync_tts_flag(session, new_state)    # P2(#9): 디스플레이 토글과 같은 두 게이트를 함께
         await core.save_session_data(self.bot, session)
 
         if new_state:
@@ -742,8 +742,8 @@ class MediaCog(commands.Cog):
                 note = ("\n⚠️ 현재 음성 채널 재생이 활성화되어 있지 않습니다. "
                         "`!브금` 또는 `!플리`로 봇을 음성 채널에 입장시켜야 더빙이 들립니다.")
             await ctx.send(
-                f"🔊 **TTS 더빙 켜짐** (모델 `{core.TTS_MODEL}`, 보이스 `{core.TTS_NARRATOR_VOICE}`). "
-                f"인트로 묘사를 음성으로 읽어줍니다(자동 턴 미적용).{note}"
+                f"🔊 **TTS 더빙 켜짐** (모델 `{core.TTS_MODEL}`, 진행자 보이스 "
+                f"`{core.voice_profile.master_voice(session)}`). 인트로·자동 턴 묘사와 진행자 안내를 읽어줍니다.{note}"
             )
         else:
             await ctx.send("🔇 **TTS 더빙 꺼짐.**")

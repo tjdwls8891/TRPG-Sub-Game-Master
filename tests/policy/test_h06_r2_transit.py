@@ -113,8 +113,16 @@ async def test_continue_from_transit_resumes_remaining_without_double_time(drig)
     r = drig
     D = r.make(templates={"dog": midway_tpl()}, edges=ROUTE_B)
     _spawn(r, D)
+    import re
+    from tests.policy.test_h05bc_turn_wiring import H05Provider, extraction
+
+    def _seen(kwargs):                                                    # 본문이 들개 떼를 표현했다(추출 근거)
+        m = re.search(r"(S\d+)=[^,\n]*들개 떼", H05Provider._text(kwargs))
+        return extraction({"represented_signals": [m.group(1)]} if m else {})
+    r.prov.routes["extraction"] = _seen
     await _go(r, "성당")
     assert SP.placement_of(r.sess, PC)["kind"] == SP.TRANSIT and r.sess.world_clock["minute_index"] == K + 3
+    assert r.sess.world_pending_signals == []                             # P1: 표현 확인 — 전달 대기 없음
     await _go(r, "성당", "계속 간다")
     assert SP.placement_of(r.sess, PC) == SP.at_place("성당")
     assert r.sess.world_clock["minute_index"] == K + 12                   # 3 + 남은 5 + 4 = 처음부터 12분

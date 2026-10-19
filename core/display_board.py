@@ -12,7 +12,7 @@ import time
 from datetime import datetime, timedelta, timezone
 from xml.sax.saxutils import escape
 
-from .constants import CACHE_TTL_SECONDS, TTS_NARRATOR_VOICE
+from .constants import CACHE_TTL_SECONDS
 
 W = 1200
 KST = timezone(timedelta(hours=9), "KST")
@@ -111,12 +111,14 @@ def board_data(session) -> dict:
             pass
     flags = media_control.get_media_flags(session)
     onoff = lambda v: ("ON", "on") if v else ("OFF", "off")
-    tts_eff = media_control.is_enabled(session, "tts")
+    # P2(#9): 실효 = 설정 ∧ 실제 재생 가능(음성 채널 연결). 켜졌지만 미연결이면 '미연결'
+    _tts_lbl = media_control.tts_status_label(session)
+    from .voice_profile import GENDER_LABEL, master_gender
     media = [("이미지", *onoff(flags["image"])), ("TTS", *onoff(flags["tts"])), ("BGM", *onoff(flags["bgm"])),
-             ("효과음", *onoff(flags["sfx"])), ("TTS 실효", *onoff(tts_eff)),
+             ("효과음", *onoff(flags["sfx"])), ("TTS 실효", _tts_lbl, "on" if _tts_lbl == "ON" else "off"),
              ("볼륨", f"{int((getattr(session, 'volume', 0.3) or 0) * 100)}%", ""),
              ("현재 BGM", getattr(session, "current_bgm", None) or "(없음)", ""),
-             ("목소리", getattr(session, "tts_voice", "") or TTS_NARRATOR_VOICE, "")]
+             ("진행자", GENDER_LABEL[master_gender(session)], "")]
     players = []
     for _uid, p in (getattr(session, "players", {}) or {}).items():
         if not isinstance(p, dict):

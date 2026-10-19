@@ -73,7 +73,9 @@ REVERSIBLE_FIELDS = (
     "gm_side_note", "gm_clarify_count", "gm_narrate_count",
     # E-E3: 캐시 파생 필드 — 프롬프트(캐시 없는 폴백 포함)가 읽으므로 선택 이력과 함께 복원
     "cached_compressed_memory", "cached_session_npcs", "cached_worldview_sections",
-) + tuple(_world_state.GAMEPLAY_WORLD_FIELDS) + tuple(_items_fields.ITEM_FIELDS)
+) + tuple(_world_state.GAMEPLAY_WORLD_FIELDS) + tuple(_items_fields.ITEM_FIELDS) \
+    + tuple(_world_state.DELIVERY_FIELDS)
+# P1: 본문 전달 대기(world_pending_signals)도 같은 되감기 단위 — 되감기·재서술이 그 턴 이전 대기로 돌아간다
 # v7.17: 아이템 3필드(특수 물건·현장 물건·사용/지급 사실)는 resources와 같은 되감기 단위. 초기 지식 전달 기록은 제외
 # H02: 동적 세계 게임 정본은 가역. definition_revision·narrative_seed는 가역이 아니다(세션 정체성).
 WORLD_REVERSIBLE_FIELDS = tuple(_world_state.GAMEPLAY_WORLD_FIELDS)
@@ -274,7 +276,8 @@ def restore_reversible(session, state: dict) -> None:
     definition_revision·narrative_seed는 가역 집합 밖이라 어떤 레코드로도 바뀌지 않는다.
     """
     from .cache import _deserialize_log_entry
-    world_defaults = {**_world_state.gameplay_defaults(), **_items_fields.item_field_defaults()}
+    world_defaults = {**_world_state.gameplay_defaults(), **_items_fields.item_field_defaults(),
+                      **_world_state.delivery_defaults()}
     for f in REVERSIBLE_FIELDS:
         if f not in state:
             if f in world_defaults:
@@ -1277,8 +1280,32 @@ _abort_rerender_impl = abort_rerender
 _settle_rerender_impl = settle_rerender
 
 
+_select_committed_impl = select_committed
+
+
+def select_committed(session, plan) -> dict:  # noqa: F811
+    res = _select_committed_impl(session, plan)
+    if not res.get("duplicate"):
+        # P3 G4: 선택 인덱스 변화 — 이 gm_turn의 현재 이야기 시도와 버려진 시도
+        sup = res.get("superseded") or {}
+        _log_history("history.selection", session, {
+            "reason": "SELECT", "gm_turn": plan.gm_turn, "tx": plan.transaction_id, "attempt": plan.attempt,
+            "superseded_tx": sup.get("transaction_id"), "record": res.get("record")})
+    return res
+
+
 async def rewind(bot, session, target_gm_turn: int) -> dict:  # noqa: F811
+    _before = None
+    try:
+        _before = dict(view(session.session_id).selected)
+    except Exception:  # noqa: BLE001
+        pass
     res = await _rewind_impl(bot, session, target_gm_turn)
+    if res.get("ok") and _before is not None:
+        _log_history("history.selection", session, {
+            "reason": "REWIND", "head_after": target_gm_turn,
+            "deselected": {str(g): e.get("transaction_id") for g, e in sorted(_before.items())
+                           if g > target_gm_turn}})
     _log_history("history.rewind", session, {"target_gm_turn": target_gm_turn, "ok": res.get("ok"),
                                              "reason": res.get("reason"),
                                              "removed_turns": res.get("removed_turns")})

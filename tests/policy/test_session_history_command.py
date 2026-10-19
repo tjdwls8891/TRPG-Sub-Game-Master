@@ -36,18 +36,19 @@ def test_pack_keeps_every_file_and_nested_dirs_in_one_zip(tmp_path):
     path = _make(tmp_path, {"data.json": b'{"a":1}', "turn_history/t1.json": b"{}", "api_log.txt": b"x" * 1000})
     parts, skipped = SYS.pack_session_dir(path, "s1")
     assert [n for n, _ in parts] == ["session_s1.zip"] and skipped == []
-    assert sorted(_names(parts)) == ["s1/api_log.txt", "s1/data.json", "s1/turn_history/t1.json"]
+    assert sorted(_names(parts)) == ["s1/_index/LOG_README.md", "s1/_index/manifest.json",   # P3 G6 자기 서술
+                                     "s1/api_log.txt", "s1/data.json", "s1/turn_history/t1.json"]
     with zipfile.ZipFile(io.BytesIO(parts[0][1])) as z:
         assert z.read("s1/data.json") == b'{"a":1}'
 
 
 def test_pack_splits_by_file_and_skips_file_over_limit(tmp_path):
-    big = os.urandom(3000)                                  # 압축되지 않는 데이터
+    big = os.urandom(5000)                                  # 압축되지 않는 데이터
     path = _make(tmp_path, {"a.bin": big, "b.bin": big, "huge.bin": os.urandom(9000)})
-    parts, skipped = SYS.pack_session_dir(path, "s1", limit=5000)
-    assert [n for n, _ in parts] == ["session_s1_part1of2.zip", "session_s1_part2of2.zip"]
-    assert all(len(d) <= 5000 for _n, d in parts)
-    assert sorted(_names(parts)) == ["s1/a.bin", "s1/b.bin"]
+    parts, skipped = SYS.pack_session_dir(path, "s1", limit=8000)   # 한도 > 동봉 README 압축 크기
+    assert len(parts) > 1 and [n for n, _ in parts][0] == f"session_s1_part1of{len(parts)}.zip"
+    assert all(len(d) <= 8000 for _n, d in parts)
+    assert sorted(n for n in _names(parts) if "/_index/" not in n) == ["s1/a.bin", "s1/b.bin"]
     assert skipped == [("s1/huge.bin", 9000)]
 
 

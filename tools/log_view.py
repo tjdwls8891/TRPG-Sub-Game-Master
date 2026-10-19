@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """구조 로그 열람 — 세션 폴더(sessions/{id}) 또는 !세션이력 zip을 받아 사람이 읽는 형태로 출력.
 
-    python3 tools/log_view.py <세션폴더|zip>                  요약(파일별 건수·오류·층위별 호출 통계)
+    python3 tools/log_view.py <세션폴더|zip...>               요약(파일별 건수·오류·층위별 호출 통계)
     python3 tools/log_view.py <src> --timeline [--turn N]    호출·이벤트·도메인·채팅을 시간순으로
     python3 tools/log_view.py <src> --calls [--layer L] [--turn N]
     python3 tools/log_view.py <src> --call ID                호출 1건의 요청·응답 원문 복원
@@ -16,6 +16,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import sys
 import time
 import zipfile
@@ -24,37 +25,52 @@ from collections import Counter, defaultdict
 FILES = ("calls", "events", "domain", "chat", "blobs")
 
 
-def load(src: str) -> dict:
+def _kind(name: str):
+    """logs/{k}.jsonl 또는 줄 경계 분할 조각 logs/{k}.partNNN.jsonl(P3 G7) → (k, 순번)."""
+    m = re.fullmatch(r"(\w+?)(?:\.part(\d+))?\.jsonl", os.path.basename(name))
+    if m and m.group(1) in FILES:
+        return m.group(1), int(m.group(2) or 0)
+    return None
+
+
+def load(*srcs: str) -> dict:
+    """세션 폴더 또는 zip(분할 묶음이면 여러 개). 조각은 순번대로 이어 붙인다."""
     data = {k: [] for k in FILES}
+    found = []                                         # (k, 순번, 이름, 텍스트)
 
     def take(name, text):
-        base = os.path.basename(name)
-        for k in FILES:
-            if base == f"{k}.jsonl":
-                for line in text.splitlines():
-                    if line.strip():
-                        try:
-                            data[k].append(json.loads(line))
-                        except Exception:
-                            pass
-    if os.path.isdir(src):
-        d = os.path.join(src, "logs") if os.path.isdir(os.path.join(src, "logs")) else src
-        for k in FILES:
-            p = os.path.join(d, f"{k}.jsonl")
-            if os.path.exists(p):
-                take(p, open(p, encoding="utf-8").read())
-    else:
-        with zipfile.ZipFile(src) as z:
-            for n in z.namelist():
-                if "/logs/" in n or n.startswith("logs/"):
-                    take(n, z.read(n).decode("utf-8"))
+        km = _kind(name)
+        if km:
+            found.append((km[0], km[1], name, text))
+    for src in srcs:
+        if os.path.isdir(src):
+            d = os.path.join(src, "logs") if os.path.isdir(os.path.join(src, "logs")) else src
+            for n in sorted(os.listdir(d)):
+                if n.endswith(".jsonl"):
+                    take(n, open(os.path.join(d, n), encoding="utf-8").read())
+        else:
+            with zipfile.ZipFile(src) as z:
+                for n in z.namelist():
+                    if "/logs/" in n or n.startswith("logs/"):
+                        take(n, z.read(n).decode("utf-8"))
+    for k, _i, _n, text in sorted(found, key=lambda x: (x[0], x[1])):
+        for line in text.splitlines():
+            if line.strip():
+                try:
+                    data[k].append(json.loads(line))
+                except Exception:
+                    pass
     data["blob_map"] = {b["h"]: b["t"] for b in data["blobs"]}
     return data
 
 
 def piece(D, p) -> str:
     if isinstance(p, str) and p.startswith("#"):
-        return D["blob_map"].get(p[1:], f"<조각 누락 {p}>")
+        h = p[1:]
+        if h in D["blob_map"]:
+            return D["blob_map"][h]
+        # '#'로 시작하는 짧은 원문(16자 미만은 원문 그대로 저장)과 진짜 누락을 구분
+        return p if len(p) != 13 or any(c not in "0123456789abcdef" for c in h) else f"<조각 누락 {p}>"
     return "" if p is None else str(p)
 
 
@@ -73,7 +89,7 @@ def value(D, v):
 
 
 def ts(t) -> str:
-    return time.strftime("%H:%M:%S", time.localtime(t or 0))
+    return time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(t or 0))
 
 
 def summary(D):
@@ -124,23 +140,23 @@ def timeline(D, turn=None):
     rows = []
     for c in D["calls"]:
         rows.append((c["ts"], "CALL", f"{c.get('layer')}/{c.get('op')} {c.get('status')} {c.get('ms')}ms "
-                                       f"{(c.get('usage') or {})}", c.get("turn")))
+                                       f"{(c.get('usage') or {})}", c.get("turn"), c.get("seq") or 0))
     for e in D["events"]:
-        rows.append((e["ts"], e.get("lv", "INFO"), f"{e.get('area')}: {e.get('msg')} {e.get('exc', '')}", e.get("turn")))
+        rows.append((e["ts"], e.get("lv", "INFO"), f"{e.get('area')}: {e.get('msg')} {e.get('exc', '')}", e.get("turn"), e.get("seq") or 0))
     for d in D["domain"]:
         brief = json.dumps(value(D, d.get("data")), ensure_ascii=False)[:300]
-        rows.append((d["ts"], "DATA", f"{d.get('kind')} {brief}", d.get("turn")))
+        rows.append((d["ts"], "DATA", f"{d.get('kind')} {brief}", d.get("turn"), d.get("seq") or 0))
     for m in D["chat"]:
         text = joined(D, m["text"]) if isinstance(m.get("text"), list) else m.get("text", "")
-        rows.append((m["ts"], "CHAT", f"[{m.get('ch')}] {m.get('who')}: {text[:200]}", m.get("turn")))
-    for t, kind, text, tn in sorted(rows, key=lambda r: r[0]):
+        rows.append((m["ts"], "CHAT", f"[{m.get('ch')}] {m.get('who')}: {text[:200]}", m.get("turn"), m.get("seq") or 0))
+    for t, kind, text, tn, _seq in sorted(rows, key=lambda r: (r[0], r[4])):   # 같은 ts는 seq로
         if turn is None or tn == turn:
             print(f"[{ts(t)}] {kind:5s} t{tn if tn is not None else '-'} {text}")
 
 
 def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("src")
+    ap.add_argument("src", nargs="+", help="세션 폴더 또는 zip(분할 묶음은 전부)")
     ap.add_argument("--timeline", action="store_true")
     ap.add_argument("--calls", action="store_true")
     ap.add_argument("--call")
@@ -151,7 +167,7 @@ def main(argv=None):
     ap.add_argument("--domain", nargs="?", const="")
     ap.add_argument("--chat", action="store_true")
     a = ap.parse_args(argv)
-    D = load(a.src)
+    D = load(*a.src)
     if a.call:
         for c in D["calls"]:
             if c.get("call") == a.call:

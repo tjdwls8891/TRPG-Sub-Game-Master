@@ -68,8 +68,9 @@ def test_tie_plan_requires_single_valid_order():
                                       narrative_seed="x").status == TW.TW_TIE_UNRESOLVED
 
 
-def test_no_continuation_without_new_observable_consequence():
+def test_no_pending_delivery_without_new_observable_consequence():
     s, D = _session()
     c = ctx_of(s)
     res = TW.process_observation(c, s, None, TW.ObservationManifest(), {}, transaction_id="t", narrative_seed="x")
-    assert TW.continuation_plan("t", res) is None
+    assert res.status == TW.TW_READY and res.pending == []
+    assert not hasattr(TW, "continuation_plan") and not hasattr(TW, "ForegroundContinuationPlan")   # P1 은퇴

@@ -45,6 +45,103 @@ SIMULATION_FIXED_TOKENS = 1700
 CONFIDENCE_MID = 3
 CONFIDENCE_HIGH = 10
 
+# ── P1: 원장(CostLedger) 파생 통계 — 세션 표본이 부족할 때의 상위 그룹(시나리오 → 전역) ──
+#   · 토큰 분포만 쓴다(금액은 **현재 가격표**로 다시 계산 — 옛 단가로 미래를 예측하지 않음).
+#   · 같은 모델의 공급자 실측(PROVIDER_METADATA)만. 결측 차원(옛 이벤트의 scenario_id 없음)은 전역에만 든다.
+#   · 표본 MIN_LEDGER_SAMPLES 미만 그룹은 쓰지 않는다(한두 건으로 급전환 금지).
+MIN_LEDGER_SAMPLES = 5
+LAYER_OPS = {"judgment": "TURN_JUDGMENT", "simulation": "TURN_SIMULATION", "instruction": "TURN_INSTRUCTION",
+             "narration": "TURN_NARRATION", "extraction": "TURN_EXTRACTION"}
+AUX_OPS = ("TURN_IRREGULAR_NPC", "TURN_NPC_PROFILE", "TURN_NARRATIVE_PLANNING")   # 조건부 부가 호출
+_STATS_CACHE: dict = {}
+
+
+def _pct(vals, q):
+    v = sorted(vals)
+    if not v:
+        return 0
+    return v[min(len(v) - 1, max(0, int(round(q * (len(v) - 1)))))]
+
+
+def _priced(model, in_t, cached_t, out_t) -> float:
+    try:
+        return calculate_text_gen_cost_breakdown(model, input_tokens=int(in_t), output_tokens=int(out_t),
+                                                 cached_read_tokens=int(cached_t))["total_krw"]
+    except Exception:
+        return 0.0
+
+
+def ledger_profile(path: str | None = None) -> dict | None:
+    """원장 → {scope: {op: {"out": [..], "fresh": [..]}}, "turns": {scope: {"aux": [krw..], "tts": [krw..]}}}.
+
+    scope = "*"(전역) 또는 scenario_id. 파일 크기·수정 시각이 같으면 캐시를 재사용한다. 원장이 없으면 None."""
+    import os
+    from . import cost_ledger as CL
+    from .constants import TTS_MODEL
+    path = path or CL.DEFAULT_LEDGER_PATH
+    try:
+        st = os.stat(path)
+    except OSError:
+        return None
+    key = (os.path.abspath(path), st.st_size, st.st_mtime_ns)
+    hit = _STATS_CACHE.get("key") == key and _STATS_CACHE.get("val")
+    if hit:
+        return hit
+    try:
+        rows = CL.CostLedger(path).list_cost_events()
+    except Exception:
+        return None
+    ops, by_tx = {}, {}
+    for r in rows:
+        if r.get("usage_source") != CL.SOURCE_PROVIDER_METADATA or not r.get("success", True):
+            continue
+        op = r.get("operation")
+        sc = ((r.get("metadata") or {}).get("scenario_id")) or None
+        model = r.get("model") or DEFAULT_MODEL
+        fresh = max(0, int(r.get("input_tokens") or 0) - int(r.get("cached_input_tokens") or 0))
+        if op in LAYER_OPS.values() and model == DEFAULT_MODEL:
+            for scope in (("*", sc) if sc else ("*",)):
+                d = ops.setdefault(scope, {}).setdefault(op, {"out": [], "fresh": []})
+                d["out"].append(int(r.get("output_tokens") or 0))
+                d["fresh"].append(fresh)
+        tx = r.get("transaction_id")
+        if tx and (op == "TURN_NARRATION" or op in AUX_OPS or op == "TTS_RUNTIME"):
+            t = by_tx.setdefault(tx, {"sc": sc, "narr": False, "aux": 0.0, "tts": 0.0})
+            t["sc"] = t["sc"] or sc
+            if op == "TURN_NARRATION":
+                t["narr"] = True
+            elif op == "TTS_RUNTIME":
+                t["tts"] += _priced(TTS_MODEL, r.get("input_tokens") or 0, 0,
+                                    r.get("audio_output_tokens") or r.get("output_tokens") or 0)
+            else:
+                t["aux"] += _priced(model, r.get("input_tokens") or 0, r.get("cached_input_tokens") or 0,
+                                    r.get("output_tokens") or 0)
+    turns = {}
+    for t in by_tx.values():
+        if not t["narr"]:
+            continue                                  # 정상 묘사가 있었던 턴만(부가 호출 발생률의 분모)
+        for scope in (("*", t["sc"]) if t["sc"] else ("*",)):
+            d = turns.setdefault(scope, {"aux": [], "tts": []})
+            d["aux"].append(t["aux"])
+            if t["tts"] > 0:
+                d["tts"].append(t["tts"])
+    val = {"ops": ops, "turns": turns}
+    _STATS_CACHE.update(key=key, val=val)
+    return val
+
+
+def _ledger_group(session, getter):
+    """(표본, 근거 라벨) — 시나리오 그룹 → 전역 그룹 순서로 표본이 충분한 첫 그룹."""
+    prof = ledger_profile()
+    if not prof:
+        return None, None
+    sc = getattr(session, "scenario_id", None)
+    for scope, label in (((sc, "시나리오 원장"),) if sc else ()) + (("*", "전역 원장"),):
+        vals = getter(prof, scope)
+        if vals and len(vals) >= MIN_LEDGER_SAMPLES:
+            return vals, label
+    return None, None
+
 
 def _tok(text: str) -> int:
     """문자열의 토큰 수를 근사한다."""
@@ -96,9 +193,17 @@ def update_stats(session, layer: str, out_tokens: int, thought_tokens: int = 0) 
 
 
 def _out_range(session, layer: str, baseline_key: str) -> tuple:
-    """해당 층위의 출력 토큰 예상 범위 (하한, 상한)."""
+    """해당 층위의 출력 토큰 예상 범위 (하한, 상한).
+
+    P1: 세션 표본 < CONFIDENCE_MID면 원장 통계(시나리오 → 전역, 같은 모델) → 기본값 순서로 대체한다."""
     st = _stats(session).get(layer)
     base = get_baseline(session)[baseline_key]
+    if not st or st["n"] < CONFIDENCE_MID:
+        op = LAYER_OPS.get(layer)
+        vals, _label = _ledger_group(session, lambda p, sc: ((p["ops"].get(sc) or {}).get(op) or {}).get("out")) \
+            if op else (None, None)
+        if vals:
+            return (int(_pct(vals, 0.1)), int(_pct(vals, 0.95) * CONSERVATIVE_FACTOR))
     if not st or st["n"] == 0:
         # 콜드 스타트 — 기본값 기준으로 넓게 잡는다.
         return (int(base * 0.6), int(base * 1.6 * CONSERVATIVE_FACTOR))
@@ -158,6 +263,13 @@ def estimate_input_tokens(session, action: str = "PROCEED") -> dict:
     narr_hi = _out_range(session, "narration", "narration_out")[1]
     out["extraction"] = min(int(narr_hi), _tok("x" * 3000)) + 300
 
+    # P1: 조립으로 재지 못하는 블록(동적 세계 장소·장면 인물·사건 가이드·행동/관찰/아이템 매니페스트 등)이
+    #   있다 — 원장의 같은 층위 실측 비캐시 입력 중앙값보다 작게 잡지 않는다(과소 예측 방지).
+    for layer, op in LAYER_OPS.items():
+        vals, _label = _ledger_group(session, lambda p, sc, _op=op: ((p["ops"].get(sc) or {}).get(_op) or {}).get("fresh"))
+        if vals:
+            out[layer] = max(int(out[layer]), int(_pct(vals, 0.5)))
+
     # 다음 턴 실측과 대조하기 위해 예측값을 보관한다(런타임 전용).
     session._last_input_estimate = dict(out)
     return out
@@ -216,6 +328,13 @@ def estimate_turn(session, action: str = "PROCEED") -> dict:
     if action == "PROCEED":
         e_lo, e_hi = _out_range(session, "extraction", "extraction_out")
         breakdown["추출층위"] = (_cost(inp["extraction"], e_lo, 0), _cost(inp["extraction"], e_hi, 0))
+        # P1: 조건부 부가 호출(비정규 NPC·NPC 프로필·서사 재계획) — 원장의 턴당 발생 분포(현재 단가로 재계산)
+        aux, _label = _ledger_group(session, lambda p, sc: (p["turns"].get(sc) or {}).get("aux"))
+        if aux:
+            breakdown["부가 호출"] = (float(_pct(aux, 0.1)), float(_pct(aux, 0.95)) * CONSERVATIVE_FACTOR)
+        elif _aux_possible(session):
+            # 표본 없음 — 비정규 NPC 분석 1회 상한(묘사문 + 배정 출력)만 보수적으로
+            breakdown["부가 호출"] = (0.0, _cost(int(narr_hi_tokens(session)) + 500, 400, 0))
 
     for lo, hi in breakdown.values():
         lo_total += lo
@@ -223,9 +342,16 @@ def estimate_turn(session, action: str = "PROCEED") -> dict:
 
     # 표본 수가 가장 적은 층위를 기준으로 신뢰도를 매긴다.
     st = _stats(session)
-    ns = [v.get("n", 0) for v in st.values()] or [0]
+    ns = [v.get("n", 0) for k, v in st.items() if not k.startswith("_")] or [0]
     n_min = min(ns)
     confidence = "high" if n_min >= CONFIDENCE_HIGH else ("mid" if n_min >= CONFIDENCE_MID else "low")
+    basis = "세션 통계"
+    if n_min < CONFIDENCE_MID:
+        _v, basis = _ledger_group(session, lambda p, sc: ((p["ops"].get(sc) or {}).get("TURN_NARRATION") or {}).get("out"))
+        if _v:
+            confidence = "mid"                         # 원장 표본(MIN_LEDGER_SAMPLES 이상)이 받친다
+        else:
+            basis = "기본값"
 
     return {
         "min_krw": round(lo_total, 2),
@@ -234,8 +360,22 @@ def estimate_turn(session, action: str = "PROCEED") -> dict:
         "max_ink": cost_to_ink(hi_total),
         "breakdown": {k: (round(v[0], 2), round(v[1], 2)) for k, v in breakdown.items()},
         "confidence": confidence,
+        "basis": basis,
         "input_tokens": inp,
     }
+
+
+def narr_hi_tokens(session) -> int:
+    return _out_range(session, "narration", "narration_out")[1]
+
+
+def _aux_possible(session) -> bool:
+    """비정규 NPC 분석이 돌 수 있는가(이미지·TTS 중 하나라도 켜짐 — gm._resolve_irregular_npcs와 같은 조건)."""
+    try:
+        from .media_control import is_enabled
+        return bool(is_enabled(session, "image") or is_enabled(session, "tts"))
+    except Exception:
+        return True
 
 
 def _simulation_runs(session) -> bool:
@@ -387,8 +527,15 @@ def estimate_tts(session) -> dict:
     if not is_enabled(session, "tts"):
         return {"min_ink": 0, "max_ink": 0, "enabled": False}
 
+    # P1: 원장의 턴당 TTS 실측(현재 단가로 재계산)이 있으면 그 분포를 쓴다
+    tts, _label = _ledger_group(session, lambda p, sc: (p["turns"].get(sc) or {}).get("tts"))
+    if tts:
+        return {"min_ink": cost_to_ink(_pct(tts, 0.1)), "max_ink": cost_to_ink(_pct(tts, 0.95) * CONSERVATIVE_FACTOR),
+                "enabled": True}
     lo, hi = _out_range(session, "narration", "narration_out")
-    # 출력 토큰 → 문자 수 역환산 후 문자당 단가 적용
+    # 더빙 대상은 **가시 본문**뿐이다 — 사고 토큰은 읽지 않는다(이전 산식은 사고분까지 문자로 환산했다)
+    thought = float(((_stats(session).get("narration") or {}).get("thought_mean")) or 0.0)
+    lo, hi = max(0, lo - thought), max(0, hi - thought)
     lo_chars = int(lo / CHARS_TO_TOKENS)
     hi_chars = int(hi / CHARS_TO_TOKENS)
     return {

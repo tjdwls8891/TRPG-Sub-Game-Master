@@ -411,6 +411,8 @@ async def initialize_world(bot, session, chosen: dict) -> InitResult:
         raise WorldLifecycleError("genesis world_version 정체성 불일치")
     # 바인딩 세션은 이후 정의 원문(스냅샷)으로 진행 — 재시작과 같은 의미
     session.scenario_data = copy.deepcopy(definition["legacy_source"]["scenario"])
+    from . import logs as _logs
+    _logs.session_meta(session, "genesis")
     return InitResult(INIT_OK, initialization_id=init_id, mutation=mres)
 
 

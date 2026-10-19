@@ -128,6 +128,8 @@ def update_session_cache_state(session: TRPGSession, frozen=None):
        → `cached_compressed_memory`에 누적 후 `compressed_memory` 초기화.
        → 이후 프롬프트 `add_memory_block`에는 캐시 재발급 이후 새로 생긴 기억만 주입된다.
     """
+    from . import logs as _logs
+    _logs.session_meta(session, "cache")                 # P3 G2: 캐시 발급·재발급(프롬프트 지문 포함)
     if frozen is not None:
         # H06-C: 캐시 본문은 고정 원천(FrozenCacheBuildSource)으로 만들었다 — 기준선도 그 원천에서 잡는다.
         #   생성 중에 새로 쌓인 압축 기억·NPC 변화는 캐시에 없으므로 런타임 쪽에 그대로 남긴다.
@@ -649,6 +651,8 @@ async def restore_sessions_from_disk(bot):
                 if getattr(session, "display_ch_id", None):
                     bot.active_sessions[session.display_ch_id] = session
                 print(f"✅ 세션 {session_id} 복구 완료.")
+                from . import logs as _logs
+                _logs.session_meta(session, "restore")
 
             except Exception as e:
                 print(f"⚠️ 세션 {session_id} 복구 중 오류: {e}")

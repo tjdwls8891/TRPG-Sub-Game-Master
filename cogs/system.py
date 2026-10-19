@@ -1,5 +1,6 @@
 import asyncio
 import io
+import json
 import os
 import subprocess
 import zipfile
@@ -33,24 +34,126 @@ def _zip_entries(entries) -> bytes:
     return buf.getvalue()
 
 
+_LINE_EXT = (".jsonl", ".txt", ".log")          # 줄 경계로 나눌 수 있는 파일(P3 G7)
+_LOG_SCHEMA_DOC = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "docs", "LOG_SCHEMA.md")
+_MANIFEST_FIELDS = ("session_id", "scenario_id", "definition_revision", "world_lifecycle", "turn_count",
+                    "gm_turns_done", "cache_name", "cache_model", "total_ink_spent", "master_gender")
+
+
+def _split_lines(data: bytes, limit: int) -> list:
+    """줄 경계 조각(각 원본 ≤ limit). 한 줄이 limit보다 길면 그 줄만 단독 조각."""
+    chunks, cur = [], bytearray()
+    for line in data.splitlines(keepends=True):
+        if cur and len(cur) + len(line) > limit:
+            chunks.append(bytes(cur))
+            cur = bytearray()
+        cur += line
+    if cur:
+        chunks.append(bytes(cur))
+    return chunks
+
+
+def _iso(t) -> str | None:
+    if not t:
+        return None
+    return time.strftime("%Y-%m-%dT%H:%M:%S", time.gmtime(float(t) + 9 * 3600)) + "+09:00"
+
+
+def _jsonl(data: bytes) -> list:
+    out = []
+    for line in data.decode("utf-8", "replace").splitlines():
+        try:
+            out.append(json.loads(line))
+        except Exception:  # noqa: BLE001
+            pass
+    return out
+
+
+def build_manifest(rel_files: dict, entries: list, skipped: list, session_id: str) -> dict:
+    """묶음 자기 서술(P3 G6) — 에이전트가 파일 목록·세션 정체·시간 범위·선택 가지를 추측 없이 읽게 한다."""
+    m = {"manifest_version": 1, "log_schema": core.logs.LOG_SCHEMA_VERSION, "session_id": session_id,
+         "generated_at": _iso(time.time()), "tz": "Asia/Seoul (ISO는 +09:00, 각 줄 ts는 epoch 초)",
+         "packer": core.logs.code_revision(), "readme": f"{session_id}/_index/LOG_README.md"}
+    try:
+        d = json.loads(rel_files.get("data.json", b"{}") or b"{}")
+        m["session"] = {k: d.get(k) for k in _MANIFEST_FIELDS if k in d}
+        m["session"]["players"] = len(d.get("players") or {})
+    except Exception as e:  # noqa: BLE001
+        m["session"] = {"error": f"data.json 읽기 실패: {e}"}
+    metas = [r for r in _jsonl(rel_files.get("logs/domain.jsonl", b"")) if r.get("kind") == "session.meta"]
+    if metas:
+        m["last_session_meta"] = metas[-1].get("data")
+    lo = hi = None
+    for rel, data in rel_files.items():
+        if rel.startswith("logs/") and rel.endswith(".jsonl") and rel != "logs/blobs.jsonl":
+            for r in _jsonl(data):
+                t = r.get("ts")
+                if isinstance(t, (int, float)):
+                    lo, hi = (t if lo is None else min(lo, t)), (t if hi is None else max(hi, t))
+    m["time_range"] = {"first": _iso(lo), "last": _iso(hi)}
+    try:
+        hv = core.turn_history.HistoryView(_jsonl(rel_files.get("turn_history.jsonl", b"")))
+        m["selection"] = {"head_gm_turn": hv.head, "rewinds": len(hv.rewind_ops),
+                          "selected": {str(g): {"tx": e.get("transaction_id"), "logical_turn": e.get("logical_turn"),
+                                                "attempt": e.get("attempt")}
+                                       for g, e in sorted(hv.selected.items())},
+                          "unselected_tx": sorted(set(hv.all_attempts) - {e.get("transaction_id")
+                                                                          for e in hv.selected.values()})}
+    except Exception as e:  # noqa: BLE001
+        m["selection"] = {"error": f"turn_history 읽기 실패: {e}"}
+    files = {}
+    for arc, data, orig in entries:
+        f = files.setdefault(orig, {"path": orig, "size": len(rel_files[orig]), "parts": []})
+        if orig.endswith(_LINE_EXT):
+            f["lines"] = rel_files[orig].count(b"\n")
+        if arc != f"{session_id}/{orig}":
+            f["parts"].append(arc.split("/", 1)[1])
+    m["files"] = [{k: v for k, v in f.items() if v != []} for _k, f in sorted(files.items())]
+    m["excluded"] = [{"path": arc.split("/", 1)[1], "size": size} for arc, size in skipped]
+    return m
+
+
 def pack_session_dir(path: str, session_id: str, limit: int = HISTORY_PART_LIMIT):
     """sessions/{id}/ 전체를 zip 묶음 목록으로. 반환: ([(파일명, bytes)], [(상대경로, 원본 크기)] 한도 초과로 제외).
 
-    파일 단위로 순서대로 채우고 다음 파일이 한도를 넘기면 새 묶음을 연다. 압축해도 한 파일이 한도를 넘으면 제외한다.
+    파일 단위로 순서대로 채우고 다음 파일이 한도를 넘기면 새 묶음을 연다. 압축해도 한도를 넘는 줄 기반 파일
+    (.jsonl·.txt·.log)은 줄 경계 조각 `이름.partNNN.확장자`로 나눠 넣고(P3 G7), 그 밖의 파일만 제외한다.
+    첫 묶음 맨 앞에 `{id}/_index/manifest.json`·`LOG_README.md`(P3 G6)를 넣는다.
     """
-    files = []
+    rel_files = {}
     for root, _dirs, names in os.walk(path):
         for n in names:
             full = os.path.join(root, n)
             rel = os.path.relpath(full, path).replace(os.sep, "/")
             with open(full, "rb") as f:
-                files.append((f"{session_id}/{rel}", f.read()))
-    files.sort()
-    parts, skipped, cur, cur_size = [], [], [], 0
-    for arc, data in files:
-        size = len(_zip_entries([(arc, data)]))
-        if size > limit:
+                rel_files[rel] = f.read()
+    entries, skipped = [], []                       # entries: (arc, data, 원본 상대경로)
+    for rel in sorted(rel_files):
+        data, arc = rel_files[rel], f"{session_id}/{rel}"
+        if len(_zip_entries([(arc, data)])) <= limit:
+            entries.append((arc, data, rel))
+        elif rel.endswith(_LINE_EXT):
+            stem, ext = os.path.splitext(rel)
+            for i, chunk in enumerate(_split_lines(data, int(limit * 0.9)), 1):
+                entries.append((f"{session_id}/{stem}.part{i:03d}{ext}", chunk, rel))
+        else:
             skipped.append((arc, len(data)))
+    try:
+        manifest = json.dumps(build_manifest(rel_files, entries, skipped, session_id),
+                              ensure_ascii=False, indent=1).encode("utf-8")
+    except Exception as e:  # noqa: BLE001 — 묶음 전송을 막지 않는다
+        manifest = json.dumps({"error": f"manifest 생성 실패: {e}"}, ensure_ascii=False).encode("utf-8")
+    try:
+        with open(_LOG_SCHEMA_DOC, "rb") as f:
+            readme = f.read()
+    except OSError:
+        readme = b"docs/LOG_SCHEMA.md missing"
+    index = [(f"{session_id}/_index/LOG_README.md", readme), (f"{session_id}/_index/manifest.json", manifest)]
+    parts, cur, cur_size = [], [], 0
+    for arc, data in index + [(a, d) for a, d, _r in entries]:
+        size = len(_zip_entries([(arc, data)]))
+        if size > limit and not arc.startswith(f"{session_id}/_index/"):
+            skipped.append((arc, len(data)))      # 단일 줄이 한도보다 긴 조각(실측상 없음)
             continue
         if cur and cur_size + size > limit:
             parts.append(cur)
@@ -60,9 +163,9 @@ def pack_session_dir(path: str, session_id: str, limit: int = HISTORY_PART_LIMIT
     if cur:
         parts.append(cur)
     out = []
-    for i, entries in enumerate(parts, 1):
+    for i, ents in enumerate(parts, 1):
         suffix = f"_part{i}of{len(parts)}" if len(parts) > 1 else ""
-        out.append((f"session_{session_id}{suffix}.zip", _zip_entries(entries)))
+        out.append((f"session_{session_id}{suffix}.zip", _zip_entries(ents)))
     return out, skipped
 
 
@@ -109,7 +212,7 @@ class SystemCog(commands.Cog):
             "`!새세션 [시나리오명]` — (수동) 채널 3종 생성 + 룰북 캐시 업로드\n"
             "`!시작` — 시작 상황 삼지선다 제시 → 선택 시 인트로 재생 (1회 한정)\n"
             "`!소개` — 인트로·캐릭터 생성 안내를 게임 채널에 스트리밍\n"
-            "`!세션종료` — 게임 채널 잠금 · 캐시 파기 · 과금 정산\n"
+            "`!세션종료` — 세션 종료(OPEN → CLOSING → CLOSED) · 캐시 정산 · 활성 등록 해제\n"
             "`!세션관리` — 세션 정리(종료만·채널 삭제·게임 데이터 삭제·완전 제거, 생성자는 자기 세션)"
         ), inline=False)
 
@@ -152,7 +255,7 @@ class SystemCog(commands.Cog):
             "`!플리 [재생/일시정지/다음/이전/종료]` — 플레이리스트 제어\n"
             "`!볼륨 [0.0~2.0]` — BGM·플리 볼륨 (기본 `0.3`)\n"
             "`!채팅 [잠금/해제]` — 게임 채널 플레이어 채팅 통제\n"
-            "`!더빙 [켜기/끄기]` — AI 묘사 TTS 더빙 토글 (실험 · 인트로 한정, 자동 턴 미적용)\n"
+            "`!더빙 [켜기/끄기]` — TTS 더빙 토글 (인트로·자동 턴 본문·진행자 안내, 음성 채널 연결 시)\n"
             "`!더빙테스트 (보이스)` — 직전 묘사 마지막 문단 TTS 재생"
         ), inline=False)
 
@@ -162,8 +265,10 @@ class SystemCog(commands.Cog):
             "`!자동 중단` · `!자동 상태` — 정지 · 활성/처리 턴/누적 비용 확인\n"
             "`!자동 개입 [텍스트]` — 다음 PROCEED까지 마스터 사이드 노트 유지\n"
             "`!자동 턴제한 [N|해제]` · `!자동 비용제한 [원|해제]` — 안전장치 (기본 무제한)\n"
-            "`!자동 서사` · `!자동 재계획 [메모]` — 서사 계획 조회 · 강제 재수립\n"
-            "`!자동 원장` — 정보 인지 원장(비공개 정보별 인지 주체) 조회\n"
+            "`!자동 서사` · `!자동 재계획 [메모]` — 서사 계획 조회 · 강제 재수립 (LEGACY)\n"
+            "`!자동 원장` — 정보 인지 원장(비공개 정보별 인지 주체) 조회 (LEGACY)\n"
+            "`!자동 퀘스트 (열기 [id]/닫기/진전 [케이스])` — 퀘스트 상태·후보 조회·개입 (LEGACY)\n"
+            "　└ (LEGACY) 동적 세계(영도 단일 PC) 세션은 사건 상태기계가 권위 — 레거시 서사·원장·퀘스트 미사용\n"
             "　└ 4층위: 판단(유형 결정) → 지시(묘사 지시) → 묘사(출력) → 추출(수치)\n"
             "　└ 진행 유형: `ASK` 질문 · `NARRATE` 즉답 · `ROLL` 판정 · `PROCEED` 턴 진행"
         ), inline=False)
@@ -180,6 +285,8 @@ class SystemCog(commands.Cog):
             "`!스페이스` — 서버 GM 스페이스 생성·갱신\n"
             "`!스페이스초기화 확인` — GM 스페이스 삭제 후 재생성\n"
             "`!지급 @유저 [잉크] (사유)` — 잉크 지급·회수 (오너 전용)\n"
+            "`!잉크 @유저 (잔액)` — 잔액 지정 · 인자 없이 조회 (오너 전용)\n"
+            "`!사용량 (전체)` — 제공자 비용·플레이어 잉크 조회 (`전체`는 오너, 마스터 채널·DM)\n"
             "`!재시작` — 봇 프로세스 재시작 (오너 전용)\n"
             "`!세션이력 [세션ID/목록]` — 세션 폴더 zip을 DM으로 받기 (오너 전용)\n"
             "　└ 대상: `game` `character` `media` `session` `system` `gm`"
@@ -187,7 +294,8 @@ class SystemCog(commands.Cog):
 
         embed.add_field(name="🖥️  버튼 인터페이스 (명령어 아님)", value=(
             "**디스플레이 채널** — 세션 상태 표기 + 조작\n"
-            "　└ 되감기 · 턴 재시작 · TTS/이미지/BGM/효과음 토글 · 볼륨 · 세션 오픈\n"
+            "　└ 되감기 · 턴 재시작 · TTS/이미지/BGM/효과음 토글 · 볼륨 · 세션 열기/닫기 · 결제\n"
+            "　└ 진행자 남/여(세션 개설자) · 초기 지식 다시 보기\n"
             "**GM 스페이스** — 서버 홈\n"
             "　└ 계정 등록 · 세션 열기 · 사전 프로필 관리(DM) · 잉크 잔액\n"
             "　└ 명전 등록/숨기기 · 월드보드 공개 · 내 통계(DM) · 보드 갱신"

@@ -99,6 +99,15 @@ def pc(fake_bot, session_factory, monkeypatch):
     PCU._ACTIVE.clear()
 
 
+def _txt(m):
+    """P2 #4: 대화 본문은 content, 정형 필드는 카드 Embed — 화면에 보이는 글 전체."""
+    parts = [str(m.content or "")]
+    for e in m.embeds or ():
+        parts.append(str(e.description or ""))
+        parts += [str(f.value) for f in e.fields]
+    return "\n".join(parts)
+
+
 def st(r, uid=PLAYER_UID, ch=None):
     return PCU._ACTIVE[((ch or r.ch).id, str(uid))]
 
@@ -188,7 +197,7 @@ async def test_t02_scenario_without_profile_creation_skips(fake_bot, session_fac
     ch = fake_bot.get_channel(GAME_CH)
     PCU._ACTIVE.clear()
     assert await PCU.start(fake_bot, s, PLAYER_UID, "a", ch) is None
-    assert "자동 생성 절차" in ch.sent[-1].embeds[0].description and not PCU._ACTIVE
+    assert "자동 생성 절차" in str(ch.sent[-1].content) and not PCU._ACTIVE
     assert s.profile_creation_progress == {}
 
 
@@ -198,7 +207,7 @@ async def test_t03_own_chat_answer_consumed_once_and_not_logged(pc):
     await start(pc)
     await press(pc, "남")
     await press(pc, "확정")
-    assert PCU.CHAT_HINT in st(pc).message.embeds[0].description           # 모달 대신 채팅 안내
+    assert PCU.CHAT_HINT in _txt(st(pc).message)           # 모달 대신 채팅 안내
     assert "입력하기" not in labels(st(pc))
     await chat(pc, "홍길동")
     await chat(pc, "임꺽정")                                                # 같은 질문의 두 번째 답 — 무시
@@ -342,8 +351,8 @@ async def test_t10_reject_reason_reinput_and_no_suggestion_anywhere(pc):
     await chat(pc, "드래곤")
     s = st(pc)
     assert s.run.get("await") and s.run.get("pending") is None               # 같은 항목 재입력
-    assert "세계관과 맞지 않습니다" in s.message.embeds[0].fields[0].value
-    assert "예시" not in json.dumps([f.value for f in s.message.embeds[0].fields], ensure_ascii=False)
+    assert "세계관과 맞지 않습니다" in _txt(s.message)
+    assert "예시" not in _txt(s.message)
     sch = prompts.PROFILE_VALIDATE_RESPONSE_SCHEMA
     assert "suggestion" not in sch["properties"] and "suggestion" not in sch["required"]
     assert "예시" not in core.profile_ai.format_validation("이름", {"verdict": "reject", "reason": "x"})
@@ -380,7 +389,7 @@ async def test_t11_shared_master_lines_and_step_override(pc, monkeypatch):
     pc.sess.scenario_data["profile_creation"][5]["args"]["master_keys"] = {"mode_choice": "profile.resume"}
     assert PG.validate_steps(pc.sess.scenario_data) == []
     await to_appearance(pc)
-    assert ev["profile.resume"]["variants"][0] in st(pc).message.embeds[0].description   # 단계 오버라이드
+    assert ev["profile.resume"]["variants"][0] in _txt(st(pc).message)   # 단계 오버라이드
     bad = copy.deepcopy(pc.sess.scenario_data)
     bad["profile_creation"][5]["args"]["master_keys"] = {"mode_choice": "profile.없는키"}
     assert any("없는키" in e for e in PG.validate_steps(bad))
@@ -526,7 +535,7 @@ async def test_t15_restart_during_draft_and_processing(pc):
     await PCU.resume_all(pc.bot)
     s = st(pc)
     assert s.run["proc"] is None and s.run["lf"]["draft"] == draft
-    assert "수염은 빼 줘" in s.message.embeds[0].fields[0].value
+    assert "수염은 빼 줘" in _txt(s.message)
 
 
 async def test_t16_two_players_isolated_and_finalized_restart_no_double_finish(pc):
@@ -621,7 +630,7 @@ async def test_t18_yeongdo_guides_authored_and_followed_in_order(fake_bot, sessi
     r.gm.bot = fake_bot
     await press(r, "🧭 질문에 답하며 정리")
     for q in qs:
-        assert q["prompt"] in state.message.embeds[0].description
+        assert q["prompt"] in _txt(state.message)
         if q["required"]:
             await chat(r, f"{q['id']} 답")
         else:

@@ -775,7 +775,6 @@ TASK_EXTRACTION = "EXTRACTION"
 TASK_IRREGULAR_NPC = "IRREGULAR_NPC_RESOLUTION"
 TASK_NPC_PROMOTION = "NPC_PROMOTION_DETAIL"
 TASK_NARRATIVE_REPLAN = "NARRATIVE_REPLAN"
-TASK_FOREGROUND_CONTINUATION = "FOREGROUND_CONTINUATION_NARRATION"   # H05(DESIGN 12 §7)
 
 # ── 작업 상태 ──
 TASK_RUNNING = "RUNNING"
@@ -869,7 +868,8 @@ CANONICAL_DOMAINS = (
     "_rewind_snapshot",         # 되감기 델타 기준 스냅샷(continuation)
     # WP-D — CommitCoordinator만 쓰는 커밋 소유 필드
     "commit_marker", "last_turn_ink", "rewind_degraded_turns",
-) + tuple(_world_state.GAMEPLAY_WORLD_FIELDS) + tuple(_items_fields.ITEM_FIELDS)
+) + tuple(_world_state.GAMEPLAY_WORLD_FIELDS) + tuple(_items_fields.ITEM_FIELDS) \
+    + tuple(_world_state.DELIVERY_FIELDS)     # P1: 전달 대기 — 커밋 경로만 쓴다
 # H02 — 동적 세계 게임 정본(world_version 포함) 11필드. definition_revision·narrative_seed는
 #   되감기 대상이 아닌 세션 정체성이라 넣지 않는다(definition_revision은 별도 명시 가드).
 # 명시적 제외(배경/운영) — 근거는 completion bundle §23 필드 커버리지 매트릭스:
@@ -1022,6 +1022,7 @@ class TurnPreparation:
         self.world_quiescence = None             # H03: BaseQuiescenceReport(READY 증명)
         self.world_turn = None                   # H05: core.turn_world.WorldTurn(DYNAMIC 세션만)
         self.card_variations = None              # SVG 카드: 추출층위가 고른 {ActorId: variation}(턴 로컬)
+        self.identity_reveals = None             # P3 G3: 본문에서 실제 공개된 이름·얼굴 {InfoId: 문단 번호}(턴 로컬)
         self.world_observation_raw = None        # H05: 추출의 world_observation(원본 — 처리 전)
 
     # ── 정체성 ──

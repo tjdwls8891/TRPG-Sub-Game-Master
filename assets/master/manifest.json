@@ -1,0 +1,12 @@
+{
+  "schema_version": 1,
+  "note": "마스터(진행자) 이미지 슬롯 — 남·여 × 기본·경고·긍정. 값이 null이면 미제작(공용 로딩 이미지로 의도된 임시 표시). 원화를 만들면 이 폴더에 파일을 두고 해당 슬롯 값을 파일명으로 바꾼다(재시작 또는 core.master_art.reload()로 반영). 권장: 정사각 PNG/WEBP, 512px 이상, 8MB 미만. 이름이 적혀 있는데 파일이 없거나 열 수 없으면 오류 이미지 + 구조 로그(asset_error). 2026-10-19 원화 반영(16:9 원본 비율·WEBP). 필기 포즈(master_*_writing.webp)는 슬롯 미배정 보관본.",
+  "slots": {
+    "male.default": "master_male_default.webp",
+    "male.warning": "master_male_warning.webp",
+    "male.positive": "master_male_positive.webp",
+    "female.default": "master_female_default.webp",
+    "female.warning": "master_female_warning.webp",
+    "female.positive": "master_female_positive.webp"
+  }
+}
