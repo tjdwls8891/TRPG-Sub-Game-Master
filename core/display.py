@@ -417,6 +417,7 @@ class DisplayView(discord.ui.View):
         # 기획 규정: 버튼으로 시간 입력을 호출하고, 이때만 채팅을 언락한다.
         # 답변은 1회만 받고 즉시 다시 잠근다(chat_guard의 awaiting_display_input).
         session.awaiting_display_input = True
+        session._open_input_ch_id = None              # 재오픈 답변은 디스플레이 채널(v7.21.4: 첫 생성만 게임 채널)
         # WP-F: INTERACTION_PROMPT — 이전 질문이 남아 있으면 supersede 로 정리하고, 답변 처리
         #   (gm._handle_open_time_input)가 이 질문을 종결 정리한다.
         from . import message_lifecycle as _ml

@@ -168,7 +168,12 @@ class GameCog(commands.Cog):
 
             # 자동 GM이 켜진 세션은 GMCog 입력 경로가 처리하는 발언만 턴 맥락에 기록한다(중복·거부 선언 기록 방지).
             # v7.15: 캐릭터 생성 중인 플레이어의 채팅(생성 답변 포함)은 첫 턴 맥락에 넣지 않는다.
-            if not getattr(session, "gm_active", False) and not core.profile_creation_ui.claims(self.bot, message):
+            #   v7.21.4: 세션 첫 생성의 유지 시간 답변도 넣지 않는다.
+            _mid = getattr(message, "id", None)
+            open_answer = core.session_flow.awaiting_open_here(session, message.channel.id) or (
+                _mid is not None and _mid == getattr(session, "_display_input_msg_id", None))   # GMCog가 먼저 소비
+            if (not getattr(session, "gm_active", False) and not core.profile_creation_ui.claims(self.bot, message)
+                    and not open_answer):
                 session.current_turn_logs.append(f"[{char_name}]: {message.content}")
                 await core.save_session_data(self.bot, session)
 

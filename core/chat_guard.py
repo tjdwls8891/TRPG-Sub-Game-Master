@@ -64,7 +64,8 @@ async def chat_guard(bot, message: discord.Message) -> bool:
         #   cog 리스너가 먼저 소비했으면 그 메시지 id로 알아본다(처리 순서와 무관하게 같은 결과).
         if message.id == getattr(session, "_display_input_msg_id", None):
             return True
-        if getattr(session, "awaiting_display_input", False) and (is_owner or is_player):
+        if getattr(session, "awaiting_display_input", False) and (is_owner or is_player) and \
+                getattr(session, "_open_input_ch_id", None) in (None, message.channel.id):
             return True
         return await _reject(message, "ℹ️ " + master.say(
             "system.invalid_channel", "디스플레이 채널에서는 입력을 받지 않습니다.") + " 버튼으로 조작해 주십시오.")

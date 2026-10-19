@@ -193,7 +193,7 @@ async def render(bot, session, channel):
             _master.say("cache.time_question", "이제 세계를 불러올 차례입니다.\n얼마나 플레이하실 예정인가요?")
             + "\n\n"
             "그 시간만큼 미리 받고, 일찍 닫으시면 남은 만큼 돌려드립니다.\n"
-            "아래 버튼을 누르시면 디스플레이 채널에서 답하실 수 있어요."),
+            "아래 버튼을 누른 뒤 이 채널에 답해 주세요."),
             OpenTimeView(bot, session, channel))
 
     elif step == "start":
@@ -629,20 +629,33 @@ class PlanButton(discord.ui.Button):
                       memory_plan.PLANS[self.key]["label"])
 
 
+def awaiting_open_here(session, channel_id) -> bool:
+    """세션 첫 생성의 유지 시간 답변을 이 채널(게임 채널)에서 기다리는가(v7.21.4).
+
+    대기 플래그는 디스플레이 재오픈과 같은 `awaiting_display_input`(1회 소비·재질문 시만 재언락)이고,
+    답변 채널 표식 `_open_input_ch_id`는 런타임 값이다(재시작 뒤에는 [시간 입력]을 다시 누르면 된다).
+    """
+    return bool(getattr(session, "awaiting_display_input", False)) and \
+        getattr(session, "_open_input_ch_id", None) == channel_id
+
+
 class OpenTimeView(_Step):
     @discord.ui.button(label="⏱️ 시간 입력", style=discord.ButtonStyle.primary)
     async def ask(self, interaction, _b):
-        # 디스플레이 채널의 채팅을 1회만 언락한다(기획 규정).
+        # v7.21.4: 세션 첫 생성은 진행 중인 게임 채널에서 바로 답한다(디스플레이로 옮기지 않음).
+        #   채팅은 1회만 언락하고, 답변 처리(gm._handle_open_time_input)가 이 질문을 종결 정리한다.
+        from . import message_lifecycle as _ml
         self.session.awaiting_display_input = True
-        display = self.bot.get_channel(getattr(self.session, "display_ch_id", 0))
-        target = display or self.channel
+        self.session._open_input_ch_id = self.channel.id
+        await _ml.clear(self.bot, self.session, _ml.KEY_DISPLAY_OPEN_PROMPT)
         await interaction.response.send_message(
-            f"{target.mention} 에 답해 주십시오." if display else "이 채널에 답해 주십시오.",
-            ephemeral=True)
-        if display:
-            await display.send(
-                f"⏱️ **{_master.say('cache.time_question', '세션을 얼마나 유지하시겠습니까?')}**\n"
-                "이 채널에 답해 주십시오. (예: `3시간`, `20턴`, `적당히`, `알아서`)")
+            f"⏱️ **{_master.say('cache.time_question', '세션을 얼마나 유지하시겠습니까?')}**\n"
+            "이 채널에 답해 주십시오. (예: `3시간`, `20턴`, `적당히`, `알아서`)")
+        try:
+            _ml.register(self.session, _ml.KEY_DISPLAY_OPEN_PROMPT,
+                         await interaction.original_response(), cls=_ml.INTERACTION_PROMPT)
+        except Exception as e:  # noqa: BLE001
+            print(f"[세션플로우] 유지 시간 질문 핸들 확보 실패: {e}")
 
 
 async def _start_profile(bot, session, channel):

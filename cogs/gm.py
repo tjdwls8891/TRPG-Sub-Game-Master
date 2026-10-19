@@ -1549,6 +1549,8 @@ class GMCog(commands.Cog):
         if message.channel.id == getattr(session, "display_ch_id", None):
             if not getattr(session, "awaiting_display_input", False):
                 return
+            if getattr(session, "_open_input_ch_id", None) not in (None, message.channel.id):
+                return                                          # v7.21.4: 첫 생성 답변은 게임 채널에서 받는다
             if (str(message.author.id) not in (session.players or {})
                     and not await self.bot.is_owner(message.author)):
                 return
@@ -1560,6 +1562,15 @@ class GMCog(commands.Cog):
             return
 
         if message.channel.id != session.game_ch_id:
+            return
+        # v7.21.4: 세션 첫 생성의 유지 시간 답변(게임 채널) — 디스플레이 답변과 같은 1회 소비·해석 경로
+        if core.session_flow.awaiting_open_here(session, message.channel.id):
+            if (str(message.author.id) not in (session.players or {})
+                    and not await self.bot.is_owner(message.author)):
+                return
+            session.awaiting_display_input = False
+            session._display_input_msg_id = message.id
+            await self._handle_open_time_input(session, message)
             return
         # WP-D(D-D4): 커밋 복구 admission은 새 자동 턴 eligibility(gm_active·턴/비용 한도)보다
         #   먼저 평가한다 — 마지막 턴이 영속 후 청구/확정 단계에서 멈췄어도 재시작 없이 복구된다.
