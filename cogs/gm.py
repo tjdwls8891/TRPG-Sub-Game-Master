@@ -290,7 +290,8 @@ def _judge_plan(view, spec: dict, world_turn=None) -> dict:
 
 
 def _build_judgment_user_prompt(session, player_message: str, roll_results: list,
-                                world_turn=None, gate=None) -> str:
+                                world_turn=None, gate=None, declaration_draft: bool = False,
+                                discovery_rows=()) -> str:
     """
     판단층위 호출용 사용자 프롬프트 조립.
 
@@ -418,10 +419,45 @@ def _build_judgment_user_prompt(session, player_message: str, roll_results: list
         except Exception as e:
             print(f"[장소] 이동 안내 생성 실패: {e}")
 
+    if world_turn is not None and session.current_turn_logs:
+        # v7.23: 이번 턴에 진행자가 이미 물은 질문(경로·목적지·ASK)과 그 답 — 커밋 전이라 위 최근 맥락에 없다.
+        #   짧은 답('1번'·'그냥 간다')은 이 질문에 대한 답으로 읽는다(새 행동이면 새 행동으로).
+        lines.append("[이번 턴 대화 — 진행자 질문과 플레이어 답(커밋 전)]\n"
+                     + "\n".join(session.current_turn_logs[-12:]))
     if gate:
         lines.append(_gate_judgment_block(gate))   # v7.14 — 열거값 + 원문 대상명만
+    elif declaration_draft:
+        lines.append(DECLARATION_DRAFT_BLOCK)     # v7.23 DYNAMIC — 선행 게이트 없음(판단 뒤 조건부 검증)
+        if discovery_rows:
+            lines.append("[이 장소에서 PC가 이미 발견한 것 — 선언이 이것을 가리키면 discovery_ref에 그 키]\n"
+                         + core.turn_world.discovery_rows_text(discovery_rows))
     lines.append(f"[플레이어 신규 발언]\n{player_message}")
     return "\n\n".join(lines)
+
+
+# v7.23(DYNAMIC): 지시층위 세계 반응 권위 — 서사 방향 시뮬레이션이 없다. 즉시 반응은 자유, 지속 결과는 정본 근거.
+WORLD_REACTION_AUTHORITY_BLOCK = (
+    "\n[세계 반응 권위 — 동적 세계]\n"
+    "· 이 세션에는 서사 방향 시뮬레이션이 없다. 가능성 추측을 근거로 새 위협·사건이 '일어났다'고 정하지 말 것.\n"
+    "· 장면 인물·감염자·환경의 즉시 반응(몸짓·소리·시선·짧은 대응)은 위 정본 블록과 직전 장면에서 개연적으로 "
+    "추론해 지시할 수 있다 — 세계는 플레이어를 기다리지 않는다.\n"
+    "· 경보 발령·추적 개시·포착·세력 상태 변화처럼 다음 턴까지 이어지는 결과는 진행 중인 사건·코드 확정 세계 진행·"
+    "현재 장면 인물 정본에 근거가 있을 때만 사실로 지시한다. 근거가 없으면 확정하지 말고 PC가 실제로 지각한 것만 쓴다.\n"
+    "· 판정·관찰로 이미 확인된 결론(직전 장면)을 새 근거 없이 뒤집지 말 것.\n"
+)
+
+
+# v7.23(DYNAMIC): 매 발화 개연성 시뮬레이션을 은퇴하고, 판단이 먼저 선언 검증 후보를 표시한다.
+#   코드가 표시를 보고 필요할 때만 축소 선언 검증(캐시)을 부르고, 그 결과로 발견 굴림 초안을 집행·제거·재판단한다.
+DECLARATION_DRAFT_BLOCK = (
+    "[선언 검증 — 동적 세계(선행 게이트 없음 · 판단 뒤 코드가 필요할 때만 검증)]\n"
+    "- 플레이어가 지금 장소에서 주변의 작은 물건·환경 요소를 찾겠다고 제안하면 ambient_proposal=true, "
+    "discovery_target에 플레이어 문장 속 대상 낱말 그대로. 그 탐색을 GENERAL 굴림 하나(discovery=true)로 rolls에 "
+    "초안으로 넣는다(action=ROLL). 초안은 검증 뒤에만 굴린다 — 초안만으로 발견이 생기지 않는다.\n"
+    "- 플레이어가 행동의 성공·NPC의 동의나 반응·사건 결론·세계 사실을 스스로 확정해 말했으면 assertion_claim=true. "
+    "단순한 시도(설득한다·살핀다·찾아본다·이동한다)와 진행자 질문에 대한 답은 false.\n"
+    "- 이 블록이 있을 때는 '[선언 게이트] 블록이 없으면 discovery 굴림을 만들지 않는다'보다 이 블록을 따른다."
+)
 
 
 def _build_logic_user_prompt(session, player_message: str, roll_results: list,
@@ -2199,9 +2235,178 @@ class GMCog(commands.Cog):
             await core.stream_text_to_channel(self.bot, game_ch, bridge, words_per_tick=15, tick_interval=1.5)
             await self._voice_lines(session, [bridge], transaction_id=transaction_id)
         session.current_turn_logs.append(f"[진행자 (GM)]: {bridge}")
+        # v7.23: 질문을 낸 뒤에만 번호 응답 스냅샷을 건다(같은 시도·장소·world_version에서만 유효)
+        wt = self._world_turn(session, transaction_id)
+        if wt is not None:
+            wt.pending_route = dict(core.turn_world.move_question_anchor(wt.ctx, session),
+                                    signatures=[list(o["signature"]) for o in plan.route_options])
         if master_ch:
             await master_ch.send(f"🧭 **[경로 선택]** 후보 {len(plan.route_options)}개 — 플레이어 선택 대기")
         core.turn_transaction.mark_waiting_for_player(session, transaction_id)
+
+    def _route_number_answer(self, session, transaction_id, player_message):
+        """v7.23: 대기 중인 경로 질문에 번호만 답했다('1', '1번') → 그 질문의 선택지 스냅샷으로 고른 판단(재호출 없음).
+
+        번호 밖·다른 말이 섞임·기준선(장소·world_version)이 바뀜·직전 판단 없음이면 None(일반 판단으로)."""
+        wt = self._world_turn(session, transaction_id)
+        pend = getattr(wt, "pending_route", None) if wt is not None else None
+        if not pend or wt.intent is None:
+            return None
+        m = re.fullmatch(r"\s*(\d{1,2})\s*(?:번|번째)?\s*[.!]?\s*", str(player_message or ""))
+        if not m:
+            return None
+        anchor = core.turn_world.move_question_anchor(wt.ctx, session)
+        sigs = pend.get("signatures") or []
+        n = int(m.group(1))
+        prior = (self._tx_judgment(session, transaction_id) or {}).get("judgment")
+        if (anchor["place"] != pend.get("place") or anchor["world_version"] != pend.get("world_version")
+                or not 1 <= n <= len(sigs) or not isinstance(prior, dict)):
+            wt.pending_route = None                        # 낡은 번호는 다시 쓰지 않는다
+            return None
+        wt.pending_route = None
+        wt.intent = dataclasses.replace(wt.intent, route_signature=tuple(sigs[n - 1]))
+        wt.plan = None
+        core.turn_transaction.mark_transaction_status(
+            session, transaction_id, core.turn_transaction.TurnStatus.JUDGING)
+        core.logs.event("turn", "경로 질문 번호 응답", session=session,
+                        data={"stage": "route_answer", "tx": transaction_id, "choice": n, "options": len(sigs)})
+        return {k: v for k, v in prior.items() if k != core.action_intent.INTENT_FIELD}
+
+    async def _dynamic_declaration_check(self, session, player_message, roll_results, judgment, gate_in,
+                                         master_ch, *, transaction_id, cache_ok):
+        """v7.23 DYNAMIC 조건부 선언 검증 — (judgment, gate).
+
+        판단이 주변 발견 제안(ambient_proposal·discovery 초안)이나 결과 선취(assertion_claim)를 표시했을 때만 검증한다.
+        · 이 장소에서 이미 발견한 같은 대상이면 코드가 재사용(검증 호출 없음).
+        · 그 밖은 캐시 룰북으로 축소 검증 1회 → 기존 _parse_gate(원문 대상명·D키·열거값 검증).
+        · 검증 결과와 판단 초안(발견 굴림)이 어긋나면 검증 결과를 보여 주고 판단을 한 번 다시 부른다(기존 게이트 계약).
+        · 검증할 수 없으면 None — 호출자가 새 발견은 보류(fail-closed), 결과 선취만이면 시도로 진행한다."""
+        rolls = [r for r in (judgment.get("rolls") or []) if isinstance(r, dict)]
+        ambient = judgment.get("ambient_proposal") is True or any(r.get("discovery") is True for r in rolls)
+        assertion = judgment.get("assertion_claim") is True
+        pk = dict(dynamic=True, place=gate_in["place"], place_name=gate_in["place_name"], rows=gate_in["rows"])
+        ref = judgment.get("discovery_ref")
+        if not (ambient or assertion):
+            # v7.14 A1 근거 — 선언이 이 장소의 기존 발견(D키)을 가리킨다(코드 확정 게이트, 검증 호출 없음)
+            if isinstance(ref, str) and any(r[0] == ref for r in gate_in["rows"]):
+                return judgment, _parse_gate({"classification": "ORDINARY", "resolution": "CONTINUE",
+                                              "reason_code": "NONE", "existing_key": ref}, player_message, **pk)
+            return judgment, None
+        gate, source = None, None
+        target = judgment.get("discovery_target")
+        if ambient and not assertion:
+            row = (next((r for r in gate_in["rows"] if r[0] == ref), None)
+                   or next((r for r in gate_in["rows"] if isinstance(target, str)
+                            and core.turn_world.same_target(r[2], target)), None))
+            if row is not None:
+                gate = _parse_gate({"classification": "AMBIENT_PROPOSAL", "resolution": "ACCEPT_NO_ROLL",
+                                    "reason_code": "NONE", "discovery_target": row[2], "discovery_kind": row[3],
+                                    "existing_key": row[0]}, player_message, **pk)
+                if gate is not None and gate.get("existing_info_id"):
+                    source = "CODE"
+                else:
+                    gate = None
+        if gate is None and cache_ok:
+            raw = await self._call_declaration_gate(session, player_message, judgment, gate_in, master_ch,
+                                                    transaction_id=transaction_id)
+            gate = _parse_gate((raw or {}).get("declaration_gate"), player_message, **pk)
+            source = "LLM" if raw is not None else None
+        core.logs.event("turn", "선언 검증", session=session, data={
+            "stage": "declaration_check", "tx": transaction_id, "ambient": ambient, "assertion": assertion,
+            "source": source, "result": None if gate is None else
+            f"{gate['classification']}/{gate['resolution']}/{gate['reason_code']}"})
+        if master_ch:
+            await master_ch.send("🛡️ **[선언 검증]** " + (
+                f"{gate['classification']} → {gate['resolution']} ({gate['reason_code']})"
+                + (" · 기존 발견 재사용" if source == "CODE" else "") if gate else "검증 불가(캐시 없음·응답 오류)"))
+        if gate is None or _gate_blocks(gate):
+            return judgment, gate
+        need = _gate_rolls_discovery(gate)
+        has = str(judgment.get("action", "")).upper() == "ROLL" and any(r.get("discovery") is True for r in rolls)
+        if need != has and (need or gate.get("resolution") == "ACCEPT_NO_ROLL"):
+            # 초안과 검증 결과가 어긋난다 — 검증 결과를 준 판단 한 번(굴림 0·발견 0인 상태에서). 실패면 진행하지 않는다.
+            judgment = await self._call_judgment(session, player_message, roll_results, master_ch,
+                                                 transaction_id=transaction_id, gate=gate)
+        return judgment, gate
+
+    async def _call_declaration_gate(self, session, player_message, judgment, gate_in, master_ch,
+                                     *, transaction_id) -> dict | None:
+        """v7.23 축소 선언 검증(캐시 룰북) — 기존 시뮬레이터의 선언 게이트 규칙·스키마만 재사용한다.\n\n        서사 방향·공리·개연성 등급은 묻지도 받지도 않는다. 응답은 열거값·원문 대상명뿐(정본 사실 아님)."""
+        cache_name = getattr(session, "cache_name", None)
+        rules = NARRATIVE_SIMULATOR_SYSTEM_INSTRUCTION[
+            NARRATIVE_SIMULATOR_SYSTEM_INSTRUCTION.index("[선언 게이트 규칙 — declaration_gate]"):]
+        instruction = ("당신은 선언 검증기다. 시나리오 캐시의 룰북·세계관만 근거로, 아래 규칙에 따라 이번 플레이어 선언의 "
+                       "declaration_gate 하나만 판정한다. 서사 방향·사건 전개를 제안하지 않는다.\n\n" + rules)
+        recent = []
+        for content in session.raw_logs[-2:]:
+            try:
+                recent.append(f"[{content.role.upper()}]\n{content.parts[0].text}")
+            except Exception:
+                continue
+        gi = gate_in
+        rows, failed = gi.get("rows") or [], gi.get("failed") or []
+        user_prompt = (
+            f"[현재 장소]\n{gi.get('place_name') or '(장소 밖)'}\n\n"
+            f"[최근 게임 로그]\n{chr(10).join(recent) or '(없음)'}\n\n"
+            f"[이번 턴 대화(커밋 전)]\n{chr(10).join(session.current_turn_logs[-8:]) or '(없음)'}\n\n"
+            f"[판단층위가 읽은 시도]\n{judgment.get('player_intent') or ''}\n\n"
+            f"[이번 턴 플레이어 행동]\n{player_message}\n\n"
+            "[이 장소에서 PC가 이미 발견한 것]\n"
+            + (core.turn_world.discovery_rows_text(rows) if rows else "(없음)")
+            + "\n[이 장소에서 찾지 못한 이전 탐색 — 실패는 부재가 아니다]\n"
+            + ("\n".join(f"· {f['target']} — 당시 선언: {f['declaration']}" for f in failed) if failed else "(없음)")
+            + "\n\n[지시사항]\n이번 플레이어 선언을 [선언 게이트 규칙]에 따라 declaration_gate로 판정하십시오.")
+        schema = {"type": "object",
+                  "properties": {"declaration_gate": NARRATIVE_DIRECTION_SCHEMA["properties"]["declaration_gate"]},
+                  "required": ["declaration_gate"]}
+        try:
+            contents = [
+                types.Content(role="user", parts=[types.Part.from_text(text=instruction)]),
+                types.Content(role="model", parts=[types.Part.from_text(text="이해했습니다. 선언만 판정하겠습니다.")]),
+                types.Content(role="user", parts=[types.Part.from_text(text=user_prompt)]),
+            ]
+            config = types.GenerateContentConfig(
+                http_options=core.resilience.provider_http_options("instruction"),
+                cached_content=cache_name, temperature=0.2, response_mime_type="application/json",
+                response_schema=schema, safety_settings=core.TRPG_SAFETY_SETTINGS)
+            _cl_op = core.cost_ledger.begin_operation(
+                self.bot, core.cost_ledger.OP_TURN_DECLARATION_CHECK, session=session,
+                model=core.DEFAULT_MODEL, actor_kind=core.cost_ledger.ACTOR_PLAYER,
+                billing_hint=core.cost_ledger.HINT_PLAYER_CANDIDATE)
+            core.turn_preparation.claim_cost_operation(session, transaction_id, _cl_op)
+            _ok, response = await core.call_with_retry(
+                lambda: asyncio.to_thread(self.bot.genai_client.models.generate_content,
+                                          model=core.DEFAULT_MODEL, contents=contents, config=config),
+                layer="instruction", session_id=session.session_id,
+                on_attempt_result=_cl_op.on_attempt, operation_id=_cl_op.operation_id)
+            if not _ok:
+                raise RuntimeError("AI 호출 실패")
+        except Exception as e:
+            core.logs.event("turn", "선언 검증 호출 실패", level="WARN", session=session, exc=e,
+                            data={"code": "DECLARATION_CHECK_CALL"})
+            return None
+        try:
+            in_tokens, out_tokens, cached_tokens, thought_tokens = core.extract_token_usage(response.usage_metadata)
+            breakdown = core.calculate_text_gen_cost_breakdown(
+                core.DEFAULT_MODEL, input_tokens=in_tokens, output_tokens=out_tokens, cached_read_tokens=cached_tokens)
+            cost = breakdown["total_krw"]
+            core.accrue(session, cost, breakdown["total_usd"])
+            _cl_op.record(input_tokens=in_tokens, cached_input_tokens=cached_tokens, output_tokens=out_tokens,
+                          thought_tokens=thought_tokens, cost_usd=breakdown["total_usd"], cost_krw=cost,
+                          usage_source=core.cost_ledger.SOURCE_PROVIDER_METADATA)
+            core.write_cost_log(session.session_id, f"{COST_LOG_PREFIX}선언 검증",
+                                in_tokens, cached_tokens, out_tokens, cost, session.total_cost)
+            session.turn_cost_log = list(getattr(session, "turn_cost_log", None) or []) + [{
+                "label": "선언 검증", "cost": cost, "in": in_tokens, "cached": cached_tokens, "out": out_tokens}]
+        except Exception as e:
+            print(f"[GM] 선언 검증 비용 정산 실패: {e}")
+        raw_text = response.text or ""
+        try:
+            return json.loads(re.sub(r"^```(?:json)?\s*|\s*```$", "", raw_text.strip(), flags=re.MULTILINE))
+        except Exception as e:
+            core.logs.event("turn", "선언 검증 JSON 파싱 실패", level="WARN", session=session, exc=e,
+                            data={"code": "DECLARATION_CHECK_JSON"})
+            return None
 
     async def _ask_destination(self, session, wt, transaction_id, master_ch) -> None:
         """목적지 불명 이동 — PC가 아는 출구를 제시하며 묻는다(묘사·추출 호출 없음).
@@ -3463,8 +3668,10 @@ class GMCog(commands.Cog):
         judgment = None
         # v7.14: 선언 게이트 입력(DYNAMIC — 현재 장소의 유효 발견·찾지 못한 이전 탐색)
         gate_in = self._gate_inputs(session, transaction_id)
+        dynamic = gate_in["dynamic"]
         try:
-            if do_simulation:
+            # v7.23: DYNAMIC은 매 발화 개연성 시뮬레이션(서사 방향)을 부르지 않는다 — LEGACY만 기존 그대로.
+            if do_simulation and not dynamic:
                 if game_ch:
                     async with game_ch.typing():
                         sim_result = await self._simulate_narrative_directions(
@@ -3478,18 +3685,29 @@ class GMCog(commands.Cog):
                                dynamic=gate_in["dynamic"], place=gate_in["place"],
                                place_name=gate_in["place_name"], rows=gate_in["rows"])
 
+            # v7.23: 대기 중인 코드 경로 질문에 번호만 답했으면 그 질문의 선택지 스냅샷으로 바로 고른다(판단 재호출 없음).
+            if dynamic:
+                judgment = self._route_number_answer(session, transaction_id, player_message)
+
             # ── [판단층위] 캐시 미사용 — 진행 유형과 ASK 질문·ROLL 명세를 결정 ──
             # v7.14: 게이트 BLOCK·CLARIFY는 판단 호출 없이 중립 안내로 끝난다(굴림 0).
-            if not _gate_blocks(gate):
+            if judgment is None and not _gate_blocks(gate):
                 if game_ch:
                     async with game_ch.typing():
                         judgment = await self._call_judgment(
                             session, player_message, roll_results, master_ch,
-                            transaction_id=transaction_id, gate=gate)
+                            transaction_id=transaction_id, gate=gate, declaration_draft=dynamic,
+                            discovery_rows=gate_in["rows"])
                 else:
                     judgment = await self._call_judgment(
                         session, player_message, roll_results, master_ch,
-                        transaction_id=transaction_id, gate=gate)
+                        transaction_id=transaction_id, gate=gate, declaration_draft=dynamic,
+                            discovery_rows=gate_in["rows"])
+                # v7.23 DYNAMIC: 판단이 발견 제안·결과 선취를 표시했을 때만 축소 선언 검증(캐시) → 게이트
+                if dynamic and judgment:
+                    judgment, gate = await self._dynamic_declaration_check(
+                        session, player_message, roll_results, judgment, gate_in, master_ch,
+                        transaction_id=transaction_id, cache_ok=do_simulation)
         finally:
             await status_msg.done()
 
@@ -3866,7 +4084,8 @@ class GMCog(commands.Cog):
         return _clean_proceed_instruction(decision.get("proceed_instruction") or fallback)
 
     async def _call_judgment(self, session, player_message: str, roll_results: list,
-                             master_ch, *, transaction_id: str | None = None, gate=None) -> dict | None:
+                             master_ch, *, transaction_id: str | None = None, gate=None,
+                             declaration_draft: bool = False, discovery_rows=()) -> dict | None:
         """
         판단층위 호출 — 진행 유형(ASK/NARRATE/ROLL/PROCEED)을 결정한다.
 
@@ -3886,9 +4105,18 @@ class GMCog(commands.Cog):
         _wt = self._world_turn(session, transaction_id, create=True)
         _schema = JUDGMENT_RESPONSE_SCHEMA
         if _wt is not None:
+            _wt.pending_route = None                       # v7.23: 일반 판단이 돌면 이전 경로 번호 스냅샷은 낡는다
             self._build_world_manifest(session, _wt)
             _schema = core.action_intent.extend_judgment_schema(JUDGMENT_RESPONSE_SCHEMA, _wt.manifest)
-        user_prompt = _build_judgment_user_prompt(session, player_message, roll_results, world_turn=_wt, gate=gate)
+            if declaration_draft and not gate:
+                # v7.23: 조건부 선언 검증 촉발 표시(스키마 사본 확장 — prompts.py 원본 불변)
+                _schema["properties"]["assertion_claim"] = {"type": "boolean"}
+                _schema["properties"]["discovery_target"] = {"type": "string"}
+                _schema["properties"]["discovery_ref"] = {"type": "string",
+                                                          "enum": ["NONE"] + [r[0] for r in discovery_rows]}
+        user_prompt = _build_judgment_user_prompt(session, player_message, roll_results, world_turn=_wt, gate=gate,
+                                                  declaration_draft=declaration_draft and not gate,
+                                                  discovery_rows=discovery_rows if declaration_draft and not gate else ())
 
         contents = [types.Content(role="user", parts=[types.Part.from_text(text=user_prompt)])]
         config = types.GenerateContentConfig(
@@ -4040,6 +4268,8 @@ class GMCog(commands.Cog):
             self._ensure_world_plan(session, _wt, transaction_id)
         # P3(G1): NARRATE는 세계를 커밋하지 않는다 — 계획·투영·필수 서사·전달 대기 없이 정본 기준 뷰로 지시한다.
         _wv = dataclasses.replace(_wt, plan=None) if (_wt is not None and _narrate) else _wt
+        if _wt is not None:
+            sim_result = None             # v7.23: DYNAMIC 지시는 서사 방향 시뮬레이션을 받지 않는다(강제 진행 경로 포함)
         user_prompt = _build_logic_user_prompt(session, player_message, roll_results,
                                                 sim_result=sim_result, world_turn=_wv, action=action)
         _tie_schema = None
@@ -4054,6 +4284,8 @@ class GMCog(commands.Cog):
         _jr = self._tx_judgment(session, transaction_id)
         if _jr:
             user_prompt += _declaration_block(_jr, transaction_id)     # v7.14 권위 있는 시도·발견 결과
+        if _wt is not None:
+            user_prompt += WORLD_REACTION_AUTHORITY_BLOCK                 # v7.23 DYNAMIC 세계 반응 권위
         # 판단층위가 확정한 진행 유형을 지시층위에 전달한다. 지시층위는 이 유형을 바꾸지 않는다.
         user_prompt = (
             f"[확정된 진행 유형] {action}\n"

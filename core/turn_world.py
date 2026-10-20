@@ -59,6 +59,7 @@ class WorldTurn:
     discovery: dict | None = None                 # v7.14 이번 턴 주변 발견 결과(NEW만 정본화 — 추출 시점 고정)
     item_manifest: object = None                  # v7.17 core.items.ItemManifest(추출 시점 — 소유자·소지·현장 키)
     pending_move: dict | None = None              # v7.22 목적지 질문 문맥 {place, world_version, exits} — 이 시도 안에서만
+    pending_route: dict | None = None             # v7.23 경로 질문 번호 스냅샷 {place, world_version, signatures}
 
 
 # ══════════════════════════════════════════════════════════════
@@ -440,6 +441,14 @@ def visible_exit_names(ctx, session) -> list:
         if nm and nm not in out:
             out.append(nm)
     return out
+
+
+def session_is_dynamic(session) -> bool:
+    """v7.23: DYNAMIC 세션인가(gm WorldTurn 생성과 같은 판정) — 예상 비용 등 코드 밖 소비자용. 실패는 False."""
+    try:
+        return bool(_pw.session_world_context(session).dynamic)
+    except Exception:
+        return False
 
 
 def move_question_anchor(ctx, session) -> dict:

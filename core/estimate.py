@@ -40,6 +40,9 @@ DEFAULT_BASELINE = {
 
 # 개연성 시뮬레이션 비캐시 입력의 고정분(시뮬레이터 지시문·지시사항) — 최근 로그 4개는 따로 센다.
 SIMULATION_FIXED_TOKENS = 1700
+# v7.23 DYNAMIC 조건부 선언 검증(발견·결과 선취 때만) — 비캐시 입력 고정분·출력(사고 포함) 상한
+DECLARATION_CHECK_FIXED_TOKENS = 1200
+DECLARATION_CHECK_OUT = 900
 
 # 통계 표본 수에 따른 신뢰도 구간
 CONFIDENCE_MID = 3
@@ -310,9 +313,13 @@ def estimate_turn(session, action: str = "PROCEED") -> dict:
     j_lo, j_hi = _out_range(session, "judgment", "judgment_out")
     breakdown["판단층위"] = (_cost(inp["judgment"], j_lo, 0), _cost(inp["judgment"], j_hi, 0))
 
-    # 개연성 시뮬레이션 — 판단 전에 실행(gm._call_gm_logic의 do_simulation과 같은 조건)
+    # 개연성 시뮬레이션 — 판단 전에 실행(gm._call_gm_logic의 do_simulation과 같은 조건).
+    # v7.23: DYNAMIC은 매 발화 시뮬레이션이 없다 — 판단이 발견·결과 선취를 표시할 때만 선언 검증 1회(하한 0).
     sim = _simulation_runs(session)
-    if sim:
+    if sim and _dynamic(session):
+        g_in = inp["cached"] + DECLARATION_CHECK_FIXED_TOKENS + inp["simulation"] - SIMULATION_FIXED_TOKENS
+        breakdown["선언 검증(조건부)"] = (0.0, _cost(g_in, DECLARATION_CHECK_OUT, inp["cached"]))
+    elif sim:
         s_lo, s_hi = _out_range(session, "simulation", "simulation_out")
         s_in = inp["simulation"] + inp["cached"]
         breakdown["개연성 시뮬레이션"] = (_cost(s_in, s_lo, inp["cached"]), _cost(s_in, s_hi, inp["cached"]))
@@ -376,6 +383,15 @@ def _aux_possible(session) -> bool:
         return bool(is_enabled(session, "image") or is_enabled(session, "tts"))
     except Exception:
         return True
+
+
+def _dynamic(session) -> bool:
+    """DYNAMIC 세션인가(gm의 WorldTurn 생성 조건과 같은 판정). 실패는 LEGACY로 본다(기존 예상 유지)."""
+    try:
+        from . import turn_world
+        return turn_world.session_is_dynamic(session)
+    except Exception:
+        return False
 
 
 def _simulation_runs(session) -> bool:

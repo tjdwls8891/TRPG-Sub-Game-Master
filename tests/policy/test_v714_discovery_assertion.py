@@ -1,7 +1,10 @@
 # -*- coding: utf-8 -*-
 """v7.14.0 — 역사칭·발견 선언(설계안 §7 (a)~(r)).
 
-선언 게이트 = 기존 개연성 시뮬레이션 호출의 구조화 필드(새 provider 호출 0). 판단·지시층위에는 열거값과
+v7.23(DYNAMIC): 매 발화 개연성 시뮬레이션이 은퇴했다 — 판단이 먼저 발견 제안·결과 선취를 표시하고
+(ambient_proposal·assertion_claim·discovery_ref), 그때만 축소 선언 검증(캐시)이 같은 게이트 규칙·스키마로 돈다.
+아래 테스트는 그 순서로 같은 방어선을 고정한다(LEGACY는 기존 시뮬레이션 게이트 그대로 — test_p).
+선언 게이트 = 구조화 필드. 판단·지시층위에는 열거값과
 플레이어 원문 대상명만 간다. DYNAMIC에서 승인·판정 성공한 주변 발견만 기존 정보·인지 typed 연산으로
 관찰 → stage_world_ops → READY → CommitCoordinator를 거쳐 정본이 된다. 실패는 '이번에 찾지 못함'.
 """
@@ -41,10 +44,22 @@ def sim(classification="ORDINARY", resolution="CONTINUE", reason="NONE", target=
                                        "discovery_kind": kind, "existing_key": existing}})
 
 
-def jdg(action="PROCEED", *, rolls=(), ambient=False, intent="선언한 시도"):
-    return _json({"player_intent": intent, "situation_read": "상황", "action": action, "reasoning": "테스트",
-                  "bridge_message": "", "rolls": list(rolls), "ambient_proposal": ambient, "self_check": "x",
-                  "action_intent": {"movement_kind": "NONE", "time_kind": "NONE"}})
+def jdg(action="PROCEED", *, rolls=(), ambient=False, intent="선언한 시도", target="", assertion=False, ref=None):
+    body = {"player_intent": intent, "situation_read": "상황", "action": action, "reasoning": "테스트",
+            "bridge_message": "", "rolls": list(rolls), "ambient_proposal": ambient, "self_check": "x",
+            "action_intent": {"movement_kind": "NONE", "time_kind": "NONE"}}
+    if target:
+        body["discovery_target"] = target
+    if assertion:
+        body["assertion_claim"] = True
+    if ref:
+        body["discovery_ref"] = ref
+    return _json(body)
+
+
+def jfind(target, roll=False):
+    """v7.23 판단 초안 — 주변 발견 제안(굴림 초안 포함 여부)."""
+    return jdg("ROLL", rolls=[droll()], ambient=True, target=target) if roll else jdg(ambient=True, target=target)
 
 
 def droll(**kw):
@@ -56,11 +71,12 @@ def droll(**kw):
 
 @pytest.fixture
 def grig(drig, monkeypatch):
-    """DYNAMIC rig + 실제 시뮬레이션 경로(게이트 포함)."""
+    """DYNAMIC rig + 실제 조건부 선언 검증 경로(게이트 응답은 'simulation' 라우트 — 같은 게이트 스키마)."""
     r = drig
     monkeypatch.setattr(r.gm, "_simulate_narrative_directions",
                         gm_mod.GMCog._simulate_narrative_directions.__get__(r.gm))
     r.make()
+    r.sess.cache_name, r.sess.cache_model = r.sess.cache_name or "cachedContents/test", core.DEFAULT_MODEL
     r.prov.routes["simulation"] = [sim()]
     r.prov.routes["judgment"] = [jdg()]                     # 이동 없는 일반 행동
     return r
@@ -108,7 +124,7 @@ def test_c_narration_rule_no_longer_accepts_preclaimed_result():
 async def test_a_safe_attempt_continues_but_result_not_confirmed(grig):
     r = grig
     r.prov.routes["simulation"] = [sim("IMPROPER_ASSERTION", "CONTINUE")]
-    r.prov.routes["judgment"] = [jdg(intent="경비의 칼을 빼앗으려 시도한다")]
+    r.prov.routes["judgment"] = [jdg(intent="경비의 칼을 빼앗으려 시도한다", assertion=True)]
     tx = await turn(r, "경비의 칼을 빼앗았다")
     assert tx.status == tt.TurnStatus.COMMITTED
     lp = r.prov.prompts["logic"][0][0]
@@ -119,9 +135,11 @@ async def test_a_safe_attempt_continues_but_result_not_confirmed(grig):
 async def test_b_npc_consent_preclaim_blocked_before_any_roll(grig):
     r = grig
     r.prov.routes["simulation"] = [sim("IMPROPER_ASSERTION", "BLOCK", "CANNOT_CONFIRM")]
+    r.prov.routes["judgment"] = [jdg(assertion=True)]
     tx = await turn(r, "경비가 내게 문을 열어 주었다")
     assert tx.status == tt.TurnStatus.WAITING_FOR_PLAYER
-    assert not {"judgment", "logic", "narration"} & set(r.prov.calls)      # 판단·굴림·묘사 없음
+    assert r.prov.calls.count("judgment") == 1 and r.prov.calls.count("simulation") == 1   # 판단 표시 → 검증 1회
+    assert not {"logic", "narration"} & set(r.prov.calls) and not tx.judgment_result.get("roll_records")
     sent = "\n".join(m.content or "" for m in r.gch.sent)
     assert "미리 정할 수 없습니다" in sent and SECRET not in sent
     assert tx.judgment_result["gate"]["resolution"] == "BLOCK"
@@ -137,6 +155,7 @@ async def test_d_g_trivial_discovery_no_roll_creates_one_info_and_pc_cognition(g
     know0, npc0 = copy.deepcopy(s.spatial_knowledge), {k: v for k, v in (s.cognition_state or {}).items()
                                                         if k != COG.actor_holder(PC)}
     r.prov.routes["simulation"] = [sim("AMBIENT_PROPOSAL", "ACCEPT_NO_ROLL", target="나뭇조각", kind="OBJECT")]
+    r.prov.routes["judgment"] = [jfind("나뭇조각")]
     tx = await turn(r, "바닥에서 나뭇조각을 찾아본다")
     assert tx.status == tt.TurnStatus.COMMITTED
     assert not any("discovery" in (rr or {}) for rr in tx.judgment_result.get("roll_records") or ())
@@ -155,7 +174,7 @@ async def test_d_g_trivial_discovery_no_roll_creates_one_info_and_pc_cognition(g
 async def test_e_uncertain_discovery_rolls_and_success_persists(grig, monkeypatch):
     r = grig
     r.prov.routes["simulation"] = [sim("AMBIENT_PROPOSAL", "ROLL", target="노끈", kind="OBJECT")]
-    r.prov.routes["judgment"] = [jdg("ROLL", rolls=[droll()])]
+    r.prov.routes["judgment"] = [jfind("노끈", roll=True)]
     tx = await roll_turn(r, monkeypatch, "폐건물 구석에서 노끈을 찾아본다", (1, 1))
     assert tx.status == tt.TurnStatus.COMMITTED
     rec = tx.judgment_result["roll_records"][0]
@@ -167,7 +186,7 @@ async def test_e_uncertain_discovery_rolls_and_success_persists(grig, monkeypatc
 async def test_f_failed_discovery_creates_nothing(grig, monkeypatch):
     r = grig
     r.prov.routes["simulation"] = [sim("AMBIENT_PROPOSAL", "ROLL", target="노끈", kind="OBJECT")]
-    r.prov.routes["judgment"] = [jdg("ROLL", rolls=[droll()])]
+    r.prov.routes["judgment"] = [jfind("노끈", roll=True)]
     tx = await roll_turn(r, monkeypatch, "폐건물 구석에서 노끈을 찾아본다", (50, 50))
     assert tx.status == tt.TurnStatus.COMMITTED
     assert tx.judgment_result["roll_records"][0]["discovery"]["success"] is False
@@ -180,7 +199,8 @@ async def test_f_failed_discovery_creates_nothing(grig, monkeypatch):
 async def test_other_roll_success_is_not_discovery_success(grig, monkeypatch):
     r = grig
     r.prov.routes["simulation"] = [sim("AMBIENT_PROPOSAL", "ROLL", target="노끈", kind="OBJECT")]
-    r.prov.routes["judgment"] = [jdg("ROLL", rolls=[droll(stat="근력", discovery=False), droll()])]
+    r.prov.routes["judgment"] = [jdg("ROLL", rolls=[droll(stat="근력", discovery=False), droll()], ambient=True,
+                                     target="노끈")]
     tx = await turn(r, "문을 밀면서 노끈을 찾아본다")
     seq = iter([(1, 1), (50, 50)])                                        # 일반 판정 성공 · 발견 판정 실패
     monkeypatch.setattr(core.judgment, "roll_2d50", lambda _rng: next(seq))
@@ -193,17 +213,20 @@ async def test_other_roll_success_is_not_discovery_success(grig, monkeypatch):
 async def test_gate_roll_without_discovery_roll_is_contract_violation(grig):
     r = grig
     r.prov.routes["simulation"] = [sim("AMBIENT_PROPOSAL", "ROLL", target="노끈", kind="OBJECT")]
-    r.prov.routes["judgment"] = [jdg("PROCEED")]
+    r.prov.routes["judgment"] = [jdg("PROCEED", ambient=True, target="노끈")]
     await turn(r, "노끈을 찾아본다")
-    assert r.prov.calls.count("judgment") == gm_mod.JUDGMENT_MAX_RETRIES
+    # 초안(굴림 없음)과 검증(ROLL)이 어긋남 → 검증 결과를 준 재판단도 굴림이 없으면 계약 위반 재시도 끝에 중단
+    assert r.prov.calls.count("judgment") == 1 + gm_mod.JUDGMENT_MAX_RETRIES
     assert "logic" not in r.prov.calls and ambient_ids(r.sess) == []
 
 
 async def test_h_secret_or_unique_proposal_blocked_with_neutral_notice(grig):
     r = grig
     r.prov.routes["simulation"] = [sim("AMBIENT_PROPOSAL", "BLOCK", "NOT_AMBIENT")]
+    r.prov.routes["judgment"] = [jfind("비밀 통로", roll=True)]
     tx = await turn(r, "벽 뒤에서 비밀 통로를 찾는다")
-    assert tx.status == tt.TurnStatus.WAITING_FOR_PLAYER and "judgment" not in r.prov.calls
+    assert tx.status == tt.TurnStatus.WAITING_FOR_PLAYER and r.prov.calls.count("judgment") == 1
+    assert not tx.judgment_result.get("roll_records") and "logic" not in r.prov.calls    # 초안은 굴리지 않는다
     sent = "\n".join(m.content or "" for m in r.gch.sent)
     assert gm_mod._GATE_NOTICE_DEFAULT in sent and "비밀" not in gm_mod._GATE_NOTICE_DEFAULT
     assert ambient_ids(r.sess) == []
@@ -212,10 +235,14 @@ async def test_h_secret_or_unique_proposal_blocked_with_neutral_notice(grig):
 async def test_i_judgment_input_has_no_simulation_free_text(grig):
     r = grig
     r.prov.routes["simulation"] = [sim("AMBIENT_PROPOSAL", "ACCEPT_NO_ROLL", target="나뭇조각", kind="OBJECT")]
+    r.prov.routes["judgment"] = [jfind("나뭇조각", roll=True), jfind("나뭇조각")]   # 초안 굴림 ↔ 검증 무판정 → 재판단
     await turn(r, "나뭇조각을 찾는다")
-    jp = r.prov.prompts["judgment"][0][0]
+    jp0, jp = r.prov.prompts["judgment"][0][0], r.prov.prompts["judgment"][1][0]
+    assert "[선언 검증 — 동적 세계" in jp0 and SECRET not in jp0
     assert SECRET not in jp and "rt.ambient" not in jp
     assert "분류 AMBIENT_PROPOSAL / 처리 ACCEPT_NO_ROLL / 사유 NONE / 대상 나뭇조각(OBJECT)" in jp
+    gp = r.prov.prompts["simulation"][0][0]                                # 검증 입력에 서사 방향·공리 요구 없음
+    assert "declaration_gate" in gp and "방향성 2~3개" not in gp
 
 
 def test_target_must_come_from_player_words():
@@ -238,7 +265,9 @@ def test_discovery_roll_contract():
 
 async def _found(r, target="노끈", kind="OBJECT", text=None):
     r.prov.routes["simulation"] = [sim("AMBIENT_PROPOSAL", "ACCEPT_NO_ROLL", target=target, kind=kind)]
+    r.prov.routes["judgment"] = [jfind(target)]
     tx = await turn(r, text or f"주변에서 {target}을 찾아본다")
+    r.prov.routes["judgment"] = [jdg()]
     assert tx.status == tt.TurnStatus.COMMITTED
     return ambient_ids(r.sess)[-1]
 
@@ -257,8 +286,8 @@ async def test_k_discovery_persists_next_turn_and_beyond_recent_12(grig):
     await turn(r, "주변을 둘러본다")
     lp = r.prov.prompts["logic"][-1][0]
     assert "[현재 장소에서 PC가 발견해 둔 것" in lp and "· 노끈 (물건)" in lp
-    sp = r.prov.prompts["simulation"][-1][0]
-    assert "D1=노끈(물건)" in sp                             # 게이트 입력(existing_key 재사용용)
+    jp = r.prov.prompts["judgment"][-1][0]
+    assert "D1=노끈(물건)" in jp                             # 판단 입력(discovery_ref 재사용용 — v7.23)
 
 
 async def test_l_take_supersedes_and_adds_one_item_once(grig):
@@ -266,6 +295,7 @@ async def test_l_take_supersedes_and_adds_one_item_once(grig):
     s = r.sess
     iid = await _found(r)
     r.prov.routes["simulation"] = [sim()]
+    r.prov.routes["judgment"] = [jdg(ref="D1")]
     r.prov.routes["extraction"] = [extraction({"discovery_taken": ["D1"]},
                                               item_changes=[{"target": "테스터", "item": "노끈", "delta": 1}])]
     await turn(r, "아까 찾은 노끈을 집어 든다")
@@ -282,6 +312,7 @@ async def test_m_find_and_take_same_turn_is_atomic(grig):
     r = grig
     s = r.sess
     r.prov.routes["simulation"] = [sim("AMBIENT_PROPOSAL", "ACCEPT_NO_ROLL", target="나뭇조각", kind="OBJECT")]
+    r.prov.routes["judgment"] = [jfind("나뭇조각")]
     r.prov.routes["extraction"] = [extraction({"discovery_taken": ["DNEW"]})]
     tx = await turn(r, "나뭇조각을 찾아서 줍는다")
     assert tx.status == tt.TurnStatus.COMMITTED
@@ -301,9 +332,12 @@ async def test_environment_cannot_be_taken(grig):
 async def test_existing_target_reused_not_duplicated(grig):
     r = grig
     await _found(r)
+    n_gate = r.prov.calls.count("simulation")
     r.prov.routes["simulation"] = [sim("AMBIENT_PROPOSAL", "ROLL", target="노끈", kind="OBJECT", existing="D1")]
+    r.prov.routes["judgment"] = [jfind("노끈")]
     tx = await turn(r, "노끈을 다시 찾아본다")
     assert tx.judgment_result["gate"]["resolution"] == "ACCEPT_NO_ROLL"      # 재굴림 없음
+    assert r.prov.calls.count("simulation") == n_gate                       # 기존 발견 — 코드 재사용, 검증 호출 0
     assert len(ambient_ids(r.sess)) == 1
 
 
@@ -314,18 +348,19 @@ async def test_existing_target_reused_not_duplicated(grig):
 async def test_n_failed_search_reaches_gate_and_unchanged_retry_blocks(grig, monkeypatch):
     r = grig
     r.prov.routes["simulation"] = [sim("AMBIENT_PROPOSAL", "ROLL", target="노끈", kind="OBJECT")]
-    r.prov.routes["judgment"] = [jdg("ROLL", rolls=[droll()])]
+    r.prov.routes["judgment"] = [jfind("노끈", roll=True)]
     await roll_turn(r, monkeypatch, "폐건물 구석에서 노끈을 찾아본다", (50, 50))
     n_judg = r.prov.calls.count("judgment")
     r.prov.routes["simulation"] = [sim("AMBIENT_PROPOSAL", "BLOCK", "UNCHANGED_RETRY")]
     tx = await turn(r, "폐건물 구석에서 노끈을 다시 찾아본다")
     sp = r.prov.prompts["simulation"][-1][0]
     assert "[이 장소에서 찾지 못한 이전 탐색" in sp and "· 노끈 — 당시 선언: 폐건물 구석에서 노끈을 찾아본다" in sp
-    assert tx.status == tt.TurnStatus.WAITING_FOR_PLAYER and r.prov.calls.count("judgment") == n_judg
+    assert tx.status == tt.TurnStatus.WAITING_FOR_PLAYER and r.prov.calls.count("judgment") == n_judg + 1
+    assert not tx.judgment_result.get("roll_records")                    # 초안 굴림은 집행되지 않는다
     assert ambient_ids(r.sess) == []                                     # 부재 확정 없음
     # 조건이 바뀌면(게이트 ROLL) 다시 굴릴 수 있다
     r.prov.routes["simulation"] = [sim("AMBIENT_PROPOSAL", "ROLL", target="노끈", kind="OBJECT")]
-    r.prov.routes["judgment"] = [jdg("ROLL", rolls=[droll()])]
+    r.prov.routes["judgment"] = [jfind("노끈", roll=True)]
     tx2 = await turn(r, "손전등을 비추며 노끈을 찾아본다")
     assert tx2.status == tt.TurnStatus.WAITING_FOR_ROLL
 
@@ -405,6 +440,7 @@ async def test_r_rerender_and_rewind_keep_world_and_items_consistent(grig):
     s = r.sess
     await _found(r, "나뭇조각")
     r.prov.routes["simulation"] = [sim()]
+    r.prov.routes["judgment"] = [jdg(ref="D1")]
     r.prov.routes["extraction"] = [extraction({"discovery_taken": ["D1"]})]
     await turn(r, "나뭇조각을 줍는다")
     assert bag(s)["나뭇조각"] == 1
@@ -432,8 +468,8 @@ async def _pipe(r):
     return iid
 
 
-async def _take(r, *, gate=None, items=(PICK,), obs=None, text="아까 발견한 쇠파이프를 집어 든다"):
-    r.prov.routes["simulation"] = [gate or sim(existing="D1")]
+async def _take(r, *, ref="D1", items=(PICK,), obs=None, text="아까 발견한 쇠파이프를 집어 든다"):
+    r.prov.routes["judgment"] = [jdg(ref=ref)]            # v7.23: 기존 발견 지목 근거 = 판단 discovery_ref(D키)
     r.prov.routes["extraction"] = [extraction(obs or {}, item_changes=list(items))]
     return await turn(r, text)
 
@@ -442,11 +478,13 @@ async def test_a1_missing_key_unique_referenced_find_is_taken_once(grig):
     r = grig
     s = r.sess
     iid = await _pipe(r)
-    tx = await _take(r)                                   # 게이트 ORDINARY + existing_key D1, 추출은 item_changes만
+    n_gate = r.prov.calls.count("simulation")
+    tx = await _take(r)                                   # 판단 discovery_ref D1(코드 게이트), 추출은 item_changes만
+    assert r.prov.calls.count("simulation") == n_gate     # 검증 호출 없음
     assert tx.judgment_result["gate"]["referenced_info_id"] == iid
     assert validity(s, iid) == INFO.SUPERSEDED and bag(s)["쇠파이프"] == 1
     # 후속 턴 재노출·재수거 없음
-    r.prov.routes["simulation"] = [sim()]
+    r.prov.routes["judgment"] = [jdg()]
     r.prov.routes["extraction"] = [extraction({"discovery_taken": ["D1"]})]
     await turn(r, "쇠파이프를 또 집는다")
     assert "D1=" not in r.prov.prompts["extraction"][-1][0] and bag(s)["쇠파이프"] == 1
@@ -457,6 +495,7 @@ async def test_a1_missing_key_same_turn_new_find_is_taken_once(grig):
     r = grig
     s = r.sess
     r.prov.routes["simulation"] = [sim("AMBIENT_PROPOSAL", "ACCEPT_NO_ROLL", target="쇠파이프", kind="OBJECT")]
+    r.prov.routes["judgment"] = [jfind("쇠파이프")]
     r.prov.routes["extraction"] = [extraction({}, item_changes=[PICK])]
     tx = await turn(r, "쓸 만한 쇠파이프를 찾아 집어 든다")
     iid = TW.ambient_info_id(tx.transaction_id)
@@ -466,7 +505,7 @@ async def test_a1_missing_key_same_turn_new_find_is_taken_once(grig):
 async def test_a1_failed_find_with_item_change_does_not_link(grig, monkeypatch):
     r = grig
     r.prov.routes["simulation"] = [sim("AMBIENT_PROPOSAL", "ROLL", target="쇠파이프", kind="OBJECT")]
-    r.prov.routes["judgment"] = [jdg("ROLL", rolls=[droll()])]
+    r.prov.routes["judgment"] = [jfind("쇠파이프", roll=True)]
     r.prov.routes["extraction"] = [extraction({}, item_changes=[PICK])]
     await roll_turn(r, monkeypatch, "쇠파이프를 찾아 집어 든다", (50, 50))
     assert ambient_ids(r.sess) == []                      # 실패한 발견은 만들지도 연결하지도 않는다
@@ -480,7 +519,7 @@ async def test_a1_ambiguous_cases_do_not_link_by_name(grig, case):
     iid = await _pipe(r)
     kw = {}
     if case == "no_reference":
-        kw["gate"] = sim()                                # 선언이 발견물을 가리킨다는 구조화 근거 없음
+        kw["ref"] = None                                  # 선언이 발견물을 가리킨다는 구조화 근거 없음
     elif case == "other_source_npc":
         kw["items"] = (PICK, {"target": "강도", "item": "쇠파이프", "delta": -1})   # NPC에게서 받은 정황
         s.npcs = {**(s.npcs or {}), "강도": {}}
