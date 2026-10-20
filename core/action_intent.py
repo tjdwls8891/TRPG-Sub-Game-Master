@@ -17,6 +17,7 @@ from __future__ import annotations
 import copy
 from dataclasses import dataclass, field
 
+from . import access as _acc
 from . import cognition as _cog
 from . import information as _info
 from . import spatial as _sp
@@ -27,8 +28,11 @@ from . import world_state as _ws
 NONE = "NONE"
 MOVE_DESTINATION = "DESTINATION"
 MOVE_LOCAL = "LOCAL_MICRO_MOVE"
-MOVE_EXPLORE = "EXPLORE_DIRECTION"
-MOVEMENT_KINDS = (NONE, MOVE_DESTINATION, MOVE_LOCAL, MOVE_EXPLORE)
+MOVE_EXPLORE = "EXPLORE_DIRECTION"         # 옛 열거값 — v7.22부터 스키마에 없고, 들어오면 WANDER로 읽는다
+MOVE_EXIT = "EXIT"                         # v7.22: 현재 장소의 보이는 출구(E키 → 실제 구간 id) 하나로 나간다
+MOVE_WANDER = "WANDER"                     # v7.22: 목적지 없이 아무 출구로나(코드가 결정적으로 고른 한 구간)
+MOVEMENT_KINDS = (NONE, MOVE_DESTINATION, MOVE_EXIT, MOVE_WANDER, MOVE_LOCAL)
+EXIT_MOVES = (MOVE_EXIT, MOVE_WANDER)
 
 TIME_DURATION = "DURATION"
 TIME_DAYPART = "TARGET_DAYPART"
@@ -80,6 +84,8 @@ class ActionReferenceManifest:
     dayparts: tuple = ()
     transit: tuple = ()          # H06 R2-06: (from_place, to_place, elapsed_min, total_min) — PC가 구간 안일 때만
     resolutions: tuple = ()      # H07: (key, (instance_id, option_id), label) — 플레이어 명시 결단 후보
+    exits: tuple = ()            # v7.22: (key, edge_id, to_place, label, perceived) — 현재 장소의 보이는 출구 전부
+    asked_exits: tuple = ()      # v7.22: 직전 목적지 질문이 제시한 출구 edge_id(유효한 질문 문맥이 있을 때만)
 
     def _map(self, rows):
         return {r[0]: r for r in rows}
@@ -104,10 +110,14 @@ class ActionReferenceManifest:
         r = self._map(self.resolutions).get(key)
         return tuple(r[1]) if r else None
 
+    def exit_of(self, key):
+        r = self._map(self.exits).get(key)
+        return (r[1], r[2]) if r else None
+
     def keys(self) -> dict:
         return {"places": [r[0] for r in self.places], "routes": [r[0] for r in self.routes],
                 "access": [r[0] for r in self.access], "infos": [r[0] for r in self.infos],
-                "resolutions": [r[0] for r in self.resolutions]}
+                "resolutions": [r[0] for r in self.resolutions], "exits": [r[0] for r in self.exits]}
 
     def render(self) -> str:
         """판단층위 사용자 프롬프트 블록(정본 id·숨은 정보 없음 — 표시명과 키만)."""
@@ -124,6 +134,13 @@ class ActionReferenceManifest:
                          f"출발지로 되돌아간 것으로 보지 말 것.")
         if self.places:
             lines.append("장소(목적지): " + ", ".join(f"{k}={lbl}" for k, _, lbl in self.places))
+        if self.exits:
+            lines.append("현재 장소에서 나가는 길(방향 · 경사 · 길 형태 → 그 너머): " + ", ".join(
+                f"{k}={lbl}" + (" [막힌 것으로 앎]" if perc == _acc.PERCEIVED_BLOCKED else "") for k, _e, _t, lbl, perc in self.exits))
+        if self.asked_exits:
+            asked = [k for k, eid, _t, _l, _p in self.exits if eid in self.asked_exits]
+            lines.append("직전에 진행자가 어디로 갈지 물었다(제시한 길: " + ", ".join(asked) + "). "
+                         "이 답이 '그냥/아무 데나/상관없다'처럼 길을 정하지 않으면 movement_kind=WANDER.")
         if self.routes:
             lines.append("제시된 경로 선택지: " + ", ".join(
                 f"{k}={lbl}" + (f"(약 {m}분)" if m is not None else "") for k, _, lbl, m in self.routes))
@@ -137,6 +154,15 @@ class ActionReferenceManifest:
             lines.append("시간대: " + ", ".join(self.dayparts))
         lines.append("· 이동 선언이면 movement_kind=DESTINATION과 destination 키. 장소 안의 작은 이동은 "
                      "LOCAL_MICRO_MOVE. 목적지가 후보에 없으면 destination=NONE.")
+        if self.exits:
+            lines.append("· 이름이 아니라 방향·길 형태·'저 길'로 현재 출구를 가리키면 movement_kind=EXIT와 exit 키. "
+                         "가리킨 말에 맞는 출구가 여럿이면 exit=NONE, exit_options에 맞는 키를 모두. "
+                         "위에 적힌 방향·길 형태로만 맞출 것 — '왼쪽·오른쪽·앞·뒤'처럼 기준이 없는 방향은 "
+                         "exit=NONE·exit_options=[](진행자가 되묻는다). 더 나은 길을 대신 고르지 말 것.")
+            lines.append("· 목적지 없이 '아무 데나·발길 닿는 대로' 가겠다고 하면 movement_kind=WANDER(길은 코드가 고른다). "
+                         "'큰길로'처럼 위 길 형태로 확인되는 조건을 함께 말했으면 맞는 키만 exit_options에, 아니면 []. "
+                         "단순히 '이동한다'처럼 어디로 갈지 말하지 않았으면 DESTINATION·destination=NONE(진행자가 묻는다). "
+                         "둘러보기·살피기는 이동이 아니다(NONE).")
         lines.append("· 기다림/잠은 time_kind(DURATION·TARGET_DAYPART·TARGET_CLOCK)와 activity. "
                      "시간을 명시하지 않았으면 NONE.")
         lines.append("· action_minutes: 이동·대기·잠이 아닌 이번 행동(대화·조사·작업 등)이 작중에서 걸리는 분. "
@@ -169,6 +195,8 @@ class ActionReferenceManifest:
                 "stance_info": enum(r[0] for r in self.infos),
                 "stance_belief": {"type": "string", "enum": [NONE] + list(STANCE_BELIEFS)},
                 "resolution": enum(r[0] for r in self.resolutions),
+                "exit": enum(r[0] for r in self.exits),
+                "exit_options": {"type": "array", "items": {"type": "string", "enum": [r[0] for r in self.exits] or [NONE]}},
                 ACTION_MINUTES_FIELD: {"type": "integer"},
             },
             "required": ["movement_kind", "time_kind", ACTION_MINUTES_FIELD],
@@ -199,8 +227,33 @@ def _info_label(definition: dict, world, info_id: str) -> str:
     return d.get("summary") or d.get("proposition") or info_id
 
 
+def exit_candidates(definition: dict, world, pc_actor_id: str) -> tuple:
+    """v7.22: 현재 장소(AT_PLACE)에서 나가는 출구 중 PC가 아는 것 전부 — 판단 후보·질문·무작위 선택의 단일 출처.
+
+    · 아는 구간만(도착·시작 시 보이는 PUBLIC/LOCAL 학습 + 발견한 RESTRICTED/SECRET) — 나가는 방향(from = 현재 장소).
+    · 라벨 = 저작 route_hint(방향 · 경사 · 길 형태) + 그 너머 장소의 PC 지식 수준 표시명. 내부 PlaceId·참이름 비노출.
+    · perceived는 PC가 아는 접근 상태뿐(실제 접근 상태는 읽지 않는다). TRANSIT·장소 밖이면 빈 튜플.
+    반환: ((edge_id, to_place, label, perceived), …) — edge_id 순.
+    """
+    from . import place_display as _pd
+    pl = _sp.placement_of(world, pc_actor_id) or {}
+    if pl.get("kind") != _sp.AT_PLACE:
+        return ()
+    here = pl.get("place_id")
+    know = _sp.actor_knowledge(world, pc_actor_id)
+    out = []
+    for eid, e in sorted(((definition or {}).get("movement_edges") or {}).items()):
+        if e.get("from") != here or not _sp.knows_edge(know, eid):
+            continue
+        name = _pd.display_name(definition, know, e["to"], require_known=False)
+        hint = e.get("route_hint")
+        label = f"{hint} → {name}" if hint else f"{name} 쪽 길"
+        out.append((eid, e["to"], label, _acc.perceived_access(know, e)["perceived"]))
+    return tuple(out)
+
+
 def build_manifest(definition: dict, world, pc_actor_id: str, *, definition_revision=None,
-                   route_options=(), access_options=()) -> ActionReferenceManifest:
+                   route_options=(), access_options=(), asked_exits=()) -> ActionReferenceManifest:
     """PC 지식 기반 후보(숨은 장소·정보 제외). route_options/access_options는 호출자가 준비한 선택지."""
     pl = _sp.placement_of(world, pc_actor_id) or {}
     here = pl.get("place_id") if pl.get("kind") == _sp.AT_PLACE else None
@@ -238,10 +291,14 @@ def build_manifest(definition: dict, world, pc_actor_id: str, *, definition_revi
     from . import events as _ev
     resolutions = tuple((f"D{n}", (iid, oid), label)
                         for n, (iid, oid, label) in enumerate(_ev.open_resolutions(definition, world, here), 1))
+    exits = tuple((f"E{n}", eid, to, label, perc)
+                  for n, (eid, to, label, perc) in enumerate(exit_candidates(definition, world, pc_actor_id), 1))
+    shown_exits = {r[1] for r in exits}
     return ActionReferenceManifest(
         world_version_id=world_version_id(world), definition_revision=definition_revision,
         pc_actor_id=pc_actor_id, origin_place=here, places=places, routes=routes, access=access,
-        infos=infos, dayparts=dayparts, transit=transit, resolutions=resolutions)
+        infos=infos, dayparts=dayparts, transit=transit, resolutions=resolutions, exits=exits,
+        asked_exits=tuple(e for e in asked_exits if e in shown_exits))
 
 
 # ══════════════════════════════════════════════════════════════
@@ -252,6 +309,8 @@ def build_manifest(definition: dict, world, pc_actor_id: str, *, definition_revi
 class MovementIntent:
     kind: str
     destination_place: str | None = None
+    edge_id: str | None = None                    # v7.22 EXIT·WANDER: 실제 첫(유일) 구간 — 평행 구간으로 바꾸지 않는다
+    pool: tuple = ()                              # v7.22 WANDER 선택 전: 조건에 맞는 후보 edge_id(빈 = 전체). 기록 안 함
 
 
 @dataclass(frozen=True)
@@ -277,6 +336,7 @@ class ResolvedActionIntent:
     resolution: tuple | None = None               # H07: (instance_id, option_id) — 플레이어 명시 결단
     route_signature: tuple | None = None          # 안정 의미 선택(구간 id 서명)
     access_action_ids: tuple = ()                 # H04 access_action_id(확인 토큰)
+    exit_choices: tuple = ()                      # v7.22: 모호한 출구 지목의 후보 edge_id(되물을 범위) — 런타임 전용
     action_minutes: int | None = None             # P1(D1): 이동·대기 아닌 행동 소요 분(묘사 전 코드 진행) — None = 미제시
     unresolved: tuple = ()                        # (field, code)
     stale: bool = False
@@ -284,7 +344,8 @@ class ResolvedActionIntent:
 
     @property
     def empty(self) -> bool:
-        return not (self.movement and self.movement.kind == MOVE_DESTINATION) and self.time_advance is None \
+        return not (self.movement and self.movement.kind in (MOVE_DESTINATION,) + EXIT_MOVES) \
+            and self.time_advance is None \
             and self.stance is None and self.resolution is None and not self.action_minutes
 
     @classmethod
@@ -298,7 +359,8 @@ class ResolvedActionIntent:
         ta = r.get("time_advance")
         st = r.get("stance")
         return cls(
-            movement=MovementIntent(mv["kind"], mv.get("destination_place")) if isinstance(mv, dict) else None,
+            movement=MovementIntent(mv["kind"], mv.get("destination_place"), mv.get("edge_id"))
+            if isinstance(mv, dict) else None,
             time_advance=TimeAdvanceIntent(**ta) if isinstance(ta, dict) else None,
             stance=CognitionStanceIntent(st["info_id"], st.get("belief")) if isinstance(st, dict) else None,
             resolution=tuple(r["resolution"]) if r.get("resolution") else None,
@@ -310,7 +372,8 @@ class ResolvedActionIntent:
     def semantic_record(self) -> dict:
         """영속 가능한 의미 기록(transient 키 없음) — H06 재서술이 재사용한다."""
         return {"movement": None if self.movement is None else
-                {"kind": self.movement.kind, "destination_place": self.movement.destination_place},
+                {"kind": self.movement.kind, "destination_place": self.movement.destination_place,
+                 "edge_id": self.movement.edge_id},
                 "time_advance": None if self.time_advance is None else dict(self.time_advance.__dict__),
                 "stance": None if self.stance is None else dict(self.stance.__dict__),
                 "resolution": list(self.resolution) if self.resolution else None,
@@ -334,6 +397,9 @@ def resolve_intent(manifest: ActionReferenceManifest, raw, *, world=None) -> Res
     bad = []
     movement = None
     mk = raw.get("movement_kind") or NONE
+    if mk == MOVE_EXPLORE:
+        mk = MOVE_WANDER                           # 옛 열거값(방향 탐험) — 머무름으로 읽지 않는다(F2)
+    exit_choices = ()
     if mk not in MOVEMENT_KINDS:
         bad.append(("movement_kind", "INVALID"))
     elif mk == MOVE_DESTINATION:
@@ -343,10 +409,22 @@ def resolve_intent(manifest: ActionReferenceManifest, raw, *, world=None) -> Res
             bad.append(("destination", "INVALID_CANDIDATE" if key else "MISSING"))
         else:
             movement = MovementIntent(MOVE_DESTINATION, pid)
-    elif mk in (MOVE_LOCAL, MOVE_EXPLORE):
-        movement = MovementIntent(mk)              # 정본 장소 불변(LOCAL)·EXPLORE는 미구조화
-        if mk == MOVE_EXPLORE:
-            bad.append(("movement_kind", "EXPLORE_UNSTRUCTURED"))
+    elif mk in EXIT_MOVES:
+        opts = raw.get("exit_options") if isinstance(raw.get("exit_options"), list) else []
+        pool = tuple(sorted({manifest.exit_of(k)[0] for k in opts if isinstance(k, str) and manifest.exit_of(k)}))
+        key = _s(raw.get("exit")) if mk == MOVE_EXIT else None
+        hit = manifest.exit_of(key) if key else None
+        if mk == MOVE_EXIT and hit is None and len(pool) == 1:
+            hit = next((r[1], r[2]) for r in manifest.exits if r[1] == pool[0])
+        if mk == MOVE_WANDER:
+            movement = MovementIntent(MOVE_WANDER, pool=pool)      # 실제 구간은 코드가 고른다(player_world)
+        elif hit is not None:
+            movement = MovementIntent(MOVE_EXIT, hit[1], hit[0])
+        else:
+            exit_choices = pool                                     # 여럿 일치 = 그 후보만, 근거 없음 = 전체로 되묻는다
+            bad.append(("exit", "INVALID_CANDIDATE" if key else ("AMBIGUOUS" if pool else "MISSING")))
+    elif mk == MOVE_LOCAL:
+        movement = MovementIntent(mk)              # 정본 장소 불변
     route_sig = None
     rk = _s(raw.get("route_choice"))
     if rk:
@@ -410,7 +488,7 @@ def resolve_intent(manifest: ActionReferenceManifest, raw, *, world=None) -> Res
         bad.append((ACTION_MINUTES_FIELD, "MISSING" if am is None else "INVALID"))
     return ResolvedActionIntent(movement=movement, time_advance=time_adv, stance=stance, resolution=resolution,
                                 route_signature=route_sig, access_action_ids=access_ids,
-                                action_minutes=action_minutes,
+                                exit_choices=exit_choices, action_minutes=action_minutes,
                                 unresolved=tuple(bad), definition_revision=rev)
 
 

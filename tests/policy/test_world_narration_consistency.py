@@ -40,8 +40,8 @@ async def test_unresolved_destination_asks_with_visible_exits_without_narration(
     tx = await turn(r, "사람이 있을 만한 곳으로 간다")
     assert "logic" not in r.prov.calls and "narration" not in r.prov.calls
     assert tx.status == tt.TurnStatus.WAITING_FOR_PLAYER
-    # v7.13: 질문 문장은 마스터 대사(변주) — 보존되는 정보(보이는 길 목록)로 찾는다
-    asked = [m.content for m in r.gch.sent if "지금 보이는 길:" in (m.content or "")]
+    # v7.13: 질문 문장은 마스터 대사(변주) — 보존되는 정보(보이는 길 목록)로 찾는다(v7.22: 문장형 목록)
+    asked = [m.content for m in r.gch.sent if "지금 보이는 길은" in (m.content or "")]
     assert asked and "시장" in asked[0]
     assert SP.placement_of(r.sess, PC) == SP.at_place("항구")
 
@@ -63,7 +63,7 @@ async def test_closed_session_holds_declaration_and_reopen_resumes_once(drig):
     await r.gm._handle_player_message(r.sess, _msg(r, "칼을 준비한다"))
     assert r.prov.calls == [] and r.sess._held_declaration["content"] == "칼을 준비한다"
     assert r.sess.current_turn_logs == logs_before            # 거부된 선언은 턴 맥락에 기록하지 않는다
-    assert any("보관" in (m.content or "") for m in r.gch.sent)
+    assert any("세션 열기" in (m.content or "") for m in r.gch.sent)   # 대사 변주와 무관한 고정 안내로 찾는다
     await r.gm._handle_player_message(r.sess, _msg(r, "칼을 들고 기다린다"))    # 새 선언이 보관분을 교체
     r.sess.cache_name = cache                                # 다시 열기
     assert await r.gm.resume_held_declaration(r.sess)

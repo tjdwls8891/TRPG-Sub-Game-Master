@@ -2114,9 +2114,53 @@ class GMCog(commands.Cog):
         access = core.player_world.access_confirm_options(
             ctx.definition, session, ctx.lead_pc,
             core.player_world.pc_access_capabilities(session, uid, ctx.definition))   # v7.17.2: 소속 포함(접근 전용)
+        pend = self._pending_move(session, wt)
         wt.manifest = core.action_intent.build_manifest(
             ctx.definition, session, ctx.lead_pc, definition_revision=ctx.definition_revision,
-            route_options=routes, access_options=access)
+            route_options=routes, access_options=access, asked_exits=pend["exits"] if pend else ())
+
+    @staticmethod
+    def _pending_move(session, wt):
+        """v7.22 목적지 질문 문맥 — 같은 시도(WorldTurn)·같은 장소·같은 world_version일 때만 유효(아니면 버린다).
+        재시작·다른 세션·다른 시도에는 남지 않는다(트랜잭션 런타임 기록)."""
+        pend = wt.pending_move
+        if pend is None:
+            return None
+        now = core.turn_world.move_question_anchor(wt.ctx, session)
+        if pend.get("place") != now["place"] or pend.get("world_version") != now["world_version"]:
+            wt.pending_move = None
+            return None
+        return pend
+
+    def _settle_move_intent(self, session, wt, transaction_id) -> None:
+        """v7.22: 판단 의도의 출구 이동을 확정한다(판단 직후, 이력 기록 전 — 재서술·재시도는 같은 구간).
+
+        · 질문 문맥이 있는데 다시 길을 정하지 않은 이동(목적지 미정·WANDER)이면 되묻지 않고 한 구간 간다 —
+          질문이 제시한 후보 안에서만. 질문 없이 WANDER면 현재 출구 전체(조건 키가 있으면 그 안).
+        · 출구가 정해지면·다른 행동이면 질문 문맥을 내린다. 모호한 지목(AMBIGUOUS)은 그 후보로 다시 묻는다."""
+        intent = wt.intent
+        if intent is None or intent.stale:
+            return
+        pend = self._pending_move(session, wt)
+        mv = intent.movement
+        move_open = [(f, c) for f, c in intent.unresolved if f in ("destination", "exit")]
+        unspecified = (mv is not None and mv.kind == core.action_intent.MOVE_WANDER and not mv.edge_id) or (
+            pend is not None and move_open and all(u == ("destination", "MISSING") for u in move_open))
+        if unspecified:
+            pool = tuple(mv.pool) if mv is not None and mv.kind == core.action_intent.MOVE_WANDER else ()
+            if pend is not None:
+                asked = set(pend["exits"])
+                pool = tuple(e for e in pool if e in asked) or tuple(sorted(asked))   # 질문 범위를 넓히지 않는다
+            pick = core.player_world.wander_exit(
+                wt.ctx.definition, session, wt.ctx.lead_pc, pool=pool, transaction_id=transaction_id,
+                narrative_seed=getattr(session, "narrative_seed", None) or session.session_id)
+            wt.intent = intent = dataclasses.replace(
+                intent, movement=core.action_intent.MovementIntent(
+                    core.action_intent.MOVE_WANDER, pick[1] if pick else None, pick[0] if pick else None),
+                exit_choices=(), unresolved=tuple(u for u in intent.unresolved if u not in move_open))
+            core.write_log(session.session_id, "api", f"[v7.22 출구 선택] pool={len(pool)} pick={pick}")
+        if not any(f in ("destination", "exit") for f, _c in intent.unresolved):
+            wt.pending_move = None
 
     def _plan_world(self, session, wt, transaction_id, *, resolved_tie_orders=None):
         ctx = wt.ctx
@@ -2160,12 +2204,19 @@ class GMCog(commands.Cog):
         core.turn_transaction.mark_waiting_for_player(session, transaction_id)
 
     async def _ask_destination(self, session, wt, transaction_id, master_ch) -> None:
-        """목적지 불명 이동 — PC가 아는 출구를 제시하며 묻는다(묘사·추출 호출 없음)."""
-        bridge = core.turn_world.destination_question(wt.ctx, session)
+        """목적지 불명 이동 — PC가 아는 출구를 제시하며 묻는다(묘사·추출 호출 없음).
+
+        v7.22: 모호한 출구 지목이면 그 후보만 묻는다. 질문이 나간 뒤에만 질문 문맥을 건다(전송 실패 = 문맥 없음) —
+        다음 답이 다시 길을 정하지 않으면 되묻지 않고 그 후보 안에서 한 구간 간다(_settle_move_intent)."""
+        prev = self._pending_move(session, wt)
+        bridge, asked = core.turn_world.destination_question(
+            wt.ctx, session, (wt.intent.exit_choices if wt.intent is not None else ()) or (prev or {}).get("exits"))
         game_ch = self.bot.get_channel(session.game_ch_id)
         if game_ch:
             await core.stream_text_to_channel(self.bot, game_ch, bridge, words_per_tick=15, tick_interval=1.5)
             await self._voice_lines(session, [bridge], transaction_id=transaction_id)
+        wt.pending_move = dict(core.turn_world.move_question_anchor(wt.ctx, session),
+                               exits=tuple(asked)) if asked else None
         session.current_turn_logs.append(f"[진행자 (GM)]: {bridge}")
         if master_ch:
             await master_ch.send("🧭 **[목적지 확인]** 이동 목적지가 정본 후보에 없어 되묻습니다")
@@ -3474,7 +3525,7 @@ class GMCog(commands.Cog):
         # 정합: 이동 선언인데 목적지가 없거나 후보 밖이면 진행(묘사가 임의로 이동시킴)하지 않고 되묻는다.
         if _wt is not None and _wt.intent is not None \
                 and (judgment.get("action") or "").upper() in ("PROCEED", "ROLL") \
-                and any(f == "destination" for f, _c in (_wt.intent.unresolved or ())):
+                and any(f in ("destination", "exit") for f, _c in (_wt.intent.unresolved or ())):
             await self._ask_destination(session, _wt, transaction_id, master_ch)
             await core.save_session_data(self.bot, session)
             return
@@ -3951,6 +4002,7 @@ class GMCog(commands.Cog):
             # 후보 키 → 정본 참조(코드 검증). raw 문자열은 정본이 되지 않는다. 새 의도 = 재계획.
             _wt.intent = core.action_intent.resolve_intent(
                 _wt.manifest, decision.get(core.action_intent.INTENT_FIELD), world=session)
+            self._settle_move_intent(session, _wt, transaction_id)
             _wt.plan = None
             core.write_log(session.session_id, "api",
                            "[H05 의도]\n" + json.dumps(_wt.intent.semantic_record(), ensure_ascii=False)

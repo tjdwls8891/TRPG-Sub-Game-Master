@@ -495,6 +495,25 @@ def access_confirm_options(definition: dict, world, pc: str, capabilities=()) ->
 #  계획
 # ══════════════════════════════════════════════════════════════
 
+def wander_exit(definition: dict, world, pc: str, *, pool=(), transaction_id: str, narrative_seed: str):
+    """v7.22: 목적지 없는 이동의 한 구간 — PC가 아는 현재 출구 중 막혔다고 아는 길을 뺀 후보에서 결정적으로 고른다.
+
+    · 후보 = action_intent.exit_candidates(판단 후보·질문과 같은 출처). pool이 있으면 그 안에서만(조건·질문 범위).
+    · 실제 접근 상태로 거르지 않는다 — 모르는 장애물은 고른 뒤 실제 접근 검사에서 멈춘다(재추첨 없음).
+    · 같은 시도·같은 상태 = 같은 결과(narrative_seed · transaction_id · 현재 장소 · 후보 지문). 프로세스 난수 없음.
+    반환: (edge_id, to_place) 또는 None(후보 없음).
+    """
+    rows = [r for r in _ai.exit_candidates(definition, world, pc) if r[3] != _acc.PERCEIVED_BLOCKED]
+    if pool:
+        rows = [r for r in rows if r[0] in set(pool)]
+    if not rows:
+        return None
+    here = (_sp.placement_of(world, pc) or {}).get("place_id")
+    eids = [r[0] for r in rows]
+    i = int(stable_digest("player.wander.v1", narrative_seed, transaction_id, here, eids, length=12), 16) % len(rows)
+    return rows[i][0], rows[i][1]
+
+
 def default_mode(definition: dict) -> str | None:
     modes = sorted(definition.get("movement_modes") or {})
     return "walk" if "walk" in modes else (modes[0] if modes else None)
@@ -555,6 +574,14 @@ def plan_player_turn(ctx: WorldContext, world, intent: _ai.ResolvedActionIntent,
     mv = intent.movement
     # v7.17.2: 실제 접근 판정은 소속 capability까지(access_capabilities), 사건 보유 조건(observer_items)은 소지품만
     move_caps = tuple(access_capabilities) if access_capabilities is not None else capabilities
+    if mv is not None and mv.kind in _ai.EXIT_MOVES:
+        # v7.22: 출구 한 구간 — 지목한(또는 코드가 고른) 실제 구간 그대로. 구간 위(TRANSIT)에서는 새 출구가 없다.
+        if transit is not None or not mv.edge_id:
+            plan.status, plan.reason = PLAN_REJECTED, ("IN_TRANSIT_EXIT" if transit is not None else "NO_EXIT")
+            return plan
+        return _plan_movement(ctx, plan, run, src, here, now, mv.destination_place, intent, pre_ops,
+                              capabilities=move_caps, policy=policy, transaction_id=transaction_id,
+                              forced_edge=mv.edge_id)
     if mv is not None and mv.kind == _ai.MOVE_DESTINATION:
         if transit is not None:
             return _plan_transit_movement(ctx, plan, run, transit, now, mv.destination_place, intent, pre_ops,
@@ -713,13 +740,23 @@ def _plan_transit_movement(ctx, plan, run, tr, now, dest, intent, pre_ops, *, ca
 
 
 def _plan_movement(ctx, plan, run, src, here, now, dest, intent, pre_ops, *, capabilities, policy,
-                   transaction_id):
+                   transaction_id, forced_edge=None):
     D, lead = ctx.definition, ctx.lead_pc
     mode = default_mode(D)
     plan.outcome.update({"destination": dest, "origin": here, "mode": mode})
     if mode is None or here is None:
         plan.status, plan.reason = PLAN_REJECTED, "NO_MOVEMENT_MODE"
         return plan
+    if forced_edge is not None:
+        # v7.22: 출구 지목·무작위 선택은 그 구간 하나다 — 같은 도착지의 다른(평행) 구간으로 재계획하지 않는다.
+        #   지금도 PC가 아는 현재 장소의 출구여야 한다(낡은 선택·다른 출발점 거부). 실제 접근은 아래 기존 검사.
+        e = (D.get("movement_edges") or {}).get(forced_edge) or {}
+        if e.get("from") != here or e.get("to") != dest or not _sp.knows_edge(_sp.actor_knowledge(src, lead), forced_edge):
+            plan.status, plan.reason = PLAN_REJECTED, "EXIT_STALE"
+            return plan
+        plan.outcome["exit"] = {"edge_id": forced_edge, "kind": intent.movement.kind}
+        return _traverse(ctx, plan, run, src, here, now, dest, intent, pre_ops, (forced_edge,),
+                         capabilities=capabilities, transaction_id=transaction_id)
     try:
         # H07(사용자 결정): PUBLIC/LOCAL 일반 그래프 + 아는 RESTRICTED/SECRET — 경로 세부를 몰라도 출발할 수 있다
         pk = _sp.actor_knowledge(src, lead)
@@ -742,9 +779,16 @@ def _plan_movement(ctx, plan, run, src, here, now, dest, intent, pre_ops, *, cap
     if decision == "ASK":
         plan.status, plan.reason = PLAN_NEEDS_CHOICE, "ROUTE_CHOICE"
         return plan
-    plan.resolved_choice = {"route_signature": list(cand.signature),
+    return _traverse(ctx, plan, run, src, here, now, dest, intent, pre_ops, tuple(cand.signature),
+                     capabilities=capabilities, transaction_id=transaction_id)
+
+
+def _traverse(ctx, plan, run, src, here, now, dest, intent, pre_ops, seq, *, capabilities, transaction_id):
+    """정해진 구간 서명을 실제 접근·세계 진행과 함께 따라간다(경로 선택 뒤 공통)."""
+    D, lead = ctx.definition, ctx.lead_pc
+    mode = plan.outcome.get("mode")
+    plan.resolved_choice = {"route_signature": list(seq),
                             "access_action_ids": list(intent.access_action_ids)}
-    seq = tuple(cand.signature)
     edges = D["movement_edges"]
     pcs = tuple(p for p in ctx.pcs if (_sp.placement_of(src, p) or {}).get("place_id") == here)
     minute, cur, pending = now, here, chain(pre_ops)

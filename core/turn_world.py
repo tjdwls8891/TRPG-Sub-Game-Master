@@ -18,6 +18,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
+from . import action_intent as _ai
 from . import cognition as _cog
 from . import information as _info
 from . import player_world as _pw
@@ -57,6 +58,7 @@ class WorldTurn:
     identified_names: tuple = ()                  # SVG 카드: 지시층위가 지정한 이름 식별 ActorId(검증됨)
     discovery: dict | None = None                 # v7.14 이번 턴 주변 발견 결과(NEW만 정본화 — 추출 시점 고정)
     item_manifest: object = None                  # v7.17 core.items.ItemManifest(추출 시점 — 소유자·소지·현장 키)
+    pending_move: dict | None = None              # v7.22 목적지 질문 문맥 {place, world_version, exits} — 이 시도 안에서만
 
 
 # ══════════════════════════════════════════════════════════════
@@ -278,6 +280,8 @@ def narration_overlay(plan, definition: dict, ctx=None, *, world=None) -> str:
     if plan.status == _pw.PLAN_REJECTED:
         if plan.reason == "NO_KNOWN_ROUTE":
             lines.append("· PC는 그곳으로 가는 길을 알지 못한다. 이동은 일어나지 않는다(길을 지어내지 말 것).")
+        elif plan.reason == "NO_EXIT":
+            lines.append("· 지금 PC가 나설 만한 길이 보이지 않는다. 이동은 일어나지 않는다(길을 지어내지 말 것).")
         else:
             lines.append("· 선언한 이동·시간 행동은 성립하지 않았다. 장소와 시간은 그대로다.")
         return "\n".join(lines) + "\n"
@@ -423,34 +427,68 @@ def dynamic_place_block(ctx, plan, session, *, for_narration: bool = False) -> s
         exits.append(f"· {nm}{via} ({mark}) — {brief}")
     if exits:
         lines.append("\n[보이는 출구 — PC 지식 기준]")
-        lines += exits[:10]
+        lines += exits                                 # v7.22(F4): 앞 10개로 자르지 않는다 — 모든 출구가 지목 가능해야 한다
         lines.append("미방문 장소는 확정적으로 묘사하지 말 것. 이름을 모르는 곳은 표시된 이름으로만 부를 것.")
     return "\n".join(lines) + "\n"
 
 
 def visible_exit_names(ctx, session) -> list:
-    """현재 장소에서 PC가 아는 출구의 표시명(PC 지식 수준) — 목적지 되묻기용."""
-    world, scene = _scene_world_and_place(ctx, None, session)
-    if scene is None:
-        return []
-    D = ctx.definition
-    know = _sp.actor_knowledge(world, ctx.lead_pc)
+    """현재 장소에서 PC가 아는 출구의 표시명(PC 지식 수준, 중복 제거·전부)."""
     out = []
-    for eid, e in sorted((D.get("movement_edges") or {}).items()):
-        if e.get("from") == scene and _sp.knows_edge(know, eid):
-            nm = _pd.display_name(D, know, e["to"], require_known=False)
-            if nm and nm not in out:
-                out.append(nm)
+    for _eid, to, _label, _perc in _ai.exit_candidates(ctx.definition, session, ctx.lead_pc):
+        nm = _pd.display_name(ctx.definition, _sp.actor_knowledge(session, ctx.lead_pc), to, require_known=False)
+        if nm and nm not in out:
+            out.append(nm)
     return out
 
 
-def destination_question(ctx, session) -> str:
+def move_question_anchor(ctx, session) -> dict:
+    """v7.22 목적지 질문 문맥의 기준선 — PC 정본 장소(AT_PLACE만)·world_version. 다르면 문맥은 낡았다."""
+    pl = _sp.placement_of(session, ctx.lead_pc) or {}
+    return {"place": pl.get("place_id") if pl.get("kind") == _sp.AT_PLACE else None,
+            "world_version": _ai.world_version_id(session)}
+
+
+COMPASS = ("북쪽", "북동쪽", "동쪽", "남동쪽", "남쪽", "남서쪽", "서쪽", "북서쪽")
+QUESTION_LIST_MAX = 6                              # 이보다 많은 출구는 방향별 갈래 수로 줄여 말한다(지목은 전부 가능)
+
+
+def _exit_phrase(definition, know, edge, to) -> str:
+    """route_hint(방향 · 경사 · 길 형태) → '북쪽 도로(오르막) — 저 너머 이름 쪽'. 저작이 없으면 이름만."""
+    name = _pd.display_name(definition, know, to, require_known=False)
+    parts = [p.strip() for p in str(edge.get("route_hint") or "").split("·") if p.strip()]
+    if len(parts) == 3:
+        d, slope, surface = parts
+        return f"{d} {surface}" + ("" if slope == "평탄" else f"({slope})") + f" — {name} 쪽"
+    return f"{name} 쪽 길"
+
+
+def destination_question(ctx, session, edge_ids=None) -> tuple:
+    """v7.22: 목적지를 정하지 않은 이동에 묻는 말과 제시한 출구 edge_id들.
+
+    edge_ids가 주어지면(모호한 지목) 그 후보만 묻는다. 출구가 많으면 방향별 갈래 수로 말한다 — 생략한 길도
+    방향·길 형태로 지목할 수 있다(판단 후보에는 전부 있다). '아무 데나' 같은 선택지는 따로 만들지 않는다.
+    """
     from .master import say
-    names = visible_exit_names(ctx, session)
+    D = ctx.definition
+    know = _sp.actor_knowledge(session, ctx.lead_pc)
+    rows = [r for r in _ai.exit_candidates(D, session, ctx.lead_pc) if not edge_ids or r[0] in set(edge_ids)]
     q = say("turn.destination_question", "어디로 가시겠습니까?")
-    if names:
-        return q + " 지금 보이는 길: " + ", ".join(names[:10]) + "."
-    return q + " 가려는 곳을 구체적으로 말씀해 주세요."
+    if not rows:
+        return q + " 가려는 곳을 구체적으로 말씀해 주십시오.", ()
+    edges = D.get("movement_edges") or {}
+    if len(rows) <= QUESTION_LIST_MAX:
+        text = q + " 지금 보이는 길은 " + ", ".join(_exit_phrase(D, know, edges[e], to) for e, to, _l, _p in rows) + "입니다."
+    else:
+        dirs = {}
+        for e, _to, _l, _p in rows:
+            d = (str(edges[e].get("route_hint") or "").split("·")[0].strip()) or "그 밖"
+            dirs[d] = dirs.get(d, 0) + 1
+        rank = {d: i for i, d in enumerate(COMPASS)}
+        text = (q + " 길이 여러 갈래로 나 있습니다 — " + ", ".join(
+                    f"{d}으로 {n}갈래" for d, n in sorted(dirs.items(), key=lambda x: (rank.get(x[0], 99), x[0])))
+                + ". 방향이나 길의 모양으로 말씀해 주십시오.")
+    return text, tuple(r[0] for r in rows)
 
 
 def narration_world_block(wt, session) -> str:
