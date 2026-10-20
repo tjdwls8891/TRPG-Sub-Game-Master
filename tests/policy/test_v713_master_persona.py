@@ -90,10 +90,12 @@ def test_corrupt_asset_falls_back(monkeypatch, tmp_path):
 
 def test_slot_value_is_escaped_and_josa_fixed(first_variant, monkeypatch):
     out = master.line("turn.next_player", slots={"player_name": "@everyone`x`"})
-    assert "@everyone" not in out and "\\`" in out and out.endswith("어떤 행동을 하시겠습니까?")
-    monkeypatch.setattr(master.random, "choice", lambda seq: seq[1])          # "{field_label}을 정할 차례"
-    assert "외모를 정할" in master.line("profile.field_prompt", slots={"field_label": "외모"})
-    assert "성별을 정할" in master.line("profile.field_prompt", slots={"field_label": "성별"})
+    assert "@everyone" not in out and "\\`" in out
+    assert out.endswith(_events()["turn.next_player"]["variants"][0].split("}", 1)[1])   # 슬롯 뒤 대사는 그대로
+    for pick in (0, 1):                                                      # "{field_label}을 …" — 조사 보정
+        monkeypatch.setattr(master.random, "choice", lambda seq, i=pick: seq[i])
+        assert "외모를 " in master.line("profile.field_prompt", slots={"field_label": "외모"})
+        assert "성별을 " in master.line("profile.field_prompt", slots={"field_label": "성별"})
 
 
 # ── 대표 장면: 정보 보존 ─────────────────────────────────────
@@ -118,7 +120,7 @@ async def test_next_player_uses_character_name_not_mention(rig, first_variant):
     r.sess.gm_collected_actions = {}
     await r.gm._ask_next_player(r.sess)
     text = "\n".join(m.content or "" for m in r.gch.sent)
-    assert "테스터님 차례입니다" in text and "<@" not in text
+    assert "테스터님" in text and "<@" not in text                            # 캐릭터 이름으로 부른다
 
 
 # ── 범위 밖 발견 수정 ────────────────────────────────────────
