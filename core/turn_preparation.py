@@ -588,11 +588,18 @@ def build_irregular_npc_plan(session, data, *, names, valid_pool, use_image,
         age = item.get("age") if isinstance(item.get("age"), str) else None
         plan.registrations.append({
             "name": name, "image_key": key, "gender": gender, "age": age,
-            "context": (text or "")[:120], "turn": turn,
+            "context": _mention_context(text, name), "turn": turn,
         })
     if plan.rejected:
         plan.diagnostics["rejected"] = list(plan.rejected)
     return plan
+
+
+def _mention_context(text, name) -> str:
+    """v7.25(CUT): 등장 맥락 = 그 이름이 나오는 문단 전부(앞 120자 절단 대신 의미 단위). 없으면 묘사 전문."""
+    paras = [p.strip() for p in str(text or "").split("\n\n") if p.strip()]
+    hit = [p for p in paras if name and name in p]
+    return "\n\n".join(hit) if hit else str(text or "")
 
 
 def normalize_npc_detail(data, *, fallback_name) -> dict:

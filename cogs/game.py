@@ -41,11 +41,10 @@ def _projected_media_filter(session, preparation, keywords, master_ch=None) -> l
     """
     wt = getattr(preparation, "world_turn", None) if preparation is not None else None
     plan = getattr(wt, "plan", None) if wt is not None else None
-    if plan is None:
+    if wt is None:
         return keywords
-    allowed = core.turn_world.media_allowed_places(wt.ctx.definition, plan)
-    if allowed is None:
-        return keywords
+    # v7.25(F11): 계획 없는/이동 없는 턴도 정본 PC 장소(+상위) 밖 장소 이미지는 송출하지 않는다
+    allowed = core.turn_world.media_allowed_places_for(wt.ctx, plan, session)
     places = core.places.load_places(getattr(session, "scenario_data", {}) or {})
     out = []
     for kw in keywords:
@@ -56,8 +55,8 @@ def _projected_media_filter(session, preparation, keywords, master_ch=None) -> l
             print(f"[H05 미디어] 투영 장면 밖 장소 이미지 차단: {kw}")
             continue
         out.append(kw)
-    origin = (plan.outcome or {}).get("origin")
-    if not out and plan.scene_place and origin and plan.scene_place != origin:
+    origin = (plan.outcome or {}).get("origin") if plan is not None else None
+    if not out and plan is not None and plan.scene_place and origin and plan.scene_place != origin:
         auto = core.turn_world.image_for_scene(wt.ctx.definition, plan)
         if auto:
             out.append(plan.scene_place if (places and core.places.resolve(places, plan.scene_place)) else auto)
@@ -428,8 +427,9 @@ class GameCog(commands.Cog):
                 types.Content(role="user", parts=[types.Part.from_text(text=turn_history_text)]),
                 types.Content(role="model", parts=[types.Part.from_text(text=full_ai_response)]),
             ]
+            # v7.25(F05): 동적 세계는 이 턴의 정본 시각·장소 기록을 함께 남긴다(압축이 모델 상태창에서 날짜를 뽑지 않게)
             _unc_entries = [f"[플레이어 및 GM]: {turn_history_text}",
-                            f"[GM 묘사]: {full_ai_response}"]
+                            f"[GM 묘사]: " + (f"{narr.canon_header}\n" if narr.canon_header else "") + full_ai_response]
             if preparation is not None:
                 # WP-C: 자동 턴은 로그/카운터를 READY 이후 legacy continuation에서 적용한다.
                 #   소비한 current_turn_logs 개수만 기록해, 대기 중 추가된 입력 로그는 보존한다.
@@ -597,10 +597,34 @@ class GameCog(commands.Cog):
         #   정본 세션을 임시로 바꾸지 않는다(읽기 전용 투영 뷰).
         if _prep is not None and getattr(_prep, "world_prompt_timeline", None) is not None:
             _ov["world_timeline"] = _prep.world_prompt_timeline
-        if _prep is not None and getattr(_prep, "world_turn", None) is not None:
+        _status_wt = getattr(_prep, "world_turn", None) if _prep is not None else None
+        _intro_note = ""
+        if _prep is None:
+            # v7.25(F01): 인트로(OPEN 전) — genesis 정본을 읽는다. 바인딩 세션에서 정본을 못 읽으면 예외(레거시 폴백 없음)
+            _ictx = core.world_lifecycle.intro_world_context(session)
+            if _ictx is not None:
+                _status_wt = core.turn_world.WorldTurn(ctx=_ictx)
+                _ov["world_timeline"] = core.turn_world.mirror_timeline(
+                    getattr(session, "world_timeline", {}) or {}, _ictx.definition, session, _ictx.lead_pc)
+                _intro_note = core.turn_world.INTRO_CANON_NOTE
+        if _status_wt is not None:
             _ov["world_static_npcs_suppressed"] = True      # H05 R3: 연고 인물 ≠ 현재 존재(장면 인물은 투영 블록)
             # 묘사가 정본을 따른다 — 정본 장소·출구·장소 고정·장면 인물을 독립 블록으로(레거시 장소 블록 대체)
-            _ov["world_narration_block"] = core.turn_world.narration_world_block(_prep.world_turn, session)
+            _ov["world_narration_block"] = (core.turn_world.narration_world_block(_status_wt, session)
+                                            + _intro_note)
+        # v7.25(F09): DYNAMIC 상태창의 날짜·요일·시간대·장소·턴 수는 코드 소유 — 묘사 시점 정본 값
+        _status_tpl = str((session.scenario_data or {}).get("status_code_block") or "")
+        _status_vals = _canon_vals = None
+        if _status_wt is not None:
+            _canon_vals = core.turn_world.status_values(_status_wt, session, int(session.turn_count) + 1)
+        if _canon_vals is not None and _status_tpl:
+            _status_vals = _canon_vals
+            _ov["world_status_template"] = core.turn_world.status_template_for_prompt(_status_tpl, _status_vals)
+            if core.turn_world.STATUS_UNKNOWN in _status_vals.values():
+                core.logs.event("turn", "상태창 정본 값 일부 미확인", level="WARN", session=session,
+                                data={"code": "STATUS_CANON_MISSING",
+                                      "missing": sorted(k for k, v in _status_vals.items()
+                                                        if v == core.turn_world.STATUS_UNKNOWN)})
         if _ov:
             _prompt_session = core.turn_preparation.PreparationView(
                 session, overrides=_ov,
@@ -779,6 +803,10 @@ class GameCog(commands.Cog):
         else:
             narrative_text = full_ai_response.strip()
             code_block_text = ""
+        if _status_vals is not None:
+            # v7.25(F09): 상태창은 코드가 다시 쓴다 — 모델이 쓴 날짜·장소는 남지 않는다(모델 소유 칸만 모델 줄에서)
+            code_block_text = core.turn_world.render_status_block(_status_tpl, _status_vals, code_block_text)
+            full_ai_response = (narrative_text + "\n\n" + code_block_text).strip()
 
         paragraphs = [p.strip() for p in narrative_text.split('\n\n') if p.strip()]
         # #3: 같은 화자의 연속 대사를 하나로 통합 (이미지 중복 출력 방지)
@@ -809,6 +837,7 @@ class GameCog(commands.Cog):
             top_images=tuple(top_imgs),
             mid_images=tuple(mid_imgs),
             bottom_images=tuple(bottom_imgs),
+            canon_header=core.turn_world.canon_record_line(_canon_vals) if _canon_vals else "",
         )
 
     async def _deliver_narration(self, session, narr: NarrationResult, *, game_channel=None,

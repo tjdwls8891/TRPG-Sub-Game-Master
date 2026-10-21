@@ -35,8 +35,18 @@ def get_registry(session) -> dict:
 
 
 def is_regular(session, name: str) -> bool:
-    """시나리오에 등록된 정규 NPC인지."""
-    return name in (getattr(session, "npcs", {}) or {})
+    """시나리오에 등록된 정규 NPC인지. v7.25(F07): 동적 세계는 정본 행위자(저작·세션 등록, 이름·alias)도 정규다."""
+    return name in (getattr(session, "npcs", {}) or {}) or canonical_actor_of(session, name) is not None
+
+
+def canonical_actor_of(session, name: str):
+    """v7.25(F07): 동적 세계 바인딩 세션에서 화자 이름 → 정본 ActorId. 여러 정본 인물과 겹치는 이름은
+    '__AMBIGUOUS__'(정본 인물이므로 비정규로 등록하지 않는다). 바인딩 없는 세션·해석 실패는 None."""
+    try:
+        from .turn_world import canonical_npc_of      # H05 경계 — 정본 행위자 해석은 플레이어 세계 모듈이 한다
+        return canonical_npc_of(session, name)
+    except Exception:
+        return None
 
 
 def has_image(session, name: str) -> bool:

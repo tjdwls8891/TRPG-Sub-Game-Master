@@ -153,19 +153,23 @@ def build_context_hint(session) -> str:
     tension = sit.get("tension")
     if isinstance(tension, int):
         parts.append(f"긴장도: {tension}")
-    if qp.get("advance") or qp.get("deviation"):
+    from .player_world import legacy_narrative_retired
+    retired = legacy_narrative_retired(session)
+    if not retired and (qp.get("advance") or qp.get("deviation")):
         parts.append(f"서사 진행 {qp.get('advance', 0)} / 이탈 {qp.get('deviation', 0)}")
-    loc = tl.get("current_location")
+    # v7.25(F05): 동적 세계는 PC 지식 수준 표시명(내부 PlaceId 비노출) — 은퇴한 퀘스트 진행·상태는 싣지 않는다
+    loc = tl.get("current_location_display") if retired else tl.get("current_location")
     if loc and loc != "미확인":
-        parts.append(f"위치: {loc}")
+        parts.append(f"현재 위치: {loc}")
 
-    try:
-        from .quest import get_state
-        active = get_state(session).get("active")
-        if active:
-            parts.append(f"진행 퀘스트: {active['name']} ({active['node']})")
-    except Exception:
-        pass
+    if not retired:
+        try:
+            from .quest import get_state
+            active = get_state(session).get("active")
+            if active:
+                parts.append(f"진행 퀘스트: {active['name']} ({active['node']})")
+        except Exception:
+            pass
 
     return " · ".join(parts)
 

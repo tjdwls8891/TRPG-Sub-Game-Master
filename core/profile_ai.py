@@ -17,14 +17,8 @@ from .constants import PROFILE_AI_MODEL, TRPG_SAFETY_SETTINGS
 from .cost import calculate_text_gen_cost_breakdown, extract_token_usage
 
 # 검증 시 함께 전달할 시나리오 요약의 최대 길이.
-CONTEXT_LIMIT = 1200
-
-
 def _scenario_context(scenario_data: dict) -> str:
-    """검증에 필요한 최소 시나리오 정보만 추린다.
-
-    세계관 전문을 넣으면 무료 제공 취지에 어긋나는 비용이 든다.
-    """
+    """검증에 필요한 시나리오 정보(세계관·묘사 가이드) — v7.25: 문자 수로 자르지 않는다(사용자 결정)."""
     if not isinstance(scenario_data, dict):
         return "(없음)"
     parts = []
@@ -33,9 +27,9 @@ def _scenario_context(scenario_data: dict) -> str:
         if isinstance(val, str) and val.strip():
             parts.append(val.strip())
         elif isinstance(val, dict):
-            parts.append(" / ".join(str(v) for v in list(val.values())[:5]))
+            parts.append(" / ".join(str(v) for v in val.values()))
     text = "\n".join(parts)
-    return text[:CONTEXT_LIMIT] if text else "(없음)"
+    return text if text else "(없음)"       # v7.25(CUT): 세계관·묘사 가이드 전문(1200자 절단 제거)
 
 
 def _accrue(session, response, label: str = "프로필 AI") -> float:
@@ -151,7 +145,7 @@ async def validate(bot, session, *, field: str, value: str,
     user_prompt = (
         f"[시나리오 정보]\n{_scenario_context(sd)}\n\n"
         f"[항목]\n{field}\n\n"
-        f"[플레이어 입력]\n{(value or '')[:500]}\n\n"
+        f"[플레이어 입력]\n{value or ''}\n\n"
         f"[항목 제한사항]\n{rules or '(없음)'}"
     )
 

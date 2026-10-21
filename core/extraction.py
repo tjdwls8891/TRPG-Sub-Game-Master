@@ -21,6 +21,10 @@ COMMON_EXTRACTION_TARGETS = [
     "턴의 상황",
 ]
 
+# v7.25(F10): 동적 세계 추출이 묻지 않는 레거시 필드·항목(정본 세계·사건 상태기계·정보 인지가 소유)
+DYNAMIC_RETIRED_FIELDS = ("datetime", "location", "quest_progress", "secret_awareness")
+DYNAMIC_RETIRED_TARGETS = ("날짜 및 시간", "위치", "퀘스트 진행도 평가")
+
 # ========== [응답 스키마] ==========
 # 모든 수치 필드는 0~100 정수. 모델은 이 값이 어떻게 쓰이는지 알지 못한다.
 EXTRACTION_RESPONSE_SCHEMA = {

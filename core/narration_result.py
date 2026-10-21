@@ -40,6 +40,7 @@ class NarrationResult:
     top_images: tuple[str, ...] = ()
     mid_images: tuple[str, ...] = ()
     bottom_images: tuple[str, ...] = ()
+    canon_header: str = ""          # v7.25(F05): 동적 세계 — 이 묘사 시점의 정본 턴·시각·장소(압축 기록 헤더 근거)
 
 
 @dataclass(frozen=True)

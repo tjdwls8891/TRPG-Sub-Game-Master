@@ -21,7 +21,7 @@ def test_dynamic_authority_rules_present_in_each_layer():
     assert "resolution(결단)은 플레이어가 이번 발언에서" in prompts.JUDGMENT_SYSTEM_INSTRUCTION
     assert "결단 선택지를 제시·권유하지 마십시오" in prompts.JUDGMENT_SYSTEM_INSTRUCTION
     assert "노출은 믿음이 아닙니다" in prompts.EXTRACTION_SYSTEM_INSTRUCTION
-    assert "[세계 진행 — 코드 확정 결과] 블록이 있을 때만" in prompts.SYSTEM_INSTRUCTION
+    assert "제목이 '정본'인 세계 블록" in prompts.SYSTEM_INSTRUCTION      # v7.25: 인트로·진행 없는 턴도 정본 블록이면 적용
 
 
 def test_legacy_quest_meaning_preserved():

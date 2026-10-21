@@ -39,7 +39,9 @@ class PromptBuilder:
         # NOTE: cached_compressed_memory는 캐시 섹션 [9]에 포함되어 있으므로 프롬프트에 중복 주입하지 않는다.
         # compressed_memory는 마지막 캐시 재발급 이후 새로 누적된 기억만 포함한다.
         if self.session.compressed_memory:
-            self.blocks.append(f"▶ 이전 상황 요약 (최근 압축 기억 — 절대 참조용):\n{self.session.compressed_memory}\n")
+            # v7.25(F05): 압축 기억은 파생 기억이다('절대 참조용' 격상 금지) — 정본 블록·런타임 상태와 어긋나면 그쪽을 따른다
+            self.blocks.append("▶ 이전 상황 요약 (최근 압축 기억 — 지난 사건의 요약. 정본 세계 블록·런타임 상태와 어긋나면 "
+                               f"그쪽을 따를 것):\n{self.session.compressed_memory}\n")
             self.manifest.append("압축 기억")
         return self
 
@@ -186,7 +188,16 @@ class PromptBuilder:
 
             lines.append(entry)
 
-        if lines:
+        if lines and getattr(self.session, "world_narration_block", None):
+            # v7.25(F04): 동적 세계 — 이 블록은 인물 설정·스탯의 세션 변경분일 뿐이다. 현재 위치·장면 존재·공개 이름은
+            #   정본 블록([현재 장면 인물 — 정본 위치 기준])이 정한다(레거시 이름 키가 정본을 덮지 않는다).
+            block = ("\n▶ [NPC 설정 변경분 — 세션 중 바뀐 인물 설정·스탯(캐시 룰북 [3. NPC 사전] 대신 이 값). "
+                     "현재 위치·장면 존재는 이 블록이 아니라 정본 장면 인물 블록이 정한다 — 여기 있다는 이유로 장면에 "
+                     "등장시키지 말 것. 이름을 모르는 인물의 실명·비밀은 본문에 쓰지 말 것]:\n")
+            block += "\n".join(lines) + "\n"
+            self.blocks.append(block)
+            self.manifest.append(f"NPC 오버라이드 {len(lines)}명")
+        elif lines:
             block = ("\n▶ [NPC 변경사항 / 런타임 상태] (변하는 항목(현재 위치·상태·스탯 등)에 한해 "
                      "캐시 룰북 [3. NPC 사전]보다 우선 적용):\n")
             block += "\n".join(lines) + "\n"
@@ -285,7 +296,13 @@ class PromptBuilder:
             "여러 인물이 연이어 발화하는 경우 각 발화마다 마커 한 줄씩 별도 문단으로 작성합니다.\n"
         )
 
-        if self.session.scenario_data.get("status_code_block", ""):
+        _status_tpl = getattr(self.session, "world_status_template", None)
+        if _status_tpl:
+            # v7.25(F09): 동적 세계 — 날짜·요일·시간대·장소·턴 수는 코드가 정본에서 이미 채웠다(최종 출력도 코드가 다시 쓴다)
+            block += ("▶ 명령: 턴의 마지막에 아래 상태창 코드블럭을 출력하십시오. 이미 채워진 값(턴 수·날짜·요일·시간대·장소)은 "
+                      "코드가 정본에서 기록한 값이니 그대로 두고, 중괄호로 남은 칸만 기입하십시오.\n"
+                      f"{_status_tpl}\n")
+        elif self.session.scenario_data.get("status_code_block", ""):
             block += f"▶ 명령: 턴의 마지막에 반드시 룰북에 정의된 양식을 바탕으로 중괄호 내부 값을 기입하여 상태창 코드블럭을 출력하십시오. (현재 턴 수: {self.session.turn_count + 1}턴 기입)\n"
         self.blocks.append(block)
         return self

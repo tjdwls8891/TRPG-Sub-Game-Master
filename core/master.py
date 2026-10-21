@@ -44,7 +44,7 @@ def _clean_slot(value) -> str | None:
     v = v.replace("@", "@​")
     for ch in ("\\", "*", "_", "`", "~", "|", ">", "#"):
         v = v.replace(ch, "\\" + ch)
-    return v[:60]
+    return v                     # v7.25(CUT): 슬롯 값(플레이어 이름 등)은 대화 로그·프롬프트로 이어진다 — 자르지 않는다
 
 
 def line(key: str, *, slots: dict | None = None) -> str | None:

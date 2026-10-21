@@ -596,6 +596,21 @@ def deactivate(bot, session) -> list:
     return gone
 
 
+def intro_world_context(session):
+    """v7.25(F01): 인트로 묘사용 정본 문맥 — genesis가 끝난 INITIALIZED(또는 OPEN) 세션의 세계 문맥.
+
+    바인딩되지 않은 세션은 None(LEGACY 인트로). 바인딩됐는데 정본을 읽을 수 없으면 ValueError — 레거시 장소
+    블록으로 조용히 넘어가지 않는다(인트로 실패 → 재시도 경로).
+    """
+    from . import player_world as _pw
+    if not world_bound(session):
+        return None
+    ctx = _pw.session_world_context(session, intro=True)
+    if not ctx.dynamic:
+        raise ValueError(f"동적 세계 인트로 정본 문맥 없음({ctx.reason})")
+    return ctx
+
+
 def apply_compat_view(session, chosen: dict) -> dict:
     """R2-03: DYNAMIC 세션의 레거시 표시값(world_timeline)을 정본 genesis에서 파생한다.
 

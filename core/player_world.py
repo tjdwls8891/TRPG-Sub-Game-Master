@@ -97,7 +97,7 @@ def pc_actor_for(uid) -> str:
     return f"pc_{uid}"
 
 
-def session_world_context(session, world=None) -> WorldContext:
+def session_world_context(session, world=None, *, intro: bool = False) -> WorldContext:
     """세션의 세계 모드. DYNAMIC 조건을 하나라도 못 채우면 LEGACY(사유 기록).
 
     H06: DYNAMIC = 단일 PC + 정의 바인딩(스냅샷) + 필수 capability + 생애주기 OPEN + 초기화된 시계 + PC 배치.
@@ -114,7 +114,9 @@ def session_world_context(session, world=None) -> WorldContext:
     if definition is None:
         return WorldContext(MODE_BLOCKED if bound else MODE_LEGACY, "definition_unavailable",
                             definition_revision=rev)
-    if getattr(session, "world_lifecycle", None) != _lc.LIFECYCLE_OPEN:
+    _life = getattr(session, "world_lifecycle", None)
+    # v7.25: 인트로(OPEN 전 genesis 직후)도 정본을 읽는다 — intro=True는 INITIALIZED를 DYNAMIC 문맥으로 본다(턴 진행 아님)
+    if _life != _lc.LIFECYCLE_OPEN and not (intro and _life == _lc.LIFECYCLE_INITIALIZED):
         return WorldContext(MODE_LEGACY, "lifecycle_not_open", definition, rev)
     caps = set((definition.get("scenario_meta") or {}).get("validated_capabilities") or ())
     if not set(REQUIRED_CAPABILITIES) <= caps:

@@ -365,7 +365,7 @@ def _build_judgment_user_prompt(session, player_message: str, roll_results: list
     if world_turn is not None:
         _scene, _projs = core.turn_world.scene_npc_projections(world_turn.ctx, None, session)
         _ents = [_npc_entry(p["display_name"], _npc_stats(session, p["display_name"], world_turn),
-                            p.get("relevant_statuses")) for p in _projs[:30]]
+                            p.get("relevant_statuses")) for p in _projs]
         lines.append("[현재 장면 NPC — 정본 위치 기준]\n" + (", ".join(_ents) if _ents else "(없음)"))
     else:
         npc_names = list((session.npcs or {}).keys())
@@ -500,7 +500,8 @@ def _build_logic_user_prompt(session, player_message: str, roll_results: list,
 
     # 서사 계획 블록 (2단계: mid_plan + 순간 계획)
     narrative_plan = getattr(session, "narrative_plan", {})
-    if narrative_plan:
+    # v7.25(F12): 동적 세계는 레거시 서사 계획을 지시층위에 싣지 않는다(바인딩 전 잔존 계획 포함)
+    if narrative_plan and not core.player_world.legacy_narrative_retired(session):
         current = narrative_plan.get("current_event", {})
         next_ev = narrative_plan.get("next_event", {})
         mid     = narrative_plan.get("mid_plan", {})
@@ -558,14 +559,14 @@ def _build_logic_user_prompt(session, player_message: str, roll_results: list,
             ai_out = entry.get("ai_summary", "")
             tag = "← 직전 PROCEED" if i == len(proceed_history) - 1 else ""
             ph_lines.append(f"  ─ PROCEED #{i + 1} (턴 {turn_num}) {tag}")
-            ph_lines.append(f"    [지시사항] {instr[:200]}")
+            ph_lines.append(f"    [지시사항] {instr}")
             if ctx:
                 ph_lines.append("    [중간 컨텍스트 (NARRATE/ASK/ROLL)]")
-                for c in ctx[:8]:  # 최대 8줄
-                    ph_lines.append(f"      {c[:130]}")
+                for c in ctx:      # v7.25(CUT): 문자 수로 자르지 않는다 — 중간 컨텍스트 전부
+                    ph_lines.append(f"      {c}")
             if ai_out:
-                ph_lines.append("    [AI 묘사 출력 요약]")
-                ph_lines.append(f"      {ai_out[:400]}")
+                ph_lines.append("    [AI 묘사 출력]")
+                ph_lines.append(f"      {ai_out}")
         proceed_history_block = (
             "\n[최근 PROCEED 이력 — 반복·정체 방지 참고]\n"
             + "\n".join(ph_lines)
@@ -601,8 +602,9 @@ def _build_logic_user_prompt(session, player_message: str, roll_results: list,
     # H05(ProjectedMediaContext): DYNAMIC 세션은 묘사가 표현할 투영 장면(+상위 상속)의 이미지만 후보 —
     #   도착 전 목적지 이미지는 후보가 아니다.
     _wplan = getattr(world_turn, "plan", None) if world_turn is not None else None
-    _allowed = core.turn_world.media_allowed_places(world_turn.ctx.definition, _wplan) \
-        if _wplan is not None else None
+    # v7.25(F11): 계획이 없거나 이동 없는 턴(NARRATE 등)도 동적 세계는 정본 PC 장소(+상위)의 이미지만 후보
+    _allowed = core.turn_world.media_allowed_places_for(world_turn.ctx, _wplan, session) \
+        if world_turn is not None else None
     if _allowed is not None:
         location_images = {k: v for k, v in location_images.items() if k in _allowed}
     if location_images:
@@ -621,9 +623,8 @@ def _build_logic_user_prompt(session, player_message: str, roll_results: list,
     if merged_statuses:
         status_list_lines = []
         for sname, seff in merged_statuses.items():
-            w = seff.get("weight", 0)
-            w_str = f"가중치 {w:+d}" if w != 0 else "가중치 없음"
-            status_list_lines.append(f"  - {sname}: 적용조건=[{seff.get('apply_condition', '')}] / {w_str} / 제거조건=[{seff.get('remove_condition', '')}]")
+            # v7.25(F11): weight는 v7.12부터 판정에 쓰이지 않는다 — 무효 수치를 싣지 않는다
+            status_list_lines.append(f"  - {sname}: 적용조건=[{seff.get('apply_condition', '')}] / 제거조건=[{seff.get('remove_condition', '')}]")
         valid_status_block = (
             "\n[유효 상태이상 목록 — 상태 변화를 묘사하게 할 때 이 목록의 이름과 조건을 기준으로 할 것 "
             "(실제 적용은 묘사를 읽은 추출층위와 시스템 검증이 한다)]\n"
@@ -638,7 +639,8 @@ def _build_logic_user_prompt(session, player_message: str, roll_results: list,
         or getattr(session, "cached_compressed_memory", "")
         or ""
     )
-    memory_block = f"\n[압축 기억 — 이전 턴 요약]\n{_mem[:800]}\n" if _mem else ""
+    # v7.25(CUT): 압축 기억 전문 — 앞 800자(가장 오래된 부분)만 남기던 절단 제거
+    memory_block = f"\n[압축 기억 — 이전 턴 요약(파생 기억 · 정본 블록과 어긋나면 정본을 따른다)]\n{_mem}\n" if _mem else ""
 
     # 세계 물리 타임라인 블록 (방안 B)
     world_tl = getattr(session, "world_timeline", {})
@@ -1410,6 +1412,8 @@ class GMCog(commands.Cog):
 
         has_existing_plan = bool(session.narrative_plan)
         plan_note = (
+            "- 서사: 동적 세계 사건·정본이 주도 (레거시 서사 계획 없음)"
+            if core.player_world.legacy_narrative_retired(session) else
             f"- 서사 계획: 기존 계획 유지 (v{session.narrative_plan.get('plan_version', '?')})"
             if has_existing_plan else
             "- 서사 계획: 수립 중... (백그라운드에서 진행)"
@@ -1663,7 +1667,7 @@ class GMCog(commands.Cog):
         if collected:
             # 이미 다른 PC의 행동이 수집된 상태 → 간단히 참고 표시
             others = "、".join([
-                f"{k}: '{v[:20]}...'" if len(v) > 20 else f"{k}: '{v}'"
+                f"{k}: '{v}'"
                 for k, v in collected.items()
             ])
             prompt = f"{mention}, 현재까지 행동 선언: {others}\n{mention}은(는) 어떻게 하시겠습니까?"
@@ -2189,6 +2193,14 @@ class GMCog(commands.Cog):
     def _plan_world(self, session, wt, transaction_id, *, resolved_tie_orders=None):
         ctx = wt.ctx
         intent = wt.intent or core.action_intent.ResolvedActionIntent()
+        plan = self._plan_world_core(session, wt, transaction_id, intent, resolved_tie_orders)
+        # v7.25(F03): 턴 시작에 PC와 함께 있던 동행은 같은 계획(묘사 전)에서 PC와 함께 움직인다
+        return core.turn_world.companion_follow(
+            ctx, session, plan, list(getattr(session, "companions", None) or ()),
+            prefix=core.turn_world.turn_op_prefix("cmpf", transaction_id))
+
+    def _plan_world_core(self, session, wt, transaction_id, intent, resolved_tie_orders):
+        ctx = wt.ctx
         return core.player_world.plan_player_turn(
             ctx, session, intent, transaction_id=transaction_id,
             narrative_seed=getattr(session, "narrative_seed", None) or session.session_id,
@@ -2497,6 +2509,19 @@ class GMCog(commands.Cog):
                        f"diag={json.dumps(res.diagnostics, ensure_ascii=False, default=str)[:600]}")
         if res.status != core.turn_world.TW_READY:
             return
+        # v7.25(F03): 동행 합류는 제안 — 정본 행위자이고 턴 끝에 PC와 같은 장소일 때만 관계로 확정. 이탈은 배치 해제.
+        _kept, _clears, _cdiags = core.turn_world.companion_outcome(
+            ctx, res.projected_world, res.ops, joined=plan.companions_joined, left=plan.companions_left,
+            prefix=core.turn_world.turn_op_prefix("cmpo", prep.transaction_id))
+        if _cdiags:
+            _rej = {d.get("name") for d in _cdiags if d.get("code") == "COMPANION_JOIN_REJECTED"}
+            plan.companions_joined = list(_kept)
+            plan.entries = [e for e in plan.entries
+                            if not (e.get("domain") == "companion" and e.get("op") == "join" and e.get("target") in _rej)]
+            plan.diagnostics["companion"] = list(_cdiags)
+            self._world_diagnostic(session, prep, "COMPANION_JOIN_REJECTED", {"diagnostics": _cdiags})
+        if _clears:
+            res.ops = tuple(res.ops) + tuple(_clears)
         # 장소·시간 권위 = 정본 세계. 레거시 적용부는 추출값이 아니라 정본 미러를 받는다.
         prev_tl = getattr(session, "world_timeline", {}) or {}
         new_tl = core.turn_world.mirror_timeline(prev_tl, ctx.definition, res.projected_world, ctx.lead_pc)
@@ -2622,8 +2647,16 @@ class GMCog(commands.Cog):
                                    {"plan_revision": getattr(res.plan, "definition_revision", None),
                                     "context_revision": wt.ctx.definition_revision, "baseline_revision": base_rev})
             return FC.COMMIT_VALIDATION_FAILURE.value
+        # v7.25(F06): 승격된(지속 등장) 비저작 인물을 정본 ActorRegistry에 같은 커밋으로 등록 — 정본 인물과 겹치면 등록 없음
+        #   이번 턴에 승격된 인물만(턴마다 옛 세션 NPC를 소급 등록하지 않는다 — 변이 없는 턴은 변이 없이).
+        _promoted = list(getattr(prep, "promotions", {}) or {})
+        _reg_ops = core.turn_world.session_npc_register_ops(
+            wt.ctx, res.projected_world, _promoted,
+            narrative_seed=getattr(session, "narrative_seed", None) or session.session_id,
+            prefix=core.turn_world.turn_op_prefix("snpc", prep.transaction_id),
+            barrier=[o.op_id for o in res.ops], present=_promoted)
         try:
-            core.turn_preparation.stage_world_ops(prep, res.ops)
+            core.turn_preparation.stage_world_ops(prep, tuple(res.ops) + tuple(_reg_ops))
         except core.turn_preparation.BarrierViolationError as e:
             prep.violations.append(f"world_stage:{e}")
             return FC.COMMIT_VALIDATION_FAILURE.value
@@ -4309,10 +4342,10 @@ class GMCog(commands.Cog):
                 # H07-C: 동적 세계 세션 — 레거시 퀘스트 선택·info_access(정보 원장) 필드를 스키마에서 뺀다
                 #        (prompts.py 원본 스키마 불변, 런타임 사본만). 값을 낼 수 없으니 병렬 권위가 생길 수 없다.
                 logic_schema = dict(GM_LOGIC_RESPONSE_SCHEMA)
-                logic_schema["properties"] = {k: v for k, v in logic_schema["properties"].items()
-                                              if k not in ("quest_choice", "quest_case", "info_access")}
-                logic_schema["required"] = [k for k in logic_schema["required"]
-                                            if k not in ("quest_choice", "quest_case", "info_access")]
+                #   v7.25(F12): 레거시 서사 계획 신호 event_assessment도 뺀다(동적 세계에는 소비할 계획이 없다)
+                _gone = ("quest_choice", "quest_case", "info_access", "event_assessment")
+                logic_schema["properties"] = {k: v for k, v in logic_schema["properties"].items() if k not in _gone}
+                logic_schema["required"] = [k for k in logic_schema["required"] if k not in _gone]
             try:
                 q_schema = None if _retired else core.quest.choice_schema(session)
                 c_schema = None if _retired else core.quest.case_schema(session)
@@ -4855,6 +4888,8 @@ class GMCog(commands.Cog):
         if _nwt is not None:
             # P3(G1): 지시층위와 같은 비진행 경계 — 정본 시각·장소에서 짧게 답한다(세계 진행 없음)
             narrate_prompt += "\n" + core.turn_world.narrate_hold_block(_nwt, session)
+            # v7.25(F02/A04): 계획 없는 응답도 정본 장면 인물을 받는다(없는 인물을 지어내지 않게)
+            narrate_prompt += core.turn_world.scene_npc_block(_nwt.ctx, None, session)
 
 
         # NOTE: max_output_tokens를 설정하지 않음 — PROCEED(_execute_proceed)와 동일한 방침.
@@ -5084,8 +5119,8 @@ class GMCog(commands.Cog):
             session.gm_side_note = ""
             return None
 
-        # PROCEED 완료 후 AI 출력 요약 (표시·이력용, 최대 500자). 추출은 전문을 쓴다(AUD-011).
-        ai_summary = full_text[:500] + ("..." if len(full_text) > 500 else "")
+        # PROCEED 완료 후 AI 출력(이력용). v7.25(CUT): 지시층위 이력에 다시 들어가므로 문자 수로 자르지 않는다.
+        ai_summary = full_text
 
         # 이력 누적(최근 5개) · [방안 2] narrative_plan.current_event.progress 갱신
         #   — WP-C: 둘 다 턴 소유 서사 상태이므로 스테이징하고 READY 이후 적용한다.
@@ -5165,7 +5200,7 @@ class GMCog(commands.Cog):
             safety_settings=core.TRPG_SAFETY_SETTINGS,
         )
         contents = [types.Content(
-            role="user", parts=[types.Part.from_text(text=f"[플레이어 입력]\n{(text or '')[:200]}")]
+            role="user", parts=[types.Part.from_text(text=f"[플레이어 입력]\n{text or ''}")]
         )]
 
         _cl_op = core.cost_ledger.begin_operation(
@@ -5277,7 +5312,7 @@ class GMCog(commands.Cog):
             f"- 배정 인상: {entry.get('gender')}/{entry.get('age')}\n"
             f"- 등장 맥락: {entry.get('context') or '(없음)'}\n\n"
             f"[작중 현재 연도]\n{year if year is not None else '(미확인)'}\n\n"
-            f"[최근 묘사문]\n{(recent_text or '')[:1500]}"
+            f"[최근 묘사문]\n{recent_text or ''}"
         )
 
         config = types.GenerateContentConfig(
@@ -5368,7 +5403,9 @@ class GMCog(commands.Cog):
 
         core.irregular_npc.mark_detailed(session, name)
         promoted = core.irregular_npc.promote(session, name, details)
-        if promoted and final_name != name:
+        if promoted and final_name != name and not core.player_world.legacy_narrative_retired(session):
+            # v7.25(F06): 동적 세계는 개명하지 않는다 — 키 = 플레이어가 본 이름(정본 ActorRegistry 표시 이름과 같다).
+            #   모델이 지은 본명은 PC가 알게 된 사실이 아니다.
             # 고유명이 확정되면 키를 교체한다.
             npcs = dict(session.npcs)
             npcs[final_name] = npcs.pop(name)
@@ -5431,7 +5468,7 @@ class GMCog(commands.Cog):
         prev = core.irregular_npc.get_registry(session)
         prev_lines = [
             f"- {n}: {e.get('gender')}/{e.get('age')}, 이미지 {e.get('image_key') or '(없음)'}"
-            for n, e in list(prev.items())[:10]
+            for n, e in prev.items()          # v7.25: 앞 10명(가장 오래된 등록)만 주던 선별 제거 — 일관성 기준 전부
         ]
 
         user_prompt = (
@@ -5912,6 +5949,13 @@ class GMCog(commands.Cog):
                 _wt.ctx.definition, _wt.ctx, _wt.plan, session, discovery=_wt.discovery,
                 pending=core.turn_world.pending_signals(session))     # P1: 전달 대기 신호도 표현 근거 후보
             _ext_schema = copy.deepcopy(core.EXTRACTION_RESPONSE_SCHEMA)
+            # v7.25(F10): 동적 세계에서 적용되지 않는 레거시 필드는 묻지 않는다 — 장소·날짜는 정본 세계, 퀘스트 진행·
+            #   이면정보 인지는 사건 상태기계·정보 인지가 소유한다(파서가 기본값으로 채워 하류 호환은 유지)
+            for _k in core.extraction.DYNAMIC_RETIRED_FIELDS:
+                _ext_schema["properties"].pop(_k, None)
+            _ext_schema["required"] = [k for k in _ext_schema.get("required", [])
+                                       if k not in core.extraction.DYNAMIC_RETIRED_FIELDS]
+            targets = [t for t in targets if t not in core.extraction.DYNAMIC_RETIRED_TARGETS]
             _ext_schema.setdefault("properties", {})[core.turn_world.OBS_FIELD] = _wt.obs_manifest.schema()
             _obs_block = _wt.obs_manifest.render()
             # v7.17 아이템: 같은 추출 호출의 런타임 확장(새 provider 호출 0) — 소유자·소지·현장 물건 키만
@@ -5936,9 +5980,9 @@ class GMCog(commands.Cog):
                                                   _wt.plan.projected_world if _wt.plan is not None
                                                   and _wt.plan.projected_world is not None else session,
                                                   _wt.ctx.lead_pc)
-            prev_summary = (f"위치={_tl.get('current_location', '미확인')}, "
+            prev_summary = (f"위치={_tl.get('current_location_display') or _tl.get('current_location', '미확인')}, "
                             f"시간대={_tl.get('time_of_day', '미확인')}, 날짜={_tl.get('current_date', '미확인')} "
-                            f"(코드 확정 — 장소·날짜 항목은 판정하지 말 것)")
+                            f"(코드 확정 정본)")
         user_prompt = (
             "[추출 항목]\n" + "\n".join(f"- {t}" for t in targets) + "\n"
             + limit_block + secret_block + _obs_block + "\n"
@@ -6327,6 +6371,8 @@ class GMCog(commands.Cog):
         if not session or ctx.channel.id != session.master_ch_id:
             return await ctx.send("이 명령어는 마스터 채널에서만 사용할 수 있습니다.")
 
+        if core.player_world.legacy_narrative_retired(session):
+            return await ctx.send("📖 동적 세계 세션은 레거시 서사 계획을 쓰지 않습니다 — 서사는 진행 중인 사건·정본 세계가 주도합니다.")
         plan = getattr(session, "narrative_plan", {})
         if not plan:
             return await ctx.send(
@@ -6395,6 +6441,8 @@ class GMCog(commands.Cog):
         if not session or ctx.channel.id != session.master_ch_id:
             return await ctx.send("이 명령어는 마스터 채널에서만 사용할 수 있습니다.")
 
+        if core.player_world.legacy_narrative_retired(session):
+            return await ctx.send("📂 동적 세계 세션은 레거시 정보 인지 원장을 쓰지 않습니다 — 정보·인지는 정본 세계가 소유합니다.")
         ledger = getattr(session, "info_ledger", []) or []
         if not ledger:
             return await ctx.send(
@@ -6722,6 +6770,10 @@ class GMCog(commands.Cog):
         # 퀘스트 시스템이 서사 가이드를 대신하므로, 계획까지 세우면
         # 두 서사가 겹쳐 지시층위가 어느 쪽을 따를지 모호해진다.
         # 서사설계자는 풀자유 세션과 인피니티 플랜에서 쓴다.
+        if core.player_world.legacy_narrative_retired(session):
+            # v7.25(F12): 동적 세계 — 서사 권위는 사건 상태기계·정본이다. 레거시 서사설계자를 부르지 않는다(바인딩 전 free 모드 잔존 포함)
+            print(f"[서사설계] 동적 세계 — 레거시 계획 수립 없음")
+            return None
         if getattr(session, "narrative_mode", "quest") != "free":
             print(f"[서사설계] 퀘스트 모드 — 계획 수립 생략")
             return None
@@ -6813,12 +6865,12 @@ class GMCog(commands.Cog):
             f"[서사 계획 수립 요청]\n"
             f"트리거: {trigger_context}\n\n"
             f"[시나리오 기반 정보]\n"
-            f"세계관: {worldview[:600] if worldview else '(없음)'}\n"
-            f"스토리 가이드: {story_guide[:1200] if story_guide else '(없음)'}\n\n"
+            f"세계관: {worldview if worldview else '(없음)'}\n"
+            f"스토리 가이드: {story_guide if story_guide else '(없음)'}\n\n"
             f"[현재 게임 상황]\n"
             f"진행 턴: {_turn_no}\n"
             f"PC 상태:\n{pc_info}\n"
-            f"압축 기억:\n{memory_str[:1000]}\n\n"
+            f"압축 기억:\n{memory_str}\n\n"
             f"[최근 게임 로그]\n{recent_logs_str}\n"
             f"{existing_plan_block}"
             f"{context_note_block}\n"

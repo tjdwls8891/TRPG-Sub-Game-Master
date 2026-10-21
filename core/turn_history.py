@@ -365,7 +365,7 @@ def recent_failed_discoveries(session_id, place_id, *, limit: int = 5, scan: int
             d = rr.get("discovery") if isinstance(rr, dict) else None
             if isinstance(d, dict) and not d.get("success") and d.get("place") == place_id:
                 out.append({"target": str(d.get("target") or ""),
-                            "declaration": str(j.get("player_message") or "")[:120]})
+                            "declaration": str(j.get("player_message") or "")})
         if len(out) >= limit:
             break
     return out[:limit]

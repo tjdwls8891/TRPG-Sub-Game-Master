@@ -107,6 +107,134 @@ def narration_clock_block(wt, session) -> str:
             "(경과일 등 다른 표기를 쓰더라도 이 날짜와 어긋나지 않게).\n")
 
 
+# ══════════════════════════════════════════════════════════════
+#  v7.25(F09) 상태창 — 날짜·요일·시간대·장소·턴 수는 코드가 정본에서 렌더링한다
+# ══════════════════════════════════════════════════════════════
+
+STATUS_UNKNOWN = "(미확인)"
+
+INTRO_CANON_NOTE = ("\n[인트로 — 시작 틀과 정본]\n"
+                    "· 위 정본 시각·장소·장면 인물이 세계의 사실이다. [시작 상황]·[묘사 지시]는 분위기·연출의 저작 틀이다.\n"
+                    "· 시작 틀의 익명 인물·형체·소리는 이름 없는 연출로만 다룬다 — 장면 인물 목록의 정의 인물과 같은 사람으로 "
+                    "확정하지 말 것. 둘이 어긋나면 정본(장면 인물 목록)을 따른다: 목록의 인물을 지우지도, 목록 밖 정의 인물을 "
+                    "등장시키지도 말 것.\n"
+                    "· 장소는 위 [현재 장소 — 정본]의 이름으로 부른다.\n")
+
+
+def status_values(wt, session, turn_no) -> dict:
+    """묘사가 표현하는 시점의 정본 상태창 값(묘사층위 세계 블록과 같은 기준).
+
+    시각: 계획이 PLANNED면 묘사 끝 시각(plan.end_minute), 아니면 정본 시계. 장소: 투영 장면(PLANNED) 또는
+    정본 PC 위치 — 길 위 중단(TRANSIT)이면 '출발 → 도착 쪽 이동 중'. 이름은 PC 지식 수준 표시명(내부 PlaceId 비노출).
+    결정할 수 없는 값은 STATUS_UNKNOWN(추측하지 않는다)."""
+    D, pc, plan = wt.ctx.definition, wt.ctx.lead_pc, wt.plan
+    planned = plan is not None and plan.status == _pw.PLAN_PLANNED and plan.projected_world is not None
+    world = plan.projected_world if planned else session
+    if planned and plan.end_minute is not None:
+        minute = plan.end_minute
+    else:
+        minute = ((world.domain("world_clock") if isinstance(world, _wm.ProjectedWorld)
+                   else getattr(world, "world_clock", {})) or {}).get("minute_index")
+    cv = clock_view(D, minute)
+    pl = _sp.placement_of(world, pc) or {}
+    if pl.get("kind") == _sp.AT_PLACE:
+        place = _pd.display_for(D, world, pc, pl["place_id"], require_known=False)
+    elif pl.get("kind") == _sp.TRANSIT:
+        place = (f"{_pd.display_for(D, world, pc, pl['from_place'], require_known=False)} → "
+                 f"{_pd.display_for(D, world, pc, pl['to_place'], require_known=False)} 쪽 이동 중")
+    else:
+        place = STATUS_UNKNOWN
+    return {"turn": str(turn_no), "date": cv.get("current_date") or STATUS_UNKNOWN,
+            "weekday": cv.get("weekday") or STATUS_UNKNOWN, "daypart": cv.get("time_of_day") or STATUS_UNKNOWN,
+            "hhmm": cv.get("hhmm") or STATUS_UNKNOWN, "place": place or STATUS_UNKNOWN}
+
+
+_SLOT_RE = None
+
+
+def _slot_kind(name: str) -> str | None:
+    n = name.strip()
+    if "턴" in n:
+        return "turn"
+    if "요일" in n:
+        return "weekday"
+    if "날짜" in n:
+        return "date"
+    if n.startswith("시간대") or "시간대" in n:
+        return "daypart"
+    if n.startswith("시각") or n.startswith("시간"):
+        return "hhmm"
+    if "장소" in n or "위치" in n:
+        return "place"
+    return None
+
+
+def _slots(line: str) -> list:
+    import re
+    global _SLOT_RE
+    if _SLOT_RE is None:
+        _SLOT_RE = re.compile(r"\{([^{}]+)\}")
+    return _SLOT_RE.findall(line)
+
+
+def canon_record_line(values: dict) -> str:
+    """v7.25(F05): 압축 기록용 정본 메타 줄 — 코드가 정본 세계에서 기록한 이 턴의 시각·장소(표시명)."""
+    return (f"[정본 기록 #{values.get('turn')}턴 | {values.get('date')} {values.get('weekday')} "
+            f"{values.get('hhmm')} ({values.get('daypart')}) | {values.get('place')}]")
+
+
+def status_template_for_prompt(template: str, values: dict) -> str:
+    """묘사층위에 보여 줄 상태창 양식 — 코드 소유 칸은 값으로 미리 채운다(모델은 나머지 칸만 채운다)."""
+    out = template
+    for name in _slots(template):
+        k = _slot_kind(name)
+        if k:
+            out = out.replace("{" + name + "}", values.get(k, STATUS_UNKNOWN), 1)
+    return out
+
+
+def render_status_block(template: str, values: dict, model_block: str) -> str:
+    """최종 상태창 — 시나리오 양식 그대로, 코드 소유 칸은 정본 값, 모델 소유 칸은 모델 상태창의 같은 줄에서 가져온다.
+
+    모델 줄은 양식 줄의 고정 문구로 찾는다(코드 소유 칸 자리는 모델이 무엇을 썼든 정본 값으로 덮는다).
+    모델이 그 줄을 쓰지 않았으면 그 줄은 내지 않는다(모델 소유 값을 지어내지 않는다)."""
+    import re
+    model_lines = [l for l in (model_block or "").splitlines() if l.strip() and not l.strip().startswith("```")]
+    used = set()
+    out = []
+    for tl in template.splitlines():
+        names = _slots(tl)
+        if not names:
+            out.append(tl)
+            continue
+        if all(_slot_kind(n) for n in names):
+            out.append(status_template_for_prompt(tl, values))
+            continue
+        parts = re.split(r"(\{[^{}]+\})", tl)
+        pat = "".join(("(.*?)" if not _slot_kind(p[1:-1]) else ".*?") if (p.startswith("{") and p.endswith("}"))
+                      else re.escape(p) for p in parts)
+        got = None
+        for i, ml in enumerate(model_lines):
+            if i in used:
+                continue
+            m = re.fullmatch(r"\s*" + pat.strip() + r"\s*", ml.strip())
+            if m:
+                got, _i = m, i
+                break
+        if got is None:
+            continue
+        used.add(_i)
+        caps, rebuilt = iter(got.groups()), []
+        for p in parts:
+            if p.startswith("{") and p.endswith("}"):
+                k = _slot_kind(p[1:-1])
+                rebuilt.append(values.get(k, STATUS_UNKNOWN) if k else next(caps).strip())
+            else:
+                rebuilt.append(p)
+        out.append("".join(rebuilt))
+    return "\n".join(out)
+
+
 NARRATE_HOLD_TEXT = ("· 이번 응답(NARRATE)은 세계 시계·사건을 진행시키지 않는다. 위 정본 시각·장소에서 질문에 답하거나 "
                      "이미 있는 것을 짧게 설명·반응하는 데 그친다. 시간이 흐르거나 새 사건이 일어난 것처럼 지시·서술하지 말 것.")
 
@@ -127,14 +255,14 @@ def narrate_hold_block(wt, session) -> str:
 
 
 def _state_lines(D, world, pc, prev_tl) -> list:
+    # v7.25(F11): 레거시 faction_context(시작 틀·추출 문자열)는 정본이 아니다 — 정본 블록에 싣지 않는다
     tl = mirror_timeline(prev_tl, D, world, pc)
     minute = ((world.domain("world_clock") if isinstance(world, _wm.ProjectedWorld)
                else getattr(world, "world_clock", {})) or {}).get("minute_index")
     cv = clock_view(D, minute)
     return [f"날짜·시각: {clock_text(cv)}" if cv else f"날짜: {tl.get('current_date', '(미확인)')}",
             f"위치: {tl.get('current_location_display') or tl.get('current_location', '(미확인)')}",
-            f"시간대: {tl.get('time_of_day', '(미확인)')}",
-            f"세력/지역 컨텍스트: {tl.get('faction_context', '(미확인)')}"]
+            f"시간대: {tl.get('time_of_day', '(미확인)')}"]
 
 
 def instruction_world_state_block(wt, session, prev_tl, *, hold: bool) -> str:
@@ -590,7 +718,7 @@ def _npc_line(p) -> str:
         bits.append(f"사건 역할 {r.get('slot')}(국면 {r.get('phase')})")
     deltas = [d.get("summary") for d in (p.get("relationship_deltas") or ()) if d.get("summary")]
     if deltas:
-        bits.append("관계 변화 " + " / ".join(deltas[-3:]))
+        bits.append("관계 변화 " + " / ".join(deltas))
     role = (p.get("authored_profile") or {}).get("role")
     head = f"- {p['display_name']}" + (f"({role})" if role else "")
     return head + (": " + " · ".join(bits) if bits else "")
@@ -599,7 +727,10 @@ def _npc_line(p) -> str:
 def scene_npc_block(ctx, plan, session) -> str:
     """지시·묘사층위용 현재 장면 인물 블록(정본 배치 기준 · 현재 상태 투영)."""
     scene, projs = scene_npc_projections(ctx, plan, session)
-    where = scene or "이동 중(장소 밖)"
+    world, _ = _scene_world_and_place(ctx, plan, session)
+    # v7.25: 장면 이름도 PC 지식 수준 표시명 — 내부 PlaceId는 묘사층위에 주지 않는다
+    where = (_pd.display_for(ctx.definition, world, ctx.lead_pc, scene, require_known=False)
+             if scene else "이동 중(장소 밖)")
     lines = [f"\n[현재 장면 인물 — 정본 위치 기준 · 장면: {where}]",
              "※ 정의된 NPC 중 이 목록의 인물만 지금 이 장면에 있다. 장소의 연고 인물·NPC 사전의 거처는 "
              "현재 위치가 아니다 — 목록에 없는 정의 NPC를 이 장면에 있다고 묘사하지 말 것.",
@@ -607,6 +738,164 @@ def scene_npc_block(ctx, plan, session) -> str:
              "이름 없는 인물로 다룬다."]
     lines += [_npc_line(p) for p in projs] or ["(정본상 이 장면에 있는 정의 NPC 없음)"]
     return "\n".join(lines) + "\n"
+
+
+# ══════════════════════════════════════════════════════════════
+#  v7.25(F03) 동행 — 관계(레거시 companions)와 위치(정본 배치)를 분리해 정합시킨다
+# ══════════════════════════════════════════════════════════════
+#   · 합류(추출 joined)는 '제안'이다 — 그 인물이 정본 등록 행위자이고 이번 턴 끝(투영)에 PC와 같은 장소에
+#     있을 때만 관계로 확정한다. 다른 곳에 있는 인물을 PC 옆으로 옮기지 않는다(순간이동 없음).
+#   · 함께 이동: 턴 시작에 PC와 같은 자리에 있던 동행은 PC가 움직이면 같은 계획(묘사 전)에 배치 연산으로 따라간다
+#     — 묘사·장면 인물·사건 조건이 같은 투영을 본다. 이번 턴에 다른 연산이 그 인물의 위치를 바꿨으면 따라가지 않는다.
+#   · 이탈(추출 left): 사건 역할이 없는 동행의 정본 배치 override를 해제한다 → 그 자리에서 평상시 일과로 복귀
+#     (같은 분 보류 — 순간이동 없음). 사건 역할이 있으면 사건이 위치의 주인이므로 손대지 않는다.
+
+_FOLLOW_KEYS = ("edge_id", "from_place", "to_place", "edge_started_at_minute", "edge_expected_end_minute")
+_PLACEMENT_OPS = (_sp.OP_ACTOR_PLACEMENT_SET, _sp.OP_ACTOR_TRANSIT_SET, _sp.OP_ACTOR_PLACEMENT_CLEAR)
+
+
+def same_spot(a, b) -> bool:
+    if not a or not b or a.get("kind") != b.get("kind"):
+        return False
+    if a.get("kind") == _sp.AT_PLACE:
+        return a.get("place_id") == b.get("place_id")
+    return all(a.get(k) == b.get(k) for k in _FOLLOW_KEYS)
+
+
+def canonical_npc_of(session, name):
+    """v7.25(F07): 동적 세계 바인딩 세션의 화자 이름 → 정본 ActorId('__AMBIGUOUS__' = 여러 정본 인물). 아니면 None."""
+    from . import actors as _act
+    rev = getattr(session, "definition_revision", None)
+    if not rev or not name:
+        return None
+    definition = _pw.load_definition(session, rev)
+    if definition is None:
+        return None
+    r = _act.resolve_actor_id(definition, session, name)
+    if r.actor_id:
+        return r.actor_id
+    return "__AMBIGUOUS__" if r.candidates else None
+
+
+def turn_op_prefix(kind: str, transaction_id) -> str:
+    """v7.25: 동행·세션 NPC 연산 id 접두어(트랜잭션별 결정적)."""
+    return f"{kind}." + stable_digest(f"{kind}.v1", str(transaction_id or ""), length=10)
+
+
+def companion_actor_id(definition: dict, world, name):
+    """동행 이름 → 정본 NPC ActorId(모호·미등록·PC면 None)."""
+    from . import actors as _act
+    r = _act.resolve_actor_id(definition, world, name)
+    return r.actor_id if r.actor_id and not _act.is_pc_actor_id(r.actor_id) else None
+
+
+def _eff(definition, world, aid):
+    from . import npc_position as _npos
+    return _npos.effective_position(definition, world, aid)["placement"]
+
+
+def companion_follow(ctx, base_world, plan, companion_names, *, prefix: str = "cmp"):
+    """PC가 움직이는 PLANNED 계획에 동행의 같은 이동을 더한다(새 계획 반환, 원 계획 불변). 순수."""
+    import dataclasses
+    if plan is None or plan.status != _pw.PLAN_PLANNED or plan.projected_world is None or not companion_names:
+        return plan
+    D, pc, end = ctx.definition, ctx.lead_pc, plan.projected_world
+    pc0, pc1 = _sp.placement_of(base_world, pc), _sp.placement_of(end, pc)
+    if not pc1 or same_spot(pc0, pc1):
+        return plan
+    touched = {(op.payload or {}).get("actor_id") for op in plan.ops if op.op_type in _PLACEMENT_OPS}
+    parents = tuple(sorted(op.op_id for op in plan.ops))
+    new_ops, diags = [], []
+    for name in companion_names:
+        aid = companion_actor_id(D, base_world, name)
+        if aid is None:
+            continue
+        p0 = _eff(D, base_world, aid)
+        if not same_spot(p0, pc0):
+            continue                                   # 턴 시작에 함께 있지 않았다 — 데려가지 않는다
+        if aid in touched or not same_spot(_eff(D, end, aid), p0):
+            diags.append({"code": "COMPANION_NOT_FOLLOWING", "actor_id": aid, "reason": "MOVED_BY_WORLD"})
+            continue
+        oid = f"{prefix}.follow.{aid}"
+        if pc1.get("kind") == _sp.AT_PLACE:
+            new_ops.append(_wm.make_op(oid, _sp.OP_ACTOR_PLACEMENT_SET, "PLAYER_INTENT",
+                                       {"actor_id": aid, "place_id": pc1["place_id"]}, causal_parent_op_ids=parents))
+        else:
+            new_ops.append(_wm.make_op(oid, _sp.OP_ACTOR_TRANSIT_SET, "PLAYER_INTENT",
+                                       dict({k: pc1[k] for k in _sp.TRANSIT_KEYS[1:]}, actor_id=aid),
+                                       causal_parent_op_ids=parents))
+    if not new_ops:
+        return dataclasses.replace(plan, diagnostics=list(plan.diagnostics) + diags) if diags else plan
+    b = _wm.WorldMutationBatch(batch_id=f"{prefix}.follow", outer_origin="PLAYER_TURN",
+                               source_world_version_id=None, definition_revision=None)
+    for op in new_ops:
+        b.add(_wm.make_op(op.op_id, op.op_type, op.source_kind, op.payload))
+    b.freeze()
+    res = _wm.project(end, b, _wm.PRODUCTION_REGISTRY)
+    if not res.ok:
+        return dataclasses.replace(plan, diagnostics=list(plan.diagnostics) + diags + [
+            {"code": "COMPANION_FOLLOW_REJECTED", "conflicts": [str(c) for c in res.conflicts]}])
+    diags.append({"code": "COMPANION_FOLLOW", "actors": [op.payload["actor_id"] for op in new_ops]})
+    return dataclasses.replace(plan, ops=tuple(plan.ops) + tuple(new_ops), projected_world=res.world,
+                               diagnostics=list(plan.diagnostics) + diags)
+
+
+def session_npc_register_ops(ctx, end_world, names, *, narrative_seed: str, prefix: str, barrier=(),
+                             present=()) -> list:
+    """v7.25(F06): 지속 등장한 비저작 인물(승격된 세션 NPC)을 정본 ActorRegistry에 SESSION_NPC로 등록한다.
+
+    · 이미 정본 행위자로 해석되는 이름(저작·등록·alias)은 등록하지 않는다(중복·개명 금지).
+    · 결정적 ActorId(세션 시드 + 최초 표시 키). 표시 이름 = 플레이어가 본 이름(모델이 지은 본명으로 바꾸지 않는다).
+    · 이번 턴 묘사에 나온 인물(present)이고 PC가 장소에 있으면 그 자리에 배치한다 — 묘사가 그 인물을 그 장면에
+      보여 준 사실(이후 이동은 정본 규칙). 이번 턴에 보이지 않은 인물은 위치를 지어내지 않는다(untracked)."""
+    from . import actors as _act
+    D, out = ctx.definition, []
+    pc1 = _sp.placement_of(end_world, ctx.lead_pc) or {}
+    reg = _act.registry_of(end_world)
+    for name in sorted(set(n for n in names or () if isinstance(n, str) and n.strip())):
+        r = _act.resolve_actor_id(D, end_world, name)
+        if r.actor_id or r.candidates:
+            continue
+        aid = _act.session_npc_actor_id(narrative_seed, name)
+        if aid in reg:
+            continue
+        rop = _wm.make_op(f"{prefix}.reg.{aid}", _act.OP_ACTOR_REGISTER, "OBSERVATION",
+                          {"actor_id": aid, "kind": "NPC", "display_name": name, "source_kind": "SESSION_NPC",
+                           "source_key": name, "aliases": []}, causal_parent_op_ids=tuple(barrier))
+        out.append(rop)
+        if pc1.get("kind") == _sp.AT_PLACE and name in set(present or ()):
+            out.append(_wm.make_op(f"{prefix}.at.{aid}", _sp.OP_ACTOR_PLACEMENT_SET, "OBSERVATION",
+                                   {"actor_id": aid, "place_id": pc1["place_id"]},
+                                   causal_parent_op_ids=tuple(barrier) + (rop.op_id,)))
+    return out
+
+
+def companion_outcome(ctx, end_world, ops, *, joined, left, prefix: str = "cmp"):
+    """묘사 후 — 추출 합류 제안 검증 + 이탈 배치 해제 연산. (kept_joined, clear_ops, diagnostics). 순수."""
+    from . import npc_projection as _np
+    D, pc = ctx.definition, ctx.lead_pc
+    pc1 = _sp.placement_of(end_world, pc) or {}
+    kept, diags, clears = [], [], []
+    for name in joined or ():
+        aid = companion_actor_id(D, end_world, name)
+        if aid is None:
+            diags.append({"code": "COMPANION_JOIN_REJECTED", "name": name, "reason": "NOT_A_WORLD_ACTOR"})
+        elif pc1.get("kind") != _sp.AT_PLACE or not same_spot(_eff(D, end_world, aid), pc1):
+            diags.append({"code": "COMPANION_JOIN_REJECTED", "name": name, "actor_id": aid, "reason": "NOT_COLOCATED"})
+        else:
+            kept.append(name)
+    barrier = tuple(sorted(op.op_id for op in ops))
+    touched = {(op.payload or {}).get("actor_id") for op in ops if op.op_type in _PLACEMENT_OPS}
+    for name in left or ():
+        aid = companion_actor_id(D, end_world, name)
+        if aid is None or aid in touched or _sp.placement_of(end_world, aid) is None:
+            continue
+        proj = _np.project_npc(aid, D, end_world) or {}
+        if proj.get("event_roles"):
+            continue                                   # 사건이 위치의 주인 — 해제하지 않는다
+        clears.append(_wm.make_op(f"{prefix}.leave.{aid}", _sp.OP_ACTOR_PLACEMENT_CLEAR, "OBSERVATION",
+                                  {"actor_id": aid}, causal_parent_op_ids=barrier))
+    return kept, clears, diags
 
 
 # ══════════════════════════════════════════════════════════════
@@ -1247,6 +1536,16 @@ def media_allowed_places(definition: dict, plan) -> set | None:
     if scene is None:
         return set()
     return set(g.path_of(scene))
+
+
+def media_allowed_places_for(ctx, plan, session) -> set:
+    """v7.25(F11): DYNAMIC 이미지 후보 장소 — 계획 투영 장면(PLANNED), 아니면 정본 PC 장소(+상위). 제한 없음은 없다."""
+    allowed = media_allowed_places(ctx.definition, plan)
+    if allowed is not None:
+        return allowed
+    pl = _sp.placement_of(session, ctx.lead_pc) or {}
+    scene = pl.get("place_id") if pl.get("kind") == _sp.AT_PLACE else pl.get("from_place")
+    return set(_sp.SpatialGraph(ctx.definition).path_of(scene)) if scene else set()
 
 
 def image_for_scene(definition: dict, plan) -> str | None:
