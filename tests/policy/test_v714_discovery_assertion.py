@@ -238,7 +238,7 @@ async def test_i_judgment_input_has_no_simulation_free_text(grig):
     r.prov.routes["judgment"] = [jfind("나뭇조각", roll=True), jfind("나뭇조각")]   # 초안 굴림 ↔ 검증 무판정 → 재판단
     await turn(r, "나뭇조각을 찾는다")
     jp0, jp = r.prov.prompts["judgment"][0][0], r.prov.prompts["judgment"][1][0]
-    assert "[선언 검증 — 동적 세계" in jp0 and SECRET not in jp0
+    assert SECRET not in jp0 and "[선언 게이트" not in jp0                # 검증 전 판단(초안 규칙은 시스템 지시 소유)
     assert SECRET not in jp and "rt.ambient" not in jp
     assert "분류 AMBIENT_PROPOSAL / 처리 ACCEPT_NO_ROLL / 사유 NONE / 대상 나뭇조각(OBJECT)" in jp
     gp = r.prov.prompts["simulation"][0][0]                                # 검증 입력에 서사 방향·공리 요구 없음

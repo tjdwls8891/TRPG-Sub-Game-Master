@@ -427,7 +427,7 @@ def _build_judgment_user_prompt(session, player_message: str, roll_results: list
     if gate:
         lines.append(_gate_judgment_block(gate))   # v7.14 — 열거값 + 원문 대상명만
     elif declaration_draft:
-        lines.append(DECLARATION_DRAFT_BLOCK)     # v7.23 DYNAMIC — 선행 게이트 없음(판단 뒤 조건부 검증)
+        # v7.23.1: 검증 전 초안 규칙은 판단 시스템 지시([선언 검증])가 소유한다 — 여기서는 지목 후보(D키)만 준다
         if discovery_rows:
             lines.append("[이 장소에서 PC가 이미 발견한 것 — 선언이 이것을 가리키면 discovery_ref에 그 키]\n"
                          + core.turn_world.discovery_rows_text(discovery_rows))
@@ -446,18 +446,6 @@ WORLD_REACTION_AUTHORITY_BLOCK = (
     "· 판정·관찰로 이미 확인된 결론(직전 장면)을 새 근거 없이 뒤집지 말 것.\n"
 )
 
-
-# v7.23(DYNAMIC): 매 발화 개연성 시뮬레이션을 은퇴하고, 판단이 먼저 선언 검증 후보를 표시한다.
-#   코드가 표시를 보고 필요할 때만 축소 선언 검증(캐시)을 부르고, 그 결과로 발견 굴림 초안을 집행·제거·재판단한다.
-DECLARATION_DRAFT_BLOCK = (
-    "[선언 검증 — 동적 세계(선행 게이트 없음 · 판단 뒤 코드가 필요할 때만 검증)]\n"
-    "- 플레이어가 지금 장소에서 주변의 작은 물건·환경 요소를 찾겠다고 제안하면 ambient_proposal=true, "
-    "discovery_target에 플레이어 문장 속 대상 낱말 그대로. 그 탐색을 GENERAL 굴림 하나(discovery=true)로 rolls에 "
-    "초안으로 넣는다(action=ROLL). 초안은 검증 뒤에만 굴린다 — 초안만으로 발견이 생기지 않는다.\n"
-    "- 플레이어가 행동의 성공·NPC의 동의나 반응·사건 결론·세계 사실을 스스로 확정해 말했으면 assertion_claim=true. "
-    "단순한 시도(설득한다·살핀다·찾아본다·이동한다)와 진행자 질문에 대한 답은 false.\n"
-    "- 이 블록이 있을 때는 '[선언 게이트] 블록이 없으면 discovery 굴림을 만들지 않는다'보다 이 블록을 따른다."
-)
 
 
 def _build_logic_user_prompt(session, player_message: str, roll_results: list,
