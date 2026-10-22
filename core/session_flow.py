@@ -695,6 +695,13 @@ async def _offer_start_frames(bot, session, channel):
 
     view_cls = getattr(__import__("cogs.session", fromlist=["StartFrameView"]),
                        "StartFrameView")
+    # v7.27: 세 선택지는 카드 이미지 한 장(번호 = 버튼 번호), 선택은 기존 버튼. 렌더 실패면 기존 목록 + 마스터 원화.
+    from . import gm_board as _gb
+    card, _k = await _gb.png_file(_gb.build_frames_svg(_gb.frames_data(options)), "start_frames.png")
+    if card is not None:
+        await channel.send(content=f"**{e.title}**\n\n{e.description}", file=card,
+                           view=view_cls(bot, session, options))
+        return
     mfile, _p, _st = _master_art.file_for(session, "session.start_frame_select")
     await channel.send(**_conv.send_kwargs(e, view=view_cls(bot, session, options), file=mfile))
 

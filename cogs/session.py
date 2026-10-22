@@ -589,13 +589,20 @@ class SessionCog(commands.Cog):
 
         options = core.start_frame.offer(session.scenario_data, profile)
         if options:
-            lines = ["**시작 상황을 선택해 주십시오.**\n"]
-            for i, opt in enumerate(options, 1):
-                lines.append(core.start_frame.format_choice(i, opt))
-            await game_channel.send(
-                "\n\n".join(lines),
-                view=StartFrameView(self.bot, session, options),
-            )
+            # v7.27: 선택지는 카드 이미지(번호 = 버튼 번호) — 렌더 실패면 기존 글 목록
+            card, _k = await core.gm_board.png_file(
+                core.gm_board.build_frames_svg(core.gm_board.frames_data(options)), "start_frames.png")
+            if card is not None:
+                await game_channel.send("**시작 상황을 선택해 주십시오.**", file=card,
+                                        view=StartFrameView(self.bot, session, options))
+            else:
+                lines = ["**시작 상황을 선택해 주십시오.**\n"]
+                for i, opt in enumerate(options, 1):
+                    lines.append(core.start_frame.format_choice(i, opt))
+                await game_channel.send(
+                    "\n\n".join(lines),
+                    view=StartFrameView(self.bot, session, options),
+                )
             session.is_started = True
             await core.save_session_data(self.bot, session)
             return

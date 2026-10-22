@@ -269,6 +269,7 @@ from . import cache_source  # H06: FrozenCacheBuildSource
 from . import admin_world_edit  # H06: typed ADMIN_EDIT service
 from . import speaker_card  # SVG 화자 카드(DYNAMIC 전용, 시나리오 speaker_card)
 from . import display_board  # 디스플레이 상태판 SVG(엔진 공통, v7.10)
+from . import gm_board  # GM 스페이스·시작 상황 카드 SVG(디스플레이 톤, v7.27)
 from . import logs  # 구조 로그(세션 logs/·전역 logs/bot.jsonl)
 from . import session_removal  # 세션 종료·제거 통합 관리(!세션관리)
 from . import items  # v7.17 아이템(일반 재고 정규 해석·특수 객체·현장 물건·DYNAMIC 의미 연산)

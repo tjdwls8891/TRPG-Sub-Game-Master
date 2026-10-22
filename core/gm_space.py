@@ -28,6 +28,43 @@ NOTICE_SECONDS = 5
 # 보드에 노출할 최대 인원.
 BOARD_LIMIT = 20
 
+# v7.27: 채널별로 지금 보이는 카드 SVG 해시 — 같으면 이미지를 다시 올리지 않는다.
+_SHOWN_CARD: dict = {}
+
+
+async def _bot_message(bot, channel):
+    """채널당 봇 메시지 하나만 유지한다. 매번 새로 보내면 누적된다."""
+    async for msg in channel.history(limit=10):
+        if msg.author.id == bot.user.id:
+            return msg
+    return None
+
+
+async def _upsert_card(bot, channel, svg: bytes, filename: str, fallback_embed, *, view=None, content=None):
+    """v7.27 카드 이미지(SVG → PNG)로 채널의 봇 메시지를 만들거나 고친다. 렌더 실패면 기존 Embed로 대체."""
+    from .gm_board import png_file
+    import hashlib
+    key = hashlib.sha256(svg).hexdigest()
+    existing = await _bot_message(bot, channel)
+    extra = {"view": view} if view is not None else {}
+    if existing is not None and _SHOWN_CARD.get(channel.id) == key:
+        if view is not None:
+            await existing.edit(view=view)                 # 같은 그림 — 버튼만 갱신(재업로드 없음)
+        return
+    file, _k = await png_file(svg, filename)
+    if file is None:
+        _SHOWN_CARD.pop(channel.id, None)
+        if existing:
+            await existing.edit(content=None, embed=fallback_embed, attachments=[], **extra)
+        else:
+            await channel.send(embed=fallback_embed, **extra)
+        return
+    if existing:
+        await existing.edit(content=content, embed=None, attachments=[file], **extra)
+    else:
+        await channel.send(content=content, file=file, **extra)
+    _SHOWN_CARD[channel.id] = key
+
 
 def _channel_names() -> list:
     return [CH_HOME, CH_HALL, CH_SERVER_BOARD, CH_WORLD_BOARD]
@@ -153,24 +190,20 @@ async def refresh_boards(bot, guild) -> bool:
         return False
 
     member_ids = [str(m.id) for m in guild.members if not m.bot]
+    from . import gm_board as GB
+    names = GB.display_names(guild, member_ids)          # 이미지에는 멘션을 넣을 수 없다 — 서버 표시 이름
 
     targets = [
-        (chans["hall"], build_hall_embed(member_ids, guild.name)),
-        (chans["server_board"], build_board_embed(member_ids, world=False)),
-        (chans["world_board"], build_board_embed(member_ids, world=True)),
+        (chans["hall"], lambda: GB.build_rank_svg(GB.hall_data(member_ids, names, guild.name)), "hall.png",
+         lambda: build_hall_embed(member_ids, guild.name)),
+        (chans["server_board"], lambda: GB.build_rank_svg(GB.board_data(member_ids, names)), "server_board.png",
+         lambda: build_board_embed(member_ids, world=False)),
+        (chans["world_board"], lambda: GB.build_rank_svg(GB.board_data(member_ids, names, world=True)),
+         "world_board.png", lambda: build_board_embed(member_ids, world=True)),
     ]
-    for channel, embed in targets:
+    for channel, svg_of, filename, embed_of in targets:
         try:
-            # 채널당 봇 메시지 하나만 유지한다. 매번 새로 보내면 누적된다.
-            existing = None
-            async for msg in channel.history(limit=10):
-                if msg.author.id == bot.user.id:
-                    existing = msg
-                    break
-            if existing:
-                await existing.edit(embed=embed)
-            else:
-                await channel.send(embed=embed)
+            await _upsert_card(bot, channel, svg_of(), filename, embed_of())
         except Exception as e:
             print(f"[GM스페이스] {channel.name} 갱신 실패: {e}")
     return True
@@ -306,11 +339,22 @@ class GMHomeView(discord.ui.View):
                               description=master.lead("account.stats_intro",
                                                       stats_mod.format_summary(st), sep="\n\n"),
                               color=0x2ECC71)
+        # v7.27: 통계 카드 이미지(렌더 실패면 기존 Embed). 마스터 안내 문구는 본문으로 남긴다.
+        from . import gm_board as GB
+        await interaction.response.defer(ephemeral=True)
+        file, _k = await GB.png_file(GB.build_personal_svg(GB.personal_data(
+            getattr(interaction.user, "display_name", None), st)), "my_stats.png")
+        intro = master.say("account.stats_intro", "")
+        send = ({"content": intro or None, "file": file} if file is not None else {"embed": embed})
         try:
-            await interaction.user.send(embed=embed)
-            await interaction.response.send_message("DM으로 보냈습니다.", ephemeral=True)
+            await interaction.user.send(**send)
+            await interaction.followup.send("DM으로 보냈습니다.", ephemeral=True)
         except discord.Forbidden:
-            await interaction.response.send_message(embed=embed, ephemeral=True)
+            if file is not None:                           # DM이 막혀 있으면 같은 카드를 본인에게만
+                file, _k = await GB.png_file(GB.build_personal_svg(GB.personal_data(
+                    getattr(interaction.user, "display_name", None), st)), "my_stats.png")
+                send = {"content": intro or None, "file": file} if file is not None else {"embed": embed}
+            await interaction.followup.send(ephemeral=True, **send)
 
     @discord.ui.button(label="🔄 보드 갱신", style=discord.ButtonStyle.secondary,
                        custom_id="gmspace:refresh", row=3)
@@ -418,15 +462,12 @@ async def refresh_home(bot, guild) -> bool:
         channel = chans["home"]
         embed = build_home_embed(bot)
         view = GMHomeView(bot)
-        existing = None
-        async for msg in channel.history(limit=10):
-            if msg.author.id == bot.user.id:
-                existing = msg
-                break
-        if existing:
-            await existing.edit(embed=embed, view=view)
-        else:
-            await channel.send(embed=embed, view=view)
+        # v7.27: 홈 카드 이미지 + 버튼(같은 메시지). 초대 링크는 누를 수 있게 본문에 남긴다.
+        from . import gm_board as GB
+        from .constants import __version__
+        invite = getattr(bot, "invite_url", "") or "(미설정)"
+        await _upsert_card(bot, channel, GB.build_home_svg(GB.home_data(__version__)), "gm_home.png", embed,
+                           view=view, content=f"초대 링크: {invite}")
         # chat_guard가 GM 스페이스 채팅을 막을 수 있도록 채널 id를 알린다.
         bot.gm_space_ch_id = channel.id
         return True

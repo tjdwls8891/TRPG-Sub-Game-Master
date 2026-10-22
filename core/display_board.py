@@ -526,7 +526,11 @@ def build_svg(d: dict) -> bytes:
     y = _memory(body, y, d)
     if d["warning"]:
         y = _warning(body, y + GAP)
-    H = y + 30
+    return framed(body, y + 30)
+
+
+def framed(body: list, H: int, defs: str = DEFS) -> bytes:
+    """본문 조각 + 높이 → 금속 테두리 틀을 두른 SVG 바이트(상태판·GM 스페이스 카드 공용, 폭 1200 고정)."""
     frame = [
         f'<clipPath id="outerClip"><path d="M28 14 H1172 L1188 30 V{H - 30} L1172 {H - 14} H28 L12 {H - 30} V30 Z"/>'
         f'</clipPath>',
@@ -543,7 +547,7 @@ def build_svg(d: dict) -> bytes:
         f'<path d="M46 {H - 35} H1154 L1166 {H - 47}" fill="none" stroke="#d8d9d5" stroke-width="2"/>',
     ]
     svg = (f'<svg xmlns="http://www.w3.org/2000/svg" width="{W}" height="{H}" viewBox="0 0 {W} {H}">'
-           + DEFS + "".join(frame) + "".join(body) + "</svg>")
+           + defs + "".join(frame) + "".join(body) + "</svg>")
     return svg.encode("utf-8")
 
 
