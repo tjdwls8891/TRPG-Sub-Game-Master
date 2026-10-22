@@ -155,10 +155,14 @@ class StartChoices:
     start_minute: int
     knowledge_seed: str | None = None
     frame_id: str | None = None
+    items: tuple = ()                 # v7.26 world_start.items — 이 시작에서만 생기는 물건(장소·인물 소지)
 
     def to_dict(self) -> dict:
-        return {"start_place": self.start_place, "start_minute": self.start_minute,
-                "knowledge_seed": self.knowledge_seed, "frame_id": self.frame_id}
+        d = {"start_place": self.start_place, "start_minute": self.start_minute,
+             "knowledge_seed": self.knowledge_seed, "frame_id": self.frame_id}
+        if self.items:                # 시작 물건이 없는 틀의 초기화 정체성은 그대로
+            d["items"] = [dict(x) for x in self.items]
+        return d
 
 
 def resolve_start_choices(definition: dict, chosen: dict):
@@ -175,7 +179,8 @@ def resolve_start_choices(definition: dict, chosen: dict):
     ws = frame.get("world_start")
     if not ws:
         return None, "world_start_unauthored"
-    return StartChoices(ws["place"], ws["minute_index"], ws.get("knowledge_seed"), fid), "ok"
+    return StartChoices(ws["place"], ws["minute_index"], ws.get("knowledge_seed"), fid,
+                        tuple(dict(x) for x in ws.get("items") or ())), "ok"
 
 
 def initialization_id_for(session_id, revision: str, choices: StartChoices) -> str:
@@ -373,7 +378,7 @@ async def initialize_world(bot, session, chosen: dict) -> InitResult:
         return await _fail(bot, session, blocked)       # 전달 여부 미확정 — 인지·세계를 만들지 않는다
     saved = {k: copy.deepcopy(getattr(session, k, None))
              for k in ("definition_revision", "world_lifecycle", "world_initialization", "resources",
-                       "item_instances", _ik.FIELD)}
+                       "item_instances", "place_items", _ik.FIELD)}
     try:
         rev = bind_definition(session, definition)
     except Exception as e:  # noqa: BLE001 — 바인딩 실패 = 초기화 안 함(정본 불변)
@@ -399,7 +404,9 @@ async def initialize_world(bot, session, chosen: dict) -> InitResult:
                                     "definition_revision": rev, "start_choices": choices.to_dict(),
                                     "genesis_version_id": genesis["version_id"]}
     # v7.17: 아이템 초기 재고 정규화·저작 특수 객체 + 초기 지식 COMMITTED 표식 — genesis와 같은 strict 저장
-    for k, v in _items.genesis_item_state(definition, session).items():
+    # v7.26: 고른 시작 틀의 시작 물건(world_start.items)도 같은 저장에 들어간다
+    for k, v in _items.genesis_item_state(definition, session, choices.items,
+                                          source_prefix=f"start.{choices.frame_id}").items():
         setattr(session, k, v)
     _ik.mark_committed(session, uids[0], entries, excluded)
     mres = await _cm.CanonicalMutationCoordinator(bot).apply(

@@ -170,13 +170,17 @@ def test_genesis_places_pc_clock_npcs_and_no_unnarrated_signals(frame):
     D, _ = _defn()
     assert SP.placement_of(w, PC) == SP.at_place(ch.start_place)
     assert w.domain("world_clock")["minute_index"] == ch.start_minute
-    placed = [a for a, p in (w.domain("spatial_state")["placements"]).items() if a != PC]
-    assert placed == []                                               # V2: genesis 정본 NPC 배치 없음(A 분류 0명)
+    placed = {a: p for a, p in (w.domain("spatial_state")["placements"]).items() if a != PC}
+    # v7.26: 정본 NPC 배치는 그 시작 틀 사건이 둔 인물뿐(시작 장소) — 나머지는 일과/미추적
+    start_npc = {"arrive_night": "yd.npc.baek_inha", "arrive_threat_finding": "yd.npc.shin_daeho",
+                 "arrive_person": "yd.npc.jin_bokrye"}.get(frame)
+    assert placed == ({start_npc: SP.at_place(ch.start_place)} if start_npc else {})
     from core import npc_position as NP
-    srcs = {a: NP.effective_position(D, w, a)["source"] for a in D["actor_definitions"]}
+    srcs = {a: NP.effective_position(D, w, a)["source"] for a in D["actor_definitions"] if a != start_npc}
     assert sum(1 for a in D["actor_definitions"].values() if a.get("routine")) == 35      # 일과 저작 35 · 미저작 12
     assert all(v in (NP.ROUTINE, NP.UNTRACKED) for v in srcs.values())  # 파생 또는 미추적(정본 아님)
-    assert all(srcs[a] == NP.UNTRACKED for a, d in D["actor_definitions"].items() if not d.get("routine"))
+    assert all(srcs[a] == NP.UNTRACKED for a, d in D["actor_definitions"].items() if not d.get("routine")
+               and a != start_npc)
     assert lifecycle(w, "yd_ev_first_sighting") == "NONE"            # 시작 분에는 관찰 신호성 사건 없음
     for inst in w.domain("event_instances").values():                 # 시작 분에 생긴 사건은 신호를 내지 않는다(인트로 밖)
         spawn = next(c for c in D["event_templates"][inst["template_id"]]["transition_cases"] if c["from"] is None)

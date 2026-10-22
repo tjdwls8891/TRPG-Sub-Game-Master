@@ -2002,15 +2002,44 @@ def _compile_initialization(raw, place_defs, d):
     return out
 
 
-_WORLD_START_KEYS = ("place", "date", "time", "knowledge_seed")
+_WORLD_START_KEYS = ("place", "date", "time", "knowledge_seed", "items")
 
 
-def _compile_world_starts(raw, init, place_defs, seeds, calendar, caps, d):
+def _compile_start_items(items, place_defs, actor_index, p, d):
+    """v7.26 world_start.items — [{key, quantity, place|owner}] → 정규 목록(오류면 None).
+
+    이 시작에서만 생기는 물건: place는 장소 id(현장 물건), owner는 저작 NPC 레거시 이름(그 인물 소지).
+    """
+    if not isinstance(items, list) or not items:
+        d.add(ERROR, "WORLD_START_ITEMS_INVALID", p, "items는 비어 있지 않은 목록이어야 합니다")
+        return None
+    out = []
+    for i, it in enumerate(items):
+        ip = f"{p}[{i}]"
+        if not isinstance(it, dict) or set(it) - {"key", "quantity", "place", "owner"} \
+                or not isinstance(it.get("key"), str) or not it["key"].strip() \
+                or not isinstance(it.get("quantity"), int) or isinstance(it.get("quantity"), bool) \
+                or it["quantity"] <= 0 or ("place" in it) == ("owner" in it):
+            d.add(ERROR, "WORLD_START_ITEMS_INVALID", ip,
+                  "물건은 {key, quantity(양의 정수), place|owner 중 하나}여야 합니다")
+            return None
+        if "place" in it and it["place"] not in place_defs:
+            d.add(ERROR, "WORLD_START_PLACE_UNKNOWN", f"{ip}.place", f"정의되지 않은 장소 {it['place']!r}")
+            return None
+        if "owner" in it and it["owner"] not in actor_index:
+            d.add(ERROR, "WORLD_START_ITEM_OWNER_UNKNOWN", f"{ip}.owner", f"저작 NPC가 아닙니다: {it['owner']!r}")
+            return None
+        out.append({k: it[k] for k in ("key", "quantity", "place", "owner") if k in it})
+    return out
+
+
+def _compile_world_starts(raw, init, place_defs, seeds, calendar, caps, d, actor_index=None):
     """시작 틀의 저작 정량 시작점 `world_start` → 컴파일된 초기화 시작점(H06).
 
     facts의 시간·장소는 슬롯 템플릿이라 기계 값으로 해석하지 않는다(DESIGN 08 §20). 동적 세계 초기화의
     시작 장소·시각은 사람이 저작한 world_start에서만 온다:
-      {"place": 장소 id, "date": "YYYY-MM-DD", "time": "HH:MM", "knowledge_seed"?: seed id}
+      {"place": 장소 id, "date": "YYYY-MM-DD", "time": "HH:MM", "knowledge_seed"?: seed id,
+       "items"?: [{key, quantity, place|owner}]}
     저작된 틀에만 world_start 키가 생긴다(미저작 시나리오의 컴파일 결과·revision은 그대로).
     """
     from . import world_clock as _wc
@@ -2026,7 +2055,7 @@ def _compile_world_starts(raw, init, place_defs, seeds, calendar, caps, d):
                   "world_start는 quantitative_time·structured_places(달력 포함) 선언이 필요합니다")
             continue
         if not isinstance(ws, dict) or set(ws) - set(_WORLD_START_KEYS) or not {"place", "date", "time"} <= set(ws):
-            d.add(ERROR, "WORLD_START_INVALID", p, "world_start는 {place, date, time, knowledge_seed?}여야 합니다")
+            d.add(ERROR, "WORLD_START_INVALID", p, "world_start는 {place, date, time, knowledge_seed?, items?}여야 합니다")
             continue
         if ws["place"] not in place_defs:
             d.add(ERROR, "WORLD_START_PLACE_UNKNOWN", f"{p}.place", f"정의되지 않은 장소 {ws['place']!r}")
@@ -2056,8 +2085,15 @@ def _compile_world_starts(raw, init, place_defs, seeds, calendar, caps, d):
         except Exception as e:  # noqa: BLE001
             d.add(ERROR, "WORLD_START_TIME_INVALID", p, f"시작 날짜·시각을 달력으로 해석할 수 없습니다: {e}")
             continue
+        items = None
+        if "items" in ws:
+            items = _compile_start_items(ws["items"], place_defs, actor_index or {}, f"{p}.items", d)
+            if items is None:
+                continue
         by_id[fr["id"]]["world_start"] = {"place": ws["place"], "date": str(ws["date"]), "time": ws["time"],
                                           "minute_index": minute, "knowledge_seed": seed}
+        if items:
+            by_id[fr["id"]]["world_start"]["items"] = items
 
 
 # ── v7.17 아이템 정의 · 제작법 · 운반 한도 ─────────────────────
@@ -2369,7 +2405,7 @@ def compile_scenario(raw: dict, scenario_id: str, quests: dict | None = None) ->
     init = _compile_initialization(raw, places, d)
     calendar = _compile_calendar(raw, cap["capabilities"], d)
     _compile_routines(actors, places, calendar, d)
-    _compile_world_starts(raw, init, places, seeds, calendar, cap["capabilities"], d)
+    _compile_world_starts(raw, init, places, seeds, calendar, cap["capabilities"], d, actor_index)
     items, recipes, carry_limits = _compile_items(raw, actor_index, places, d)
     explicit = _compile_explicit_infos(raw, actors, places, d, items)
     infos = {}

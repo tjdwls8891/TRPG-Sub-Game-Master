@@ -809,12 +809,14 @@ def item_block(session, *, pc_name, scene_owner_names=(), scene_place=None, defs
 #  genesis 초기 재고(INITIALIZATION과 같은 strict 저장)
 # ══════════════════════════════════════════════════════════════
 
-def genesis_item_state(definition: dict, session) -> dict:
-    """DYNAMIC genesis의 아이템 초기 상태 — {resources, item_instances}(세션 불변, 순수).
+def genesis_item_state(definition: dict, session, start_items=(), *, source_prefix: str = "start") -> dict:
+    """DYNAMIC genesis의 아이템 초기 상태 — {resources, item_instances}(+ 시작 물건이 있으면 place_items)(세션 불변, 순수).
 
     · 모든 소유자 재고를 정규형으로(옛 '항생제 두 알' → 항생제[알] ×2, 모호한 문구는 원문 유지).
     · 저작 unique 물건의 instances를 고유 객체로 만든다. 같은 소유자 재고에 그 종류가 있으면 객체 수만큼 재고에서
       덜어 낸다(같은 물건을 resources와 객체로 이중 보유하지 않음 — C08). 이미 객체가 있으면 다시 만들지 않는다.
+    · v7.26 start_items: 고른 시작 틀의 world_start.items(컴파일러 검증) — 장소 물건은 place_items 원천
+      `{source_prefix}.{순번}`(origin START_FRAME), 인물 소지는 그 소유자 재고에 더한다. 그 시작에서만 생긴다.
     """
     defs = definitions_of(definition)
     res = {o: canonical_bag(b, defs) if isinstance(b, dict) else b
@@ -840,4 +842,17 @@ def genesis_item_state(definition: dict, session) -> dict:
                          "place": None if owner is not None else it.get("place"), "condition": COND_NORMAL,
                          "info_refs": list(d.get("info_refs") or ()), "origin": "AUTHORED",
                          "previous_owners": []}
-    return {"resources": res, "item_instances": inst}
+    if not start_items:
+        return {"resources": res, "item_instances": inst}
+    places = copy.deepcopy(getattr(session, "place_items", None) or {})
+    for n, it in enumerate(start_items):
+        sid, mult = parse_key(it["key"], defs)
+        qty = int(it["quantity"]) * mult
+        if it.get("owner") is not None:
+            bag = res.get(it["owner"]) if isinstance(res.get(it["owner"]), dict) else {}
+            bag[sid.key] = (bag.get(sid.key, 0) if isinstance(bag.get(sid.key, 0), int) else 0) + qty
+            res[it["owner"]] = bag
+        else:
+            places[f"{source_prefix}.{n}"] = {"place": it["place"], "key": sid.key, "quantity": qty,
+                                              "origin": "START_FRAME", "by": None, "tx": None}
+    return {"resources": res, "item_instances": inst, "place_items": places}
