@@ -125,6 +125,8 @@ def known_infos(session, pc_actor: str) -> frozenset:
 
 SPEAKER_ACTOR, SPEAKER_IRREGULAR, SPEAKER_UNKNOWN = "ACTOR", "IRREGULAR", "UNKNOWN"
 SPEAKER_PLAIN = "PLAIN"          # 시나리오 지정 원문 화자(speaker_card.plain_speakers) — 원문 헤더·이미지 없음
+SPEAKER_FIXED = "FIXED"          # v7.31 이름 지정 고정 카드(speaker_card.fixed_speakers) — 원문 헤더·항상 전체 공개
+ASSIGN_TURN_RANDOM = "turn_random"   # 고정 카드 그림 배정: 턴마다 결정적 추첨(같은 턴 = 같은 그림)
 
 
 @dataclass(frozen=True)
@@ -171,6 +173,9 @@ def display_context(session, speaker: str, *, extra_known=frozenset()) -> Displa
     if world is None:
         return None
     known = known_infos(session, world.pc_actor) | frozenset(extra_known or ())
+    fixed = (world.config.get("fixed_speakers") or {}).get(speaker)
+    if isinstance(fixed, dict):          # 개체 없는 이름 화자(예: 감염자) — 인지 조건 없이 같은 카드
+        return _logged(session, DisplayContext(speaker, SPEAKER_FIXED, None, speaker, fixed, known, world))
     if speaker in (world.config.get("plain_speakers") or ()):
         return _logged(session, DisplayContext(speaker, SPEAKER_PLAIN, None, speaker, None, known, world))
     status, aid = resolve_speaker(world, session, speaker)
@@ -220,8 +225,9 @@ def evaluate_slots(config: dict, card: dict, known, variation) -> dict:
     out = {name: spec.get("unknown") for name, spec in slots.items()}
     values = card.get("values") or {}
     for rule in card.get("rules") or []:
-        need = ((rule or {}).get("when") or {}).get("all_info") or []
-        if not need or not all(i in known for i in need):
+        when = (rule or {}).get("when") or {}
+        need = when.get("all_info") or []
+        if when.get("always") is not True and (not need or not all(i in known for i in need)):
             continue
         for slot, eff in (rule.get("set") or {}).items():
             if slot not in slots:
@@ -616,11 +622,27 @@ async def turn_variation(preparation, actor_id):
     return (getattr(preparation, "card_variations", None) or {}).get(actor_id)
 
 
+def assigned_variation(card: dict, speaker: str, turn_key: str):
+    """고정 카드의 턴 배정 그림 — (턴 키, 화자)의 결정적 추첨. 같은 턴·재생성·재시작에서 같은 그림."""
+    if card.get("assign") != ASSIGN_TURN_RANDOM:
+        return None
+    names = sorted(card.get("variations") or {})
+    if not names:
+        return None
+    h = int(hashlib.sha256(f"{turn_key}|{speaker}".encode("utf-8")).hexdigest()[:8], 16)
+    return names[h % len(names)]
+
+
 async def _render_card(session, ctx: DisplayContext, preparation=None) -> bytes:
     """카드 PNG — 실패는 예외로 올린다(호출부가 '카드 없음'과 '실패'를 구분한다)."""
+    if ctx.status == SPEAKER_FIXED:      # 추출을 기다리지 않는다 — 턴 정체성으로 배정
+        turn_key = getattr(preparation, "transaction_id", None) or \
+            f"{getattr(session, 'session_id', '')}:{int(getattr(session, 'turn_count', 0) or 0)}"
+        variation = assigned_variation(ctx.card, ctx.speaker, turn_key)
     # 바리에이션이 하나뿐이면 고를 것이 없다 — 추출을 기다리지 않는다
-    variation = (await turn_variation(preparation, ctx.actor_id)
-                 if len(ctx.card.get("variations") or {}) > 1 else None)
+    else:
+        variation = (await turn_variation(preparation, ctx.actor_id)
+                     if len(ctx.card.get("variations") or {}) > 1 else None)
     t0 = time.monotonic()
     png = await asyncio.to_thread(render_png, ctx.world, ctx.card, ctx.known, variation)
     _log_card(session, ctx, variation, ms=int((time.monotonic() - t0) * 1000), size=len(png or b""))
@@ -1109,6 +1131,45 @@ def check_card_definition(scenario: dict, *, definition: dict | None = None, bas
     for s in name_slots:
         if s not in slots:
             err("CARD_NAME_SLOT", "speaker_card.name_slots", f"정의되지 않은 슬롯 {s}")
+    fixed = cfg.get("fixed_speakers")
+    if fixed is not None and not isinstance(fixed, dict):
+        err("CARD_FIXED_SPEAKERS", "speaker_card.fixed_speakers", "fixed_speakers는 {화자 이름: 카드}")
+        fixed = {}
+    for name, card in (fixed or {}).items():
+        fp = f"speaker_card.fixed_speakers.{name}"
+        if not isinstance(card, dict) or not name:
+            err("CARD_FIXED_SPEAKERS", fp, "카드 정의가 필요합니다")
+            continue
+        if name in (plain or ()):
+            err("CARD_FIXED_SPEAKERS", fp, "plain_speakers와 같은 이름을 둘 수 없습니다")
+        if "knowledge" in card:
+            err("CARD_FIXED_SPEAKERS", fp, "고정 카드는 knowledge(인지 조건)를 두지 않습니다")
+        if card.get("assign") not in (None, ASSIGN_TURN_RANDOM):
+            err("CARD_FIXED_SPEAKERS", f"{fp}.assign", f"assign은 {ASSIGN_TURN_RANDOM} 또는 생략")
+        variations = card.get("variations") or {}
+        if actor_default_variation(cfg, card) not in variations:
+            err("CARD_VARIATION", fp, "기본 바리에이션 자산이 없습니다")
+        for v, rel in variations.items():
+            check_asset(rel, f"{fp}.variations.{v}")
+        values, seen = card.get("values") or {}, set()
+        for r, rule in enumerate(card.get("rules") or []):
+            rp = f"{fp}.rules[{r}]"
+            if ((rule or {}).get("when") or {}) != {"always": True}:
+                err("CARD_RULE_WHEN", rp, "고정 카드 규칙의 when은 {\"always\": true}만 허용합니다")
+            for slot, eff in ((rule or {}).get("set") or {}).items():
+                if slot in seen:
+                    err("CARD_SLOT_CONFLICT", rp, f"슬롯 {slot}을 다른 규칙도 제어합니다")
+                seen.add(slot)
+                spec = slots.get(slot)
+                if spec is None:
+                    err("CARD_SLOT", rp, f"정의되지 않은 슬롯 {slot}")
+                elif (eff or {}).get("variation_image"):
+                    if spec.get("kind") != "image":
+                        err("CARD_VARIATION", rp, "variation_image는 image 슬롯 전용")
+                elif (eff or {}).get("value") not in values:
+                    err("CARD_VALUE", rp, f"values에 없는 키 {(eff or {}).get('value')!r}")
+                else:
+                    _check_value(spec, values[eff["value"]], f"{fp}.values.{eff['value']}", presets, check_asset, err)
     for aid, card in (cfg.get("actors") or {}).items():
         ap = f"speaker_card.actors.{aid}"
         if definition is not None and aid not in actor_defs:

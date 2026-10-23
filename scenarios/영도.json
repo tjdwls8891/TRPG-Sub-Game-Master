@@ -35434,7 +35434,11 @@
       "cards/portraits/백인하.png": "b8dc8542058b6d3ce5f8f88c7ec497ef0bf1b059bd17533da942f8ae23abb3db",
       "cards/portraits/한도윤.png": "e757117801d73fe7f28b01e1eb5f99a29a3cb72b48a00ffe06a39eb04ef80e50",
       "cards/portraits/전성남.png": "786f79d4f14f4f1ca128f625f54221cc6dda7942fb41018fa40c20d5f3bc5ba0",
-      "cards/portraits/염기준.png": "a0ccbe7eec1e41003fdbb8f3805dc204eedf2e0d3318b301b393f006cb5d7b95"
+      "cards/portraits/염기준.png": "a0ccbe7eec1e41003fdbb8f3805dc204eedf2e0d3318b301b393f006cb5d7b95",
+      "cards/portraits/감염자_여.png": "e5aad0135a0ef6f048d5a7838589809d497099700242a0d5c1ed5cb557b95ce8",
+      "cards/portraits/감염자_남.png": "a29b09af9d3d8a6578bcd12ef4c67aeb0ea07e1f790fa11b7d97051b8500f8d5",
+      "cards/logos/infected_black.png": "7309bc4df215a74c97d59948f50c311b2444618536adb907b8b127f16acf67b8",
+      "cards/logos/infected_white.png": "a8458fb90559b3a95916d9c87022c18e60c3f7d1ac8ba4d85f8511c7de12834a"
     },
     "remove_classes": [
       "reference-text-paths"
@@ -39344,9 +39348,71 @@
         ]
       }
     },
-    "plain_speakers": [
-      "감염자"
-    ]
+    "plain_speakers": [],
+    "fixed_speakers": {
+      "감염자": {
+        "assign": "turn_random",
+        "default_variation": "female",
+        "variations": {
+          "female": "cards/portraits/감염자_여.png",
+          "male": "cards/portraits/감염자_남.png"
+        },
+        "values": {
+          "name": "감염자",
+          "latin": "INFECTED PERSON",
+          "age": "나이 미상",
+          "role": "감염자",
+          "role_detail": "소속 알 수 없음",
+          "faction_name": "INFECTED PERSON",
+          "logo_black": "cards/logos/infected_black.png",
+          "logo_white": "cards/logos/infected_white.png",
+          "accent": "#C8102E",
+          "panel": "#1E1E1E"
+        },
+        "rules": [
+          {
+            "when": {
+              "always": true
+            },
+            "set": {
+              "portrait": {
+                "variation_image": true
+              },
+              "name": {
+                "value": "name"
+              },
+              "role": {
+                "value": "role"
+              },
+              "latin_name": {
+                "value": "latin"
+              },
+              "age": {
+                "value": "age"
+              },
+              "role_detail": {
+                "value": "role_detail"
+              },
+              "faction_name": {
+                "value": "faction_name"
+              },
+              "logo_black": {
+                "value": "logo_black"
+              },
+              "logo_white": {
+                "value": "logo_white"
+              },
+              "faction_accent": {
+                "value": "accent"
+              },
+              "faction_panel": {
+                "value": "panel"
+              }
+            }
+          }
+        ]
+      }
+    }
   },
   "item_definitions": {
     "작은 배": {
