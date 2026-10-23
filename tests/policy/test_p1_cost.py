@@ -226,10 +226,14 @@ def test_estimate_uses_ledger_statistics_then_falls_back():
     _seed_ledger()
     est = core.estimate_turn(s, "PROCEED")
     assert est["basis"] == "시나리오 원장" and est["confidence"] == "mid"
-    assert "부가 호출" in est["breakdown"] and est["breakdown"]["부가 호출"][1] > 0
+    # v7.30(사용자 결정 3.b): 조건부 호출은 관측 발생률(여기 50%) ≥ 기준일 때만 상한에
+    assert est["conditional"]["부가 호출(조건부)"] == {"rate": 0.5, "included": True,
+                                                    "cost": est["breakdown"]["부가 호출(조건부)"][1]}
+    assert est["breakdown"]["부가 호출(조건부)"][1] > 0
+    assert est["conditional"]["추출 재시도(조건부)"]["included"] is False   # 관측 0% — 상한 제외
     assert est["input_tokens"]["narration"] >= 4000                       # 실측 비캐시 입력보다 작게 잡지 않음
     lo, hi = ES._out_range(s, "narration", "narration_out")
-    assert (lo, hi) == (900, int(900 * ES.CONSERVATIVE_FACTOR))
+    assert (lo, hi) == (900, 900)                                         # v7.30: 원장 분포 p10~p90(보수계수 없음)
     other = core.estimate_turn(_est_session("무협"), "PROCEED")            # 다른 시나리오 — 전역 원장
     assert other["basis"] == "전역 원장"
     # 표시 형식 불변(F8): 숫자만 바뀐다
@@ -242,7 +246,7 @@ def test_tts_estimate_excludes_thinking_and_uses_ledger_when_available(monkeypat
     s.cost_stats = {"narration": {"n": 5, "mean": 2000.0, "min": 1800, "max": 2200, "thought_mean": 1500.0}}
     ES._STATS_CACHE.clear()
     no_ledger = core.estimate_tts(s)
-    visible_hi = int((int(2200 * ES.CONSERVATIVE_FACTOR) - 1500) / ES.CHARS_TO_TOKENS)
+    visible_hi = int((2200 - 1500) / ES.CHARS_TO_TOKENS)                  # v7.30: 세션 관측 최대(보수계수 없음)
     assert no_ledger["max_ink"] == core.cost_to_ink(visible_hi * ES.TTS_KRW_PER_CHAR)
     _seed_ledger(tts=True)
     with_ledger = core.estimate_tts(s)

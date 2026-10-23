@@ -881,6 +881,12 @@ _OUTCOME_NOT_READY = "NOT_READY"
 _OUTCOME_SUPERSEDED = "SUPERSEDED"      # 더 새로운 시도가 현재 — 이 시도는 흐름을 소유하지 않음
 
 
+def _sys_text(config):
+    """비캐시 호출의 시스템 지시 문자열(캐시 호출은 None — 지시가 캐시 안에 있다)."""
+    t = getattr(config, "system_instruction", None)
+    return t if isinstance(t, str) else None
+
+
 class ExtractionProviderFailure(RuntimeError):
     """v7.29: 추출 provider 호출·파싱이 결과를 내지 못함(재시도 소진·stale) — 응답 처리 실패와 구별한다."""
 # 추출 재시도 컨텍스트 표식 — 이 표식이 있으면 같은 tx 준비 owner로 재개한다.
@@ -2459,6 +2465,9 @@ class GMCog(commands.Cog):
                "world_version": core.action_intent.world_version_id(session),
                "definition_revision": getattr(session, "definition_revision", None), "detail": detail}
         core.logs.warn("world", f"세계 진단 {code}", session=session, data=rec)
+        diags = getattr(prep, "world_diagnostics", None)   # v7.30: 그 턴 전수보고(층위활동)에 함께 싣는다(보조 — 실패 무관)
+        if isinstance(diags, list):
+            diags.append(rec)
 
     async def _world_conflict_outcome(self, session, prep, *, stage: str) -> str:
         prep.seal()
@@ -3158,11 +3167,19 @@ class GMCog(commands.Cog):
             if where != "INDEX":
                 print(f"⛔ [WP-E] 파생 메시지 매핑 보류({where}) — 재정합 전 되감기·재생성 차단")
 
-    async def _send_turn_cost_report(self, session, settlement) -> None:
-        """Settlement 파생 턴 비용 보고(마스터 전용). 재환산·재반올림 없음(AUD-022)."""
+    async def _send_turn_cost_report(self, session, settlement, prep=None) -> None:
+        """Settlement 파생 턴 비용 보고(마스터 전용). 재환산·재반올림 없음(AUD-022).
+        v7.30: 매 턴 전수보고 — 비용(주황)·층위활동(파랑)·세계 델타(초록), 한도 초과는 분리(core.master_report)."""
         master_ch = self.bot.get_channel(getattr(session, "master_ch_id", 0))
         log = list(getattr(session, "turn_cost_log", None) or [])
         session.turn_cost_log = []
+        if settlement is not None:            # v7.30: 예측·실제 대조 자동 수집(예측 되먹임 원천, 청구와 무관)
+            try:
+                _by = core.estimate.actual_by_line(log)
+                core.estimate.record_accuracy(session, getattr(session, "last_estimate", None), sum(_by.values()),
+                                              _by, transaction_id=getattr(settlement, "transaction_id", None))
+            except Exception as e:  # noqa: BLE001
+                print(f"[EST] 정확도 수집 실패(무시): {e}")
         if not master_ch or settlement is None:
             return
         try:
@@ -3173,7 +3190,9 @@ class GMCog(commands.Cog):
                 free_krw=float(getattr(session, "profile_ai_cost_krw", 0.0) or 0.0),
                 settlement=settlement,
                 estimate=getattr(session, "last_estimate", None) or None)     # P1: 예상 대비(운영자 점검)
-            await master_ch.send(embed=embed)
+            await core.master_report.send(
+                master_ch, session, transaction_id=getattr(settlement, "transaction_id", None), cost_embed=embed,
+                cost_log=log, estimate=getattr(session, "last_estimate", None) or None, prep=prep)
         except Exception as e:
             print(f"[WP-D] 턴 비용 보고 실패(커밋 유지): {e}")
 
@@ -3206,7 +3225,7 @@ class GMCog(commands.Cog):
             # WP-E(E-E2): 재생성 교체의 durable 정리 부채(SELECT와 같은 라인)를 실행한다 —
             #   선택 전환이 COMMITTED 이후에만 일어나므로 이전 출력 삭제도 그 이후뿐이다.
             await self._drain_history_cleanup(session)
-            await self._send_turn_cost_report(session, result.settlement)
+            await self._send_turn_cost_report(session, result.settlement, prep)
             try:
                 await core.refresh_display(self.bot, session, reason="turn_end")
             except Exception as e:
@@ -3722,9 +3741,10 @@ class GMCog(commands.Cog):
                                                "breakdown": est.get("breakdown"),
                                                "tts": _tts if _tts.get("enabled") else None}, session=session)
             await m_send(
-                f"💰 **[예상]** {core.format_estimate(est, _tts if _tts['enabled'] else None)}\n"
-                f"> 입력 {est['input_tokens']['instruction']:,} + 캐시 "
-                f"{est['input_tokens']['cached']:,} 토큰"
+                f"💰 **[예상]** {core.format_estimate(est, _tts if _tts['enabled'] else None)} "
+                f"(중앙 {est.get('mid_krw', 0):.2f}원)\n"
+                + "".join(f"> {ln}\n" for ln in core.estimate.format_estimate_detail(est))
+                + f"> 캐시 {est['input_tokens']['cached']:,} 토큰"
             )
         except Exception as e:
             print(f"[EST] 예상 산출 실패(진행에는 영향 없음): {e}")
@@ -4253,7 +4273,11 @@ class GMCog(commands.Cog):
                 session.turn_cost_log.append({
                     "label": "판단층위", "cost": cost,
                     "in": in_tokens, "cached": cached_tokens, "out": out_tokens,
-                    "manifest": [],
+                    "manifest": [], "layer": "judgment",
+                    # v7.30: 로우 입력 구성(확정·유력·가변·키워드) — 보고·예측 공용
+                    "census": core.prompt_census.record(
+                        session, "judgment", contents, system_text=_sys_text(config),
+                        in_tokens=in_tokens, cached_tokens=cached_tokens),
                 })
             except Exception as e:
                 print(f"[GM] 판단층위 비용 정산 실패: {e}")
@@ -4518,7 +4542,10 @@ class GMCog(commands.Cog):
             session.turn_cost_log.append({
                 "label": "지시층위", "cost": cost,
                 "in": in_tokens, "cached": cached_tokens, "out": out_tokens,
-                "manifest": list(getattr(session, "gm_last_logic_manifest", [])),
+                "manifest": list(getattr(session, "gm_last_logic_manifest", [])), "layer": "instruction",
+                "census": core.prompt_census.record(
+                    session, "instruction", logic_contents, system_text=_sys_text(config),
+                    in_tokens=in_tokens, cached_tokens=cached_tokens),
             })
         except Exception as e:
             print(f"[GM] Logic 비용 정산 실패: {e}")
@@ -6106,7 +6133,10 @@ class GMCog(commands.Cog):
                 session.turn_cost_log.append({
                     "label": "추출층위", "cost": cost,
                     "in": in_tokens, "cached": cached_tokens, "out": out_tokens,
-                    "manifest": [],
+                    "manifest": [], "layer": "extraction",
+                    "census": core.prompt_census.record(
+                        session, "extraction", contents, system_text=_sys_text(config),
+                        in_tokens=in_tokens, cached_tokens=cached_tokens),
                 })
             except Exception as e:
                 print(f"[GM] 추출층위 비용 정산 실패: {e}")
@@ -7038,6 +7068,7 @@ async def setup(bot):
     # 중복 등록은 무해하지만 방어적으로 플래그를 둔다.
     if not getattr(bot, "_extraction_view_registered", False):
         bot.add_view(ExtractionRetryView(bot))
+        bot.add_dynamic_items(core.master_report.SecretButton)     # v7.30: 전수보고 비밀 원문(재시작 뒤에도)
         bot.add_view(RewindView(bot))
         bot.add_view(core.DisplayView(bot))
         bot.add_view(core.GMHomeView(bot))

@@ -53,6 +53,13 @@ CONFIDENCE_HIGH = 10
 #   · 같은 모델의 공급자 실측(PROVIDER_METADATA)만. 결측 차원(옛 이벤트의 scenario_id 없음)은 전역에만 든다.
 #   · 표본 MIN_LEDGER_SAMPLES 미만 그룹은 쓰지 않는다(한두 건으로 급전환 금지).
 MIN_LEDGER_SAMPLES = 5
+# v7.30(사용자 결정): 범위 폭 = 가변분·출력 분포의 p10~p90. 조건부 호출(선언 검증·부가 호출)은 관측 발생률이
+#   COND_RATE_MIN 이상일 때만 상한에 넣는다(발생률 미상이면 넣지 않고 표시만).
+P_LO, P_HI = 0.1, 0.9
+COND_RATE_MIN = 0.2
+SAMPLE_CAP = 40
+ACCURACY_PATH = "data/cost_estimate_accuracy.jsonl"   # 예측·실제 대조(시나리오·모드) — 예측 폭 되먹임 원천
+FEEDBACK_MIN, FEEDBACK_WINDOW = 10, 20
 LAYER_OPS = {"judgment": "TURN_JUDGMENT", "simulation": "TURN_SIMULATION", "instruction": "TURN_INSTRUCTION",
              "narration": "TURN_NARRATION", "extraction": "TURN_EXTRACTION"}
 AUX_OPS = ("TURN_IRREGULAR_NPC", "TURN_NPC_PROFILE", "TURN_NARRATIVE_PLANNING")   # 조건부 부가 호출
@@ -99,18 +106,24 @@ def ledger_profile(path: str | None = None) -> dict | None:
         if r.get("usage_source") != CL.SOURCE_PROVIDER_METADATA or not r.get("success", True):
             continue
         op = r.get("operation")
-        sc = ((r.get("metadata") or {}).get("scenario_id")) or None
+        md = r.get("metadata") or {}
+        sc = md.get("scenario_id") or None
+        scm = f"{sc}|{md['world_mode']}" if sc and md.get("world_mode") else None   # v7.30: 시나리오 + 모드
         model = r.get("model") or DEFAULT_MODEL
         fresh = max(0, int(r.get("input_tokens") or 0) - int(r.get("cached_input_tokens") or 0))
         if op in LAYER_OPS.values() and model == DEFAULT_MODEL:
-            for scope in (("*", sc) if sc else ("*",)):
+            for scope in tuple(x for x in ("*", sc, scm) if x):
                 d = ops.setdefault(scope, {}).setdefault(op, {"out": [], "fresh": []})
                 d["out"].append(int(r.get("output_tokens") or 0))
                 d["fresh"].append(fresh)
         tx = r.get("transaction_id")
+        if tx:
+            t = by_tx.setdefault(tx, {"sc": sc, "scm": scm, "narr": False, "aux": 0.0, "tts": 0.0, "ops": set()})
+            t["sc"], t["scm"] = t["sc"] or sc, t["scm"] or scm
+            t["ops"].add(op)
+            if op == "TURN_EXTRACTION":
+                t["ext"] = t.get("ext", 0) + 1
         if tx and (op == "TURN_NARRATION" or op in AUX_OPS or op == "TTS_RUNTIME"):
-            t = by_tx.setdefault(tx, {"sc": sc, "narr": False, "aux": 0.0, "tts": 0.0})
-            t["sc"] = t["sc"] or sc
             if op == "TURN_NARRATION":
                 t["narr"] = True
             elif op == "TTS_RUNTIME":
@@ -119,16 +132,23 @@ def ledger_profile(path: str | None = None) -> dict | None:
             else:
                 t["aux"] += _priced(model, r.get("input_tokens") or 0, r.get("cached_input_tokens") or 0,
                                     r.get("output_tokens") or 0)
-    turns = {}
+    turns, counts = {}, {}
     for t in by_tx.values():
         if not t["narr"]:
             continue                                  # 정상 묘사가 있었던 턴만(부가 호출 발생률의 분모)
-        for scope in (("*", t["sc"]) if t["sc"] else ("*",)):
+        for scope in tuple(x for x in ("*", t["sc"], t["scm"]) if x):
             d = turns.setdefault(scope, {"aux": [], "tts": []})
             d["aux"].append(t["aux"])
             if t["tts"] > 0:
                 d["tts"].append(t["tts"])
-    val = {"ops": ops, "turns": turns}
+            c = counts.setdefault(scope, {"_turns": 0})
+            c["_turns"] += 1
+            for o in t["ops"] | ({"_AUX"} if t["ops"] & set(AUX_OPS) else set()) \
+                    | ({"_EXTRACTION_RETRY"} if t.get("ext", 0) >= 2 else set()):
+                c[o] = c.get(o, 0) + 1
+    rates = {sc_: {o: n / c["_turns"] for o, n in c.items() if o != "_turns"} | {"_turns": c["_turns"]}
+             for sc_, c in counts.items()}
+    val = {"ops": ops, "turns": turns, "rates": rates}
     _STATS_CACHE.update(key=key, val=val)
     return val
 
@@ -139,11 +159,30 @@ def _ledger_group(session, getter):
     if not prof:
         return None, None
     sc = getattr(session, "scenario_id", None)
-    for scope, label in (((sc, "시나리오 원장"),) if sc else ()) + (("*", "전역 원장"),):
+    scm = f"{sc}|{_mode(session)}" if sc else None
+    for scope, label in (((scm, "시나리오·모드 원장"), (sc, "시나리오 원장")) if sc else ()) + (("*", "전역 원장"),):
         vals = getter(prof, scope)
         if vals and len(vals) >= MIN_LEDGER_SAMPLES:
             return vals, label
     return None, None
+
+
+def _mode(session) -> str:
+    """원장 차원과 같은 모드 판정(정의 바인딩 = DYNAMIC) — cost_ledger.session_dims와 같은 규칙."""
+    return "DYNAMIC" if getattr(session, "definition_revision", None) else "LEGACY"
+
+
+def cond_rate(session, op: str):
+    """조건부 호출의 관측 발생률(정상 묘사 턴 대비) — 시나리오·모드 → 시나리오 → 전역, 표본 부족이면 None."""
+    prof = ledger_profile()
+    if not prof:
+        return None
+    sc = getattr(session, "scenario_id", None)
+    for scope in ((f"{sc}|{_mode(session)}", sc) if sc else ()) + ("*",):
+        r = (prof.get("rates") or {}).get(scope)
+        if r and r.get("_turns", 0) >= MIN_LEDGER_SAMPLES:
+            return float(r.get(op, 0.0))
+    return None
 
 
 def _tok(text: str) -> int:
@@ -191,6 +230,7 @@ def update_stats(session, layer: str, out_tokens: int, thought_tokens: int = 0) 
     entry["min"] = out_tokens if entry["min"] is None else min(entry["min"], out_tokens)
     entry["max"] = out_tokens if entry["max"] is None else max(entry["max"], out_tokens)
     entry["n"] = n
+    entry["samples"] = (list(entry.get("samples") or []) + [int(out_tokens)])[-SAMPLE_CAP:]   # v7.30: p10~p90용
     st[layer] = entry
     return entry
 
@@ -206,14 +246,15 @@ def _out_range(session, layer: str, baseline_key: str) -> tuple:
         vals, _label = _ledger_group(session, lambda p, sc: ((p["ops"].get(sc) or {}).get(op) or {}).get("out")) \
             if op else (None, None)
         if vals:
-            return (int(_pct(vals, 0.1)), int(_pct(vals, 0.95) * CONSERVATIVE_FACTOR))
+            return (int(_pct(vals, P_LO)), int(_pct(vals, P_HI)))
     if not st or st["n"] == 0:
         # 콜드 스타트 — 기본값 기준으로 넓게 잡는다.
         return (int(base * 0.6), int(base * 1.6 * CONSERVATIVE_FACTOR))
+    if len(st.get("samples") or ()) >= CONFIDENCE_MID:          # v7.30: 세션 실측 분포의 p10~p90
+        return (int(_pct(st["samples"], P_LO)), int(_pct(st["samples"], P_HI)))
     lo = st["min"] if st["min"] is not None else int(st["mean"] * 0.6)
     hi = st["max"] if st["max"] is not None else int(st["mean"] * 1.6)
-    # 관측 최대보다 보수적으로 잡아, 예상 초과로 잔액이 음수가 되는 일을 줄인다.
-    return (int(lo), int(hi * CONSERVATIVE_FACTOR))
+    return (int(lo), int(hi))
 
 
 def estimate_input_tokens(session, action: str = "PROCEED") -> dict:
@@ -242,10 +283,9 @@ def estimate_input_tokens(session, action: str = "PROCEED") -> dict:
         # 원인을 드러내고, 최소한 캐시 외 입력이 0이 되지 않도록 보수적 기본값을 쓴다.
         print(f"⚠️ [예측] 프롬프트 조립 실패 — 기본값 사용: {type(e).__name__}: {e}")
         body = FALLBACK_BODY_TOKENS
-    calib = get_calibration(session)
-    body = int(body * calib)
-    out["instruction"] = body
-    out["narration"] = body
+    # v7.30(D2): 보정계수는 층위별 — 지시·묘사의 실제 입력 구성이 달라 하나를 공유하면 서로를 흔든다
+    out["instruction"] = int(body * get_calibration(session, "instruction"))
+    out["narration"] = int(body * get_calibration(session, "narration"))
 
     # 판단층위 — 최근 로그 5개 + 능력치 + 노트 (캐시 미사용)
     try:
@@ -278,6 +318,122 @@ def estimate_input_tokens(session, action: str = "PROCEED") -> dict:
     return out
 
 
+def census_range(session, layer: str):
+    """v7.30: 실제 보낸 입력의 분류 이력(prompt_census) → 다음 호출 비캐시 입력 (lo, mid, hi).
+
+    확정 = 직전 관측값(다음 턴에도 반드시 들어가는 블록), 유력·가변 = 최근 분포의 p10~p90(중앙은 p50).
+    표본 CONFIDENCE_MID 미만이면 None(기존 조립·원장 방식으로 대체)."""
+    from .prompt_census import FIXED, LIKELY, VARIABLE
+    hist = (_stats(session).get("_census") or {}).get(layer) or []
+    if len(hist) < CONFIDENCE_MID:
+        return None
+    fixed = int(hist[-1].get(FIXED, 0))
+    lo = mid = hi = fixed
+    for c in (LIKELY, VARIABLE):
+        vals = [int(h.get(c, 0)) for h in hist]
+        lo += int(_pct(vals, P_LO))
+        mid += int(_pct(vals, 0.5))
+        hi += int(_pct(vals, P_HI))
+    return lo, mid, hi
+
+
+def _scope_key(session) -> str:
+    return f"{getattr(session, 'scenario_id', None) or '*'}|{_mode(session)}"
+
+
+_ACC_CACHE: dict = {}
+
+
+def feedback_factor(session, path: str | None = None):
+    """예측 정확도 되먹임 — 같은 시나리오·모드의 최근 FEEDBACK_WINDOW건 실제/예측중앙 비율 중앙값(0.7~1.3).
+
+    표본 FEEDBACK_MIN 미만이면 1.0. 파일이 없거나 읽지 못하면 1.0(예측은 계속된다)."""
+    import os
+    path = path or ACCURACY_PATH
+    try:
+        st = os.stat(path)
+    except OSError:
+        return 1.0
+    key = (path, st.st_mtime_ns, st.st_size)
+    rows = _ACC_CACHE.get(key)
+    if rows is None:
+        import json
+        rows = []
+        try:
+            with open(path, encoding="utf-8") as f:
+                for line in f:
+                    try:
+                        rows.append(json.loads(line))
+                    except ValueError:
+                        continue
+        except OSError:
+            return 1.0
+        _ACC_CACHE.clear()
+        _ACC_CACHE[key] = rows
+    scope = _scope_key(session)
+    ratios = [r["actual_krw"] / r["mid_krw"] for r in rows
+              if r.get("scope") == scope and (r.get("mid_krw") or 0) > 0 and r.get("actual_krw") is not None]
+    ratios = ratios[-FEEDBACK_WINDOW:]
+    if len(ratios) < FEEDBACK_MIN:
+        return 1.0
+    return max(0.7, min(1.3, float(_pct(ratios, 0.5))))
+
+
+_LINE_OF_LABEL = {"선언 검증": "선언 검증(조건부)", "NPC 설정 생성": "부가 호출(조건부)",
+                  "비정규 NPC 배정": "부가 호출(조건부)", "서사 설계자(계획)": "부가 호출(조건부)"}
+_LINE_OF_LAYER = {"judgment": "판단층위", "instruction": "지시층위", "narration": "묘사층위", "extraction": "추출층위"}
+
+
+def actual_by_line(cost_log) -> dict:
+    """턴 호출 내역(turn_cost_log) → 예상 내역과 같은 항목명별 실제 원가(TTS는 예상과 별도라 뺀다).
+    같은 턴 두 번째 추출 호출은 '추출 재시도(조건부)'다."""
+    from .constants import TTS_MODEL
+    out, ext = {}, 0
+    for e in cost_log or ():
+        if e.get("model") == TTS_MODEL or str(e.get("label", "")).startswith("TTS"):
+            continue
+        name = _LINE_OF_LAYER.get(e.get("layer")) or _LINE_OF_LABEL.get(e.get("label")) or e.get("label") or "?"
+        if name == "추출층위":
+            ext += 1
+            if ext >= 2:
+                name = "추출 재시도(조건부)"
+        if str(name).startswith("묘사층위"):
+            name = "묘사층위"
+        out[name] = out.get(name, 0.0) + float(e.get("cost") or 0.0)
+    return out
+
+
+def record_accuracy(session, est: dict | None, actual_krw: float, per_layer: dict | None = None,
+                    *, transaction_id: str | None = None, path: str | None = None) -> dict | None:
+    """커밋된 턴의 예측·실제를 append-only로 남긴다(예측 데이터 자동 수집 — 다음 예측 폭 되먹임 원천).
+
+    실패는 흡수한다(보고·예측 보조 — 청구와 무관)."""
+    if not est:
+        return None
+    import json
+    import os
+    import time
+    row = {"t": round(time.time(), 1), "scope": _scope_key(session),
+           "session_id": getattr(session, "session_id", None), "tx": transaction_id,
+           "turn": getattr(session, "turn_count", None),
+           "min_krw": est.get("min_krw"), "mid_krw": est.get("mid_krw"), "max_krw": est.get("max_krw"),
+           "actual_krw": round(float(actual_krw or 0.0), 4),
+           "in_range": bool((est.get("min_krw") or 0) <= (actual_krw or 0) <= (est.get("max_krw") or 0)),
+           "layers": {k: {"pred": list(v), "actual": round(float((per_layer or {}).get(k, 0.0)), 4)}
+                      for k, v in (est.get("breakdown") or {}).items()},
+           "unlisted_actual": {k: round(float(v), 4) for k, v in (per_layer or {}).items()
+                               if k not in (est.get("breakdown") or {})}}
+    try:
+        path = path or ACCURACY_PATH
+        os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
+        with open(path, "a", encoding="utf-8") as f:
+            f.write(json.dumps(row, ensure_ascii=False) + "\n")
+    except OSError as e:
+        print(f"[EST] 정확도 기록 실패(무시): {e}")
+        return None
+    return row
+
+
 def estimate_turn(session, action: str = "PROCEED") -> dict:
     """이번 턴 예상 비용을 범위로 산출한다.
 
@@ -306,46 +462,65 @@ def estimate_turn(session, action: str = "PROCEED") -> dict:
         except Exception:
             return 0.0
 
-    lo_total = hi_total = 0.0
-    breakdown = {}
+    breakdown, mids, conditional, in_ranges = {}, {}, {}, {}
+    c = inp["cached"]
+
+    def _layer(name, layer, base_key, cached):
+        """한 층위: 비캐시 입력 (lo, mid, hi) — 입력 분류 이력이 있으면 확정 + 유력·가변 p10~p90, 없으면 조립·원장 점값."""
+        cr = census_range(session, layer)
+        lo_in, mid_in, hi_in = cr if cr else (inp[layer],) * 3
+        in_ranges[layer] = {"lo": lo_in, "mid": mid_in, "hi": hi_in, "basis": "입력 분류" if cr else "조립·원장"}
+        o_lo, o_hi = _out_range(session, layer, base_key)
+        breakdown[name] = (_cost(lo_in + cached, o_lo, cached), _cost(hi_in + cached, o_hi, cached))
+        mids[name] = _cost(mid_in + cached, (o_lo + o_hi) / 2, cached)
+
+    def _conditional(name, op, cost_hi):
+        """조건부 호출(사용자 결정 3.b) — 관측 발생률 ≥ COND_RATE_MIN일 때만 상한에, 중앙엔 발생률 × 비용."""
+        rate = cond_rate(session, op)
+        inc = rate is not None and rate >= COND_RATE_MIN and cost_hi > 0
+        conditional[name] = {"rate": None if rate is None else round(rate, 3), "included": inc,
+                             "cost": round(float(cost_hi), 2)}
+        if inc:
+            breakdown[name] = (0.0, float(cost_hi))
+            mids[name] = float(cost_hi) * rate
 
     # 판단층위 — 모든 action에 공통
-    j_lo, j_hi = _out_range(session, "judgment", "judgment_out")
-    breakdown["판단층위"] = (_cost(inp["judgment"], j_lo, 0), _cost(inp["judgment"], j_hi, 0))
+    _layer("판단층위", "judgment", "judgment_out", 0)
 
     # 개연성 시뮬레이션 — 판단 전에 실행(gm._call_gm_logic의 do_simulation과 같은 조건).
-    # v7.23: DYNAMIC은 매 발화 시뮬레이션이 없다 — 판단이 발견·결과 선취를 표시할 때만 선언 검증 1회(하한 0).
+    # v7.23: DYNAMIC은 매 발화 시뮬레이션이 없다 — 판단이 발견·결과 선취를 표시할 때만 선언 검증 1회(조건부).
     sim = _simulation_runs(session)
     if sim and _dynamic(session):
-        g_in = inp["cached"] + DECLARATION_CHECK_FIXED_TOKENS + inp["simulation"] - SIMULATION_FIXED_TOKENS
-        breakdown["선언 검증(조건부)"] = (0.0, _cost(g_in, DECLARATION_CHECK_OUT, inp["cached"]))
+        g_in = c + DECLARATION_CHECK_FIXED_TOKENS + inp["simulation"] - SIMULATION_FIXED_TOKENS
+        _conditional("선언 검증(조건부)", "TURN_DECLARATION_CHECK", _cost(g_in, DECLARATION_CHECK_OUT, c))
     elif sim:
         s_lo, s_hi = _out_range(session, "simulation", "simulation_out")
-        s_in = inp["simulation"] + inp["cached"]
-        breakdown["개연성 시뮬레이션"] = (_cost(s_in, s_lo, inp["cached"]), _cost(s_in, s_hi, inp["cached"]))
+        s_in = inp["simulation"] + c
+        breakdown["개연성 시뮬레이션"] = (_cost(s_in, s_lo, c), _cost(s_in, s_hi, c))
+        mids["개연성 시뮬레이션"] = _cost(s_in, (s_lo + s_hi) / 2, c)
 
     if action in ("NARRATE", "PROCEED"):
         # 단가 함수의 input_tokens는 캐시 적중분을 포함한 총량이다(본문만 넘기면 비캐시 입력이 0으로 계산된다).
-        c = inp["cached"]
-        i_lo, i_hi = _out_range(session, "instruction", "instruction_out")
-        breakdown["지시층위"] = (_cost(inp["instruction"] + c, i_lo, c), _cost(inp["instruction"] + c, i_hi, c))
-        n_lo, n_hi = _out_range(session, "narration", "narration_out")
-        breakdown["묘사층위"] = (_cost(inp["narration"] + c, n_lo, c), _cost(inp["narration"] + c, n_hi, c))
+        _layer("지시층위", "instruction", "instruction_out", c)
+        _layer("묘사층위", "narration", "narration_out", c)
 
     if action == "PROCEED":
-        e_lo, e_hi = _out_range(session, "extraction", "extraction_out")
-        breakdown["추출층위"] = (_cost(inp["extraction"], e_lo, 0), _cost(inp["extraction"], e_hi, 0))
-        # P1: 조건부 부가 호출(비정규 NPC·NPC 프로필·서사 재계획) — 원장의 턴당 발생 분포(현재 단가로 재계산)
+        _layer("추출층위", "extraction", "extraction_out", 0)
+        e_lo, e_hi = breakdown["추출층위"]
+        _conditional("추출 재시도(조건부)", "_EXTRACTION_RETRY", e_hi)
+        # P1: 조건부 부가 호출(비정규 NPC·NPC 프로필·서사 재계획) — 원장의 턴당 발생액(현재 단가로 재계산)
         aux, _label = _ledger_group(session, lambda p, sc: (p["turns"].get(sc) or {}).get("aux"))
-        if aux:
-            breakdown["부가 호출"] = (float(_pct(aux, 0.1)), float(_pct(aux, 0.95)) * CONSERVATIVE_FACTOR)
+        nz = [a for a in (aux or ()) if a > 0]
+        if nz:
+            _conditional("부가 호출(조건부)", "_AUX", float(_pct(nz, P_HI)))
         elif _aux_possible(session):
-            # 표본 없음 — 비정규 NPC 분석 1회 상한(묘사문 + 배정 출력)만 보수적으로
-            breakdown["부가 호출"] = (0.0, _cost(int(narr_hi_tokens(session)) + 500, 400, 0))
+            _conditional("부가 호출(조건부)", "_AUX", _cost(int(narr_hi_tokens(session)) + 500, 400, 0))
 
-    for lo, hi in breakdown.values():
-        lo_total += lo
-        hi_total += hi
+    # v7.30: 예측 정확도 되먹임(같은 시나리오·모드의 실제/예측 중앙 비율) — 범위 전체에 곱한다
+    fb = feedback_factor(session)
+    lo_total = sum(v[0] for v in breakdown.values()) * fb
+    hi_total = sum(v[1] for v in breakdown.values()) * fb
+    mid_total = min(max(sum(mids.values()) * fb, lo_total), hi_total)
 
     # 표본 수가 가장 적은 층위를 기준으로 신뢰도를 매긴다.
     st = _stats(session)
@@ -362,6 +537,7 @@ def estimate_turn(session, action: str = "PROCEED") -> dict:
 
     return {
         "min_krw": round(lo_total, 2),
+        "mid_krw": round(mid_total, 2),
         "max_krw": round(hi_total, 2),
         "min_ink": cost_to_ink(lo_total),
         "max_ink": cost_to_ink(hi_total),
@@ -369,6 +545,9 @@ def estimate_turn(session, action: str = "PROCEED") -> dict:
         "confidence": confidence,
         "basis": basis,
         "input_tokens": inp,
+        "input_ranges": in_ranges,
+        "conditional": conditional,
+        "feedback": round(fb, 3),
     }
 
 
@@ -497,13 +676,14 @@ def record_actual_input(session, layer: str, fresh_tokens: int) -> dict | None:
         return None
 
     st = _stats(session)
-    entry = st.get("_calib") or {"n": 0, "ratio": 1.0}
-    # 실측/예측 비율의 누적 평균 = 보정 계수
-    ratio = fresh_tokens / predicted
+    key = f"_calib_{layer}"                       # v7.30(D2): 층위별 계수
+    entry = st.get(key) or {"n": 0, "ratio": 1.0}
+    # 실측/예측 비율의 누적 평균 = 보정 계수(예측값은 이미 이 층위 계수가 곱해진 값 — 원 조립값 기준으로 되돌린다)
+    ratio = fresh_tokens / (predicted / get_calibration(session, layer))
     n = entry["n"] + 1
     entry["ratio"] = entry["ratio"] + (ratio - entry["ratio"]) / n
     entry["n"] = n
-    st["_calib"] = entry
+    st[key] = entry
 
     err = (predicted - fresh_tokens) / fresh_tokens * 100
     print(f"[EST] {layer} 예측={predicted:,} 실제={fresh_tokens:,} "
@@ -512,9 +692,10 @@ def record_actual_input(session, layer: str, fresh_tokens: int) -> dict | None:
             "error_pct": round(err, 1), "calib": round(entry["ratio"], 3)}
 
 
-def get_calibration(session) -> float:
-    """학습된 보정 계수. 표본이 없으면 1.0."""
-    entry = _stats(session).get("_calib")
+def get_calibration(session, layer: str | None = None) -> float:
+    """학습된 보정 계수(층위별, 옛 세션의 공유 계수는 층위 표본이 없을 때만). 표본이 없으면 1.0."""
+    st = _stats(session)
+    entry = (st.get(f"_calib_{layer}") if layer else None) or st.get("_calib")
     if not entry or entry.get("n", 0) < 2:
         return 1.0
     # 극단값 방어 — 0.5~2.0 범위로 제한
@@ -546,7 +727,7 @@ def estimate_tts(session) -> dict:
     # P1: 원장의 턴당 TTS 실측(현재 단가로 재계산)이 있으면 그 분포를 쓴다
     tts, _label = _ledger_group(session, lambda p, sc: (p["turns"].get(sc) or {}).get("tts"))
     if tts:
-        return {"min_ink": cost_to_ink(_pct(tts, 0.1)), "max_ink": cost_to_ink(_pct(tts, 0.95) * CONSERVATIVE_FACTOR),
+        return {"min_ink": cost_to_ink(_pct(tts, P_LO)), "max_ink": cost_to_ink(_pct(tts, P_HI)),
                 "enabled": True}
     lo, hi = _out_range(session, "narration", "narration_out")
     # 더빙 대상은 **가시 본문**뿐이다 — 사고 토큰은 읽지 않는다(이전 산식은 사고분까지 문자로 환산했다)
@@ -559,6 +740,23 @@ def estimate_tts(session) -> dict:
         "max_ink": cost_to_ink(hi_chars * TTS_KRW_PER_CHAR),
         "enabled": True,
     }
+
+
+def format_estimate_detail(est: dict) -> list:
+    """v7.30 마스터 전용 — 층위별 입력 범위(확정·유력·가변 근거)·조건부 호출 발생률·되먹임 계수."""
+    names = {"judgment": "판단", "instruction": "지시", "narration": "묘사", "extraction": "추출"}
+    lines = []
+    ir = est.get("input_ranges") or {}
+    if ir:
+        lines.append("입력(비캐시) " + " · ".join(
+            f"{names.get(k, k)} {v['lo']:,}~{v['hi']:,}" + ("" if v.get("basis") == "입력 분류" else "*")
+            for k, v in ir.items()) + (" (*조립·원장 점값)" if any(v.get("basis") != "입력 분류" for v in ir.values()) else ""))
+    for k, v in (est.get("conditional") or {}).items():
+        rate = "미상" if v.get("rate") is None else f"{v['rate'] * 100:.0f}%"
+        lines.append(f"{k} 발생률 {rate} → {'상한 포함' if v.get('included') else '제외'} (1회 {v.get('cost', 0):.2f}원)")
+    if est.get("feedback", 1.0) != 1.0:
+        lines.append(f"정확도 되먹임 ×{est['feedback']}")
+    return lines
 
 
 def format_estimate(est: dict, tts: dict | None = None) -> str:

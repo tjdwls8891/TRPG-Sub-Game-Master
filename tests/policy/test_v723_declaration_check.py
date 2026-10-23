@@ -289,8 +289,14 @@ def test_G21_estimate_dynamic_has_conditional_check_not_simulation(crig, monkeyp
     r = crig
     est = core.estimate_turn(r.sess, "PROCEED")
     assert "개연성 시뮬레이션" not in est["breakdown"]
-    lo, hi = est["breakdown"]["선언 검증(조건부)"]
+    # v7.30(사용자 결정 3.b): 발생률 미상 → 상한 제외(표시만), 관측 발생률 ≥ 기준 → 상한 포함(하한 0)
+    assert est["conditional"]["선언 검증(조건부)"]["included"] is False and "선언 검증(조건부)" not in est["breakdown"]
+    monkeypatch.setattr(core.estimate, "cond_rate", lambda s, op: 0.3)
+    est_r = core.estimate_turn(r.sess, "PROCEED")
+    lo, hi = est_r["breakdown"]["선언 검증(조건부)"]
     assert lo == 0.0 and hi > 0
+    monkeypatch.setattr(core.estimate, "cond_rate", lambda s, op: 0.1)
+    assert "선언 검증(조건부)" not in core.estimate_turn(r.sess, "PROCEED")["breakdown"]
     monkeypatch.setattr(core.turn_world, "session_is_dynamic", lambda s: False)   # LEGACY 판정 — 기존 예상 그대로
     est2 = core.estimate_turn(r.sess, "PROCEED")
     assert "개연성 시뮬레이션" in est2["breakdown"] and "선언 검증(조건부)" not in est2["breakdown"]

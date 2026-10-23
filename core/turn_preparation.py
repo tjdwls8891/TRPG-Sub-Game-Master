@@ -1031,6 +1031,7 @@ class TurnPreparation:
         self.card_variations = None              # SVG 카드: 추출층위가 고른 {ActorId: variation}(턴 로컬)
         self.identity_reveals = None             # P3 G3: 본문에서 실제 공개된 이름·얼굴 {InfoId: 문단 번호}(턴 로컬)
         self.world_observation_raw = None        # H05: 추출의 world_observation(원본 — 처리 전)
+        self.world_diagnostics = []              # v7.30: 마스터 진단 기록(전수보고 층위활동 — 비권위)
 
     # ── 정체성 ──
     def identity(self) -> tuple:

@@ -767,7 +767,12 @@ class GameCog(commands.Cog):
         session.turn_cost_log.append({
             "label": proceed_label, "cost": turn_cost,
             "in": in_tokens, "cached": cached_tokens, "out": out_tokens,
-            "manifest": list(getattr(session, "last_proceed_manifest", [])),
+            "manifest": list(getattr(session, "last_proceed_manifest", [])), "layer": "narration",
+            # v7.30: 로우 입력 구성(확정·유력·가변·키워드) — 보고·예측 공용(캐시 호출이면 시스템 지시는 캐시 안)
+            "census": core.prompt_census.record(
+                session, "narration", current_contents,
+                system_text=None if cached_tokens else getattr(self.bot, "system_instruction", None),
+                in_tokens=in_tokens, cached_tokens=cached_tokens),
         })
 
         full_ai_response = response.text
