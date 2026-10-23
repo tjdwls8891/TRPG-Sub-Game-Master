@@ -158,15 +158,23 @@ def test_yeongdo_start_items_are_scene_objects_and_boats_cannot_be_pocketed():
     s = Y._session()
     out = IT.genesis_item_state(D, s, WL.resolve_start_choices(D, {"id": "arrive_finding"})[0].items,
                                 source_prefix="start.arrive_finding")
-    here = sorted(r["key"] for r in out["place_items"].values() if r["place"] == "동삼동 갯가")
-    assert here == sorted(["낚싯바늘〈손상〉", "작은 배", "작업 장갑[켤레]〈손상〉", "합성섬유 밧줄[타래]"])
+    here = {r["key"]: r for r in out["place_items"].values() if r["place"] == "동삼동 갯가"}
+    assert sorted(here) == sorted(["작은 배", "파란 플라스틱 상자", "합성섬유 밧줄[타래]", "작업 장갑[켤레]〈손상〉",
+                                   "낚싯바늘〈손상〉"])
+    assert here["파란 플라스틱 상자"]["closed"] is True                  # v7.29: 보관함 = 닫힌 용기, 내용물은 그 안
+    assert all(here[k].get("inside") for k in ("합성섬유 밧줄[타래]", "작업 장갑[켤레]〈손상〉", "낚싯바늘〈손상〉"))
     s.resources, s.place_items = out["resources"], out["place_items"]
     m = IT.build_manifest(s, pc_name="테스터", scene_place="동삼동 갯가", defs=defs)
     take = lambda label: [{"op": "ACQUIRE", "owner": "O1", "item": key_of(m, label), "quantity": 1}]
     with pytest.raises(IT.ItemContractError):                          # 배는 주머니에 넣을 수 없다(운반 불가 등급)
         IT.build_plan(s, m, take("작은 배"), defs=defs, pc_name="테스터", transaction_id="t1")
-    IT.apply_plan(s, IT.build_plan(s, m, take("합성섬유 밧줄"), defs=defs, pc_name="테스터", transaction_id="t2"))
-    assert s.resources["테스터"]["합성섬유 밧줄[타래]"] == 1                 # 보관함 물건은 현장 물건으로 집을 수 있다
+    with pytest.raises(IT.ItemContractError):                          # 닫힌 상자 안의 물건은 열기 전에는 못 꺼낸다
+        IT.build_plan(s, m, take("합성섬유 밧줄"), defs=defs, pc_name="테스터", transaction_id="t2")
+    box = key_of(m, "파란 플라스틱 상자")
+    IT.apply_plan(s, IT.build_plan(s, m, [{"op": "OPEN", "owner": "O1", "item": box, "quantity": 1}] + take("합성섬유 밧줄"),
+                                   defs=defs, pc_name="테스터", transaction_id="t3"))
+    assert s.resources["테스터"]["합성섬유 밧줄[타래]"] == 1                 # 열고 꺼낸 것만 소지 — 나머지는 그 자리
+    assert "작업 장갑[켤레]〈손상〉" not in s.resources["테스터"]
     pipes = IT.genesis_item_state(D, Y._session(), WL.resolve_start_choices(D, {"id": "arrive_threat_finding"})[0].items)
     assert pipes["resources"]["신대호"]["아연도금 파이프"] == 2         # 그 시작에서만 인물 소지
     assert "아연도금 파이프" not in (IT.genesis_item_state(D, Y._session())["resources"].get("신대호") or {})

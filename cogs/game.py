@@ -1002,7 +1002,10 @@ class GameCog(commands.Cog):
             # WP-D: 자동 턴의 비용 보고는 결과(Settlement) 확정 이후 CommitCoordinator
             #   경로(GMCog)가 Settlement 값으로 송출한다 — READY 이전 독자 환산 금지.
 
-            await m_send(f"✅ 묘사 연출 완료 (현재 {_turn_no}턴 경과). 다음 턴 대기 중...")
+            if preparation is None:
+                await m_send(f"✅ 묘사 연출 완료 (현재 {_turn_no}턴 경과). 다음 턴 대기 중...")
+            else:                                     # v7.29: 자동 턴은 전달 ≠ 확정 — 확정은 커밋 뒤 보고가 알린다
+                await m_send(f"📨 {_turn_no}턴 묘사 전달 완료 — 추출·확정 대기 중...")
 
         except Exception as _e:
             # 부분 전달 실패 — 이미 생성된 ID를 실어 던진다(caller가 잃지 않게).

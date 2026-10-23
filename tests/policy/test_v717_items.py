@@ -408,17 +408,38 @@ def test_E07_member_capability_not_item_namespace():
 # F. 저장·회귀·호환·비용
 # ══════════════════════════════════════════════════════════════
 
-async def test_F01_contract_failure_leaves_everything_unchanged(drig):
+async def test_F01_contract_failure_never_partially_applies(drig):
+    # v7.29(사용자 승인 B1+B2): 거부 사유를 덧붙여 같은 턴 1회 재추출 → 또 거부되면 물건 연산만 빼고 턴 확정.
+    #   어느 경우에도 어긋난 연산은 부분 적용되지 않는다(물건 정본 불변).
     r = drig
     r.make()
     r.sess.resources = {"테스터": {"붕대": 1}}
     r.prov.routes["judgment"] = judgment()
-    r.prov.routes["extraction"] = [extraction({"item_ops": [
-        {"op": "CONSUME", "owner": "O1", "item": "H1", "quantity": 5}]})]
-    before = (copy.deepcopy(r.sess.resources), copy.deepcopy(r.sess.information_state))
+    bad = extraction({"item_ops": [{"op": "CONSUME", "owner": "O1", "item": "H1", "quantity": 5}]})
+    prompts = []
+
+    def _ext(kwargs):
+        prompts.append(kwargs["contents"][0].parts[0].text)
+        return bad
+    r.prov.routes["extraction"] = _ext
+    before = copy.deepcopy(r.sess.resources)
     tx = await turn(r, "붕대를 모두 쓴다")
-    assert tx.preparation.phase == core.turn_preparation.PREP_RETRY_PENDING
-    assert (r.sess.resources, r.sess.information_state) == before
+    assert len(prompts) == 2 and "정본 검증에서 거부됨" not in prompts[0]
+    assert "정본 검증에서 거부됨" in prompts[1] and "보유 1 < 5" in prompts[1]
+    assert tx.preparation.phase != core.turn_preparation.PREP_RETRY_PENDING      # 막다른 재시도 없음
+    assert r.sess.resources == before and r.sess.turn_count >= 1
+
+
+async def test_F01b_corrected_reextraction_applies_the_fixed_ops(drig):
+    r = drig
+    r.make()
+    r.sess.resources = {"테스터": {"붕대": 2}}
+    r.prov.routes["judgment"] = judgment()
+    r.prov.routes["extraction"] = [
+        extraction({"item_ops": [{"op": "CONSUME", "owner": "O1", "item": "H1", "quantity": 5}]}),
+        extraction({"item_ops": [{"op": "CONSUME", "owner": "O1", "item": "H1", "quantity": 1}]})]
+    await turn(r, "붕대를 하나 쓴다")
+    assert r.sess.resources["테스터"] == {"붕대": 1}
 
 
 async def test_F02_F03_commit_then_rewind_restores_item_fields(drig):

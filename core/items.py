@@ -28,7 +28,8 @@ import hashlib
 # ── 영속 필드(되감기 대상 게임 정본 — resources와 같은 커밋·이력 단위) ──
 ITEM_FIELDS = {
     "item_instances": {},   # {instance_id: {kind, name, owner, place, condition, info_refs, origin, previous_owners}}
-    "place_items": {},      # {source_id: {place, key, quantity, origin, by, tx}}
+    "place_items": {},      # {source_id: {place, key, quantity, origin, by, tx, closed?, inside?}}
+                            #   v7.29 용기: closed=True(닫힌 용기) · inside=용기 source_id(그 안의 물건)
     "item_facts": {},       # 직전 커밋 턴의 사용·지급 사실 {tx, used:[종류], paid:[종류]} — 다음 턴 사건 조건 입력
 }
 
@@ -222,7 +223,8 @@ class ItemManifest:
         if self.payments:
             lines.append("코드가 이미 처리한 지급(다시 적지 말 것): " + ", ".join(self.payments))
         lines.append("· TRANSFER owner→to 건넴 · ACQUIRE 현장 물건(L·D키)을 owner가 집음 · DROP owner가 내려놓음 · "
-                     "CONSUME 써 버림·잃음·파괴 · DAMAGE/REPAIR 상태 변화(condition) · OPEN 포장 개봉 · "
+                     "CONSUME 써 버림·잃음·파괴 · DAMAGE/REPAIR 상태 변화(condition) · OPEN 포장 개봉 또는 닫힌 용기(L키) 열기 — "
+                     "여는 것만이고 안의 물건을 집으면 따로 ACQUIRE · "
                      "CRAFT 완성된 제작(inputs 재료 소모, outputs 결과 — recipe가 있으면 그 키) · DISASSEMBLE 분해(outputs 회수 부품) · "
                      "READ 글·기록을 실제로 읽음 · USE 소모 없이 사용.")
         lines.append("· 보여 주기·만지기·시도만 한 것, 실패한 제작의 결과물, 묘사에 없는 이동은 넣지 말 것. 수량은 묘사에 "
@@ -232,6 +234,16 @@ class ItemManifest:
 
 def _owner_label(name, pc_name):
     return f"{name}(PC)" if name == pc_name else name
+
+
+def sealed(places: dict, rec: dict) -> bool:
+    """v7.29: 닫힌 용기 안의 물건인가 — 열기(OPEN) 전에는 꺼내거나 쓸 수 없다."""
+    box = places.get(rec.get("inside")) if rec.get("inside") else None
+    return bool(box and box.get("closed") and int(box.get("quantity") or 0) > 0)
+
+
+def _contents_of(places: dict, sid: str) -> list:
+    return [k for k, r in sorted(places.items()) if r.get("inside") == sid and int(r.get("quantity") or 0) > 0]
 
 
 def build_manifest(session, *, pc_name: str, scene_owner_names=(), scene_place=None, defs=None,
@@ -252,10 +264,19 @@ def build_manifest(session, *, pc_name: str, scene_owner_names=(), scene_place=N
     holdings = tuple((f"H{i}",) + h for i, h in enumerate(hold, 1))
     plc = []
     if scene_place:
-        for sid in sorted(getattr(session, "place_items", None) or {}):
-            r = session.place_items[sid]
-            if r.get("place") == scene_place and int(r.get("quantity") or 0) > 0:
-                plc.append((sid, None, r["key"], int(r["quantity"]), f"{r['key']} ×{r['quantity']}(바닥에 놓인 것)"))
+        pi = getattr(session, "place_items", None) or {}
+        here = [sid for sid in sorted(pi) if pi[sid].get("place") == scene_place and int(pi[sid].get("quantity") or 0) > 0]
+        lkey = {sid: f"L{i}" for i, sid in enumerate(here, 1)}
+        for sid in here:
+            r = pi[sid]
+            if r.get("closed"):
+                where = "바닥에 놓인 것 · 닫힌 용기 — OPEN으로 열 수 있음"
+            elif r.get("inside") in lkey:
+                where = (f"{lkey[r['inside']]} 안 · 닫혀 있어 열기 전에는 꺼낼 수 없음" if sealed(pi, r)
+                         else f"{lkey[r['inside']]} 안")
+            else:
+                where = "바닥에 놓인 것"
+            plc.append((sid, None, r["key"], int(r["quantity"]), f"{r['key']} ×{r['quantity']}({where})"))
         for iid in sorted(i for i, r in inst.items() if r.get("place") == scene_place and not r.get("owner")):
             plc.append((None, iid, None, 1, f"{_inst_label(inst[iid])}(바닥에 놓인 것)"))
     places = tuple((f"L{i}",) + p for i, p in enumerate(plc, 1))
@@ -423,10 +444,17 @@ def run_ops(session, ops, *, defs=None, pc_name, scene_place, transaction_id, re
                 rec = s.places.get(src["place_source"])
                 if rec is None or rec.get("place") != scene_place or int(rec.get("quantity") or 0) < q:
                     raise ItemContractError(f"{why}: 이 자리에 남은 수량 부족")
+                if sealed(s.places, rec):
+                    raise ItemContractError(f"{why}: {rec['key']}은(는) 닫힌 "
+                                            f"{s.places[rec['inside']]['key']} 안에 있어 열기(OPEN) 전에는 꺼낼 수 없음")
+                inner = _contents_of(s.places, src["place_source"])
                 rec["quantity"] = int(rec["quantity"]) - q
                 if rec["quantity"] == 0:
                     s.places.pop(src["place_source"])
                 s.give(op["to"], rec["key"], q, why)
+                for k in inner:                            # v7.29: 용기째 들면 안의 물건도 함께 든다
+                    r2 = s.places.pop(k)
+                    s.give(op["to"], r2["key"], int(r2["quantity"]), why)
             else:
                 raise ItemContractError(f"{why}: 원천 없는 획득")
         elif kind == "DROP":
@@ -472,6 +500,13 @@ def run_ops(session, ops, *, defs=None, pc_name, scene_place, transaction_id, re
                     raise ItemContractError(f"{why}: 상태 변화 없음")
                 s.take(op["from"], op["stock"], q, why)
                 s.give(op["from"], format_key(sid.kind, sid.unit, new), q, why)
+        elif kind == "OPEN" and op.get("place_source"):
+            rec = s.places.get(op["place_source"])
+            if rec is None or rec.get("place") != scene_place or int(rec.get("quantity") or 0) <= 0:
+                raise ItemContractError(f"{why}: 그 용기가 이 자리에 없음")
+            if not rec.get("closed"):
+                raise ItemContractError(f"{why}: {rec['key']}은(는) 닫힌 용기가 아님(이미 열렸거나 열 것이 없음)")
+            rec["closed"] = False                          # 여는 것만 — 안의 물건은 그 자리에 남는다
         elif kind == "OPEN":
             q = _qty(op["qty"], why)
             sid = parse_key(op["stock"], defs)[0]
@@ -584,6 +619,8 @@ def _subject_of(s, op, why) -> tuple:
         rec = s.places.get(op["place_source"])
         if rec is None or rec.get("place") != s.scene:
             raise ItemContractError(f"{why}: 이 자리에 없는 물건")
+        if sealed(s.places, rec):
+            raise ItemContractError(f"{why}: 닫힌 용기 안의 물건 — 열기(OPEN) 전에는 쓸 수 없음")
         key = rec["key"]
     elif key is None or s.bag(op["from"]).get(key, 0) <= 0:
         raise ItemContractError(f"{why}: {op.get('from')}이(가) 그 물건을 갖고 있지 않음")
@@ -621,6 +658,12 @@ def normalize_raw_ops(manifest: ItemManifest, raw_ops, *, discovery_taken=(), pc
             else:
                 raise ItemContractError(f"{why}: 현장 물건 키 {item!r} 후보 밖")
             out.append({**base, "to": owner, "source": src})
+            continue
+        if op == "OPEN" and hold is None and manifest.place_of(item) is not None:
+            pl = manifest.place_of(item)                 # v7.29: 이 자리의 닫힌 용기 열기
+            if pl[1] is None:
+                raise ItemContractError(f"{why}: {item!r}은(는) 열 수 있는 용기가 아님")
+            out.append({**base, "from": owner, "place_source": pl[1], "qty": 1})
             continue
         if op in ("READ", "USE") and hold is None:
             pl = manifest.place_of(item)
@@ -797,8 +840,18 @@ def item_block(session, *, pc_name, scene_owner_names=(), scene_place=None, defs
             lines.append(f"· {_owner_label(n, pc_name)}: " + (", ".join(items) if items else "(없음)"))
     here = []
     if scene_place:
-        here = [f"{r['key']} ×{r['quantity']}" for r in (getattr(session, "place_items", None) or {}).values()
-                if r.get("place") == scene_place and int(r.get("quantity") or 0) > 0]
+        pi = getattr(session, "place_items", None) or {}
+        here = []
+        for r in pi.values():
+            if r.get("place") != scene_place or int(r.get("quantity") or 0) <= 0:
+                continue
+            note = ""
+            if r.get("closed"):
+                note = "(닫힌 용기)"
+            elif r.get("inside") in pi:
+                note = (f"({pi[r['inside']]['key']} 안 — 닫혀 있다: 열기 전에는 보이지 않으므로 서술하지 말 것)"
+                        if sealed(pi, r) else f"({pi[r['inside']]['key']} 안)")
+            here.append(f"{r['key']} ×{r['quantity']}{note}")
         here += [_inst_label(r) for r in inst.values() if r.get("place") == scene_place and not r.get("owner")]
     if here:
         lines.append("· 이 자리에 놓인 물건: " + ", ".join(here))
@@ -853,6 +906,14 @@ def genesis_item_state(definition: dict, session, start_items=(), *, source_pref
             bag[sid.key] = (bag.get(sid.key, 0) if isinstance(bag.get(sid.key, 0), int) else 0) + qty
             res[it["owner"]] = bag
         else:
-            places[f"{source_prefix}.{n}"] = {"place": it["place"], "key": sid.key, "quantity": qty,
-                                              "origin": "START_FRAME", "by": None, "tx": None}
+            box = f"{source_prefix}.{n}"
+            places[box] = {"place": it["place"], "key": sid.key, "quantity": qty,
+                           "origin": "START_FRAME", "by": None, "tx": None}
+            if it.get("contains"):                        # v7.29: 닫힌 용기와 그 안의 물건
+                places[box]["closed"] = True
+                for m, c in enumerate(it["contains"]):
+                    csid, cmult = parse_key(c["key"], defs)
+                    places[f"{box}.{m}"] = {"place": it["place"], "key": csid.key,
+                                            "quantity": int(c["quantity"]) * cmult, "origin": "START_FRAME",
+                                            "by": None, "tx": None, "inside": box}
     return {"resources": res, "item_instances": inst, "place_items": places}

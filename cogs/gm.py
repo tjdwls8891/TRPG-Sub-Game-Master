@@ -879,6 +879,10 @@ _OUTCOME_DELIVERY_FAILED = "DELIVERY_FAILED"
 _OUTCOME_EXTRACTION_FAILED = "EXTRACTION_FAILED"
 _OUTCOME_NOT_READY = "NOT_READY"
 _OUTCOME_SUPERSEDED = "SUPERSEDED"      # 더 새로운 시도가 현재 — 이 시도는 흐름을 소유하지 않음
+
+
+class ExtractionProviderFailure(RuntimeError):
+    """v7.29: 추출 provider 호출·파싱이 결과를 내지 못함(재시도 소진·stale) — 응답 처리 실패와 구별한다."""
 # 추출 재시도 컨텍스트 표식 — 이 표식이 있으면 같은 tx 준비 owner로 재개한다.
 _RETRY_MODE_PREPARATION = core.commit_coordinator.RETRY_MODE_PREPARATION
 
@@ -2731,14 +2735,50 @@ class GMCog(commands.Cog):
             transaction_id=prep.transaction_id, logical_turn=prep.logical_turn,
             attempt=prep.attempt, preparation=prep)
         if plan is None:
-            raise RuntimeError("추출층위 실패(재시도 소진) 또는 stale")
+            raise ExtractionProviderFailure("추출층위 실패(재시도 소진) 또는 stale")
         # H05-B/C: 관찰 → 보충 typed 연산·세계 진행(순수) → 필요 시 후속 묘사 작업 등록(추출 종결 전).
         if getattr(prep, "world_turn", None) is not None:
-            self._process_world_observation(session, prep, plan, master_ch)
+            # v7.29: 물건 연산이 정본 검증에서 거부되면 ① 사유를 덧붙여 같은 턴 1회 재추출(B1)
+            #   ② 또 거부되면 물건 연산만 빼고 확정(B2). 같은 응답을 같은 검증에 다시 넣는 막다른 재시도를 없앤다.
+            first = self._observe_or_item_rejection(session, prep, plan, master_ch)
+            if first is not None:
+                self._world_diagnostic(session, prep, "ITEM_CONTRACT_REJECTED", {"stage": "first", "error": first})
+                plan = await self._run_extraction(
+                    session, text, master_ch, transaction_id=prep.transaction_id, logical_turn=prep.logical_turn,
+                    attempt=prep.attempt, preparation=prep, correction=first)
+                if plan is None:
+                    raise ExtractionProviderFailure("물건 연산 교정 재추출 실패(재시도 소진) 또는 stale")
+                second = self._observe_or_item_rejection(session, prep, plan, master_ch)
+                if second is not None:
+                    await self._drop_item_ops_and_observe(session, prep, plan, master_ch, first, second)
         # B-C3: 이번 턴 계획의 quest_progress로 수치 재계획을 판정 — 자식 작업 등록은
         #   이 추출 작업이 terminal이 되기 전에 끝나므로 배리어 합류가 누락하지 않는다.
         await self._evaluate_numeric_replan(session, prep, plan, master_ch)
         return plan
+
+    def _observe_or_item_rejection(self, session, prep, plan, master_ch) -> str | None:
+        """관찰 처리 — 물건 연산이 정본 검증에서 거부되면 그 사유(그 밖의 예외는 그대로 전파)."""
+        try:
+            self._process_world_observation(session, prep, plan, master_ch)
+            return None
+        except core.items.ItemContractError as e:
+            return str(e)
+
+    async def _drop_item_ops_and_observe(self, session, prep, plan, master_ch, first, second) -> None:
+        """v7.29 B2 — 물건 연산만 제외(발견물 수거 키·옛 소지 변화 포함)하고 관찰을 마친다. 부분 적용은 없다."""
+        raw = dict(prep.world_observation_raw or {})
+        raw.pop(core.items.OPS_FIELD, None)
+        raw.pop("discovery_taken", None)
+        prep.world_observation_raw = raw
+        plan.item_deltas = []
+        self._world_diagnostic(session, prep, "ITEM_OPS_DROPPED", {"first": first, "second": second})
+        if master_ch is not None:
+            try:
+                await master_ch.send(f"⚠️ [물건] 추출의 물건 연산이 두 번 거부되어 이번 턴은 물건 변화 없이 확정합니다.\n"
+                                     f"> 1차: {first}\n> 2차: {second}")
+            except Exception:
+                pass
+        self._process_world_observation(session, prep, plan, master_ch)
 
     async def _evaluate_numeric_replan(self, session, prep, plan, master_ch) -> str | None:
         """WP-C(B-C3) — 이번 트랜잭션 추출 계획의 수치로 자동 재계획을 트리거한다.
@@ -2866,10 +2906,18 @@ class GMCog(commands.Cog):
             # 재시도 가능 상태 — 같은 논리 시도를 유지한다(새 자동 턴을 열지 않음).
             prep.phase = TP.PREP_RETRY_PENDING
             prep.failure_stage = "EXTRACTION"
+            # v7.29: 호출 실패와 응답 처리 실패를 나눈다 — 실제 예외를 구조 로그에 남긴다
+            _ext = prep.tasks.get("extraction")
+            _err = getattr(_ext, "error", None) or ""
+            _code = (TT.FailureCode.EXTRACTION_PROVIDER_FAILURE
+                     if not _err or _err.startswith(ExtractionProviderFailure.__name__)
+                     else TT.FailureCode.EXTRACTION_INVALID_RESULT)
+            core.logs.event("turn", "추출 작업 실패", level="ERROR", session=session,
+                            data={"code": _code.value, "tx": tid, "error": _err})
             TT.mark_transaction_status(
                 session, tid, TT.TurnStatus.STREAMING_EXTRACTING,
                 failure_stage="EXTRACTION",
-                failure_code=TT.FailureCode.EXTRACTION_PROVIDER_FAILURE)
+                failure_code=_code)
             # WP-D: 재시작 시 이 시도를 exact 멤버십으로 종결할 수 있도록 정확한 클레임
             #   CostEvent ID를 복구 입력으로 strict 영속한다(최종 Settlement 아님).
             if not await core.commit_coordinator.persist_retry_breadcrumb(
@@ -5864,9 +5912,12 @@ class GMCog(commands.Cog):
                               *, transaction_id: str | None = None,
                               logical_turn: int | None = None,
                               attempt: int | None = None,
-                              preparation=None):
+                              preparation=None, correction: str | None = None):
         """
         추출층위 — 묘사 출력물에서 공통·시나리오별 타겟 값을 추출한다.
+
+        v7.29 correction: 직전 추출의 물건 연산이 정본 검증에서 거부됐을 때 그 사유를 덧붙여 같은 턴에 한 번 더
+        추출한다(같은 묘사·같은 후보 — 사유만 추가).
 
         [동시 실행]
         묘사 스트리밍과 병행되므로, 실패해도 이미 출력된 묘사를 되돌릴 수 없다.
@@ -5989,6 +6040,11 @@ class GMCog(commands.Cog):
             f"[직전까지의 세계 상태]\n{prev_summary}\n\n"
             f"[이번 묘사문]\n{ai_output_text}"
         )
+        if correction:
+            user_prompt += ("\n\n[직전 추출의 물건 연산이 정본 검증에서 거부됨 — 바로잡을 것]\n"
+                            f"{correction}\n"
+                            "· 위 사유를 고쳐 다시 추출하십시오. 키는 [물건 — item_ops]의 후보만, 묘사에 실제로 일어난 "
+                            "변화만 적고, 맞는 키가 없으면 그 연산은 적지 마십시오.")
 
         contents = [types.Content(role="user", parts=[types.Part.from_text(text=user_prompt)])]
         config = types.GenerateContentConfig(

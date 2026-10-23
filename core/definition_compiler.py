@@ -2009,6 +2009,7 @@ def _compile_start_items(items, place_defs, actor_index, p, d):
     """v7.26 world_start.items — [{key, quantity, place|owner}] → 정규 목록(오류면 None).
 
     이 시작에서만 생기는 물건: place는 장소 id(현장 물건), owner는 저작 NPC 레거시 이름(그 인물 소지).
+    v7.29 contains: 장소 물건(수량 1)을 닫힌 용기로 — [{key, quantity}] 내용물은 열기 전에는 꺼낼 수 없다.
     """
     if not isinstance(items, list) or not items:
         d.add(ERROR, "WORLD_START_ITEMS_INVALID", p, "items는 비어 있지 않은 목록이어야 합니다")
@@ -2016,7 +2017,7 @@ def _compile_start_items(items, place_defs, actor_index, p, d):
     out = []
     for i, it in enumerate(items):
         ip = f"{p}[{i}]"
-        if not isinstance(it, dict) or set(it) - {"key", "quantity", "place", "owner"} \
+        if not isinstance(it, dict) or set(it) - {"key", "quantity", "place", "owner", "contains"} \
                 or not isinstance(it.get("key"), str) or not it["key"].strip() \
                 or not isinstance(it.get("quantity"), int) or isinstance(it.get("quantity"), bool) \
                 or it["quantity"] <= 0 or ("place" in it) == ("owner" in it):
@@ -2029,7 +2030,16 @@ def _compile_start_items(items, place_defs, actor_index, p, d):
         if "owner" in it and it["owner"] not in actor_index:
             d.add(ERROR, "WORLD_START_ITEM_OWNER_UNKNOWN", f"{ip}.owner", f"저작 NPC가 아닙니다: {it['owner']!r}")
             return None
-        out.append({k: it[k] for k in ("key", "quantity", "place", "owner") if k in it})
+        if "contains" in it:
+            con = it["contains"]
+            if "place" not in it or it["quantity"] != 1 or not isinstance(con, list) or not con or not all(
+                    isinstance(c, dict) and set(c) == {"key", "quantity"} and isinstance(c["key"], str)
+                    and c["key"].strip() and isinstance(c["quantity"], int) and not isinstance(c["quantity"], bool)
+                    and c["quantity"] > 0 for c in con):
+                d.add(ERROR, "WORLD_START_ITEMS_INVALID", f"{ip}.contains",
+                      "contains는 장소 물건(수량 1)에만, [{key, quantity(양의 정수)}] 비어 있지 않은 목록")
+                return None
+        out.append({k: it[k] for k in ("key", "quantity", "place", "owner", "contains") if k in it})
     return out
 
 
