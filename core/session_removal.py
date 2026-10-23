@@ -615,35 +615,120 @@ def _option_label(meta: dict) -> str:
     return f"{meta['session_id']} · {meta.get('scenario_id') or '?'}"[:100]
 
 
+PAGE_SIZE = 25          # 디스코드 선택 메뉴 항목 한도
+
+
+def _is_closed(meta: dict) -> bool:
+    return meta.get("world_lifecycle") == "CLOSED" and not meta.get("checkpoint")
+
+
+def _no_cache(meta: dict) -> bool:
+    return not meta.get("cache_name") and not meta.get("checkpoint")
+
+
+FILTERS = (("종료된 세션 전부", _is_closed), ("캐시 없는 세션 전부", _no_cache))
+
+
 class ManageView(discord.ui.View):
-    """세션 선택 → 범위 선택 → 확인(1회) → 실행. 진행 중 제거는 [재개](추가 확인 없음)."""
+    """세션 선택(다중·페이지·상태별 일괄) → 범위 선택 → 확인(1회) → 일괄 실행.
+
+    v7.32 일괄 관리(사용자 결정): 막힌 세션은 건너뛰고 나머지를 진행, 진행 중 제거는 승인된 원래 범위로 재개.
+    진행 중 제거만 고른 경우는 기존처럼 확인 없이 [재개]. 권한·소유권은 매 조작·실행마다 서버 측으로 다시 본다.
+    """
 
     def __init__(self, bot, author, guild):
-        super().__init__(timeout=180)
+        super().__init__(timeout=600)
         self.bot, self.author, self.guild = bot, author, guild
-        self.sid = None
+        self.selected: list = []            # 선택 순서 유지
         self.scope = None
+        self.page = 0
         self.message = None
         self.metas = {}
 
+    # 단일 세션 호환(기존 호출부·테스트): sid = 선택이 하나일 때의 그 세션
+    @property
+    def sid(self):
+        return self.selected[0] if len(self.selected) == 1 else None
+
+    @sid.setter
+    def sid(self, value):
+        self.selected = [value] if value else []
+
     async def prepare(self) -> bool:
         op = await is_operator(self.bot, self.author)
-        all_e = entries(self.bot)
-        shown = [m for m in all_e.values()
+        shown = [m for m in entries(self.bot).values()
                  if visible(self.bot, m, self.guild.id, self.author.id, is_operator=op)]
         shown.sort(key=lambda m: m.get("mtime") or 0, reverse=True)
-        self.metas = {m["session_id"]: m for m in shown[:25]}
+        self.metas = {m["session_id"]: m for m in shown}
         if not self.metas:
             return False
-        self.add_item(_SessionSelect(self))
+        self._build_home()
         return True
 
+    # ── 선택 화면 ──
+    def pages(self) -> int:
+        return max(1, -(-len(self.metas) // PAGE_SIZE))
+
+    def page_ids(self) -> list:
+        ids = list(self.metas)
+        return ids[self.page * PAGE_SIZE:(self.page + 1) * PAGE_SIZE]
+
+    def _build_home(self) -> None:
+        self.clear_items()
+        self.add_item(_SessionSelect(self))
+        for label, pred in FILTERS:
+            self.add_item(_Button(label, discord.ButtonStyle.secondary, self._filter_handler(pred), row=1))
+        self.add_item(_Button("선택 해제", discord.ButtonStyle.secondary, self._clear, row=1))
+        self.add_item(_Button("◀", discord.ButtonStyle.secondary, self._prev, row=2, disabled=self.page == 0))
+        self.add_item(_Button("▶", discord.ButtonStyle.secondary, self._next, row=2,
+                              disabled=self.page >= self.pages() - 1))
+        self.add_item(_Button(f"다음 ({len(self.selected)}개)", discord.ButtonStyle.primary, self._to_scope, row=2,
+                              disabled=not self.selected))
+        self.add_item(_Button("닫기", discord.ButtonStyle.secondary, self._cancel, row=2))
+
     def home_embed(self) -> discord.Embed:
-        e = discord.Embed(title="🗂️ 세션 관리",
-                          description="정리할 세션을 고르십시오. 최근 25개까지 보입니다.", color=0x5865F2)
-        for m in list(self.metas.values())[:10]:
-            e.add_field(name=_option_label(m), value=_status_text(m), inline=False)
+        e = discord.Embed(title="🗂️ 세션 관리", color=0x5865F2, description=(
+            f"정리할 세션을 고르십시오(여러 개 가능). 페이지 {self.page + 1}/{self.pages()} · 전체 {len(self.metas)}개 · "
+            f"선택 {len(self.selected)}개\n상태별 버튼은 모든 페이지에서 해당 세션을 선택에 더합니다."))
+        for sid in self.page_ids()[:10]:
+            m = self.metas[sid]
+            e.add_field(name=("✅ " if sid in self.selected else "") + _option_label(m), value=_status_text(m),
+                        inline=False)
+        if len(self.page_ids()) > 10:
+            e.set_footer(text=f"이 페이지의 나머지 {len(self.page_ids()) - 10}개는 선택 메뉴에서 보입니다.")
         return e
+
+    async def _show_home(self, interaction):
+        self._build_home()
+        await interaction.response.edit_message(embed=self.home_embed(), view=self)
+
+    def set_page_selection(self, values) -> None:
+        page = set(self.page_ids())
+        keep = [x for x in self.selected if x not in page]
+        self.selected = keep + [x for x in self.page_ids() if x in set(values)]
+
+    def _filter_handler(self, pred):
+        async def handler(interaction):
+            add = [sid for sid, m in self.metas.items() if pred(m) and sid not in self.selected]
+            self.selected += add
+            await self._show_home(interaction)
+        return handler
+
+    async def _clear(self, interaction):
+        self.selected = []
+        await self._show_home(interaction)
+
+    async def _prev(self, interaction):
+        self.page = max(0, self.page - 1)
+        await self._show_home(interaction)
+
+    async def _next(self, interaction):
+        self.page = min(self.pages() - 1, self.page + 1)
+        await self._show_home(interaction)
+
+    async def _to_scope(self, interaction):
+        self.scope = None
+        await self.show_confirm(interaction)
 
     async def interaction_check(self, interaction) -> bool:
         if interaction.user.id != self.author.id:
@@ -651,49 +736,72 @@ class ManageView(discord.ui.View):
             return False
         return True
 
-    async def recheck(self, interaction):
-        """서버 측 재검사 — 실행자·길드·세션·소유권을 매번 다시 본다. 통과하면 최신 meta."""
+    async def recheck_all(self, interaction) -> dict:
+        """서버 측 재검사 — 실행자·길드·세션·소유권을 매번 다시 본다. 통과한 세션의 최신 meta만."""
         op = await is_operator(self.bot, interaction.user)
-        meta = entries(self.bot).get(self.sid or "")
-        if meta is None or not visible(self.bot, meta, self.guild.id, interaction.user.id, is_operator=op):
-            return None
-        return meta
+        all_e = entries(self.bot)
+        out = {}
+        for sid in self.selected:
+            meta = all_e.get(sid)
+            if meta is not None and visible(self.bot, meta, self.guild.id, interaction.user.id, is_operator=op):
+                out[sid] = meta
+        return out
 
+    async def recheck(self, interaction):
+        """단일 세션 호환 — 선택이 하나일 때 그 세션의 최신 meta."""
+        return (await self.recheck_all(interaction)).get(self.sid or "")
+
+    # ── 범위 · 확인 ──
     async def show_confirm(self, interaction):
-        meta = await self.recheck(interaction)
-        if meta is None:
+        metas = await self.recheck_all(interaction)
+        if not metas:
             return await self._finish(interaction, "⛔ 이 세션을 관리할 권한이 없거나 세션을 찾을 수 없습니다.")
+        self.selected = [sid for sid in self.selected if sid in metas]
         self.clear_items()
-        cp = meta.get("checkpoint")
-        if cp:
-            e = discord.Embed(title="⏯️ 진행 중인 제거", color=0xFEE75C, description=(
-                f"`{self.sid}` — 이미 승인된 **{SCOPES[cp['scope']]['label']}** 작업이 끝나지 않았습니다.\n"
-                f"{_status_text(meta)}\n[재개]를 누르면 남은 단계를 이어서 처리합니다."))
+        resume = [sid for sid, m in metas.items() if m.get("checkpoint")]
+        fresh = [sid for sid in metas if sid not in resume]
+        if not fresh:                       # 진행 중 제거만 — 승인된 작업이라 확인 없이 재개
+            e = discord.Embed(title="⏯️ 진행 중인 제거", color=0xFEE75C, description="\n".join(
+                [f"`{sid}` — 이미 승인된 **{SCOPES[metas[sid]['checkpoint']['scope']]['label']}** 작업: "
+                 f"{_status_text(metas[sid])}" for sid in resume] + ["[재개]를 누르면 남은 단계를 이어서 처리합니다."])[:4000])
             self.add_item(_Button("재개", discord.ButtonStyle.primary, self._resume))
             self.add_item(_Button("닫기", discord.ButtonStyle.secondary, self._cancel))
             return await interaction.response.edit_message(embed=e, view=self)
         if self.scope is None:
             self.add_item(_ScopeSelect(self))
-            e = discord.Embed(title=f"🗂️ {self.sid}", description=f"{_status_text(meta)}\n정리 범위를 고르십시오.",
-                              color=0x5865F2)
+            self.add_item(_Button("뒤로", discord.ButtonStyle.secondary, self._show_home, row=1))
+            head = (f"`{fresh[0]}` — {_status_text(metas[fresh[0]])}" if len(fresh) == 1
+                    else f"새로 정리할 세션 {len(fresh)}개")
+            extra = f"\n진행 중 제거 {len(resume)}개는 원래 범위로 재개합니다." if resume else ""
+            e = discord.Embed(title=f"🗂️ {fresh[0] if len(fresh) == 1 else '일괄 정리'}", color=0x5865F2,
+                              description=f"{head}{extra}\n정리 범위를 고르십시오(새로 정리할 세션 모두에 적용).")
             return await interaction.response.edit_message(embed=e, view=self)
-        why = blocked_reason(live_session(self.bot, self.sid))
-        if why:
-            return await self._finish(interaction, f"⏸️ 지금은 정리할 수 없습니다: {why}")
         sc = SCOPES[self.scope]
-        players = ", ".join(f"<@{u}>" for u in (meta.get("players") or {})) or "없음"
-        closed = meta.get("world_lifecycle") == "CLOSED"
-        settle = ("이미 종료된 세션 — 정산할 것이 없습니다." if closed else
-                  "종료하며 캐시를 파기하고 실제 보관비를 정산합니다. 미사용 선불은 결제한 플레이어에게 환급됩니다."
-                  if meta.get("cache_name") else "열린 캐시가 없습니다. 생애주기만 종료합니다.")
+        lines, n_settle, n_skip = [], 0, 0
+        for sid in fresh:
+            m = metas[sid]
+            why = blocked_reason(live_session(self.bot, sid))
+            closed = m.get("world_lifecycle") == "CLOSED"
+            n_settle += int(not closed and bool(m.get("cache_name")))
+            n_skip += int(bool(why))
+            players = ", ".join(f"<@{u}>" for u in (m.get("players") or {})) or "참가자 없음"
+            lines.append(f"`{sid}` · {m.get('scenario_id') or '?'} · {players} · {_status_text(m)}"
+                         + (f" — ⏸️ 지금은 건너뜀: {why}" if why else ""))
+        for sid in resume:
+            lines.append(f"`{sid}` — ⏯️ 재개(원래 범위 {SCOPES[metas[sid]['checkpoint']['scope']]['label']})")
         lost = ["종료된 세션은 다시 열 수 없습니다."]
         if sc["channels"]:
             lost.append("채널·메시지는 복구할 수 없습니다.")
         if sc["data"]:
             lost.append("세션 기록(대화·이력·세계 상태·로그)은 복구할 수 없습니다. 재무 원장·잉크 거래·정산 증빙은 보존됩니다.")
+        settle = (f"열린 캐시 {n_settle}개 — 종료하며 캐시를 파기하고 실제 보관비를 정산합니다. "
+                  "미사용 선불은 결제한 플레이어에게 환급됩니다." if n_settle else
+                  "열린 캐시가 없습니다. 생애주기만 종료합니다(이미 종료된 세션은 정산 없음).")
         e = discord.Embed(title="⚠️ 세션 정리 확인", color=0xED4245)
-        e.add_field(name="대상", value=f"`{self.sid}` · {meta.get('scenario_id') or '?'} · 참가자 {players}", inline=False)
-        e.add_field(name="현재 상태", value=_status_text(meta), inline=False)
+        targets = "\n".join(lines)
+        e.add_field(name=f"대상 {len(metas)}개" + (f" (건너뜀 예정 {n_skip})" if n_skip else ""),
+                    value=targets if len(targets) <= 1024 else targets[:1000] + f"\n… 외 {targets[1000:].count(chr(10)) + 1}줄",
+                    inline=False)
         e.add_field(name="정산", value=settle, inline=False)
         e.add_field(name=f"범위 — {sc['label']}", value=sc["desc"], inline=False)
         e.add_field(name="복구 불가", value="\n".join(f"· {x}" for x in lost), inline=False)
@@ -701,43 +809,76 @@ class ManageView(discord.ui.View):
         self.add_item(_Button("취소", discord.ButtonStyle.secondary, self._cancel))
         await interaction.response.edit_message(embed=e, view=self)
 
+    # ── 실행 ──
     async def _proceed(self, interaction):
-        meta = await self.recheck(interaction)
-        if meta is None:
-            return await self._finish(interaction, "⛔ 이 세션을 관리할 권한이 없거나 세션을 찾을 수 없습니다.")
-        why = blocked_reason(live_session(self.bot, self.sid))
-        if why:
-            return await self._finish(interaction, f"⏸️ 지금은 정리할 수 없습니다: {why}")
-        begin(self.bot, self.sid, self.scope, actor_id=interaction.user.id, guild_id=self.guild.id, meta=meta)
-        await self._execute(interaction)
+        await self._execute(interaction, approve=True)
 
     async def _resume(self, interaction):
-        if await self.recheck(interaction) is None:
-            return await self._finish(interaction, "⛔ 이 세션을 관리할 권한이 없거나 세션을 찾을 수 없습니다.")
-        await self._execute(interaction)
+        await self._execute(interaction, approve=False)
 
-    async def _execute(self, interaction):
+    async def _execute(self, interaction, *, approve: bool):
+        metas = await self.recheck_all(interaction)
+        if not metas:
+            return await self._finish(interaction, "⛔ 이 세션을 관리할 권한이 없거나 세션을 찾을 수 없습니다.")
         self.clear_items()
         self.stop()
+        order = [sid for sid in self.selected if sid in metas]
         try:
             await interaction.response.edit_message(
-                embed=discord.Embed(description=f"⏳ `{self.sid}` 정리 중…", color=0x5865F2), view=None)
+                embed=discord.Embed(description=f"⏳ 세션 {len(order)}개 정리 중…", color=0x5865F2), view=None)
         except Exception:  # noqa: BLE001
             pass
-        rep = await run(self.bot, self.sid)
-        if rep["done"]:
-            head = f"✅ `{self.sid}` 정리를 마쳤습니다."
-        elif rep["ok"] is False and read_checkpoint(self.sid) is None:
-            head = f"⏸️ `{self.sid}` 정리를 시작하지 않았습니다: {rep['reason']}"
+        done, skipped, partial, details = [], [], [], []
+        for i, sid in enumerate(order, 1):
+            meta = metas[sid]
+            if not meta.get("checkpoint"):
+                if not approve or self.scope is None:
+                    continue
+                why = blocked_reason(live_session(self.bot, sid))
+                if why:                                    # 막힌 세션은 건너뛴다(강제 취소 없음)
+                    skipped.append(f"`{sid}` — {why}")
+                    continue
+                begin(self.bot, sid, self.scope, actor_id=interaction.user.id, guild_id=self.guild.id, meta=meta)
+            rep = await run(self.bot, sid)
+            if rep["done"]:
+                done.append(sid)
+            elif rep["ok"] is False and read_checkpoint(sid) is None:
+                skipped.append(f"`{sid}` — {rep['reason']}")
+            else:
+                partial.append(f"`{sid}` — {rep['reason']}")
+            details += [f"`{sid}` {ln}" for ln in rep["lines"]]
+            if len(order) > 1:
+                try:
+                    await interaction.edit_original_response(embed=discord.Embed(
+                        description=f"⏳ 세션 정리 중… {i}/{len(order)}", color=0x5865F2), view=None)
+                except Exception:  # noqa: BLE001
+                    pass
+        await self._report(interaction, order, done, skipped, partial, details)
+
+    async def _report(self, interaction, order, done, skipped, partial, details):
+        from .master_report import pack
+        if len(order) == 1:                       # 단일 세션 — 기존 문구
+            sid = order[0]
+            head = (f"✅ `{sid}` 정리를 마쳤습니다." if done else
+                    f"⏸️ `{sid}` 정리를 시작하지 않았습니다: {skipped[0].split(' — ', 1)[1]}" if skipped else
+                    f"⚠️ `{sid}` 정리가 끝나지 않았습니다: {partial[0].split(' — ', 1)[1]}\n"
+                    "`!세션관리`에서 [재개]하면 이어서 처리합니다." if partial else f"`{sid}` — 처리한 것이 없습니다.")
+            text = "\n".join([head] + [d.split(" ", 1)[1] for d in details])
+            embeds = [discord.Embed(description=text[:4000], color=0x57F287 if done else 0xFEE75C)]
         else:
-            head = f"⚠️ `{self.sid}` 정리가 끝나지 않았습니다: {rep['reason']}\n`!세션관리`에서 [재개]하면 이어서 처리합니다."
-        text = "\n".join([head] + rep["lines"])
+            text = (f"완료 {len(done)} · 건너뜀 {len(skipped)} · 미완료 {len(partial)} (요청 {len(order)})"
+                    + ("\n미완료는 `!세션관리`에서 [재개]하면 이어서 처리합니다." if partial else ""))
+            secs = [(f"✅ 완료 {len(done)}", [f"`{x}`" for x in done]),
+                    (f"⏸️ 건너뜀 {len(skipped)}", skipped), (f"⚠️ 미완료 {len(partial)}", partial),
+                    ("세부", details)]
+            embeds = pack("🗂️ 일괄 정리 결과", 0x57F287 if not (skipped or partial) else 0xFEE75C,
+                          [(n, ls) for n, ls in secs if ls], description=text)[:10]
+            text = text + "\n" + "\n".join(l for _n, ls in secs for l in ls)
         try:
-            await interaction.edit_original_response(embed=discord.Embed(description=text, color=0x57F287
-                                                     if rep["done"] else 0xFEE75C), view=None)
+            await interaction.edit_original_response(embeds=embeds, view=None)
         except Exception:  # noqa: BLE001 — 명령을 입력한 채널이 삭제된 경우
             try:
-                await self.author.send(text)
+                await self.author.send(text[:2000])
             except Exception:  # noqa: BLE001
                 pass
 
@@ -759,13 +900,15 @@ class ManageView(discord.ui.View):
 
 class _SessionSelect(discord.ui.Select):
     def __init__(self, view: ManageView):
-        super().__init__(placeholder="세션 선택", options=[
-            discord.SelectOption(label=_option_label(m), value=sid, description=_status_text(m)[:100])
-            for sid, m in view.metas.items()])
+        ids = view.page_ids()
+        super().__init__(placeholder="세션 선택(여러 개)", min_values=0, max_values=len(ids), row=0, options=[
+            discord.SelectOption(label=_option_label(view.metas[sid]), value=sid,
+                                 description=_status_text(view.metas[sid])[:100], default=sid in view.selected)
+            for sid in ids])
 
     async def callback(self, interaction):
-        self.view.sid, self.view.scope = self.values[0], None
-        await self.view.show_confirm(interaction)
+        self.view.set_page_selection(self.values)
+        await self.view._show_home(interaction)
 
 
 class _ScopeSelect(discord.ui.Select):
@@ -779,8 +922,8 @@ class _ScopeSelect(discord.ui.Select):
 
 
 class _Button(discord.ui.Button):
-    def __init__(self, label, style, handler):
-        super().__init__(label=label, style=style)
+    def __init__(self, label, style, handler, *, row=None, disabled=False):
+        super().__init__(label=label, style=style, row=row, disabled=disabled)
         self.on_press = handler
 
     async def callback(self, interaction):
