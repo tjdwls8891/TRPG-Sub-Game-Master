@@ -87,6 +87,11 @@ class ErrorCog(commands.Cog):
         self.bot = bot
 
     @commands.Cog.listener()
+    async def on_interaction(self, interaction):
+        """v7.28: 받을 화면이 없는 버튼(만료·재시작)은 '상호작용 실패' 대신 본인에게만 안내한다."""
+        await core.ui_expiry.answer_stale(self.bot, interaction)
+
+    @commands.Cog.listener()
     async def on_command_error(self, ctx, error):
         # 명령별 자체 error_handler가 처리한 경우 건너뜀
         if ctx.command is not None and ctx.command.has_error_handler():

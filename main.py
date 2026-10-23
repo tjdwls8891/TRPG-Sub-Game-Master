@@ -145,6 +145,16 @@ class TRPGBot(commands.Bot):
                 print(f"캐릭터 생성 진행 복원: {n}건")
         except Exception as e:
             print(f"⚠️ 캐릭터 생성 복원 실패(무시): {e}")
+        # v7.28: 진행을 기다리는 버튼 화면(세션 생성 단계·시작 상황·초기 지식·열기/업로드 재시도)을 같은 메시지에 다시 붙인다.
+        #   on_ready는 재연결 때 다시 올 수 있다 — 프로세스당 1회만(진행 중 화면을 처음으로 되돌리지 않게).
+        if not getattr(self, "_prompts_resumed", False):
+            self._prompts_resumed = True
+            try:
+                n = await core.session_flow.resume_all(self)
+                if n:
+                    print(f"대기 버튼 화면 복원: {n}건")
+            except Exception as e:
+                print(f"⚠️ 대기 버튼 화면 복원 실패(무시): {e}")
 
         # [GM 홈 갱신·복구] GM 스페이스는 오너가 아닌 유저의 유일한 세션
         # 진입점이다. 명령어는 마스터 채널 전용이므로, 스페이스가 없으면

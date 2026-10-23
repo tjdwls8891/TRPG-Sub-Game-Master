@@ -12,6 +12,7 @@ import discord
 
 from . import accounts
 from . import master
+from .ui_expiry import ExpiringView
 
 # 약관 본문. 개정 시 accounts.CURRENT_TERMS_VERSION을 함께 올려야 한다.
 TERMS_TEXT = """**INDAIM 이용약관 (v1)**
@@ -84,7 +85,7 @@ def build_terms_embed(*, reagree: bool = False) -> discord.Embed:
     return embed
 
 
-class TermsView(discord.ui.View):
+class TermsView(ExpiringView):
     """
     약관 동의 UI — DM 전용.
 
@@ -170,10 +171,8 @@ async def start_registration(bot, user, *, reagree: bool = False) -> bool:
         DM 전송 성공 여부. 실패(DM 차단)면 호출부가 안내해야 한다.
     """
     try:
-        await user.send(
-            embed=build_terms_embed(reagree=reagree),
-            view=TermsView(bot, user.id, reagree=reagree),
-        )
+        view = TermsView(bot, user.id, reagree=reagree)
+        view.bind(await user.send(embed=build_terms_embed(reagree=reagree), view=view))   # v7.28: 만료 시 잠금
         return True
     except discord.Forbidden:
         return False

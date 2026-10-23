@@ -240,9 +240,110 @@ async def owner_only(bot, session, interaction) -> bool:
     return False
 
 
+# ── v7.28 진행 대기 버튼의 승계 ─────────────────────────────
+# 세션 생성 단계 화면·시작 상황·초기 지식·열기/업로드 재시도는 대답해야 다음으로 넘어가는 화면이라 시간 제한이 없다.
+# 봇이 다시 시작되면 메모리의 버튼은 사라지므로, 저장된 기록으로 같은 메시지에 새 버튼을 붙인다(resume_all).
+#   · 생성 단계 화면: creation_state(단계·flow_msg_id)로 render를 다시 부른다(소개 단계는 처음 항목부터).
+#   · 그 밖의 대기 화면: resumable_prompts {종류: {channel_id, message_id, ...복원 근거}} — 처리되면 지운다.
+PROMPT_START_FRAMES = "start_frames"
+PROMPT_INITIAL_KNOWLEDGE = "initial_knowledge"
+PROMPT_OPEN_RETRY = "open_retry"
+PROMPT_UPLOAD_RETRY = "upload_retry"
+RESUMABLE_STEPS = ("private", "intro", "scenario", "tts", "memory", "open")
+
+
+async def remember_prompt(bot, session, kind: str, channel, message, **data) -> None:
+    """대기 버튼 화면의 위치·복원 근거를 세션에 남긴다(같은 종류는 최신 하나)."""
+    if message is None or getattr(message, "id", None) is None:
+        return
+    ch = getattr(message, "channel", None) or channel
+    prompts = dict(getattr(session, "resumable_prompts", None) or {})
+    prompts[kind] = dict(data, channel_id=getattr(ch, "id", None), message_id=message.id)
+    session.resumable_prompts = prompts
+    from .io import save_session_data
+    try:
+        await save_session_data(bot, session)
+    except Exception as e:  # noqa: BLE001 — 기록 실패는 재시작 승계만 잃는다(진행은 막지 않음)
+        print(f"[세션플로우] 대기 화면 기록 저장 실패: {e}")
+
+
+def forget_prompt(session, kind: str) -> bool:
+    """대기 화면이 처리됐다 — 기록을 지운다. 있었으면 True(같은 화면의 중복 처리 방지에 쓴다)."""
+    prompts = dict(getattr(session, "resumable_prompts", None) or {})
+    had = prompts.pop(kind, None) is not None
+    session.resumable_prompts = prompts
+    return had
+
+
+def _prompt_view(bot, session, kind, rec, channel):
+    import cogs.session as _sm
+    if kind == PROMPT_START_FRAMES:
+        return _sm.StartFrameView(bot, session, list(rec.get("options") or ()))
+    if kind == PROMPT_INITIAL_KNOWLEDGE:
+        return _sm.InitialKnowledgeView(bot, session, rec.get("uid"), rec.get("phase"), rec.get("state"))
+    if kind == PROMPT_OPEN_RETRY:
+        return _sm.DynamicOpenRetryView(bot, session)
+    if kind == PROMPT_UPLOAD_RETRY:
+        return UploadRetryView(bot, session, channel, rec.get("quoted_tokens"))
+    return None
+
+
+async def resume_session(bot, session) -> int:
+    """한 세션의 대기 버튼 화면을 다시 붙인다. 붙인 화면 수."""
+    n = 0
+    step = creation.current_step(session) if getattr(session, "creation_state", None) else None
+    if step in RESUMABLE_STEPS and creation.get_state(session).get("flow_msg_id"):
+        ch = bot.get_channel(getattr(session, "game_ch_id", None) or 0)
+        if ch is not None:
+            await render(bot, session, ch)
+            n += 1
+    prompts = dict(getattr(session, "resumable_prompts", None) or {})
+    dropped = False
+    for kind, rec in prompts.items():
+        ch = bot.get_channel(rec.get("channel_id") or 0)
+        view = None
+        try:
+            msg = await ch.fetch_message(rec["message_id"]) if ch is not None else None
+            view = _prompt_view(bot, session, kind, rec, ch) if msg is not None else None
+            if view is not None:
+                await msg.edit(view=view)
+                n += 1
+        except Exception as e:  # noqa: BLE001 — 지워진 메시지 등: 기록만 정리
+            print(f"[세션플로우] 대기 화면 복원 실패({kind}): {e}")
+            view = None
+        if view is None:
+            forget_prompt(session, kind)
+            dropped = True
+    if dropped:
+        from .io import save_session_data
+        await save_session_data(bot, session)
+    return n
+
+
+async def resume_all(bot) -> int:
+    """봇 재시작 뒤 — 활성 세션들의 대기 버튼 화면을 같은 메시지에 다시 붙인다."""
+    n = 0
+    for session in {id(s): s for s in (getattr(bot, "active_sessions", {}) or {}).values()}.values():
+        try:
+            n += await resume_session(bot, session)
+        except Exception as e:  # noqa: BLE001
+            print(f"[세션플로우] 세션 {getattr(session, 'session_id', '?')} 화면 복원 실패: {e}")
+    return n
+
+
+async def continue_after_initial_knowledge(bot, session, channel, phase) -> None:
+    """초기 지식 대기 해소 뒤 멈췄던 단계를 저장된 상태로 이어 간다(재시작 뒤에도 같은 결과)."""
+    if phase == "PROFILE" and creation.current_step(session) == "profile":
+        await on_profile_done(bot, session, channel)      # 캐릭터 승인 직후 멈춘 경우
+        return
+    cog = bot.get_cog("SessionCog")                        # 시작 상황 선택 뒤(세계 초기화 전) 멈춘 경우
+    if cog:
+        await cog.play_intro(session, getattr(session, "start_frame", None) or {}, channel)
+
+
 # ── 단계별 뷰 ────────────────────────────────────────────
 class _Step(discord.ui.View):
-    def __init__(self, bot, session, channel, timeout=900):
+    def __init__(self, bot, session, channel, timeout=None):     # v7.28: 진행 화면은 시간 제한 없음
         super().__init__(timeout=timeout)
         self.bot = bot
         self.session = session
@@ -699,11 +800,12 @@ async def _offer_start_frames(bot, session, channel):
     from . import gm_board as _gb
     card, _k = await _gb.png_file(_gb.build_frames_svg(_gb.frames_data(options)), "start_frames.png")
     if card is not None:
-        await channel.send(content=f"**{e.title}**\n\n{e.description}", file=card,
-                           view=view_cls(bot, session, options))
-        return
-    mfile, _p, _st = _master_art.file_for(session, "session.start_frame_select")
-    await channel.send(**_conv.send_kwargs(e, view=view_cls(bot, session, options), file=mfile))
+        msg = await channel.send(content=f"**{e.title}**\n\n{e.description}", file=card,
+                                 view=view_cls(bot, session, options))
+    else:
+        mfile, _p, _st = _master_art.file_for(session, "session.start_frame_select")
+        msg = await channel.send(**_conv.send_kwargs(e, view=view_cls(bot, session, options), file=mfile))
+    await remember_prompt(bot, session, PROMPT_START_FRAMES, channel, msg, options=list(options))
 
 
 async def initial_knowledge_gate(bot, session, channel, phase, *, frame=None, on_resolved=None) -> bool:
@@ -730,7 +832,9 @@ async def initial_knowledge_gate(bot, session, channel, phase, *, frame=None, on
                     "보였거나 건너뛰려면 [보내지 않고 진행]을 눌러 주십시오. (다시 보내면 같은 안내가 두 번 보일 수 있습니다)")
         else:
             text = "⏸️ 초기 안내를 준비하거나 보내지 못했습니다. 아래 버튼으로 다시 시도해 주십시오."
-        await channel.send(text, view=view_cls(bot, session, uids[0], phase, st, on_resolved))
+        msg = await channel.send(text, view=view_cls(bot, session, uids[0], phase, st, on_resolved))
+        await remember_prompt(bot, session, PROMPT_INITIAL_KNOWLEDGE, channel, msg,
+                              uid=uids[0], phase=phase, state=st)
     except Exception as e:  # noqa: BLE001
         print(f"[초기지식] 안내 버튼 표시 실패: {e}")
     return False
@@ -766,9 +870,10 @@ async def on_open_time_done(bot, session, channel, *, quoted_tokens=None):
         if not ok:
             # 사용자 결정 D2: 캐시 없이 진행하지 않는다 — 이 단계에 머물고 재시도를 받는다.
             await save_session_data(bot, session)
-            await channel.send("⚠️ " + _master.say("cache.open_failed", "세션을 열지 못했습니다.")
-                               + " 아래 버튼으로 다시 시도해 주십시오.",
-                               view=UploadRetryView(bot, session, channel, quoted_tokens))
+            msg = await channel.send("⚠️ " + _master.say("cache.open_failed", "세션을 열지 못했습니다.")
+                                     + " 아래 버튼으로 다시 시도해 주십시오.",
+                                     view=UploadRetryView(bot, session, channel, quoted_tokens))
+            await remember_prompt(bot, session, PROMPT_UPLOAD_RETRY, channel, msg, quoted_tokens=quoted_tokens)
             return
 
     # 통계 — 세션 수·플레이 이력(사전 프로필 생성 가능 판정). !시작 경로와 같은 기록을 버튼 플로우도 남긴다(1회).
@@ -824,6 +929,7 @@ class UploadRetryView(_Step):
     @discord.ui.button(label="🔄 다시 시도", style=discord.ButtonStyle.primary)
     async def retry(self, interaction, _b):
         await interaction.response.defer()
+        forget_prompt(self.session, PROMPT_UPLOAD_RETRY)
         try:
             await interaction.message.delete()
         except Exception:

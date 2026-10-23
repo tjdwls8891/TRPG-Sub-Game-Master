@@ -139,6 +139,7 @@ SESSION_FIELDS: dict = {
     "player_faction": "",
     "profile_ai_cost_krw": 0.0,
     "creation_state": {},
+    "resumable_prompts": {},       # v7.28: 진행 대기 버튼 화면 {종류: {channel_id, message_id, ...}} — 재시작 시 다시 붙인다
     "interpret_cost_krw": 0.0,
     "open_prepaid_ink": 0,
     "open_minutes": 0,

@@ -97,7 +97,7 @@ class StartFrameView(discord.ui.View):
     """
 
     def __init__(self, bot, session, options: list):
-        super().__init__(timeout=900)
+        super().__init__(timeout=None)          # v7.28: 진행 화면 — 시간 제한 없음, 재시작 시 다시 붙는다
         self.bot = bot
         self.session = session
         self.options = options
@@ -126,6 +126,11 @@ class StartFrameButton(discord.ui.Button):
             return
         view._chosen = True
         await interaction.response.defer()
+        # v7.28: 대기 기록을 지운다(재시작 뒤 다시 붙은 화면·옛 화면의 중복 선택도 여기서 막힌다)
+        if not core.session_flow.forget_prompt(session, core.session_flow.PROMPT_START_FRAMES) \
+                and getattr(session, "start_frame", None):
+            return
+        await core.save_session_data(view.bot, session)
 
         # 사전 확정 정보의 반영은 play_intro → open_dynamic_world가 정한다(H06 R2-03):
         #   LEGACY = 기존 apply_facts 그대로 · DYNAMIC = 저작 world_start → genesis가 유일한 owner.
@@ -151,7 +156,7 @@ class InitialKnowledgeView(discord.ui.View):
     [보내지 않고 진행]은 인지를 만들지 않고 넘어간다. 해소되면 멈췄던 단계를 이어 간다."""
 
     def __init__(self, bot, session, uid, phase, state, on_resolved=None):
-        super().__init__(timeout=3600)
+        super().__init__(timeout=None)          # v7.28: 진행 화면 — 시간 제한 없음, 재시작 시 다시 붙는다
         self.bot, self.session, self.uid, self.phase, self.on_resolved = bot, session, uid, phase, on_resolved
         self._busy = False
         if state == core.initial_knowledge.UNCERTAIN:
@@ -179,8 +184,12 @@ class InitialKnowledgeView(discord.ui.View):
         except Exception:
             pass
         self.stop()
+        core.session_flow.forget_prompt(self.session, core.session_flow.PROMPT_INITIAL_KNOWLEDGE)
         if self.on_resolved is not None:
             await self.on_resolved()
+        else:                                   # v7.28: 재시작 뒤 다시 붙은 화면 — 저장된 상태로 이어 간다
+            await core.session_flow.continue_after_initial_knowledge(
+                self.bot, self.session, interaction.channel, self.phase)
 
     async def _guard(self, interaction) -> bool:
         if self._busy:
@@ -218,7 +227,7 @@ class DynamicOpenRetryView(discord.ui.View):
     """H06 — INITIALIZED(캐시 미개방) 동적 세계 세션의 열기 재시도. 같은 초기화 정체성으로 이어 간다."""
 
     def __init__(self, bot, session):
-        super().__init__(timeout=3600)
+        super().__init__(timeout=None)          # v7.28: 진행 화면 — 시간 제한 없음, 재시작 시 다시 붙는다
         self.bot = bot
         self.session = session
 
@@ -229,6 +238,7 @@ class DynamicOpenRetryView(discord.ui.View):
     async def retry(self, interaction: discord.Interaction, _b: discord.ui.Button):
         await interaction.response.defer()
         s = self.session
+        core.session_flow.forget_prompt(s, core.session_flow.PROMPT_OPEN_RETRY)
         if not (getattr(s, "world_lifecycle", None) == core.world_lifecycle.LIFECYCLE_INITIALIZED
                 or core.world_lifecycle.init_failed(s) or getattr(s, "_intro_pending", False)):
             # v7.13: 다시 열 상태가 아니면 무응답으로 끝내지 않는다(이미 열렸거나 종료된 세션).
@@ -593,16 +603,18 @@ class SessionCog(commands.Cog):
             card, _k = await core.gm_board.png_file(
                 core.gm_board.build_frames_svg(core.gm_board.frames_data(options)), "start_frames.png")
             if card is not None:
-                await game_channel.send("**시작 상황을 선택해 주십시오.**", file=card,
-                                        view=StartFrameView(self.bot, session, options))
+                msg = await game_channel.send("**시작 상황을 선택해 주십시오.**", file=card,
+                                              view=StartFrameView(self.bot, session, options))
             else:
                 lines = ["**시작 상황을 선택해 주십시오.**\n"]
                 for i, opt in enumerate(options, 1):
                     lines.append(core.start_frame.format_choice(i, opt))
-                await game_channel.send(
+                msg = await game_channel.send(
                     "\n\n".join(lines),
                     view=StartFrameView(self.bot, session, options),
                 )
+            await core.session_flow.remember_prompt(self.bot, session, core.session_flow.PROMPT_START_FRAMES,
+                                                    game_channel, msg, options=list(options))
             session.is_started = True
             await core.save_session_data(self.bot, session)
             return
@@ -694,9 +706,10 @@ class SessionCog(commands.Cog):
                                  "session.intro_failed", "아래 버튼으로 다시 시도해 주십시오.",
                                  default="인트로를 내보내지 못했습니다."))):
                 try:
-                    if ch is not None:
-                        await ch.send(text, **({"view": DynamicOpenRetryView(self.bot, session)}
-                                               if ch is game_channel else {}))
+                    if ch is game_channel:
+                        await self._send_open_retry(session, ch, text)
+                    elif ch is not None:
+                        await ch.send(text)
                 except Exception:
                     pass
             return
@@ -707,9 +720,8 @@ class SessionCog(commands.Cog):
                 if master_ch:
                     await master_ch.send("⚠️ 세션 열림(OPEN) 상태를 저장하지 못했습니다 — 첫 라운드를 보류합니다.")
                 if game_channel is not None:
-                    await game_channel.send("⏸️ " + core.master.lead(
-                                                "session.intro_failed", "> 세션 상태 저장에 실패했습니다. 아래 버튼으로 다시 시도해 주십시오."),
-                                            view=DynamicOpenRetryView(self.bot, session))
+                    await self._send_open_retry(session, game_channel, "⏸️ " + core.master.lead(
+                        "session.intro_failed", "> 세션 상태 저장에 실패했습니다. 아래 버튼으로 다시 시도해 주십시오."))
             except Exception:
                 pass
             return
@@ -728,6 +740,17 @@ class SessionCog(commands.Cog):
                 asyncio.create_task(gm_cog._init_narrative_and_start(session))
             else:
                 print("[인트로] GMCog를 찾지 못해 라운드를 시작하지 못했습니다")
+
+    async def _send_open_retry(self, session, channel, text):
+        """v7.28: 열기 재시도 버튼 — 시간 제한 없음, 재시작 뒤에도 같은 메시지에 다시 붙도록 기록한다."""
+        if channel is None:
+            return None
+        try:
+            msg = await channel.send(text, view=DynamicOpenRetryView(self.bot, session))
+        except Exception:
+            return None
+        await core.session_flow.remember_prompt(self.bot, session, core.session_flow.PROMPT_OPEN_RETRY, channel, msg)
+        return msg
 
     async def open_dynamic_world(self, session, chosen: dict, game_channel) -> bool:
         """H06 — 시작 선택 직후 동적 세계 초기화 + 캐시 열기. False = 인트로 보류(INITIALIZED 유지).
@@ -759,10 +782,9 @@ class SessionCog(commands.Cog):
                     await master_ch.send(f"⛔ [동적 세계] 초기화 실패 — 세션을 열지 않았습니다. ({res.reason})")
                 except Exception:
                     pass
-            await _say("⏸️ " + core.master.lead(
-                           "session.opening_failed",
-                           "> 세계를 준비하지 못해 세션을 열지 않았습니다. 운영자 확인 후 아래 버튼으로 다시 시도해 주십시오."),
-                       view=DynamicOpenRetryView(self.bot, session))
+            await self._send_open_retry(session, game_channel, "⏸️ " + core.master.lead(
+                "session.opening_failed",
+                "> 세계를 준비하지 못해 세션을 열지 않았습니다. 운영자 확인 후 아래 버튼으로 다시 시도해 주십시오."))
             return False
         if res.outcome == core.world_lifecycle.INIT_LEGACY:
             # 기존 LEGACY 시작 — 사전 확정 정보 반영(기획 규정)과 연기된 캐시를 기존 의미대로
@@ -779,11 +801,10 @@ class SessionCog(commands.Cog):
                                      report_failure=False)
         if not ok:
             await core.save_session_data(self.bot, session)
-            await _say("⏸️ " + core.master.lead(
-                           "session.opening_failed",
-                           "> 세계는 준비됐지만 세션 캐시를 열지 못해 인트로를 보류합니다. "
-                           "잔액·상태를 확인한 뒤 아래 버튼으로 다시 여십시오."),
-                       view=DynamicOpenRetryView(self.bot, session))
+            await self._send_open_retry(session, game_channel, "⏸️ " + core.master.lead(
+                "session.opening_failed",
+                "> 세계는 준비됐지만 세션 캐시를 열지 못해 인트로를 보류합니다. "
+                "잔액·상태를 확인한 뒤 아래 버튼으로 다시 여십시오."))
             return False
         return True
 

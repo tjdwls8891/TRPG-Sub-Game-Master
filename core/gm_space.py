@@ -15,6 +15,7 @@ import discord
 from . import accounts
 from . import master
 from . import stats as stats_mod
+from .ui_expiry import ExpiringView
 
 CATEGORY_NAME = "GM 스페이스"
 CH_HOME = "gm-스페이스"
@@ -274,8 +275,12 @@ class GMHomeView(discord.ui.View):
             "> 솔로 세션은 음성·게임·디스플레이 채널로 구성됩니다.\n"
             + ("> 마스터 세션에는 마스터 채널이 추가되며 명령어를 쓸 수 있습니다.\n"
                if is_owner else ""),
-            view=SessionKindView(self.bot, is_owner),
+            view=(kind_view := SessionKindView(self.bot, is_owner)),
             ephemeral=True)
+        try:                                       # v7.28: 만료되면 버튼을 잠근다
+            kind_view.bind(await interaction.original_response())
+        except Exception:
+            pass
 
     @discord.ui.button(label="👤 사전 프로필 관리", style=discord.ButtonStyle.secondary,
                        custom_id="gmspace:profiles", row=1)
@@ -365,7 +370,7 @@ class GMHomeView(discord.ui.View):
             "보드를 갱신했습니다." if ok else "갱신에 실패했습니다.", ephemeral=True)
 
 
-class SessionKindView(discord.ui.View):
+class SessionKindView(ExpiringView):
     """세션 종류 선택 + 생성 취소 (기획 규정)."""
 
     def __init__(self, bot, is_owner: bool):

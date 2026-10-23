@@ -144,6 +144,9 @@ class TRPGSession:
         self.profile_ai_cost_krw = 0.0
         # 세션 제작 과정 상태 — {step, history, data}. 중단 시 복원 근거.
         self.creation_state = {}
+        # v7.28: 진행을 막고 기다리는 버튼 화면(시작 상황·초기 지식·열기 재시도·업로드 재시도)의 위치와 복원 근거.
+        #   버튼은 시간 제한이 없고, 봇 재시작 뒤 이 기록으로 같은 메시지에 새 버튼을 붙인다.
+        self.resumable_prompts = {}
         # 유지 시간 해석 호출의 누적 비용(원). 2잉크 이상일 때만 청구한다.
         self.interpret_cost_krw = 0.0
         # 세션 오픈 시 선결제한 잉크. 클로즈 시 환급 계산의 기준.

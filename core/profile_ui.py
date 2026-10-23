@@ -11,17 +11,27 @@
 import discord
 
 from . import master
+from .ui_expiry import ExpiringView
 from . import profiles
 from . import stats
 
 PAGE_SIZE = 5
 
 
+async def _send_bound(interaction, view, *args, **kwargs):
+    """v7.28: 응답으로 화면을 보내고 만료 잠금 대상으로 묶는다(묶기 실패는 잠금만 잃는다)."""
+    await interaction.response.send_message(*args, view=view, **kwargs)
+    try:
+        view.bind(await interaction.original_response())
+    except Exception:  # noqa: BLE001
+        pass
+
+
 def _dup(user_id, scenario_id=None):
     return profiles.duplicate_names(user_id, scenario_id)
 
 
-class ProfileHomeView(discord.ui.View):
+class ProfileHomeView(ExpiringView):
     """DM 최상위 메뉴 — 생성·출력·수정·삭제."""
 
     def __init__(self, bot, user_id):
@@ -35,15 +45,14 @@ class ProfileHomeView(discord.ui.View):
         played = stats.load_stats(self.user_id).get("played_scenarios") or []
         if not played:
             # v7.13: 안내대로 공통 프로필은 플레이 이력 없이도 만들 수 있다(이전에는 여기서 끝나 도달 불가).
-            await interaction.response.send_message(
+            await _send_bound(
+                interaction, ScenarioPickView(self.bot, self.user_id, []),
                 "아직 플레이한 시나리오가 없습니다.\n"
                 "사전 프로필은 한 번이라도 플레이한 시나리오에 대해서만 만들 수 있습니다.\n"
-                "공통 프로필(이름·성별·나이·외형)은 지금 아래에서 만들 수 있습니다.",
-                view=ScenarioPickView(self.bot, self.user_id, []))
+                "공통 프로필(이름·성별·나이·외형)은 지금 아래에서 만들 수 있습니다.")
             return
-        await interaction.response.send_message(
-            master.say("account.profile_select", "생성할 시나리오를 고르십시오."),
-            view=ScenarioPickView(self.bot, self.user_id, played))
+        await _send_bound(interaction, ScenarioPickView(self.bot, self.user_id, played),
+                          master.say("account.profile_select", "생성할 시나리오를 고르십시오."))
 
     @discord.ui.button(label="📋 출력", style=discord.ButtonStyle.primary)
     async def show(self, interaction, _b):
@@ -52,9 +61,8 @@ class ProfileHomeView(discord.ui.View):
             await interaction.response.send_message(
                 master.say("account.profile_list_empty", "저장된 프로필이 없습니다."))
             return
-        await interaction.response.send_message(
-            embed=build_list_embed(self.user_id, items, 0),
-            view=ProfileListView(self.bot, self.user_id, items, mode="view"))
+        await _send_bound(interaction, ProfileListView(self.bot, self.user_id, items, mode="view"),
+                          embed=build_list_embed(self.user_id, items, 0))
 
     @discord.ui.button(label="🔧 수정", style=discord.ButtonStyle.secondary)
     async def edit(self, interaction, _b):
@@ -62,9 +70,8 @@ class ProfileHomeView(discord.ui.View):
         if not items:
             await interaction.response.send_message("수정할 프로필이 없습니다.")
             return
-        await interaction.response.send_message(
-            embed=build_list_embed(self.user_id, items, 0),
-            view=ProfileListView(self.bot, self.user_id, items, mode="edit"))
+        await _send_bound(interaction, ProfileListView(self.bot, self.user_id, items, mode="edit"),
+                          embed=build_list_embed(self.user_id, items, 0))
 
     @discord.ui.button(label="🗑 삭제", style=discord.ButtonStyle.danger)
     async def remove(self, interaction, _b):
@@ -72,9 +79,8 @@ class ProfileHomeView(discord.ui.View):
         if not items:
             await interaction.response.send_message("삭제할 프로필이 없습니다.")
             return
-        await interaction.response.send_message(
-            "삭제할 프로필을 선택하십시오.",
-            view=ProfileSelectView(self.bot, self.user_id, items, mode="delete"))
+        await _send_bound(interaction, ProfileSelectView(self.bot, self.user_id, items, mode="delete"),
+                          "삭제할 프로필을 선택하십시오.")
 
 
 def build_list_embed(user_id, items: list, page: int) -> discord.Embed:
@@ -101,7 +107,7 @@ def build_list_embed(user_id, items: list, page: int) -> discord.Embed:
     return embed
 
 
-class ProfileListView(discord.ui.View):
+class ProfileListView(ExpiringView):
     """목록 탐색 — 이전·다음·재검색·돌아가기 (기획 규정)."""
 
     def __init__(self, bot, user_id, items, *, mode="view", page=0):
@@ -133,9 +139,9 @@ class ProfileListView(discord.ui.View):
 
     @discord.ui.button(label="↩ 돌아가기", style=discord.ButtonStyle.secondary)
     async def back(self, interaction, _b):
-        await interaction.response.edit_message(
-            content="메뉴로 돌아갑니다.", embed=None,
-            view=ProfileHomeView(self.bot, self.user_id))
+        _v = ProfileHomeView(self.bot, self.user_id)
+        await interaction.response.edit_message(content="메뉴로 돌아갑니다.", embed=None, view=_v)
+        _v.bind(interaction.message)
 
 
 class SearchModal(discord.ui.Modal, title="프로필 검색"):
@@ -178,14 +184,13 @@ class SearchModal(discord.ui.Modal, title="프로필 검색"):
 
         dup = _dup(self.user_id)
         if self.mode == "edit":
-            await interaction.response.send_message(
-                profiles.detail(picked, dup),
-                view=EditFieldView(self.bot, self.user_id, picked))
+            await _send_bound(interaction, EditFieldView(self.bot, self.user_id, picked),
+                              profiles.detail(picked, dup))
         else:
             await interaction.response.send_message(profiles.detail(picked, dup))
 
 
-class EditFieldView(discord.ui.View):
+class EditFieldView(ExpiringView):
     """항목 이름을 입력받아 수정을 개시한다(기획 규정)."""
 
     def __init__(self, bot, user_id, profile):
@@ -245,7 +250,7 @@ class EditModal(discord.ui.Modal, title="항목 수정"):
             f"✅ '{field}'을(를) 수정했습니다." if ok else "⚠️ 수정에 실패했습니다.")
 
 
-class ProfileSelectView(discord.ui.View):
+class ProfileSelectView(ExpiringView):
     """삭제용 셀렉터 — 선택 후 개별 확인 메시지를 띄운다(기획 규정)."""
 
     def __init__(self, bot, user_id, items, *, mode="delete"):
@@ -280,13 +285,13 @@ class ProfileSelect(discord.ui.Select):
             await interaction.response.send_message("프로필을 찾을 수 없습니다.")
             return
         dup = _dup(self.user_id)
-        await interaction.response.send_message(
+        await _send_bound(
+            interaction, DeleteConfirmView(self.bot, self.user_id, picked),
             f"{profiles.detail(picked, dup)}\n\n"
-            f"⚠️ **{master.say('account.profile_confirm_delete', '이 프로필을 삭제하시겠습니까?')}** 되돌릴 수 없습니다.",
-            view=DeleteConfirmView(self.bot, self.user_id, picked))
+            f"⚠️ **{master.say('account.profile_confirm_delete', '이 프로필을 삭제하시겠습니까?')}** 되돌릴 수 없습니다.")
 
 
-class DeleteConfirmView(discord.ui.View):
+class DeleteConfirmView(ExpiringView):
     def __init__(self, bot, user_id, profile):
         super().__init__(timeout=300)
         self.bot = bot
@@ -309,7 +314,7 @@ class DeleteConfirmView(discord.ui.View):
         await interaction.response.edit_message(content="삭제를 취소했습니다.", view=self)
 
 
-class ScenarioPickView(discord.ui.View):
+class ScenarioPickView(ExpiringView):
     """생성 시 시나리오 선택. 공통 프로필도 고를 수 있다."""
 
     def __init__(self, bot, user_id, played: list):
@@ -339,9 +344,8 @@ class ScenarioSelect(discord.ui.Select):
 
         if sid is None:
             # 공통 프로필 — 이름·성별·나이·외형만 받는다.
-            await interaction.followup.send(
-                "공통 프로필 생성",
-                view=CommonProfileView(self.bot, self.user_id))
+            _v = CommonProfileView(self.bot, self.user_id)
+            _v.bind(await interaction.followup.send("공통 프로필 생성", view=_v, wait=True))
             return
 
         scenario_data = load_scenario_from_file(sid)
@@ -370,7 +374,7 @@ class _StandaloneSession:
         self.profile_ai_cost_krw = 0.0
 
 
-class CommonProfileView(discord.ui.View):
+class CommonProfileView(ExpiringView):
     """공통 프로필 — 이름·성별·나이·외형만 받는다(기획 규정)."""
 
     def __init__(self, bot, user_id):
@@ -411,11 +415,12 @@ class CommonProfileModal(discord.ui.Modal, title="공통 프로필"):
 async def open_manager(bot, user) -> bool:
     """DM으로 관리 인터페이스를 연다."""
     try:
-        await user.send(
+        _v = ProfileHomeView(bot, user.id)
+        _v.bind(await user.send(
             "👤 **사전 저장 프로필 관리**\n"
             "생성·출력·수정·삭제를 선택하십시오.",
-            view=ProfileHomeView(bot, user.id),
-        )
+            view=_v,
+        ))
         return True
     except discord.Forbidden:
         return False
