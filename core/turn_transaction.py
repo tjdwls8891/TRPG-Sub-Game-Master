@@ -70,6 +70,7 @@ class FailureCode(str, Enum):
     PERSISTENCE_FAILURE = "PERSISTENCE_FAILURE"
     MESSAGE_DELIVERY_FAILURE = "MESSAGE_DELIVERY_FAILURE"
     WORLD_PROJECTION_CONFLICT = "WORLD_PROJECTION_CONFLICT"   # H02-B: 결정적 세계 충돌(재시도 아님)
+    UNEXPECTED_EXCEPTION = "UNEXPECTED_EXCEPTION"             # v7.33: 묘사 이전 단계의 예기치 않은 예외(청구 0 종결)
 
 
 def is_terminal(status) -> bool:
@@ -128,6 +129,9 @@ class TurnTransaction:
     preparation: object | None = None
     # H05: 턴 세계 런타임 기록(core.turn_world.WorldTurn — 매니페스트·의도·계획·관찰). 런타임 전용.
     world_turn: object | None = None
+    # v7.33(F5): 굴림 뒤 지시층위 실패 시 보관한 판정 결과 {player_message, roll_results} — 재굴림 없이 이어 진행
+    pending_roll: dict | None = None
+    roll_open: bool = False          # v7.33(F4): 주사위 화면이 아직 굴려지지 않음(새 선언 차단 근거)
 
     @property
     def short_id(self) -> str:

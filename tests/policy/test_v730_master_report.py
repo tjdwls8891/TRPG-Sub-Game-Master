@@ -180,8 +180,9 @@ async def test_secret_button_roundtrip_and_master_channel_only(monkeypatch):
     m = MR.SecretButton.__discord_ui_compiled_template__.fullmatch(item.item.custom_id)
     assert m and (await MR.SecretButton.from_custom_id(None, None, m)).tx == "abc123"
     monkeypatch.setattr(core.turn_history, "load_record", lambda sid, tx: _record())
-    sess = types.SimpleNamespace(session_id="sid1", master_ch_id=5, definition_revision=None)
-    bot = types.SimpleNamespace(active_sessions={"sid1": sess})
+    sess = types.SimpleNamespace(session_id="sid1", master_ch_id=5, game_ch_id=6, definition_revision=None)
+    other = types.SimpleNamespace(session_id="sid2", master_ch_id=7, game_ch_id=8, definition_revision=None)
+    bot = types.SimpleNamespace(active_sessions={5: sess, 6: sess, 7: other, 8: other})   # 운영 형태: 채널 id 키
     wrong = FakeInteraction(user=FakeUser(1), channel=FakeChannel(6))
     wrong.client = bot
     await item.callback(wrong)

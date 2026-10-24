@@ -82,8 +82,11 @@ def is_ending(session) -> bool:
 
 
 def joins_blocked(session) -> bool:
-    """추가 참가 금지 — 동적 세계 바인딩(단일 PC) 또는 종료 진행·종료."""
-    return world_bound(session) or is_ending(session)
+    """추가 참가 금지 — 동적 세계 바인딩(단일 PC) · 동적 세계 초기화 실패(재시도 대기) · 종료 진행·종료.
+
+    v7.33(①): 초기화 실패 뒤 참가자가 늘면 재시도가 단일 PC 후보에서 빠져 LEGACY로 내려가 선불·인트로가
+    진행되는데 턴은 계속 거부됐다 — 실패 표식이 있는 동안에는 참가를 받지 않는다."""
+    return world_bound(session) or is_ending(session) or init_failed(session)
 
 
 def init_failed(session) -> bool:

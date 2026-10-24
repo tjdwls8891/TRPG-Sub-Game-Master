@@ -11,6 +11,26 @@ from discord.ext import commands
 import core
 
 # ========== [미디어 및 환경 제어 모듈(Media Cog)] ==========
+def write_media_keyword(path: str, key: str, filename: str) -> None:
+    """시나리오 원본 파일의 media_keywords[key]만 갱신(원자적 쓰기·원본 서식 유지)."""
+    with open(path, encoding="utf-8") as f:
+        raw = f.read()
+    data = json.loads(raw)
+    body = raw.rstrip("\n")
+    indent = next((i for i in (2, 4) if json.dumps(data, ensure_ascii=False, indent=i) == body), None)
+    if indent is None:
+        m = re.search(r"\n( +)\S", raw)
+        indent = len(m.group(1)) if m else 2
+    if not isinstance(data.get("media_keywords"), dict):
+        data["media_keywords"] = {}
+    data["media_keywords"][key] = filename
+    out = json.dumps(data, ensure_ascii=False, indent=indent) + raw[len(body):]
+    tmp = f"{path}.tmp"
+    with open(tmp, "w", encoding="utf-8") as f:
+        f.write(out)
+    os.replace(tmp, path)
+
+
 class MediaCog(commands.Cog):
     """
     이미지 출력, BGM 및 플레이리스트 오디오 재생, 채널 채팅 잠금 등
@@ -142,12 +162,10 @@ class MediaCog(commands.Cog):
                 # 메모리 매핑 및 JSON 파일 덮어쓰기 (영구 저장)
                 media_keywords[filename_key] = filename
 
-                def save_scenario():
-                    scenario_path = f"scenarios/{session.scenario_id}.json"
-                    with open(scenario_path, "w", encoding="utf-8") as file:
-                        json.dump(scenario_data, file, ensure_ascii=False, indent=4)
-
-                await asyncio.to_thread(save_scenario)
+                # v7.33(⑤): 원본 파일의 media_keywords 한 항목만 고친다 — 세션의 시나리오 데이터(동적 세계는 바인딩
+                #   스냅샷 원문)로 원본을 덮어쓰지 않고, 원본 서식(들여쓰기·끝 줄바꿈)을 유지한다.
+                await asyncio.to_thread(write_media_keyword, f"scenarios/{session.scenario_id}.json",
+                                        filename_key, filename)
 
                 # 비용 계산: 응답의 usage_metadata에서 실제 토큰 수를 추출하여 항목별 정산.
                 # NOTE: 이미지 출력 토큰 단가($60/1M)는 텍스트 출력($3/1M)과 별개이므로 modality 분리 시도.

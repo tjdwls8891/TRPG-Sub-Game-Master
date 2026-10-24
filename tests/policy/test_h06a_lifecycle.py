@@ -228,16 +228,22 @@ async def test_legacy_play_intro_unchanged_and_deferred_cache_opened(rig, monkey
     cog = _cog(r)
     seen = []
 
+    result = {"ok": False}
+
     async def _upload(session, **kw):
         seen.append("upload")
-        return False                                                  # 레거시는 실패해도 계속(기존 의미)
+        return result["ok"]
 
     async def _intro(session, instruction, **kw):
         seen.append("intro")
     monkeypatch.setattr(cog, "upload_cache", _upload)
     monkeypatch.setattr(r.bot.get_cog("GameCog"), "_execute_proceed", _intro)
+    # v7.33(②, 사용자 승인): 레거시도 캐시 업로드가 실패하면 인트로로 넘어가지 않고 재시도 대기(옛 의미: 실패해도 계속)
     await cog.play_intro(s, {"id": "harbor"}, r.bot.get_channel(s.game_ch_id))
-    assert seen == ["upload", "intro"] and s.world_lifecycle is None
+    assert seen == ["upload"] and s.world_lifecycle is None and s._intro_pending
+    result["ok"] = True                                               # [세션 다시 열기] → 같은 경로로 재시도
+    await cog.play_intro(s, {"id": "harbor"}, r.bot.get_channel(s.game_ch_id))
+    assert seen == ["upload", "upload", "intro"] and s.world_lifecycle is None
 
 
 async def test_join_rejected_after_world_bound(rig):

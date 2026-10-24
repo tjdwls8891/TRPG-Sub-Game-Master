@@ -738,7 +738,7 @@ async def open_window(bot, session, *, say=None, quoted_tokens: int | None = Non
             [str(u) for u in [getattr(session, "creator_uid", "")] if u]
         # 잔액 검사 — 부족분을 overdraft/운영자 보조로 우회하지 않는다(창을 열기 전).
         for u in payers:
-            bal = accounts.get_balance(u)
+            bal = accounts.strict_balance(u)        # v7.33(F7): 손상 계정은 '잔액 부족'이 아니라 오류
             if bal < cache_ink:
                 raise CacheOpenInsufficientFunds(u, cache_ink, bal)
         wid = f"win-{uuid.uuid4().hex}"

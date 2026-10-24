@@ -199,9 +199,18 @@ def _actor(definition, world: dict, aid: str) -> str:
 def _place(p) -> str:
     if not isinstance(p, dict):
         return "—"
-    if p.get("kind") == "TRANSIT":
-        return f"이동 중 {p.get('from_place_id') or p.get('from') or '?'}→{p.get('to_place_id') or p.get('to') or '?'}"
+    if p.get("kind") == "TRANSIT":               # 정본 키(core.spatial.transit): from_place · to_place
+        return f"이동 중 {p.get('from_place') or '?'}→{p.get('to_place') or '?'}"
     return p.get("place_id") or "?"
+
+
+def _places_of(p) -> set:
+    """배치가 걸친 장소(정지 = 그 장소, 이동 중 = 출발·도착) — 장면/[원격] 분류용."""
+    if not isinstance(p, dict):
+        return set()
+    if p.get("kind") == "TRANSIT":
+        return {x for x in (p.get("from_place"), p.get("to_place")) if x}
+    return {p["place_id"]} if p.get("place_id") else set()
 
 
 def _info(definition, post: dict, iid: str) -> dict:
@@ -273,7 +282,7 @@ def delta_sections(session, record) -> tuple:
         if aid in pc_ids or aid.startswith("pc_"):
             place_lines.append("PC " + line)
         else:
-            here = scene and scene in (_place(pp.get(aid)), _place(qp.get(aid)))
+            here = bool(scene) and scene in (_places_of(pp.get(aid)) | _places_of(qp.get(aid)))
             actor_lines.append(("" if here else "[원격] ") + line)
     for aid in sorted(set(post.get("actor_registry") or {}) - set(pre.get("actor_registry") or {})):
         actor_lines.append(f"새 등록 {_actor(D, post, aid)} ({aid})")
@@ -395,8 +404,11 @@ class SecretButton(discord.ui.DynamicItem[discord.ui.Button], template=r"mrep:se
 
     async def callback(self, interaction):
         bot = interaction.client
-        session = (getattr(bot, "active_sessions", None) or {}).get(self.sid)
-        if session is None or getattr(interaction.channel, "id", None) != getattr(session, "master_ch_id", None):
+        ch_id = getattr(interaction.channel, "id", None)
+        # active_sessions는 채널 id → 세션이다 — 누른 채널의 세션이 이 세션이고 그 채널이 마스터 채널일 때만
+        session = (getattr(bot, "active_sessions", None) or {}).get(ch_id)
+        if session is None or str(getattr(session, "session_id", "")) != self.sid \
+                or ch_id != getattr(session, "master_ch_id", None):
             await interaction.response.send_message("이 세션의 마스터 채널에서만 열 수 있습니다.", ephemeral=True)
             return
         try:
@@ -425,14 +437,25 @@ def build(session, *, transaction_id, cost_embed=None, cost_log=(), estimate=Non
     """(임베드 목록, 비밀 수) — 비용 → 층위활동 → 세계 델타 순."""
     turn = getattr(session, "turn_count", "?")
     embeds = []
-    cost_secs = (embed_sections(cost_embed) if cost_embed is not None else []) + cost_sections(cost_log, estimate)
+    try:
+        extra = cost_sections(cost_log, estimate)
+    except Exception as e:  # noqa: BLE001
+        extra = [("⚠️ 조립 실패", [f"입력 구성·예상 대조를 만들지 못했습니다: {type(e).__name__}: {e}"])]
+    cost_secs = (embed_sections(cost_embed) if cost_embed is not None else []) + extra
     if cost_secs:
         embeds += pack(f"🎲 턴 비용 리포트 · #{turn}", COLOR_COST, cost_secs,
                        description=getattr(cost_embed, "description", None))
-    act = activity_sections(prep, record)
+    # 갈래마다 따로 조립한다 — 한 갈래가 실패해도 다른 갈래(특히 비용)는 보낸다
+    try:
+        act = activity_sections(prep, record)
+    except Exception as e:  # noqa: BLE001
+        act = [("⚠️ 조립 실패", [f"층위활동 보고를 만들지 못했습니다: {type(e).__name__}: {e}"])]
     if act:
         embeds += pack(f"🧠 층위활동 · #{turn}", COLOR_ACTIVITY, act)
-    dsecs, n_secret = delta_sections(session, record)
+    try:
+        dsecs, n_secret = delta_sections(session, record)
+    except Exception as e:  # noqa: BLE001
+        dsecs, n_secret = [("⚠️ 조립 실패", [f"세계 델타 보고를 만들지 못했습니다: {type(e).__name__}: {e}"])], 0
     embeds += pack(f"🌐 세계 델타 · #{turn}", COLOR_DELTA, dsecs,
                    description="정본 pre → post (장면 밖 = [원격])")
     return embeds, n_secret

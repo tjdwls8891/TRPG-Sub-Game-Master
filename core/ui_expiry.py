@@ -14,6 +14,10 @@ import discord
 STALE_TEXT = ("⌛ 이 버튼은 만료되었습니다(시간이 지났거나 봇이 다시 시작됐습니다). "
               "GM 스페이스나 원래 화면에서 다시 열어 주십시오.")
 
+ROLL_STALE_TEXT = ("⌛ 이 판정은 봇이 다시 시작되며 사라졌습니다. "
+                   "같은 행동을 다시 선언해 주십시오(이번 판정은 청구되지 않습니다).")
+ROLL_PREFIX = "roll:"           # 판정 화면 버튼(주사위·이어서 진행) — 승계 대상이 아니라 재선언 안내
+
 _CURRENT: dict = {}        # message_id → 그 메시지에 지금 붙어 있는 ExpiringView(교체된 옛 뷰는 잠그지 않는다)
 
 
@@ -45,7 +49,9 @@ async def answer_stale(bot, interaction) -> bool:
         return False
     try:
         if not interaction.response.is_done():
-            await interaction.response.send_message(STALE_TEXT, ephemeral=True)
+            cid = str((getattr(interaction, "data", None) or {}).get("custom_id") or "")
+            await interaction.response.send_message(
+                ROLL_STALE_TEXT if cid.startswith(ROLL_PREFIX) else STALE_TEXT, ephemeral=True)
             return True
     except Exception:  # noqa: BLE001 — 이미 응답됐거나 만료된 상호작용
         pass

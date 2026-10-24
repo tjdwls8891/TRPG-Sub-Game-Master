@@ -915,7 +915,12 @@ class RewindConfirmView(core.message_lifecycle.LifecyclePromptView):
         try:
             # WP-E: 되감기의 유일한 권위 — 선택된 커밋 시도 스냅샷 복원(게임 이력만, 환불 없음).
             cog = self.bot.get_cog("GMCog")
-            result = await cog.history_rewind(self.session, self.target_turn)
+            try:                                         # v7.33(F10): 리로드 중(cog 없음)·예외도 안내로 끝낸다
+                result = (await cog.history_rewind(self.session, self.target_turn) if cog is not None
+                          else {"ok": False, "reason": "게임 진행 모듈을 다시 불러오는 중입니다 — 잠시 후 다시 시도해 주십시오."})
+            except Exception as e:  # noqa: BLE001
+                core.logs.error("history", "되감기 실행 예외", exc=e, session=self.session)
+                result = {"ok": False, "reason": f"되감기 중 오류가 발생했습니다({type(e).__name__}). 상태는 바뀌지 않았습니다."}
             if not result["ok"]:
                 await core.display.close_notice(
                     interaction, f"⚠️ {result['reason']}", seconds=8)
@@ -941,6 +946,25 @@ class RewindConfirmView(core.message_lifecycle.LifecyclePromptView):
         self.stop()
 
 
+async def _rerender_and_report(cog, session, addendum: str) -> None:
+    """v7.33(F1·F10): 재서술이 시작되지 못하면(묘사 이전 실패·예외) 이유를 게임 채널에 알린다 — 기존 턴은 그대로."""
+    try:
+        started, reason = await cog.rerender_latest(session, addendum=addendum)
+    except Exception as e:  # noqa: BLE001
+        core.logs.error("history", "재서술 예외", exc=e, session=session)
+        started, reason = False, f"예기치 않은 오류({type(e).__name__})"
+    if started:
+        return
+    game_ch = cog.bot.get_channel(session.game_ch_id)
+    if game_ch:
+        try:
+            await core.message_lifecycle.send_transient(
+                cog.bot, session, game_ch, f"⚠️ 다시 서술하지 못했습니다 — 기존 턴을 그대로 유지합니다. ({reason})",
+                key=core.message_lifecycle.KEY_TURN_NOTICE)
+        except Exception:  # noqa: BLE001
+            pass
+
+
 class RerenderConfirmView(core.message_lifecycle.LifecyclePromptView):
     """같은 턴 재생성 확인(WP-E) — 선언·판단 보존, 지시층위부터 다시 서술. 환불 없음.
 
@@ -963,10 +987,14 @@ class RerenderConfirmView(core.message_lifecycle.LifecyclePromptView):
             if entry is None:
                 await core.display.close_notice(interaction, f"⚠️ {reason}", seconds=8)
                 return
+            cog = self.bot.get_cog("GMCog")
+            if cog is None:                              # v7.33(F10)
+                await core.display.close_notice(
+                    interaction, "⚠️ 게임 진행 모듈을 다시 불러오는 중입니다 — 잠시 후 다시 시도해 주십시오.", seconds=8)
+                return
             await core.display.close_notice(
                 interaction, "🔁 같은 선언으로 턴을 다시 서술합니다. 이전 턴 청구는 유지됩니다.")
-            cog = self.bot.get_cog("GMCog")
-            asyncio.create_task(cog.rerender_latest(self.session, addendum=self.addendum))
+            asyncio.create_task(_rerender_and_report(cog, self.session, self.addendum))
         finally:
             self.stop()
 
@@ -1244,6 +1272,42 @@ class ExtractionRetryView(discord.ui.View):
                 "게임 상태는 바뀌지 않았습니다. 잠시 후 다시 눌러 주십시오.", ephemeral=True)
 
 
+def _set_roll_open(session, transaction_id, value: bool) -> None:
+    """v7.33(F4): 판정 화면 열림 표식 — 같은 시도일 때만(낡은 화면이 새 시도를 건드리지 않음)."""
+    tx = core.turn_transaction.get_active_transaction(session)
+    if tx is not None and transaction_id is not None and tx.transaction_id == transaction_id:
+        tx.roll_open = value
+
+
+class RollContinueView(discord.ui.View):
+    """v7.33(F5): 굴림 뒤 지시층위가 실패했을 때 — 보관한 판정 결과로 이어서 진행(재굴림 없음)."""
+
+    def __init__(self, cog, session, transaction_id: str):
+        super().__init__(timeout=None)
+        self.cog, self.session, self.transaction_id = cog, session, transaction_id
+        self._busy = False
+
+    @discord.ui.button(label="🎲 판정 결과로 이어서 진행", style=discord.ButtonStyle.primary,
+                       custom_id=core.ui_expiry.ROLL_PREFIX + "continue")
+    async def resume(self, interaction: discord.Interaction, _b: discord.ui.Button):
+        if str(interaction.user.id) not in (self.session.players or {}):
+            return await interaction.response.send_message("> 이 세션의 플레이어만 누를 수 있습니다.", ephemeral=True)
+        tx = core.turn_transaction.get_active_transaction(self.session)
+        pend = getattr(tx, "pending_roll", None) if tx is not None and tx.transaction_id == self.transaction_id else None
+        if self._busy or not pend:
+            return await interaction.response.send_message("> 이미 처리됐거나 지난 판정입니다.", ephemeral=True)
+        if not core.is_session_open(self.session):
+            return await interaction.response.send_message(
+                "> 세션이 닫혀 있습니다. 디스플레이 채널에서 세션을 연 뒤 다시 눌러 주십시오.", ephemeral=True)
+        self._busy = True
+        for c in self.children:
+            c.disabled = True
+        await interaction.response.edit_message(view=self)
+        self.stop()
+        asyncio.create_task(self.cog._continue_with_roll_results(
+            self.session, pend["player_message"], list(pend["roll_results"]), transaction_id=self.transaction_id))
+
+
 class GMRollView(discord.ui.View):
     """
     GM에서 ROLL 판정 시 플레이어에게 주사위 버튼을 제공하는 View.
@@ -1265,7 +1329,8 @@ class GMRollView(discord.ui.View):
         self._resolved = False
         self.message = None   # 판정 요청 메시지 — 자동 굴림 시 버튼을 비활성화한다(v7.13)
 
-    @discord.ui.button(label="🎲 주사위 굴리기", style=discord.ButtonStyle.primary)
+    @discord.ui.button(label="🎲 주사위 굴리기", style=discord.ButtonStyle.primary,
+                       custom_id=core.ui_expiry.ROLL_PREFIX + "dice")   # 재시작 뒤 누르면 재선언 안내(v7.33)
     async def roll_button(self, interaction: discord.Interaction, _button: discord.ui.Button):
         if self.target_uid and str(interaction.user.id) != self.target_uid:
             return await interaction.response.send_message(
@@ -1277,6 +1342,7 @@ class GMRollView(discord.ui.View):
                 "> 이미 처리된 판정입니다.", ephemeral=True
             )
         self._resolved = True
+        _set_roll_open(self.session, self.transaction_id, False)
 
         # 효과음 즉시 발사(논블로킹). 결과는 _process_roll에서 1.5초 하한 후 출력.
         asyncio.create_task(core.play_dice_sfx(self.cog.bot, interaction.guild))
@@ -1306,6 +1372,7 @@ class GMRollView(discord.ui.View):
         if self._resolved:
             return
         self._resolved = True
+        _set_roll_open(self.session, self.transaction_id, False)
         # v7.13: 자동 굴림 뒤 요청 메시지에 누를 수 있는 버튼이 남지 않게 한다.
         for child in self.children:
             child.disabled = True
@@ -1705,6 +1772,8 @@ class GMCog(commands.Cog):
                 return
             if not session.gm_active:
                 return
+            if await self._roll_pending_blocks(session):
+                return
             content = message.content.strip()
             if await self._hold_if_closed(session, char_name, content):
                 return                                     # 질문 대기 상태 유지 — 다시 열면 보관 선언으로 진행
@@ -1757,6 +1826,71 @@ class GMCog(commands.Cog):
     # ─────────────────────────────────────────────────────────────
     # 안전장치 + 지시층위 루프 진입점
     # ─────────────────────────────────────────────────────────────
+
+    async def _roll_pending_blocks(self, session) -> bool:
+        """v7.33(F4 — 사용자 결정 '가'): 판정이 끝나지 않은 동안 새 선언을 받지 않는다(같은 시도로 이중 진행·재굴림 방지).
+
+        판정 대기 = 주사위를 아직 굴리지 않음 또는 굴린 결과를 보관 중(지시층위 실패 뒤 [이어서 진행] 대기)."""
+        tx = core.turn_transaction.get_active_transaction(session)
+        if tx is None or tx.status != core.turn_transaction.TurnStatus.WAITING_FOR_ROLL \
+                or not (getattr(tx, "roll_open", False) or getattr(tx, "pending_roll", None)):
+            return False
+        text = ("🎲 보관된 판정 결과가 있습니다. 위의 **[판정 결과로 이어서 진행]**을 눌러 주십시오."
+                if getattr(tx, "pending_roll", None) else
+                "🎲 진행 중인 판정이 있습니다. 먼저 위의 **[🎲 주사위 굴리기]**를 눌러 주십시오.")
+        game_ch = self.bot.get_channel(session.game_ch_id)
+        if game_ch:
+            await core.message_lifecycle.send_transient(self.bot, session, game_ch, text,
+                                                        key=core.message_lifecycle.KEY_TURN_NOTICE)
+        return True
+
+    async def _abort_turn_before_narration(self, session, transaction_id, player_message, master_ch, *,
+                                           code, stage: str, exc: BaseException | None = None,
+                                           master_text: str | None = None) -> bool:
+        """v7.33(F1·F3): 묘사 이전 단계 실패 — 시도를 FAILED_SYSTEM(청구 0)으로 종결하고 플레이어에게 재선언을 안내한다.
+
+        이미 종결·대체된 시도이거나 준비가 묘사 이후 단계(커밋 경로 소유)면 아무것도 하지 않는다(False)."""
+        TT, TP = core.turn_transaction, core.turn_preparation
+        if exc is not None:
+            core.logs.error("turn", f"예기치 않은 예외 — {stage}", exc=exc, session=session)
+        tx = TT.get_active_transaction(session)
+        if transaction_id is None or tx is None or tx.transaction_id != transaction_id or TT.is_terminal(tx.status):
+            return False
+        prep = TP.get_preparation(session, transaction_id)
+        if prep is not None and prep.phase != TP.PREP_COLLECTING:
+            return False
+        prep = TP.ensure_preparation(session, transaction_id)
+        try:
+            await prep.join()
+            prep.seal()
+            prep.close_cost_membership()
+        except Exception as e:  # noqa: BLE001
+            prep.violations.append(f"cost_close:{e}")
+        prep.phase = TP.PREP_FAILED
+        prep.failure_stage = stage
+        prep.failure_code = getattr(code, "value", code)
+        TT.finalize(session, transaction_id, TT.TurnStatus.FAILED_SYSTEM, failure_stage=stage, failure_code=code,
+                    failure_message=(f"{type(exc).__name__}: {exc}"[:300] if exc is not None else None))
+        await self._release_turn_processing(session, prep)
+        session.current_turn_logs = []
+        game_ch = self.bot.get_channel(session.game_ch_id)
+        if game_ch:
+            try:
+                await core.message_lifecycle.send_transient(
+                    self.bot, session, game_ch, core.build_failed_turn_notice(player_message),
+                    key=core.message_lifecycle.KEY_TURN_NOTICE)
+            except Exception as e:  # noqa: BLE001
+                print(f"[턴] 실패 안내 송출 실패: {e}")
+        if master_ch:
+            try:
+                await master_ch.send(master_text or (
+                    f"⚠️ 턴 처리 중 예기치 않은 오류({stage}: {type(exc).__name__ if exc else code}) — "
+                    f"이 시도를 취소했습니다(청구 0). 플레이어에게 재선언을 안내했습니다."))
+            except Exception:  # noqa: BLE001
+                pass
+        await self._settle_failed_turn(session, prep, master_ch)
+        await core.save_session_data(self.bot, session)
+        return True
 
     async def _hold_if_closed(self, session, char_name: str, content: str) -> bool:
         """세션이 닫혀 있으면 선언을 보관하고 안내한다(턴 맥락에 기록하지 않음). 다시 열면 이어서 진행한다.
@@ -1847,6 +1981,8 @@ class GMCog(commands.Cog):
                 await core.save_session_data(self.bot, session)
                 return
 
+            if await self._roll_pending_blocks(session):
+                return
             char_name = session.gm_target_char or message.author.display_name
             if await self._hold_if_closed(session, char_name, message.content.strip()):
                 return
@@ -1919,11 +2055,18 @@ class GMCog(commands.Cog):
         # WP-01: 자동 턴 수렴 경계. 안전장치(활성/턴 한도/비용 한도)를 통과한 직후,
         # 하나의 플레이어 선언을 하나의 논리 턴 시도에 대응시킨다. get_or_begin은
         # ASK/NARRATE 재입력 시 같은 트랜잭션을 재사용한다(새 시도를 만들지 않는다).
+        if await self._roll_pending_blocks(session):
+            return
         tx = core.turn_transaction.get_or_begin_turn_transaction(session, player_message)
         print(f"{tx.log_prefix('PROCESS_ACTIONS')}")
-        await self._run_gm_logic_loop(
-            session, player_message, master_ch,
-            transaction_id=tx.transaction_id)
+        try:
+            await self._run_gm_logic_loop(
+                session, player_message, master_ch,
+                transaction_id=tx.transaction_id)
+        except Exception as e:  # noqa: BLE001 — v7.33(F1): 입력 태스크 밖으로 새지 않게 — 묘사 이전이면 청구 0 종결
+            await self._abort_turn_before_narration(
+                session, tx.transaction_id, player_message, master_ch,
+                code=core.turn_transaction.FailureCode.UNEXPECTED_EXCEPTION, stage="LOGIC_LOOP", exc=e)
 
     # ─────────────────────────────────────────────────────────────
     # 지시층위 루프 본체
@@ -3402,40 +3545,47 @@ class GMCog(commands.Cog):
                 return False, str(e)
             tid = tx.transaction_id
             j = tx.judgment_result
-            if w_intent is not None:
-                # 턴 이전 세계로 복원된 뒤 새 시도의 세계 계획을 다시 세운다(옛 시도의 WorldTurn 재사용 금지)
-                _ctx = core.player_world.session_world_context(session)
-                if _ctx.dynamic:
-                    _wt = core.turn_world.WorldTurn(ctx=_ctx, intent=w_intent)
-                    tx.world_turn = _wt
-                    self._ensure_world_plan(session, _wt, tid)
-                else:
-                    # 세계 연산 없이 커밋하지 않는다 — 교체 시도를 묘사 전에 종결하고 기존 턴 유지
+            try:
+                if w_intent is not None:
+                    # 턴 이전 세계로 복원된 뒤 새 시도의 세계 계획을 다시 세운다(옛 시도의 WorldTurn 재사용 금지)
+                    _ctx = core.player_world.session_world_context(session)
+                    if _ctx.dynamic:
+                        _wt = core.turn_world.WorldTurn(ctx=_ctx, intent=w_intent)
+                        tx.world_turn = _wt
+                        self._ensure_world_plan(session, _wt, tid)
+                    else:
+                        # 세계 연산 없이 커밋하지 않는다 — 교체 시도를 묘사 전에 종결하고 기존 턴 유지
+                        await self._fail_rerender_before_narration(session, tid, master_ch)
+                        return False, f"턴 이전 세계가 DYNAMIC이 아닙니다({_ctx.reason}) — 기존 턴 유지"
+                # v7.12: 같은 판정 결과를 재사용하므로 원 턴 굴림의 성장·실패 누적도 그대로 다시 스테이징한다
+                #   (재추첨·이중 적용 없음, 커밋 뒤 성장 알림은 다시 내지 않음).
+                core.turn_preparation.restage_roll_effects(session, tid, (j or {}).get("roll_effects"))
+                if master_ch:
+                    await master_ch.send(
+                        f"🔁 **[재생성]** {rec['gm_turn']}턴을 같은 선언·판단으로 다시 서술합니다 "
+                        f"(시도 {tx.attempt}). 기존 턴 청구는 유지됩니다.")
+                decision = await self._call_gm_logic(
+                    session, j["player_message"], list(j.get("roll_results") or []), master_ch,
+                    action="PROCEED", transaction_id=tid)
+                if not decision:
                     await self._fail_rerender_before_narration(session, tid, master_ch)
-                    return False, f"턴 이전 세계가 DYNAMIC이 아닙니다({_ctx.reason}) — 기존 턴 유지"
-            # v7.12: 같은 판정 결과를 재사용하므로 원 턴 굴림의 성장·실패 누적도 그대로 다시 스테이징한다
-            #   (재추첨·이중 적용 없음, 커밋 뒤 성장 알림은 다시 내지 않음).
-            core.turn_preparation.restage_roll_effects(session, tid, (j or {}).get("roll_effects"))
-            if master_ch:
-                await master_ch.send(
-                    f"🔁 **[재생성]** {rec['gm_turn']}턴을 같은 선언·판단으로 다시 서술합니다 "
-                    f"(시도 {tx.attempt}). 기존 턴 청구는 유지됩니다.")
-            decision = await self._call_gm_logic(
-                session, j["player_message"], list(j.get("roll_results") or []), master_ch,
-                action="PROCEED", transaction_id=tid)
-            if not decision:
-                await self._fail_rerender_before_narration(session, tid, master_ch)
-                return False, "지시층위 호출 실패 — 기존 턴 유지"
-            decision = {**(j.get("judgment") or {}), **decision, "action": "PROCEED"}
-            core.turn_preparation.stage_instruction_effects(
-                session, decision, transaction_id=tid)
-            instruction = _clean_proceed_instruction(decision.get("proceed_instruction") or "") \
-                or "현재 상황에서 자연스럽게 다음 묘사를 이어가십시오."
-            await self._finish_proceed_and_continue(
-                session, instruction, master_ch,
-                event_assessment=decision.get("event_assessment", "ongoing"),
-                transaction_id=tid)
-            return True, ""
+                    return False, "지시층위 호출 실패 — 기존 턴 유지"
+                decision = {**(j.get("judgment") or {}), **decision, "action": "PROCEED"}
+                core.turn_preparation.stage_instruction_effects(
+                    session, decision, transaction_id=tid)
+                instruction = _clean_proceed_instruction(decision.get("proceed_instruction") or "") \
+                    or "현재 상황에서 자연스럽게 다음 묘사를 이어가십시오."
+                await self._finish_proceed_and_continue(
+                    session, instruction, master_ch,
+                    event_assessment=decision.get("event_assessment", "ongoing"),
+                    transaction_id=tid)
+                return True, ""
+            except Exception as e:  # noqa: BLE001 — v7.33(F1): 묘사 이전 예외는 교체 시도만 종결(기존 턴 유지)
+                core.logs.error("turn", "재서술 중 예기치 않은 예외", exc=e, session=session)
+                _p = core.turn_preparation.get_preparation(session, tid)
+                if _p is None or _p.phase == core.turn_preparation.PREP_COLLECTING:
+                    await self._fail_rerender_before_narration(session, tid, master_ch)
+                return False, f"예기치 않은 오류({type(e).__name__}) — 기존 턴 유지"
 
     async def _fail_rerender_before_narration(self, session, tid, master_ch) -> None:
         """묘사 이전 실패 — 교체 시도를 FAILED_SYSTEM(청구 0)으로 종결하고 이전 선택 유지."""
@@ -3712,7 +3862,17 @@ class GMCog(commands.Cog):
         try:
             _pre_est = core.estimate_turn(session, "PROCEED")
             for _uid in (session.players or {}):
-                _bal = core.accounts.get_balance(_uid)
+                try:
+                    _bal = core.accounts.strict_balance(_uid)
+                except core.accounts.AccountError as _ae:
+                    # v7.33(F7): 손상·읽기 실패 계정 — '잉크 부족'으로 오안내하지 않고 턴을 막는다(청구가 어차피 불가)
+                    if game_ch:
+                        await core.message_lifecycle.send_transient(
+                            self.bot, session, game_ch,
+                            "⛔ 계정 정보를 읽지 못해 턴을 진행할 수 없습니다. 운영자에게 문의해 주십시오.",
+                            key=core.message_lifecycle.KEY_TURN_NOTICE)
+                    await m_send(f"⛔ 계정 읽기 실패로 턴 차단 (<@{_uid}>): {type(_ae).__name__}: {_ae}")
+                    return
                 if _bal < _pre_est["max_ink"]:
                     if game_ch:
                         await core.message_lifecycle.send_transient(
@@ -3727,6 +3887,7 @@ class GMCog(commands.Cog):
             print(f"[결제] 잔액 검사 실패(진행 허용): {e}")
 
         # 이번 턴 예상 비용 — 디스플레이 채널 도입 전까지 마스터 채널에 보고한다.
+        session.last_estimate = None     # v7.33(F9): 산출 실패 시 지난 턴 예상이 이번 턴 대조·정확도 기록에 섞이지 않게
         try:
             est = core.estimate_turn(session, "PROCEED")
             # WP-G(D3): 압축 비용은 운영자 부담 유지비다 — 계정 효과 없는 '압축 선결제' 20% 가산·
@@ -3805,6 +3966,11 @@ class GMCog(commands.Cog):
                                          _gate_notice(gate), master_ch)
             return
         if not judgment:
+            # v7.33(F3): 판단층위 실패(재시도 소진) — 마스터 안내는 _call_judgment가 했다. 플레이어에게 재선언 안내
+            await self._abort_turn_before_narration(
+                session, transaction_id, player_message, master_ch,
+                code=core.turn_transaction.FailureCode.JUDGMENT_PROVIDER_FAILURE, stage="JUDGMENT",
+                master_text="ℹ️ 판단층위 실패 — 이 시도를 취소했습니다(청구 0). 플레이어에게 재선언을 안내했습니다.")
             return
         _rolls = [r for r in (judgment.get("rolls") or []) if isinstance(r, dict)]
         if gate is None and gate_in["dynamic"] and (
@@ -3868,6 +4034,11 @@ class GMCog(commands.Cog):
                         transaction_id=transaction_id)
                 if not decision:
                     await m_send("⚠️ 지시층위 호출 실패. 이번 발언을 스킵합니다.")
+                    # v7.33(F3): 플레이어에게도 재선언 안내 · 시도는 청구 0 종결
+                    await self._abort_turn_before_narration(
+                        session, transaction_id, player_message, master_ch,
+                        code=core.turn_transaction.FailureCode.INSTRUCTION_PROVIDER_FAILURE, stage="INSTRUCTION",
+                        master_text="ℹ️ 지시층위 실패 — 이 시도를 취소했습니다(청구 0). 플레이어에게 재선언을 안내했습니다.")
                     return
                 # 판단층위 산출물과 병합 — 이후 분기는 기존 구조를 그대로 사용한다.
                 decision = {**judgment, **decision, "action": action}
@@ -4839,6 +5010,7 @@ class GMCog(commands.Cog):
         if game_ch:
             view.message = await game_ch.send(roll_prompt_text, view=view)
             core.write_log(session.session_id, "game_chat", f"[판정 요청]: {desc_text}")
+            _set_roll_open(session, transaction_id, True)
         if master_ch:
             await master_ch.send(
                 f"🤖 **[GM ROLL]** 플레이어 버튼 대기 중...\n> {desc_text}"
@@ -4877,46 +5049,74 @@ class GMCog(commands.Cog):
                 await core.save_session_data(self.bot, session)
                 return
 
-            # WP-E: 굴림 결과까지 포함한 지시층위 입력을 판단 기록에 반영(재생성 보존 대상).
-            core.turn_history.note_judgment(
-                session, transaction_id, player_message=player_message,
-                roll_results=list(roll_results))
-            decision = await self._call_gm_logic(
-                session, player_message, roll_results, master_ch,
-                transaction_id=transaction_id)
-            if not decision:
-                await m_send("⚠️ GM 결정 호출 실패. 이번 발언 스킵.")
-                return
+            try:
+                # WP-E: 굴림 결과까지 포함한 지시층위 입력을 판단 기록에 반영(재생성 보존 대상).
+                core.turn_history.note_judgment(
+                    session, transaction_id, player_message=player_message,
+                    roll_results=list(roll_results))
+                _tx = core.turn_transaction.get_active_transaction(session)
+                if _tx is not None and _tx.transaction_id == transaction_id:
+                    _tx.pending_roll = None                       # 이어서 진행 — 보관 결과는 이번 호출이 소유
+                decision = await self._call_gm_logic(
+                    session, player_message, roll_results, master_ch,
+                    transaction_id=transaction_id)
+                if not decision:
+                    # v7.33(F5 — 사용자 결정 '재사용'): 굴린 결과를 시도에 보관하고 [이어서 진행]으로 같은 결과를 다시 쓴다
+                    #   (재선언·재굴림 없음 — 판정이 끝날 때까지 새 선언은 _roll_pending_blocks가 막는다).
+                    await m_send("⚠️ GM 결정 호출 실패 — 판정 결과를 보관했습니다. 플레이어의 [이어서 진행]을 기다립니다.")
+                    await self._hold_roll_results(session, player_message, roll_results, transaction_id)
+                    return
 
-            action = decision.get("action", "PROCEED").upper()
-            reasoning = decision.get("reasoning", "")
-            # WP-C(B-C2): 굴림 후 지시층위 결정의 지시효과를 기존 단일 owner로 스테이징한다
-            #   (유실 금지). 정본 적용은 READY 이후 legacy continuation에서만.
-            core.turn_preparation.stage_instruction_effects(
-                session, {**decision, "action": action}, transaction_id=transaction_id)
-            action_labels = {
-                "ASK":     "🟡 ASK (명확화 요청)",
-                "ROLL":    "🎲 ROLL (주사위 판정)",
-                "PROCEED": "🟢 PROCEED (턴 진행)",
-            }
-            core.logs.event("turn", f"굴림 후 판단 {action}", session=session,
-                            data={"stage": "post_roll", "action": action, "reasoning": reasoning})
-            await m_send(
-                f"🤖 **[GM 판단 (굴림 후)]** {action_labels.get(action, action)}\n"
-                f"> {reasoning[:200]}"
-            )
+                action = decision.get("action", "PROCEED").upper()
+                reasoning = decision.get("reasoning", "")
+                # WP-C(B-C2): 굴림 후 지시층위 결정의 지시효과를 기존 단일 owner로 스테이징한다
+                #   (유실 금지). 정본 적용은 READY 이후 legacy continuation에서만.
+                core.turn_preparation.stage_instruction_effects(
+                    session, {**decision, "action": action}, transaction_id=transaction_id)
+                action_labels = {
+                    "ASK":     "🟡 ASK (명확화 요청)",
+                    "ROLL":    "🎲 ROLL (주사위 판정)",
+                    "PROCEED": "🟢 PROCEED (턴 진행)",
+                }
+                core.logs.event("turn", f"굴림 후 판단 {action}", session=session,
+                                data={"stage": "post_roll", "action": action, "reasoning": reasoning})
+                await m_send(
+                    f"🤖 **[GM 판단 (굴림 후)]** {action_labels.get(action, action)}\n"
+                    f"> {reasoning[:200]}"
+                )
 
-            instruction = _clean_proceed_instruction(
-                decision.get("proceed_instruction") or
-                "현재 상황에서 자연스럽게 다음 묘사를 이어가십시오."
-            )
-            if not instruction:
-                instruction = "현재 상황에서 자연스럽게 다음 묘사를 이어가십시오."
+                instruction = _clean_proceed_instruction(
+                    decision.get("proceed_instruction") or
+                    "현재 상황에서 자연스럽게 다음 묘사를 이어가십시오."
+                )
+                if not instruction:
+                    instruction = "현재 상황에서 자연스럽게 다음 묘사를 이어가십시오."
 
-            await self._finish_proceed_and_continue(
-                session, instruction, master_ch,
-                event_assessment=decision.get("event_assessment", "ongoing"),
-                transaction_id=transaction_id)
+                await self._finish_proceed_and_continue(
+                    session, instruction, master_ch,
+                    event_assessment=decision.get("event_assessment", "ongoing"),
+                    transaction_id=transaction_id)
+            except Exception as e:  # noqa: BLE001 — v7.33(F1): 굴림 재개 태스크 밖으로 새지 않게
+                await self._abort_turn_before_narration(
+                    session, transaction_id, player_message, master_ch,
+                    code=core.turn_transaction.FailureCode.UNEXPECTED_EXCEPTION, stage="ROLL_CONTINUE", exc=e)
+
+    async def _hold_roll_results(self, session, player_message, roll_results, transaction_id) -> None:
+        """굴림 뒤 지시층위 실패 — 결과를 시도에 보관하고 게임 채널에 [이어서 진행] 버튼(재시작하면 사라짐 → 재선언 안내)."""
+        tx = core.turn_transaction.get_active_transaction(session)
+        if transaction_id is None or tx is None or tx.transaction_id != transaction_id:
+            return
+        tx.pending_roll = {"player_message": player_message, "roll_results": list(roll_results)}
+        core.turn_transaction.mark_waiting_for_roll(session, transaction_id)
+        game_ch = self.bot.get_channel(session.game_ch_id)
+        if game_ch:
+            closed = "" if core.is_session_open(session) else " 세션이 닫혀 있으니 세션을 연 뒤 눌러 주십시오."
+            try:
+                await game_ch.send("⚠️ 판정 뒤 진행을 준비하지 못했습니다. 판정 결과는 그대로 보관했습니다."
+                                   + closed + "\n> 아래 버튼을 누르면 같은 결과로 이어서 진행합니다.",
+                                   view=RollContinueView(self, session, transaction_id))
+            except Exception as e:  # noqa: BLE001
+                print(f"[판정] 이어서 진행 안내 실패: {e}")
 
     # ─────────────────────────────────────────────────────────────
     # NARRATE 디스패치 (경량 캐시 기반 GM 응답)

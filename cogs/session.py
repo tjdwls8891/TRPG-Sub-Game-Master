@@ -54,7 +54,7 @@ class JoinModal(discord.ui.Modal, title="세션 참가"):
         if core.world_lifecycle.joins_blocked(self.session) and uid not in (self.session.players or {}):
             # H06: 동적 세계 세션은 단일 PC — 초기화 뒤 참가자를 늘리지 않는다(다인 동적 의미 없음)
             await interaction.response.send_message(
-                "⚠️ 이 세션은 참가자를 더 받을 수 없습니다(1인 동적 세계 또는 종료 진행·종료).", ephemeral=True)
+                "⚠️ 이 세션은 참가자를 더 받을 수 없습니다(1인 동적 세계·세계 준비 재시도 대기 또는 종료 진행·종료).", ephemeral=True)
             return
         base_profile = (self.session.scenario_data.get("pc_template") or {}).copy()
 
@@ -790,8 +790,17 @@ class SessionCog(commands.Cog):
             # 기존 LEGACY 시작 — 사전 확정 정보 반영(기획 규정)과 연기된 캐시를 기존 의미대로
             core.start_frame.apply_facts(session, chosen)
             if not getattr(session, "cache_name", None):
-                await self.upload_cache(session, notify=_say,
-                                        quoted_tokens=getattr(session, "open_quoted_tokens", None))
+                # v7.33(②): 업로드 결과를 본다 — 캐시 없이 인트로로 넘어가지 않는다(DYNAMIC 분기와 같은 재시도 안내)
+                ok = await self.upload_cache(session, notify=_say,
+                                             quoted_tokens=getattr(session, "open_quoted_tokens", None),
+                                             report_failure=False)
+                if not ok:
+                    session._intro_pending = True          # [세션 다시 열기]가 받아들이는 재시도 대기 표식
+                    await core.save_session_data(self.bot, session)
+                    await self._send_open_retry(session, game_channel, "⏸️ " + core.master.lead(
+                        "session.opening_failed",
+                        "> 세션 캐시를 열지 못해 인트로를 보류합니다. 잔액·상태를 확인한 뒤 아래 버튼으로 다시 여십시오."))
+                    return False
             return True
         # DYNAMIC — 장소·시간은 정본 genesis가 유일한 owner. 표시용 레거시 world_timeline은 정본에서 파생한다
         #   (시작 틀 facts를 두 번째 권위로 쓰지 않는다 — 장소·시간과 무관한 세력 표시만 유지).

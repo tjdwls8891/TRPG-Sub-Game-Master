@@ -340,6 +340,11 @@ def get_balance(user_id) -> int:
     return int(load_account(user_id).get("ink_balance", 0))
 
 
+def strict_balance(user_id) -> int:
+    """v7.33(F7): 청구 전 잔액 판정용 — 손상 계정을 0잉크로 오인하지 않는다(AccountError를 그대로 올림)."""
+    return int(load_account_strict(user_id).get("ink_balance", 0))
+
+
 async def add_ink(user_id, amount: int, reason: str = "충전") -> int:
     """잉크를 적립한다(충전·환급 공용). 갱신된 잔액을 반환한다."""
     amount = int(amount)
