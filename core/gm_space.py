@@ -50,7 +50,7 @@ async def _upsert_card(bot, channel, svg: bytes, filename: str, fallback_embed, 
     extra = {"view": view} if view is not None else {}
     if existing is not None and _SHOWN_CARD.get(channel.id) == key:
         if view is not None:
-            await existing.edit(view=view)                 # 같은 그림 — 버튼만 갱신(재업로드 없음)
+            await existing.edit(content=content, view=view)   # 같은 그림 — 본문·버튼만 갱신(재업로드 없음)
         return
     file, _k = await png_file(svg, filename)
     if file is None:
@@ -114,8 +114,9 @@ def build_home_embed(bot) -> discord.Embed:
         color=0x5865F2,
     )
     embed.add_field(name="봇 버전", value=f"v{__version__}", inline=True)
-    invite = getattr(bot, "invite_url", "") or "(미설정)"
-    embed.add_field(name="초대 링크", value=invite, inline=True)
+    invite = getattr(bot, "invite_url", "")
+    embed.add_field(name="초대", value=f"[✉️ INDAIM을 내 서버에 초대하기]({invite})" if invite else "(미설정)",
+                    inline=True)
     embed.set_footer(text="계정 등록 후 세션을 열 수 있습니다.")
     return embed
 
@@ -222,6 +223,9 @@ class GMHomeView(discord.ui.View):
     def __init__(self, bot):
         super().__init__(timeout=None)
         self.bot = bot
+        invite = getattr(bot, "invite_url", "")
+        if invite:                       # 링크 버튼 — custom_id 없음(영속 뷰 디스패치와 무관)
+            self.add_item(discord.ui.Button(label="INDAIM 초대하기", emoji="✉️", url=invite, row=4))
 
     async def _require_account(self, interaction) -> bool:
         if accounts.is_registered(interaction.user.id):
@@ -467,12 +471,11 @@ async def refresh_home(bot, guild) -> bool:
         channel = chans["home"]
         embed = build_home_embed(bot)
         view = GMHomeView(bot)
-        # v7.27: 홈 카드 이미지 + 버튼(같은 메시지). 초대 링크는 누를 수 있게 본문에 남긴다.
+        # v7.27: 홈 카드 이미지 + 버튼(같은 메시지). 초대 링크는 긴 URL 대신 링크 버튼(✉️ INDAIM 초대하기).
         from . import gm_board as GB
         from .constants import __version__
-        invite = getattr(bot, "invite_url", "") or "(미설정)"
         await _upsert_card(bot, channel, GB.build_home_svg(GB.home_data(__version__)), "gm_home.png", embed,
-                           view=view, content=f"초대 링크: {invite}")
+                           view=view, content=None)
         # chat_guard가 GM 스페이스 채팅을 막을 수 있도록 채널 id를 알린다.
         bot.gm_space_ch_id = channel.id
         return True

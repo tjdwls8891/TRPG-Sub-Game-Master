@@ -147,7 +147,7 @@ async def test_upsert_card_sends_image_then_skips_unchanged(fake_render):
     assert ch.sent[0]["file"].filename == "gm_home.png" and ch.sent[0]["view"] == "VIEW"
     assert ch.sent[0]["content"] == "초대 링크: x" and "embed" not in ch.sent[0]
     await GS._upsert_card(bot, ch, svg, "gm_home.png", "EMBED", view="VIEW2")
-    assert len(fake_render) == 1 and ch.msgs[0].edits == [{"view": "VIEW2"}]     # 같은 그림 — 버튼만
+    assert len(fake_render) == 1 and ch.msgs[0].edits == [{"content": None, "view": "VIEW2"}]   # 같은 그림 — 본문·버튼만
     await GS._upsert_card(bot, ch, GB.build_home_svg(GB.home_data("1.0.1")), "gm_home.png", "EMBED")
     e = ch.msgs[0].edits[-1]
     assert e["embed"] is None and e["attachments"][0].filename == "gm_home.png"
@@ -183,3 +183,13 @@ async def test_start_frame_choice_falls_back_to_list_when_render_fails(broken_re
     sent = ch.sent[0]
     assert sent.get("embed") is not None or "틀1" in (sent.get("content") or "")
     assert [c.label for c in sent["view"].children] == ["1. 틀1"]
+
+
+def test_home_invite_is_a_link_button_not_a_raw_url():
+    url = "https://discord.com/oauth2/authorize?client_id=1&scope=bot"
+    bot = types.SimpleNamespace(invite_url=url)
+    links = [c for c in GS.GMHomeView(bot).children if getattr(c, "url", None)]
+    assert len(links) == 1 and links[0].url == url and links[0].label == "INDAIM 초대하기"
+    assert not [c for c in GS.GMHomeView(types.SimpleNamespace(invite_url="")).children if getattr(c, "url", None)]
+    field = next(f for f in GS.build_home_embed(bot).fields if f.name == "초대")
+    assert field.value == f"[✉️ INDAIM을 내 서버에 초대하기]({url})"
