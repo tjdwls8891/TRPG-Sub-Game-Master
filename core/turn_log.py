@@ -96,7 +96,8 @@ def _prep(prep) -> dict | None:
     batch = getattr(prep, "world_mutation_batch", None)
     ops = list(getattr(batch, "_ops", None) or ()) if batch is not None else []
     if ops:
-        out["world_ops"] = dict(Counter(getattr(o, "op_type", "?") for o in ops))
+        out["world_ops"] = dict(Counter((o.get("op_type") if isinstance(o, dict) else getattr(o, "op_type", None)) or "?"
+                                        for o in ops))
     ids = getattr(prep, "frozen_cost_event_ids", None)
     if ids:
         out["cost_events"] = list(ids)

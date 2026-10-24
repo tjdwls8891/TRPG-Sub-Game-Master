@@ -79,10 +79,19 @@ def clock_view(definition, minute) -> dict:
     wd = cal.weekday_of(minute)
     return {"current_date": f"{dt.year:04d}-{dt.month:02d}-{dt.day:02d}",
             "time_of_day": cal.daypart_of(minute) or "미확인", "hhmm": f"{dt.hour:02d}:{dt.minute:02d}",
-            "weekday": WEEKDAY_KO[wd] if wd is not None else None}
+            "weekday": WEEKDAY_KO[wd] if wd is not None else None,
+            "season": season_text(dt.month, dt.day) if cal.calendar_type == _clock.CALENDAR_GREGORIAN else None}
 
 
 WEEKDAY_KO = ("월요일", "화요일", "수요일", "목요일", "금요일", "토요일", "일요일")
+# v7.35(U4): 계절은 정본 날짜에서 파생한다(그레고리력·한국 기준). 날씨는 여전히 정본이 아니다.
+SEASON_BY_MONTH = {12: "겨울", 1: "겨울", 2: "겨울", 3: "봄", 4: "봄", 5: "봄",
+                   6: "여름", 7: "여름", 8: "여름", 9: "가을", 10: "가을", 11: "가을"}
+
+
+def season_text(month: int, day: int) -> str:
+    part = "초순" if day <= 10 else ("중순" if day <= 20 else "하순")
+    return f"{SEASON_BY_MONTH[month]}({month}월 {part})"
 
 
 def clock_text(cv: dict) -> str:
@@ -102,7 +111,9 @@ def narration_clock_block(wt, session) -> str:
     cv = clock_view(wt.ctx.definition, minute)
     if not cv:
         return ""
-    return ("\n[현재 작중 시각 — 정본]\n· " + clock_text(cv) + "\n"
+    season = (f"· 계절: {cv['season']} — 기온·햇볕·더위·추위 묘사는 이 계절에 맞출 것(계절과 어긋나는 폭염·혹한을 "
+              "지어내지 말 것).\n") if cv.get("season") else ""
+    return ("\n[현재 작중 시각 — 정본]\n· " + clock_text(cv) + "\n" + season +
             "· 본문과 상태 블록의 날짜·요일·시각 표기는 이 값을 따를 것. 다른 날짜·요일·시각을 지어내지 말 것"
             "(경과일 등 다른 표기를 쓰더라도 이 날짜와 어긋나지 않게).\n")
 
@@ -755,8 +766,17 @@ def scene_npc_block(ctx, plan, session) -> str:
              "현재 위치가 아니다 — 목록에 없는 정의 NPC를 이 장면에 있다고 묘사하지 말 것.",
              "※ 목록 밖 정의 인물(룰북 인물 사전의 이름)을 이름·정체로 등장시키지 말 것. 새로 필요한 인물은 "
              "이름 없는 인물로 다룬다."]
+    from . import speaker_card as _card
+    if _card.card_world(session) is not None:
+        lines.append(MARKER_NAME_RULE)
     lines += [_npc_line(p) for p in projs] or ["(정본상 이 장면에 있는 정의 NPC 없음)"]
     return "\n".join(lines) + "\n" + scene_npc_detail_block(projs, session)
+
+
+# v7.35(U2-a): 대사 마커 이름 칸은 식별용이다 — 화면 표시(이름·???·카드)는 코드가 PC 인지에 맞춰 정한다.
+MARKER_NAME_RULE = ("※ 이 목록 인물의 대사 마커(@대사:이름|)는 이름 칸에 목록의 이름을 그대로 쓴다 — PC가 아직 모르는 "
+                    "이름이면 화면에서 코드가 가린다(???). 본문 서술의 호칭과 대사 내용에는 PC가 아는 이름·호칭만 쓴다. "
+                    "이름 없는 인물의 마커는 짧은 호칭(예: 경비)으로 쓴다.")
 
 
 def scene_npc_detail_block(projs, session) -> str:
@@ -778,7 +798,7 @@ def scene_npc_detail_block(projs, session) -> str:
     if not out:
         return ""
     return ("\n[장면 인물 상세 — 룰북 NPC 사전(정체·인상)에 더하는 추가 설정 · 인물을 일관되게 움직이기 위한 내부 기준. "
-            "PC가 모르는 비밀·숨은 관계·실명을 본문·대사에 드러내지 말 것]\n" + "\n".join(out) + "\n")
+            "PC가 모르는 비밀·숨은 관계·실명을 본문 서술·대사 내용에 드러내지 말 것(대사 마커의 이름 칸은 예외)]\n" + "\n".join(out) + "\n")
 
 
 # ══════════════════════════════════════════════════════════════

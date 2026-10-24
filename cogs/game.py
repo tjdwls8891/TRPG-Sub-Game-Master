@@ -405,7 +405,8 @@ class GameCog(commands.Cog):
             if not clean_instruction:
                 clean_instruction = "현재까지의 상황, 세계관, 누적된 기억, 그리고 플레이어의 직전 행동을 바탕으로 물리적 인과율에 맞춰 개연성 있게 다음 상황을 진행하고 묘사하십시오."
 
-            await m_send("⏳ AI가 묘사를 생성 중입니다. 완료 후 게임 채널에 타이핑 연출을 시작합니다...")
+            # v7.35: 진행 안내는 메시지 하나를 고쳐 쓴다(생성 중 → 전달 완료)
+            _progress = await m_send("⏳ AI가 묘사를 생성 중입니다. 완료 후 게임 채널에 타이핑 연출을 시작합니다...")
 
             # 플레이어가 보는 게임 채널에 대기 안내 (출력 시작 직전 삭제). 자동/수동 공통.
             # 묘사는 가장 오래 걸린다. 문구를 갈아 끼워 멈춘 것처럼 보이지 않게 한다.
@@ -474,7 +475,7 @@ class GameCog(commands.Cog):
                 session, narr,
                 game_channel=game_channel, master_ch=master_ch, m_send=m_send,
                 cost_log_prefix=cost_log_prefix, transient_ids=_transient_ids,
-                preparation=preparation, turn_no=display_turn,
+                preparation=preparation, turn_no=display_turn, progress_msg=_progress,
             )
             if preparation is not None:
                 preparation.delivery = delivery
@@ -845,10 +846,21 @@ class GameCog(commands.Cog):
             canon_header=core.turn_world.canon_record_line(_canon_vals) if _canon_vals else "",
         )
 
+    @staticmethod
+    async def _edit_or_send(msg, m_send, text):
+        """v7.35: 진행 안내 메시지를 고쳐 쓴다 — 고칠 수 없으면(없음·실패) 새로 보낸다."""
+        if msg is not None and hasattr(msg, "edit"):
+            try:
+                await msg.edit(content=text)
+                return msg
+            except Exception:  # noqa: BLE001
+                pass
+        return await m_send(text)
+
     async def _deliver_narration(self, session, narr: NarrationResult, *, game_channel=None,
                                   master_ch=None, m_send=None, cost_log_prefix: str = "",
                                   transient_ids=None, preparation=None,
-                                  turn_no=None) -> DeliveryResult:
+                                  turn_no=None, progress_msg=None) -> DeliveryResult:
         """NarrationResult를 Discord 게임 채널에 전달한다(스트리밍·대사포맷·이미지·TTS·코드블럭·
         비용 임베드). 생성한 bot-authored 묘사 메시지 ID를 즉시 수집(collector)하여
         DeliveryResult로 보고한다. 부분 전달 실패에서도 이미 생성된 ID는 보존되며, 실패 시
@@ -1008,9 +1020,10 @@ class GameCog(commands.Cog):
             #   경로(GMCog)가 Settlement 값으로 송출한다 — READY 이전 독자 환산 금지.
 
             if preparation is None:
-                await m_send(f"✅ 묘사 연출 완료 (현재 {_turn_no}턴 경과). 다음 턴 대기 중...")
+                _done = f"✅ 묘사 연출 완료 (현재 {_turn_no}턴 경과). 다음 턴 대기 중..."
             else:                                     # v7.29: 자동 턴은 전달 ≠ 확정 — 확정은 커밋 뒤 보고가 알린다
-                await m_send(f"📨 {_turn_no}턴 묘사 전달 완료 — 추출·확정 대기 중...")
+                _done = f"📨 {_turn_no}턴 묘사 전달 완료 — 추출·확정 대기 중..."
+            await self._edit_or_send(progress_msg, m_send, _done)
 
         except Exception as _e:
             # 부분 전달 실패 — 이미 생성된 ID를 실어 던진다(caller가 잃지 않게).
@@ -1135,13 +1148,9 @@ class GameCog(commands.Cog):
                              f"({res['reason']}). 비용 기록은 유지됩니다.")
                 return
 
-            success_msg = f"✅ 자동 누적 압축 완료.\n**[최근 추가된 기억]**\n{new_compressed_segment}"
-            if len(success_msg) > 2000:
-                for i in range(0, len(success_msg), 2000):
-                    await m_send(success_msg[i:i + 2000])
-                    await asyncio.sleep(1)
-            else:
-                await m_send(success_msg)
+            # v7.35: 압축 원문은 보내지 않는다(세션 정본 기억·!세션이력) — 분량만 한 줄로
+            _lines = [ln for ln in new_compressed_segment.split("\n") if ln.strip()]
+            await m_send(f"🧠 자동 누적 압축 완료 · 새 기억 {len(_lines)}줄 · {len(new_compressed_segment):,}자")
         except Exception as e:
             await m_send(f"⚠️ 자동 기억 압축 중 오류 발생: {e}")
         finally:

@@ -604,8 +604,15 @@ def plan_player_turn(ctx: WorldContext, world, intent: _ai.ResolvedActionIntent,
         return _plan_time(ctx, plan, run, here, now, intent.time_advance, pre_ops)
     if intent.action_minutes:
         if transit is not None:
-            # 구간 안(TRANSIT)에서는 구간 끝을 넘겨 머물 수 없다 — 행동 시간은 이동을 이어 갈 때 흐른다
-            plan.diagnostics.append({"code": "ACTION_TIME_IN_TRANSIT", "minutes": intent.action_minutes})
+            # v7.35(D2, 사용자 결정): 구간 안(TRANSIT)에서도 행동 시간은 흐른다 — 단 구간 끝을 넘겨 머물 수 없으므로
+            # (start ≤ now < end) 남은 구간 시간 안까지만. 넘친 분은 진단으로 남긴다.
+            room = transit["edge_expected_end_minute"] - 1 - now
+            minutes = min(intent.action_minutes, max(room, 0))
+            if minutes < intent.action_minutes:
+                plan.diagnostics.append({"code": "ACTION_TIME_IN_TRANSIT", "minutes": intent.action_minutes,
+                                         "applied": minutes})
+            if minutes > 0:
+                return _plan_action(ctx, plan, run, None, now, minutes, pre_ops)
         else:
             return _plan_action(ctx, plan, run, here, now, intent.action_minutes, pre_ops)
     if pre_ops:

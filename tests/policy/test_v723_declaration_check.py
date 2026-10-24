@@ -245,7 +245,10 @@ async def test_E14_rejudge_does_not_repeat_check_and_G22_master_and_log(crig):
     tx = await turn(r, "나뭇조각을 찾는다")
     assert tx.status == tt.TurnStatus.COMMITTED and r.prov.calls.count("judgment") == 2 and _gate_calls(r) == 1
     assert len(ambient_ids(r.sess)) == 1
-    assert any("🛡️ **[선언 검증]** AMBIENT_PROPOSAL → ACCEPT_NO_ROLL" in (m.content or "") for m in r.master.sent)
+    # v7.35: 진행하는 검증 결과는 별도 메시지가 아니라 턴 보고 층위활동(🧭 판단)에 싣는다
+    assert not any("🛡️ **[선언 검증]**" in (m.content or "") for m in r.master.sent)
+    assert any("게이트 AMBIENT_PROPOSAL/ACCEPT_NO_ROLL" in f.value
+               for m in r.master.sent for e in (m.embeds or []) for f in e.fields if f.name == "🧭 판단")
     ops = [c.get("operation_id", "") for c in _domain(r, "cost.event")]
     assert sum(o.startswith("TURN_DECLARATION_CHECK:") for o in ops) == 1                     # 원장 op 분리
     ev = os.path.join(L.session_dir(r.sess.session_id), "events.jsonl")

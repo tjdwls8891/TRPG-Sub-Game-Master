@@ -153,6 +153,14 @@ def resolve_speaker(world: CardWorld, session, speaker: str):
     return SPEAKER_UNKNOWN, None
 
 
+EXTRA_CARD = {"rules": []}       # v7.35 공용 엑스트라 카드 — 규칙이 없으니 모든 슬롯이 저작 unknown 값
+
+
+def _is_pc_speaker(world: CardWorld, session, speaker: str) -> bool:
+    from . import actors as _actors
+    return _actors.resolve_actor_id(world.definition, session, speaker).actor_id == world.pc_actor
+
+
 def _logged(session, ctx: DisplayContext) -> DisplayContext:
     """구조 로그: 대사 1건의 화자 식별·헤더 결정."""
     try:
@@ -180,7 +188,11 @@ def display_context(session, speaker: str, *, extra_known=frozenset()) -> Displa
         return _logged(session, DisplayContext(speaker, SPEAKER_PLAIN, None, speaker, None, known, world))
     status, aid = resolve_speaker(world, session, speaker)
     if status == SPEAKER_UNKNOWN:
-        return _logged(session, DisplayContext(speaker, status, None, UNKNOWN_TEXT, None, known, world))
+        # v7.35(U2-c): 이름 없는 인물(엑스트라)·식별 안 된 화자는 공용 카드(모든 슬롯 미공개 — 실루엣·???).
+        # PC 이름 화자는 카드를 주지 않는다(PC 대사 마커는 금지된 출력이다).
+        extra = EXTRA_CARD if (world.config.get("extra_speaker") is True
+                               and not _is_pc_speaker(world, session, speaker)) else None
+        return _logged(session, DisplayContext(speaker, status, None, UNKNOWN_TEXT, extra, known, world))
     card = (world.config.get("actors") or {}).get(aid) if aid else None
     card = card if isinstance(card, dict) else None
     if card is None:
@@ -854,8 +866,10 @@ def identity_manifest(world: CardWorld, wt, session, kind: str) -> dict:
     prefix = _IDENTIFY[kind][0]
     out = {}
     actors = world.config.get("actors") or {}
+    known = known_infos(session, world.pc_actor)
     for n, aid in enumerate(scene_card_actors(world, wt, session), 1):
-        if isinstance((actors[aid].get("knowledge") or {}).get(kind), str):
+        iid = (actors[aid].get("knowledge") or {}).get(kind)
+        if isinstance(iid, str) and iid not in known:        # v7.35(D4): 이미 아는 이름·얼굴은 후보가 아니다
             out[f"{prefix}{n}"] = aid
     return out
 
@@ -963,9 +977,44 @@ def parse_reveals(manifest: dict, raw, paragraphs, definition=None, session=None
             nm = _squash(_actors.display_name(definition or {}, session, aid) if definition is not None else "")
             if not nm or nm not in q:
                 continue                                  # 이름 공개 근거에 그 이름이 없다 — 공개로 보지 않는다
-        idx = next((i for i, p in enumerate(paras) if q in p), None)
+        idx = _locate(paras, q)
         if idx is not None:
             out[iid] = min(out.get(iid, idx), idx)
+    return out
+
+
+def _locate(paras, q):
+    """인용이 시작하는 문단 번호 — v7.35(U1-a): 인용이 문단 경계를 넘어도 본문(공백 제거) 안에 그대로 있으면 찾는다."""
+    joined, starts = "", []
+    for p in paras:
+        starts.append(len(joined))
+        joined += p
+    pos = joined.find(q) if q else -1
+    if pos < 0:
+        return None
+    return max(i for i, st in enumerate(starts) if st <= pos)
+
+
+_DIALOGUE_RE = re.compile(r"^@대사:([^|\n]+)\|(.+)$", re.S)
+
+
+def implied_name_reveals(manifest: dict, paragraphs, definition=None, session=None) -> dict:
+    """v7.35(U1-b, 사용자 승인): 추출 인용이 없어도 이름 공개로 본다 — 지시층위가 이번 턴 그 장면 인물의 이름 공개를
+    지목했고(manifest), 그 이름이 본문 대사 마커의 발화 내용(본인 소개 또는 타인의 호명)에 그대로 나올 때만.
+    {InfoId: 그 대사 문단 번호}."""
+    from . import actors as _actors
+    out = {}
+    for _k, (aid, kind, iid) in (manifest or {}).items():
+        if kind != "name":
+            continue
+        nm = _actors.display_name(definition or {}, session, aid) if definition is not None else ""
+        if not nm:
+            continue
+        for i, p in enumerate(paragraphs or ()):
+            m = _DIALOGUE_RE.match(str(p or "").strip())
+            if m and nm in m.group(2):
+                out[iid] = min(out.get(iid, i), i)
+                break
     return out
 
 
@@ -1131,6 +1180,8 @@ def check_card_definition(scenario: dict, *, definition: dict | None = None, bas
     for s in name_slots:
         if s not in slots:
             err("CARD_NAME_SLOT", "speaker_card.name_slots", f"정의되지 않은 슬롯 {s}")
+    if cfg.get("extra_speaker") not in (None, True, False):
+        err("CARD_EXTRA_SPEAKER", "speaker_card.extra_speaker", "extra_speaker는 true/false")
     fixed = cfg.get("fixed_speakers")
     if fixed is not None and not isinstance(fixed, dict):
         err("CARD_FIXED_SPEAKERS", "speaker_card.fixed_speakers", "fixed_speakers는 {화자 이름: 카드}")

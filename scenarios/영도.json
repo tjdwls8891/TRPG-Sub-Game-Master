@@ -39302,6 +39302,7 @@
       }
     },
     "plain_speakers": [],
+    "extra_speaker": true,
     "fixed_speakers": {
       "감염자": {
         "assign": "turn_random",

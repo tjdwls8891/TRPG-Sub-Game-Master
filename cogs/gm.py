@@ -2472,7 +2472,7 @@ class GMCog(commands.Cog):
             "stage": "declaration_check", "tx": transaction_id, "ambient": ambient, "assertion": assertion,
             "source": source, "result": None if gate is None else
             f"{gate['classification']}/{gate['resolution']}/{gate['reason_code']}"})
-        if master_ch:
+        if master_ch and (gate is None or _gate_blocks(gate)):     # v7.35: 진행하는 판정은 층위활동 보고(🧭)로
             await master_ch.send("🛡️ **[선언 검증]** " + (
                 f"{gate['classification']} → {gate['resolution']} ({gate['reason_code']})"
                 + (" · 기존 발견 재사용" if source == "CODE" else "") if gate else "검증 불가(캐시 없음·응답 오류)"))
@@ -2762,7 +2762,8 @@ class GMCog(commands.Cog):
             session, man, obs.get(core.items.OPS_FIELD), defs=defs, recipes=ctx.definition.get("item_recipes"),
             pc_name=pc_name, transaction_id=prep.transaction_id,
             discovery_taken=[k for k in (obs.get("discovery_taken") or ()) if isinstance(k, str)],
-            legacy_item_deltas=plan.item_deltas, payments=pays)
+            legacy_item_deltas=plan.item_deltas, payments=pays,
+            narration_text=getattr(getattr(prep, "narration", None), "text", "") or "")
 
     @staticmethod
     def _apply_discovery_gains(session, ctx, plan, gains) -> None:
@@ -3905,12 +3906,7 @@ class GMCog(commands.Cog):
                                                "confidence": est.get("confidence"),
                                                "breakdown": est.get("breakdown"),
                                                "tts": _tts if _tts.get("enabled") else None}, session=session)
-            await m_send(
-                f"💰 **[예상]** {core.format_estimate(est, _tts if _tts['enabled'] else None)} "
-                f"(중앙 {est.get('mid_krw', 0):.2f}원)\n"
-                + "".join(f"> {ln}\n" for ln in core.estimate.format_estimate_detail(est))
-                + f"> 캐시 {est['input_tokens']['cached']:,} 토큰"
-            )
+            # v7.35(R1): 예상은 별도 메시지로 보내지 않는다 — 커밋 뒤 턴 비용 보고의 '층위별 예상 대조'가 같은 값을 싣는다
         except Exception as e:
             print(f"[EST] 예상 산출 실패(진행에는 영향 없음): {e}")
 
@@ -4059,10 +4055,10 @@ class GMCog(commands.Cog):
             label = action_labels.get(action, action)
             core.logs.event("turn", f"판단 {action}", session=session,
                             data={"stage": "judgment", "iter": iteration, "action": action, "reasoning": reasoning})
-            await m_send(
-                f"🤖 **[GM 판단 #{iteration + 1}]** {label}\n"
-                f"> {reasoning[:200]}"
-            )
+            # v7.35: PROCEED·ROLL 판단은 커밋 뒤 층위활동 보고(🧭)가 싣는다. 턴이 확정되지 않고 응답을 기다리는
+            #   ASK·NARRATE만 지금 한 줄로 알린다(그 시점에 다른 보고가 없다).
+            if action not in ("PROCEED", "ROLL"):
+                await m_send(f"🤖 **[GM 판단 #{iteration + 1}]** {label} — {reasoning[:120]}")
 
             # ── ASK ──
             if action == "ASK":
@@ -5084,10 +5080,8 @@ class GMCog(commands.Cog):
                 }
                 core.logs.event("turn", f"굴림 후 판단 {action}", session=session,
                                 data={"stage": "post_roll", "action": action, "reasoning": reasoning})
-                await m_send(
-                    f"🤖 **[GM 판단 (굴림 후)]** {action_labels.get(action, action)}\n"
-                    f"> {reasoning[:200]}"
-                )
+                if action not in ("PROCEED", "ROLL"):          # v7.35: PROCEED는 층위활동 보고(🧭)로
+                    await m_send(f"🤖 **[GM 판단 (굴림 후)]** {action_labels.get(action, action)} — {reasoning[:120]}")
 
                 instruction = _clean_proceed_instruction(
                     decision.get("proceed_instruction") or
@@ -5338,12 +5332,7 @@ class GMCog(commands.Cog):
             return None
 
         master_ch = self.bot.get_channel(session.master_ch_id)
-        if master_ch:
-            # 지시사항 전문을 표시(잘림 방지). 1900자 초과 시 분할 전송.
-            await master_ch.send("🤖 **[GM PROCEED]**")
-            CHUNK = 1900
-            for i in range(0, len(instruction), CHUNK):
-                await master_ch.send(f"> {instruction[i:i + CHUNK]}")
+        # v7.35: 지시문 원문은 마스터 채널에 따로 보내지 않는다 — 층위활동 보고(🎬 분량)·!세션이력 호출 원문으로
 
         # NOTE: PROCEED 직전에 이번 턴 컨텍스트(NARRATE/ASK/ROLL 중간 기록)와 지시사항을 스냅샷.
         context_snapshot = list(session.current_turn_logs)
@@ -6004,10 +5993,7 @@ class GMCog(commands.Cog):
                 "joined": plan.companions_joined,
                 "left": plan.companions_left,
                 "npcs_met": plan.npcs_met})
-            if comp["joined"]:
-                await _master(f"🤝 **[동행]** {', '.join(comp['joined'])} 합류")
-            if comp["left"]:
-                await _master(f"👋 **[동행]** {', '.join(comp['left'])} 이탈")
+            # v7.35: 동행 변화는 세계 델타 보고(🧍 동행)가 싣는다
         except Exception as e:
             if derived is not None:
                 raise   # WP-D(D-D1): 권위 커밋의 정본 변이 실패는 삼키지 않고 커밋 owner로 전파
@@ -6120,7 +6106,8 @@ class GMCog(commands.Cog):
             print(f"[추출/{session.session_id}] 계획 충돌 진단(적용 제외): {plan.conflicts}")
 
         # 마스터 보고 — 계획·적용 결과에서 구성(raw result는 mutator에 안 들어감).
-        if master_ch or derived is not None:
+        # v7.35: 동적 세계는 추출의 위치가 권위가 아니다 — 추출 요약은 층위활동 보고(🔎)·세계 델타(🎒·🩹)로만
+        if (master_ch or derived is not None) and not getattr(session, "definition_revision", None):
             loc = (plan.world_new_tl or {}).get("current_location") or "미확인"
             report = f"🔎 **[추출층위]** 위치={loc}"
             if applied["applied"]:
@@ -6375,9 +6362,13 @@ class GMCog(commands.Cog):
                 _var_manifest, result.get("speaker_variations"))
         if _wt is not None and _rev_manifest:
             _narr = getattr(preparation, "narration", None)
-            preparation.identity_reveals = core.speaker_card.parse_reveals(
-                _rev_manifest, result.get(core.speaker_card.REVEAL_FIELD),
-                getattr(_narr, "paragraphs", ()) or (), _cw.definition, session)
+            _paras = getattr(_narr, "paragraphs", ()) or ()
+            _rev = core.speaker_card.parse_reveals(
+                _rev_manifest, result.get(core.speaker_card.REVEAL_FIELD), _paras, _cw.definition, session)
+            for _iid, _ix in core.speaker_card.implied_name_reveals(
+                    _rev_manifest, _paras, _cw.definition, session).items():   # v7.35(U1-b): 대사 속 이름
+                _rev[_iid] = min(_rev.get(_iid, _ix), _ix)
+            preparation.identity_reveals = _rev
         return plan
 
     async def _simulate_narrative_directions(self, session, player_message: str,
@@ -6638,7 +6629,12 @@ class GMCog(commands.Cog):
             return await ctx.send("이 명령어는 마스터 채널에서만 사용할 수 있습니다.")
 
         if core.player_world.legacy_narrative_retired(session):
-            return await ctx.send("📂 동적 세계 세션은 레거시 정보 인지 원장을 쓰지 않습니다 — 정보·인지는 정본 세계가 소유합니다.")
+            # v7.35(S1): 동적 세계는 레거시 원장 대신 지금 정본이 추적하는 요소를 요약한다
+            for e in core.master_report.pack("📂 정본 추적 요소", core.master_report.COLOR_DELTA,
+                                             core.master_report.tracked_sections(session),
+                                             description="비밀 원문은 턴 보고의 [🔒 비밀 원문] 버튼"):
+                await ctx.send(embed=e)
+            return
         ledger = getattr(session, "info_ledger", []) or []
         if not ledger:
             return await ctx.send(

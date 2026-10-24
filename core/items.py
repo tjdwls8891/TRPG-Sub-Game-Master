@@ -47,6 +47,10 @@ DEFAULT_CARRY_LIMITS = {"mass": 40, "bulk": 40}    # 저작 등급이 있는 물
 UNGRADED_OP_CAP = 99                               # 등급 미저작 물건 한 연산 획득 상한(수백 개 조용한 획득 방지)
 FREE_CRAFT_MAX_KINDS = 3
 FREE_CRAFT_MAX_QTY = 10
+# v7.35(D1): 이번 묘사에 처음 나온 물건을 PC가 챙김(item=NEW + name) — 이름이 본문에 그대로 있어야 한다
+NEW_KEY = "NEW"
+NEW_MAX_KINDS = 3
+NEW_MAX_QTY = 10
 
 OPS = ("TRANSFER", "ACQUIRE", "DROP", "CONSUME", "DAMAGE", "REPAIR", "OPEN", "CRAFT", "DISASSEMBLE",
        "READ", "USE")
@@ -191,7 +195,7 @@ class ItemManifest:
     def schema(self) -> dict:
         def enum(rows, extra=()):
             return {"type": "string", "enum": ["NONE"] + list(extra) + [r[0] for r in rows]}
-        item_keys = enum(self.holdings + self.places + self.discoveries)
+        item_keys = enum(self.holdings + self.places + self.discoveries, (NEW_KEY,))
         ref = {"type": "object", "properties": {"item": enum(self.holdings), "quantity": {"type": "integer"}},
                "required": ["item", "quantity"]}
         out = {"type": "object", "properties": {"name": {"type": "string"}, "unit": {"type": "string"},
@@ -203,6 +207,7 @@ class ItemManifest:
                     "owner": enum(self.owners),
                     "to": enum(self.owners),
                     "item": item_keys,
+                    "name": {"type": "string"},
                     "quantity": {"type": "integer"},
                     "condition": {"type": "string", "enum": ["NONE", COND_NORMAL] + list(CONDITIONS)},
                     "recipe": enum(self.recipes),
@@ -227,6 +232,8 @@ class ItemManifest:
                      "여는 것만이고 안의 물건을 집으면 따로 ACQUIRE · "
                      "CRAFT 완성된 제작(inputs 재료 소모, outputs 결과 — recipe가 있으면 그 키) · DISASSEMBLE 분해(outputs 회수 부품) · "
                      "READ 글·기록을 실제로 읽음 · USE 소모 없이 사용.")
+        lines.append(f"· ACQUIRE item={NEW_KEY}: 위 키에 없는 물건이 이번 묘사에 처음 나와 PC가 실제로 집어 챙긴 경우만 — "
+                     "owner는 PC, name에 본문에 쓰인 물건 이름을 그대로(수량은 quantity). 키가 있는 물건은 그 키를 쓴다.")
         lines.append("· 보여 주기·만지기·시도만 한 것, 실패한 제작의 결과물, 묘사에 없는 이동은 넣지 말 것. 수량은 묘사에 "
                      "드러난 정수(불명이면 1). 소지에 없는 물건을 주거나 쓰는 묘사라도 새 키를 지어내지 말 것.")
         return "\n".join(lines) + "\n"
@@ -434,6 +441,8 @@ def run_ops(session, ops, *, defs=None, pc_name, scene_place, transaction_id, re
                     raise ItemContractError(f"{why}: 발견물은 한 번에 한 개만, 한 번만 수거")
                 s.takes.append(src["discovery"])
                 s.give(op["to"], format_key(_alias_kind(src["name"], defs)), 1, why)
+            elif src and src.get("new"):
+                s.give(op["to"], format_key(_alias_kind(src["new"], defs)), q, why)
             elif src and src.get("instance"):
                 r = s.inst_of(src["instance"])
                 if r.get("owner") or r.get("place") != scene_place or q != 1:
@@ -632,9 +641,30 @@ def _subject_of(s, op, why) -> tuple:
 #  추출 → 정규 연산
 # ══════════════════════════════════════════════════════════════
 
-def normalize_raw_ops(manifest: ItemManifest, raw_ops, *, discovery_taken=(), pc_name=None) -> list:
+def _squash(text) -> str:
+    return re.sub(r"\s+", "", str(text or ""))
+
+
+def _new_source(r, owner, pc_name, narration_text, seen, why) -> dict:
+    """v7.35(D1) 처음 나온 물건 — PC만, 본문에 그 이름이 그대로 있을 때만, 한 턴 종류·수량 상한."""
+    name = str(r.get("name") or "").strip()
+    if owner != pc_name:
+        raise ItemContractError(f"{why}: {NEW_KEY} 획득은 PC만")
+    if not name or any(c in name for c in "[]〈〉") or _squash(name) not in _squash(narration_text):
+        raise ItemContractError(f"{why}: {NEW_KEY} 물건 이름 {name!r}이(가) 이번 묘사 본문에 없음")
+    q = r.get("quantity")
+    if isinstance(q, int) and not isinstance(q, bool) and q > NEW_MAX_QTY:
+        raise ItemContractError(f"{why}: {NEW_KEY} 물건 수량 상한 {NEW_MAX_QTY}")
+    seen.add(name)
+    if len(seen) > NEW_MAX_KINDS:
+        raise ItemContractError(f"{why}: {NEW_KEY} 물건은 한 턴 {NEW_MAX_KINDS}종까지")
+    return {"new": name}
+
+
+def normalize_raw_ops(manifest: ItemManifest, raw_ops, *, discovery_taken=(), pc_name=None,
+                      narration_text: str = "") -> list:
     """추출 item_ops(+ 발견 D키 수거) → 정규 연산. 후보 밖 키·형식 오류는 ItemContractError(재추출)."""
-    out = []
+    out, new_names = [], set()
     for n, r in enumerate(raw_ops or ()):
         if not isinstance(r, dict):
             raise ItemContractError(f"연산 {n + 1}: 형식 오류")
@@ -651,7 +681,9 @@ def normalize_raw_ops(manifest: ItemManifest, raw_ops, *, discovery_taken=(), pc
         base = {"op": op, "qty": q}
         if op == "ACQUIRE":
             pl, dr = manifest.place_of(item), manifest.discovery_of(item)
-            if pl is not None:
+            if item == NEW_KEY:
+                src = _new_source(r, owner, pc_name, narration_text, new_names, why)
+            elif pl is not None:
                 src = {"place_source": pl[1]} if pl[1] else {"instance": pl[2]}
             elif dr is not None:
                 src = {"discovery": dr[0], "info_id": dr[1], "name": dr[2]}
@@ -745,11 +777,12 @@ def legacy_changes_to_ops(manifest: ItemManifest, item_deltas, *, pc_name, taken
 
 
 def build_plan(session, manifest: ItemManifest, raw_ops, *, defs=None, recipes=None, pc_name, transaction_id,
-               discovery_taken=(), legacy_item_deltas=(), payments=()) -> ItemPlan:
+               discovery_taken=(), legacy_item_deltas=(), payments=(), narration_text: str = "") -> ItemPlan:
     """추출 → 검증된 ItemPlan. 실패하면 ItemContractError(정본 불변, 추출 재시도)."""
     ops, diags = list(payments or ()), []
     if raw_ops:
-        ops += normalize_raw_ops(manifest, raw_ops, discovery_taken=discovery_taken, pc_name=pc_name)
+        ops += normalize_raw_ops(manifest, raw_ops, discovery_taken=discovery_taken, pc_name=pc_name,
+                                 narration_text=narration_text)
     else:
         ops += normalize_raw_ops(manifest, (), discovery_taken=discovery_taken, pc_name=pc_name)
         if legacy_item_deltas:

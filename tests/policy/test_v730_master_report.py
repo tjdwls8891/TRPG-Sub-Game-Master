@@ -168,7 +168,7 @@ def test_delta_covers_off_scene_and_shows_secret_summary_only():
     assert "+30분" in text["🕰️ 시간"]
     assert "npc.a: 시장 → 항구" in text["🧍 인물"] and "[원격] npc.b: 창고 → 남항" in text["🧍 인물"]
     assert "yd_x: 생성" in text["📜 사건"]
-    assert "밧줄 1→0" in text["🎒 물건"] and "열쇠 0→1" in text["🎒 물건"]
+    assert "밧줄 −1 (→0)" in text["🎒 물건"] and "열쇠 +1 (→1)" in text["🎒 물건"]   # v7.35 형식
     secret = text["🔒 비밀·정보 (요약)"]
     assert n_secret == 2 and "npc.b · 새 인지 CONTENT" in secret and LONG not in secret and "…" in secret
     full = "\n".join(MR.secret_lines(s, _record()))

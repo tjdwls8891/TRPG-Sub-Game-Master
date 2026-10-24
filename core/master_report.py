@@ -119,32 +119,143 @@ def _j(v) -> str:
     return json.dumps(v, ensure_ascii=False, default=str, separators=(",", ":"))
 
 
-def activity_sections(prep, record=None, diagnostics=()) -> list:
+def _cut(text, n) -> str:
+    t = " ".join(str(text or "").split())
+    return t if len(t) <= n else t[:n] + "…"
+
+
+def _judgment_line(jrec) -> list:
+    """판단 — 유형·의도·굴림·세계 의도·게이트를 한두 줄로(원문 JSON은 !세션이력 호출 원문)."""
+    if not isinstance(jrec, dict):
+        return []
+    j = jrec.get("judgment") if isinstance(jrec.get("judgment"), dict) else jrec
+    bits = [f"**{j.get('action') or j.get('type') or '?'}**"]
+    rr = jrec.get("roll_records") or []
+    if rr:
+        rolls = []
+        for r in rr:
+            a = r.get("actor") or {}
+            rolls.append(f"{a.get('stat', '?')} T{a.get('T', '?')}→R{a.get('R', '?')} "
+                         f"{'성공' if a.get('success') else '실패'}" + (" · 발견" if r.get("discovery") else ""))
+        bits.append("굴림 " + ", ".join(rolls))
+    elif j.get("rolls"):
+        bits.append(f"굴림 요청 {len(j['rolls'])}")
+    sem = ((j.get("action_intent") or {}).get("semantic") or j.get("action_intent") or {})
+    mv = sem.get("movement") or {}
+    if mv.get("kind"):
+        bits.append(f"이동 {mv['kind']}" + (f"→{mv['destination_place']}" if mv.get("destination_place") else ""))
+    if sem.get("time_advance"):
+        bits.append("시간 진행 " + str((sem["time_advance"] or {}).get("kind") or "?"))
+    if sem.get("action_minutes"):
+        bits.append(f"행동 {sem['action_minutes']}분")
+    if sem.get("resolution"):
+        bits.append("결단 " + str(sem["resolution"]))
+    g = jrec.get("gate")
+    if isinstance(g, dict) and g.get("classification"):
+        bits.append(f"게이트 {g['classification']}/{g.get('resolution')}")
+    return [" · ".join(bits), "의도: " + _cut(j.get("player_intent"), 90)] if j.get("player_intent") else [" · ".join(bits)]
+
+
+def _names(definition, session, ids) -> str:
+    world = {"actor_registry": getattr(session, "actor_registry", None) or {}}
+    return "·".join(_actor(definition or {}, world, a) for a in ids or ()) or "—"
+
+
+def _speaker_state(session, speaker) -> str:
+    """대사 화자의 카드 판정(로그 없이) — 실명·???·공용·카드 없음."""
+    try:
+        from . import speaker_card as _sc
+        world = _sc.card_world(session)
+        if world is None:
+            return ""
+        if (world.config.get("fixed_speakers") or {}).get(speaker):
+            return "고정 카드"
+        if speaker in (world.config.get("plain_speakers") or ()):
+            return "원문"
+        status, aid = _sc.resolve_speaker(world, session, speaker)
+        if status == _sc.SPEAKER_UNKNOWN:
+            return "공용 카드 ???" if world.config.get("extra_speaker") is True else "카드 없음 ???"
+        card = (world.config.get("actors") or {}).get(aid) or {}
+        know, known = card.get("knowledge") or {}, _sc.known_infos(session, world.pc_actor)
+        if not card:
+            return "카드 미저작"
+        return ("이름" if know.get("name") in known else "???") + "·" + ("얼굴" if know.get("face") in known else "실루엣")
+    except Exception:  # noqa: BLE001
+        return ""
+
+
+def _extraction_lines(prep, diags) -> list:
+    plan = getattr(prep, "extraction_plan", None)
+    raw = getattr(plan, "result", None) if plan is not None else None
+    if not isinstance(raw, dict):
+        try:
+            raw = json.loads(getattr(prep, "extraction_text", None) or "{}")
+        except Exception:  # noqa: BLE001
+            raw = {}
+    obs = raw.get("world_observation") or {}
+    comp = raw.get("companions") or {}
+    sit = raw.get("situation") or {}
+    bits = [f"상태 {len(raw.get('status_scores') or [])}",
+            "만남 " + ("·".join(raw.get("npcs_met") or []) or "—"),
+            f"동행 +{len(comp.get('joined') or [])}/−{len(comp.get('left') or [])}",
+            f"노출 {len(obs.get('info_exposed') or [])}",
+            f"물건 연산 {len(obs.get('item_ops') or [])}"]
+    rej = [d for d in diags if d.get("code") in ("ITEM_CONTRACT_REJECTED", "ITEM_OPS_DROPPED")]
+    if rej:
+        bits.append("물건 거부 " + " → ".join("재추출" if d["code"] == "ITEM_CONTRACT_REJECTED" else "제외"
+                                            for d in rej))
+    rv = raw.get("identity_reveals")
+    if rv is not None:
+        bits.append(f"이름·얼굴 인용 {len(rv)} → 확인 {len(getattr(prep, 'identity_reveals', None) or {})}")
+    if sit.get("tension") is not None:
+        bits.append(f"긴장 {sit.get('tension')}")
+    return [" · ".join(bits)]
+
+
+def activity_sections(prep, record=None, diagnostics=(), session=None) -> list:
+    """v7.35(사용자 결정): 원문 대신 항목명·분량·개수 — 원문은 !세션이력(호출 원문 복원)으로."""
     secs = []
     rec = record or {}
     decl = rec.get("player_declaration")
     if decl:
-        secs.append(("🗣️ 플레이어 선언", [str(decl)]))
-    jd = rec.get("judgment")
-    if jd:
-        head = [f"유형 **{jd.get('type', '?')}**"] if isinstance(jd, dict) else []
-        secs.append(("🧭 판단층위", head + [_j(jd)]))
+        secs.append(("🗣️ 선언", [_cut(decl, 120)]))
+    jl = _judgment_line(rec.get("judgment"))
+    if jl:
+        secs.append(("🧭 판단", jl))
+    wt = getattr(prep, "world_turn", None)
+    D = getattr(getattr(wt, "ctx", None), "definition", None) or {}
     ph = getattr(prep, "proceed_history_entry", None) or {}
     if ph.get("instruction"):
-        secs.append(("🎬 지시층위 지시문", str(ph["instruction"]).split("\n")))
-    if ph.get("ai_summary"):
-        secs.append(("🧾 지시층위 요약", [str(ph["ai_summary"])]))
+        ins = [f"지시문 {len(str(ph['instruction'])):,}자"]
+        if wt is not None:
+            ins.append(f"식별 얼굴 {_names(D, session, getattr(wt, 'identified_faces', ()))}"
+                       f" / 이름 {_names(D, session, getattr(wt, 'identified_names', ()))}")
+        secs.append(("🎬 지시", [" · ".join(ins)] + ([_cut(ph["ai_summary"], 90)] if ph.get("ai_summary") else [])))
     narr = getattr(prep, "narration", None)
     if narr is not None and getattr(narr, "text", None):
         t = narr.text
         paras = [p for p in t.split("\n") if p.strip()]
         speakers = sorted(set(re.findall(r"@대사:([^|\n]+)\|", t)))
-        secs.append(("🖋️ 묘사층위", [f"{len(t):,}자 · 문단 {len(paras)}"
-                                     + (f" · 대사 {'·'.join(speakers)}" if speakers else ""),
-                                     (paras[0][:200] + ("…" if len(paras[0]) > 200 else "")) if paras else ""]))
-    ext = getattr(prep, "extraction_text", None)
-    if ext:
-        secs.append(("🔎 추출층위(원문)", str(ext).split("\n")))
+        sp = []
+        for n in speakers:
+            st = _speaker_state(session, n) if session is not None else ""
+            sp.append(f"{n}({st})" if st else n)
+        secs.append(("🖋️ 묘사", [f"{len(t):,}자 · 문단 {len(paras)}" + (f" · 대사 {', '.join(sp)}" if sp else "")]))
+    diags = list(diagnostics or ()) + list(getattr(prep, "world_diagnostics", None) or ())
+    if getattr(prep, "extraction_text", None) or getattr(prep, "extraction_plan", None) is not None:
+        secs.append(("🔎 추출", _extraction_lines(prep, diags)))
+    wplan = getattr(wt, "plan", None)
+    if wplan is not None:
+        kind = (getattr(wplan, "outcome", None) or {}).get("kind")
+        mins = None
+        if getattr(wplan, "end_minute", None) is not None and getattr(wplan, "start_minute", None) is not None:
+            mins = wplan.end_minute - wplan.start_minute
+        bits = [f"{wplan.status}" + (f"({wplan.reason})" if getattr(wplan, "reason", None) else ""),
+                kind or "—", f"{mins if mins is not None else 0}분", f"신호 {len(getattr(wplan, 'signals', None) or [])}"]
+        pd = [d.get("code") for d in (getattr(wplan, "diagnostics", None) or []) if isinstance(d, dict)]
+        if pd:
+            bits.append("진단 " + "·".join(map(str, pd)))
+        secs.append(("🌍 세계 계획", [" · ".join(bits)]))
     batch = getattr(prep, "world_mutation_batch", None)
     if batch is not None:
         try:
@@ -155,9 +266,9 @@ def activity_sections(prep, record=None, diagnostics=()) -> list:
                 secs.append(("⚙️ 세계 연산", [" · ".join(f"{k} ×{v}" for k, v in sorted(counts.items()))]))
         except Exception:  # noqa: BLE001
             pass
-    diags = list(diagnostics or ()) + list(getattr(prep, "world_diagnostics", None) or ())
     if diags:
-        secs.append(("⚠️ 진단", [f"{d.get('code')}: {_j(d.get('detail'))}" for d in diags]))
+        secs.append(("⚠️ 진단", [f"{d.get('code')}" + (f": {_cut(_j(d.get('detail')), 100)}" if d.get("detail") else "")
+                                 for d in diags]))
     return secs
 
 
@@ -251,7 +362,52 @@ def info_changes(definition, pre: dict, post: dict) -> list:
     return out
 
 
-def delta_sections(session, record) -> tuple:
+def _signed(n) -> str:
+    return f"+{n}" if n > 0 else f"−{-n}"
+
+
+def item_change_lines(pre: dict, post: dict) -> list:
+    """소지(resources)·현장 물건(place_items)·특수 물건(item_instances)의 변화를 '누가 +무엇×n'으로."""
+    out = []
+    pr, qr = pre.get("resources") or {}, post.get("resources") or {}
+    for owner in sorted(set(pr) | set(qr), key=str):
+        o, n = pr.get(owner) or {}, qr.get(owner) or {}
+        if o == n or not isinstance(o, dict) or not isinstance(n, dict):
+            continue
+        ch = []
+        for k in sorted(set(o) | set(n), key=str):
+            a, b = o.get(k, 0), n.get(k, 0)
+            if a != b and isinstance(a, int) and isinstance(b, int):
+                ch.append(f"{k} {_signed(b - a)} (→{b})")
+        if ch:
+            out.append(f"{owner}: " + ", ".join(ch))
+    pp, qp = pre.get("place_items") or {}, post.get("place_items") or {}
+    for sid in sorted(set(pp) | set(qp), key=str):
+        a, b = pp.get(sid) or {}, qp.get(sid) or {}
+        if a == b:
+            continue
+        qa, qb = int(a.get("quantity") or 0), int(b.get("quantity") or 0)
+        rec = b or a
+        tail = "" if a.get("closed") == b.get("closed") or not a or not b else (" · 열림" if a.get("closed") else " · 닫힘")
+        if qa != qb or tail:
+            out.append(f"현장({rec.get('place') or '?'}) {rec.get('key') or '?'} "
+                       + (f"{_signed(qb - qa)} (→{qb})" if qa != qb else f"×{qb}") + tail)
+    pi, qi = pre.get("item_instances") or {}, post.get("item_instances") or {}
+    for iid in sorted(set(pi) | set(qi), key=str):
+        a, b = pi.get(iid) or {}, qi.get(iid) or {}
+        if a == b:
+            continue
+        nm = (b or a).get("name") or (b or a).get("kind") or iid
+        bits = []
+        if a.get("owner") != b.get("owner") or a.get("place") != b.get("place"):
+            bits.append(f"{a.get('owner') or a.get('place') or '—'}→{b.get('owner') or b.get('place') or '—'}")
+        if a.get("condition") != b.get("condition"):
+            bits.append(f"상태 {a.get('condition') or '정상'}→{b.get('condition') or '정상'}")
+        out.append(f"특수 물건 {nm}: " + (" · ".join(bits) or ("생성" if not a else "변경")))
+    return out
+
+
+def delta_sections(session, record, prep=None) -> tuple:
     """(섹션 목록, 비밀 수) — 이력 레코드의 pre/post 정본 차이."""
     pre, post = (record or {}).get("pre") or {}, (record or {}).get("post") or {}
     if not pre and not post:
@@ -337,17 +493,13 @@ def delta_sections(session, record) -> tuple:
     if ic:
         secs.append(("🔒 비밀·정보 (요약)", [f"{h} · {why} — {_summary(D, post, iid)}" for h, iid, why in ic]))
 
-    # 물건·접근·상태
-    items = []
-    pr, qr = pre.get("resources") or {}, post.get("resources") or {}
-    for owner in sorted(set(pr) | set(qr), key=str):
-        o, n = pr.get(owner) or {}, qr.get(owner) or {}
-        if o != n and isinstance(o, dict) and isinstance(n, dict):
-            ch = [f"{k} {o.get(k, 0)}→{n.get(k, 0)}" for k in sorted(set(o) | set(n), key=str) if o.get(k) != n.get(k)]
-            items.append(f"{owner}: " + ", ".join(ch))
-    for fld, label in (("place_items", "현장 물건"), ("item_instances", "특수 물건")):
-        if pre.get(fld) != post.get(fld):
-            items.append(f"{label} " + _j(_diff(pre.get(fld), post.get(fld))))
+    # 물건·접근·상태 — v7.35: 누가 무엇을 몇 개(사람이 읽는 형식) + 정본에 들어가지 못한 물건 연산
+    items = item_change_lines(pre, post)
+    for d in (getattr(prep, "world_diagnostics", None) or []) if prep is not None else []:
+        if d.get("code") == "ITEM_CONTRACT_REJECTED":
+            items.append("(거부 → 재추출) " + _cut((d.get("detail") or {}).get("error"), 160))
+        elif d.get("code") == "ITEM_OPS_DROPPED":
+            items.append("(거부 → 물건 변화 없이 확정) " + _cut((d.get("detail") or {}).get("second"), 160))
     if items:
         secs.append(("🎒 물건", items))
     if pre.get("access_control_state") != post.get("access_control_state"):
@@ -370,6 +522,49 @@ def delta_sections(session, record) -> tuple:
     if not secs:
         secs.append(("—", ["정본 변화 없음"]))
     return secs, len(ic)
+
+
+def tracked_sections(session) -> list:
+    """v7.35(S1): 지금 정본이 추적하는 요소 요약(요청 시 1회 — !자동 원장, 동적 세계)."""
+    from collections import Counter
+    D = _definition(session)
+    g = lambda k: getattr(session, k, None)                      # noqa: E731
+    m, ct = _clock(D, g("world_clock"))
+    start = (g("world_clock") or {}).get("start_minute_index")
+    sched = g("world_schedule") or {}
+    secs = [("🕰️ 시간", [ct + (f" · 시작 +{m - start}분" if m is not None and start is not None else "")
+                         + f" · 예약 {len(sched)}건 대기"])]
+    pl = (g("spatial_state") or {}).get("placements") or {}
+    secs.append(("📍 공간", [f"정본 배치 {len(pl)}명: " + ", ".join(f"{_actor(D, {'actor_registry': g('actor_registry')}, a)}={_place(p)}"
+                                                          for a, p in sorted(pl.items())),
+                            f"방문 {len(g('visited_places') or [])}곳 · 공간 지식 보유 {len(g('spatial_knowledge') or {})}명",
+                            "그 밖의 NPC 위치는 일과(routine)로 파생 — 정본 배치 없음"]))
+    ev = g("event_instances") or {}
+    life = Counter((v or {}).get("lifecycle") for v in ev.values())
+    tmpl = D.get("event_templates") or {}
+    active = [f"{(tmpl.get(v.get('template_id')) or {}).get('title') or v.get('template_id')}({v.get('current_phase')})"
+              for v in ev.values() if (v or {}).get("lifecycle") == "ACTIVE"]
+    secs.append(("📜 사건", [" · ".join(f"{k} {n}" for k, n in sorted(life.items(), key=lambda x: str(x[0]))) or "없음"]
+                 + ([", ".join(sorted(active))] if active else [])))
+    cog = g("cognition_state") or {}
+    pcs = [h for h in cog if h.startswith("actor:pc_")]
+    info = g("information_state") or {}
+    secs.append(("🔒 정보·인지", [f"PC 인지 {sum(len(cog[h] or {}) for h in pcs)} · NPC 인지 보유 {len(cog) - len(pcs)}명 · "
+                                f"런타임 정보 {len(info.get('runtime_definitions') or {})} · 정보 상태 {len(info.get('status') or {})}"]))
+    res = g("resources") or {}
+    pc_names = [((g("players") or {}).get(u) or {}).get("name") for u in (g("players") or {})]
+    lines = [f"{n}: " + (", ".join(f"{k}×{v}" for k, v in sorted((res.get(n) or {}).items())) or "(없음)")
+             for n in pc_names if n]
+    lines.append(f"NPC 소지 {sum(1 for n in res if n not in pc_names)}명 · 현장 물건 {len(g('place_items') or {})} · "
+                 f"특수 물건 {len(g('item_instances') or {})}")
+    secs.append(("🎒 물건", lines))
+    st = g("statuses") or {}
+    secs.append(("🩹 상태·관계", [f"PC 상태 " + (", ".join(f"{n}={'·'.join(st.get(n) or []) or '없음'}" for n in pc_names if n) or "—")
+                                + f" · NPC 상태 보유 {sum(1 for n in st if n not in pc_names)}명",
+                                f"동행 {'·'.join(g('companions') or []) or '없음'} · 만남 {len(g('met_npcs') or [])} · "
+                                f"관계 변화 {len(g('relationship_state') or {})}",
+                                f"접근 상태 {len(g('access_control_state') or {})} · 전달 대기 신호 {len(g('world_pending_signals') or [])}"]))
+    return secs
 
 
 def _diff(a, b):
@@ -447,13 +642,13 @@ def build(session, *, transaction_id, cost_embed=None, cost_log=(), estimate=Non
                        description=getattr(cost_embed, "description", None))
     # 갈래마다 따로 조립한다 — 한 갈래가 실패해도 다른 갈래(특히 비용)는 보낸다
     try:
-        act = activity_sections(prep, record)
+        act = activity_sections(prep, record, session=session)
     except Exception as e:  # noqa: BLE001
         act = [("⚠️ 조립 실패", [f"층위활동 보고를 만들지 못했습니다: {type(e).__name__}: {e}"])]
     if act:
         embeds += pack(f"🧠 층위활동 · #{turn}", COLOR_ACTIVITY, act)
     try:
-        dsecs, n_secret = delta_sections(session, record)
+        dsecs, n_secret = delta_sections(session, record, prep)
     except Exception as e:  # noqa: BLE001
         dsecs, n_secret = [("⚠️ 조립 실패", [f"세계 델타 보고를 만들지 못했습니다: {type(e).__name__}: {e}"])], 0
     embeds += pack(f"🌐 세계 델타 · #{turn}", COLOR_DELTA, dsecs,
