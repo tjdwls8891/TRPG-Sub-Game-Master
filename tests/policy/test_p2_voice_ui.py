@@ -21,7 +21,7 @@ from core import voice_profile as VP
 from tests.conftest import PLAYER_UID
 from tests.fakes.discord_fakes import FakeChannel, FakeInteraction, FakeUser
 from tests.policy.test_v715_character_creation import (  # noqa: F401 — 캐릭터 생성 하네스 재사용
-    _prefill_start, labels, pc, pick, press, st)
+    _prefill_start, labels, pc, pick, press, st, through_talk)
 
 
 # ── #10 음성 프로필 ─────────────────────────────────────────────
@@ -225,6 +225,7 @@ async def test_unchanged_loaded_profile_hides_save(pc, monkeypatch):
     await _prefill_start(pc, dict(FIELDS))
     assert core.profile_creation_ui.profile_changed(st(pc).run) is False
     await press(pc, "✅ 이대로 시작")
+    await through_talk(pc)                                                   # v7.36 '완성' 한마디 응답
     assert "💾 사전 프로필로 저장" not in labels(st(pc)) and "계속" in labels(st(pc))
 
 
@@ -236,6 +237,7 @@ async def test_changed_loaded_profile_confirms_once_then_saves_new(pc, monkeypat
     await press(pc, "확정")
     assert core.profile_creation_ui.profile_changed(st(pc).run) is True
     await press(pc, "✅ 이대로 시작")
+    await through_talk(pc)
     await press(pc, "💾 사전 프로필로 저장")
     path = pathlib.Path(f"profiles/{PLAYER_UID}.json")
     assert json.loads(path.read_text(encoding="utf-8")) == original                 # 확인 전 저장 없음

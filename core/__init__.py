@@ -280,6 +280,7 @@ from . import initial_knowledge  # v7.17 초기 지식(PROFILE·START 2단계 �
 from . import voice_profile  # P2 음성 프로필(마스터 성별 목소리·NPC 고정 배정·문단 화자·절제 스타일)
 from . import master_art  # P2 마스터 이미지 슬롯(manifest)·공용 로딩/오류 이미지
 from . import conversational  # P2 대화형 안내 = 일반 메시지(content) 변환
+from . import talk  # v7.36 대화 박자(마스터 안내 박자·응답 버튼·스트리밍)
 from .cost import (
     extract_token_usage,
     format_cost,

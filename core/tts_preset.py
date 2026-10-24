@@ -129,7 +129,8 @@ def collect_targets(scenario_ids: list = None) -> dict:
             text = data.get(field)
             if not isinstance(text, str) or not text.strip():
                 continue
-            paras = [p.strip() for p in text.split("\n\n") if p.strip()]
+            from .talk import plain          # v7.36: 대화 박자 표기([[답]])는 읽지 않는다
+            paras = [p.strip() for p in plain(text).split("\n\n") if p.strip()]
             for i, para in enumerate(paras):
                 targets[f"scenario.{sid}.{field}.{i}"] = para
     return targets

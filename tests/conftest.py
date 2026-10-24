@@ -68,6 +68,17 @@ def _no_live_calls(monkeypatch):
 
 
 @pytest.fixture(autouse=True)
+def _talk_instant(monkeypatch):
+    """v7.36 대화 박자 스트리밍은 연출 지연이다 — 테스트는 기다리지 않는다(박자 위치는 테스트마다 비운다)."""
+    import core.talk as _talk
+    monkeypatch.setattr(_talk, "TICK", 0.0)
+    _talk._POS.clear()
+    _talk._ECHO.clear()
+    _talk._TEXT.clear()
+    yield
+
+
+@pytest.fixture(autouse=True)
 def _isolated_cwd(tmp_path, monkeypatch):
     """세션/계정/통계 파일이 저장소를 오염시키지 않게 한다.
 

@@ -836,7 +836,7 @@ class SessionCog(commands.Cog):
         if not game_channel:
             return await ctx.send("⚠️ 게임 채널을 찾을 수 없습니다.")
 
-        scenario_intro = session.scenario_data.get("scenario_intro", "")
+        scenario_intro = core.talk.plain(session.scenario_data.get("scenario_intro", ""))   # v7.36 박자 표기 제거
         pc_template = session.scenario_data.get("pc_template", {})
         ability_stats = session.scenario_data.get("ability_stats", [])
         secondary_stats = session.scenario_data.get("profile_secondary_stats", [])

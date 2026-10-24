@@ -445,17 +445,9 @@ async def _begin_flow(bot, interaction, kind: str):
         + f" {game_ch.mention if game_ch else ''}", ephemeral=True)
 
     if game_ch:
-        # 참가자 호출 + 음성채널 참가 안내 (기획 규정)
-        msg = (
-            f"{interaction.user.mention} 님, " + master.say(
-                "session.first_game_greeting",
-                "여기서 세션을 만들어 갑니다.\n몇 가지를 여쭙고 캐릭터를 만든 뒤 이야기가 시작됩니다.")
-        )
-        if voice_ch:
-            msg += (f"\n\n🎧 음성 채널 {voice_ch.mention} 에 들어오시면 "
-                    "배경음과 음성이 함께 재생됩니다. 지금 들어오셔도 되고 나중에 오셔도 됩니다.")
-        from .dialogue import send_streamed
-        await send_streamed(bot, game_ch, msg)
+        # 참가자 호출 + 음성채널 참가 안내 (기획 규정) — v7.36: 첫 인사는 제작 메시지의 첫 박자들(공개 설정 앞)
+        creation.get_state(session)["greeting"] = session_flow.greeting_text(
+            interaction.user.mention, voice_ch.mention if voice_ch else None)
         await session_flow.render(bot, session, game_ch)
 
 

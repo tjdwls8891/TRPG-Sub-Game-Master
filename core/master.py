@@ -26,11 +26,14 @@ def _load() -> dict:
             with open(ASSET_PATH, encoding="utf-8") as f:
                 data = json.load(f)
             events = data.get("events") if isinstance(data, dict) else None
+            acks = [tuple(a for a in pair if isinstance(a, str) and a.strip())
+                    for pair in (data.get("acks") or []) if isinstance(pair, list)]
             _cache = {"events": events if isinstance(events, dict) else {},
-                      "slots": set((data.get("reserved_placeholders") or {}).keys())}
+                      "slots": set((data.get("reserved_placeholders") or {}).keys()),
+                      "acks": [a for a in acks if a]}
         except Exception as e:
             print(f"[마스터] 대사 데이터 로드 실패(기존 문구 사용): {e}")
-            _cache = {"events": {}, "slots": set()}
+            _cache = {"events": {}, "slots": set(), "acks": []}
     return _cache
 
 
@@ -64,6 +67,11 @@ def line(key: str, *, slots: dict | None = None) -> str | None:
             return None
         text = substitute(text, clean)   # 슬롯 뒤 조사 보정(외모를·성별을)
     return text
+
+
+def acks() -> list:
+    """v7.36 공용 응답 쌍(대화 박자 — 저작 응답이 없는 박자)."""
+    return list(_load().get("acks") or [])
 
 
 def has_key(key: str) -> bool:

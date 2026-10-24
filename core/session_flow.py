@@ -23,6 +23,8 @@
 #   채널 생성과 동시에 올리면 플레이어가 캐릭터를 만들기도 전에 비용이
 #   청구되고, 중도 이탈 시 그대로 손실이 된다. 유지 시간도 이 시점에는
 #   아직 답을 받지 못했다.
+import asyncio
+
 import discord
 
 from . import conversational as _conv
@@ -34,6 +36,7 @@ from . import voice_profile as _voice
 from . import memory_plan
 from . import profiles as profile_store
 from . import stats
+from . import talk as _talk
 from .io import get_available_scenarios, load_scenario_from_file
 
 # 소개 단계에서 보여줄 항목 (기획 규정 — TRPG 개념·특성·진행·과금·예시·디스플레이)
@@ -77,7 +80,8 @@ def step_embed(session, title: str, desc: str, *, color: int = 0x5865F2):
     return e
 
 
-async def show(bot, session, channel, embed, view=None, *, replace: bool = True, master_key: str | None = None):
+async def show(bot, session, channel, embed, view=None, *, replace: bool = True, master_key: str | None = None,
+               art: bool = True):
     """제작 화면을 갱신한다. 기존 메시지가 있으면 고치고, 없으면 보낸다.
 
     replace=False면 새 메시지를 보낸다. 프로필 생성처럼 별도 흐름이
@@ -93,7 +97,9 @@ async def show(bot, session, channel, embed, view=None, *, replace: bool = True,
     if mid:
         try:
             msg = await channel.fetch_message(mid)
-            await msg.edit(**_conv.edit_kwargs(embed, view=view, attachments=[mfile]))
+            # v7.36: 대화 박자 편집은 이미지를 다시 올리지 않는다(art=False — 첨부 유지)
+            extra = {"attachments": [mfile]} if art else {}
+            await msg.edit(**_conv.edit_kwargs(embed, view=view, **extra))
             return msg
         except Exception:
             mfile, _path, _state = _master_art.file_for(session, master_key)   # 사용한 File은 다시 못 쓴다
@@ -119,6 +125,61 @@ async def close_flow_message(bot, session, channel, text: str = None):
         pass
 
 
+# ── v7.36 대화 박자(사용자 결정: 메시지 하나를 고쳐 씀) ──
+# 설명 박자는 응답 버튼(무엇을 눌러도 다음 박자 — 결정 아님), 마지막 박자에 그 단계의 기존 결정 UI.
+# 문구는 마스터 대사 데이터가 [[답]] 표기로 박자를 끊는다. 아래는 데이터를 읽지 못할 때의 같은 구조 대체 문구.
+PRIVATE_TEXT = ("먼저 이 세션을 다른 분들께 보일지 정하겠습니다.\n[[네.]]\n"
+                "비공개로 하시면 참가자 외에는 채널을 볼 수 없습니다. 어떻게 하시겠습니까?")
+SCENARIO_TEXT = ("이제 들어가실 세계를 고를 차례입니다.\n[[네.|어떤 세계가 있죠?]]\n"
+                 "고르시면 배경과 예상 비용을 먼저 보여 드리겠습니다.")
+TTS_TEXT = ("장면을 제 목소리로 들으실 수 있습니다.\n[[그래요?|네.]]\n"
+            "켜시면 묘사 분량만큼 비용이 조금 더 듭니다. 언제든 끄실 수 있으니 편하게 정하십시오.")
+VOICE_TEXT = ("제 목소리와 모습을 정해 주십시오. 남성·여성 어느 쪽이든 같은 진행자입니다.\n"
+              "나중에 디스플레이 채널에서 개설자가 바꾸실 수 있습니다.")
+MEMORY_TEXT = ("턴이 쌓이면 지난 일을 간추려 보관해 둡니다.\n[[네.|그렇군요.]]\n"
+               "자주 간추릴수록 세부가 오래 남습니다. 간추리는 비용은 청구하지 않습니다.\n[[좋네요.]]\n"
+               "**한 번 정하시면 도중에 바꿀 수 없습니다.** 어떻게 하시겠습니까?")
+OPEN_TEXT = ("이제 세계를 불러올 차례입니다.\n[[네.]]\n"
+             "머무르실 시간만큼 미리 받고, 일찍 닫으시면 남은 만큼 돌려드립니다.\n[[알겠습니다.]]\n"
+             "얼마나 머무르실 생각이십니까? 아래 버튼을 누르고 이 채널에 답해 주십시오.")
+START_TEXT = ("이야기가 시작될 자리를 정하겠습니다.\n[[네.|어디서 시작하죠?]]\n"
+              "셋 중 하나를 고르시면 그 자리에서 이야기가 열립니다.")
+GREETING_TEXT = ("어서 오십시오.\n[[네.|안녕하세요.]]\n"
+                 "이곳에서 이야기를 준비하겠습니다. 몇 가지를 정하고 인물을 세운 뒤 막을 올리겠습니다.\n[[좋습니다.]]")
+PROFILE_BEGIN_TEXT = "이제 이 세계에 들어설 인물을 세우겠습니다.\n[[네.|좋습니다.]]"
+
+
+def _talk_store(session) -> dict:
+    """박자를 시작한 단계 표식(영속 creation_state) — 재시작 뒤에는 결정 박자부터 그린다."""
+    return creation.get_state(session).setdefault("talk_started", {})
+
+
+def greeting_text(mention: str, voice_mention: str | None) -> str:
+    """첫 인사 박자(공개 설정 단계 앞에 붙는다)."""
+    body = _master.say("session.first_game_greeting", GREETING_TEXT)
+    out = f"{mention} 님, {body}"
+    if voice_mention:
+        out += (f"\n음성 채널 {voice_mention} 에 들어오시면 배경음과 제 목소리가 함께 나옵니다. "
+                "지금이든 나중이든 편하실 때 오십시오.\n[[알겠습니다.|나중에 갈게요.]]")
+    return out
+
+
+async def talk_step(bot, session, channel, key, text, make_embed, final_view, *, master_key=None,
+                    final_fn=None):
+    """단계 하나를 박자로 그린다 — 같은 제작 메시지를 고쳐 쓰며 스트리밍, 마지막 박자에 final_view.
+
+    make_embed(body, final) → Embed. final_fn(body)가 있으면 마지막 박자는 호출부가 직접 처리한다."""
+    async def draw(body, *, final, view, partial, first):
+        if final and final_fn is not None:
+            await final_fn(body)
+            return
+        await show(bot, session, channel, make_embed(body, final), final_view if final else view,
+                   master_key=master_key, art=first)
+
+    await _talk.run(session, key, text, draw, check=lambda i: owner_only(bot, session, i),
+                    started=_talk_store(session))
+
+
 async def render(bot, session, channel):
     """현재 단계 화면을 그린다.
 
@@ -127,11 +188,13 @@ async def render(bot, session, channel):
     step = creation.current_step(session)
 
     if step == "private":
-        await show(bot, session, channel, step_embed(
-            session, "공개 설정",
-            _master.say("session.private_select", "비공개로 여시겠습니까?") + "\n"
-            "비공개 세션은 참가자 외에는 채널을 볼 수 없습니다."),
-            PrivateView(bot, session, channel))
+        st = creation.get_state(session)
+        text = _master.say("session.private_select", PRIVATE_TEXT)
+        if st.get("greeting"):                         # 첫 인사 박자(게임 채널 첫 화면)
+            text = st["greeting"] + "\n" + text
+        await talk_step(bot, session, channel, "private", text,
+                        lambda body, _f: step_embed(session, "공개 설정", body),
+                        PrivateView(bot, session, channel), master_key="session.private_select")
 
     elif step == "intro":
         uid = _owner(session)
@@ -146,59 +209,55 @@ async def render(bot, session, channel):
 
     elif step == "scenario":
         scenarios = _visible_scenarios(session)
-        await show(bot, session, channel, step_embed(
-            session, "시나리오",
-            _master.say("session.scenario_select", "어느 세계에서 시작하시겠어요?") + "\n"
-            "고르시면 배경과 예상 비용을 먼저 보여드릴게요."),
-            ScenarioView(bot, session, channel, scenarios))
+        await talk_step(bot, session, channel, "scenario", _master.say("session.scenario_select", SCENARIO_TEXT),
+                        lambda body, _f: step_embed(session, "시나리오", body),
+                        ScenarioView(bot, session, channel, scenarios), master_key="session.scenario_select")
 
     elif step == "tts":
-        await show(bot, session, channel, step_embed(
-            session, "음성",
-            _master.say("session.tts_select", "턴 묘사를 음성으로 들으시겠어요?") + "\n\n"
-            "켜시면 묘사 분량만큼 비용이 더 듭니다. "
-            "언제든 끄실 수 있으니 편하게 정하셔도 돼요."),
-            TTSView(bot, session, channel))
+        await talk_step(bot, session, channel, "tts", _master.say("session.tts_select", TTS_TEXT),
+                        lambda body, _f: step_embed(session, "음성", body),
+                        TTSView(bot, session, channel), master_key="session.tts_select")
 
     elif step == "memory":
-        e = step_embed(
-            session, "기억 방식",
-            _master.lead("session.memory_select", "턴이 쌓이면 지난 일을 간추려 보관합니다.\n", sep="\n\n")
-            + 
-            "자주 간추릴수록 세부가 오래 남습니다(압축 비용은 플레이어에게 청구되지 않습니다).\n"
-            "**한 번 정하면 도중에 바꿀 수 없어요.**")
-        for key, plan in memory_plan.PLANS.items():
-            iv = plan.get("interval", 0)
-            cycle = f"{iv}턴마다" if iv else "가변"
-            e.add_field(
-                name=f"{plan['label']} — {cycle}",
-                value=f"{plan.get('desc', '')}",   # WP-G D3: 압축 비용은 운영자 부담 — 비용 표기 없음
-                inline=False)
-        # 플랜별 누적 압축 횟수(기획 규정)
-        curves = memory_plan.compare_curves(30)
-        lines = [f"{memory_plan.PLANS[k]['label']} {v[9]}·{v[19]}·{v[29]}회"
-                 for k, v in curves.items()]
-        e.add_field(name="10 / 20 / 30턴 누적 압축", value=" · ".join(lines),
+        def _memory_embed(body, final):
+            e = step_embed(session, "기억 방식", body)
+            if not final:
+                return e
+            for key, plan in memory_plan.PLANS.items():
+                iv = plan.get("interval", 0)
+                cycle = f"{iv}턴마다" if iv else "가변"
+                e.add_field(
+                    name=f"{plan['label']} — {cycle}",
+                    value=f"{plan.get('desc', '')}",   # WP-G D3: 압축 비용은 운영자 부담 — 비용 표기 없음
                     inline=False)
-        await show(bot, session, channel, e,
-                   MemoryPlanView(bot, session, channel))
+            # 플랜별 누적 압축 횟수(기획 규정)
+            curves = memory_plan.compare_curves(30)
+            lines = [f"{memory_plan.PLANS[k]['label']} {v[9]}·{v[19]}·{v[29]}회"
+                     for k, v in curves.items()]
+            e.add_field(name="10 / 20 / 30턴 누적 압축", value=" · ".join(lines), inline=False)
+            return e
+        await talk_step(bot, session, channel, "memory", _master.say("session.memory_select", MEMORY_TEXT),
+                        _memory_embed, MemoryPlanView(bot, session, channel), master_key="session.memory_select")
 
     elif step == "profile":
-        await close_flow_message(bot, session, channel)
-        await _start_profile(bot, session, channel)
+        async def _begin(_body):
+            await close_flow_message(bot, session, channel)
+            await _start_profile(bot, session, channel)
+        await talk_step(bot, session, channel, "profile", _master.say("profile.begin", PROFILE_BEGIN_TEXT),
+                        lambda body, _f: step_embed(session, "캐릭터", body), None,
+                        master_key="profile.begin", final_fn=_begin)
 
     elif step == "open":
-        await show(bot, session, channel, step_embed(
-            session, "세션 열기",
-            _master.say("cache.time_question", "이제 세계를 불러올 차례입니다.\n얼마나 플레이하실 예정인가요?")
-            + "\n\n"
-            "그 시간만큼 미리 받고, 일찍 닫으시면 남은 만큼 돌려드립니다.\n"
-            "아래 버튼을 누른 뒤 이 채널에 답해 주세요."),
-            OpenTimeView(bot, session, channel))
+        await talk_step(bot, session, channel, "open", _master.say("session.open_time", OPEN_TEXT),
+                        lambda body, _f: step_embed(session, "세션 열기", body),
+                        OpenTimeView(bot, session, channel), master_key="cache.time_question")
 
     elif step == "start":
-        await close_flow_message(bot, session, channel)
-        await _offer_start_frames(bot, session, channel)
+        async def _frames(body):
+            await _offer_start_frames(bot, session, channel, lead=body)
+        await talk_step(bot, session, channel, "start", _master.say("session.start_frame_select", START_TEXT),
+                        lambda body, _f: step_embed(session, "시작", body), None,
+                        master_key="session.start_frame_select", final_fn=_frames)
 
 
 def _owner(session):
@@ -295,6 +354,7 @@ async def resume_session(bot, session) -> int:
     if step in RESUMABLE_STEPS and creation.get_state(session).get("flow_msg_id"):
         ch = bot.get_channel(getattr(session, "game_ch_id", None) or 0)
         if ch is not None:
+            _talk_store(session)[step] = True          # v7.36: 재시작 뒤에는 설명 박자 없이 결정 박자부터
             await render(bot, session, ch)
             n += 1
     prompts = dict(getattr(session, "resumable_prompts", None) or {})
@@ -410,9 +470,11 @@ class IntroView(_Step):
         self.level = level
         self.order = list(order or intro_mod.QUESTION_ORDER)
         self.index = -1        # -1은 시작 전
+        self.beat = 0          # v7.36: 주제 본문 안의 박자(대화 박자 — [[답]] 표기)
         self.seen = []         # 실제로 본 항목
         self._bodies = {}
         self._pending_image = None
+        self.partial = None
         self._build()
 
     @property
@@ -442,20 +504,35 @@ class IntroView(_Step):
 
         key = self._key
         body = self._bodies.setdefault(key, intro_mod.get_body(key, self.level))
+        beats = _talk.parse(body)
+        self.beat = min(self.beat, len(beats) - 1)
+        beat = beats[self.beat]
+        last_beat = self.beat >= len(beats) - 1
+        echo = _talk.echo(self.session, f"intro:{key}")
 
-        sections = intro_mod.split_sections(body)
+        sections = intro_mod.split_sections(beat.text)
         e = discord.Embed(title=intro_mod.get_label(key), color=0x5865F2)
         # v7.13 마스터 대사 — 주제 도입 한 줄(본문은 그대로). 이전/다음 재렌더에도 같은 줄을 쓴다.
         lines = self.__dict__.setdefault("_master_lines", {})
         if key not in lines:
             lines[key] = _master.line(f"intro.topic_{key}") or ""
-        head = f"*{lines[key]}*\n\n" if lines[key] else ""
+        head = f"*{lines[key]}*\n\n" if (lines[key] and self.beat == 0) else ""
+        head = echo + head
+        if self.partial is not None:                  # 스트리밍 중(부분 본문)
+            e.description = head + self.partial + " ▍"
+            return e
         if sections:
             e.description = head + sections[0][1]
             for _t, chunk in sections[1:]:
                 e.add_field(name="\u200b", value=chunk, inline=False)
         else:
             e.description = head + body
+
+        if not last_beat:                             # 주제 중간 박자 — 확인·다음 안내·이미지는 마지막 박자에만
+            dots = "".join("●" if i <= self.index else "○" for i in range(len(self.order)))
+            e.set_footer(text=f"{dots}   {self.index + 1} / {len(self.order)}")
+            self._pending_image = None
+            return e
 
         # 설명을 마무리하며 확인하고, 다음이 무엇인지 미리 알린다.
         tail = intro_mod.check_of(key)
@@ -496,6 +573,14 @@ class IntroView(_Step):
                                        discord.ButtonStyle.secondary))
             return
 
+        beats = _talk.parse(self._bodies.setdefault(self._key, intro_mod.get_body(self._key, self.level)))
+        if self.beat < len(beats) - 1:                # 중간 박자 — 응답(무엇을 눌러도 다음 박자) + 건너뛰기
+            for a in _talk.answers_for(beats[self.beat], f"intro:{self._key}", str(self.session.session_id)):
+                self.add_item(IntroBtn("ack", a, discord.ButtonStyle.secondary, said=a))
+            if skippable:
+                self.add_item(IntroBtn("end", "모든 설명 건너뛰기", discord.ButtonStyle.secondary))
+            return
+
         last = self.index >= len(self.order) - 1
         self.add_item(IntroBtn(
             "prev", "◀ 이전", discord.ButtonStyle.secondary,
@@ -511,22 +596,47 @@ class IntroView(_Step):
     async def open(self, channel):
         self.message = await channel.send(**_conv.send_kwargs(self._embed(), view=self))
 
-    async def go(self, interaction, action: str):
+    async def go(self, interaction, action: str, said: str | None = None):
         if action == "end":
             await self._close(interaction, "건너뜀")
             return
-        if action == "next":
+        if action == "ack":
+            who = getattr(getattr(interaction, "user", None), "display_name", None) or "플레이어"
+            _talk.answer(self.session, f"intro:{self._key}", who, said or "")
+            self.beat += 1
+        elif action == "next":
             if self.index >= len(self.order) - 1:
                 await self._close(interaction, "완료")
                 return
             self.index += 1
+            self.beat = 0
+            _talk.reset(self.session, f"intro:{self._key}")
             if self._key not in self.seen:
                 self.seen.append(self._key)
         elif action == "prev":
             self.index = max(0, self.index - 1)
+            self.beat = 0
+            _talk.reset(self.session, f"intro:{self._key}")
 
+        await self._stream(interaction)
         self._build()
         await self._edit(interaction)
+
+    async def _stream(self, interaction):
+        """v7.36 박자 스트리밍 — 같은 메시지에 부분 본문을 몇 번 고쳐 쓴 뒤 전체 + 버튼."""
+        if _talk.TICK <= 0 or self._key is None:
+            return
+        beats = _talk.parse(self._bodies.setdefault(self._key, intro_mod.get_body(self._key, self.level)))
+        text = beats[min(self.beat, len(beats) - 1)].text
+        try:
+            for part in _talk.partials(text):
+                self.partial = part
+                await interaction.message.edit(**_conv.edit_kwargs(self._embed(), view=None))
+                await asyncio.sleep(_talk.TICK)
+        except Exception:  # noqa: BLE001 — 스트리밍은 연출: 실패하면 전체로 바로
+            pass
+        finally:
+            self.partial = None
 
     async def _edit(self, interaction):
         """화면 갱신. 이미지가 붙는 항목만 메시지를 새로 보낸다."""
@@ -560,13 +670,14 @@ class IntroView(_Step):
 
 class IntroBtn(discord.ui.Button):
     def __init__(self, action: str, label: str,
-                 style=discord.ButtonStyle.secondary, disabled: bool = False):
+                 style=discord.ButtonStyle.secondary, disabled: bool = False, said: str | None = None):
         super().__init__(label=label, style=style, disabled=disabled)
         self.action = action
+        self.said = said
 
     async def callback(self, interaction):
         await interaction.response.defer()
-        await self.view.go(interaction, self.action)
+        await self.view.go(interaction, self.action, self.said)
 
 
 class ScenarioView(_Step):
@@ -589,53 +700,52 @@ class ScenarioSelect(discord.ui.Select):
         data = load_scenario_from_file(sid) or {}
         # 이 메시지를 이어서 고쳐 쓴다. 새로 보내면 지난 선택지가 남는다.
         creation.get_state(v.session)["flow_msg_id"] = interaction.message.id
-        # 소개문은 자르지 않는다. 임베드 description은 4096자까지 담긴다.
-        # 이전에는 600자에서 잘려 영도만 294자가 사라졌다.
-        intro = (data.get("scenario_intro") or "").strip()
+        _talk.reset(v.session, f"scenario_confirm:{sid}", _talk_store(v.session))   # 고를 때마다 소개를 처음부터
+        await show_scenario_confirm(v.bot, v.session, v.channel, sid, data)
 
-        e = discord.Embed(title=sid, color=0x5865F2)
-        if len(intro) <= 4000:
-            e.description = intro
-        else:
-            # 그래도 넘치면 문단 경계에서 나눠 필드로 잇는다.
-            head, rest = intro[:2000], intro[2000:]
-            cut = head.rfind("\n\n")
-            if cut > 500:
-                head, rest = intro[:cut], intro[cut:]
-            e.description = head
-            for i in range(0, len(rest), 1000):
-                e.add_field(name="\u200b", value=rest[i:i + 1000], inline=False)
 
-        # 가격 안내 — 오픈·유지비용과 턴 진행비용을 함께 제시한다(기획 규정).
-        try:
-            from .estimate import estimate_session_open, DEFAULT_BASELINE, approx_cache_tokens
-            from .ink import cost_to_ink
-            from .cost import calculate_text_gen_cost_breakdown
-            from .constants import DEFAULT_MODEL
+def _cost_field(data):
+    """가격 안내 — 오픈·유지비용과 턴 진행비용을 함께 제시한다(기획 규정). 실패하면 None."""
+    try:
+        from .estimate import estimate_session_open, DEFAULT_BASELINE, approx_cache_tokens
+        from .ink import cost_to_ink
+        from .cost import calculate_text_gen_cost_breakdown
+        from .constants import DEFAULT_MODEL
 
-            probe = type("P", (), {"cache_tokens": 0, "cache_read_tokens": 0})()
-            # 룰북 분량으로 캐시 토큰을 근사한다(실제 값은 업로드 시 확정).
-            # P1: 세션 열기 예상(estimate_session_open)과 같은 근사(approx_cache_tokens — 캐시에 실리는 항목 전부·
-            #     실측 계수 0.33)를 쓴다. 이전의 worldview × 0.65는 같은 양을 다른 산식으로 셌다.
-            rough = approx_cache_tokens(data) or int(len(str(data.get("worldview", ""))) * 0.33)
-            probe.cache_tokens = rough
-            open3 = estimate_session_open(probe, 3.0)
-            turn_krw = calculate_text_gen_cost_breakdown(
-                DEFAULT_MODEL, input_tokens=rough + rough // 3,   # P1: 단가 함수의 입력은 캐시분 포함 총량
-                output_tokens=DEFAULT_BASELINE["narration_out"],
-                cached_read_tokens=rough)["total_krw"]
-            e.add_field(
-                name="예상 비용",
-                value=(f"세션 열기·3시간 유지  **{open3['total_ink']}잉크**\n"
-                       f"턴 진행  **{cost_to_ink(turn_krw)}잉크** 안팎 "
-                       f"(턴이 쌓일수록 완만히 증가)"),
-                inline=False)
-        except Exception as ex:
-            print(f"[비용안내] 산출 실패: {ex}")
+        probe = type("P", (), {"cache_tokens": 0, "cache_read_tokens": 0})()
+        # 룰북 분량으로 캐시 토큰을 근사한다(실제 값은 업로드 시 확정).
+        # P1: 세션 열기 예상(estimate_session_open)과 같은 근사(approx_cache_tokens — 캐시에 실리는 항목 전부·
+        #     실측 계수 0.33)를 쓴다. 이전의 worldview × 0.65는 같은 양을 다른 산식으로 셌다.
+        rough = approx_cache_tokens(data) or int(len(str(data.get("worldview", ""))) * 0.33)
+        probe.cache_tokens = rough
+        open3 = estimate_session_open(probe, 3.0)
+        turn_krw = calculate_text_gen_cost_breakdown(
+            DEFAULT_MODEL, input_tokens=rough + rough // 3,   # P1: 단가 함수의 입력은 캐시분 포함 총량
+            output_tokens=DEFAULT_BASELINE["narration_out"],
+            cached_read_tokens=rough)["total_krw"]
+        return (f"세션 열기·3시간 유지  **{open3['total_ink']}잉크**\n"
+                f"턴 진행  **{cost_to_ink(turn_krw)}잉크** 안팎 "
+                f"(턴이 쌓일수록 완만히 증가)")
+    except Exception as ex:
+        print(f"[비용안내] 산출 실패: {ex}")
+        return None
 
-        e.set_footer(text=_master.say("session.scenario_confirm", "이 세계로 시작하시겠어요?"))
-        await show(v.bot, v.session, v.channel, e,
-                   ScenarioConfirmView(v.bot, v.session, v.channel, sid, data))
+
+async def show_scenario_confirm(bot, session, channel, sid: str, data: dict):
+    """시나리오 소개문(박자 — 저작 [[ ]] 또는 문단 자동 분할) → 확인 질문 + 예상 비용 카드 + 확인 버튼."""
+    intro = _talk.auto_split((data.get("scenario_intro") or "").strip())
+    question = _master.say("session.scenario_confirm", "이 세계로 들어가시겠습니까?")
+    text = f"{intro}\n[[]]\n{question}" if intro else question
+    cost = _cost_field(data)
+
+    def _embed(body, final):
+        e = discord.Embed(title=sid, description=body, color=0x5865F2)
+        if final and cost:
+            e.add_field(name="예상 비용", value=cost, inline=False)
+        return e
+
+    await talk_step(bot, session, channel, f"scenario_confirm:{sid}", text, _embed,
+                    ScenarioConfirmView(bot, session, channel, sid, data), master_key="session.scenario_confirm")
 
 
 class ScenarioConfirmView(_Step):
@@ -672,12 +782,9 @@ class TTSView(_Step):
         sync_tts_flag(self.session, on)            # P2(#9): 설정 게이트 두 곳을 함께(어긋남 방지)
         # 같은 메시지를 진행자(마스터) 성별 선택 화면으로 바꾼다 — 이미지·목소리 모두에 쓰이므로 TTS와 무관하게 묻는다.
         creation.get_state(self.session)["flow_msg_id"] = interaction.message.id
-        await show(self.bot, self.session, self.channel, step_embed(
-            self.session, "진행자",
-            _master.say("session.voice_select", "어떤 목소리로 읽어드릴까요?") + "\n"
-            "진행자의 모습과 목소리를 남성·여성 중에서 고르실 수 있어요. 같은 진행자예요.\n"
-            "나중에 디스플레이 채널에서 개설자가 바꾸실 수 있어요."),
-            MasterGenderView(self.bot, self.session, self.channel, on), master_key="session.voice_select")
+        await talk_step(self.bot, self.session, self.channel, "voice", _master.say("session.voice_select", VOICE_TEXT),
+                        lambda body, _f: step_embed(self.session, "진행자", body),
+                        MasterGenderView(self.bot, self.session, self.channel, on), master_key="session.voice_select")
 
     @discord.ui.button(label="🔊 사용", style=discord.ButtonStyle.primary)
     async def on(self, interaction, _b):
@@ -766,11 +873,11 @@ async def _start_profile(bot, session, channel):
     uid = _owner(session)
     player = (session.players or {}).get(uid) or {}
     name = player.get("name") or "(이름 미정)"
-    await profile_creation_ui.start(bot, session, uid, name, channel)
+    await profile_creation_ui.start(bot, session, uid, name, channel, begun=True)
 
 
-async def _offer_start_frames(bot, session, channel):
-    """시작 상황 삼지선다."""
+async def _offer_start_frames(bot, session, channel, lead: str | None = None):
+    """시작 상황 삼지선다. v7.36: 박자 대화를 이어 온 제작 메시지가 있으면 그 메시지를 선택 화면으로 고쳐 쓴다."""
     from . import start_frame
 
     uid = _owner(session)
@@ -779,6 +886,7 @@ async def _offer_start_frames(bot, session, channel):
 
     options = start_frame.offer(session.scenario_data, profile)
     if not options:
+        await close_flow_message(bot, session, channel)
         await channel.send("시작 상황 틀이 없어 기본 인트로로 진행합니다.")
         # H06: 캐시를 연기했던 세션도 시작 선택이 없으면 기존(LEGACY) 의미로 지금 연다.
         cog = bot.get_cog("SessionCog")
@@ -788,7 +896,7 @@ async def _offer_start_frames(bot, session, channel):
 
     e = discord.Embed(
         title="어디에서 시작하시겠어요?",
-        description=_master.say("session.start_frame_select", "셋 중 하나를 고르시면 그 자리에서 이야기가 열립니다."),
+        description=lead if lead is not None else _talk.plain(_master.say("session.start_frame_select", START_TEXT)),
         color=0x5865F2)
     for i, opt in enumerate(options, 1):
         e.add_field(name=f"{i}. {opt.get('title', '')}",
@@ -799,12 +907,28 @@ async def _offer_start_frames(bot, session, channel):
     # v7.27: 세 선택지는 카드 이미지 한 장(번호 = 버튼 번호), 선택은 기존 버튼. 렌더 실패면 기존 목록 + 마스터 원화.
     from . import gm_board as _gb
     card, _k = await _gb.png_file(_gb.build_frames_svg(_gb.frames_data(options)), "start_frames.png")
+    view = view_cls(bot, session, options)
+    flow = None
+    mid = creation.get_state(session).pop("flow_msg_id", None)
+    if mid:
+        try:
+            flow = await channel.fetch_message(mid)
+        except Exception:  # noqa: BLE001
+            flow = None
     if card is not None:
-        msg = await channel.send(content=f"**{e.title}**\n\n{e.description}", file=card,
-                                 view=view_cls(bot, session, options))
+        kw = {"content": f"**{e.title}**\n\n{e.description}", "view": view}
+        if flow is not None:
+            await flow.edit(embeds=[], attachments=[card], **kw)
+            msg = flow
+        else:
+            msg = await channel.send(file=card, **kw)
     else:
         mfile, _p, _st = _master_art.file_for(session, "session.start_frame_select")
-        msg = await channel.send(**_conv.send_kwargs(e, view=view_cls(bot, session, options), file=mfile))
+        if flow is not None:
+            await flow.edit(**_conv.edit_kwargs(e, view=view, attachments=[mfile]))
+            msg = flow
+        else:
+            msg = await channel.send(**_conv.send_kwargs(e, view=view, file=mfile))
     await remember_prompt(bot, session, PROMPT_START_FRAMES, channel, msg, options=list(options))
 
 

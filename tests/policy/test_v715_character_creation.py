@@ -123,6 +123,14 @@ async def press(r, label, uid=PLAYER_UID, view=None, state=None, ch=None):
     await item.callback(FakeInteraction(user=FakeUser(int(uid)), channel=ch or r.ch, message=state.message))
 
 
+async def through_talk(r, uid=PLAYER_UID, ch=None):
+    """v7.36 대화 박자 — 응답 버튼(무엇을 눌러도 다음 박자)을 지나 결정 화면까지."""
+    state = st(r, uid, ch)
+    while isinstance(state.message.view, core.talk.TalkView):
+        await state.message.view.children[0].callback(
+            FakeInteraction(user=FakeUser(int(uid)), channel=ch or r.ch, message=state.message))
+
+
 async def pick(r, placeholder, value, uid=PLAYER_UID, ch=None):
     state = st(r, uid, ch)
     item = next(c for c in state.message.view.children if getattr(c, "placeholder", None) == placeholder)
@@ -240,6 +248,7 @@ async def test_t04_logging_resumes_after_creation_completes(pc):
     await chat(pc, "낡은 작업복")
     await press(pc, "✅ 이대로 확정")
     await press(pc, "✅ 이대로 시작")
+    await through_talk(pc)                                                   # v7.36 '완성' 한마디 응답
     await press(pc, "저장 안 함")
     assert not PCU.claims(pc.bot, msg(pc, "x")) and pc.sess.profile_creation_progress == {}
     await chat(pc, "이제 게임 이야기")
@@ -488,6 +497,8 @@ def _reload(r):
     for k in core.SESSION_FIELDS:
         if k in data:
             setattr(s2, k, data[k])
+    core.talk._POS.clear()                                                   # 재시작 = 박자 위치(메모리) 소실
+    core.talk._TEXT.clear()
     s2.scenario_data = r.sess.scenario_data
     s2.scenario_id = r.sess.scenario_id
     r.bot.active_sessions = {}

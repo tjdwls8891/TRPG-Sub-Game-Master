@@ -32,6 +32,7 @@ from . import master_art as _master_art
 from . import profile_gen
 from . import profile_runner as runner
 from . import profiles as profile_store
+from . import talk as _talk
 
 # 선택지가 이보다 많으면 셀렉트 메뉴를 쓴다.
 SELECT_THRESHOLD = 5
@@ -264,7 +265,7 @@ def _master_head(state, res: dict) -> str | None:
         head = None
     if not state.run.get("begun"):
         state.run["begun"] = True
-        begin = master.line("profile.begin")
+        begin = _talk.plain(master.line("profile.begin") or "") or None    # v7.36: 박자 표기는 걷는다
         head = f"{begin}\n{head}" if (begin and head) else (begin or head)
     return head
 
@@ -762,12 +763,17 @@ async def finish(state: ProfileCreationSession, channel):
     await _show_save(state, channel)
 
 
-def _completion_embed(state, result: dict) -> discord.Embed:
+COMPLETED_TEXT = "인물이 갖추어졌습니다.\n[[드디어요.|네.]]"
+
+
+def _completion_embed(state, result: dict, lead: str | None = None) -> discord.Embed:
     profile = dict(((state.session.players or {}).get(state.uid) or {}).get("profile") or {})
+    if lead is None:
+        lead = _talk.plain(master.say("profile.completed", COMPLETED_TEXT))
+    _sp = master.line("profile.save_prompt")
     e = discord.Embed(
         title=f"{state.char_name}",
-        description=(master.say("profile.completed", "캐릭터가 완성되었습니다.")
-                     + ((" " + _sp) if (_sp := master.line("profile.save_prompt")) else "")),
+        description=(lead.rstrip() + (("\n" if lead.strip() else "") + _sp if _sp else "")),
         color=0x57F287,
     )
     stats_line = []
@@ -813,17 +819,32 @@ async def _show_save(state, channel):
     state.run["gen"] = int(state.run.get("gen") or 0) + 1
     view.gen = state.run["gen"]
     state.run["await"] = None
+    talk_key, talk_text = f"profile_done:{state.uid}", master.say("profile.completed", COMPLETED_TEXT)
+    started = state.run.setdefault("talk_started", {})
+    _talk.position(state.session, talk_key, len(_talk.parse(talk_text)), started)   # 시작 표식을 같은 저장에 싣는다
     await _persist(state)
-    e = _completion_embed(state, result)
-    if state.message:
-        try:
-            await state.message.edit(**_conv.edit_kwargs(e, view=view))
-            view.message = state.message
-        except Exception:
-            state.message = None
-    if not state.message:
-        state.message = await channel.send(**_first_send_kwargs(state, e, view, "profile.completed"))
-        view.message = state.message
+    save_view = view
+
+    # v7.36 대화 박자 — '완성' 한마디에 응답한 뒤 같은 메시지에 완성 카드 + 저장 여부(재시작 뒤에는 바로 카드)
+    async def draw(body, *, final, view, partial, first):
+        if final:
+            e, v = _completion_embed(state, result, lead=body), save_view
+        else:
+            e, v = discord.Embed(title=f"{state.char_name}", description=body, color=0x57F287), view
+        if state.message:
+            try:
+                await state.message.edit(**_conv.edit_kwargs(e, view=v))
+            except Exception:
+                state.message = None
+        if not state.message:
+            state.message = await channel.send(**_first_send_kwargs(state, e, v, "profile.completed"))
+        if final:
+            save_view.message = state.message
+
+    async def _owner(interaction) -> bool:
+        return str(getattr(interaction.user, "id", "")) == str(state.uid)
+
+    await _talk.run(state.session, talk_key, talk_text, draw, check=_owner, started=started)
 
     # NOTE: 다음 단계로 넘기는 것은 SaveProfileView가 한다.
     #       여기서 넘기면 저장 여부를 묻기도 전에 화면이 바뀐다.
@@ -1520,7 +1541,7 @@ async def _advance_flow(state, channel):
         print(f"[세션플로우] 프로필 완료 처리 실패: {e}")
 
 
-async def start(bot, session, uid, char_name: str, channel):
+async def start(bot, session, uid, char_name: str, channel, *, begun: bool = False):
     """프로필 생성을 시작한다.
 
     기획 규정 — 해당 시나리오가 처음이거나 사전 프로필이 없으면
@@ -1538,6 +1559,8 @@ async def start(bot, session, uid, char_name: str, channel):
         return await _resume_one(bot, session, prog, channel=channel)
 
     state = ProfileCreationSession(bot, session, uid, char_name, channel_id=getattr(channel, "id", None))
+    if begun:
+        state.run["begun"] = True          # v7.36: 세션 흐름이 '시작' 한마디를 박자로 이미 건넸다
 
     steps = profile_gen.get_steps(session.scenario_data)
     if not steps:

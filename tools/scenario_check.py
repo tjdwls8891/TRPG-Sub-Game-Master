@@ -180,6 +180,17 @@ def main(argv=None) -> int:
                     for m in pc_errs:
                         print(f"     {m}")
 
+        # v7.36 대화 박자 표기([[답1|답2]]) — 시나리오 소개문
+        talk_errs = __import__("core.talk", fromlist=["check"]).check((src.raw or {}).get("scenario_intro") or "")
+        if talk_errs:
+            worst = 1
+            if args.json:
+                summaries[-1]["talk_errors"] = talk_errs
+            else:
+                print(f"   scenario_intro 박자 표기: ERROR {len(talk_errs)}")
+                for m in talk_errs:
+                    print(f"     {m}")
+
         if args.compile_out:
             if not res.ok:
                 print("ERROR가 있어 정의를 기록하지 않습니다", file=sys.stderr)
