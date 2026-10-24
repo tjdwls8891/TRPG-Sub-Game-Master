@@ -224,7 +224,7 @@ def test_gfinal4_canonical_extraction_apply_owner_is_commit_path_only():
     refs = [ln for ln in gm.splitlines() if "_apply_commit_effects" in ln and "def " not in ln]
     assert refs and all("apply_effects=self._apply_commit_effects" in ln for ln in refs), refs
     # _run_extraction 본문은 어떤 정본 적용도 부르지 않는다(스테이징만).
-    body = gm[gm.index("    async def _run_extraction("):gm.index("    async def _verify_proceed_instruction(")]
+    body = gm[gm.index("    async def _run_extraction("):gm.index("    async def _simulate_narrative_directions(")]
     assert "_apply_extraction_plan(" not in body and "_apply_prepared_extraction(" not in body
     assert "preparation.extraction_plan = plan" in body
 

@@ -31,8 +31,6 @@ from prompts import (
     build_narrate_prompt,
     # 방안 B — 세계 물리 타임라인
     # 방안 E — PROCEED 자기 검증
-    PROCEED_VERIFY_SCHEMA,
-    PROCEED_VERIFIER_SYSTEM_INSTRUCTION,
     # 방안 6 — 2단계 사고 서사 방향성 시뮬레이터
     NARRATIVE_DIRECTION_SCHEMA,
     NARRATIVE_SIMULATOR_SYSTEM_INSTRUCTION,
@@ -496,6 +494,8 @@ def _build_logic_user_prompt(session, player_message: str, roll_results: list,
     res = session.resources.get(target_char, {}) if target_char else {}
     sta = session.statuses.get(target_char, []) if target_char else []
     res_str = ", ".join([f"{k}:{v}" for k, v in res.items()]) or "(없음)"
+    if getattr(session, "definition_revision", None):
+        res_str = "(아래 [물건 — 정본 소지] 블록 참조)"      # v7.34(B3): 동적 세계는 같은 사실을 두 번 싣지 않는다
     sta_str = ", ".join(sta) or "(없음)"
 
     # 서사 계획 블록 (2단계: mid_plan + 순간 계획)
@@ -620,7 +620,11 @@ def _build_logic_user_prompt(session, player_message: str, roll_results: list,
     # 유효 상태이상 목록 — 상태 변화 묘사의 어휘 기준. WP-G(D1/AUD-001): 레거시 상태 태그 권위 문구 제거
     #   (상태 적용 권위는 추출층위 + 코드 검증).
     merged_statuses = core.get_merged_status_effects(session.scenario_data)
-    if merged_statuses:
+    if merged_statuses and getattr(session, "cache_name", None):
+        # v7.34(B2): 캐시 룰북 [4.5. 사용 가능한 상태이상 목록]과 같은 목록 — 캐시를 읽는 호출에는 다시 싣지 않는다
+        valid_status_block = ("\n[유효 상태이상 목록] 캐시 룰북 [4.5. 사용 가능한 상태이상 목록]을 기준으로 할 것 "
+                              "(실제 적용은 묘사를 읽은 추출층위와 시스템 검증이 한다)\n")
+    elif merged_statuses:
         status_list_lines = []
         for sname, seff in merged_statuses.items():
             # v7.25(F11): weight는 v7.12부터 판정에 쓰이지 않는다 — 무효 수치를 싣지 않는다
@@ -6375,100 +6379,6 @@ class GMCog(commands.Cog):
                 _rev_manifest, result.get(core.speaker_card.REVEAL_FIELD),
                 getattr(_narr, "paragraphs", ()) or (), _cw.definition, session)
         return plan
-
-    async def _verify_proceed_instruction(self, session, instruction: str,
-                                           player_message: str, master_ch) -> str:
-        """
-        지시층위가 생성한 proceed_instruction에서 플레이어 자율성 침해 여부를 검증한다.
-        위반 감지 시 corrected_instruction으로 교체하고 마스터 채널에 알림.
-
-        Args:
-            instruction (str): 지시층위가 생성한 proceed_instruction
-            player_message (str): 플레이어의 원본 발언 (선언된 행동 확인용)
-
-        Returns:
-            str: 검증 통과 또는 수정된 proceed_instruction
-        """
-        user_prompt = (
-            f"[플레이어 선언 행동]\n{player_message}\n\n"
-            f"[GM proceed_instruction]\n{instruction}\n\n"
-            "위 proceed_instruction이 플레이어가 선언하지 않은 PC 행동·발언·내면을 포함하는지 검증하십시오."
-        )
-
-        try:
-            config = types.GenerateContentConfig(
-                system_instruction=PROCEED_VERIFIER_SYSTEM_INSTRUCTION,
-                temperature=0.1,
-                response_mime_type="application/json",
-                response_schema=PROCEED_VERIFY_SCHEMA,
-                safety_settings=core.TRPG_SAFETY_SETTINGS,
-            )
-            _cl_op = core.cost_ledger.begin_operation(
-                self.bot, core.cost_ledger.OP_TURN_INSTRUCTION_VALIDATION, session=session,
-                model=core.LOGIC_MODEL, actor_kind=core.cost_ledger.ACTOR_PLAYER,
-                billing_hint=core.cost_ledger.HINT_PLAYER_CANDIDATE)
-            _ok, response = await core.call_with_retry(
-                lambda: asyncio.to_thread(
-                    self.bot.genai_client.models.generate_content,
-                    model=core.LOGIC_MODEL,
-                    contents=[types.Content(role="user", parts=[types.Part.from_text(text=user_prompt)])],
-                    config=config,
-                ),
-                layer="instruction", session_id=session.session_id,
-                on_attempt_result=_cl_op.on_attempt, operation_id=_cl_op.operation_id,
-            )
-            if not _ok:
-                raise RuntimeError("AI 호출 실패")
-        except Exception as e:
-            print(f"[GM] PROCEED 검증 실패 (원본 사용): {e}")
-            return instruction
-
-        # 비용 정산
-        try:
-            meta = response.usage_metadata
-            in_tokens, out_tokens, _cached_tokens, thought_tokens = core.extract_token_usage(meta)
-            breakdown  = core.calculate_text_gen_cost_breakdown(
-                core.LOGIC_MODEL, input_tokens=in_tokens, output_tokens=out_tokens)
-            cost = breakdown["total_krw"]
-            core.accrue(session, cost, breakdown["total_usd"])
-            _cl_op.record(
-                input_tokens=in_tokens, cached_input_tokens=_cached_tokens,
-                output_tokens=out_tokens, thought_tokens=thought_tokens,
-                cost_usd=breakdown["total_usd"], cost_krw=cost,
-                usage_source=core.cost_ledger.SOURCE_PROVIDER_METADATA)
-            core.write_cost_log(session.session_id, f"{COST_LOG_PREFIX}PROCEED 자기 검증",
-                                 in_tokens, 0, out_tokens, cost, session.total_cost)
-        except Exception:
-            pass
-
-        raw_text = response.text or ""
-        try:
-            result = json.loads(raw_text)
-        except json.JSONDecodeError:
-            cleaned = re.sub(r"^```(?:json)?\s*|\s*```$", "", raw_text.strip(), flags=re.MULTILINE)
-            try:
-                result = json.loads(cleaned)
-            except Exception:
-                return instruction
-
-        if result.get("has_violation"):
-            detail   = result.get("violation_detail", "")
-            corrected = result.get("corrected_instruction", instruction) or instruction
-            core.logs.event("turn", "PROCEED 위반 감지", level="WARN", session=session,
-                            data={"code": "PROCEED_VIOLATION", "detail": detail})
-            if master_ch:
-                await master_ch.send(
-                    f"⚠️ **[GM 검증]** proceed_instruction에 PC 자율성 침해 감지 — 자동 수정\n"
-                    f"> 위반: {detail[:200]}\n"
-                    f"> 수정 후: {corrected[:200]}"
-                )
-            return _clean_proceed_instruction(corrected)
-
-        return instruction
-
-    # ─────────────────────────────────────────────────────────────
-    # 방안 6 — 2단계 사고 서사 방향성 시뮬레이터
-    # ─────────────────────────────────────────────────────────────
 
     async def _simulate_narrative_directions(self, session, player_message: str,
                                               master_ch,

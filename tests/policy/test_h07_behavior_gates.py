@@ -229,9 +229,10 @@ def test_t8_untracked_npc_never_materializes_and_legacy_scenarios_compile_unchan
         assert NP.effective_position(D, w, SHIN)["source"] == NP.UNTRACKED
         assert all(SHIN not in _scene_npcs(w, p) for p in D["place_definitions"])
     # v7.12: stat_system 공통 판정 문구 정정(2d50)으로 scenario.example·무협·빈시나리오 revision 갱신(다크판타지 불변)
+    # v7.34: 무협 desc_guide에 무협 전용 예법 절 이관(묘사 공통 지시의 장르 중립화 — 사용자 승인 A1)으로 무협 revision 갱신
     revs = {"scenario.example": "sha256:eb812596eb87fefa64ddd65f8955a30b6ea45f814a6905fb087f7f95080c9e0a",
             "다크판타지": "sha256:c03dbb4221aa6666b301965c840beeb180811396ab89dbac9c44091fa5b15372",
-            "무협": "sha256:07f7f4cfda43fd9a842a528956a81d65c5629434e14fd5167cf5693e25202a24",
+            "무협": "sha256:c646b56b20325d2aa0b558989b31e72031ec1588baa8992bdbbda6088fc2d3c8",
             "빈시나리오": "sha256:2422a64278cbc6fbd8c0dc4f07e73b31a7e5c886a467002178ccb07236351c53"}
     for sid, rev in revs.items():
         raw = json.load(open(os.path.join(ROOT, "scenarios", f"{sid}.json"), encoding="utf-8"))

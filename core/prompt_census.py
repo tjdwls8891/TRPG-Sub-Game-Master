@@ -16,8 +16,10 @@ CLASSES = (FIXED, LIKELY, VARIABLE)
 HISTORY_CAP = 30                       # 층위별 보관 표본 수(세션 cost_stats["_census"])
 
 _HEADER = re.compile(r"^\[([^\[\]\n]{1,200})\]", re.M)
-_VARIABLE_KEYS = ("플레이어", "선언", "이번 묘사문", "묘사 지시", "GM 지시", "지시문", "proceed", "그사이", "신호",
-                  "직전 추출", "교정", "진행자", "사이드")
+# v7.34(C3): 머리글 첫 마디(short)만 보고, 낱말은 그 턴에 생기는 블록을 가리키는 구체적 표현만 쓴다
+#   (설명 문구 속 '플레이어'·'지시문' 때문에 금지사항·사건 지침 같은 확정 블록이 가변으로 잡히던 오분류 수정).
+_VARIABLE_KEYS = ("플레이어 신규", "플레이어 행동", "이번 턴 플레이어", "최근 플레이어", "선언", "이번 묘사문",
+                  "묘사 지시", "GM 지시", "진행자", "proceed", "그사이", "전달 대기", "신호", "직전 추출", "교정", "사이드")
 _LIKELY_KEYS = ("이력", "최근", "로그", "기억", "압축", "노트", "PROCEED", "히스토리", "대화")
 
 
@@ -28,7 +30,7 @@ def short(header: str) -> str:
 
 
 def classify(header: str) -> str:
-    h = header or ""
+    h = short(header or "")
     if any(k in h for k in _VARIABLE_KEYS):
         return VARIABLE
     if any(k in h for k in _LIKELY_KEYS):

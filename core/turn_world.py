@@ -640,7 +640,26 @@ def narration_world_block(wt, session) -> str:
         parts.append(narration_overlay(wt.plan, wt.ctx.definition, wt.ctx, world=session))
     parts.append(pending_delivery_block(wt.ctx, session))
     parts.append(scene_npc_block(wt.ctx, wt.plan, session))
+    parts.append(scene_item_block(wt, session))
     return "".join(p for p in parts if p)
+
+
+def scene_item_block(wt, session) -> str:
+    """v7.34(A5): 묘사층위도 지시층위와 같은 정본 물건 블록을 받는다(PC·장면 인물 소지·현장 물건·닫힌 용기)
+    — 없는 물건을 쓰거나 손상 물건을 멀쩡히 쓰는 묘사를 막는다(묘사 뒤 물건 연산 거부의 원인)."""
+    from . import items as _items
+    try:
+        ctx = wt.ctx
+        scene, projs = scene_npc_projections(ctx, wt.plan, session)
+        pc = ((session.players or {}).get(ctx.uid_of.get(ctx.lead_pc)) or {}).get("name")
+        if not pc:
+            return ""
+        return _items.item_block(session, pc_name=pc,
+                                 scene_owner_names=[p.get("legacy_name") for p in projs if p.get("legacy_name")],
+                                 scene_place=scene, defs=_items.definitions_of(ctx.definition))
+    except Exception as e:  # noqa: BLE001 — 보조 블록(실패해도 묘사는 진행)
+        print(f"[묘사] 물건 블록 실패: {e}")
+        return ""
 
 
 MAX_GUIDE_LINES = 8
@@ -737,7 +756,29 @@ def scene_npc_block(ctx, plan, session) -> str:
              "※ 목록 밖 정의 인물(룰북 인물 사전의 이름)을 이름·정체로 등장시키지 말 것. 새로 필요한 인물은 "
              "이름 없는 인물로 다룬다."]
     lines += [_npc_line(p) for p in projs] or ["(정본상 이 장면에 있는 정의 NPC 없음)"]
-    return "\n".join(lines) + "\n"
+    return "\n".join(lines) + "\n" + scene_npc_detail_block(projs, session)
+
+
+def scene_npc_detail_block(projs, session) -> str:
+    """v7.34(사용자 결정 4): 정본상 현재 장면에 있는 인물(동행 포함 — 동행은 PC와 같은 자리로 움직인다)의 추가 설정.
+
+    캐시 NPC 사전에는 정체·인상만 있다. 행동 방식·동기·두려움·비밀·관계·특기·능력치는 여기서만 준다
+    (장면 밖 인물의 비밀은 그 턴에 들어가지 않는다)."""
+    from .cache import NPC_PART_EXTRA, npc_field_lines
+    sd = getattr(session, "scenario_data", None) or {}
+    npcs, tmpl = sd.get("default_npcs") or {}, sd.get("npc_template") or {}
+    out = []
+    for p in projs or ():
+        data = npcs.get(p.get("legacy_name")) if p.get("legacy_name") else None
+        if not isinstance(data, dict):
+            continue
+        rows = npc_field_lines(tmpl, data, part=NPC_PART_EXTRA, bound=True)
+        if rows:
+            out.append(f"- {p.get('legacy_name')}:\n" + "\n".join(rows))
+    if not out:
+        return ""
+    return ("\n[장면 인물 상세 — 룰북 NPC 사전(정체·인상)에 더하는 추가 설정 · 인물을 일관되게 움직이기 위한 내부 기준. "
+            "PC가 모르는 비밀·숨은 관계·실명을 본문·대사에 드러내지 말 것]\n" + "\n".join(out) + "\n")
 
 
 # ══════════════════════════════════════════════════════════════

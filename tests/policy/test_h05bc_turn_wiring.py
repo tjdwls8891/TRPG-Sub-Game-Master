@@ -616,7 +616,8 @@ async def test_interrupted_move_cannot_reveal_destination_image(drig):
     tx = await turn(r, "성당으로 간다")                                   # door_1 숨은 잠금 → 시장에서 멈춤
     assert SP.placement_of(r.sess, PC) == SP.at_place("시장")
     lprompt = r.prov.prompts["logic"][0][0]
-    imgs = lprompt.split("[사용 가능한 장소 이미지 목록")[1][:300] if "[사용 가능한 장소 이미지 목록" in lprompt else ""
+    # 이미지 목록 블록만(다음 '[' 머리글 전까지) — 고정 길이로 자르면 뒤 블록(플레이어 발언)까지 섞인다
+    imgs = lprompt.split("[사용 가능한 장소 이미지 목록")[1].split("\n[")[0] if "[사용 가능한 장소 이미지 목록" in lprompt else ""
     assert "성당" not in imgs
     import cogs.game as game
     assert "성당" not in game._projected_media_filter(r.sess, tx.preparation, ["성당"], None)

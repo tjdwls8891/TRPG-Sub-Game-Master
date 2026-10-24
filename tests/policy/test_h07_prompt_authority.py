@@ -39,7 +39,7 @@ def test_provider_production_callsites_stay_18():
                 n += sum(1 for x in ast.walk(tree) if isinstance(x, ast.Attribute) and x.attr == "generate_content")
     tree = ast.parse(open(os.path.join(REPO_ROOT, "main.py"), encoding="utf-8").read())
     n += sum(1 for x in ast.walk(tree) if isinstance(x, ast.Attribute) and x.attr == "generate_content")
-    assert n == 19                                                              # H07은 늘리지 않는다 · P1 후속 묘사 은퇴(19 → 18) · v7.23 조건부 선언 검증(18 → 19, DYNAMIC 매 발화 시뮬레이션은 0)
+    assert n == 18                                                              # H07은 늘리지 않는다 · P1 후속 묘사 은퇴(19 → 18) · v7.23 조건부 선언 검증(18 → 19, DYNAMIC 매 발화 시뮬레이션은 0) · v7.34 호출자 0인 지시문 자기 검증 제거(19 → 18)
     # core/logs.py 기록 프록시는 호출 단계가 아니라 통과 전달 1회뿐이다(새 provider 호출 없음)
     tree = ast.parse(open(os.path.join(REPO_ROOT, "core", "logs.py"), encoding="utf-8").read())
     assert sum(1 for x in ast.walk(tree) if isinstance(x, ast.Attribute) and x.attr == "generate_content") == 1

@@ -138,7 +138,12 @@ def test_runtime_context_labels_match_policy(session_auto_ready):
     logic = gm_mod._build_logic_user_prompt(s, "주변을 살핀다", [])
     assert "노트-마커" in logic
     assert "태:" not in logic
-    assert "[유효 상태이상 목록 — 상태 변화를 묘사하게 할 때" in logic
+    # v7.34(B2): 캐시를 읽는 지시층위는 캐시 룰북 [4.5]의 같은 목록을 다시 싣지 않는다 — 권위 문구(추출·시스템 검증)는 유지
+    s.cache_name = None
+    assert "[유효 상태이상 목록 — 상태 변화를 묘사하게 할 때" in gm_mod._build_logic_user_prompt(s, "주변을 살핀다", [])
+    s.cache_name = "caches/x"
+    _l2 = gm_mod._build_logic_user_prompt(s, "주변을 살핀다", [])
+    assert "[유효 상태이상 목록] 캐시 룰북 [4.5." in _l2 and "추출층위와 시스템 검증이 한다" in _l2
     narr = core.PromptBuilder.build_prompt(s, "지시-마커")
     assert "룰북 고정 사실·금지사항·런타임 상태와 충돌하는 부분은 적용하지 않음" in narr
     assert "사실·금지사항·묘사 가이드를 지키는 범위 안에서" in narr

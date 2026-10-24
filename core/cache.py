@@ -173,6 +173,73 @@ def update_session_cache_state(session: TRPGSession, frozen=None):
 
 
 # noinspection PyShadowingNames
+NPC_PART_ALL, NPC_PART_FIXED, NPC_PART_EXTRA = "all", "fixed", "extra"
+# 고정 설정(정체·인상) — 필드 이름에 이 낱말이 들어가면 고정. 나머지 저작 필드·스탯·기본 상태는 추가 설정
+NPC_FIXED_FIELD_WORDS = ("나이", "성별", "소속", "직책", "외모", "기질", "말투", "어조")
+
+
+def _is_fixed_field(name: str) -> bool:
+    return any(w in str(name) for w in NPC_FIXED_FIELD_WORDS)
+
+
+def npc_field_lines(npc_template, npc_data: dict, *, part: str = NPC_PART_ALL, bound: bool = False) -> list:
+    """NPC 사전 한 인물의 렌더 줄(저작 info_fields 순서 → 스탯 → 기본 자원 → 기본 상태).
+
+    part: all(전부) · fixed(정체·인상 — 동적 세계 캐시) · extra(그 밖 — 동적 세계 장면 인물 상세)."""
+    tmpl = npc_template if isinstance(npc_template, dict) else {}
+    take = (lambda fixed: True) if part == NPC_PART_ALL else (lambda fixed: fixed == (part == NPC_PART_FIXED))
+    lines = []
+    for f in tmpl.get("info_fields", []) or []:
+        val = npc_data.get(f, "")
+        if val and take(_is_fixed_field(f)):
+            lines.append(f"  {f}: {val}")
+    if part == NPC_PART_FIXED:
+        return lines
+    # NOTE: has_stats / has_resources / has_statuses 플래그에 따라 NPC 기본값을 넣는다. 런타임 변경분은
+    #   프롬프트의 [NPC 변경사항 / 런타임 상태] 오버라이드 블록이 담당한다.
+    if tmpl.get("has_stats"):
+        stats = npc_data.get("stats", {})
+        if stats:
+            lines.append(f"  스탯: {', '.join(f'{k}={v}' for k, v in stats.items())}")
+    # v7.17: 정의가 바인딩된(DYNAMIC) 세션은 NPC 소지품을 런타임 정본(장면 인물·물건 블록)으로만 준다 —
+    #   캐시에 굽힌 저작 초기값이 실제 소지보다 앞서지 않게 한다(초기값 반복 주입 금지).
+    if tmpl.get("has_resources") and not bound:
+        resources = npc_data.get("resources", {})
+        if resources:
+            lines.append(f"  기본 자원: {', '.join(f'{k}: {v}' for k, v in resources.items())}")
+    if tmpl.get("has_statuses"):
+        statuses = npc_data.get("statuses", [])
+        if statuses:
+            lines.append(f"  기본 상태: {', '.join(statuses)}")
+    return lines
+
+
+# v7.34(A2 — 사용자 결정 '가'): 동적 세계 세션의 스토리 가이드에서 빼는 자동 진행 절(정본 사건이 대신한다)
+DYNAMIC_STORY_OMIT_WORDS = ("세계 사건", "트리거")
+
+
+def dynamic_story_guide(text: str) -> str:
+    """번호 머리글('N. 제목') 절 가운데 자동 진행 사건·세력 긴장 트리거 절을 빼고 동적 세계 권위 머리말을 붙인다."""
+    import re as _re
+    text = text or ""
+    heads = list(_re.finditer(r"(?m)^[ \t]*\d+\.[ \t]+(.+)$", text))
+    if not heads:
+        kept, dropped = text, []
+    else:
+        parts, dropped = [text[:heads[0].start()]], []
+        for i, m in enumerate(heads):
+            seg = text[m.start():heads[i + 1].start() if i + 1 < len(heads) else len(text)]
+            if any(w in m.group(1) for w in DYNAMIC_STORY_OMIT_WORDS):
+                dropped.append(m.group(1).strip())
+            else:
+                parts.append(seg)
+        kept = "".join(parts)
+    note = ("(동적 세계 세션: 세계 사건의 발생·진행은 정본 사건과 프롬프트의 코드 확정 블록만이 정한다. "
+            "아래 가이드는 장면 연출의 참고이며, 이것을 근거로 사건·충돌이 '일어났다'고 정하지 않는다."
+            + (f" 자동 진행 절({' · '.join(dropped)})은 이 세션에서 제외했다." if dropped else "") + ")\n")
+    return note + kept.strip("\n")
+
+
 async def build_scenario_cache_text(bot, model_id, scenario_data: dict, cache_note: str = "", session_id: str = None, session: "TRPGSession" = None) -> tuple[str, int, str]:
     """
     시나리오 데이터를 바탕으로 Context Caching을 위한 '시나리오 핵심 룰북' 텍스트 조립.
@@ -190,6 +257,8 @@ async def build_scenario_cache_text(bot, model_id, scenario_data: dict, cache_no
     """
     worldview = scenario_data.get('worldview', '특별한 세계관 정보 없음')
     story_guide = scenario_data.get('story_guide', '특별한 스토리 가이드 없음')
+    if getattr(session, "definition_revision", None):
+        story_guide = dynamic_story_guide(story_guide)
     stat_system = scenario_data.get('stat_system', '특별한 스탯 시스템 없음')
     desc_guide = scenario_data.get('desc_guide', '상황에 맞게 묘사하세요.')
     status_code_block = scenario_data.get('status_code_block', '상태창 코드블럭 양식 없음')
@@ -204,36 +273,16 @@ async def build_scenario_cache_text(bot, model_id, scenario_data: dict, cache_no
     npc_template = scenario_data.get("npc_template", {})
     npc_info_fields = npc_template.get("info_fields", []) if isinstance(npc_template, dict) else []
 
+    bound = bool(getattr(session, "definition_revision", None))
     for npc_name, npc_data in default_npcs.items():
         if not isinstance(npc_data, dict):
             npc_text += f"\n- {npc_name}: {npc_data}\n"
             continue
         if npc_info_fields:
-            # 구조화 양식: info_fields 순서대로 필드 렌더링
-            field_lines = []
-            for f in npc_info_fields:
-                val = npc_data.get(f, "")
-                if val:
-                    field_lines.append(f"  {f}: {val}")
-            # NOTE: has_stats / has_resources / has_statuses 플래그에 따라
-            # NPC 기본값(stats/resources/statuses)을 캐시 룰북에 포함한다.
-            # 이 값들은 세션 초기화 시 session.resources/statuses에 자동 반영되며,
-            # 런타임 변경분은 프롬프트의 [NPC 변경사항 / 런타임 상태] 오버라이드 블록이 담당한다.
-            if isinstance(npc_template, dict) and npc_template.get("has_stats"):
-                stats = npc_data.get("stats", {})
-                if stats:
-                    field_lines.append(f"  스탯: {', '.join(f'{k}={v}' for k, v in stats.items())}")
-            # v7.17: 정의가 바인딩된(DYNAMIC) 세션은 NPC 소지품을 런타임 정본(장면 인물·물건 블록)으로만 준다 —
-            #   캐시에 굽힌 저작 초기값이 실제 소지보다 앞서지 않게 한다(초기값 반복 주입 금지).
-            if isinstance(npc_template, dict) and npc_template.get("has_resources") \
-                    and not getattr(session, "definition_revision", None):
-                resources = npc_data.get("resources", {})
-                if resources:
-                    field_lines.append(f"  기본 자원: {', '.join(f'{k}: {v}' for k, v in resources.items())}")
-            if isinstance(npc_template, dict) and npc_template.get("has_statuses"):
-                statuses = npc_data.get("statuses", [])
-                if statuses:
-                    field_lines.append(f"  기본 상태: {', '.join(statuses)}")
+            # v7.34(사용자 결정 4): 동적 세계 세션은 고정 설정(정체·인상)만 캐시에 굽고, 추가 설정은
+            #   그 인물이 정본상 현재 장면에 있을 때 프롬프트로 준다(core.turn_world.scene_npc_detail_block).
+            field_lines = npc_field_lines(npc_template, npc_data, part=NPC_PART_FIXED if bound else NPC_PART_ALL,
+                                          bound=bound)
             npc_text += f"\n- {npc_name}:\n" + "\n".join(field_lines) + "\n"
         else:
             # 레거시 양식: details 문자열
@@ -248,10 +297,9 @@ async def build_scenario_cache_text(bot, model_id, scenario_data: dict, cache_no
     if merged_status_effects:
         se_lines = []
         for name, eff in merged_status_effects.items():
-            w = eff.get("weight", 0)
-            w_str = f"판정 가중치 {w:+d}" if w != 0 else "판정 가중치 없음"
+            # v7.34(A3): weight는 v7.12부터 판정에 쓰이지 않는다(상태 영향은 판단층위 status_mod) — 표기하지 않는다
             se_lines.append(
-                f"- {name}: 적용조건=[{eff.get('apply_condition', '')}] / {w_str} / 제거조건=[{eff.get('remove_condition', '')}]"
+                f"- {name}: 적용조건=[{eff.get('apply_condition', '')}] / 제거조건=[{eff.get('remove_condition', '')}]"
             )
         status_effects_section = f"""
 [4.5. 사용 가능한 상태이상 목록]
@@ -360,6 +408,9 @@ async def build_scenario_cache_text(bot, model_id, scenario_data: dict, cache_no
                 + "\n\n".join(_home_descs) + "\n"
             )
 
+    npc_scope_note = ("\n동적 세계 세션: 이 사전은 각 인물의 정체·인상(고정 설정)만 담는다. 행동 방식·동기·두려움·비밀·"
+                      "신뢰/경계·특기·능력치 같은 추가 설정은 그 인물이 정본상 현재 장면에 있을 때 프롬프트의 "
+                      "[장면 인물 상세] 블록으로 주어진다." if getattr(session, "definition_revision", None) else "")
     rulebook_text = f"""=== [시나리오 핵심 룰북] ===
 이 내용은 세션의 근간이 되는 절대적인 세계관 및 시스템 설정입니다.
 아래의 고정 세계 사실과 [6. GM 절대 금지 사항]은 진행자(GM) 지시나 실시간 노트로도 바뀌지 않습니다.
@@ -379,7 +430,7 @@ NPC의 현재 위치·상태처럼 변하는 런타임 상태는 프롬프트의
 (인물의 정체성·고정 설정은 아래 내용을 유지).
 동적 세계 세션: 인물의 현재 위치·장면 존재는 프롬프트의 정본 장면 인물 블록이 정한다(사전의 거처·연고는 현재 위치가 아니다).
 사전의 실명·비밀·숨은 관계는 인물을 일관되게 움직이기 위한 내부 기준이다 — 플레이어(PC)가 아직 모르는 이름·정체·비밀을
-본문·대사에 그대로 드러내지 말 것(드러나는 것은 정본 공개 규칙과 이번 장면의 실제 사건으로만).
+본문·대사에 그대로 드러내지 말 것(드러나는 것은 정본 공개 규칙과 이번 장면의 실제 사건으로만).{npc_scope_note}
 {npc_text}
 
 [4. 게임 스탯 및 판정 시스템]

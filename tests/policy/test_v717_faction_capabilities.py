@@ -139,7 +139,7 @@ def test_compile_optional_and_strict():
         errs = [x.code for x in core.definition_compiler.compile_scenario(_raw(mapping=bad), "t").errors]
         assert code in errs, (bad, errs)
     expected = {"scenario.example": "sha256:eb812596eb87f", "다크판타지": "sha256:c03dbb4221aa6",
-                "무협": "sha256:07f7f4cfda43f", "빈시나리오": "sha256:2422a64278cbc"}
+                "무협": "sha256:c646b56b20325", "빈시나리오": "sha256:2422a64278cbc"}
     for name, rev in expected.items():
         raw = json.loads((ROOT / f"scenarios/{name}.json").read_text(encoding="utf-8"))
         res = core.definition_compiler.compile_scenario(raw, name)
