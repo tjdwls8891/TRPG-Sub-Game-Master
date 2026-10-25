@@ -3739,6 +3739,8 @@ class GMCog(commands.Cog):
             del _applied_ids[:-16]
         _mch = None if derived is not None else \
             self.bot.get_channel(getattr(session, "master_ch_id", 0))
+        # v7.38(D5): DYNAMIC PC 상태 — 규칙(시간·장소·섭취)으로 부여·해제를 확정하고 상태 시계를 같은 커밋에 기록
+        core.status_rules.resolve_turn(session, prep)
         await self._apply_extraction_plan(session, plan, _mch, derived=derived)
 
     async def _retire_legacy_extraction_retry(self, session) -> bool:

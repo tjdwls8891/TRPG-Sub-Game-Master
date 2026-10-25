@@ -572,14 +572,21 @@ def build_extraction_limits(session) -> str:
         eff = sd.get("status_effects")
     names = []
     if isinstance(eff, dict):
-        names = [(k, (v or {}).get("apply_condition", "")) for k, v in eff.items()]
+        names = [(k, (v or {}).get("apply_condition", ""), (v or {}).get("remove_condition", ""))
+                 for k, v in eff.items()]
     elif isinstance(eff, list):
-        names = [(e.get("name"), e.get("apply_condition", ""))
+        names = [(e.get("name"), e.get("apply_condition", ""), e.get("remove_condition", ""))
                  for e in eff if isinstance(e, dict) and e.get("name")]
     if names:
-        lines = [f"- {n}: {c}" if c else f"- {n}" for n, c in names]
+        # v7.38(D5): 해제 조건도 함께 준다(해제 판단의 근거) — 부여 조건만 주던 v7.37까지는 해소를 읽을 근거가 없었다
+        lines = [f"- {n}: 부여=[{c}]" + (f" / 해제=[{r}]" if r else "") if c else f"- {n}"
+                 for n, c, r in names]
         blocks.append("\n[이 시나리오의 상태이상 — 이 목록에 없는 이름은 쓰지 말 것]\n"
                       + "\n".join(lines))
+        cur = [f"{who}: {', '.join(st)}" for who, st in (getattr(session, "statuses", None) or {}).items() if st]
+        if cur:
+            blocks.append("[지금 붙어 있는 상태 — 이번 묘사에서 해제 조건이 실제로 충족됐으면 그 상태를 낮은 점수로 "
+                          "보고한다(조짐이 남았다는 이유로 높이지 말 것)]\n" + "\n".join(cur))
 
     # 인물 — 고정 NPC와 이미 등장한 비정규 NPC.
     known = list((sd.get("default_npcs") or {}).keys())

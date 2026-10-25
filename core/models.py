@@ -277,6 +277,7 @@ class TRPGSession:
         self.item_facts = {}          # 직전 커밋 턴의 사용·지급 사실(P1: 같은 턴 보충 진행에서 평가 — 기록용)
         # ========== [P1 전달 대기 — 단일 출처 core.world_state.DELIVERY_FIELDS(되감기 대상)] ==========
         self.world_pending_signals = []   # 본문이 아직 전하지 못한 관찰 신호(다음 본문 '그동안')
+        self.status_clock = {}            # v7.38 상태 시계(단일 출처 core.world_state.STATUS_FIELDS — 되감기 대상)
         # ========== [v7.17 초기 지식 — genesis 이전 세션 단위 전달 기록(되감기 대상 아님)] ==========
         self.initial_knowledge_progress = {}
         self.definition_revision = None

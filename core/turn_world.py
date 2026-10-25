@@ -16,6 +16,7 @@
 #     정본)에 남겨 다음 커밋되는 소설형 본문 1회가 '그사이' 일로 전한다. 묘사 전 계획 신호는 이월하지 않는다.
 from __future__ import annotations
 
+import hashlib
 from dataclasses import dataclass, field
 
 from . import action_intent as _ai
@@ -703,6 +704,10 @@ def event_guide_block(ctx, plan, session) -> str:
         if not ph.get("guide") or not _ev.instance_relevant(D, inst, scene):
             continue
         lines.append(f"· {tpl.get('name') or inst.get('template_id')}: {ph['guide']}")
+        if ph.get("finds"):                          # v7.38(A3): 저작 후보 중 이 사건이 품은 하나(인스턴스 결정적)
+            pick = ph["finds"][int(hashlib.sha256(str(iid).encode("utf-8")).hexdigest()[:8], 16) % len(ph["finds"])]
+            lines.append(f"  └ 여기서 찾을 수 있는 쓸 만한 것(코드 확정): {pick} — 플레이어가 실제로 찾아 나설 때만 "
+                         "드러낸다. 다른 쓸 만한 물건을 지어내지 말 것")
         res = (inst.get("local_state") or {}).get(_ev.RESOLUTION_KEY)
         opts = {o["option_id"]: o["label"] for o in ph.get("resolution_options") or ()}
         if opts and res is None and _ev.resolution_relevant(D, world, inst, scene):   # player-facing 관련성 gate
@@ -1662,3 +1667,35 @@ def rerender_world_intent(session, judgment_record, post_world_version=None):
         # 턴 커밋 뒤 관리자 세계 편집(ADMIN_EDIT)이 있었다 — 재서술이 편집을 조용히 지우지 않게 한다
         return None, "이 턴 이후 세계 편집이 있어 재서술할 수 없습니다(되감기를 사용하십시오)"
     return _ai.ResolvedActionIntent.from_semantic(ai["semantic"], definition_revision=ctx.definition_revision), None
+
+
+# ══════════════════════════════════════════════════════════════
+#  v7.38(D5) 상태 판정 재료 — 커밋 시점 투영 세계(READY) 기준 읽기 전용
+# ══════════════════════════════════════════════════════════════
+
+def status_turn_facts(session, prep) -> dict | None:
+    """{now, before, start, place, daypart, activity} — DYNAMIC 턴의 커밋 대상 세계에서. 아니면 None.
+
+    판정 자체는 core.status_rules(순수)가 한다. 이 함수는 시계·PC 배치·시간대·이번 턴 활동만 읽는다."""
+    wt = getattr(prep, "world_turn", None)
+    proj = getattr(getattr(prep, "world_projection", None), "world", None)
+    if wt is None or not isinstance(proj, _wm.ProjectedWorld):
+        return None
+    clock = proj.domain("world_clock") or {}
+    if "minute_index" not in clock:
+        return None
+    now = int(clock["minute_index"])
+    pl = _sp.placement_of(proj, wt.ctx.lead_pc) or {}
+    daypart = None
+    cal = _calendar(wt.ctx.definition or {})
+    if cal is not None:
+        try:
+            daypart = cal.daypart_of(now)
+        except Exception:  # noqa: BLE001 — 시간대 모름
+            daypart = None
+    outcome = getattr(getattr(wt, "plan", None), "outcome", None) or {}
+    return {"now": now, "before": int((getattr(session, "world_clock", None) or {}).get("minute_index", now)),
+            "start": int(clock.get("start_minute_index", now)),
+            "place": pl.get("place_id") if pl.get("kind") == _sp.AT_PLACE else None,
+            "daypart": daypart, "activity": outcome.get("activity")}
+

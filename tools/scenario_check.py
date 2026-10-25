@@ -191,6 +191,26 @@ def main(argv=None) -> int:
                 for m in talk_errs:
                     print(f"     {m}")
 
+        # v7.38 상태이상 규칙(rules·excludes·intake_groups — 공용 + 시나리오 병합본) · 인물 소개 박자 구조
+        from core import status_rules as _sr
+        from core.utils import get_merged_status_effects
+        st_errs = _sr.check_definitions(src.raw, get_merged_status_effects(src.raw or {}))
+        bf = (src.raw or {}).get("briefing_formats")
+        if isinstance(bf, dict):
+            from core.start_frame import BRIEFING_BEATS
+            for k, v in bf.items():
+                if k not in BRIEFING_BEATS or not isinstance(v, list) or not all(isinstance(x, str) and x.strip()
+                                                                                 for x in v):
+                    st_errs.append(("BRIEFING_FORMATS", f"{k}: 박자는 {BRIEFING_BEATS} 중 하나, 값은 문자열 목록"))
+        if st_errs:
+            worst = 1
+            if args.json:
+                summaries[-1]["status_errors"] = [{"code": c, "message": m} for c, m in st_errs]
+            else:
+                print(f"   상태이상·소개 박자: ERROR {len(st_errs)}")
+                for c, m in st_errs:
+                    print(f"     [{c}] {m}")
+
         if args.compile_out:
             if not res.ok:
                 print("ERROR가 있어 정의를 기록하지 않습니다", file=sys.stderr)

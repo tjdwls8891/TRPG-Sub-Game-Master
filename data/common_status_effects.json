@@ -1,32 +1,168 @@
 [
   {
+    "name": "탈수",
+    "apply_condition": "장시간 수분 미섭취(마지막으로 마신 뒤 6시간 이상)",
+    "weight": -3,
+    "remove_condition": "물 마시기",
+    "rules": {
+      "apply_gate": {
+        "status_time": "SINCE_INTAKE_GTE",
+        "group": "water",
+        "minutes": 360
+      },
+      "apply_auto": {
+        "status_time": "SINCE_INTAKE_GTE",
+        "group": "water",
+        "minutes": 720
+      },
+      "clear_auto": {
+        "consumed": "water"
+      },
+      "clear_gate": {
+        "consumed": "water"
+      }
+    }
+  },
+  {
+    "name": "허기",
+    "apply_condition": "8시간 이상 식량 미섭취",
+    "weight": -2,
+    "remove_condition": "식량 섭취",
+    "excludes": [
+      "배부름"
+    ],
+    "rules": {
+      "apply_gate": {
+        "status_time": "SINCE_INTAKE_GTE",
+        "group": "food",
+        "minutes": 360
+      },
+      "apply_auto": {
+        "status_time": "SINCE_INTAKE_GTE",
+        "group": "food",
+        "minutes": 480
+      },
+      "clear_auto": {
+        "consumed": "food"
+      },
+      "clear_gate": {
+        "consumed": "food"
+      }
+    }
+  },
+  {
+    "name": "저체온",
+    "apply_condition": "장시간 차가운 환경 노출 또는 침수",
+    "weight": -3,
+    "remove_condition": "따뜻한 환경 확보 및 체온 회복"
+  },
+  {
     "name": "지침",
     "apply_condition": "고강도 신체 활동 지속 또는 수면 부족",
     "weight": -2,
-    "remove_condition": "30분 이상 충분한 휴식"
+    "remove_condition": "30분 이상 충분한 휴식",
+    "rules": {
+      "clear_auto": {
+        "activity_in": [
+          "SLEEP",
+          "WAIT"
+        ],
+        "min_minutes": 30
+      },
+      "clear_gate": {
+        "activity_in": [
+          "SLEEP",
+          "WAIT"
+        ],
+        "min_minutes": 30
+      }
+    }
   },
   {
     "name": "배부름",
     "apply_condition": "충분한 양의 음식 섭취 직후",
     "weight": 1,
-    "remove_condition": "2~3시간 경과 또는 격렬한 활동"
+    "remove_condition": "2~3시간 경과 또는 격렬한 활동",
+    "excludes": [
+      "허기"
+    ],
+    "rules": {
+      "apply_gate": {
+        "consumed": "food"
+      },
+      "clear_auto": {
+        "status_time": "SINCE_APPLIED_GTE",
+        "minutes": 180
+      },
+      "clear_gate": {
+        "const": true
+      }
+    }
   },
   {
     "name": "출혈",
     "apply_condition": "예리한 무기나 파편에 의한 절상·자상",
     "weight": -3,
-    "remove_condition": "직접 지혈·봉합 등 의료 처치 완료"
-  },
-  {
-    "name": "공황",
-    "apply_condition": "극한의 공포 상황에 장시간 노출",
-    "weight": -4,
-    "remove_condition": "안전한 환경에서 안정 취하거나 다른 인물의 진정 지원"
+    "remove_condition": "직접 지혈·봉합 등 의료 처치 완료",
+    "rules": {
+      "clear_gate": {
+        "any": [
+          {
+            "used": "medical"
+          },
+          {
+            "activity_in": [
+              "TREAT"
+            ]
+          }
+        ]
+      }
+    }
   },
   {
     "name": "부상",
     "apply_condition": "둔기 충격이나 낙하 등 물리적 충격",
     "weight": -2,
-    "remove_condition": "응급처치 및 충분한 안정"
+    "remove_condition": "응급처치 및 충분한 안정(12시간 이상)",
+    "rules": {
+      "clear_gate": {
+        "all": [
+          {
+            "status_time": "SINCE_APPLIED_GTE",
+            "minutes": 720
+          },
+          {
+            "any": [
+              {
+                "used": "medical"
+              },
+              {
+                "activity_in": [
+                  "TREAT"
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    }
+  },
+  {
+    "name": "공황",
+    "apply_condition": "극한의 공포 상황에 장시간 노출",
+    "weight": -4,
+    "remove_condition": "안전한 환경에서 안정 취하거나 다른 인물의 진정 지원",
+    "rules": {
+      "clear_auto": {
+        "activity_in": [
+          "WAIT",
+          "SLEEP"
+        ],
+        "min_minutes": 20
+      },
+      "clear_gate": {
+        "const": true
+      }
+    }
   }
 ]

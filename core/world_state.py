@@ -58,7 +58,14 @@ DELIVERY_FIELDS = {
     "world_pending_signals": [],
 }
 
-ALL_WORLD_FIELDS = {**GAMEPLAY_WORLD_FIELDS, **IDENTITY_FIELDS, **LIFECYCLE_FIELDS, **DELIVERY_FIELDS}
+# v7.38(D5): 상태 시계(되감기 대상 게임 정본 — 커밋 경로만 씀). 단일 출처 core.status_rules 주석 참조.
+#   status_clock  {PC 이름: {"applied": {상태: 분}, "intake": {섭취 묶음: 분}}}
+STATUS_FIELDS = {
+    "status_clock": {},
+}
+
+ALL_WORLD_FIELDS = {**GAMEPLAY_WORLD_FIELDS, **IDENTITY_FIELDS, **LIFECYCLE_FIELDS, **DELIVERY_FIELDS,
+                    **STATUS_FIELDS}
 
 NARRATIVE_SEED_NAMESPACE = "session.narrative_seed.v1"
 
@@ -69,7 +76,7 @@ def gameplay_defaults() -> dict:
 
 
 def delivery_defaults() -> dict:
-    return copy.deepcopy(DELIVERY_FIELDS)
+    return copy.deepcopy({**DELIVERY_FIELDS, **STATUS_FIELDS})
 
 
 def derive_narrative_seed(session_id) -> str:

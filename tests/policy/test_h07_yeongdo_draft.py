@@ -164,7 +164,7 @@ def test_new_route_places_are_ordinary_place_ids_with_image_inheritance():
 
 # ── genesis ──────────────────────────────────────────────────
 
-@pytest.mark.parametrize("frame", ["arrive_plain", "arrive_night", "arrive_threat_finding", "arrive_person"])
+@pytest.mark.parametrize("frame", ["arrive_plain", "arrive_night", "arrive_person"])   # v7.38: 흰여울 시작 제거(승인)
 def test_genesis_places_pc_clock_npcs_and_no_unnarrated_signals(frame):
     w, ch = genesis(frame)
     D, _ = _defn()
@@ -172,8 +172,7 @@ def test_genesis_places_pc_clock_npcs_and_no_unnarrated_signals(frame):
     assert w.domain("world_clock")["minute_index"] == ch.start_minute
     placed = {a: p for a, p in (w.domain("spatial_state")["placements"]).items() if a != PC}
     # v7.26: 정본 NPC 배치는 그 시작 틀 사건이 둔 인물뿐(시작 장소) — 나머지는 일과/미추적
-    start_npc = {"arrive_night": "yd.npc.baek_inha", "arrive_threat_finding": "yd.npc.shin_daeho",
-                 "arrive_person": "yd.npc.jin_bokrye"}.get(frame)
+    start_npc = {"arrive_night": "yd.npc.baek_inha", "arrive_person": "yd.npc.jin_bokrye"}.get(frame)
     assert placed == ({start_npc: SP.at_place(ch.start_place)} if start_npc else {})
     from core import npc_position as NP
     srcs = {a: NP.effective_position(D, w, a)["source"] for a in D["actor_definitions"] if a != start_npc}

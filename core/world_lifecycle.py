@@ -159,16 +159,27 @@ class StartChoices:
     knowledge_seed: str | None = None
     frame_id: str | None = None
     items: tuple = ()                 # v7.26 world_start.items — 이 시작에서만 생기는 물건(장소·인물 소지)
+    npc: str | None = None            # v7.38(R3) 고른 시작 장면 인물(ActorId) — genesis가 시작 장소에 둔다
+    npc_hidden: bool = False          # 숨은 인물이면 얼굴 인지 시드 없음(A4)
 
     def to_dict(self) -> dict:
         d = {"start_place": self.start_place, "start_minute": self.start_minute,
              "knowledge_seed": self.knowledge_seed, "frame_id": self.frame_id}
         if self.items:                # 시작 물건이 없는 틀의 초기화 정체성은 그대로
             d["items"] = [dict(x) for x in self.items]
+        if self.npc:                  # 시작 인물 후보가 없는 틀의 초기화 정체성은 그대로
+            d["npc"], d["npc_hidden"] = self.npc, self.npc_hidden
         return d
 
 
-def resolve_start_choices(definition: dict, chosen: dict):
+def pick_start_npc(rows, narrative_seed: str, frame_id) -> dict | None:
+    """v7.38(R3): 시작 인물 후보 중 한 명 — (세션 시드, 틀)에서 결정적(재시도·재시작에도 같은 사람)."""
+    if not rows:
+        return None
+    return rows[int(stable_digest("world.start_npc.v1", str(narrative_seed), str(frame_id)), 16) % len(rows)]
+
+
+def resolve_start_choices(definition: dict, chosen: dict, *, narrative_seed: str = ""):
     """선택된 시작 틀 → (StartChoices | None, reason).
 
     시작 장소·시각은 그 틀에 사람이 저작한 world_start(컴파일러 검증)에서만 온다. 틀의 facts(슬롯 템플릿)를
@@ -182,8 +193,10 @@ def resolve_start_choices(definition: dict, chosen: dict):
     ws = frame.get("world_start")
     if not ws:
         return None, "world_start_unauthored"
-    return StartChoices(ws["place"], ws["minute_index"], ws.get("knowledge_seed"), fid,
-                        tuple(dict(x) for x in ws.get("items") or ())), "ok"
+    pick = pick_start_npc(ws.get("npc_choices"), narrative_seed, fid)
+    items = tuple(dict(x) for x in ws.get("items") or ()) + tuple(dict(x) for x in (pick or {}).get("items") or ())
+    return StartChoices(ws["place"], ws["minute_index"], ws.get("knowledge_seed"), fid, items,
+                        (pick or {}).get("actor_id"), bool((pick or {}).get("hidden"))), "ok"
 
 
 def initialization_id_for(session_id, revision: str, choices: StartChoices) -> str:
@@ -241,6 +254,9 @@ def build_initial_world_plan(definition: dict, session, choices: StartChoices, *
         _mk(prefix, "place", _sp.OP_ACTOR_PLACEMENT_SET, {"actor_id": pc, "place_id": choices.start_place}),
         _mk(prefix, "scene", _sp.OP_SCENE_PLACE_SET, {"place_id": choices.start_place}),
     ]
+    if choices.npc:                   # v7.38(R3): 고른 시작 장면 인물을 시작 장소에 둔다(사건 spawn 조건의 근거)
+        base.append(_mk(prefix, "start_npc", _sp.OP_ACTOR_PLACEMENT_SET,
+                        {"actor_id": choices.npc, "place_id": choices.start_place}))
     know = []
     rec = {}
     if choices.knowledge_seed:
@@ -289,6 +305,7 @@ def build_initial_world_plan(definition: dict, session, choices: StartChoices, *
     wake = _wp.initial_template_wakeups(definition, w1, narrative_seed=narrative_seed, op_prefix=f"{prefix}.wk")
     ik_acq, ik_rv = initial_knowledge_ops(definition, session, uid, pc, list(knowledge_entries or ()),
                                           prefix=prefix, at_minute=choices.start_minute)
+    ik_acq = list(ik_acq) + start_face_ops(definition, session, uid, pc, choices, prefix=prefix)
     base_ops = _pw.chain(base, know, visit, view, ik_acq, ik_rv, wake)
     # ② 시작 분에서 전수 검사 1회 — 성립하는 spawn·정보 계열만(정규 진행 규칙 그대로)
     r = _wp.project_world_progression(definition, w1, choices.start_minute, base_ops=base_ops,
@@ -303,6 +320,28 @@ def build_initial_world_plan(definition: dict, session, choices: StartChoices, *
         return InitialWorldPlan("CONFLICT", reason="BASE_REJECTED", diagnostics=rejected)
     ops = [clock_op] + _pw.namespace_ops(r.ops, f"{prefix}.p", [clock_op.op_id])
     return InitialWorldPlan("READY", tuple(ops), list(r.diagnostics), r.projected_world)
+
+
+def start_face_ops(definition: dict, session, uid, pc: str, choices: StartChoices, *, prefix: str) -> list:
+    """v7.38(A4): 보이는 시작 장면 인물의 얼굴 인지(CONTENT, WITNESS) — 시작 장면에서 얼굴을 보는 것은 정본 사실이다.
+
+    이름은 시드하지 않는다. 숨은 인물·카드 얼굴 정보가 없는 인물은 없음."""
+    from . import cognition as _cog
+    from . import speaker_card as _sc
+    if not choices.npc or choices.npc_hidden:
+        return []
+    raw = ((definition.get("legacy_source") or {}).get("scenario")) or getattr(session, "scenario_data", None) or {}
+    ops = []
+    for iid in _sc.face_info_ids(_sc.config_of(raw), [choices.npc]):
+        if iid not in (definition.get("information_definitions") or {}):
+            continue
+        ops.append(_mk(prefix, f"face.{choices.npc}", _cog.OP_COGNITION_ACQUIRE, {
+            "holder": _cog.actor_holder(pc), "info_id": iid, "awareness": _cog.CONTENT,
+            "acquisition": _cog.acquisition_record(
+                "acq_" + stable_digest("world.start_face.v1", str(session.session_id), str(uid), iid),
+                "WITNESS", at_minute=choices.start_minute, source_actor=choices.npc,
+                place_id=choices.start_place)}))
+    return ops
 
 
 def definition_revision_of(definition) -> str | None:
@@ -367,7 +406,8 @@ async def initialize_world(bot, session, chosen: dict) -> InitResult:
         if why.startswith("snapshot_unreadable"):
             return await _fail(bot, session, why)
         return InitResult(INIT_LEGACY, why)
-    choices, why = resolve_start_choices(definition, chosen)
+    choices, why = resolve_start_choices(definition, chosen,
+                                         narrative_seed=str(getattr(session, "narrative_seed", "") or ""))
     if choices is None:
         if init_failed(session):
             return await _fail(bot, session, why)        # 이미 DYNAMIC 대상으로 실패한 세션은 LEGACY로 내리지 않는다

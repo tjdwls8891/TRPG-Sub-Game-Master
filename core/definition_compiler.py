@@ -1262,7 +1262,7 @@ _TPL_KEYS = ("version", "name", "slots", "distinct", "spawn_when", "repeat_polic
              "access_when", "phase_selector", "phases", "transition_cases", "case_selection", "case_required",
              "resolve_when", "cancel_when", "relevance_places")
 _PHASE_KEYS = ("eligible_when", "retain_when", "priority", "base_score", "score_terms", "rank", "terminal",
-               "guide", "resolution_options")
+               "guide", "resolution_options", "finds")
 # H07(사용자 결정 — 메인 결말·플레이어 명시 결단): phases[*].resolution_options = [{option_id, label}] — 이 국면에서
 #      플레이어가 **명시적으로** 내릴 수 있는 결단. 판단층위가 플레이어 선언에서 키만 고르고, 코드가 예약 사건 지역
 #      상태 'resolution'에 typed EVENT_LOCAL_SET(PLAYER_RESOLUTION)으로 쓴다. 이후 결과는 기존 국면·케이스가 적용한다
@@ -1629,6 +1629,12 @@ def _compile_event_templates(raw, caps, actors, actor_index, places, infos, acce
                     d.add(ERROR, "EVENT_PHASE_GUIDE_INVALID", f"{pp}.guide", "guide는 비어 있지 않은 문자열")
                 else:
                     phases[pid]["guide"] = ph["guide"]
+            if "finds" in ph:                       # v7.38(A3): 이 국면에서 찾을 수 있는 물건 후보(코드가 하나를 고른다)
+                fs = ph["finds"]
+                if not (isinstance(fs, list) and fs and all(isinstance(x, str) and x.strip() for x in fs)):
+                    d.add(ERROR, "EVENT_PHASE_FINDS_INVALID", f"{pp}.finds", "finds는 비어 있지 않은 문자열 목록")
+                else:
+                    phases[pid]["finds"] = list(fs)
             if "resolution_options" in ph:
                 ro = ph["resolution_options"]
                 okr = isinstance(ro, list) and ro and all(
@@ -2002,7 +2008,7 @@ def _compile_initialization(raw, place_defs, d):
     return out
 
 
-_WORLD_START_KEYS = ("place", "date", "time", "knowledge_seed", "items")
+_WORLD_START_KEYS = ("place", "date", "time", "knowledge_seed", "items", "npc_choices")
 
 
 def _compile_start_items(items, place_defs, actor_index, p, d):
@@ -2040,6 +2046,32 @@ def _compile_start_items(items, place_defs, actor_index, p, d):
                       "contains는 장소 물건(수량 1)에만, [{key, quantity(양의 정수)}] 비어 있지 않은 목록")
                 return None
         out.append({k: it[k] for k in ("key", "quantity", "place", "owner", "contains") if k in it})
+    return out
+
+
+def _compile_npc_choices(rows, place_defs, actor_index, p, d):
+    """v7.38(R3) world_start.npc_choices — [{npc(저작 NPC 레거시 이름), hidden?, items?}] → 정규 목록(오류면 None).
+
+    hidden=true면 시작 장면에 있지만 보이지 않는 인물(얼굴 인지 시드 없음 — A4). items는 그 인물이 뽑혔을 때만 생긴다."""
+    if not isinstance(rows, list) or not rows:
+        d.add(ERROR, "WORLD_START_NPC_CHOICES_INVALID", p, "npc_choices는 비어 있지 않은 목록이어야 합니다")
+        return None
+    out, seen = [], set()
+    for i, r in enumerate(rows):
+        ip = f"{p}[{i}]"
+        if not isinstance(r, dict) or set(r) - {"npc", "hidden", "items"} or r.get("npc") not in actor_index \
+                or not isinstance(r.get("hidden", False), bool) or r["npc"] in seen:
+            d.add(ERROR, "WORLD_START_NPC_CHOICES_INVALID", ip,
+                  "후보는 {npc(저작 NPC 이름, 중복 없음), hidden?(true/false), items?}여야 합니다")
+            return None
+        seen.add(r["npc"])
+        row = {"npc": r["npc"], "actor_id": actor_index[r["npc"]], "hidden": bool(r.get("hidden", False))}
+        if "items" in r:
+            items = _compile_start_items(r["items"], place_defs, actor_index, f"{ip}.items", d)
+            if items is None:
+                return None
+            row["items"] = items
+        out.append(row)
     return out
 
 
@@ -2100,10 +2132,17 @@ def _compile_world_starts(raw, init, place_defs, seeds, calendar, caps, d, actor
             items = _compile_start_items(ws["items"], place_defs, actor_index or {}, f"{p}.items", d)
             if items is None:
                 continue
+        choices = None
+        if "npc_choices" in ws:                      # v7.38(R3): 시작 장면 인물 후보 — genesis가 세션 시드로 한 명
+            choices = _compile_npc_choices(ws["npc_choices"], place_defs, actor_index or {}, f"{p}.npc_choices", d)
+            if choices is None:
+                continue
         by_id[fr["id"]]["world_start"] = {"place": ws["place"], "date": str(ws["date"]), "time": ws["time"],
                                           "minute_index": minute, "knowledge_seed": seed}
         if items:
             by_id[fr["id"]]["world_start"]["items"] = items
+        if choices:
+            by_id[fr["id"]]["world_start"]["npc_choices"] = choices
 
 
 # ── v7.17 아이템 정의 · 제작법 · 운반 한도 ─────────────────────

@@ -28,16 +28,18 @@ def get_merged_status_effects(scenario_data: dict) -> dict:
         print(f"[상태이상] 공통 목록 로드 실패: {e}")
 
     scenario_effects = scenario_data.get("status_effects", [])
+    # v7.38(D5): 시나리오가 뺀 공용 상태(status_common_exclude) · 출처 표시(scope — 공용/시나리오)
+    excluded = set(scenario_data.get("status_common_exclude") or ())
 
     merged: dict = {}
     for effect in common_effects:
         name = effect.get("name")
-        if name:
-            merged[name] = effect
+        if name and name not in excluded:
+            merged[name] = {**effect, "scope": "공용"}
     for effect in scenario_effects:
         name = effect.get("name")
         if name:
-            merged[name] = effect
+            merged[name] = {**effect, "scope": "시나리오"}
 
     return merged
 

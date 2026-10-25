@@ -74,7 +74,8 @@ REVERSIBLE_FIELDS = (
     # E-E3: 캐시 파생 필드 — 프롬프트(캐시 없는 폴백 포함)가 읽으므로 선택 이력과 함께 복원
     "cached_compressed_memory", "cached_session_npcs", "cached_worldview_sections",
 ) + tuple(_world_state.GAMEPLAY_WORLD_FIELDS) + tuple(_items_fields.ITEM_FIELDS) \
-    + tuple(_world_state.DELIVERY_FIELDS)
+    + tuple(_world_state.DELIVERY_FIELDS) + tuple(_world_state.STATUS_FIELDS)
+# v7.38: 상태 시계(status_clock)는 statuses와 같은 되감기 단위
 # P1: 본문 전달 대기(world_pending_signals)도 같은 되감기 단위 — 되감기·재서술이 그 턴 이전 대기로 돌아간다
 # v7.17: 아이템 3필드(특수 물건·현장 물건·사용/지급 사실)는 resources와 같은 되감기 단위. 초기 지식 전달 기록은 제외
 # H02: 동적 세계 게임 정본은 가역. definition_revision·narrative_seed는 가역이 아니다(세션 정체성).

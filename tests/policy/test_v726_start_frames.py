@@ -90,7 +90,6 @@ FRAMES = {   # 시작 틀 → (시작 장면 인물 사건, 인물, 첫 배치, 
     "arrive_finding": ("yd_start_stash", "yd.npc.lee_seonhui", "동삼동 해안로", "중리 해변"),
     "arrive_person": ("yd_start_haul", "yd.npc.jin_bokrye", "물양장", "해녀 작업장"),
     "arrive_person_threat": ("yd_start_rinse", "yd.npc.ryu_gaeun", "영선동 방파제", "저지대 상업지구"),
-    "arrive_threat_finding": ("yd_start_pipes", "yd.npc.shin_daeho", "흰여울 절벽길", "집수 설비"),
     "arrive_night": ("yd_start_candle", "yd.npc.baek_inha", "감지해변", "태종대 방면 숲"),
 }
 
@@ -99,7 +98,7 @@ def test_yeongdo_start_frames_use_only_existing_npcs_and_literal_starts():
     raw = Y._raw()
     D, _ = Y._defn()
     assert [f["id"] for f in raw["start_frames"]] == ["arrive_plain", "arrive_finding", "arrive_person",
-                                                     "arrive_person_threat", "arrive_threat_finding", "arrive_night"]
+                                                     "arrive_person_threat", "arrive_night"]   # v7.38 흰여울 제거
     assert len(D["actor_definitions"]) == 47                         # 신규 NPC 없음
     names = set(raw["default_npcs"])
     for fr in raw["start_frames"]:
@@ -175,6 +174,6 @@ def test_yeongdo_start_items_are_scene_objects_and_boats_cannot_be_pocketed():
                                    defs=defs, pc_name="테스터", transaction_id="t3"))
     assert s.resources["테스터"]["합성섬유 밧줄[타래]"] == 1                 # 열고 꺼낸 것만 소지 — 나머지는 그 자리
     assert "작업 장갑[켤레]〈손상〉" not in s.resources["테스터"]
-    pipes = IT.genesis_item_state(D, Y._session(), WL.resolve_start_choices(D, {"id": "arrive_threat_finding"})[0].items)
-    assert pipes["resources"]["신대호"]["아연도금 파이프"] == 2         # 그 시작에서만 인물 소지
-    assert "아연도금 파이프" not in (IT.genesis_item_state(D, Y._session())["resources"].get("신대호") or {})
+    night = IT.genesis_item_state(D, Y._session(), WL.resolve_start_choices(D, {"id": "arrive_night"})[0].items)
+    assert night["resources"]["백인하"]["양초"] == 1                   # 그 시작에서만 인물 소지(v7.38: 흰여울 제거)
+    assert "양초" not in (IT.genesis_item_state(D, Y._session())["resources"].get("백인하") or {})
