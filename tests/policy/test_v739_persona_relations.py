@@ -129,7 +129,7 @@ def test_persona_now_switches_by_date(ydyn):
     D = core.player_world.load_definition(r.sess, r.sess.definition_revision)
     assert TW._persona_now(r.sess, D, p)["goal"].startswith("떠밀려 온 거룻배")
     r.sess.world_clock = dict(r.sess.world_clock, minute_index=r.sess.world_clock["minute_index"] + 3 * 1440)
-    assert TW._persona_now(r.sess, D, p)["goal"].startswith("물질을 쉬는 대신")
+    assert TW._persona_now(r.sess, D, p)["goal"].startswith("막내 해녀에게")          # 감염 은폐 제거 뒤 문안
 
 
 def test_persona_compile_requires_core_but_not_dark_sides():
