@@ -3132,7 +3132,7 @@
         "장소": "청학동 선착장"
       },
       "summary": "{때}. {장소}. 타고 온 작은 배가 낡은 줄 하나에 매달려 계단 모서리를 두드린다.",
-      "instruction": "[장면] 콘크리트 계단의 마지막 두 칸이 물에 잠겨 검게 번들거린다. 계단 옆 고리에 걸린 낡은 줄이 물결을 받을 때마다 팽팽해졌다 느슨해지고, 타고 온 작은 배는 가라앉지 않은 채 비스듬히 돌며 뱃전으로 계단 모서리를 건드린다. 한쪽 노를 받치던 나무가 갈라져 있다. 고리 세 개 중 하나는 비었고 하나에는 썩은 매듭이 굳어 붙어 있다. 위로 오르는 콘크리트 길은 갈라진 턱 너머로 꺾여 보이지 않고, 반대쪽 해안을 따라 난 좁은 통로에는 오래된 발자국 위로 모래가 얇게 쌓였다. 사람 그림자는 없다. 줄이 고리에 쓸리는 짧은 소리로 끝낸다.\n[정본] 지금 이곳에는 정말로 아무도 없다. 매듭과 발자국은 오래전 흔적일 뿐 누군가의 감시나 신호가 아니다. 배는 노 받침이 부서졌을 뿐 떠 있고, 계류줄은 낡았다. 배를 묶어 두거나 끌어올리는 것도, 버려두고 떠나는 것도 플레이어의 선택이다. 이 배로 다시 바다에 나서는 일은 룰북 금지사항(해상 탈출)을 따른다 — 서술로 귀환을 약속하지도, '돌아갈 수 없다'는 결론을 미리 내리지도 않는다. 고요하게 시작한 장면에 감염자나 순찰대를 덧붙이지 않는다. 날짜는 서술하지 않는다.",
+      "instruction": "[장면] 콘크리트 계단의 마지막 두 칸이 물에 잠겨 검게 번들거린다. 계단 옆 고리에 걸린 낡은 줄이 물결을 받을 때마다 팽팽해졌다 느슨해지고, 타고 온 작은 배는 가라앉지 않은 채 비스듬히 돌며 뱃전으로 계단 모서리를 건드린다. 한쪽 노를 받치던 나무가 갈라져 있다. 고리 세 개 중 하나는 비었고 하나에는 썩은 매듭이 굳어 붙어 있다. 위로 오르는 콘크리트 길은 갈라진 턱 너머로 꺾여 보이지 않고, 반대쪽 해안을 따라 난 좁은 통로에는 오래된 발자국 위로 모래가 얇게 쌓였다. 계단 위쪽에서 장면의 그 인물이 고리에 걸린 줄을 하나씩 풀어 거두고 있다(생김새는 [장면 인물 상세]). 배가 계단에 닿는 소리에 손이 멈춘다. 줄이 고리에 쓸리는 짧은 소리로 끝낸다.\n[정본] 그 인물은 밤새 걸어 둔 줄과 걸린 것을 거두러 왔을 뿐이다 — 플레이어를 기다린 것이 아니다. 매듭은 그 인물의 것, 통로의 발자국은 오래전 흔적일 뿐 누군가의 감시나 신호가 아니다. 배는 노 받침이 부서졌을 뿐 떠 있고, 계류줄은 낡았다. 배를 묶어 두거나 끌어올리는 것도, 버려두고 떠나는 것도 플레이어의 선택이다. 이 배로 다시 바다에 나서는 일은 룰북 금지사항(해상 탈출)을 따른다 — 서술로 귀환을 약속하지도, '돌아갈 수 없다'는 결론을 미리 내리지도 않는다. 고요하게 시작한 장면에 감염자나 순찰대를 덧붙이지 않는다. 날짜는 서술하지 않는다.",
       "facts": {
         "time": "{때}",
         "location": "{장소}"
@@ -3148,6 +3148,17 @@
             "quantity": 1,
             "place": "청학동 선착장"
           }
+        ],
+        "npc_choices": [
+          {
+            "npc": "장우진"
+          },
+          {
+            "npc": "장현수"
+          },
+          {
+            "npc": "박하은"
+          }
         ]
       }
     },
@@ -3160,7 +3171,7 @@
         "장소": "동삼동 갯가"
       },
       "summary": "{때}. {장소}. 물가의 파란 상자 하나가 떠밀려 온 것치고는 너무 단정하게 묶여 있다.",
-      "instruction": "[장면] 자갈이 밟힐 때마다 작은 돌들이 부딪친다. 물가에는 미역과 비닐이 걸려 있고 그 너머 돌들은 말라 있다. 타고 온 배는 자갈 가장자리에서 멈췄다. 물이 들고 나는 경계에 파란 플라스틱 상자 하나가 놓여 있다. 뚜껑 위로 두 번 감긴 노끈의 매듭이 너무 단정하고, 가는 줄이 손잡이에서 자갈 사이로 이어져 손바닥만 한 돌 아래로 사라진다. 물이 올라올 때마다 상자는 뒤집히지 않고 제자리에서 들썩인다. 뒤쪽 해안로로 오르는 완만한 경사, 경계석의 오래된 흰 페인트 위로 마른 신발 밑창 자국이 겹쳐 있다 — 파도가 만든 흔적과 방향이 다르다. 가까이에서는 아무 목소리도 들리지 않는다.\n[정본] 상자는 떠내려온 것이 아니다. 근처에서 일하는 수거꾼이 전날 저녁 숨겨 둔 예비 장비이며, 그 사람은 지금 위쪽 해안로에 있고 장면에 없다. 상자 안에는 합성섬유 밧줄 한 타래, 해진 작업 장갑 한 켤레, 녹슨 낚싯바늘 몇 개뿐이다 — 의약품·무기·식량으로 바뀌지 않는다. 상자가 보인다고 내용물을 아는 것은 아니다. 주인의 이름·소속·사정은 서술하지 않는다. 발자국만으로 누구인지 알 수 없다. 플레이어를 도둑으로 규정하지 않는다. 날짜는 서술하지 않는다.",
+      "instruction": "[장면] 자갈이 밟힐 때마다 작은 돌들이 부딪친다. 물가에는 미역과 비닐이 걸려 있고 그 너머 돌들은 말라 있다. 타고 온 배는 자갈 가장자리에서 멈췄다. 물이 들고 나는 경계에 파란 플라스틱 상자 하나가 놓여 있다. 뚜껑 위로 두 번 감긴 노끈의 매듭이 너무 단정하고, 가는 줄이 손잡이에서 자갈 사이로 이어져 손바닥만 한 돌 아래로 사라진다. 물이 올라올 때마다 상자는 뒤집히지 않고 제자리에서 들썩인다. 뒤쪽 해안로로 오르는 완만한 경사, 경계석의 오래된 흰 페인트 위로 마른 신발 밑창 자국이 겹쳐 있다 — 파도가 만든 흔적과 방향이 다르다. 그 자국을 따라 내려온 장면의 그 인물이 상자 옆에 쪼그려 앉아 사람보다 먼저 물가의 줄과 돌부터 확인하고 있다(생김새는 [장면 인물 상세]).\n[정본] 상자는 떠내려온 것이 아니다. 근처에서 일하는 수거꾼이 전날 저녁 숨겨 둔 예비 장비이며, 장면의 그 인물이 상자의 주인이다. 상자 안에는 합성섬유 밧줄 한 타래, 해진 작업 장갑 한 켤레, 녹슨 낚싯바늘 몇 개뿐이다 — 의약품·무기·식량으로 바뀌지 않는다. 상자가 보인다고 내용물을 아는 것은 아니다. 주인의 이름·소속·사정은 서술하지 않는다. 발자국만으로 누구인지 알 수 없다. 플레이어를 도둑으로 규정하지 않는다. 날짜는 서술하지 않는다.",
       "facts": {
         "time": "{때}",
         "location": "{장소}"
@@ -3195,6 +3206,17 @@
               }
             ]
           }
+        ],
+        "npc_choices": [
+          {
+            "npc": "이선희"
+          },
+          {
+            "npc": "조한"
+          },
+          {
+            "npc": "황민석"
+          }
         ]
       }
     },
@@ -3207,7 +3229,7 @@
         "장소": "물양장"
       },
       "summary": "{때}. {장소}. 누군가 혼자 물속의 배를 밧줄로 당기고 있다.",
-      "instruction": "[장면] 물양장 콘크리트 바닥에 마른 소금 자국이 층층이 겹쳐 있다. 바닥에 박힌 쇠고리 사이로 낡은 밧줄들이 남았고, 그 아래 물에 작은 거룻배 하나가 비스듬히 걸렸다. 발밑이 흔들리지 않는다는 감각이 먼저 온다. 검은 잠수복 차림의 중년 여자가 쇠고리 쪽으로 뒷걸음질 치며 두 손으로 밧줄을 당긴다 — 허리춤에 묵직한 납 벨트. 여자가 허리를 펴면 배가 반 뼘쯤 움직이다 멈추고, 그녀는 힘을 빼지 않은 채 발 위치부터 다시 잡는다. 플레이어 쪽에서 자갈이 구르는 소리가 나자 움직임이 멎는다. 줄은 놓지 않는다. 뒤편 도로를 먼저 훑고서야 낯선 사람 쪽으로 고개를 돌린다. 낮게 쇳소리 섞인 사투리로 한마디 — 줄이 움직이는 쪽으로 오지 말라는 경고. 밧줄은 여전히 팽팽하다.\n[정본] 장면의 그 인물이 이 여자다. 그녀는 떠밀려 온 거룻배(타고 온 배와 별개)를 혼자 끌어올려 쓸 만한지 보려 한다. '오지 말라'는 줄과 미끄러운 가장자리를 가리키는 말이지 출입 금지가 아니다. 도움을 쉽게 청하지 않고, 낯선 사람을 줄의 위험한 쪽에 세우지 않는다. 그녀의 이름·소속·과거는 서술하지 않는다. 그녀는 길 안내자가 아니다 — 자기 일을 하고 있다. 날짜는 서술하지 않는다.",
+      "instruction": "[장면] 물양장 콘크리트 바닥에 마른 소금 자국이 층층이 겹쳐 있다. 바닥에 박힌 쇠고리 사이로 낡은 밧줄들이 남았고, 그 아래 물에 작은 거룻배 하나가 비스듬히 걸렸다. 발밑이 흔들리지 않는다는 감각이 먼저 온다. 장면의 그 인물이 쇠고리 쪽으로 뒷걸음질 치며 두 손으로 밧줄을 당긴다(생김새·차림은 [장면 인물 상세]를 따른다). 허리를 펴면 배가 반 뼘쯤 움직이다 멈추고, 힘을 빼지 않은 채 발 위치부터 다시 잡는다. 플레이어 쪽에서 자갈이 구르는 소리가 나자 움직임이 멎는다. 줄은 놓지 않는다. 뒤편 도로를 먼저 훑고서야 낯선 사람 쪽으로 고개를 돌린다. 그 인물의 말투로 짧게 한마디 — 줄이 움직이는 쪽으로 오지 말라는 경고. 밧줄은 여전히 팽팽하다.\n[정본] 그 인물은 떠밀려 온 거룻배(타고 온 배와 별개)를 혼자 끌어올려 쓸 만한지 보려 한다. '오지 말라'는 줄과 미끄러운 가장자리를 가리키는 말이지 출입 금지가 아니다. 낯선 사람을 줄의 위험한 쪽에 세우지 않는다. 그 인물의 이름·소속·과거는 서술하지 않는다. 길 안내자가 아니다 — 자기 일을 하고 있다. 날짜는 서술하지 않는다.",
       "facts": {
         "time": "{때}",
         "location": "{장소}"
@@ -3228,6 +3250,17 @@
             "quantity": 1,
             "place": "물양장"
           }
+        ],
+        "npc_choices": [
+          {
+            "npc": "진복례"
+          },
+          {
+            "npc": "장철웅"
+          },
+          {
+            "npc": "황민석"
+          }
         ]
       }
     },
@@ -3240,7 +3273,7 @@
         "장소": "영선동 방파제"
       },
       "summary": "{때}. {장소}. 방파제 끝에서 누군가 긴 쇠붙이를 바닷물에 헹구고 있다.",
-      "instruction": "[장면] 방파제 안쪽에 배를 붙이자 바깥바다의 파도가 한 겹 둔해지지만 콘크리트 틈으로 드는 물소리는 여전히 크다. 발밑에 짧은 균열, 그 바깥으로 테트라포드들이 저마다 다른 방향으로 맞물려 있다. 방파제 끝, 낮은 턱 아래 물가에 용접복 차림의 젊은 여자가 웅크려 긴 작살 끝을 바닷물에 담그고 있다. 검붉은 실 같은 것이 물에 풀려 흩어진다. 배가 콘크리트에 닿는 소리에 여자가 소리 없이 몸을 돌리고, 작살 끝이 먼저 이쪽을 향한다. 외치지 않는다. 다른 손을 펴 보였다가 손가락 하나를 입술에 댄다. 그 손짓이 경고인지 요청인지는 아직 알 수 없다. 파도 소리로 끝낸다.\n[정본] 장면의 그 인물이 이 여자다. 그녀는 근처 수색 중 방파제 뿌리 쪽에서 감염자 하나를 처리하고 방금 끝으로 나와 피를 씻는 중이다 — 위협은 이미 끝났고, 지금 방파제에 감염자는 없다. 소리 나는 쪽은 확인되기 전까지 감염자로 대하므로 큰 소리·급한 움직임에는 작살로 반응하지만, 조용한 사람을 먼저 공격하지는 않는다. 말은 한두 단어뿐이다. 그녀의 이름·소속은 서술하지 않는다. 날짜는 서술하지 않는다.",
+      "instruction": "[장면] 방파제 안쪽에 배를 붙이자 바깥바다의 파도가 한 겹 둔해지지만 콘크리트 틈으로 드는 물소리는 여전히 크다. 발밑에 짧은 균열, 그 바깥으로 테트라포드들이 저마다 다른 방향으로 맞물려 있다. 방파제 끝, 낮은 턱 아래 물가에 장면의 그 인물이 웅크려 긴 무기 끝을 바닷물에 담그고 있다(생김새·무기는 [장면 인물 상세]를 따른다). 검붉은 실 같은 것이 물에 풀려 흩어진다. 배가 콘크리트에 닿는 소리에 그 인물이 소리 없이 몸을 돌리고, 무기 끝이 먼저 이쪽을 향한다. 외치지 않는다. 다른 손을 펴 보였다가 손가락 하나를 입술에 댄다. 그 손짓이 경고인지 요청인지는 아직 알 수 없다. 파도 소리로 끝낸다.\n[정본] 그 인물은 근처 수색 중 방파제 뿌리 쪽에서 감염자 하나를 처리하고 방금 끝으로 나와 피를 씻는 중이다 — 위협은 이미 끝났고, 지금 방파제에 감염자는 없다. 소리 나는 쪽은 확인되기 전까지 감염자로 대하므로 큰 소리·급한 움직임에는 무기로 반응하지만, 조용한 사람을 먼저 공격하지는 않는다. 말은 한두 단어뿐이다. 그 인물의 이름·소속은 서술하지 않는다. 날짜는 서술하지 않는다.",
       "facts": {
         "time": "{때}",
         "location": "{장소}"
@@ -3256,6 +3289,17 @@
             "quantity": 1,
             "place": "영선동 방파제"
           }
+        ],
+        "npc_choices": [
+          {
+            "npc": "류가은"
+          },
+          {
+            "npc": "이준혁"
+          },
+          {
+            "npc": "최수연"
+          }
         ]
       }
     },
@@ -3267,7 +3311,7 @@
         "장소": "감지해변"
       },
       "summary": "밤. {장소}. 무너진 매점 틈으로 새던 작은 불빛이 꺼진다.",
-      "instruction": "[장면] 모래에 닿은 뒤에도 발밑이 한동안 흔들리는 것 같다. 파도가 빠지며 배를 한 차례 뒤로 잡아끌자 선체 아래로 젖은 모래가 쓸린다. 먼 물체들은 건물인지 나무인지 구분되지 않는다. 파도는 일정한데 그 사이 발소리만 지나치게 또렷하다. 해변 안쪽에 낮게 주저앉은 매점 지붕, 절반이 꺾여 모래 쪽으로 향한 간판. 그 밑 어두운 틈에서 짧은 노란 빛이 새어 나오다가 한 번 낮아지고, 아예 사라진다. 그 뒤로 다른 움직임은 이어지지 않는다. 파라솔 기둥이 꽂혔던 둥근 구멍들, 그중 하나에 고인 물. 왼편에서 바람을 받은 판금 조각이 낮게 떨고, 오른편으로 어두운 모래 둔덕이 해변 끝까지 이어진다. 아무도 말을 걸지 않는다.\n[정본] 장면의 그 인물은 지금 무너진 매점 안 어둠 속에 있어 보이지 않는다 — 모습·이름·목소리를 서술하지 않고, 빛과 그 소멸만 보여 준다. 그녀는 금속 통 안에 낮게 켠 양초로 짐을 정리하다 배 긁히는 소리를 듣고 불을 껐다. 플레이어의 정체는 모른다. 매점 안에 조직·기지·구조대는 없다. 판금의 떨림은 바람 때문이다 — 감염자나 다른 접근을 덧붙이지 않는다. 날짜는 서술하지 않는다.",
+      "instruction": "[장면] 모래에 닿은 뒤에도 발밑이 한동안 흔들리는 것 같다. 파도가 빠지며 배를 한 차례 뒤로 잡아끌자 선체 아래로 젖은 모래가 쓸린다. 먼 물체들은 건물인지 나무인지 구분되지 않는다. 파도는 일정한데 그 사이 발소리만 지나치게 또렷하다. 해변 안쪽에 낮게 주저앉은 매점 지붕, 절반이 꺾여 모래 쪽으로 향한 간판. 그 밑 어두운 틈에서 짧은 노란 빛이 새어 나오다가 한 번 낮아지고, 아예 사라진다. 그 뒤로 다른 움직임은 이어지지 않는다. 파라솔 기둥이 꽂혔던 둥근 구멍들, 그중 하나에 고인 물. 왼편에서 바람을 받은 판금 조각이 낮게 떨고, 오른편으로 어두운 모래 둔덕이 해변 끝까지 이어진다. 아무도 말을 걸지 않는다.\n[정본] 장면의 그 인물은 지금 무너진 매점 안 어둠 속에 있어 보이지 않는다 — 모습·이름·목소리를 서술하지 않고, 빛과 그 소멸만 보여 준다. 그 인물은 금속 통 안에 낮게 켠 양초로 짐을 정리하다 배 긁히는 소리를 듣고 불을 껐다. 플레이어의 정체는 모른다. 매점 안에 조직·기지·구조대는 없다. 판금의 떨림은 바람 때문이다 — 감염자나 다른 접근을 덧붙이지 않는다. 날짜는 서술하지 않는다.",
       "facts": {
         "time": "밤",
         "location": "{장소}"
@@ -3282,16 +3326,56 @@
             "key": "작은 배",
             "quantity": 1,
             "place": "감지해변"
+          }
+        ],
+        "npc_choices": [
+          {
+            "npc": "백인하",
+            "hidden": true,
+            "items": [
+              {
+                "key": "양초",
+                "quantity": 1,
+                "owner": "백인하"
+              },
+              {
+                "key": "금속 통",
+                "quantity": 1,
+                "owner": "백인하"
+              }
+            ]
           },
           {
-            "key": "양초",
-            "quantity": 1,
-            "owner": "백인하"
+            "npc": "신창호",
+            "hidden": true,
+            "items": [
+              {
+                "key": "양초",
+                "quantity": 1,
+                "owner": "신창호"
+              },
+              {
+                "key": "금속 통",
+                "quantity": 1,
+                "owner": "신창호"
+              }
+            ]
           },
           {
-            "key": "금속 통",
-            "quantity": 1,
-            "owner": "백인하"
+            "npc": "박미래",
+            "hidden": true,
+            "items": [
+              {
+                "key": "양초",
+                "quantity": 1,
+                "owner": "박미래"
+              },
+              {
+                "key": "금속 통",
+                "quantity": 1,
+                "owner": "박미래"
+              }
+            ]
           }
         ]
       }
@@ -34802,448 +34886,6 @@
         "stability": "STICKY"
       }
     },
-    "yd_start_stash": {
-      "version": 1,
-      "name": "묶어 둔 보관함",
-      "spawn_when": {
-        "all": [
-          {
-            "cmp": "EQ",
-            "ref": {
-              "ref": "SCENE_PLACE"
-            },
-            "value": "동삼동 갯가"
-          },
-          {
-            "not": {
-              "time": "AT_OR_AFTER_DATETIME",
-              "date": "2016-10-02",
-              "hhmm": "07:11"
-            }
-          }
-        ]
-      },
-      "phases": {
-        "away": {
-          "eligible_when": {
-            "const": true
-          },
-          "priority": 1,
-          "retain_when": {
-            "not": {
-              "all": [
-                {
-                  "cmp": "EQ",
-                  "ref": {
-                    "ref": "EVENT_PHASE",
-                    "instance": "$self"
-                  },
-                  "value": "away"
-                },
-                {
-                  "any": [
-                    {
-                      "time": "ELAPSED_SINCE_PHASE_GTE",
-                      "minutes": 45
-                    },
-                    {
-                      "not": {
-                        "cmp": "EQ",
-                        "ref": {
-                          "ref": "ACTOR_PLACE",
-                          "actor": "yd.npc.lee_seonhui"
-                        },
-                        "value": "동삼동 해안로"
-                      }
-                    }
-                  ]
-                }
-              ]
-            }
-          },
-          "guide": "이선희가 동삼동 해안로 위쪽에서 수거 작업 중이다. 갯가의 묶인 상자는 그녀가 전날 저녁 숨겨 둔 예비 장비다."
-        },
-        "coming": {
-          "eligible_when": {
-            "any": [
-              {
-                "cmp": "EQ",
-                "ref": {
-                  "ref": "EVENT_PHASE",
-                  "instance": "$self"
-                },
-                "value": "coming"
-              },
-              {
-                "all": [
-                  {
-                    "cmp": "EQ",
-                    "ref": {
-                      "ref": "EVENT_PHASE",
-                      "instance": "$self"
-                    },
-                    "value": "away"
-                  },
-                  {
-                    "any": [
-                      {
-                        "time": "ELAPSED_SINCE_PHASE_GTE",
-                        "minutes": 45
-                      },
-                      {
-                        "not": {
-                          "cmp": "EQ",
-                          "ref": {
-                            "ref": "ACTOR_PLACE",
-                            "actor": "yd.npc.lee_seonhui"
-                          },
-                          "value": "동삼동 해안로"
-                        }
-                      }
-                    ]
-                  }
-                ]
-              }
-            ]
-          },
-          "priority": 2,
-          "retain_when": {
-            "not": {
-              "all": [
-                {
-                  "cmp": "EQ",
-                  "ref": {
-                    "ref": "EVENT_PHASE",
-                    "instance": "$self"
-                  },
-                  "value": "coming"
-                },
-                {
-                  "cmp": "EQ",
-                  "ref": {
-                    "ref": "ACTOR_PLACE",
-                    "actor": "yd.npc.lee_seonhui"
-                  },
-                  "value": "동삼동 갯가"
-                }
-              ]
-            }
-          },
-          "guide": "이선희가 상자를 확인하러 갯가로 내려오는 중이다."
-        },
-        "checking": {
-          "eligible_when": {
-            "any": [
-              {
-                "cmp": "EQ",
-                "ref": {
-                  "ref": "EVENT_PHASE",
-                  "instance": "$self"
-                },
-                "value": "checking"
-              },
-              {
-                "all": [
-                  {
-                    "cmp": "EQ",
-                    "ref": {
-                      "ref": "EVENT_PHASE",
-                      "instance": "$self"
-                    },
-                    "value": "coming"
-                  },
-                  {
-                    "cmp": "EQ",
-                    "ref": {
-                      "ref": "ACTOR_PLACE",
-                      "actor": "yd.npc.lee_seonhui"
-                    },
-                    "value": "동삼동 갯가"
-                  }
-                ]
-              }
-            ]
-          },
-          "priority": 3,
-          "retain_when": {
-            "not": {
-              "all": [
-                {
-                  "cmp": "EQ",
-                  "ref": {
-                    "ref": "EVENT_PHASE",
-                    "instance": "$self"
-                  },
-                  "value": "checking"
-                },
-                {
-                  "any": [
-                    {
-                      "time": "ELAPSED_SINCE_PHASE_GTE",
-                      "minutes": 15
-                    },
-                    {
-                      "not": {
-                        "cmp": "EQ",
-                        "ref": {
-                          "ref": "ACTOR_PLACE",
-                          "actor": "yd.npc.lee_seonhui"
-                        },
-                        "value": "동삼동 갯가"
-                      }
-                    }
-                  ]
-                }
-              ]
-            }
-          },
-          "guide": "이선희가 갯가의 보관 상자를 확인한다. 상자가 그대로면 매듭을 다시 조이고 그대로 둔다. 비었거나 없으면 누군가 가져갔다고 보지만 누구인지는 눈앞의 근거로만 판단한다. 손에 무엇이 들렸는지부터 본다."
-        },
-        "leaving": {
-          "eligible_when": {
-            "any": [
-              {
-                "cmp": "EQ",
-                "ref": {
-                  "ref": "EVENT_PHASE",
-                  "instance": "$self"
-                },
-                "value": "leaving"
-              },
-              {
-                "all": [
-                  {
-                    "cmp": "EQ",
-                    "ref": {
-                      "ref": "EVENT_PHASE",
-                      "instance": "$self"
-                    },
-                    "value": "checking"
-                  },
-                  {
-                    "any": [
-                      {
-                        "time": "ELAPSED_SINCE_PHASE_GTE",
-                        "minutes": 15
-                      },
-                      {
-                        "not": {
-                          "cmp": "EQ",
-                          "ref": {
-                            "ref": "ACTOR_PLACE",
-                            "actor": "yd.npc.lee_seonhui"
-                          },
-                          "value": "동삼동 갯가"
-                        }
-                      }
-                    ]
-                  }
-                ]
-              }
-            ]
-          },
-          "priority": 4,
-          "retain_when": {
-            "not": {
-              "all": [
-                {
-                  "cmp": "EQ",
-                  "ref": {
-                    "ref": "EVENT_PHASE",
-                    "instance": "$self"
-                  },
-                  "value": "leaving"
-                },
-                {
-                  "all": [
-                    {
-                      "cmp": "EQ",
-                      "ref": {
-                        "ref": "ACTOR_PLACE",
-                        "actor": "yd.npc.lee_seonhui"
-                      },
-                      "value": "중리 해변"
-                    },
-                    {
-                      "not": {
-                        "cmp": "EQ",
-                        "ref": {
-                          "ref": "ACTOR_PLACE",
-                          "actor": "yd.npc.lee_seonhui"
-                        },
-                        "value_ref": {
-                          "ref": "SCENE_PLACE"
-                        }
-                      }
-                    }
-                  ]
-                }
-              ]
-            }
-          },
-          "guide": "이선희가 중리 해변 쪽으로 돌아간다."
-        },
-        "gone": {
-          "eligible_when": {
-            "any": [
-              {
-                "cmp": "EQ",
-                "ref": {
-                  "ref": "EVENT_PHASE",
-                  "instance": "$self"
-                },
-                "value": "gone"
-              },
-              {
-                "all": [
-                  {
-                    "cmp": "EQ",
-                    "ref": {
-                      "ref": "EVENT_PHASE",
-                      "instance": "$self"
-                    },
-                    "value": "leaving"
-                  },
-                  {
-                    "all": [
-                      {
-                        "cmp": "EQ",
-                        "ref": {
-                          "ref": "ACTOR_PLACE",
-                          "actor": "yd.npc.lee_seonhui"
-                        },
-                        "value": "중리 해변"
-                      },
-                      {
-                        "not": {
-                          "cmp": "EQ",
-                          "ref": {
-                            "ref": "ACTOR_PLACE",
-                            "actor": "yd.npc.lee_seonhui"
-                          },
-                          "value_ref": {
-                            "ref": "SCENE_PLACE"
-                          }
-                        }
-                      }
-                    ]
-                  }
-                ]
-              }
-            ]
-          },
-          "priority": 5,
-          "terminal": true
-        }
-      },
-      "transition_cases": [
-        {
-          "case_id": "spawn",
-          "from": null,
-          "to": "away",
-          "steps": [
-            {
-              "step_id": "place",
-              "type": "SET_ACTOR_PLACEMENT",
-              "actor": "yd.npc.lee_seonhui",
-              "place": "동삼동 해안로"
-            }
-          ]
-        },
-        {
-          "case_id": "away.to.coming",
-          "from": "away",
-          "to": "coming",
-          "steps": [
-            {
-              "step_id": "down",
-              "type": "START_MOVEMENT",
-              "actor": "yd.npc.lee_seonhui",
-              "destination": "동삼동 갯가",
-              "mode": "walk"
-            },
-            {
-              "step_id": "footsteps",
-              "type": "EMIT_SIGNAL",
-              "signal_id": "footsteps",
-              "cue": "해안로 쪽 경사에서 자갈을 밟는 발소리가 내려온다. 걸음이 가볍고 고르다",
-              "interrupt_policy": "IF_OBSERVABLE",
-              "observable_when": {
-                "cmp": "EQ",
-                "ref": {
-                  "ref": "SCENE_PLACE"
-                },
-                "value": "동삼동 갯가"
-              }
-            }
-          ]
-        },
-        {
-          "case_id": "coming.to.checking",
-          "from": "coming",
-          "to": "checking",
-          "steps": [
-            {
-              "step_id": "check",
-              "type": "EMIT_SIGNAL",
-              "signal_id": "check",
-              "cue": "내려온 여자가 사람보다 먼저 물가의 줄과 돌부터 확인한다",
-              "interrupt_policy": "IF_OBSERVABLE",
-              "observable_when": {
-                "cmp": "EQ",
-                "ref": {
-                  "ref": "SCENE_PLACE"
-                },
-                "value": "동삼동 갯가"
-              }
-            }
-          ]
-        },
-        {
-          "case_id": "checking.to.leaving",
-          "from": "checking",
-          "to": "leaving",
-          "steps": [
-            {
-              "step_id": "leave",
-              "type": "START_MOVEMENT",
-              "actor": "yd.npc.lee_seonhui",
-              "destination": "중리 해변",
-              "mode": "walk"
-            }
-          ]
-        },
-        {
-          "case_id": "leaving.to.gone",
-          "from": "leaving",
-          "to": "gone",
-          "steps": [
-            {
-              "step_id": "home",
-              "type": "CLEAR_ACTOR_PLACEMENT",
-              "actor": "yd.npc.lee_seonhui"
-            }
-          ]
-        }
-      ],
-      "repeat_policy": "ONCE_PER_SESSION",
-      "phase_selector": {
-        "mode": "PRIORITY",
-        "stability": "STICKY"
-      },
-      "resolve_when": {
-        "cmp": "EQ",
-        "ref": {
-          "ref": "EVENT_PHASE",
-          "instance": "$self"
-        },
-        "value": "gone"
-      },
-      "relevance_places": [
-        "동삼동 갯가",
-        "동삼동 해안로"
-      ]
-    },
     "yd_start_haul": {
       "version": 1,
       "name": "떠밀려 온 거룻배",
@@ -35253,6 +34895,14 @@
             "cmp": "EQ",
             "ref": {
               "ref": "SCENE_PLACE"
+            },
+            "value": "물양장"
+          },
+          {
+            "cmp": "EQ",
+            "ref": {
+              "ref": "ACTOR_PLACE",
+              "actor": "yd.npc.jin_bokrye"
             },
             "value": "물양장"
           },
@@ -35462,10 +35112,10 @@
           "to": "leaving",
           "steps": [
             {
-              "step_id": "tie",
+              "step_id": "go",
               "type": "EMIT_SIGNAL",
-              "signal_id": "tie",
-              "cue": "여자가 줄을 쇠고리에 두 번 감아 묶고, 손등을 감싸 쥔 채 해변 쪽으로 걸어간다",
+              "signal_id": "go",
+              "cue": "그 사람이 줄을 쇠고리에 두 번 감아 묶고 걸어간다",
               "interrupt_policy": "IF_OBSERVABLE",
               "observable_when": {
                 "cmp": "EQ",
@@ -35514,15 +35164,579 @@
         "물양장"
       ]
     },
-    "yd_start_rinse": {
+    "yd_start_person_jang_cheolung": {
       "version": 1,
-      "name": "방파제 끝의 작살",
+      "name": "떠밀려 온 거룻배",
       "spawn_when": {
         "all": [
           {
             "cmp": "EQ",
             "ref": {
               "ref": "SCENE_PLACE"
+            },
+            "value": "물양장"
+          },
+          {
+            "cmp": "EQ",
+            "ref": {
+              "ref": "ACTOR_PLACE",
+              "actor": "yd.npc.jang_cheolung"
+            },
+            "value": "물양장"
+          },
+          {
+            "not": {
+              "time": "AT_OR_AFTER_DATETIME",
+              "date": "2016-10-02",
+              "hhmm": "10:21"
+            }
+          }
+        ]
+      },
+      "phases": {
+        "hauling": {
+          "eligible_when": {
+            "const": true
+          },
+          "priority": 1,
+          "retain_when": {
+            "not": {
+              "all": [
+                {
+                  "cmp": "EQ",
+                  "ref": {
+                    "ref": "EVENT_PHASE",
+                    "instance": "$self"
+                  },
+                  "value": "hauling"
+                },
+                {
+                  "any": [
+                    {
+                      "time": "ELAPSED_SINCE_PHASE_GTE",
+                      "minutes": 40
+                    },
+                    {
+                      "not": {
+                        "cmp": "EQ",
+                        "ref": {
+                          "ref": "ACTOR_PLACE",
+                          "actor": "yd.npc.jang_cheolung"
+                        },
+                        "value": "물양장"
+                      }
+                    }
+                  ]
+                }
+              ]
+            }
+          },
+          "guide": "장철웅이 해안 순찰 중 물양장에 떠밀려 온 거룻배를 교역소 몫으로 끌어올린다. 낯선 사람은 무장부터 확인하고, 말 대신 턱짓으로 거리를 정한다. 줄의 위험한 쪽에 남을 세우지는 않는다."
+        },
+        "leaving": {
+          "eligible_when": {
+            "any": [
+              {
+                "cmp": "EQ",
+                "ref": {
+                  "ref": "EVENT_PHASE",
+                  "instance": "$self"
+                },
+                "value": "leaving"
+              },
+              {
+                "all": [
+                  {
+                    "cmp": "EQ",
+                    "ref": {
+                      "ref": "EVENT_PHASE",
+                      "instance": "$self"
+                    },
+                    "value": "hauling"
+                  },
+                  {
+                    "any": [
+                      {
+                        "time": "ELAPSED_SINCE_PHASE_GTE",
+                        "minutes": 40
+                      },
+                      {
+                        "not": {
+                          "cmp": "EQ",
+                          "ref": {
+                            "ref": "ACTOR_PLACE",
+                            "actor": "yd.npc.jang_cheolung"
+                          },
+                          "value": "물양장"
+                        }
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
+          },
+          "priority": 2,
+          "retain_when": {
+            "not": {
+              "all": [
+                {
+                  "cmp": "EQ",
+                  "ref": {
+                    "ref": "EVENT_PHASE",
+                    "instance": "$self"
+                  },
+                  "value": "leaving"
+                },
+                {
+                  "all": [
+                    {
+                      "cmp": "EQ",
+                      "ref": {
+                        "ref": "ACTOR_PLACE",
+                        "actor": "yd.npc.jang_cheolung"
+                      },
+                      "value": "바리케이드 미로"
+                    },
+                    {
+                      "not": {
+                        "cmp": "EQ",
+                        "ref": {
+                          "ref": "ACTOR_PLACE",
+                          "actor": "yd.npc.jang_cheolung"
+                        },
+                        "value_ref": {
+                          "ref": "SCENE_PLACE"
+                        }
+                      }
+                    }
+                  ]
+                }
+              ]
+            }
+          },
+          "guide": "장철웅이 바리케이드 미로로 돌아간다. 거룻배는 물양장 쇠고리에 묶여 있다."
+        },
+        "gone": {
+          "eligible_when": {
+            "any": [
+              {
+                "cmp": "EQ",
+                "ref": {
+                  "ref": "EVENT_PHASE",
+                  "instance": "$self"
+                },
+                "value": "gone"
+              },
+              {
+                "all": [
+                  {
+                    "cmp": "EQ",
+                    "ref": {
+                      "ref": "EVENT_PHASE",
+                      "instance": "$self"
+                    },
+                    "value": "leaving"
+                  },
+                  {
+                    "all": [
+                      {
+                        "cmp": "EQ",
+                        "ref": {
+                          "ref": "ACTOR_PLACE",
+                          "actor": "yd.npc.jang_cheolung"
+                        },
+                        "value": "바리케이드 미로"
+                      },
+                      {
+                        "not": {
+                          "cmp": "EQ",
+                          "ref": {
+                            "ref": "ACTOR_PLACE",
+                            "actor": "yd.npc.jang_cheolung"
+                          },
+                          "value_ref": {
+                            "ref": "SCENE_PLACE"
+                          }
+                        }
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
+          },
+          "priority": 3,
+          "terminal": true
+        }
+      },
+      "transition_cases": [
+        {
+          "case_id": "spawn",
+          "from": null,
+          "to": "hauling",
+          "steps": [
+            {
+              "step_id": "place",
+              "type": "SET_ACTOR_PLACEMENT",
+              "actor": "yd.npc.jang_cheolung",
+              "place": "물양장"
+            }
+          ]
+        },
+        {
+          "case_id": "hauling.to.leaving",
+          "from": "hauling",
+          "to": "leaving",
+          "steps": [
+            {
+              "step_id": "go",
+              "type": "EMIT_SIGNAL",
+              "signal_id": "go",
+              "cue": "그 사람이 줄을 쇠고리에 두 번 감아 묶고 걸어간다",
+              "interrupt_policy": "IF_OBSERVABLE",
+              "observable_when": {
+                "cmp": "EQ",
+                "ref": {
+                  "ref": "SCENE_PLACE"
+                },
+                "value": "물양장"
+              }
+            },
+            {
+              "step_id": "leave",
+              "type": "START_MOVEMENT",
+              "actor": "yd.npc.jang_cheolung",
+              "destination": "바리케이드 미로",
+              "mode": "walk"
+            }
+          ]
+        },
+        {
+          "case_id": "leaving.to.gone",
+          "from": "leaving",
+          "to": "gone",
+          "steps": [
+            {
+              "step_id": "home",
+              "type": "CLEAR_ACTOR_PLACEMENT",
+              "actor": "yd.npc.jang_cheolung"
+            }
+          ]
+        }
+      ],
+      "repeat_policy": "ONCE_PER_SESSION",
+      "phase_selector": {
+        "mode": "PRIORITY",
+        "stability": "STICKY"
+      },
+      "resolve_when": {
+        "cmp": "EQ",
+        "ref": {
+          "ref": "EVENT_PHASE",
+          "instance": "$self"
+        },
+        "value": "gone"
+      },
+      "relevance_places": [
+        "물양장"
+      ]
+    },
+    "yd_start_person_hwang_minseok": {
+      "version": 1,
+      "name": "떠밀려 온 거룻배",
+      "spawn_when": {
+        "all": [
+          {
+            "cmp": "EQ",
+            "ref": {
+              "ref": "SCENE_PLACE"
+            },
+            "value": "물양장"
+          },
+          {
+            "cmp": "EQ",
+            "ref": {
+              "ref": "ACTOR_PLACE",
+              "actor": "yd.npc.hwang_minseok"
+            },
+            "value": "물양장"
+          },
+          {
+            "not": {
+              "time": "AT_OR_AFTER_DATETIME",
+              "date": "2016-10-02",
+              "hhmm": "10:21"
+            }
+          }
+        ]
+      },
+      "phases": {
+        "hauling": {
+          "eligible_when": {
+            "const": true
+          },
+          "priority": 1,
+          "retain_when": {
+            "not": {
+              "all": [
+                {
+                  "cmp": "EQ",
+                  "ref": {
+                    "ref": "EVENT_PHASE",
+                    "instance": "$self"
+                  },
+                  "value": "hauling"
+                },
+                {
+                  "any": [
+                    {
+                      "time": "ELAPSED_SINCE_PHASE_GTE",
+                      "minutes": 40
+                    },
+                    {
+                      "not": {
+                        "cmp": "EQ",
+                        "ref": {
+                          "ref": "ACTOR_PLACE",
+                          "actor": "yd.npc.hwang_minseok"
+                        },
+                        "value": "물양장"
+                      }
+                    }
+                  ]
+                }
+              ]
+            }
+          },
+          "guide": "황민석이 표류물을 줍다 떠밀려 온 거룻배를 혼자 끌어올리려 한다. 쉬지 않고 주위를 보며 퇴로를 확인한다. 낯선 사람에게는 굽실대며 말을 붙이고, 배의 몫 이야기가 나오면 말이 빨라진다."
+        },
+        "leaving": {
+          "eligible_when": {
+            "any": [
+              {
+                "cmp": "EQ",
+                "ref": {
+                  "ref": "EVENT_PHASE",
+                  "instance": "$self"
+                },
+                "value": "leaving"
+              },
+              {
+                "all": [
+                  {
+                    "cmp": "EQ",
+                    "ref": {
+                      "ref": "EVENT_PHASE",
+                      "instance": "$self"
+                    },
+                    "value": "hauling"
+                  },
+                  {
+                    "any": [
+                      {
+                        "time": "ELAPSED_SINCE_PHASE_GTE",
+                        "minutes": 40
+                      },
+                      {
+                        "not": {
+                          "cmp": "EQ",
+                          "ref": {
+                            "ref": "ACTOR_PLACE",
+                            "actor": "yd.npc.hwang_minseok"
+                          },
+                          "value": "물양장"
+                        }
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
+          },
+          "priority": 2,
+          "retain_when": {
+            "not": {
+              "all": [
+                {
+                  "cmp": "EQ",
+                  "ref": {
+                    "ref": "EVENT_PHASE",
+                    "instance": "$self"
+                  },
+                  "value": "leaving"
+                },
+                {
+                  "all": [
+                    {
+                      "cmp": "EQ",
+                      "ref": {
+                        "ref": "ACTOR_PLACE",
+                        "actor": "yd.npc.hwang_minseok"
+                      },
+                      "value": "중리 해변"
+                    },
+                    {
+                      "not": {
+                        "cmp": "EQ",
+                        "ref": {
+                          "ref": "ACTOR_PLACE",
+                          "actor": "yd.npc.hwang_minseok"
+                        },
+                        "value_ref": {
+                          "ref": "SCENE_PLACE"
+                        }
+                      }
+                    }
+                  ]
+                }
+              ]
+            }
+          },
+          "guide": "황민석이 중리 해변으로 돌아간다. 거룻배는 물양장 쇠고리에 묶여 있다."
+        },
+        "gone": {
+          "eligible_when": {
+            "any": [
+              {
+                "cmp": "EQ",
+                "ref": {
+                  "ref": "EVENT_PHASE",
+                  "instance": "$self"
+                },
+                "value": "gone"
+              },
+              {
+                "all": [
+                  {
+                    "cmp": "EQ",
+                    "ref": {
+                      "ref": "EVENT_PHASE",
+                      "instance": "$self"
+                    },
+                    "value": "leaving"
+                  },
+                  {
+                    "all": [
+                      {
+                        "cmp": "EQ",
+                        "ref": {
+                          "ref": "ACTOR_PLACE",
+                          "actor": "yd.npc.hwang_minseok"
+                        },
+                        "value": "중리 해변"
+                      },
+                      {
+                        "not": {
+                          "cmp": "EQ",
+                          "ref": {
+                            "ref": "ACTOR_PLACE",
+                            "actor": "yd.npc.hwang_minseok"
+                          },
+                          "value_ref": {
+                            "ref": "SCENE_PLACE"
+                          }
+                        }
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
+          },
+          "priority": 3,
+          "terminal": true
+        }
+      },
+      "transition_cases": [
+        {
+          "case_id": "spawn",
+          "from": null,
+          "to": "hauling",
+          "steps": [
+            {
+              "step_id": "place",
+              "type": "SET_ACTOR_PLACEMENT",
+              "actor": "yd.npc.hwang_minseok",
+              "place": "물양장"
+            }
+          ]
+        },
+        {
+          "case_id": "hauling.to.leaving",
+          "from": "hauling",
+          "to": "leaving",
+          "steps": [
+            {
+              "step_id": "go",
+              "type": "EMIT_SIGNAL",
+              "signal_id": "go",
+              "cue": "그 사람이 줄을 쇠고리에 두 번 감아 묶고 걸어간다",
+              "interrupt_policy": "IF_OBSERVABLE",
+              "observable_when": {
+                "cmp": "EQ",
+                "ref": {
+                  "ref": "SCENE_PLACE"
+                },
+                "value": "물양장"
+              }
+            },
+            {
+              "step_id": "leave",
+              "type": "START_MOVEMENT",
+              "actor": "yd.npc.hwang_minseok",
+              "destination": "중리 해변",
+              "mode": "walk"
+            }
+          ]
+        },
+        {
+          "case_id": "leaving.to.gone",
+          "from": "leaving",
+          "to": "gone",
+          "steps": [
+            {
+              "step_id": "home",
+              "type": "CLEAR_ACTOR_PLACEMENT",
+              "actor": "yd.npc.hwang_minseok"
+            }
+          ]
+        }
+      ],
+      "repeat_policy": "ONCE_PER_SESSION",
+      "phase_selector": {
+        "mode": "PRIORITY",
+        "stability": "STICKY"
+      },
+      "resolve_when": {
+        "cmp": "EQ",
+        "ref": {
+          "ref": "EVENT_PHASE",
+          "instance": "$self"
+        },
+        "value": "gone"
+      },
+      "relevance_places": [
+        "물양장"
+      ]
+    },
+    "yd_start_rinse": {
+      "version": 1,
+      "name": "방파제 끝의 무기",
+      "spawn_when": {
+        "all": [
+          {
+            "cmp": "EQ",
+            "ref": {
+              "ref": "SCENE_PLACE"
+            },
+            "value": "영선동 방파제"
+          },
+          {
+            "cmp": "EQ",
+            "ref": {
+              "ref": "ACTOR_PLACE",
+              "actor": "yd.npc.ryu_gaeun"
             },
             "value": "영선동 방파제"
           },
@@ -35657,7 +35871,7 @@
               ]
             }
           },
-          "guide": "류가은이 저지대 수색으로 돌아간다."
+          "guide": "류가은이 저지대 상업지구로 돌아간다."
         },
         "gone": {
           "eligible_when": {
@@ -35735,7 +35949,7 @@
               "step_id": "go",
               "type": "EMIT_SIGNAL",
               "signal_id": "go",
-              "cue": "작살을 등에 멘 여자가 방파제 뿌리 쪽으로 소리 없이 걸어간다",
+              "cue": "무기를 멘 그 사람이 방파제 뿌리 쪽으로 소리 없이 걸어간다",
               "interrupt_policy": "IF_OBSERVABLE",
               "observable_when": {
                 "cmp": "EQ",
@@ -35750,10 +35964,7 @@
               "type": "START_MOVEMENT",
               "actor": "yd.npc.ryu_gaeun",
               "destination": "저지대 상업지구",
-              "mode": "walk",
-              "capabilities": [
-                "member:namhang"
-              ]
+              "mode": "walk"
             }
           ]
         },
@@ -35787,6 +35998,2230 @@
         "영선동 방파제"
       ]
     },
+    "yd_start_person_threat_lee_junhyeok": {
+      "version": 1,
+      "name": "방파제 끝의 무기",
+      "spawn_when": {
+        "all": [
+          {
+            "cmp": "EQ",
+            "ref": {
+              "ref": "SCENE_PLACE"
+            },
+            "value": "영선동 방파제"
+          },
+          {
+            "cmp": "EQ",
+            "ref": {
+              "ref": "ACTOR_PLACE",
+              "actor": "yd.npc.lee_junhyeok"
+            },
+            "value": "영선동 방파제"
+          },
+          {
+            "not": {
+              "time": "AT_OR_AFTER_DATETIME",
+              "date": "2016-10-02",
+              "hhmm": "11:51"
+            }
+          }
+        ]
+      },
+      "phases": {
+        "rinsing": {
+          "eligible_when": {
+            "const": true
+          },
+          "priority": 1,
+          "retain_when": {
+            "not": {
+              "all": [
+                {
+                  "cmp": "EQ",
+                  "ref": {
+                    "ref": "EVENT_PHASE",
+                    "instance": "$self"
+                  },
+                  "value": "rinsing"
+                },
+                {
+                  "any": [
+                    {
+                      "time": "ELAPSED_SINCE_PHASE_GTE",
+                      "minutes": 25
+                    },
+                    {
+                      "not": {
+                        "cmp": "EQ",
+                        "ref": {
+                          "ref": "ACTOR_PLACE",
+                          "actor": "yd.npc.lee_junhyeok"
+                        },
+                        "value": "영선동 방파제"
+                      }
+                    }
+                  ]
+                }
+              ]
+            }
+          },
+          "guide": "이준혁이 저지대 수색 중 방파제 뿌리에서 감염자 하나를 처리하고 끝으로 나와 작살을 헹군다. 발끝으로 딛고, 거울 파편으로 사각지대를 확인한다. 소리 나는 쪽은 확인되기 전까지 감염자로 대한다. 작전 중이라 말은 '확인·뒤로'처럼 짧다."
+        },
+        "leaving": {
+          "eligible_when": {
+            "any": [
+              {
+                "cmp": "EQ",
+                "ref": {
+                  "ref": "EVENT_PHASE",
+                  "instance": "$self"
+                },
+                "value": "leaving"
+              },
+              {
+                "all": [
+                  {
+                    "cmp": "EQ",
+                    "ref": {
+                      "ref": "EVENT_PHASE",
+                      "instance": "$self"
+                    },
+                    "value": "rinsing"
+                  },
+                  {
+                    "any": [
+                      {
+                        "time": "ELAPSED_SINCE_PHASE_GTE",
+                        "minutes": 25
+                      },
+                      {
+                        "not": {
+                          "cmp": "EQ",
+                          "ref": {
+                            "ref": "ACTOR_PLACE",
+                            "actor": "yd.npc.lee_junhyeok"
+                          },
+                          "value": "영선동 방파제"
+                        }
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
+          },
+          "priority": 2,
+          "retain_when": {
+            "not": {
+              "all": [
+                {
+                  "cmp": "EQ",
+                  "ref": {
+                    "ref": "EVENT_PHASE",
+                    "instance": "$self"
+                  },
+                  "value": "leaving"
+                },
+                {
+                  "all": [
+                    {
+                      "cmp": "EQ",
+                      "ref": {
+                        "ref": "ACTOR_PLACE",
+                        "actor": "yd.npc.lee_junhyeok"
+                      },
+                      "value": "저지대 상업지구"
+                    },
+                    {
+                      "not": {
+                        "cmp": "EQ",
+                        "ref": {
+                          "ref": "ACTOR_PLACE",
+                          "actor": "yd.npc.lee_junhyeok"
+                        },
+                        "value_ref": {
+                          "ref": "SCENE_PLACE"
+                        }
+                      }
+                    }
+                  ]
+                }
+              ]
+            }
+          },
+          "guide": "이준혁이 저지대 상업지구로 돌아간다."
+        },
+        "gone": {
+          "eligible_when": {
+            "any": [
+              {
+                "cmp": "EQ",
+                "ref": {
+                  "ref": "EVENT_PHASE",
+                  "instance": "$self"
+                },
+                "value": "gone"
+              },
+              {
+                "all": [
+                  {
+                    "cmp": "EQ",
+                    "ref": {
+                      "ref": "EVENT_PHASE",
+                      "instance": "$self"
+                    },
+                    "value": "leaving"
+                  },
+                  {
+                    "all": [
+                      {
+                        "cmp": "EQ",
+                        "ref": {
+                          "ref": "ACTOR_PLACE",
+                          "actor": "yd.npc.lee_junhyeok"
+                        },
+                        "value": "저지대 상업지구"
+                      },
+                      {
+                        "not": {
+                          "cmp": "EQ",
+                          "ref": {
+                            "ref": "ACTOR_PLACE",
+                            "actor": "yd.npc.lee_junhyeok"
+                          },
+                          "value_ref": {
+                            "ref": "SCENE_PLACE"
+                          }
+                        }
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
+          },
+          "priority": 3,
+          "terminal": true
+        }
+      },
+      "transition_cases": [
+        {
+          "case_id": "spawn",
+          "from": null,
+          "to": "rinsing",
+          "steps": [
+            {
+              "step_id": "place",
+              "type": "SET_ACTOR_PLACEMENT",
+              "actor": "yd.npc.lee_junhyeok",
+              "place": "영선동 방파제"
+            }
+          ]
+        },
+        {
+          "case_id": "rinsing.to.leaving",
+          "from": "rinsing",
+          "to": "leaving",
+          "steps": [
+            {
+              "step_id": "go",
+              "type": "EMIT_SIGNAL",
+              "signal_id": "go",
+              "cue": "무기를 멘 그 사람이 방파제 뿌리 쪽으로 소리 없이 걸어간다",
+              "interrupt_policy": "IF_OBSERVABLE",
+              "observable_when": {
+                "cmp": "EQ",
+                "ref": {
+                  "ref": "SCENE_PLACE"
+                },
+                "value": "영선동 방파제"
+              }
+            },
+            {
+              "step_id": "leave",
+              "type": "START_MOVEMENT",
+              "actor": "yd.npc.lee_junhyeok",
+              "destination": "저지대 상업지구",
+              "mode": "walk"
+            }
+          ]
+        },
+        {
+          "case_id": "leaving.to.gone",
+          "from": "leaving",
+          "to": "gone",
+          "steps": [
+            {
+              "step_id": "home",
+              "type": "CLEAR_ACTOR_PLACEMENT",
+              "actor": "yd.npc.lee_junhyeok"
+            }
+          ]
+        }
+      ],
+      "repeat_policy": "ONCE_PER_SESSION",
+      "phase_selector": {
+        "mode": "PRIORITY",
+        "stability": "STICKY"
+      },
+      "resolve_when": {
+        "cmp": "EQ",
+        "ref": {
+          "ref": "EVENT_PHASE",
+          "instance": "$self"
+        },
+        "value": "gone"
+      },
+      "relevance_places": [
+        "영선동 방파제"
+      ]
+    },
+    "yd_start_person_threat_choi_suyeon": {
+      "version": 1,
+      "name": "방파제 끝의 무기",
+      "spawn_when": {
+        "all": [
+          {
+            "cmp": "EQ",
+            "ref": {
+              "ref": "SCENE_PLACE"
+            },
+            "value": "영선동 방파제"
+          },
+          {
+            "cmp": "EQ",
+            "ref": {
+              "ref": "ACTOR_PLACE",
+              "actor": "yd.npc.choi_suyeon"
+            },
+            "value": "영선동 방파제"
+          },
+          {
+            "not": {
+              "time": "AT_OR_AFTER_DATETIME",
+              "date": "2016-10-02",
+              "hhmm": "11:51"
+            }
+          }
+        ]
+      },
+      "phases": {
+        "rinsing": {
+          "eligible_when": {
+            "const": true
+          },
+          "priority": 1,
+          "retain_when": {
+            "not": {
+              "all": [
+                {
+                  "cmp": "EQ",
+                  "ref": {
+                    "ref": "EVENT_PHASE",
+                    "instance": "$self"
+                  },
+                  "value": "rinsing"
+                },
+                {
+                  "any": [
+                    {
+                      "time": "ELAPSED_SINCE_PHASE_GTE",
+                      "minutes": 25
+                    },
+                    {
+                      "not": {
+                        "cmp": "EQ",
+                        "ref": {
+                          "ref": "ACTOR_PLACE",
+                          "actor": "yd.npc.choi_suyeon"
+                        },
+                        "value": "영선동 방파제"
+                      }
+                    }
+                  ]
+                }
+              ]
+            }
+          },
+          "guide": "조도 수색요원 최수연이 단독 수색 중 감염자 하나를 처리하고 방파제 끝에서 파이프 창을 헹군다. 퇴로를 먼저 확보해 두었다. 소리 나는 쪽은 확인되기 전까지 감염자로 대한다. 말은 짧고 빈정거린다."
+        },
+        "leaving": {
+          "eligible_when": {
+            "any": [
+              {
+                "cmp": "EQ",
+                "ref": {
+                  "ref": "EVENT_PHASE",
+                  "instance": "$self"
+                },
+                "value": "leaving"
+              },
+              {
+                "all": [
+                  {
+                    "cmp": "EQ",
+                    "ref": {
+                      "ref": "EVENT_PHASE",
+                      "instance": "$self"
+                    },
+                    "value": "rinsing"
+                  },
+                  {
+                    "any": [
+                      {
+                        "time": "ELAPSED_SINCE_PHASE_GTE",
+                        "minutes": 25
+                      },
+                      {
+                        "not": {
+                          "cmp": "EQ",
+                          "ref": {
+                            "ref": "ACTOR_PLACE",
+                            "actor": "yd.npc.choi_suyeon"
+                          },
+                          "value": "영선동 방파제"
+                        }
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
+          },
+          "priority": 2,
+          "retain_when": {
+            "not": {
+              "all": [
+                {
+                  "cmp": "EQ",
+                  "ref": {
+                    "ref": "EVENT_PHASE",
+                    "instance": "$self"
+                  },
+                  "value": "leaving"
+                },
+                {
+                  "all": [
+                    {
+                      "cmp": "EQ",
+                      "ref": {
+                        "ref": "ACTOR_PLACE",
+                        "actor": "yd.npc.choi_suyeon"
+                      },
+                      "value": "혁신지구 캠퍼스"
+                    },
+                    {
+                      "not": {
+                        "cmp": "EQ",
+                        "ref": {
+                          "ref": "ACTOR_PLACE",
+                          "actor": "yd.npc.choi_suyeon"
+                        },
+                        "value_ref": {
+                          "ref": "SCENE_PLACE"
+                        }
+                      }
+                    }
+                  ]
+                }
+              ]
+            }
+          },
+          "guide": "최수연이 혁신지구 캠퍼스로 돌아간다."
+        },
+        "gone": {
+          "eligible_when": {
+            "any": [
+              {
+                "cmp": "EQ",
+                "ref": {
+                  "ref": "EVENT_PHASE",
+                  "instance": "$self"
+                },
+                "value": "gone"
+              },
+              {
+                "all": [
+                  {
+                    "cmp": "EQ",
+                    "ref": {
+                      "ref": "EVENT_PHASE",
+                      "instance": "$self"
+                    },
+                    "value": "leaving"
+                  },
+                  {
+                    "all": [
+                      {
+                        "cmp": "EQ",
+                        "ref": {
+                          "ref": "ACTOR_PLACE",
+                          "actor": "yd.npc.choi_suyeon"
+                        },
+                        "value": "혁신지구 캠퍼스"
+                      },
+                      {
+                        "not": {
+                          "cmp": "EQ",
+                          "ref": {
+                            "ref": "ACTOR_PLACE",
+                            "actor": "yd.npc.choi_suyeon"
+                          },
+                          "value_ref": {
+                            "ref": "SCENE_PLACE"
+                          }
+                        }
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
+          },
+          "priority": 3,
+          "terminal": true
+        }
+      },
+      "transition_cases": [
+        {
+          "case_id": "spawn",
+          "from": null,
+          "to": "rinsing",
+          "steps": [
+            {
+              "step_id": "place",
+              "type": "SET_ACTOR_PLACEMENT",
+              "actor": "yd.npc.choi_suyeon",
+              "place": "영선동 방파제"
+            }
+          ]
+        },
+        {
+          "case_id": "rinsing.to.leaving",
+          "from": "rinsing",
+          "to": "leaving",
+          "steps": [
+            {
+              "step_id": "go",
+              "type": "EMIT_SIGNAL",
+              "signal_id": "go",
+              "cue": "무기를 멘 그 사람이 방파제 뿌리 쪽으로 소리 없이 걸어간다",
+              "interrupt_policy": "IF_OBSERVABLE",
+              "observable_when": {
+                "cmp": "EQ",
+                "ref": {
+                  "ref": "SCENE_PLACE"
+                },
+                "value": "영선동 방파제"
+              }
+            },
+            {
+              "step_id": "leave",
+              "type": "START_MOVEMENT",
+              "actor": "yd.npc.choi_suyeon",
+              "destination": "혁신지구 캠퍼스",
+              "mode": "walk"
+            }
+          ]
+        },
+        {
+          "case_id": "leaving.to.gone",
+          "from": "leaving",
+          "to": "gone",
+          "steps": [
+            {
+              "step_id": "home",
+              "type": "CLEAR_ACTOR_PLACEMENT",
+              "actor": "yd.npc.choi_suyeon"
+            }
+          ]
+        }
+      ],
+      "repeat_policy": "ONCE_PER_SESSION",
+      "phase_selector": {
+        "mode": "PRIORITY",
+        "stability": "STICKY"
+      },
+      "resolve_when": {
+        "cmp": "EQ",
+        "ref": {
+          "ref": "EVENT_PHASE",
+          "instance": "$self"
+        },
+        "value": "gone"
+      },
+      "relevance_places": [
+        "영선동 방파제"
+      ]
+    },
+    "yd_start_plain_jang_ujin": {
+      "version": 1,
+      "name": "계단의 줄",
+      "spawn_when": {
+        "all": [
+          {
+            "cmp": "EQ",
+            "ref": {
+              "ref": "SCENE_PLACE"
+            },
+            "value": "청학동 선착장"
+          },
+          {
+            "cmp": "EQ",
+            "ref": {
+              "ref": "ACTOR_PLACE",
+              "actor": "yd.npc.jang_ujin"
+            },
+            "value": "청학동 선착장"
+          },
+          {
+            "not": {
+              "time": "AT_OR_AFTER_DATETIME",
+              "date": "2016-10-02",
+              "hhmm": "05:41"
+            }
+          }
+        ]
+      },
+      "phases": {
+        "collecting": {
+          "eligible_when": {
+            "const": true
+          },
+          "priority": 1,
+          "retain_when": {
+            "not": {
+              "all": [
+                {
+                  "cmp": "EQ",
+                  "ref": {
+                    "ref": "EVENT_PHASE",
+                    "instance": "$self"
+                  },
+                  "value": "collecting"
+                },
+                {
+                  "any": [
+                    {
+                      "time": "ELAPSED_SINCE_PHASE_GTE",
+                      "minutes": 30
+                    },
+                    {
+                      "not": {
+                        "cmp": "EQ",
+                        "ref": {
+                          "ref": "ACTOR_PLACE",
+                          "actor": "yd.npc.jang_ujin"
+                        },
+                        "value": "청학동 선착장"
+                      }
+                    }
+                  ]
+                }
+              ]
+            }
+          },
+          "guide": "해련 청년 수송대장 장우진이 새벽 수송 전, 선착장 계단에 걸어 둔 줄과 밤새 걸린 표류물을 거둔다. 낯선 사람에게 먼저 큰소리로 묻다가 스스로 \"쉿\" 하고 소리를 줄인다."
+        },
+        "leaving": {
+          "eligible_when": {
+            "any": [
+              {
+                "cmp": "EQ",
+                "ref": {
+                  "ref": "EVENT_PHASE",
+                  "instance": "$self"
+                },
+                "value": "leaving"
+              },
+              {
+                "all": [
+                  {
+                    "cmp": "EQ",
+                    "ref": {
+                      "ref": "EVENT_PHASE",
+                      "instance": "$self"
+                    },
+                    "value": "collecting"
+                  },
+                  {
+                    "any": [
+                      {
+                        "time": "ELAPSED_SINCE_PHASE_GTE",
+                        "minutes": 30
+                      },
+                      {
+                        "not": {
+                          "cmp": "EQ",
+                          "ref": {
+                            "ref": "ACTOR_PLACE",
+                            "actor": "yd.npc.jang_ujin"
+                          },
+                          "value": "청학동 선착장"
+                        }
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
+          },
+          "priority": 2,
+          "retain_when": {
+            "not": {
+              "all": [
+                {
+                  "cmp": "EQ",
+                  "ref": {
+                    "ref": "EVENT_PHASE",
+                    "instance": "$self"
+                  },
+                  "value": "leaving"
+                },
+                {
+                  "all": [
+                    {
+                      "cmp": "EQ",
+                      "ref": {
+                        "ref": "ACTOR_PLACE",
+                        "actor": "yd.npc.jang_ujin"
+                      },
+                      "value": "하단 방어선 아래"
+                    },
+                    {
+                      "not": {
+                        "cmp": "EQ",
+                        "ref": {
+                          "ref": "ACTOR_PLACE",
+                          "actor": "yd.npc.jang_ujin"
+                        },
+                        "value_ref": {
+                          "ref": "SCENE_PLACE"
+                        }
+                      }
+                    }
+                  ]
+                }
+              ]
+            }
+          },
+          "guide": "장우진이 하단 방어선 아래 사다리 쪽으로 돌아간다(해련 자치 마을로 오르는 길)."
+        },
+        "gone": {
+          "eligible_when": {
+            "any": [
+              {
+                "cmp": "EQ",
+                "ref": {
+                  "ref": "EVENT_PHASE",
+                  "instance": "$self"
+                },
+                "value": "gone"
+              },
+              {
+                "all": [
+                  {
+                    "cmp": "EQ",
+                    "ref": {
+                      "ref": "EVENT_PHASE",
+                      "instance": "$self"
+                    },
+                    "value": "leaving"
+                  },
+                  {
+                    "all": [
+                      {
+                        "cmp": "EQ",
+                        "ref": {
+                          "ref": "ACTOR_PLACE",
+                          "actor": "yd.npc.jang_ujin"
+                        },
+                        "value": "하단 방어선 아래"
+                      },
+                      {
+                        "not": {
+                          "cmp": "EQ",
+                          "ref": {
+                            "ref": "ACTOR_PLACE",
+                            "actor": "yd.npc.jang_ujin"
+                          },
+                          "value_ref": {
+                            "ref": "SCENE_PLACE"
+                          }
+                        }
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
+          },
+          "priority": 3,
+          "terminal": true
+        }
+      },
+      "transition_cases": [
+        {
+          "case_id": "spawn",
+          "from": null,
+          "to": "collecting",
+          "steps": [
+            {
+              "step_id": "place",
+              "type": "SET_ACTOR_PLACEMENT",
+              "actor": "yd.npc.jang_ujin",
+              "place": "청학동 선착장"
+            }
+          ]
+        },
+        {
+          "case_id": "collecting.to.leaving",
+          "from": "collecting",
+          "to": "leaving",
+          "steps": [
+            {
+              "step_id": "go",
+              "type": "EMIT_SIGNAL",
+              "signal_id": "go",
+              "cue": "그 사람이 거둔 줄을 어깨에 감고 계단 위로 걸어 올라간다",
+              "interrupt_policy": "IF_OBSERVABLE",
+              "observable_when": {
+                "cmp": "EQ",
+                "ref": {
+                  "ref": "SCENE_PLACE"
+                },
+                "value": "청학동 선착장"
+              }
+            },
+            {
+              "step_id": "leave",
+              "type": "START_MOVEMENT",
+              "actor": "yd.npc.jang_ujin",
+              "destination": "하단 방어선 아래",
+              "mode": "walk"
+            }
+          ]
+        },
+        {
+          "case_id": "leaving.to.gone",
+          "from": "leaving",
+          "to": "gone",
+          "steps": [
+            {
+              "step_id": "home",
+              "type": "CLEAR_ACTOR_PLACEMENT",
+              "actor": "yd.npc.jang_ujin"
+            }
+          ]
+        }
+      ],
+      "repeat_policy": "ONCE_PER_SESSION",
+      "phase_selector": {
+        "mode": "PRIORITY",
+        "stability": "STICKY"
+      },
+      "resolve_when": {
+        "cmp": "EQ",
+        "ref": {
+          "ref": "EVENT_PHASE",
+          "instance": "$self"
+        },
+        "value": "gone"
+      },
+      "relevance_places": [
+        "청학동 선착장"
+      ]
+    },
+    "yd_start_plain_jang_hyeonsu": {
+      "version": 1,
+      "name": "계단의 줄",
+      "spawn_when": {
+        "all": [
+          {
+            "cmp": "EQ",
+            "ref": {
+              "ref": "SCENE_PLACE"
+            },
+            "value": "청학동 선착장"
+          },
+          {
+            "cmp": "EQ",
+            "ref": {
+              "ref": "ACTOR_PLACE",
+              "actor": "yd.npc.jang_hyeonsu"
+            },
+            "value": "청학동 선착장"
+          },
+          {
+            "not": {
+              "time": "AT_OR_AFTER_DATETIME",
+              "date": "2016-10-02",
+              "hhmm": "05:41"
+            }
+          }
+        ]
+      },
+      "phases": {
+        "collecting": {
+          "eligible_when": {
+            "const": true
+          },
+          "priority": 1,
+          "retain_when": {
+            "not": {
+              "all": [
+                {
+                  "cmp": "EQ",
+                  "ref": {
+                    "ref": "EVENT_PHASE",
+                    "instance": "$self"
+                  },
+                  "value": "collecting"
+                },
+                {
+                  "any": [
+                    {
+                      "time": "ELAPSED_SINCE_PHASE_GTE",
+                      "minutes": 30
+                    },
+                    {
+                      "not": {
+                        "cmp": "EQ",
+                        "ref": {
+                          "ref": "ACTOR_PLACE",
+                          "actor": "yd.npc.jang_hyeonsu"
+                        },
+                        "value": "청학동 선착장"
+                      }
+                    }
+                  ]
+                }
+              ]
+            }
+          },
+          "guide": "채무 부랑자 장현수가 새벽 정적 시간에 몰래 해안을 살피다 선착장 계단의 줄을 거둔다. 들키면 과하게 웃으며 경계를 풀려 하고, 바다를 건너온 방법을 캐묻는다."
+        },
+        "leaving": {
+          "eligible_when": {
+            "any": [
+              {
+                "cmp": "EQ",
+                "ref": {
+                  "ref": "EVENT_PHASE",
+                  "instance": "$self"
+                },
+                "value": "leaving"
+              },
+              {
+                "all": [
+                  {
+                    "cmp": "EQ",
+                    "ref": {
+                      "ref": "EVENT_PHASE",
+                      "instance": "$self"
+                    },
+                    "value": "collecting"
+                  },
+                  {
+                    "any": [
+                      {
+                        "time": "ELAPSED_SINCE_PHASE_GTE",
+                        "minutes": 30
+                      },
+                      {
+                        "not": {
+                          "cmp": "EQ",
+                          "ref": {
+                            "ref": "ACTOR_PLACE",
+                            "actor": "yd.npc.jang_hyeonsu"
+                          },
+                          "value": "청학동 선착장"
+                        }
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
+          },
+          "priority": 2,
+          "retain_when": {
+            "not": {
+              "all": [
+                {
+                  "cmp": "EQ",
+                  "ref": {
+                    "ref": "EVENT_PHASE",
+                    "instance": "$self"
+                  },
+                  "value": "leaving"
+                },
+                {
+                  "all": [
+                    {
+                      "cmp": "EQ",
+                      "ref": {
+                        "ref": "ACTOR_PLACE",
+                        "actor": "yd.npc.jang_hyeonsu"
+                      },
+                      "value": "채무자 숙소"
+                    },
+                    {
+                      "not": {
+                        "cmp": "EQ",
+                        "ref": {
+                          "ref": "ACTOR_PLACE",
+                          "actor": "yd.npc.jang_hyeonsu"
+                        },
+                        "value_ref": {
+                          "ref": "SCENE_PLACE"
+                        }
+                      }
+                    }
+                  ]
+                }
+              ]
+            }
+          },
+          "guide": "장현수가 채무자 숙소로 돌아간다."
+        },
+        "gone": {
+          "eligible_when": {
+            "any": [
+              {
+                "cmp": "EQ",
+                "ref": {
+                  "ref": "EVENT_PHASE",
+                  "instance": "$self"
+                },
+                "value": "gone"
+              },
+              {
+                "all": [
+                  {
+                    "cmp": "EQ",
+                    "ref": {
+                      "ref": "EVENT_PHASE",
+                      "instance": "$self"
+                    },
+                    "value": "leaving"
+                  },
+                  {
+                    "all": [
+                      {
+                        "cmp": "EQ",
+                        "ref": {
+                          "ref": "ACTOR_PLACE",
+                          "actor": "yd.npc.jang_hyeonsu"
+                        },
+                        "value": "채무자 숙소"
+                      },
+                      {
+                        "not": {
+                          "cmp": "EQ",
+                          "ref": {
+                            "ref": "ACTOR_PLACE",
+                            "actor": "yd.npc.jang_hyeonsu"
+                          },
+                          "value_ref": {
+                            "ref": "SCENE_PLACE"
+                          }
+                        }
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
+          },
+          "priority": 3,
+          "terminal": true
+        }
+      },
+      "transition_cases": [
+        {
+          "case_id": "spawn",
+          "from": null,
+          "to": "collecting",
+          "steps": [
+            {
+              "step_id": "place",
+              "type": "SET_ACTOR_PLACEMENT",
+              "actor": "yd.npc.jang_hyeonsu",
+              "place": "청학동 선착장"
+            }
+          ]
+        },
+        {
+          "case_id": "collecting.to.leaving",
+          "from": "collecting",
+          "to": "leaving",
+          "steps": [
+            {
+              "step_id": "go",
+              "type": "EMIT_SIGNAL",
+              "signal_id": "go",
+              "cue": "그 사람이 거둔 줄을 어깨에 감고 계단 위로 걸어 올라간다",
+              "interrupt_policy": "IF_OBSERVABLE",
+              "observable_when": {
+                "cmp": "EQ",
+                "ref": {
+                  "ref": "SCENE_PLACE"
+                },
+                "value": "청학동 선착장"
+              }
+            },
+            {
+              "step_id": "leave",
+              "type": "START_MOVEMENT",
+              "actor": "yd.npc.jang_hyeonsu",
+              "destination": "채무자 숙소",
+              "mode": "walk"
+            }
+          ]
+        },
+        {
+          "case_id": "leaving.to.gone",
+          "from": "leaving",
+          "to": "gone",
+          "steps": [
+            {
+              "step_id": "home",
+              "type": "CLEAR_ACTOR_PLACEMENT",
+              "actor": "yd.npc.jang_hyeonsu"
+            }
+          ]
+        }
+      ],
+      "repeat_policy": "ONCE_PER_SESSION",
+      "phase_selector": {
+        "mode": "PRIORITY",
+        "stability": "STICKY"
+      },
+      "resolve_when": {
+        "cmp": "EQ",
+        "ref": {
+          "ref": "EVENT_PHASE",
+          "instance": "$self"
+        },
+        "value": "gone"
+      },
+      "relevance_places": [
+        "청학동 선착장"
+      ]
+    },
+    "yd_start_plain_park_haeun": {
+      "version": 1,
+      "name": "계단의 줄",
+      "spawn_when": {
+        "all": [
+          {
+            "cmp": "EQ",
+            "ref": {
+              "ref": "SCENE_PLACE"
+            },
+            "value": "청학동 선착장"
+          },
+          {
+            "cmp": "EQ",
+            "ref": {
+              "ref": "ACTOR_PLACE",
+              "actor": "yd.npc.park_haeun"
+            },
+            "value": "청학동 선착장"
+          },
+          {
+            "not": {
+              "time": "AT_OR_AFTER_DATETIME",
+              "date": "2016-10-02",
+              "hhmm": "05:41"
+            }
+          }
+        ]
+      },
+      "phases": {
+        "collecting": {
+          "eligible_when": {
+            "const": true
+          },
+          "priority": 1,
+          "retain_when": {
+            "not": {
+              "all": [
+                {
+                  "cmp": "EQ",
+                  "ref": {
+                    "ref": "EVENT_PHASE",
+                    "instance": "$self"
+                  },
+                  "value": "collecting"
+                },
+                {
+                  "any": [
+                    {
+                      "time": "ELAPSED_SINCE_PHASE_GTE",
+                      "minutes": 30
+                    },
+                    {
+                      "not": {
+                        "cmp": "EQ",
+                        "ref": {
+                          "ref": "ACTOR_PLACE",
+                          "actor": "yd.npc.park_haeun"
+                        },
+                        "value": "청학동 선착장"
+                      }
+                    }
+                  ]
+                }
+              ]
+            }
+          },
+          "guide": "해련 정적 파수꾼 박하은이 새벽 순찰 중 선착장 계단의 줄을 확인하고 거둔다. 낯선 사람을 빤히 보며 질문으로 시험하고, 본 것을 수첩에 적는다."
+        },
+        "leaving": {
+          "eligible_when": {
+            "any": [
+              {
+                "cmp": "EQ",
+                "ref": {
+                  "ref": "EVENT_PHASE",
+                  "instance": "$self"
+                },
+                "value": "leaving"
+              },
+              {
+                "all": [
+                  {
+                    "cmp": "EQ",
+                    "ref": {
+                      "ref": "EVENT_PHASE",
+                      "instance": "$self"
+                    },
+                    "value": "collecting"
+                  },
+                  {
+                    "any": [
+                      {
+                        "time": "ELAPSED_SINCE_PHASE_GTE",
+                        "minutes": 30
+                      },
+                      {
+                        "not": {
+                          "cmp": "EQ",
+                          "ref": {
+                            "ref": "ACTOR_PLACE",
+                            "actor": "yd.npc.park_haeun"
+                          },
+                          "value": "청학동 선착장"
+                        }
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
+          },
+          "priority": 2,
+          "retain_when": {
+            "not": {
+              "all": [
+                {
+                  "cmp": "EQ",
+                  "ref": {
+                    "ref": "EVENT_PHASE",
+                    "instance": "$self"
+                  },
+                  "value": "leaving"
+                },
+                {
+                  "all": [
+                    {
+                      "cmp": "EQ",
+                      "ref": {
+                        "ref": "ACTOR_PLACE",
+                        "actor": "yd.npc.park_haeun"
+                      },
+                      "value": "하단 방어선 아래"
+                    },
+                    {
+                      "not": {
+                        "cmp": "EQ",
+                        "ref": {
+                          "ref": "ACTOR_PLACE",
+                          "actor": "yd.npc.park_haeun"
+                        },
+                        "value_ref": {
+                          "ref": "SCENE_PLACE"
+                        }
+                      }
+                    }
+                  ]
+                }
+              ]
+            }
+          },
+          "guide": "박하은이 하단 방어선 아래 사다리 쪽으로 돌아간다(해련 자치 마을로 오르는 길)."
+        },
+        "gone": {
+          "eligible_when": {
+            "any": [
+              {
+                "cmp": "EQ",
+                "ref": {
+                  "ref": "EVENT_PHASE",
+                  "instance": "$self"
+                },
+                "value": "gone"
+              },
+              {
+                "all": [
+                  {
+                    "cmp": "EQ",
+                    "ref": {
+                      "ref": "EVENT_PHASE",
+                      "instance": "$self"
+                    },
+                    "value": "leaving"
+                  },
+                  {
+                    "all": [
+                      {
+                        "cmp": "EQ",
+                        "ref": {
+                          "ref": "ACTOR_PLACE",
+                          "actor": "yd.npc.park_haeun"
+                        },
+                        "value": "하단 방어선 아래"
+                      },
+                      {
+                        "not": {
+                          "cmp": "EQ",
+                          "ref": {
+                            "ref": "ACTOR_PLACE",
+                            "actor": "yd.npc.park_haeun"
+                          },
+                          "value_ref": {
+                            "ref": "SCENE_PLACE"
+                          }
+                        }
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
+          },
+          "priority": 3,
+          "terminal": true
+        }
+      },
+      "transition_cases": [
+        {
+          "case_id": "spawn",
+          "from": null,
+          "to": "collecting",
+          "steps": [
+            {
+              "step_id": "place",
+              "type": "SET_ACTOR_PLACEMENT",
+              "actor": "yd.npc.park_haeun",
+              "place": "청학동 선착장"
+            }
+          ]
+        },
+        {
+          "case_id": "collecting.to.leaving",
+          "from": "collecting",
+          "to": "leaving",
+          "steps": [
+            {
+              "step_id": "go",
+              "type": "EMIT_SIGNAL",
+              "signal_id": "go",
+              "cue": "그 사람이 거둔 줄을 어깨에 감고 계단 위로 걸어 올라간다",
+              "interrupt_policy": "IF_OBSERVABLE",
+              "observable_when": {
+                "cmp": "EQ",
+                "ref": {
+                  "ref": "SCENE_PLACE"
+                },
+                "value": "청학동 선착장"
+              }
+            },
+            {
+              "step_id": "leave",
+              "type": "START_MOVEMENT",
+              "actor": "yd.npc.park_haeun",
+              "destination": "하단 방어선 아래",
+              "mode": "walk"
+            }
+          ]
+        },
+        {
+          "case_id": "leaving.to.gone",
+          "from": "leaving",
+          "to": "gone",
+          "steps": [
+            {
+              "step_id": "home",
+              "type": "CLEAR_ACTOR_PLACEMENT",
+              "actor": "yd.npc.park_haeun"
+            }
+          ]
+        }
+      ],
+      "repeat_policy": "ONCE_PER_SESSION",
+      "phase_selector": {
+        "mode": "PRIORITY",
+        "stability": "STICKY"
+      },
+      "resolve_when": {
+        "cmp": "EQ",
+        "ref": {
+          "ref": "EVENT_PHASE",
+          "instance": "$self"
+        },
+        "value": "gone"
+      },
+      "relevance_places": [
+        "청학동 선착장"
+      ]
+    },
+    "yd_start_stash": {
+      "version": 1,
+      "name": "묶어 둔 보관함",
+      "spawn_when": {
+        "all": [
+          {
+            "cmp": "EQ",
+            "ref": {
+              "ref": "SCENE_PLACE"
+            },
+            "value": "동삼동 갯가"
+          },
+          {
+            "cmp": "EQ",
+            "ref": {
+              "ref": "ACTOR_PLACE",
+              "actor": "yd.npc.lee_seonhui"
+            },
+            "value": "동삼동 갯가"
+          },
+          {
+            "not": {
+              "time": "AT_OR_AFTER_DATETIME",
+              "date": "2016-10-02",
+              "hhmm": "07:11"
+            }
+          }
+        ]
+      },
+      "phases": {
+        "checking": {
+          "eligible_when": {
+            "const": true
+          },
+          "priority": 1,
+          "retain_when": {
+            "not": {
+              "all": [
+                {
+                  "cmp": "EQ",
+                  "ref": {
+                    "ref": "EVENT_PHASE",
+                    "instance": "$self"
+                  },
+                  "value": "checking"
+                },
+                {
+                  "any": [
+                    {
+                      "time": "ELAPSED_SINCE_PHASE_GTE",
+                      "minutes": 45
+                    },
+                    {
+                      "not": {
+                        "cmp": "EQ",
+                        "ref": {
+                          "ref": "ACTOR_PLACE",
+                          "actor": "yd.npc.lee_seonhui"
+                        },
+                        "value": "동삼동 갯가"
+                      }
+                    }
+                  ]
+                }
+              ]
+            }
+          },
+          "guide": "이선희가 전날 저녁 숨겨 둔 예비 장비 상자를 확인한다. 상자가 그대로면 매듭을 다시 조이고 둔다. 비었거나 없으면 누군가 가져갔다고 보지만 누구인지는 눈앞의 근거로만 판단한다. 낯선 사람은 손에 든 것과 매듭부터 본다."
+        },
+        "leaving": {
+          "eligible_when": {
+            "any": [
+              {
+                "cmp": "EQ",
+                "ref": {
+                  "ref": "EVENT_PHASE",
+                  "instance": "$self"
+                },
+                "value": "leaving"
+              },
+              {
+                "all": [
+                  {
+                    "cmp": "EQ",
+                    "ref": {
+                      "ref": "EVENT_PHASE",
+                      "instance": "$self"
+                    },
+                    "value": "checking"
+                  },
+                  {
+                    "any": [
+                      {
+                        "time": "ELAPSED_SINCE_PHASE_GTE",
+                        "minutes": 45
+                      },
+                      {
+                        "not": {
+                          "cmp": "EQ",
+                          "ref": {
+                            "ref": "ACTOR_PLACE",
+                            "actor": "yd.npc.lee_seonhui"
+                          },
+                          "value": "동삼동 갯가"
+                        }
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
+          },
+          "priority": 2,
+          "retain_when": {
+            "not": {
+              "all": [
+                {
+                  "cmp": "EQ",
+                  "ref": {
+                    "ref": "EVENT_PHASE",
+                    "instance": "$self"
+                  },
+                  "value": "leaving"
+                },
+                {
+                  "all": [
+                    {
+                      "cmp": "EQ",
+                      "ref": {
+                        "ref": "ACTOR_PLACE",
+                        "actor": "yd.npc.lee_seonhui"
+                      },
+                      "value": "중리 해변"
+                    },
+                    {
+                      "not": {
+                        "cmp": "EQ",
+                        "ref": {
+                          "ref": "ACTOR_PLACE",
+                          "actor": "yd.npc.lee_seonhui"
+                        },
+                        "value_ref": {
+                          "ref": "SCENE_PLACE"
+                        }
+                      }
+                    }
+                  ]
+                }
+              ]
+            }
+          },
+          "guide": "이선희가 중리 해변으로 돌아간다."
+        },
+        "gone": {
+          "eligible_when": {
+            "any": [
+              {
+                "cmp": "EQ",
+                "ref": {
+                  "ref": "EVENT_PHASE",
+                  "instance": "$self"
+                },
+                "value": "gone"
+              },
+              {
+                "all": [
+                  {
+                    "cmp": "EQ",
+                    "ref": {
+                      "ref": "EVENT_PHASE",
+                      "instance": "$self"
+                    },
+                    "value": "leaving"
+                  },
+                  {
+                    "all": [
+                      {
+                        "cmp": "EQ",
+                        "ref": {
+                          "ref": "ACTOR_PLACE",
+                          "actor": "yd.npc.lee_seonhui"
+                        },
+                        "value": "중리 해변"
+                      },
+                      {
+                        "not": {
+                          "cmp": "EQ",
+                          "ref": {
+                            "ref": "ACTOR_PLACE",
+                            "actor": "yd.npc.lee_seonhui"
+                          },
+                          "value_ref": {
+                            "ref": "SCENE_PLACE"
+                          }
+                        }
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
+          },
+          "priority": 3,
+          "terminal": true
+        }
+      },
+      "transition_cases": [
+        {
+          "case_id": "spawn",
+          "from": null,
+          "to": "checking",
+          "steps": [
+            {
+              "step_id": "place",
+              "type": "SET_ACTOR_PLACEMENT",
+              "actor": "yd.npc.lee_seonhui",
+              "place": "동삼동 갯가"
+            }
+          ]
+        },
+        {
+          "case_id": "checking.to.leaving",
+          "from": "checking",
+          "to": "leaving",
+          "steps": [
+            {
+              "step_id": "go",
+              "type": "EMIT_SIGNAL",
+              "signal_id": "go",
+              "cue": "그 사람이 상자 쪽을 한 번 돌아보고 해안로 쪽으로 걸어 올라간다",
+              "interrupt_policy": "IF_OBSERVABLE",
+              "observable_when": {
+                "cmp": "EQ",
+                "ref": {
+                  "ref": "SCENE_PLACE"
+                },
+                "value": "동삼동 갯가"
+              }
+            },
+            {
+              "step_id": "leave",
+              "type": "START_MOVEMENT",
+              "actor": "yd.npc.lee_seonhui",
+              "destination": "중리 해변",
+              "mode": "walk"
+            }
+          ]
+        },
+        {
+          "case_id": "leaving.to.gone",
+          "from": "leaving",
+          "to": "gone",
+          "steps": [
+            {
+              "step_id": "home",
+              "type": "CLEAR_ACTOR_PLACEMENT",
+              "actor": "yd.npc.lee_seonhui"
+            }
+          ]
+        }
+      ],
+      "repeat_policy": "ONCE_PER_SESSION",
+      "phase_selector": {
+        "mode": "PRIORITY",
+        "stability": "STICKY"
+      },
+      "resolve_when": {
+        "cmp": "EQ",
+        "ref": {
+          "ref": "EVENT_PHASE",
+          "instance": "$self"
+        },
+        "value": "gone"
+      },
+      "relevance_places": [
+        "동삼동 갯가"
+      ]
+    },
+    "yd_start_finding_jo_han": {
+      "version": 1,
+      "name": "묶어 둔 보관함",
+      "spawn_when": {
+        "all": [
+          {
+            "cmp": "EQ",
+            "ref": {
+              "ref": "SCENE_PLACE"
+            },
+            "value": "동삼동 갯가"
+          },
+          {
+            "cmp": "EQ",
+            "ref": {
+              "ref": "ACTOR_PLACE",
+              "actor": "yd.npc.jo_han"
+            },
+            "value": "동삼동 갯가"
+          },
+          {
+            "not": {
+              "time": "AT_OR_AFTER_DATETIME",
+              "date": "2016-10-02",
+              "hhmm": "07:11"
+            }
+          }
+        ]
+      },
+      "phases": {
+        "checking": {
+          "eligible_when": {
+            "const": true
+          },
+          "priority": 1,
+          "retain_when": {
+            "not": {
+              "all": [
+                {
+                  "cmp": "EQ",
+                  "ref": {
+                    "ref": "EVENT_PHASE",
+                    "instance": "$self"
+                  },
+                  "value": "checking"
+                },
+                {
+                  "any": [
+                    {
+                      "time": "ELAPSED_SINCE_PHASE_GTE",
+                      "minutes": 45
+                    },
+                    {
+                      "not": {
+                        "cmp": "EQ",
+                        "ref": {
+                          "ref": "ACTOR_PLACE",
+                          "actor": "yd.npc.jo_han"
+                        },
+                        "value": "동삼동 갯가"
+                      }
+                    }
+                  ]
+                }
+              ]
+            }
+          },
+          "guide": "나용순 직속 수거꾼 조한이 숨겨 둔 상자를 확인한다. 질문에는 대답 대신 오래 쳐다보고, 낯선 사람에게 아주 가까이 다가와 소지품을 들여다본다. 상자가 비었으면 누구인지는 눈앞의 근거로만 판단한다."
+        },
+        "leaving": {
+          "eligible_when": {
+            "any": [
+              {
+                "cmp": "EQ",
+                "ref": {
+                  "ref": "EVENT_PHASE",
+                  "instance": "$self"
+                },
+                "value": "leaving"
+              },
+              {
+                "all": [
+                  {
+                    "cmp": "EQ",
+                    "ref": {
+                      "ref": "EVENT_PHASE",
+                      "instance": "$self"
+                    },
+                    "value": "checking"
+                  },
+                  {
+                    "any": [
+                      {
+                        "time": "ELAPSED_SINCE_PHASE_GTE",
+                        "minutes": 45
+                      },
+                      {
+                        "not": {
+                          "cmp": "EQ",
+                          "ref": {
+                            "ref": "ACTOR_PLACE",
+                            "actor": "yd.npc.jo_han"
+                          },
+                          "value": "동삼동 갯가"
+                        }
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
+          },
+          "priority": 2,
+          "retain_when": {
+            "not": {
+              "all": [
+                {
+                  "cmp": "EQ",
+                  "ref": {
+                    "ref": "EVENT_PHASE",
+                    "instance": "$self"
+                  },
+                  "value": "leaving"
+                },
+                {
+                  "all": [
+                    {
+                      "cmp": "EQ",
+                      "ref": {
+                        "ref": "ACTOR_PLACE",
+                        "actor": "yd.npc.jo_han"
+                      },
+                      "value": "중리 해변"
+                    },
+                    {
+                      "not": {
+                        "cmp": "EQ",
+                        "ref": {
+                          "ref": "ACTOR_PLACE",
+                          "actor": "yd.npc.jo_han"
+                        },
+                        "value_ref": {
+                          "ref": "SCENE_PLACE"
+                        }
+                      }
+                    }
+                  ]
+                }
+              ]
+            }
+          },
+          "guide": "조한이 중리 해변으로 돌아간다."
+        },
+        "gone": {
+          "eligible_when": {
+            "any": [
+              {
+                "cmp": "EQ",
+                "ref": {
+                  "ref": "EVENT_PHASE",
+                  "instance": "$self"
+                },
+                "value": "gone"
+              },
+              {
+                "all": [
+                  {
+                    "cmp": "EQ",
+                    "ref": {
+                      "ref": "EVENT_PHASE",
+                      "instance": "$self"
+                    },
+                    "value": "leaving"
+                  },
+                  {
+                    "all": [
+                      {
+                        "cmp": "EQ",
+                        "ref": {
+                          "ref": "ACTOR_PLACE",
+                          "actor": "yd.npc.jo_han"
+                        },
+                        "value": "중리 해변"
+                      },
+                      {
+                        "not": {
+                          "cmp": "EQ",
+                          "ref": {
+                            "ref": "ACTOR_PLACE",
+                            "actor": "yd.npc.jo_han"
+                          },
+                          "value_ref": {
+                            "ref": "SCENE_PLACE"
+                          }
+                        }
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
+          },
+          "priority": 3,
+          "terminal": true
+        }
+      },
+      "transition_cases": [
+        {
+          "case_id": "spawn",
+          "from": null,
+          "to": "checking",
+          "steps": [
+            {
+              "step_id": "place",
+              "type": "SET_ACTOR_PLACEMENT",
+              "actor": "yd.npc.jo_han",
+              "place": "동삼동 갯가"
+            }
+          ]
+        },
+        {
+          "case_id": "checking.to.leaving",
+          "from": "checking",
+          "to": "leaving",
+          "steps": [
+            {
+              "step_id": "go",
+              "type": "EMIT_SIGNAL",
+              "signal_id": "go",
+              "cue": "그 사람이 상자 쪽을 한 번 돌아보고 해안로 쪽으로 걸어 올라간다",
+              "interrupt_policy": "IF_OBSERVABLE",
+              "observable_when": {
+                "cmp": "EQ",
+                "ref": {
+                  "ref": "SCENE_PLACE"
+                },
+                "value": "동삼동 갯가"
+              }
+            },
+            {
+              "step_id": "leave",
+              "type": "START_MOVEMENT",
+              "actor": "yd.npc.jo_han",
+              "destination": "중리 해변",
+              "mode": "walk"
+            }
+          ]
+        },
+        {
+          "case_id": "leaving.to.gone",
+          "from": "leaving",
+          "to": "gone",
+          "steps": [
+            {
+              "step_id": "home",
+              "type": "CLEAR_ACTOR_PLACEMENT",
+              "actor": "yd.npc.jo_han"
+            }
+          ]
+        }
+      ],
+      "repeat_policy": "ONCE_PER_SESSION",
+      "phase_selector": {
+        "mode": "PRIORITY",
+        "stability": "STICKY"
+      },
+      "resolve_when": {
+        "cmp": "EQ",
+        "ref": {
+          "ref": "EVENT_PHASE",
+          "instance": "$self"
+        },
+        "value": "gone"
+      },
+      "relevance_places": [
+        "동삼동 갯가"
+      ]
+    },
+    "yd_start_finding_hwang_minseok": {
+      "version": 1,
+      "name": "묶어 둔 보관함",
+      "spawn_when": {
+        "all": [
+          {
+            "cmp": "EQ",
+            "ref": {
+              "ref": "SCENE_PLACE"
+            },
+            "value": "동삼동 갯가"
+          },
+          {
+            "cmp": "EQ",
+            "ref": {
+              "ref": "ACTOR_PLACE",
+              "actor": "yd.npc.hwang_minseok"
+            },
+            "value": "동삼동 갯가"
+          },
+          {
+            "not": {
+              "time": "AT_OR_AFTER_DATETIME",
+              "date": "2016-10-02",
+              "hhmm": "07:11"
+            }
+          }
+        ]
+      },
+      "phases": {
+        "checking": {
+          "eligible_when": {
+            "const": true
+          },
+          "priority": 1,
+          "retain_when": {
+            "not": {
+              "all": [
+                {
+                  "cmp": "EQ",
+                  "ref": {
+                    "ref": "EVENT_PHASE",
+                    "instance": "$self"
+                  },
+                  "value": "checking"
+                },
+                {
+                  "any": [
+                    {
+                      "time": "ELAPSED_SINCE_PHASE_GTE",
+                      "minutes": 45
+                    },
+                    {
+                      "not": {
+                        "cmp": "EQ",
+                        "ref": {
+                          "ref": "ACTOR_PLACE",
+                          "actor": "yd.npc.hwang_minseok"
+                        },
+                        "value": "동삼동 갯가"
+                      }
+                    }
+                  ]
+                }
+              ]
+            }
+          },
+          "guide": "황민석이 숨겨 둔 상자를 확인한다. 낯선 사람을 보면 상자 주인이 아닌 척 둘러대며 퇴로부터 본다. 상자가 비었으면 누구인지는 눈앞의 근거로만 판단한다."
+        },
+        "leaving": {
+          "eligible_when": {
+            "any": [
+              {
+                "cmp": "EQ",
+                "ref": {
+                  "ref": "EVENT_PHASE",
+                  "instance": "$self"
+                },
+                "value": "leaving"
+              },
+              {
+                "all": [
+                  {
+                    "cmp": "EQ",
+                    "ref": {
+                      "ref": "EVENT_PHASE",
+                      "instance": "$self"
+                    },
+                    "value": "checking"
+                  },
+                  {
+                    "any": [
+                      {
+                        "time": "ELAPSED_SINCE_PHASE_GTE",
+                        "minutes": 45
+                      },
+                      {
+                        "not": {
+                          "cmp": "EQ",
+                          "ref": {
+                            "ref": "ACTOR_PLACE",
+                            "actor": "yd.npc.hwang_minseok"
+                          },
+                          "value": "동삼동 갯가"
+                        }
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
+          },
+          "priority": 2,
+          "retain_when": {
+            "not": {
+              "all": [
+                {
+                  "cmp": "EQ",
+                  "ref": {
+                    "ref": "EVENT_PHASE",
+                    "instance": "$self"
+                  },
+                  "value": "leaving"
+                },
+                {
+                  "all": [
+                    {
+                      "cmp": "EQ",
+                      "ref": {
+                        "ref": "ACTOR_PLACE",
+                        "actor": "yd.npc.hwang_minseok"
+                      },
+                      "value": "중리 해변"
+                    },
+                    {
+                      "not": {
+                        "cmp": "EQ",
+                        "ref": {
+                          "ref": "ACTOR_PLACE",
+                          "actor": "yd.npc.hwang_minseok"
+                        },
+                        "value_ref": {
+                          "ref": "SCENE_PLACE"
+                        }
+                      }
+                    }
+                  ]
+                }
+              ]
+            }
+          },
+          "guide": "황민석이 중리 해변으로 돌아간다."
+        },
+        "gone": {
+          "eligible_when": {
+            "any": [
+              {
+                "cmp": "EQ",
+                "ref": {
+                  "ref": "EVENT_PHASE",
+                  "instance": "$self"
+                },
+                "value": "gone"
+              },
+              {
+                "all": [
+                  {
+                    "cmp": "EQ",
+                    "ref": {
+                      "ref": "EVENT_PHASE",
+                      "instance": "$self"
+                    },
+                    "value": "leaving"
+                  },
+                  {
+                    "all": [
+                      {
+                        "cmp": "EQ",
+                        "ref": {
+                          "ref": "ACTOR_PLACE",
+                          "actor": "yd.npc.hwang_minseok"
+                        },
+                        "value": "중리 해변"
+                      },
+                      {
+                        "not": {
+                          "cmp": "EQ",
+                          "ref": {
+                            "ref": "ACTOR_PLACE",
+                            "actor": "yd.npc.hwang_minseok"
+                          },
+                          "value_ref": {
+                            "ref": "SCENE_PLACE"
+                          }
+                        }
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
+          },
+          "priority": 3,
+          "terminal": true
+        }
+      },
+      "transition_cases": [
+        {
+          "case_id": "spawn",
+          "from": null,
+          "to": "checking",
+          "steps": [
+            {
+              "step_id": "place",
+              "type": "SET_ACTOR_PLACEMENT",
+              "actor": "yd.npc.hwang_minseok",
+              "place": "동삼동 갯가"
+            }
+          ]
+        },
+        {
+          "case_id": "checking.to.leaving",
+          "from": "checking",
+          "to": "leaving",
+          "steps": [
+            {
+              "step_id": "go",
+              "type": "EMIT_SIGNAL",
+              "signal_id": "go",
+              "cue": "그 사람이 상자 쪽을 한 번 돌아보고 해안로 쪽으로 걸어 올라간다",
+              "interrupt_policy": "IF_OBSERVABLE",
+              "observable_when": {
+                "cmp": "EQ",
+                "ref": {
+                  "ref": "SCENE_PLACE"
+                },
+                "value": "동삼동 갯가"
+              }
+            },
+            {
+              "step_id": "leave",
+              "type": "START_MOVEMENT",
+              "actor": "yd.npc.hwang_minseok",
+              "destination": "중리 해변",
+              "mode": "walk"
+            }
+          ]
+        },
+        {
+          "case_id": "leaving.to.gone",
+          "from": "leaving",
+          "to": "gone",
+          "steps": [
+            {
+              "step_id": "home",
+              "type": "CLEAR_ACTOR_PLACEMENT",
+              "actor": "yd.npc.hwang_minseok"
+            }
+          ]
+        }
+      ],
+      "repeat_policy": "ONCE_PER_SESSION",
+      "phase_selector": {
+        "mode": "PRIORITY",
+        "stability": "STICKY"
+      },
+      "resolve_when": {
+        "cmp": "EQ",
+        "ref": {
+          "ref": "EVENT_PHASE",
+          "instance": "$self"
+        },
+        "value": "gone"
+      },
+      "relevance_places": [
+        "동삼동 갯가"
+      ]
+    },
     "yd_start_candle": {
       "version": 1,
       "name": "꺼진 불빛",
@@ -35796,6 +38231,14 @@
             "cmp": "EQ",
             "ref": {
               "ref": "SCENE_PLACE"
+            },
+            "value": "감지해변"
+          },
+          {
+            "cmp": "EQ",
+            "ref": {
+              "ref": "ACTOR_PLACE",
+              "actor": "yd.npc.baek_inha"
             },
             "value": "감지해변"
           },
@@ -35930,7 +38373,7 @@
               ]
             }
           },
-          "guide": "백인하가 숲 쪽으로 떠난다."
+          "guide": "백인하가 태종대 방면 숲으로 돌아간다."
         },
         "gone": {
           "eligible_when": {
@@ -36008,7 +38451,7 @@
               "step_id": "go",
               "type": "EMIT_SIGNAL",
               "signal_id": "go",
-              "cue": "매점 쪽 어둠에서 모래를 밟는 낮은 소리가 해변 안쪽 숲으로 멀어진다",
+              "cue": "매점 쪽 어둠에서 모래를 밟는 낮은 소리가 해변 안쪽으로 멀어진다",
               "interrupt_policy": "IF_OBSERVABLE",
               "observable_when": {
                 "cmp": "EQ",
@@ -36036,6 +38479,562 @@
               "step_id": "home",
               "type": "CLEAR_ACTOR_PLACEMENT",
               "actor": "yd.npc.baek_inha"
+            }
+          ]
+        }
+      ],
+      "repeat_policy": "ONCE_PER_SESSION",
+      "phase_selector": {
+        "mode": "PRIORITY",
+        "stability": "STICKY"
+      },
+      "resolve_when": {
+        "cmp": "EQ",
+        "ref": {
+          "ref": "EVENT_PHASE",
+          "instance": "$self"
+        },
+        "value": "gone"
+      },
+      "relevance_places": [
+        "감지해변"
+      ]
+    },
+    "yd_start_night_shin_changho": {
+      "version": 1,
+      "name": "꺼진 불빛",
+      "spawn_when": {
+        "all": [
+          {
+            "cmp": "EQ",
+            "ref": {
+              "ref": "SCENE_PLACE"
+            },
+            "value": "감지해변"
+          },
+          {
+            "cmp": "EQ",
+            "ref": {
+              "ref": "ACTOR_PLACE",
+              "actor": "yd.npc.shin_changho"
+            },
+            "value": "감지해변"
+          },
+          {
+            "not": {
+              "time": "AT_OR_AFTER_DATETIME",
+              "date": "2016-10-02",
+              "hhmm": "21:41"
+            }
+          }
+        ]
+      },
+      "phases": {
+        "hiding": {
+          "eligible_when": {
+            "const": true
+          },
+          "priority": 1,
+          "retain_when": {
+            "not": {
+              "all": [
+                {
+                  "cmp": "EQ",
+                  "ref": {
+                    "ref": "EVENT_PHASE",
+                    "instance": "$self"
+                  },
+                  "value": "hiding"
+                },
+                {
+                  "any": [
+                    {
+                      "time": "ELAPSED_SINCE_PHASE_GTE",
+                      "minutes": 30
+                    },
+                    {
+                      "not": {
+                        "cmp": "EQ",
+                        "ref": {
+                          "ref": "ACTOR_PLACE",
+                          "actor": "yd.npc.shin_changho"
+                        },
+                        "value": "감지해변"
+                      }
+                    }
+                  ]
+                }
+              ]
+            }
+          },
+          "guide": "추방자 신창호가 무너진 매점 안에서 금속 통 속 양초로 짐을 정리하다 배 긁히는 소리에 불을 껐다. 교역소 사람인지부터 의심한다. 위협받으면 소음 수칙을 잊고 소리를 지를 수 있다."
+        },
+        "leaving": {
+          "eligible_when": {
+            "any": [
+              {
+                "cmp": "EQ",
+                "ref": {
+                  "ref": "EVENT_PHASE",
+                  "instance": "$self"
+                },
+                "value": "leaving"
+              },
+              {
+                "all": [
+                  {
+                    "cmp": "EQ",
+                    "ref": {
+                      "ref": "EVENT_PHASE",
+                      "instance": "$self"
+                    },
+                    "value": "hiding"
+                  },
+                  {
+                    "any": [
+                      {
+                        "time": "ELAPSED_SINCE_PHASE_GTE",
+                        "minutes": 30
+                      },
+                      {
+                        "not": {
+                          "cmp": "EQ",
+                          "ref": {
+                            "ref": "ACTOR_PLACE",
+                            "actor": "yd.npc.shin_changho"
+                          },
+                          "value": "감지해변"
+                        }
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
+          },
+          "priority": 2,
+          "retain_when": {
+            "not": {
+              "all": [
+                {
+                  "cmp": "EQ",
+                  "ref": {
+                    "ref": "EVENT_PHASE",
+                    "instance": "$self"
+                  },
+                  "value": "leaving"
+                },
+                {
+                  "all": [
+                    {
+                      "cmp": "EQ",
+                      "ref": {
+                        "ref": "ACTOR_PLACE",
+                        "actor": "yd.npc.shin_changho"
+                      },
+                      "value": "동삼동 해안로"
+                    },
+                    {
+                      "not": {
+                        "cmp": "EQ",
+                        "ref": {
+                          "ref": "ACTOR_PLACE",
+                          "actor": "yd.npc.shin_changho"
+                        },
+                        "value_ref": {
+                          "ref": "SCENE_PLACE"
+                        }
+                      }
+                    }
+                  ]
+                }
+              ]
+            }
+          },
+          "guide": "신창호가 동삼동 해안로로 돌아간다."
+        },
+        "gone": {
+          "eligible_when": {
+            "any": [
+              {
+                "cmp": "EQ",
+                "ref": {
+                  "ref": "EVENT_PHASE",
+                  "instance": "$self"
+                },
+                "value": "gone"
+              },
+              {
+                "all": [
+                  {
+                    "cmp": "EQ",
+                    "ref": {
+                      "ref": "EVENT_PHASE",
+                      "instance": "$self"
+                    },
+                    "value": "leaving"
+                  },
+                  {
+                    "all": [
+                      {
+                        "cmp": "EQ",
+                        "ref": {
+                          "ref": "ACTOR_PLACE",
+                          "actor": "yd.npc.shin_changho"
+                        },
+                        "value": "동삼동 해안로"
+                      },
+                      {
+                        "not": {
+                          "cmp": "EQ",
+                          "ref": {
+                            "ref": "ACTOR_PLACE",
+                            "actor": "yd.npc.shin_changho"
+                          },
+                          "value_ref": {
+                            "ref": "SCENE_PLACE"
+                          }
+                        }
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
+          },
+          "priority": 3,
+          "terminal": true
+        }
+      },
+      "transition_cases": [
+        {
+          "case_id": "spawn",
+          "from": null,
+          "to": "hiding",
+          "steps": [
+            {
+              "step_id": "place",
+              "type": "SET_ACTOR_PLACEMENT",
+              "actor": "yd.npc.shin_changho",
+              "place": "감지해변"
+            }
+          ]
+        },
+        {
+          "case_id": "hiding.to.leaving",
+          "from": "hiding",
+          "to": "leaving",
+          "steps": [
+            {
+              "step_id": "go",
+              "type": "EMIT_SIGNAL",
+              "signal_id": "go",
+              "cue": "매점 쪽 어둠에서 모래를 밟는 낮은 소리가 해변 안쪽으로 멀어진다",
+              "interrupt_policy": "IF_OBSERVABLE",
+              "observable_when": {
+                "cmp": "EQ",
+                "ref": {
+                  "ref": "SCENE_PLACE"
+                },
+                "value": "감지해변"
+              }
+            },
+            {
+              "step_id": "leave",
+              "type": "START_MOVEMENT",
+              "actor": "yd.npc.shin_changho",
+              "destination": "동삼동 해안로",
+              "mode": "walk"
+            }
+          ]
+        },
+        {
+          "case_id": "leaving.to.gone",
+          "from": "leaving",
+          "to": "gone",
+          "steps": [
+            {
+              "step_id": "home",
+              "type": "CLEAR_ACTOR_PLACEMENT",
+              "actor": "yd.npc.shin_changho"
+            }
+          ]
+        }
+      ],
+      "repeat_policy": "ONCE_PER_SESSION",
+      "phase_selector": {
+        "mode": "PRIORITY",
+        "stability": "STICKY"
+      },
+      "resolve_when": {
+        "cmp": "EQ",
+        "ref": {
+          "ref": "EVENT_PHASE",
+          "instance": "$self"
+        },
+        "value": "gone"
+      },
+      "relevance_places": [
+        "감지해변"
+      ]
+    },
+    "yd_start_night_park_mirae": {
+      "version": 1,
+      "name": "꺼진 불빛",
+      "spawn_when": {
+        "all": [
+          {
+            "cmp": "EQ",
+            "ref": {
+              "ref": "SCENE_PLACE"
+            },
+            "value": "감지해변"
+          },
+          {
+            "cmp": "EQ",
+            "ref": {
+              "ref": "ACTOR_PLACE",
+              "actor": "yd.npc.park_mirae"
+            },
+            "value": "감지해변"
+          },
+          {
+            "not": {
+              "time": "AT_OR_AFTER_DATETIME",
+              "date": "2016-10-02",
+              "hhmm": "21:41"
+            }
+          }
+        ]
+      },
+      "phases": {
+        "hiding": {
+          "eligible_when": {
+            "const": true
+          },
+          "priority": 1,
+          "retain_when": {
+            "not": {
+              "all": [
+                {
+                  "cmp": "EQ",
+                  "ref": {
+                    "ref": "EVENT_PHASE",
+                    "instance": "$self"
+                  },
+                  "value": "hiding"
+                },
+                {
+                  "any": [
+                    {
+                      "time": "ELAPSED_SINCE_PHASE_GTE",
+                      "minutes": 30
+                    },
+                    {
+                      "not": {
+                        "cmp": "EQ",
+                        "ref": {
+                          "ref": "ACTOR_PLACE",
+                          "actor": "yd.npc.park_mirae"
+                        },
+                        "value": "감지해변"
+                      }
+                    }
+                  ]
+                }
+              ]
+            }
+          },
+          "guide": "채무 부랑자 박미래가 매점 안에서 금속 통 속 양초로 숨겨 둔 물건을 정리하다 배 긁히는 소리에 불을 껐다. 들키면 먼저 다정하게 말을 걸어 상대의 소지품과 처지를 살핀다."
+        },
+        "leaving": {
+          "eligible_when": {
+            "any": [
+              {
+                "cmp": "EQ",
+                "ref": {
+                  "ref": "EVENT_PHASE",
+                  "instance": "$self"
+                },
+                "value": "leaving"
+              },
+              {
+                "all": [
+                  {
+                    "cmp": "EQ",
+                    "ref": {
+                      "ref": "EVENT_PHASE",
+                      "instance": "$self"
+                    },
+                    "value": "hiding"
+                  },
+                  {
+                    "any": [
+                      {
+                        "time": "ELAPSED_SINCE_PHASE_GTE",
+                        "minutes": 30
+                      },
+                      {
+                        "not": {
+                          "cmp": "EQ",
+                          "ref": {
+                            "ref": "ACTOR_PLACE",
+                            "actor": "yd.npc.park_mirae"
+                          },
+                          "value": "감지해변"
+                        }
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
+          },
+          "priority": 2,
+          "retain_when": {
+            "not": {
+              "all": [
+                {
+                  "cmp": "EQ",
+                  "ref": {
+                    "ref": "EVENT_PHASE",
+                    "instance": "$self"
+                  },
+                  "value": "leaving"
+                },
+                {
+                  "all": [
+                    {
+                      "cmp": "EQ",
+                      "ref": {
+                        "ref": "ACTOR_PLACE",
+                        "actor": "yd.npc.park_mirae"
+                      },
+                      "value": "채무자 숙소"
+                    },
+                    {
+                      "not": {
+                        "cmp": "EQ",
+                        "ref": {
+                          "ref": "ACTOR_PLACE",
+                          "actor": "yd.npc.park_mirae"
+                        },
+                        "value_ref": {
+                          "ref": "SCENE_PLACE"
+                        }
+                      }
+                    }
+                  ]
+                }
+              ]
+            }
+          },
+          "guide": "박미래가 채무자 숙소로 돌아간다."
+        },
+        "gone": {
+          "eligible_when": {
+            "any": [
+              {
+                "cmp": "EQ",
+                "ref": {
+                  "ref": "EVENT_PHASE",
+                  "instance": "$self"
+                },
+                "value": "gone"
+              },
+              {
+                "all": [
+                  {
+                    "cmp": "EQ",
+                    "ref": {
+                      "ref": "EVENT_PHASE",
+                      "instance": "$self"
+                    },
+                    "value": "leaving"
+                  },
+                  {
+                    "all": [
+                      {
+                        "cmp": "EQ",
+                        "ref": {
+                          "ref": "ACTOR_PLACE",
+                          "actor": "yd.npc.park_mirae"
+                        },
+                        "value": "채무자 숙소"
+                      },
+                      {
+                        "not": {
+                          "cmp": "EQ",
+                          "ref": {
+                            "ref": "ACTOR_PLACE",
+                            "actor": "yd.npc.park_mirae"
+                          },
+                          "value_ref": {
+                            "ref": "SCENE_PLACE"
+                          }
+                        }
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
+          },
+          "priority": 3,
+          "terminal": true
+        }
+      },
+      "transition_cases": [
+        {
+          "case_id": "spawn",
+          "from": null,
+          "to": "hiding",
+          "steps": [
+            {
+              "step_id": "place",
+              "type": "SET_ACTOR_PLACEMENT",
+              "actor": "yd.npc.park_mirae",
+              "place": "감지해변"
+            }
+          ]
+        },
+        {
+          "case_id": "hiding.to.leaving",
+          "from": "hiding",
+          "to": "leaving",
+          "steps": [
+            {
+              "step_id": "go",
+              "type": "EMIT_SIGNAL",
+              "signal_id": "go",
+              "cue": "매점 쪽 어둠에서 모래를 밟는 낮은 소리가 해변 안쪽으로 멀어진다",
+              "interrupt_policy": "IF_OBSERVABLE",
+              "observable_when": {
+                "cmp": "EQ",
+                "ref": {
+                  "ref": "SCENE_PLACE"
+                },
+                "value": "감지해변"
+              }
+            },
+            {
+              "step_id": "leave",
+              "type": "START_MOVEMENT",
+              "actor": "yd.npc.park_mirae",
+              "destination": "채무자 숙소",
+              "mode": "walk"
+            }
+          ]
+        },
+        {
+          "case_id": "leaving.to.gone",
+          "from": "leaving",
+          "to": "gone",
+          "steps": [
+            {
+              "step_id": "home",
+              "type": "CLEAR_ACTOR_PLACEMENT",
+              "actor": "yd.npc.park_mirae"
             }
           ]
         }
@@ -40142,6 +43141,57 @@
       "소독약",
       "지혈대",
       "거즈"
+    ]
+  },
+  "status_places": {
+    "indoor": [
+      "해련사",
+      "해련사 배급소",
+      "방음실",
+      "조선소 내부",
+      "지하 의료소",
+      "흑색 작업장",
+      "거주 시설 하층부",
+      "상층부 거주구",
+      "지하 병참 창고",
+      "취사반",
+      "수습대 집결지",
+      "폐병원",
+      "은신처",
+      "전성남의 은신처",
+      "방파제 초소",
+      "강의동 병영",
+      "검역 연구소",
+      "격리 구역",
+      "군수 창고",
+      "도서관",
+      "실습 공장",
+      "장부방",
+      "채무자 숙소",
+      "경비조 대기소",
+      "해안 창고",
+      "봉래동 물류창고",
+      "상가 창고",
+      "자취방",
+      "반지하 셋방",
+      "옥탑방",
+      "빈 가정집",
+      "약국",
+      "분식집",
+      "철물점",
+      "구멍가게",
+      "세탁소",
+      "전당포",
+      "파출소",
+      "피시방",
+      "소방서",
+      "교회",
+      "교회 지하",
+      "폐교",
+      "지하 주차장",
+      "산불감시초소",
+      "의무실 대기실",
+      "아이들 방"
     ]
   }
 }

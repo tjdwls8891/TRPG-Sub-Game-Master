@@ -172,8 +172,8 @@ def test_genesis_places_pc_clock_npcs_and_no_unnarrated_signals(frame):
     assert w.domain("world_clock")["minute_index"] == ch.start_minute
     placed = {a: p for a, p in (w.domain("spatial_state")["placements"]).items() if a != PC}
     # v7.26: 정본 NPC 배치는 그 시작 틀 사건이 둔 인물뿐(시작 장소) — 나머지는 일과/미추적
-    start_npc = {"arrive_night": "yd.npc.baek_inha", "arrive_person": "yd.npc.jin_bokrye"}.get(frame)
-    assert placed == ({start_npc: SP.at_place(ch.start_place)} if start_npc else {})
+    start_npc = ch.npc                                                # v7.40: 시작마다 후보 중 세션 시드로 한 명
+    assert start_npc and placed == {start_npc: SP.at_place(ch.start_place)}
     from core import npc_position as NP
     srcs = {a: NP.effective_position(D, w, a)["source"] for a in D["actor_definitions"] if a != start_npc}
     assert sum(1 for a in D["actor_definitions"].values() if a.get("routine")) == 35      # 일과 저작 35 · 미저작 12

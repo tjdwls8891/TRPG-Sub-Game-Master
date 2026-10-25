@@ -86,12 +86,43 @@ async def test_initialize_world_saves_start_items_with_genesis(rig):
 
 # ── 영도 저작 ────────────────────────────────────────────────
 
-FRAMES = {   # 시작 틀 → (시작 장면 인물 사건, 인물, 첫 배치, 마지막 목적지)
-    "arrive_finding": ("yd_start_stash", "yd.npc.lee_seonhui", "동삼동 해안로", "중리 해변"),
-    "arrive_person": ("yd_start_haul", "yd.npc.jin_bokrye", "물양장", "해녀 작업장"),
-    "arrive_person_threat": ("yd_start_rinse", "yd.npc.ryu_gaeun", "영선동 방파제", "저지대 상업지구"),
-    "arrive_night": ("yd_start_candle", "yd.npc.baek_inha", "감지해변", "태종대 방면 숲"),
+CANDIDATES = {   # v7.40 시작 장면 인물 후보: (틀, 인물) → (사건, ActorId, 첫 배치, 마지막 목적지)
+    ("arrive_person", "진복례"): ("yd_start_haul", "yd.npc.jin_bokrye", "물양장", "해녀 작업장"),
+    ("arrive_person", "장철웅"): ("yd_start_person_jang_cheolung", "yd.npc.jang_cheolung", "물양장", "바리케이드 미로"),
+    ("arrive_person", "황민석"): ("yd_start_person_hwang_minseok", "yd.npc.hwang_minseok", "물양장", "중리 해변"),
+    ("arrive_person_threat", "류가은"): ("yd_start_rinse", "yd.npc.ryu_gaeun", "영선동 방파제", "저지대 상업지구"),
+    ("arrive_person_threat", "이준혁"): ("yd_start_person_threat_lee_junhyeok", "yd.npc.lee_junhyeok", "영선동 방파제",
+                                        "저지대 상업지구"),
+    ("arrive_person_threat", "최수연"): ("yd_start_person_threat_choi_suyeon", "yd.npc.choi_suyeon", "영선동 방파제",
+                                        "혁신지구 캠퍼스"),
+    ("arrive_plain", "장우진"): ("yd_start_plain_jang_ujin", "yd.npc.jang_ujin", "청학동 선착장", "하단 방어선 아래"),
+    ("arrive_plain", "장현수"): ("yd_start_plain_jang_hyeonsu", "yd.npc.jang_hyeonsu", "청학동 선착장", "채무자 숙소"),
+    ("arrive_plain", "박하은"): ("yd_start_plain_park_haeun", "yd.npc.park_haeun", "청학동 선착장", "하단 방어선 아래"),
+    ("arrive_finding", "이선희"): ("yd_start_stash", "yd.npc.lee_seonhui", "동삼동 갯가", "중리 해변"),
+    ("arrive_finding", "조한"): ("yd_start_finding_jo_han", "yd.npc.jo_han", "동삼동 갯가", "중리 해변"),
+    ("arrive_finding", "황민석"): ("yd_start_finding_hwang_minseok", "yd.npc.hwang_minseok", "동삼동 갯가", "중리 해변"),
+    ("arrive_night", "백인하"): ("yd_start_candle", "yd.npc.baek_inha", "감지해변", "태종대 방면 숲"),
+    ("arrive_night", "신창호"): ("yd_start_night_shin_changho", "yd.npc.shin_changho", "감지해변", "동삼동 해안로"),
+    ("arrive_night", "박미래"): ("yd_start_night_park_mirae", "yd.npc.park_mirae", "감지해변", "채무자 숙소"),
 }
+
+
+def _seed_for(frame, npc):
+    D, _ = Y._defn()
+    fr = next(f for f in D["initialization_definitions"]["start_frames"] if f["frame_id"] == frame)
+    return next(f"s{i}" for i in range(500)
+                if WL.pick_start_npc(fr["world_start"]["npc_choices"], f"s{i}", frame)["npc"] == npc)
+
+
+def genesis_with(frame, npc):
+    """그 후보가 뽑히는 세션 시드로 실제 초기화 경로를 탄다."""
+    D, _ = Y._defn()
+    seed = _seed_for(frame, npc)
+    ch, why = WL.resolve_start_choices(D, {"id": frame}, narrative_seed=seed)
+    assert ch is not None, why
+    plan = WL.build_initial_world_plan(D, Y._session(), ch, initialization_id=f"init-{frame}-{npc}", narrative_seed=seed)
+    assert plan.status == "READY", (plan.reason, plan.diagnostics[:5])
+    return plan.projected_world, ch
 
 
 def test_yeongdo_start_frames_use_only_existing_npcs_and_literal_starts():
@@ -105,24 +136,40 @@ def test_yeongdo_start_frames_use_only_existing_npcs_and_literal_starts():
         assert not any(str(v).startswith(("list:", "place:")) for v in fr["slots"].values())
         for it in fr["world_start"].get("items") or ():
             assert it.get("owner") is None or it["owner"] in names
-    for tid, actor, *_ in FRAMES.values():
+        rows = fr["world_start"]["npc_choices"]                       # v7.40: 모든 시작에 후보 셋
+        assert {(fr["id"], r["npc"]) for r in rows} == {k for k in CANDIDATES if k[0] == fr["id"]}
+        assert all(r.get("hidden") is True for r in rows) == (fr["id"] == "arrive_night")
+    for tid, actor, *_ in CANDIDATES.values():
         assert actor in D["actor_definitions"] and tid in D["event_templates"]
 
 
-@pytest.mark.parametrize("frame", sorted(FRAMES))
-def test_yeongdo_start_npc_appears_only_in_its_frame_then_walks_back_to_routine(frame):
-    tid, actor, first, dest = FRAMES[frame]
+def test_yeongdo_start_instructions_are_person_neutral():
+    raw = Y._raw()
+    for fr in raw["start_frames"]:
+        text = fr["instruction"]
+        assert "그녀" not in text and "여자" not in text, fr["id"]   # 인물 생김새·말투는 [장면 인물 상세]
+        assert "그 인물" in text, fr["id"]
+
+
+@pytest.mark.parametrize("key", sorted(CANDIDATES))
+def test_yeongdo_start_npc_appears_only_when_picked_then_walks_back_to_routine(key):
+    frame, npc = key
+    tid, actor, first, dest = CANDIDATES[key]
     D, _ = Y._defn()
-    w, ch = Y.genesis(frame)
+    w, ch = genesis_with(frame, npc)
+    assert ch.npc == actor
     assert SP.placement_of(w, actor) == SP.at_place(first)            # 시작 순간 그 자리(정본)
-    for other in FRAMES:                                               # 다른 시작에서는 생기지 않는다
-        if other != frame:
-            assert Y.lifecycle(Y.genesis(other)[0], tid) == "NONE"
+    for other, (otid, oactor, *_r) in CANDIDATES.items():             # 뽑히지 않은 후보·다른 시작의 사건은 생기지 않는다
+        if other[0] == frame and other != key:
+            assert SP.placement_of(w, oactor) is None or oactor == actor
     seen_transit, sigs = False, []
     for _ in range(40):
         p = Y.turn(w, Y.wait(15))
         w = Y.adopt(p)
         sigs += [s.get("cue") for s in Y.signals(p)]
+        for other, (otid, *_r) in CANDIDATES.items():
+            if otid != tid:
+                assert Y.lifecycle(w, otid) == "NONE", otid
         seen_transit |= (SP.placement_of(w, actor) or {}).get("kind") == SP.TRANSIT
         if Y.lifecycle(w, tid) != "ACTIVE":
             break
@@ -137,8 +184,8 @@ def test_yeongdo_start_npc_appears_only_in_its_frame_then_walks_back_to_routine(
 
 
 def test_yeongdo_start_npc_does_not_vanish_in_front_of_following_pc():
-    tid, actor, first, dest = FRAMES["arrive_person"]
-    w, _ = Y.genesis("arrive_person")
+    tid, actor, first, dest = CANDIDATES[("arrive_person", "진복례")]
+    w, _ = genesis_with("arrive_person", "진복례")
     w = Y.setup(w, dest)                                               # PC가 목적지(그녀가 돌아갈 곳)에 먼저 가 있다
     for _ in range(12):
         w = Y.adopt(Y.turn(w, Y.wait(15)))
@@ -174,6 +221,10 @@ def test_yeongdo_start_items_are_scene_objects_and_boats_cannot_be_pocketed():
                                    defs=defs, pc_name="테스터", transaction_id="t3"))
     assert s.resources["테스터"]["합성섬유 밧줄[타래]"] == 1                 # 열고 꺼낸 것만 소지 — 나머지는 그 자리
     assert "작업 장갑[켤레]〈손상〉" not in s.resources["테스터"]
-    night = IT.genesis_item_state(D, Y._session(), WL.resolve_start_choices(D, {"id": "arrive_night"})[0].items)
-    assert night["resources"]["백인하"]["양초"] == 1                   # 그 시작에서만 인물 소지(v7.38: 흰여울 제거)
+    night = IT.genesis_item_state(D, Y._session(), WL.resolve_start_choices(
+        D, {"id": "arrive_night"}, narrative_seed=_seed_for("arrive_night", "백인하"))[0].items)
+    assert night["resources"]["백인하"]["양초"] == 1                   # 뽑힌 시작 인물만 소지(v7.40 npc_choices.items)
+    other = IT.genesis_item_state(D, Y._session(), WL.resolve_start_choices(
+        D, {"id": "arrive_night"}, narrative_seed=_seed_for("arrive_night", "신창호"))[0].items)
+    assert other["resources"]["신창호"]["양초"] == 1 and "양초" not in (other["resources"].get("백인하") or {})
     assert "양초" not in (IT.genesis_item_state(D, Y._session())["resources"].get("백인하") or {})

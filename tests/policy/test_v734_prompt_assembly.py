@@ -34,6 +34,8 @@ async def ydyn(rig, monkeypatch):
     s.scenario_id, s.scenario_data = "영도", _raw("영도")
     s.npcs = {}
     s.players = {PLAYER_UID: {"name": "테스터", "profile": {"성별": "여", "이름": "테스터", "나이": "29", "직업": "어부"}}}
+    monkeypatch.setattr(WL, "pick_start_npc",                                  # v7.40 후보 중 진복례로 고정
+                        lambda rows, seed, fid: next((x for x in rows or () if x["npc"] == "진복례"), None))
     res = await WL.initialize_world(r.bot, s, {"id": "arrive_person"})          # 시작 장면 인물 = 진복례
     assert res.outcome == WL.INIT_OK, res.reason
     WL.apply_compat_view(s, {"id": "arrive_person"})

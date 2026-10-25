@@ -54,7 +54,42 @@
     "name": "저체온",
     "apply_condition": "장시간 차가운 환경 노출 또는 침수",
     "weight": -3,
-    "remove_condition": "따뜻한 환경 확보 및 체온 회복"
+    "remove_condition": "따뜻한 환경 확보 및 체온 회복",
+    "rules": {
+      "apply_gate": {
+        "not": {
+          "place_group": "indoor"
+        }
+      },
+      "clear_auto": {
+        "all": [
+          {
+            "place_group": "indoor"
+          },
+          {
+            "activity_in": [
+              "SLEEP",
+              "WAIT"
+            ],
+            "min_minutes": 30
+          }
+        ]
+      },
+      "clear_gate": {
+        "all": [
+          {
+            "place_group": "indoor"
+          },
+          {
+            "activity_in": [
+              "SLEEP",
+              "WAIT"
+            ],
+            "min_minutes": 30
+          }
+        ]
+      }
+    }
   },
   {
     "name": "지침",

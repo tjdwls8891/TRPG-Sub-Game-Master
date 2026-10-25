@@ -17,6 +17,7 @@
 #     {"consumed": g}            이번 턴 그 묶음 물건 CONSUME
 #     {"used": g}                이번 턴 그 묶음 물건 USE 또는 CONSUME
 #     {"place_within": PlaceId}  장면 장소가 그곳이거나 그 아래
+#     {"place_group": g}         장면 장소나 그 상위가 시나리오 `status_places[g]` 목록에 있음(v7.40 — 미선언 묶음은 모름)
 #     {"daypart_in": [시간대…]}  현재 시간대
 #     {"activity_in": [활동…], "min_minutes": n?}   이번 턴 활동(SLEEP·WAIT·TREAT…)과 그 턴의 경과 분
 #     {"status_active": s}       그 상태가 지금 붙어 있음
@@ -43,6 +44,7 @@ class Ctx:
     turn_minutes: int = 0
     place: str | None = None
     place_chain: tuple = ()                   # 장면 장소와 그 상위(계층)
+    place_groups: dict = field(default_factory=dict)   # 시나리오 status_places {묶음: {장소…}}
     daypart: str | None = None
     activity: str | None = None
     consumed: frozenset = frozenset()         # 이번 턴 CONSUME한 묶음
@@ -92,6 +94,9 @@ def evaluate(cond, ctx: Ctx, status: str) -> str:
         return _b(cond["used"] in ctx.used)
     if "place_within" in cond:
         return UNKNOWN if ctx.place is None else _b(cond["place_within"] in ctx.place_chain)
+    if "place_group" in cond:
+        members = ctx.place_groups.get(cond["place_group"])
+        return UNKNOWN if ctx.place is None or members is None else _b(bool(members & set(ctx.place_chain)))
     if "daypart_in" in cond:
         return UNKNOWN if ctx.daypart is None else _b(ctx.daypart in (cond["daypart_in"] or ()))
     if "activity_in" in cond:
@@ -102,8 +107,8 @@ def evaluate(cond, ctx: Ctx, status: str) -> str:
     return UNKNOWN
 
 
-def check_condition(cond, *, groups=(), statuses=(), path="") -> list:
-    """저작 검사 — 오류 문구 목록. groups=None이면 섭취 묶음 참조는 검사하지 않는다."""
+def check_condition(cond, *, groups=(), statuses=(), path="", place_groups=None) -> list:
+    """저작 검사 — 오류 문구 목록. groups=None이면 섭취 묶음 참조는, place_groups=None이면 장소 묶음 참조는 검사하지 않는다."""
     errs = []
     if not isinstance(cond, dict) or len(cond) == 0:
         return [f"{path}: 조건은 객체여야 합니다"]
@@ -112,10 +117,12 @@ def check_condition(cond, *, groups=(), statuses=(), path="") -> list:
         if not isinstance(cond[key], list) or not cond[key]:
             return [f"{path}.{key}: 비어 있지 않은 목록이어야 합니다"]
         for i, c in enumerate(cond[key]):
-            errs += check_condition(c, groups=groups, statuses=statuses, path=f"{path}.{key}[{i}]")
+            errs += check_condition(c, groups=groups, statuses=statuses, path=f"{path}.{key}[{i}]",
+                                    place_groups=place_groups)
         return errs
     if "not" in cond:
-        return check_condition(cond["not"], groups=groups, statuses=statuses, path=f"{path}.not")
+        return check_condition(cond["not"], groups=groups, statuses=statuses, path=f"{path}.not",
+                               place_groups=place_groups)
     if "const" in cond:
         return [] if isinstance(cond["const"], bool) else [f"{path}.const: true/false"]
     if "status_time" in cond:
@@ -137,6 +144,12 @@ def check_condition(cond, *, groups=(), statuses=(), path="") -> list:
         return [] if cond["status_active"] in statuses else [f"{path}: 알 수 없는 상태 {cond['status_active']!r}"]
     if "place_within" in cond:
         return [] if isinstance(cond["place_within"], str) else [f"{path}: place_within은 장소 이름"]
+    if "place_group" in cond:
+        g = cond["place_group"]
+        if not isinstance(g, str):
+            return [f"{path}: place_group은 묶음 이름"]
+        ok = place_groups is None or g in place_groups
+        return [] if ok else [f"{path}: 정의되지 않은 장소 묶음 {g!r}(status_places)"]
     for key in ("daypart_in", "activity_in"):
         if key in cond:
             v = cond[key]
@@ -154,6 +167,11 @@ def groups_of(scenario_data) -> dict:
     return {k: [str(w) for w in v] for k, v in g.items() if isinstance(v, list)} if isinstance(g, dict) else {}
 
 
+def place_groups_of(scenario_data) -> dict:
+    g = (scenario_data or {}).get("status_places")
+    return {k: {str(x) for x in v} for k, v in g.items() if isinstance(v, list)} if isinstance(g, dict) else {}
+
+
 def groups_for_kind(kind: str, groups: dict) -> set:
     """물건 종류 → 묶음(종류의 낱말 하나가 목록 낱말과 같을 때)."""
     words = set(str(kind or "").split())
@@ -168,6 +186,12 @@ def check_definitions(scenario_data, merged: dict) -> list:
     if raw is not None and (not isinstance(raw, dict) or any(
             not isinstance(v, list) or not all(isinstance(w, str) and w.strip() for w in v) for v in raw.values())):
         out.append(("STATUS_INTAKE_GROUPS", "intake_groups는 {묶음: [낱말…]}"))
+    raw_p = (scenario_data or {}).get("status_places")
+    pgroups = place_groups_of(scenario_data) if raw_p is not None else None   # 미저작 = 장소 묶음 조건은 모름
+    places = (scenario_data or {}).get("places") or {}
+    if raw_p is not None and (not isinstance(raw_p, dict) or any(
+            not isinstance(v, list) or not all(isinstance(x, str) and x in places for x in v) for v in raw_p.values())):
+        out.append(("STATUS_PLACES", "status_places는 {묶음: [실재 장소…]}"))
     names = set(merged)
     for name, eff in merged.items():
         rules = eff.get("rules")
@@ -177,7 +201,7 @@ def check_definitions(scenario_data, merged: dict) -> list:
             else:
                 for k, c in rules.items():
                     out += [("STATUS_RULES", f"{name}: {e}")
-                            for e in check_condition(c, groups=groups, statuses=names, path=k)]
+                            for e in check_condition(c, groups=groups, statuses=names, path=k, place_groups=pgroups)]
         for other in eff.get("excludes") or ():
             if other not in names:
                 out.append(("STATUS_EXCLUDES", f"{name}: 알 수 없는 배타 상태 {other!r}"))
@@ -318,7 +342,7 @@ def resolve_turn(session, prep) -> list:
     consumed, used = _turn_groups(getattr(plan, "item_plan", None), groups)
     store = getattr(session, "status_clock", None) or {}
     ctx = Ctx(now=now, start_minute=facts["start"], turn_minutes=max(0, now - before),
-              place=place, place_chain=_place_chain(sd, place), daypart=facts["daypart"], activity=facts["activity"],
+              place=place, place_chain=_place_chain(sd, place), place_groups=place_groups_of(sd), daypart=facts["daypart"], activity=facts["activity"],
               consumed=consumed, used=used, active=frozenset((session.statuses or {}).get(pc_name) or ()),
               clock=copy.deepcopy(store.get(pc_name) or {}))
     mine = lambda e: e.get("target") == pc_name  # noqa: E731

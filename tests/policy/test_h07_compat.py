@@ -63,7 +63,8 @@ def test_definition_without_h07_optional_keys_stays_valid_at_runtime():
     plan = WL.build_initial_world_plan(D, s, ch, initialization_id="init-old", narrative_seed="seed")
     assert plan.status == "READY"
     w = plan.projected_world
-    assert all(NP.effective_position(D, w, a)["source"] == NP.UNTRACKED for a in D["actor_definitions"])
+    assert all(NP.effective_position(D, w, a)["source"] == NP.UNTRACKED for a in D["actor_definitions"]
+               if a != ch.npc)                                          # v7.40: 시작 장면 인물만 정본 배치
     assert PD.display_name(D, {"places": {"남항 중공업 연대": {"knows_name": False}}}, "남항 중공업 연대") \
         == "남항 중공업 연대"                                            # unknown_name 없음 = 공개 지명
 
