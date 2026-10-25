@@ -119,8 +119,8 @@ def test_persona_render_layers():
     assert "「줄 쪽으로 오지 마라" in extra and "균열" in extra and "지금:" not in extra
     legacy = "\n".join(npc_field_lines(tmpl, data, part=NPC_PART_ALL))
     assert "지금: 목표 — 떠밀려 온 거룻배" in legacy                            # LEGACY는 기본 '지금'
-    old = "\n".join(npc_field_lines(tmpl, YD["default_npcs"]["강철수"], part=NPC_PART_EXTRA))
-    assert "행동 방식" in old                                                  # persona 없는 인물은 옛 렌더
+    plain = {"name": "옛 인물", "행동 방식": "벽에 붙어 걷는다"}          # persona 없는 인물은 옛 렌더
+    assert "행동 방식: 벽에 붙어 걷는다" in "\n".join(npc_field_lines(tmpl, plain, part=NPC_PART_EXTRA))
 
 
 def test_persona_now_switches_by_date(ydyn):

@@ -195,7 +195,10 @@ def test_genesis_npc_own_secret_cognition():
     w, _ = genesis()
     D, _ = _defn()
     cog = w.domain("cognition_state")
-    for aid, a in D["actor_definitions"].items():
+    # v7.39 인물 개편(사용자 결정): 비밀이 없는 인물도 있다 — 비밀이 있는 인물만 자기 비밀을 안다
+    secret_holders = {aid: a for aid, a in D["actor_definitions"].items() if a.get("secret_info_id")}
+    assert 0 < len(secret_holders) < len(D["actor_definitions"])
+    for aid, a in secret_holders.items():
         assert cog[f"actor:{aid}"][a["secret_info_id"]]["awareness"] == "CONTENT"
 
 
