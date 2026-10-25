@@ -67,8 +67,8 @@ async def test_dynamic_cache_drops_auto_event_sections_status_weights_and_npc_ex
     assert "1. 서사 주도권" in sg and "6. 서사 종결" in sg and "동적 세계 세션" in sg
     assert "판정 가중치" not in text                                           # A3
     npc = text[text.index("[3. NPC 사전"):text.index("[4. 게임 스탯")]
-    assert "말투·어조:" in npc and "외모:" in npc and "핵심 기질:" in npc       # 고정(정체·인상)
-    for extra in ("비밀:", "동기·욕구:", "행동 방식:", "스탯:"):
+    assert "외모:" in npc and "첫인상:" in npc                                  # 고정(정체·인상 — v7.39 persona 겉)
+    for extra in ("비밀:", "동기·욕구:", "행동 방식:", "스탯:", "대사 견본", "균열"):
         assert extra not in npc, extra                                         # 추가 설정은 캐시에 없다
     assert "[장면 인물 상세]" in npc                                           # 어디서 오는지 안내
 
