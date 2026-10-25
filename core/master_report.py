@@ -407,6 +407,21 @@ def item_change_lines(pre: dict, post: dict) -> list:
     return out
 
 
+def relation_lines(D, pre, post) -> list:
+    """v7.39 인물 → PC 관계 변화 한 줄씩(마스터 전용 — 플레이어에게는 보이지 않는다): 신뢰 합·단계 전환·새 기억."""
+    from . import turn_world as _tw              # H05 경계: 관계 해석은 turn_world가 한다
+    out = []
+    for npc, s0, s1 in _tw.relation_changes(D, pre.get("relationship_state"), post.get("relationship_state")):
+        line = f"관계 {_actor(D, post, npc)} → PC: 신뢰 {s0['trust']:+d} → {s1['trust']:+d}"
+        if s0["stage"] != s1["stage"]:
+            line += f" · {_tw.STAGE_LABELS[s0['stage']]} → {_tw.STAGE_LABELS[s1['stage']]}"
+        new_mem = [m for m in s1["memories"] if m not in s0["memories"]]
+        if new_mem:
+            line += " · 기억: " + " / ".join(new_mem)
+        out.append(line)
+    return out
+
+
 def delta_sections(session, record, prep=None) -> tuple:
     """(섹션 목록, 비밀 수) — 이력 레코드의 pre/post 정본 차이."""
     pre, post = (record or {}).get("pre") or {}, (record or {}).get("post") or {}
@@ -454,7 +469,8 @@ def delta_sections(session, record, prep=None) -> tuple:
     if new_met:
         actor_lines.append("처음 만남 " + "·".join(map(str, new_met)))
     if pre.get("relationship_state") != post.get("relationship_state"):
-        actor_lines.append("관계 변화 " + _j(_diff(pre.get("relationship_state"), post.get("relationship_state"))))
+        actor_lines += relation_lines(D, pre, post) or [
+            "관계 변화 " + _j(_diff(pre.get("relationship_state"), post.get("relationship_state")))]
     if place_lines:
         secs.append(("📍 장소", place_lines))
     if actor_lines:

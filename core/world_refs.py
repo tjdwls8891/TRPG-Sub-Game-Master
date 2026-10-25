@@ -33,6 +33,7 @@ REF_TYPES = (
     "ACTOR_PLACE", "ACTOR_PLACEMENT_KIND", "ACTOR_POSITION_SOURCE", "ACCESS_STATE", "INFO_VALIDITY",
     "COGNITION_AWARENESS", "COGNITION_BELIEF",
     "EVENT_LIFECYCLE", "EVENT_PHASE", "EVENT_LOCAL", "ROUTE_KNOWN_EXISTS",
+    "RELATION_STAGE",
 )
 _PARAMS = {
     "CLOCK_MINUTE": ((), ()),
@@ -53,6 +54,7 @@ _PARAMS = {
     "EVENT_PHASE": (("instance",), ()),
     "EVENT_LOCAL": (("key",), ("instance", "template")),        # H07: template = 그 템플릿의 최신 인스턴스
     "ROUTE_KNOWN_EXISTS": (("actor", "to", "mode"), ("from",)),
+    "RELATION_STAGE": (("actor",), ()),          # v7.39: 그 인물이 세션 PC를 대하는 관계 단계(stranger·known·trusted·hostile)
 }
 SLOT_PREFIX = "$slot:"
 SELF = "$self"
@@ -320,6 +322,16 @@ def _r_route(ctx, actor, to, mode, **kw):
     return known(plan.status in (_mv.ROUTE_OK, _mv.SAME_PLACE))
 
 
+def _r_relation(ctx, actor):
+    from . import relationships as _rel
+    pc = session_pc_actor(ctx.world)
+    if not pc or not actor:
+        return UNKNOWN
+    adef = ((ctx.definition.get("actor_definitions") or {}).get(actor) or {})
+    init = (((adef.get("profile_base") or {}).get("persona") or {}).get("initial_trust")) or 0
+    return known(_rel.trust_state(ctx.world, actor, pc, init)["stage"])
+
+
 _RESOLVERS = {
     "CLOCK_MINUTE": _r_clock, "SCENE_PLACE": _r_scene, "OBSERVER_ACTIVITY": _r_activity,
     "OBSERVER_HAS_ITEM": _r_has_item, "OBSERVER_STAT": _r_stat,
@@ -328,7 +340,7 @@ _RESOLVERS = {
     "ACCESS_STATE": _r_access, "INFO_VALIDITY": _r_info_validity,
     "COGNITION_AWARENESS": _r_awareness, "COGNITION_BELIEF": _r_belief,
     "EVENT_LIFECYCLE": _r_lifecycle, "EVENT_PHASE": _r_phase, "EVENT_LOCAL": _r_local,
-    "ROUTE_KNOWN_EXISTS": _r_route,
+    "ROUTE_KNOWN_EXISTS": _r_route, "RELATION_STAGE": _r_relation,
 }
 
 
@@ -371,6 +383,8 @@ def dependency_keys(ref: dict) -> list:
         return [f"event:*:local:{ref.get('key')}"]
     if t == "ROUTE_KNOWN_EXISTS":
         return [f"actor:{a('actor')}:placement", f"knowledge:{a('actor')}:spatial"]
+    if t == "RELATION_STAGE":
+        return [f"relationship:actor:{a('actor')}->actor:{SESSION_PC}"]
     if t == "OBSERVER_ACTIVITY":
         return [OBSERVER_ACTIVITY_KEY]
     if t == "OBSERVER_HAS_ITEM":

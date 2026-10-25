@@ -182,6 +182,45 @@ def _is_fixed_field(name: str) -> bool:
     return any(w in str(name) for w in NPC_FIXED_FIELD_WORDS)
 
 
+_PERSONA_CORE_LABELS = (("value", "가치"), ("crack", "균열(겉과 어긋나는 면)"), ("fear", "두려움·약점"),
+                        ("ties", "믿고 기대는 것"), ("rivals", "경계·반목"))
+
+
+def persona_lines(persona, part: str) -> list:
+    """v7.39 인물 persona 렌더 — fixed: 첫인상 · extra: 말하는 방식·대사 견본·속 기준 · all(LEGACY): 둘 다 + 기본 '지금'.
+
+    관계 단계별 태도·조건부 '지금'·PC 기억은 동적 세계 장면 블록(turn_world)이 정본 기준으로 고른다."""
+    if not isinstance(persona, dict):
+        return []
+    sur, core = persona.get("surface") or {}, persona.get("core") or {}
+    out = []
+    if part in (NPC_PART_FIXED, NPC_PART_ALL) and sur.get("impression"):
+        out.append(f"  첫인상: {sur['impression']}")
+    if part == NPC_PART_FIXED:
+        return out
+    if sur.get("voice"):
+        out.append(f"  말하는 방식: {sur['voice']}")
+    if sur.get("lines"):
+        out.append("  대사 견본(말투 기준 — 그대로 반복하지 말 것): " + " / ".join(f"「{x}」" for x in sur["lines"]))
+    for k, label in _PERSONA_CORE_LABELS:
+        if core.get(k):
+            out.append(f"  {label}: {core[k]}")
+    if part == NPC_PART_ALL:
+        base = next((r for r in persona.get("now") or () if isinstance(r, dict) and "when" not in r), None)
+        if base:
+            out.append("  지금: " + now_text(base))
+    return out
+
+
+def now_text(row: dict) -> str:
+    bits = [f"목표 — {row['goal']}"]
+    if row.get("worry"):
+        bits.append(f"걱정 — {row['worry']}")
+    if row.get("body"):
+        bits.append(f"몸 — {row['body']}")
+    return " · ".join(bits)
+
+
 def npc_field_lines(npc_template, npc_data: dict, *, part: str = NPC_PART_ALL, bound: bool = False) -> list:
     """NPC 사전 한 인물의 렌더 줄(저작 info_fields 순서 → 스탯 → 기본 자원 → 기본 상태).
 
@@ -193,6 +232,7 @@ def npc_field_lines(npc_template, npc_data: dict, *, part: str = NPC_PART_ALL, b
         val = npc_data.get(f, "")
         if val and take(_is_fixed_field(f)):
             lines.append(f"  {f}: {val}")
+    lines += persona_lines(npc_data.get("persona"), part)
     if part == NPC_PART_FIXED:
         return lines
     # NOTE: has_stats / has_resources / has_statuses 플래그에 따라 NPC 기본값을 넣는다. 런타임 변경분은

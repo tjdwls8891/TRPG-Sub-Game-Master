@@ -1294,6 +1294,82 @@ _EFFECT_STEP_TYPES = ("SET_ACCESS_STATE", "SET_ACTOR_PLACEMENT", "CLEAR_ACTOR_PL
                       "APPEND_RELATIONSHIP_DELTA", "SET_EVENT_LOCAL", "EMIT_SIGNAL")
 
 
+PERSONA_KEYS = ("surface", "core", "stances", "now", "initial_trust")
+PERSONA_SURFACE = ("impression", "voice", "lines")
+PERSONA_CORE = ("value", "crack", "fear", "ties", "rivals")
+PERSONA_STANCES = ("stranger", "known", "trusted", "hostile")
+PERSONA_NOW = ("when", "goal", "worry", "body")
+PERSONA_REQUIRED = {"surface": ("impression", "voice", "lines"), "core": ("value",), "stances": ("stranger",)}
+
+
+PERSONA_LIMITS = {"impression": 60, "voice": 80, "lines": 50, "core": 80, "stances": 100, "now": 60}
+
+
+def _persona_texts(p, ps):
+    sur = p.get("surface") if isinstance(p.get("surface"), dict) else {}
+    for k in ("impression", "voice"):
+        if isinstance(sur.get(k), str):
+            yield f"{ps}.surface.{k}", sur[k], PERSONA_LIMITS[k]
+    for i, x in enumerate(sur.get("lines") or () if isinstance(sur.get("lines"), list) else ()):
+        if isinstance(x, str):
+            yield f"{ps}.surface.lines[{i}]", x, PERSONA_LIMITS["lines"]
+    for sec in ("core", "stances"):
+        for k, x in (p.get(sec) or {}).items() if isinstance(p.get(sec), dict) else ():
+            if isinstance(x, str):
+                yield f"{ps}.{sec}.{k}", x, PERSONA_LIMITS[sec]
+    for i, r in enumerate(p.get("now") or () if isinstance(p.get("now"), list) else ()):
+        for k in ("goal", "worry", "body"):
+            if isinstance(r, dict) and isinstance(r.get(k), str):
+                yield f"{ps}.now[{i}].{k}", r[k], PERSONA_LIMITS["now"]
+
+
+def _compile_personas(raw, scope, d):
+    """v7.39 인물 persona(겉·속·관계별 태도·지금) 검증. 값은 profile_base에 그대로 실린다(별도 저장 없음).
+
+    필수는 겉 3항목·가치·낯선 사람 태도·기본 '지금'(when 없는 항목)뿐이다 — 균열·두려움·비밀·적대 태도는 선택
+    (모든 인물에 어두운 면을 강제하지 않는다 · 사용자 지시)."""
+    for key, prof in ((raw.get("default_npcs") or {}) if isinstance(raw.get("default_npcs"), dict) else {}).items():
+        if not isinstance(prof, dict) or "persona" not in prof:
+            continue
+        p, ps = prof["persona"], f"default_npcs.{key}.persona"
+        if not isinstance(p, dict) or set(p) - set(PERSONA_KEYS):
+            d.add(ERROR, "PERSONA_INVALID", ps, f"persona 키는 {list(PERSONA_KEYS)}")
+            continue
+        for sec, allowed in (("surface", PERSONA_SURFACE), ("core", PERSONA_CORE), ("stances", PERSONA_STANCES)):
+            v = p.get(sec)
+            if not isinstance(v, dict) or set(v) - set(allowed) \
+                    or any(r not in v for r in PERSONA_REQUIRED[sec]):
+                d.add(ERROR, "PERSONA_INVALID", f"{ps}.{sec}",
+                      f"{sec}은 {list(allowed)} 중 키(필수 {list(PERSONA_REQUIRED[sec])})")
+                continue
+            for k, x in v.items():
+                ok = (isinstance(x, list) and 1 <= len(x) <= 5 and all(isinstance(t, str) and t.strip() for t in x)) \
+                    if k == "lines" else (isinstance(x, str) and x.strip())
+                if not ok:
+                    d.add(ERROR, "PERSONA_INVALID", f"{ps}.{sec}.{k}",
+                          "lines는 문자열 1~5개, 나머지는 비어 있지 않은 문자열")
+        now = p.get("now")
+        if not isinstance(now, list) or not now or not any(isinstance(r, dict) and "when" not in r for r in now):
+            d.add(ERROR, "PERSONA_NOW_INVALID", f"{ps}.now", "now는 목록이고 when 없는 기본 항목이 하나 있어야 합니다")
+        else:
+            for i, r in enumerate(now):
+                rp = f"{ps}.now[{i}]"
+                if not isinstance(r, dict) or set(r) - set(PERSONA_NOW) or not isinstance(r.get("goal"), str) \
+                        or not r["goal"].strip():
+                    d.add(ERROR, "PERSONA_NOW_INVALID", rp, f"항목 키는 {list(PERSONA_NOW)}(goal 필수)")
+                elif "when" in r:
+                    if not scope.has_calendar:      # 정량 시간 없는(LEGACY) 정의 — 조건부 '지금'은 쓰이지 않는다
+                        d.add(WARNING, "PERSONA_WHEN_UNUSED", f"{rp}.when", "달력 없는 정의에서는 조건부 '지금'을 쓰지 않습니다")
+                    else:
+                        _pred_check(r["when"], scope, f"{rp}.when", d, phase_time=False)
+        for path_, text, limit in _persona_texts(p, ps):
+            if len(text) > limit:
+                d.add(WARNING, "PERSONA_LONG", path_, f"{len(text)}자 — 권장 {limit}자 이내(자르지 않습니다)")
+        it = p.get("initial_trust", 0)
+        if not isinstance(it, int) or isinstance(it, bool) or not -2 <= it <= 2:
+            d.add(ERROR, "PERSONA_INVALID", f"{ps}.initial_trust", "initial_trust는 −2~+2 정수")
+
+
 def _pred_check(pred, scope, path, d, *, phase_time):
     from . import predicates as _pr
     errs = _pr.validate(pred, scope, path, allow_phase_time=phase_time)
@@ -2478,6 +2554,8 @@ def compile_scenario(raw: dict, scenario_id: str, quests: dict | None = None) ->
     _compile_initial_knowledge(raw, infos, init, d)
     _check_item_info_refs(items, infos, d)
     series = _compile_info_series(raw, _ref_scope(actors, places, infos, access, modes, calendar=calendar), d)
+    _compile_personas(raw, _ref_scope(actors, places, infos, access, modes, calendar=calendar,
+                                                    templates=(raw.get("event_templates") or {}).keys()), d)
     event_tpls = _compile_event_templates(raw, cap["capabilities"], actors, actor_index, places, infos, access,
                                           modes, edges, calendar, d)
 

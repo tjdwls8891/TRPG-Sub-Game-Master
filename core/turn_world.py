@@ -24,6 +24,7 @@ from . import cognition as _cog
 from . import information as _info
 from . import player_world as _pw
 from . import place_display as _pd
+from . import relationships as _rel
 from . import spatial as _sp
 from . import world_clock as _clock
 from . import world_mutation as _wm
@@ -789,6 +790,86 @@ MARKER_NAME_RULE = ("※ 이 목록 인물의 대사 마커(@대사:이름|)는 
                     "이름 없는 인물의 마커는 짧은 호칭(예: 경비)으로 쓴다.")
 
 
+RELATION_STANCE_RULE = ("PC를 대하는 지금 태도(관계 정본에서 코드가 고름 — 단계 이름·수치를 본문에 쓰지 말고 행동으로만 드러낸다)")
+
+
+def _persona_now(session, definition, persona) -> dict | None:
+    """조건이 참인 첫 '지금' 항목(없으면 when 없는 기본). 조건은 사건과 같은 3값 조건식 — TRUE일 때만."""
+    from . import predicates as _pred
+    from . import world_refs as _refs
+    rows = [r for r in (persona or {}).get("now") or () if isinstance(r, dict)]
+    for r in rows:
+        if "when" in r and definition is not None:
+            try:
+                if _pred.evaluate(r["when"], _refs.EvalContext(definition, session)) == _pred.TRUE:
+                    return r
+            except Exception:  # noqa: BLE001 — 평가 불가 = 해당 없음
+                continue
+    return next((r for r in rows if "when" not in r), None)
+
+
+def persona_runtime_lines(session, actor_id, persona) -> list:
+    """v7.39 동적 세계 장면 인물 — 관계 단계별 태도 한 줄 · 지금 · 이 인물이 기억하는 PC 일 최근 3건."""
+    from . import world_refs as _refs
+    from .cache import now_text
+    if not isinstance(persona, dict) or not actor_id:
+        return []
+    pc = _refs.session_pc_actor(session)
+    if not pc:
+        return []
+    st = _rel.trust_state(session, actor_id, pc, persona.get("initial_trust") or 0)
+    stances = persona.get("stances") or {}
+    out = []
+    stance = stances.get(st["stage"]) or stances.get("known" if st["stage"] != "stranger" else "stranger")
+    if stance:
+        out.append(f"  {RELATION_STANCE_RULE}: {stance}")
+    rev = getattr(session, "definition_revision", None)
+    row = _persona_now(session, _pw.load_definition(session, rev) if rev else None, persona)
+    if row:
+        out.append("  지금: " + now_text(row))
+    if st["memories"]:
+        out.append("  이 인물이 기억하는 PC와의 일(최근순): " + " / ".join(reversed(st["memories"][-3:])))
+    return out
+
+
+STAGE_LABELS = _rel.STAGE_LABELS
+
+
+def relation_changes(definition, before, after) -> list:
+    """관계 정본 두 시점(relationship_state) → [(NPC ActorId, 이전 상태, 이후 상태)] — 인물 → PC 방향만(순수)."""
+    from types import SimpleNamespace
+    a, b = before or {}, after or {}
+    out = []
+    for key in sorted(b):
+        if a.get(key) == b.get(key):
+            continue
+        rel = b[key] or {}
+        frm, to = str(rel.get("from_holder") or ""), str(rel.get("to_holder") or "")
+        if not (frm.startswith("actor:") and to.startswith("actor:")):
+            continue
+        npc, pc = frm[6:], to[6:]
+        persona = ((((definition or {}).get("actor_definitions") or {}).get(npc) or {}).get("profile_base")
+                   or {}).get("persona") or {}
+        init = persona.get("initial_trust") or 0
+        out.append((npc, _rel.trust_state(SimpleNamespace(relationship_state=a), npc, pc, init),
+                    _rel.trust_state(SimpleNamespace(relationship_state=b), npc, pc, init)))
+    return out
+
+
+def relation_judgment_block(ctx, plan, session) -> str:
+    """v7.39(결정 N3): 판단층위 — 장면 인물이 PC를 대하는 관계 단계(설득·거래·부탁 판정의 상황 보정 근거)."""
+    _scene, projs = scene_npc_projections(ctx, plan, session)
+    rows = []
+    for p in projs:
+        persona = (p.get("authored_profile") or {}).get("persona") or {}
+        st = _rel.trust_state(session, p["actor_id"], ctx.lead_pc, persona.get("initial_trust") or 0)
+        rows.append(f"- {p['display_name']}: {_rel.STAGE_LABELS[st['stage']]}")
+    if not rows:
+        return ""
+    return ("[장면 인물이 PC를 대하는 관계 — 설득·거래·부탁 같은 사회적 판정의 상황 보정(H) 근거. "
+            "단계 이름을 플레이어에게 말하지 말 것]\n" + "\n".join(rows))
+
+
 def scene_npc_detail_block(projs, session) -> str:
     """v7.34(사용자 결정 4): 정본상 현재 장면에 있는 인물(동행 포함 — 동행은 PC와 같은 자리로 움직인다)의 추가 설정.
 
@@ -803,6 +884,7 @@ def scene_npc_detail_block(projs, session) -> str:
         if not isinstance(data, dict):
             continue
         rows = npc_field_lines(tmpl, data, part=NPC_PART_EXTRA, bound=True)
+        rows += persona_runtime_lines(session, p.get("actor_id"), data.get("persona"))
         if rows:
             out.append(f"- {p.get('legacy_name')}:\n" + "\n".join(rows))
     if not out:
@@ -1239,6 +1321,7 @@ class ObservationManifest:
     ties: tuple = ()              # (O키, 설명)
     extra_time_allowed: bool = True
     discoveries: tuple = ()       # v7.14 (D키, info_id, 대상명, 종류) — 현재 장소 유효 발견 + DNEW(이번 턴)
+    npcs: tuple = ()              # v7.39 (N키, ActorId, 이름) — 장면 인물(PC와의 반응 보고 대상)
 
     def schema(self) -> dict:
         def enum(rows):
@@ -1252,7 +1335,10 @@ class ObservationManifest:
                     "represented_signals": {"type": "array", "items": enum(self.signals)},
                     **({"discovery_taken": {"type": "array", "items": enum(self.discoveries)},
                         "discovery_gone": {"type": "array", "items": enum(self.discoveries)}}
-                       if self.discoveries else {})}}
+                       if self.discoveries else {}),
+                    **({"npc_reactions": {"type": "array", "items": {"type": "object", "properties": {
+                        "actor": enum(self.npcs), "trust": {"type": "integer"}, "memory": {"type": "string"}},
+                        "required": ["actor", "trust"]}}} if self.npcs else {})}}
 
     def render(self) -> str:
         lines = ["\n[세계 관찰 — world_observation]"]
@@ -1269,6 +1355,14 @@ class ObservationManifest:
                          "그 자리에서 사라진 것만 discovery_gone에(보기만 했거나 그대로 둔 것은 넣지 말 것 · "
                          "discovery_taken에 넣은 물건은 item_changes에 따로 넣지 말 것): "
                          + discovery_rows_text(self.discoveries))
+        if self.npcs:
+            lines.append("이번 묘사에서 PC와 실제로 말·행동을 주고받은 장면 인물만 npc_reactions에(지나가거나 보기만 한 "
+                         "인물은 넣지 말 것): " + ", ".join(f"{k}={lbl}" for k, _, lbl in self.npcs))
+            lines.append("· trust: 그 인물이 이번 일로 PC를 더 믿게 됐는가(0~100, 50 = 변화 없음). 도움·약속 이행·"
+                         "예의는 60~85, 무례·거짓·위협은 15~40. 목숨을 구하거나 배신·공격처럼 관계를 단번에 바꿀 "
+                         "결정적 사건만 96 이상·4 이하. 묘사에 드러난 일만 근거로, 과장하지 말 것.")
+            lines.append(f"· memory: 그 인물이 오래 기억할 만한 일이 있었을 때만 그 인물 시점의 한 줄({_rel.MEMORY_MAX}자 "
+                         "이내, 예: '물통을 나눠 준 외지인'). 없으면 비워 둔다.")
         if self.extra_time_allowed:
             lines.append("이동·대기가 아닌 행동으로 묘사상 분명히 흐른 추가 시간이 있으면 extra_minutes(분, 없으면 0).")
         else:
@@ -1284,6 +1378,9 @@ class ObservationManifest:
 
     def discovery_of(self, key):
         return next((r for r in self.discoveries if r[0] == key), None)
+
+    def npc_of(self, key):
+        return next((r[1] for r in self.npcs if r[0] == key), None)
 
 
 def _scene_relevant(g, scene, rec) -> bool:
@@ -1357,7 +1454,13 @@ def build_observation_manifest(definition: dict, ctx, plan, base_world, *, disco
     drows = list(discoveries_at(definition, world, lead, scene))
     if discovery and discovery.get("status") == "NEW":
         drows.append((DISCOVERY_NEW_KEY, discovery["info_id"], discovery["target"], discovery["kind"]))
-    return ObservationManifest(infos, signals, ties, extra, tuple(drows))
+    # v7.39: 장면 인물(유효 위치 기준 — 장면 인물 블록과 같은 해석) — PC와의 반응 보고 대상
+    from . import npc_position as _npos
+    adefs = definition.get("actor_definitions") or {}
+    npc_ids = [a for a, _src in _npos.actors_at(definition, world, scene, exclude=ctx.pcs)
+               if (adefs.get(a) or {}).get("kind") == "NPC"] if scene else []
+    npcs = tuple((f"N{n}", a, (adefs.get(a) or {}).get("display_name") or a) for n, a in enumerate(npc_ids, 1))
+    return ObservationManifest(infos, signals, ties, extra, tuple(drows), npcs)
 
 
 def unrepresented_signals(signals, represented) -> list:
@@ -1405,6 +1508,45 @@ def reveal_ops(definition: dict, pc: str, info_ids, *, prefix: str, at_minute=No
             "actor_id": pc, "edge_id": eid, "fields": {"connection_known": True, "acquisition_sources": edges[eid],
                                                        "last_confirmed_at": at_minute}}))
     return out
+
+
+def relation_ops(definition, world, obs_manifest, raw, lead, *, prefix, transaction_id, at_minute) -> tuple:
+    """v7.39: 추출 npc_reactions → 인물 → PC 관계 delta(MET·TRUST·MEMORY). (ops, diags) — 순수.
+
+    한 인물당 한 번만(중복 보고는 첫 것). 신뢰 변화량은 relationships.trust_change(임계·감쇠)가 정한다.
+    기억은 60자 이내만 받고(자르지 않음 — 넘으면 버리고 진단), 같은 문장은 다시 쌓지 않는다."""
+    ops, diags, seen = [], [], set()
+    for r in raw.get("npc_reactions") or ():
+        if not isinstance(r, dict):
+            continue
+        actor = obs_manifest.npc_of(r.get("actor"))
+        if actor is None:
+            if r.get("actor") not in (None, "", "NONE"):
+                diags.append({"code": "NPC_REACTION_INVALID", "key": r.get("actor")})
+            continue
+        if actor in seen:
+            continue
+        seen.add(actor)
+        frm, to = _cog.actor_holder(actor), _cog.actor_holder(lead)
+        st = _rel.trust_state(world, actor, lead)
+        base = f"turn:{transaction_id}:rel:{actor}"
+        mk = lambda kind, summary: _wm.make_op(  # noqa: E731
+            f"{prefix}.rel.{actor}.{kind.lower()}", _rel.OP_RELATIONSHIP_DELTA_APPEND, "OBSERVATION",
+            {"delta": _rel.delta_record(f"{base}:{kind.lower()}", frm, to, kind, summary=summary,
+                                        at_minute=at_minute, source_ref=f"turn:{transaction_id}")})
+        if not st["met"]:
+            ops.append(mk(_rel.KIND_MET, None))
+        change = _rel.trust_change(world, actor, lead, r.get("trust"), at_minute)
+        if change:
+            ops.append(mk(_rel.KIND_TRUST, str(change)))
+        mem = r.get("memory")
+        if isinstance(mem, str) and mem.strip():
+            mem = mem.strip()
+            if len(mem) > _rel.MEMORY_MAX:
+                diags.append({"code": "NPC_MEMORY_TOO_LONG", "actor": actor, "length": len(mem)})
+            elif mem not in st["memories"]:
+                ops.append(mk(_rel.KIND_MEMORY, mem))
+    return ops, diags
 
 
 def process_observation(ctx, base_world, plan, obs_manifest: ObservationManifest, raw_obs, *,
@@ -1482,6 +1624,12 @@ def process_observation(ctx, base_world, plan, obs_manifest: ObservationManifest
                                           at_minute=(start_world.domain("world_clock") or {}).get("minute_index"))
     acq += d_ops
     diags += d_diags
+    # ②-d v7.39 장면 인물 → PC 관계(첫 상호작용·신뢰 변화·기억) — 코드 임계·감쇠, 같은 묶음
+    r_ops, r_diags = relation_ops(D, start_world, obs_manifest, raw, lead, prefix=prefix,
+                                  transaction_id=transaction_id,
+                                  at_minute=(start_world.domain("world_clock") or {}).get("minute_index"))
+    acq += r_ops
+    diags += r_diags
     # ③ 추가 시간 — P1(D1) 시간은 묘사 전에 코드가 정한다. 매니페스트가 막으면 버린다(이중 계상 금지)
     extra = raw.get("extra_minutes")
     extra = extra if isinstance(extra, int) and not isinstance(extra, bool) and extra > 0 else 0

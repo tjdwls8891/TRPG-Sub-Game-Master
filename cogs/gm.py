@@ -409,6 +409,9 @@ def _build_judgment_user_prompt(session, player_message: str, roll_results: list
     #   이동 가능성·경로는 판단층위가 아니라 KnownRoutePlanner가 정한다(평행 권위 없음).
     if world_turn is not None and getattr(world_turn, "manifest", None) is not None:
         lines.append(world_turn.manifest.render())
+        _rel_block = core.turn_world.relation_judgment_block(world_turn.ctx, world_turn.plan, session)
+        if _rel_block:
+            lines.append(_rel_block)                 # v7.39(N3) 관계 단계 — 사회적 판정 보정 근거
     else:
         try:
             hint = core.places.build_move_hint(session, player_message)
