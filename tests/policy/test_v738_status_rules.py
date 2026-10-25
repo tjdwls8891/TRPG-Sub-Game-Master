@@ -103,7 +103,9 @@ def test_infection_suspicion_and_infection_timeline():
     sus = frozenset({"감염 의심"})
     assert run(ctx(100, active=sus, clock={"applied": {"감염 의심": START}}), apply=["감염"]).apply == []
     d = run(ctx(800, active=sus, clock={"applied": {"감염 의심": START}}), apply=["감염"])
-    assert "감염" in [e["status"] for e in d.apply]
+    assert "감염" not in [e["status"] for e in d.apply]                 # v7.41(결정 나): 추출은 감염을 붙이지 못한다
+    due = {"applied": {"감염 의심": START}, "latent": {"감염": {"from": "감염 의심", "at": START, "due": START + 800}}}
+    assert "감염" in [e["status"] for e in run(ctx(800, active=sus, clock=due)).apply]     # 잠복 판정 시각에 코드가
     ok = run(ctx(2900, active=sus, clock={"applied": {"감염 의심": START}}))
     assert [e["status"] for e in ok.clear] == ["감염 의심"]                # 48시간 무증상 — 자동 해제
     inf = frozenset({"감염"})
@@ -215,35 +217,22 @@ def test_yeongdo_briefing_beats_and_intro_markers():
     assert len(core.talk.parse(YD["scenario_intro"])) == 7 and core.talk.check(YD["scenario_intro"]) == []
 
 
-# ── v7.40: 저체온 — 장소 묶음(status_places) ──────────────────────────
+# ── v7.40: 장소 묶음(status_places) — 범용 조건 원자(v7.41: 영도 저체온은 쓰지 않음) ─────────
 
-INDOOR = {"indoor": set(YD["status_places"]["indoor"])}
+PL = {"places": {"마을": {}, "방": {"parent": "마을"}, "해변": {}}, "status_places": {"indoor": ["방"]}}
+INDOOR = {"indoor": {"방"}}
 
 
 def test_place_group_atom_uses_hierarchy_and_unknown_when_undeclared():
-    chain = SR._place_chain(YD, "해련사")
-    assert SR.evaluate({"place_group": "indoor"}, ctx(0, place="해련사", place_chain=chain, place_groups=INDOOR), "x") \
+    room = SR._place_chain(PL, "방")
+    assert SR.evaluate({"place_group": "indoor"}, ctx(0, place="방", place_chain=room, place_groups=INDOOR), "x") \
         == SR.TRUE
-    out = SR._place_chain(YD, "감지해변")
-    assert SR.evaluate({"place_group": "indoor"}, ctx(0, place="감지해변", place_chain=out, place_groups=INDOOR), "x") \
+    out = SR._place_chain(PL, "해변")
+    assert SR.evaluate({"place_group": "indoor"}, ctx(0, place="해변", place_chain=out, place_groups=INDOOR), "x") \
         == SR.FALSE
-    assert SR.evaluate({"place_group": "indoor"}, ctx(0, place="해련사", place_chain=chain), "x") == SR.UNKNOWN
+    assert SR.evaluate({"place_group": "indoor"}, ctx(0, place="방", place_chain=room), "x") == SR.UNKNOWN
     bad = {"places": {"방": {}}, "status_places": {"indoor": ["없는 곳"]},
            "status_effects": [{"name": "한기", "rules": {"apply_gate": {"place_group": "outdoor"}}}]}
     msgs = SR.check_definitions(bad, get_merged_status_effects(bad))
     assert {"STATUS_PLACES", "STATUS_RULES"} <= {c for c, _m in msgs}
     assert any("outdoor" in m for _c, m in msgs)
-
-
-def test_hypothermia_applies_only_outdoors_and_clears_after_indoor_rest():
-    beach = dict(place="감지해변", place_chain=SR._place_chain(YD, "감지해변"), place_groups=INDOOR)
-    room = dict(place="방음실", place_chain=SR._place_chain(YD, "방음실"), place_groups=INDOOR)
-    assert [e["status"] for e in run(ctx(30, **beach), apply=["저체온"]).apply] == ["저체온"]
-    assert run(ctx(30, **room), apply=["저체온"]).apply == []           # 실내에서는 추출이 붙이지 못한다
-    on = dict(active=frozenset({"저체온"}), clock={"applied": {"저체온": START + 30}})
-    short = run(ctx(60, turn_minutes=10, activity="WAIT", **room, **on))
-    assert short.clear == []                                             # 실내라도 쉰 시간이 모자라면 그대로
-    rest = run(ctx(100, turn_minutes=40, activity="SLEEP", **room, **on))
-    assert [e["status"] for e in rest.clear] == ["저체온"]              # 실내 휴식 30분↑ → 코드 해제
-    outside = run(ctx(100, turn_minutes=40, activity="SLEEP", **beach, **on), clear=["저체온"])
-    assert outside.clear == []                                           # 바깥에서는 추출 해제도 막힌다(D5-a)

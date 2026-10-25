@@ -209,7 +209,8 @@ def _extraction_lines(prep, diags) -> list:
         bits.append(f"이름·얼굴 인용 {len(rv)} → 확인 {len(getattr(prep, 'identity_reveals', None) or {})}")
     if sit.get("tension") is not None:
         bits.append(f"긴장 {sit.get('tension')}")
-    return [" · ".join(bits)]
+    notes = ((getattr(plan, "diagnostics", None) or {}).get("status_rules") or []) if plan is not None else []
+    return [" · ".join(bits)] + ([_cut("상태 규칙: " + " · ".join(map(str, notes)), 160)] if notes else [])
 
 
 def activity_sections(prep, record=None, diagnostics=(), session=None) -> list:

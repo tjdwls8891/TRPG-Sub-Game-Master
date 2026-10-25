@@ -1,19 +1,51 @@
 [
   {
     "name": "탈수",
-    "apply_condition": "장시간 수분 미섭취(마지막으로 마신 뒤 6시간 이상)",
+    "apply_condition": "장시간 수분 미섭취(마지막으로 마신 뒤 6시간 이상 — 더위 속이면 3시간 이상)",
     "weight": -3,
     "remove_condition": "물 마시기",
     "rules": {
       "apply_gate": {
-        "status_time": "SINCE_INTAKE_GTE",
-        "group": "water",
-        "minutes": 360
+        "any": [
+          {
+            "status_time": "SINCE_INTAKE_GTE",
+            "group": "water",
+            "minutes": 360
+          },
+          {
+            "all": [
+              {
+                "status_active": "더위"
+              },
+              {
+                "status_time": "SINCE_INTAKE_GTE",
+                "group": "water",
+                "minutes": 180
+              }
+            ]
+          }
+        ]
       },
       "apply_auto": {
-        "status_time": "SINCE_INTAKE_GTE",
-        "group": "water",
-        "minutes": 720
+        "any": [
+          {
+            "status_time": "SINCE_INTAKE_GTE",
+            "group": "water",
+            "minutes": 720
+          },
+          {
+            "all": [
+              {
+                "status_active": "더위"
+              },
+              {
+                "status_time": "SINCE_INTAKE_GTE",
+                "group": "water",
+                "minutes": 360
+              }
+            ]
+          }
+        ]
       },
       "clear_auto": {
         "consumed": "water"
@@ -52,42 +84,105 @@
   },
   {
     "name": "저체온",
-    "apply_condition": "장시간 차가운 환경 노출 또는 침수",
+    "apply_condition": "추위가 오래 이어짐(코드 판정 — 추위 120분, 추위와 젖음이 함께 45분)",
     "weight": -3,
-    "remove_condition": "따뜻한 환경 확보 및 체온 회복",
+    "remove_condition": "추위가 사라진 뒤 60분(코드 판정)",
     "rules": {
       "apply_gate": {
-        "not": {
-          "place_group": "indoor"
-        }
+        "const": false
+      },
+      "apply_auto": {
+        "any": [
+          {
+            "status_time": "SINCE_STATUS_GTE",
+            "status": "추위",
+            "minutes": 120
+          },
+          {
+            "all": [
+              {
+                "status_time": "SINCE_STATUS_GTE",
+                "status": "추위",
+                "minutes": 45
+              },
+              {
+                "status_time": "SINCE_STATUS_GTE",
+                "status": "젖음",
+                "minutes": 45
+              }
+            ]
+          }
+        ]
       },
       "clear_auto": {
-        "all": [
+        "status_time": "SINCE_CLEARED_GTE",
+        "status": "추위",
+        "minutes": 60
+      },
+      "clear_gate": {
+        "const": false
+      }
+    },
+    "deep": true
+  },
+  {
+    "name": "추위",
+    "apply_condition": "춥다는 것이 묘사에 드러남(찬바람·밤바다·얇은 옷·젖은 몸·차가운 바닥 등)",
+    "weight": -1,
+    "remove_condition": "추위를 덜 수단을 무엇이든 들이면 해소(옷을 더 입음·담요·불·실내로 들어감·마른 옷·몸을 맞댐 등)"
+  },
+  {
+    "name": "더위",
+    "apply_condition": "덥다는 것이 묘사에 드러남(뙤약볕·밀폐된 열기·두꺼운 옷·불 곁 등)",
+    "weight": -1,
+    "remove_condition": "더위를 덜 수단을 무엇이든 들이면 해소(그늘·바람·물을 끼얹음·옷을 벗음·서늘한 곳 등)"
+  },
+  {
+    "name": "젖음",
+    "apply_condition": "몸이나 옷이 물에 젖음(바다·비·물웅덩이·물을 뒤집어씀)",
+    "weight": -1,
+    "remove_condition": "몸·옷을 말리거나 마른 옷으로 갈아입음"
+  },
+  {
+    "name": "열탈진",
+    "apply_condition": "더위가 오래 이어짐(코드 판정 — 더위 180분, 더위와 탈수가 함께 60분)",
+    "weight": -3,
+    "remove_condition": "더위가 사라진 뒤 60분(코드 판정)",
+    "deep": true,
+    "rules": {
+      "apply_gate": {
+        "const": false
+      },
+      "apply_auto": {
+        "any": [
           {
-            "place_group": "indoor"
+            "status_time": "SINCE_STATUS_GTE",
+            "status": "더위",
+            "minutes": 180
           },
           {
-            "activity_in": [
-              "SLEEP",
-              "WAIT"
-            ],
-            "min_minutes": 30
+            "all": [
+              {
+                "status_time": "SINCE_STATUS_GTE",
+                "status": "더위",
+                "minutes": 60
+              },
+              {
+                "status_time": "SINCE_STATUS_GTE",
+                "status": "탈수",
+                "minutes": 60
+              }
+            ]
           }
         ]
       },
+      "clear_auto": {
+        "status_time": "SINCE_CLEARED_GTE",
+        "status": "더위",
+        "minutes": 60
+      },
       "clear_gate": {
-        "all": [
-          {
-            "place_group": "indoor"
-          },
-          {
-            "activity_in": [
-              "SLEEP",
-              "WAIT"
-            ],
-            "min_minutes": 30
-          }
-        ]
+        "const": false
       }
     }
   },
@@ -138,7 +233,7 @@
     "name": "출혈",
     "apply_condition": "예리한 무기나 파편에 의한 절상·자상",
     "weight": -3,
-    "remove_condition": "직접 지혈·봉합 등 의료 처치 완료",
+    "remove_condition": "직접 지혈·봉합 등 의료 처치 완료, 또는 2시간이 지나 피가 멎음",
     "rules": {
       "clear_gate": {
         "any": [
@@ -149,6 +244,10 @@
             "activity_in": [
               "TREAT"
             ]
+          },
+          {
+            "status_time": "SINCE_APPLIED_GTE",
+            "minutes": 120
           }
         ]
       }
@@ -158,25 +257,33 @@
     "name": "부상",
     "apply_condition": "둔기 충격이나 낙하 등 물리적 충격",
     "weight": -2,
-    "remove_condition": "응급처치 및 충분한 안정(12시간 이상)",
+    "remove_condition": "응급처치 및 충분한 안정(12시간 이상), 또는 3일이 지나 자연 회복",
     "rules": {
       "clear_gate": {
-        "all": [
+        "any": [
           {
-            "status_time": "SINCE_APPLIED_GTE",
-            "minutes": 720
-          },
-          {
-            "any": [
+            "all": [
               {
-                "used": "medical"
+                "status_time": "SINCE_APPLIED_GTE",
+                "minutes": 720
               },
               {
-                "activity_in": [
-                  "TREAT"
+                "any": [
+                  {
+                    "used": "medical"
+                  },
+                  {
+                    "activity_in": [
+                      "TREAT"
+                    ]
+                  }
                 ]
               }
             ]
+          },
+          {
+            "status_time": "SINCE_APPLIED_GTE",
+            "minutes": 4320
           }
         ]
       }
@@ -188,13 +295,6 @@
     "weight": -4,
     "remove_condition": "안전한 환경에서 안정 취하거나 다른 인물의 진정 지원",
     "rules": {
-      "clear_auto": {
-        "activity_in": [
-          "WAIT",
-          "SLEEP"
-        ],
-        "min_minutes": 20
-      },
       "clear_gate": {
         "const": true
       }

@@ -14,6 +14,8 @@
 #     {"status_time": "SINCE_INTAKE_GTE", "group": g, "minutes": n}   마지막 섭취(없으면 세션 시작) 뒤 n분↑
 #     {"status_time": "SINCE_APPLIED_GTE", "minutes": n}              이 상태가 붙은 뒤 n분↑
 #     {"status_time": "SINCE_STATUS_GTE", "status": s, "minutes": n}  다른 상태가 n분↑ 이어짐
+#     {"status_time": "SINCE_CLEARED_GTE", "status": s, "minutes": n} 그 상태가 없고, 풀린 지 n분↑(v7.41 — 붙은 적 없으면 세션 시작부터)
+#     {"latent_due": s}          잠복 판정(`latent`)이 s를 정했고 발현 시각이 됨(v7.41)
 #     {"consumed": g}            이번 턴 그 묶음 물건 CONSUME
 #     {"used": g}                이번 턴 그 묶음 물건 USE 또는 CONSUME
 #     {"place_within": PlaceId}  장면 장소가 그곳이거나 그 아래
@@ -24,7 +26,11 @@
 #
 #   시나리오 최상위 `intake_groups: {묶음: [물건 낱말…]}` — 물건 종류의 낱말 하나가 목록과 같으면 그 묶음.
 #   `status_common_exclude: [이름…]` — 공용 상태 빼기. 상태 `excludes: [이름…]` — 상호 배타(붙은 쪽이 다른 쪽을 푼다).
-#   상태 시계 `status_clock`(세션 필드, 되감기 대상): {PC 이름: {"applied": {상태: 분}, "intake": {묶음: 분}}}.
+#   상태 시계 `status_clock`(세션 필드, 되감기 대상): {PC 이름: {"applied": {상태: 분}, "cleared": {상태: 분},
+#     "intake": {묶음: 분}, "latent": {대상 상태: {"from", "at", "due"|None}}}}.
+#   v7.41 상태 선택 키: `deep: true` — 심화 상태(코드가 시간으로만 정한다, 추출 점수 무시 — 규칙에 gate const false).
+#     `latent: {"target": 상태, "chance": 0~100, "onset_minutes": [최소, 최대]}` — 이 상태가 붙는 순간 코드가 (세션 시드,
+#     PC, 시각)으로 대상 상태의 발현 여부·시각을 결정적으로 정한다.
 from __future__ import annotations
 
 import copy
@@ -33,7 +39,7 @@ from dataclasses import dataclass, field
 TRUE, FALSE, UNKNOWN = "TRUE", "FALSE", "UNKNOWN"
 SCOPE_COMMON, SCOPE_SCENARIO = "공용", "시나리오"
 RULE_KEYS = ("apply_gate", "apply_auto", "clear_auto", "clear_gate")
-STATUS_TIMES = ("SINCE_INTAKE_GTE", "SINCE_APPLIED_GTE", "SINCE_STATUS_GTE")
+STATUS_TIMES = ("SINCE_INTAKE_GTE", "SINCE_APPLIED_GTE", "SINCE_STATUS_GTE", "SINCE_CLEARED_GTE")
 
 
 @dataclass
@@ -51,6 +57,7 @@ class Ctx:
     used: frozenset = frozenset()             # 이번 턴 USE·CONSUME한 묶음
     active: frozenset = frozenset()           # 판정 전 PC 상태
     clock: dict = field(default_factory=dict)  # 이 PC의 status_clock 항목
+    seed: str = ""                            # 잠복 판정의 결정적 근거(세션 narrative_seed + PC)
 
 
 def _t_all(vals):
@@ -83,11 +90,20 @@ def evaluate(cond, ctx: Ctx, status: str) -> str:
         if k == "SINCE_INTAKE_GTE":
             last = (ctx.clock.get("intake") or {}).get(cond.get("group"), ctx.start_minute)
             return _b(ctx.now - int(last) >= n)
+        if k == "SINCE_CLEARED_GTE":
+            name = cond.get("status")
+            if name in ctx.active:
+                return FALSE
+            last = (ctx.clock.get("cleared") or {}).get(name, ctx.start_minute)
+            return _b(ctx.now - int(last) >= n)
         name = status if k == "SINCE_APPLIED_GTE" else cond.get("status")
         if name not in ctx.active:
             return FALSE
         at = (ctx.clock.get("applied") or {}).get(name)
         return UNKNOWN if at is None else _b(ctx.now - int(at) >= n)
+    if "latent_due" in cond:
+        rec = (ctx.clock.get("latent") or {}).get(cond["latent_due"]) or {}
+        return _b(rec.get("due") is not None and ctx.now >= int(rec["due"]))
     if "consumed" in cond:
         return _b(cond["consumed"] in ctx.consumed)
     if "used" in cond:
@@ -133,7 +149,7 @@ def check_condition(cond, *, groups=(), statuses=(), path="", place_groups=None)
             errs.append(f"{path}: minutes는 0 이상 정수")
         if k == "SINCE_INTAKE_GTE" and groups is not None and cond.get("group") not in groups:
             errs.append(f"{path}: 정의되지 않은 섭취 묶음 {cond.get('group')!r}(intake_groups)")
-        if k == "SINCE_STATUS_GTE" and cond.get("status") not in statuses:
+        if k in ("SINCE_STATUS_GTE", "SINCE_CLEARED_GTE") and cond.get("status") not in statuses:
             errs.append(f"{path}: 알 수 없는 상태 {cond.get('status')!r}")
         return errs
     for key in ("consumed", "used"):
@@ -142,6 +158,8 @@ def check_condition(cond, *, groups=(), statuses=(), path="", place_groups=None)
             return [] if ok else [f"{path}: 정의되지 않은 섭취 묶음 {cond[key]!r}(intake_groups)"]
     if "status_active" in cond:
         return [] if cond["status_active"] in statuses else [f"{path}: 알 수 없는 상태 {cond['status_active']!r}"]
+    if "latent_due" in cond:
+        return [] if cond["latent_due"] in statuses else [f"{path}: 알 수 없는 상태 {cond['latent_due']!r}"]
     if "place_within" in cond:
         return [] if isinstance(cond["place_within"], str) else [f"{path}: place_within은 장소 이름"]
     if "place_group" in cond:
@@ -202,6 +220,16 @@ def check_definitions(scenario_data, merged: dict) -> list:
                 for k, c in rules.items():
                     out += [("STATUS_RULES", f"{name}: {e}")
                             for e in check_condition(c, groups=groups, statuses=names, path=k, place_groups=pgroups)]
+        if "deep" in eff and not isinstance(eff["deep"], bool):
+            out.append(("STATUS_DEEP", f"{name}: deep은 true/false"))
+        lat = eff.get("latent")
+        if lat is not None:
+            ok = isinstance(lat, dict) and lat.get("target") in names and isinstance(lat.get("chance"), int) \
+                and 0 <= lat["chance"] <= 100 and isinstance(lat.get("onset_minutes"), list) \
+                and len(lat["onset_minutes"]) == 2 and all(isinstance(x, int) and x >= 0 for x in lat["onset_minutes"]) \
+                and lat["onset_minutes"][0] <= lat["onset_minutes"][1]
+            if not ok:
+                out.append(("STATUS_LATENT", f"{name}: latent는 {{target(상태), chance(0~100), onset_minutes[최소,최대]}}"))
         for other in eff.get("excludes") or ():
             if other not in names:
                 out.append(("STATUS_EXCLUDES", f"{name}: 알 수 없는 배타 상태 {other!r}"))
@@ -278,11 +306,26 @@ def decide(merged: dict, ctx: Ctx, pc_name: str, apply_in, clear_in, groups_cons
                 want_clear.add(o)
                 final.discard(o)
                 notes.append(f"{o} 해제 — {s}와(과) 배타(코드)")
+    cleared = dict(clock.get("cleared") or {})
+    latent = dict(clock.get("latent") or {})
     for s in want_apply:
         if s not in ctx.active:
             applied[s] = ctx.now
+            latent.pop(s, None)                   # 발현한 대상의 잠복 기록은 끝
+            lat = (merged.get(s) or {}).get("latent")
+            if isinstance(lat, dict) and lat.get("target"):
+                rec = latent_roll(ctx.seed, pc_name, s, ctx.now, lat)
+                latent[lat["target"]] = rec
+                notes.append(f"{lat['target']} 잠복 판정(코드) — " + ("발현 예정" if rec["due"] is not None else "발현 없음"))
     for s in want_clear:
         applied.pop(s, None)
+        if s in ctx.active:
+            cleared[s] = ctx.now
+    clock["cleared"] = cleared
+    if latent:
+        clock["latent"] = latent
+    else:
+        clock.pop("latent", None)
     intake = dict(clock.get("intake") or {})
     for g in groups_consumed:
         intake[g] = ctx.now
@@ -290,6 +333,20 @@ def decide(merged: dict, ctx: Ctx, pc_name: str, apply_in, clear_in, groups_cons
     apply_out = [e for s, e in want_apply.items() if s not in ctx.active]
     clear_out = [{"target": pc_name, "status": s, "score": None} for s in sorted(want_clear) if s in ctx.active]
     return Decision(apply_out, clear_out, clock, notes)
+
+
+def latent_roll(seed: str, pc_name: str, status: str, at: int, lat: dict) -> dict:
+    """잠복 판정 — (세션 시드, PC, 원인 상태, 시각)의 결정적 함수(재시도·재시작·재생성에도 같은 결과)."""
+    import hashlib
+    h = hashlib.sha256(f"status.latent.v1|{seed}|{pc_name}|{status}|{at}".encode("utf-8")).digest()
+    roll, span = int.from_bytes(h[:4], "big") % 100, int.from_bytes(h[4:8], "big")
+    lo, hi = int(lat["onset_minutes"][0]), int(lat["onset_minutes"][1])
+    hit = roll < int(lat.get("chance") or 0)
+    return {"from": status, "at": int(at), "due": int(at) + lo + span % (hi - lo + 1) if hit else None}
+
+
+def deep_statuses(merged: dict) -> set:
+    return {n for n, e in (merged or {}).items() if (e or {}).get("deep") is True}
 
 
 # ══════════════════════════════════════════════════════════════
@@ -344,13 +401,19 @@ def resolve_turn(session, prep) -> list:
     ctx = Ctx(now=now, start_minute=facts["start"], turn_minutes=max(0, now - before),
               place=place, place_chain=_place_chain(sd, place), place_groups=place_groups_of(sd), daypart=facts["daypart"], activity=facts["activity"],
               consumed=consumed, used=used, active=frozenset((session.statuses or {}).get(pc_name) or ()),
-              clock=copy.deepcopy(store.get(pc_name) or {}))
+              clock=copy.deepcopy(store.get(pc_name) or {}),
+              seed=f"{getattr(session, 'narrative_seed', '') or ''}")
     mine = lambda e: e.get("target") == pc_name  # noqa: E731
     d = decide(merged, ctx, pc_name, [e for e in plan.status_apply if mine(e)],
                [e for e in plan.status_clear if mine(e)], consumed)
     plan.status_apply = [e for e in plan.status_apply if not mine(e)] + d.apply
     plan.status_clear = [e for e in plan.status_clear if not mine(e)] + d.clear
     session.status_clock = {**store, pc_name: d.clock}
+    scored = {e.get("status") for e in ((getattr(plan, "result", None) or {}).get("status_scores") or [])
+              if isinstance(e, dict) and e.get("target") == pc_name}
+    deep = deep_statuses(merged)
+    for s in sorted(ctx.active - scored - deep):          # v7.41(D4 가): 붙어 있는데 판단이 빠진 표면 상태 — 유지
+        d.notes.append(f"{s} 판단 누락(유지)")
     if d.notes:
         plan.diagnostics["status_rules"] = list(d.notes)
     return d.notes

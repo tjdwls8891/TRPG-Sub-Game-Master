@@ -570,23 +570,40 @@ def build_extraction_limits(session) -> str:
         eff = get_merged_status_effects(sd)
     except Exception:
         eff = sd.get("status_effects")
-    names = []
+    rows = []
     if isinstance(eff, dict):
-        names = [(k, (v or {}).get("apply_condition", ""), (v or {}).get("remove_condition", ""))
-                 for k, v in eff.items()]
+        rows = [dict(v or {}, name=k) for k, v in eff.items()]
     elif isinstance(eff, list):
-        names = [(e.get("name"), e.get("apply_condition", ""), e.get("remove_condition", ""))
-                 for e in eff if isinstance(e, dict) and e.get("name")]
-    if names:
+        rows = [e for e in eff if isinstance(e, dict) and e.get("name")]
+    deep = {e["name"] for e in rows if e.get("deep") is True}
+    if rows:
         # v7.38(D5): 해제 조건도 함께 준다(해제 판단의 근거) — 부여 조건만 주던 v7.37까지는 해소를 읽을 근거가 없었다
-        lines = [f"- {n}: 부여=[{c}]" + (f" / 해제=[{r}]" if r else "") if c else f"- {n}"
-                 for n, c, r in names]
+        # v7.41: 심화 상태(deep)는 코드가 시간으로 정한다 — 점수를 넣지 않게 표시한다
+        lines = []
+        for e in rows:
+            n, c, r = e["name"], e.get("apply_condition", ""), e.get("remove_condition", "")
+            tag = " (코드 판정 — 점수를 넣지 말 것)" if n in deep else ""
+            lines.append(f"- {n}{tag}: 부여=[{c}]" + (f" / 해제=[{r}]" if r else "") if c else f"- {n}{tag}")
         blocks.append("\n[이 시나리오의 상태이상 — 이 목록에 없는 이름은 쓰지 말 것]\n"
                       + "\n".join(lines))
-        cur = [f"{who}: {', '.join(st)}" for who, st in (getattr(session, "statuses", None) or {}).items() if st]
+        removal = {e["name"]: e.get("remove_condition", "") for e in rows}
+        now = (getattr(session, "world_clock", None) or {}).get("minute_index")
+        clocks = getattr(session, "status_clock", None) or {}
+        cur = []
+        for who, st in (getattr(session, "statuses", None) or {}).items():
+            for x in st or ():
+                at = ((clocks.get(who) or {}).get("applied") or {}).get(x)
+                since = f"({int(now) - int(at)}분째)" if now is not None and at is not None else ""
+                if x in deep:
+                    cur.append(f"- {who}: {x}{since} — 코드 판정(점수 불필요)")
+                else:
+                    cur.append(f"- {who}: {x}{since} — 해제=[{removal.get(x, '')}]")
         if cur:
-            blocks.append("[지금 붙어 있는 상태 — 이번 묘사에서 해제 조건이 실제로 충족됐으면 그 상태를 낮은 점수로 "
-                          "보고한다(조짐이 남았다는 이유로 높이지 말 것)]\n" + "\n".join(cur))
+            # v7.41(사용자 결정): 붙어 있는 상태는 매 턴 빠짐없이 다시 판단시킨다
+            blocks.append("[지금 붙어 있는 상태 — 코드 판정 표시가 없는 것은 하나도 빠짐없이 이번 턴 status_scores에 넣는다]\n"
+                          "· 해제 조건이나 그 상태를 덜어 줄 수단(무엇이든)이 이번 묘사에 들어왔으면 0~30(해소) — "
+                          "증상이 조금 남았다는 이유로 유지하지 말 것.\n"
+                          "· 그대로면 31~70(유지). 더 나빠졌다고 새로 높일 필요는 없다.\n" + "\n".join(cur))
 
     # 인물 — 고정 NPC와 이미 등장한 비정규 NPC.
     known = list((sd.get("default_npcs") or {}).keys())
