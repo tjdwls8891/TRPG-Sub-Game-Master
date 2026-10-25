@@ -31,13 +31,14 @@ PHASES = (PHASE_PROFILE, PHASE_START)
 NOT_STARTED = "NOT_STARTED"
 PREPARED = "PREPARED"
 SENDING = "SENDING"
+PRESENTING = "PRESENTING"        # v7.37(D1): 대화 박자로 보여 주는 중 — 마지막 박자를 그리면 DELIVERED
 DELIVERED = "DELIVERED"
 UNCERTAIN = "UNCERTAIN"
 SKIPPED = "SKIPPED"
 FAILED_RETRYABLE = "FAILED_RETRYABLE"
 COMMITTED = "COMMITTED"
 DONE = (DELIVERED, SKIPPED, COMMITTED)            # 이 시점 처리가 끝나 다음 단계로 갈 수 있다
-GENESIS_BLOCKING = (PREPARED, SENDING, UNCERTAIN)  # 전달 여부를 모른다 — genesis 금지
+GENESIS_BLOCKING = (PREPARED, SENDING, PRESENTING, UNCERTAIN)  # 전달 여부를 모른다 — genesis 금지
 
 OPTIONAL_BUDGET = 4          # 선택 항목 기본 예산(설계안 §3.2 — 작은 기본값)
 BRIEFING_MAX = 800           # AI 연결 설명 상한(정본이 아니므로 표시 길이만 제한)
@@ -369,6 +370,84 @@ async def find_receipt(bot, channel, nonce: str, n_pages: int):
     return []
 
 
+def talk_text(rec, phase) -> str:
+    """v7.37(D1) 대화 박자 원문 — 머리말·항목 하나씩을 박자로, 마지막 박자에만 영수증 줄(nonce).
+
+    정본 문장(summary)은 자르지 않는다. 항목 묶음 제목은 그 묶음 첫 항목 박자에 붙는다."""
+    from . import master
+    title = rec.get("title") or TITLES[phase]
+    beats, head = [], None
+    for ln in str(rec.get("rendered_text") or "").split("\n"):
+        if not ln.strip():
+            continue
+        if ln.startswith("**") and ln.endswith("**"):
+            head = ln
+            continue
+        beats.append(f"{head}\n{ln}" if head else ln)
+        head = None
+    if not beats:
+        beats = [""]
+    beats[0] = f"**{title}**\n{beats[0]}"
+    done = master.say("knowledge.complete", "전해 드릴 것은 여기까지입니다.")
+    beats[-1] = f"{beats[-1]}\n\n*{done}*\n-# {_footer(rec['delivery_nonce'], 1, 1)}"
+    return "\n[[]]\n".join(beats)
+
+
+async def present(bot, session, uid, phase, channel, on_delivered=None, later=None) -> str:
+    """v7.37(D1, 사용자 결정): PREPARED 패킷을 메시지 하나의 대화 박자로 보여 준다(응답 버튼 — 무엇을 눌러도 다음).
+
+    전달 증명 = 마지막 박자(영수증 줄 포함)를 실제로 그린 메시지 id. 그때 DELIVERED(strict)로 바꾸고 on_delivered를
+    부른다. 재시작 등으로 도중에 끊기면 상태는 PRESENTING → 기존 영수증 조회(마지막 박자 nonce)로만 해소된다."""
+    from . import conversational as _conv
+    from . import session_flow as _sf
+    from . import talk as _talk
+    rec = record(session, uid, phase)
+    rec["state"] = PRESENTING
+    rec["pages"] = [rec.get("rendered_text") or ""]          # 영수증 = 마지막 박자 한 장
+    if not await _strict_save(bot, session):
+        rec["state"] = FAILED_RETRYABLE
+        rec["reason"] = "SENDING_SAVE_FAILED"
+        return FAILED_RETRYABLE
+    key = f"ik:{phase}:{rec['delivery_nonce']}"
+    holder = {"msg": None, "inside": True}
+
+    async def draw(body, *, final, view, partial, first):
+        import discord
+        content = body
+        try:
+            if holder["msg"] is None:
+                holder["msg"] = await channel.send(content=content, view=view)
+            else:
+                await holder["msg"].edit(content=content, view=view)
+        except discord.HTTPException as e:
+            print(f"[초기지식] 박자 전송 실패: {type(e).__name__}: {e}")
+            if holder["msg"] is None:
+                rec["state"], rec["reason"] = FAILED_RETRYABLE, "SEND_FAILED"
+            else:
+                rec["state"], rec["reason"] = UNCERTAIN, "SEND_PARTIAL_OR_UNKNOWN"
+            await _strict_save(bot, session)
+            return
+        if final and not partial:
+            rec["state"] = DELIVERED
+            rec["message_ids"] = [str(getattr(holder["msg"], "id", ""))]
+            rec.pop("reason", None)
+            if not await _strict_save(bot, session):
+                rec["state"], rec["reason"] = UNCERTAIN, "DELIVERED_SAVE_FAILED"
+                return
+            if on_delivered is None:
+                return
+            if holder["inside"] and later is not None:
+                later.append(on_delivered)            # 잠금 안에서 바로 끝난 경우 — 잠금을 푼 뒤 이어 간다
+            else:
+                await on_delivered()
+
+    _talk.reset(session, key)
+    await _talk.run(session, key, talk_text(rec, phase), draw,
+                    check=lambda i: _sf.owner_only(bot, session, i))
+    holder["inside"] = False
+    return rec.get("state") or PRESENTING
+
+
 async def send(bot, session, uid, phase, channel) -> str:
     """PREPARED 패킷 전송 → DELIVERED(메시지 id strict 기록) · FAILED_RETRYABLE(미발송 확실) · UNCERTAIN."""
     import discord
@@ -437,13 +516,21 @@ def _stale(session, uid, phase, rec, definition, frame) -> bool:
             or (phase == PHASE_START and rec.get("start_frame_id") != (frame or {}).get("id")))
 
 
-async def run_phase(bot, session, uid, phase, channel, definition: dict, *, frame=None) -> str:
+async def run_phase(bot, session, uid, phase, channel, definition: dict, *, frame=None, on_delivered=None) -> str:
     """한 시점의 처리(재진입 멱등). 반환 상태가 DONE이면 다음 단계로 간다."""
+    later = []
+    st = await _run_phase_locked(bot, session, uid, phase, channel, definition, frame, on_delivered, later)
+    for fn in later:
+        await fn()
+    return st
+
+
+async def _run_phase_locked(bot, session, uid, phase, channel, definition, frame, on_delivered, later) -> str:
     async with _lock(session, uid, phase):
         st = state_of(session, uid, phase)
         if st in DONE:
             return st
-        if st in (SENDING, UNCERTAIN):
+        if st in (SENDING, PRESENTING, UNCERTAIN):
             return await resolve_uncertain(bot, session, uid, phase, channel)
         rec = record(session, uid, phase)
         if st in (PREPARED, FAILED_RETRYABLE) and rec.get("pages"):
@@ -456,18 +543,27 @@ async def run_phase(bot, session, uid, phase, channel, definition: dict, *, fram
             st = await prepare(bot, session, uid, phase, definition, frame=frame)
             if st != PREPARED:
                 return st
-        return await send(bot, session, uid, phase, channel)
+        return await present(bot, session, uid, phase, channel, on_delivered, later)
 
 
-async def resend(bot, session, uid, phase, channel) -> str:
+async def resend(bot, session, uid, phase, channel, on_delivered=None) -> str:
     """UNCERTAIN의 명시적 재전송(소유자 선택 — 중복 안내가 생길 수 있음을 알린 뒤). 같은 패킷·AI 호출 없음."""
+    later = []
+    st = await _resend_locked(bot, session, uid, phase, channel, on_delivered, later)
+    for fn in later:
+        await fn()
+    return st
+
+
+async def _resend_locked(bot, session, uid, phase, channel, on_delivered, later) -> str:
     async with _lock(session, uid, phase):
         rec = record(session, uid, phase)
         if rec.get("state") != UNCERTAIN or not rec.get("pages"):
             return rec.get("state") or NOT_STARTED
         rec["state"] = PREPARED
         rec["resent"] = int(rec.get("resent") or 0) + 1
-        return await send(bot, session, uid, phase, channel)
+        rec["delivery_nonce"] = "ik-" + secrets.token_hex(6)        # 새 박자 메시지의 영수증(이전 메시지와 구별)
+        return await present(bot, session, uid, phase, channel, on_delivered, later)
 
 
 async def skip_uncertain(bot, session, uid, phase) -> str:

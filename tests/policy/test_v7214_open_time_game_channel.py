@@ -38,11 +38,12 @@ async def test_first_creation_asks_and_consumes_answer_in_game_channel(
         wired_bot, session_auto_ready, game_channel, display_channel, monkeypatch):
     s = session_auto_ready
     s.gm_active = False
-    view = SF.OpenTimeView(wired_bot, s, game_channel)
-    it = FakeInteraction(user=FakeUser(int(PLAYER_UID)), channel=game_channel)
-    await view.ask.callback(it)
-    q = it.response.messages[0]
-    assert "이 채널에 답해" in q["content"] and not q.get("ephemeral")       # 질문이 게임 채널에 그대로
+    # v7.37(R1): [시간 입력] 버튼 단계 없이 대화 메시지가 묻고 바로 답을 기다린다
+    s.creator_uid = PLAYER_UID
+    s.creation_state = {"step": "open", "talk_started": {"open": True}}       # 설명 박자는 지난 상태
+    await SF.render(wired_bot, s, game_channel)
+    q = next(m for m in reversed(game_channel.sent) if not m.files)
+    assert "이 채널에 바로 답해" in q.content and q.view is None              # 질문이 게임 채널 대화 메시지에
     assert not display_channel.sent                                         # 디스플레이로 보내지 않음
     assert SF.awaiting_open_here(s, game_channel.id) and not SF.awaiting_open_here(s, display_channel.id)
 

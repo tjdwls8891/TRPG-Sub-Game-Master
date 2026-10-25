@@ -101,3 +101,45 @@ def file_for(session, master_key: str | None = None, *, filename: str | None = N
     path, state = for_session(session, master_key)
     ext = os.path.splitext(path)[1] or ".webp"
     return discord.File(path, filename=filename or f"master{ext}"), path, state
+
+
+async def art_above(channel, session, master_key: str | None, store: dict, *, create: bool = True):
+    """v7.37(사용자 결정 D2): 마스터 이미지를 대화 메시지 **위**의 전용 메시지로 둔다(디스코드는 같은 메시지 안의
+    이미지를 글 아래에 그린다). 같은 그림이면 다시 올리지 않고, 그림이 바뀌면 그 메시지의 첨부만 교체한다.
+    store: 영속 dict(art_msg_id·art_path). create=False면 이미 있는 이미지 메시지만 고친다."""
+    path, _state = for_session(session, master_key)
+    mid = store.get("art_msg_id")
+    if mid:
+        if store.get("art_path") == path:
+            return
+        try:
+            msg = await channel.fetch_message(mid)
+            mfile, _p, _s = file_for(session, master_key)
+            await msg.edit(attachments=[mfile])
+            store["art_path"] = path
+            return
+        except Exception:  # noqa: BLE001 — 지워진 메시지: 아래로 새로 만들지 않는다(대화 메시지 위가 아니게 된다)
+            store.pop("art_msg_id", None)
+            store.pop("art_path", None)
+            return
+    if not create:
+        return
+    try:
+        mfile, _p, _s = file_for(session, master_key)
+        msg = await channel.send(file=mfile)
+        store["art_msg_id"], store["art_path"] = msg.id, path
+    except Exception as e:  # noqa: BLE001 — 이미지는 부가 요소
+        print(f"[마스터 이미지] 전송 실패(무시): {e}")
+
+
+async def drop_art(channel, store: dict) -> None:
+    """대화 메시지를 정리할 때 위의 이미지 메시지도 함께 지운다."""
+    mid = store.pop("art_msg_id", None)
+    store.pop("art_path", None)
+    if not mid:
+        return
+    try:
+        msg = await channel.fetch_message(mid)
+        await msg.delete()
+    except Exception:  # noqa: BLE001
+        pass

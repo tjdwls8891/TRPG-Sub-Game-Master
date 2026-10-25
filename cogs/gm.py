@@ -1077,12 +1077,21 @@ class OpenConfirmView(core.message_lifecycle.LifecyclePromptView):
     WP-F: INTERACTION_PROMPT — 확인/취소/시간 만료 중 정확히 한 번 종결. 만료는 취소와 같다.
     """
 
-    def __init__(self, bot, session, minutes: int, *, on_reopen=None):
-        super().__init__(timeout=300)
+    def __init__(self, bot, session, minutes: int, *, on_reopen=None, flow: bool = False):
+        super().__init__(timeout=None if flow else 300)   # v7.37: 첫 생성 대화 안의 확인은 진행 화면(시간 제한 없음)
         self.bot = bot
         self.session = session
         self.minutes = minutes
         self.on_reopen = on_reopen          # 다시 열기 성공 후 콜백(닫힌 동안 보관한 선언 이어서 진행)
+        self.flow = flow                    # 첫 생성 대화 메시지 안 — 결과를 같은 메시지에 쓰고 지우지 않는다
+
+    async def _notice(self, interaction, text, seconds=12):
+        if self.flow:
+            ch = self.bot.get_channel(self.session.game_ch_id)
+            if ch is not None:
+                await core.session_flow.open_feedback(self.bot, self.session, ch, text)
+                return
+        await core.display.close_notice(interaction, text, seconds=seconds)
 
     async def on_expired(self):
         self.session.open_minutes = 0
@@ -1102,11 +1111,16 @@ class OpenConfirmView(core.message_lifecycle.LifecyclePromptView):
         quoted = int(est.get("cache_tokens") or 0) or None
         bal = core.accounts.get_balance(uid)
         if bal < need:
-            await core.display.close_notice(
+            await self._notice(
                 interaction,
                 core.master.lead("cache.insufficient_ink",
                                  f"⚠️ 잔액이 부족합니다. 필요 **{need}잉크** / 보유 **{bal}잉크**\n"
-                                 f"잉크 지급은 운영자에게 문의해 주십시오."), seconds=15)
+                                 f"잉크 지급은 운영자에게 문의해 주십시오."
+                                 + ("\n더 짧은 시간을 이 채널에 다시 말씀하셔도 됩니다." if self.flow else "")),
+                seconds=15)
+            if self.flow:
+                self.session.awaiting_display_input = True
+                self.session._open_input_ch_id = self.session.game_ch_id
             self.stop()
             return
 
@@ -1116,8 +1130,9 @@ class OpenConfirmView(core.message_lifecycle.LifecyclePromptView):
 
         for child in self.children:
             child.disabled = True
-        await interaction.message.edit(view=self)
-        await core.display.close_notice(
+        if not self.flow:
+            await interaction.message.edit(view=self)
+        await self._notice(
             interaction,
             core.master.lead("cache.open_confirm", f"✅ 세션을 {self.minutes}분간 유지합니다. 예상 {need}잉크{note}"))
         self.session.open_minutes = self.minutes
@@ -1156,6 +1171,13 @@ class OpenConfirmView(core.message_lifecycle.LifecyclePromptView):
         if not self.claim(core.message_lifecycle.PROMPT_CANCEL):
             return
         self.session.open_minutes = 0
+        if self.flow:                                   # v7.37: 첫 생성 대화 — 시간을 다시 묻는다
+            ch = self.bot.get_channel(self.session.game_ch_id)
+            if ch is not None:
+                await core.session_flow.ask_open_time(
+                    self.bot, self.session, ch, "알겠습니다. 그럼 얼마나 머무르시겠습니까? 이 채널에 다시 말씀해 주십시오.")
+            self.stop()
+            return
         await core.display.close_notice(
             interaction, "세션 오픈을 취소했습니다.", seconds=6)
         self.stop()
@@ -4746,6 +4768,11 @@ class GMCog(commands.Cog):
                 if _hit:
                     _attr = "identified_faces" if _kind == "face" else "identified_names"
                     setattr(_wt, _attr, tuple(sorted(set(getattr(_wt, _attr)) | set(_hit))))
+        if _wt is not None:
+            try:
+                core.speaker_card.prewarm(session, _wt)      # v7.37: 묘사 전에 장면 카드를 뒤에서 그려 둔다
+            except Exception as e:  # noqa: BLE001
+                print(f"[카드] 미리 그리기 실패(무시): {e}")
 
         # WP-B: 지시층위 효과(quest_case/quest_choice/info_access)는 여기서 직접
         #       canonical에 적용하지 않는다. 호출부 루프가 이 decision을 스테이징
@@ -5416,6 +5443,35 @@ class GMCog(commands.Cog):
             await message.delete()
         except Exception:
             pass
+
+        # v7.37(R1): 세션 첫 생성 대화 안이면 해석·재질문·확인을 같은 대화 메시지에 이어 쓴다
+        flow = core.session_flow.open_in_flow(session, message.channel.id)
+        if flow:
+            echo = f"-# ↳ {getattr(message.author, 'display_name', None) or '플레이어'} · {message.content}\n"
+            await core.session_flow.open_feedback(self.bot, session, message.channel,
+                                                  echo + "말씀하신 시간을 헤아리고 있습니다…")
+            resolved = await self.interpret_cache_time(session, message.content)
+            await core.message_lifecycle.clear(self.bot, session, core.message_lifecycle.KEY_DISPLAY_OPEN_PROMPT)
+            if resolved.get("retry"):
+                session.awaiting_display_input = True
+                session._open_input_ch_id = message.channel.id
+                await core.session_flow.open_feedback(
+                    self.bot, session, message.channel,
+                    echo + core.master.say("cache.time_unclear", "말씀하신 시간을 정확히 헤아리지 못했습니다. "
+                                                                  "다시 한 번 말씀해 주십시오.")
+                    + "\n" + core.session_flow.OPEN_EXAMPLES + _interp_note(resolved))
+                return
+            session.open_minutes = resolved["minutes"]
+            try:
+                est = core.estimate_session_open(session, resolved["minutes"] / 60)
+            except Exception:
+                est = {}
+            view = OpenConfirmView(self.bot, session, resolved["minutes"],
+                                   on_reopen=self.resume_held_declaration, flow=True)
+            view.bind(await core.session_flow.open_feedback(
+                self.bot, session, message.channel,
+                echo + core.format_confirmation(resolved, est) + _interp_note(resolved), view))
+            return
 
         thinking = await message.channel.send("⏱️ *입력을 확인하는 중…*")
         resolved = await self.interpret_cache_time(session, message.content)

@@ -676,6 +676,11 @@ def scene_item_block(wt, session) -> str:
 MAX_GUIDE_LINES = 8
 
 
+# v7.37(A6): 국면 guide는 국면이 이어지는 동안 매 턴 같은 문장으로 들어간다 — 이미 보인 단서의 반복 서술을 막는다
+GUIDE_REPEAT_RULE = ("· 이 지침의 단서·징후가 앞선 묘사(최근 기록)에 이미 나왔다면 상황이 달라졌을 때만 다시 다룬다 — "
+                     "같은 단서를 같은 말로 되풀이하라고 지시하지 말고, 이번 턴 플레이어 행동이 닿는 것에 집중시킨다.")
+
+
 def event_guide_block(ctx, plan, session) -> str:
     """H07 R-2: 진행 중 사건의 현재 국면 guide — **지시층위 전용**(묘사·추출·판단층위에는 주지 않는다).
 
@@ -708,7 +713,7 @@ def event_guide_block(ctx, plan, session) -> str:
     if not lines:
         return ""
     return ("\n[진행 중인 사건 — 지시층위 전용 지침(정본 결과·세계 사실을 정하지 않는다. 플레이어의 자유 행동을 "
-            "이 사건의 분기로 억지 해석하지 말 것)]\n" + "\n".join(lines) + "\n")
+            "이 사건의 분기로 억지 해석하지 말 것)]\n" + "\n".join(lines) + "\n" + GUIDE_REPEAT_RULE + "\n")
 
 
 def scene_npc_projections(ctx, plan, session) -> tuple:

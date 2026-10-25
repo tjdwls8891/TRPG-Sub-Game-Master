@@ -63,7 +63,8 @@ def test_c004_execute_proceed_has_two_distinct_callers():
     sites = _callsites("_execute_proceed")
     owners = {owner for _, _, owner in sites}
 
-    assert owners == {"_dispatch_proceed", "play_intro"}, (
+    # v7.37 R4: 인트로 본문은 소개 박자 뒤 `_play_intro_body`로 분리됐다(같은 인트로 경로).
+    assert owners == {"_dispatch_proceed", "_play_intro_body"}, (
         f"공유 묘사 엔진 호출자가 달라졌습니다: {sorted(owners)}")
 
     files = {path for path, _, _ in sites}
@@ -95,7 +96,7 @@ def test_c004c_only_automatic_path_reaches_finish_proceed():
                       "_finish_proceed_and_continue", "rerender_latest"}, (
         f"예상 밖 호출부: {sorted(owners)}")
     assert "proceed_turn" not in owners
-    assert "play_intro" not in owners
+    assert "play_intro" not in owners and "_play_intro_body" not in owners
 
 
 def test_c004d_dispatch_proceed_is_the_only_automatic_wrapper():

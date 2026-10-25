@@ -21,7 +21,7 @@ from tests.conftest import GAME_CH, PLAYER_UID
 from tests.fakes.bot_fakes import FakeBot
 from tests.policy.test_cache_lifecycle import _ink_rows, cbot, clock, fresh  # noqa: F401
 from tests.policy.test_commit_recovery import _restart
-from tests.policy.test_h06a_lifecycle import _cog, dyn_raw, journal_inits, setup_session, world_of
+from tests.policy.test_h06a_lifecycle import _cog, dyn_raw, journal_inits, play_intro, setup_session, world_of
 from tests.policy.test_h06c_cache_source import _bind, seen  # noqa: F401
 from tests.policy.test_ready_barrier import rig  # noqa: F401
 
@@ -70,7 +70,7 @@ async def test_r2_01_init_conflict_fails_closed_no_intro_no_legacy_progress(rig,
     s.actor_registry = {PC: {"kind": "PC", "display_name": "x", "source_kind": "PLAYER",
                              "source_key": PLAYER_UID, "aliases": []}}      # 초기화 충돌
     cog, calls = _stubs(r, monkeypatch)
-    await cog.play_intro(s, {"id": "harbor"}, r.bot.get_channel(s.game_ch_id))
+    await play_intro(cog, s, {"id": "harbor"}, r.bot.get_channel(s.game_ch_id))
     await _drain()
     assert calls == {"upload": 0, "intro": 0, "round": 0}
     assert WL.init_failed(s) and _disk(s)["world_initialization"]["status"] == "FAILED"
@@ -84,7 +84,7 @@ async def test_r2_01_intro_failure_keeps_initialized_and_no_first_round(rig, mon
     s = setup_session(r)
     s.gm_active = True
     cog, calls = _stubs(r, monkeypatch, intro_ok=False)
-    await cog.play_intro(s, {"id": "harbor"}, r.bot.get_channel(s.game_ch_id))
+    await play_intro(cog, s, {"id": "harbor"}, r.bot.get_channel(s.game_ch_id))
     await _drain()
     assert calls["intro"] == 1 and calls["round"] == 0
     assert s.world_lifecycle == WL.LIFECYCLE_INITIALIZED and not PW.session_world_context(s).dynamic
@@ -95,7 +95,7 @@ async def test_r2_01_normal_legacy_start_unchanged(rig, monkeypatch):
     s = setup_session(r, players=TWO)
     s.gm_active = True
     cog, calls = _stubs(r, monkeypatch)
-    await cog.play_intro(s, {"id": "harbor", "facts": {"location": "성당"}}, r.bot.get_channel(s.game_ch_id))
+    await play_intro(cog, s, {"id": "harbor", "facts": {"location": "성당"}}, r.bot.get_channel(s.game_ch_id))
     await _drain()
     assert calls == {"upload": 1, "intro": 1, "round": 1}
     assert s.world_timeline["current_location"] == "성당"                # 기존 apply_facts 의미
@@ -176,7 +176,7 @@ async def test_r2_03_dynamic_start_owned_by_world_start_not_legacy_facts(rig, mo
     r = rig
     s = setup_session(r)
     cog, calls = _stubs(r, monkeypatch)
-    await cog.play_intro(s, CONFLICTING, r.bot.get_channel(s.game_ch_id))
+    await play_intro(cog, s, CONFLICTING, r.bot.get_channel(s.game_ch_id))
     assert s.world_lifecycle == WL.LIFECYCLE_OPEN
     assert SP.placement_of(s, PC) == SP.at_place("항구")                   # authored world_start
     tl = s.world_timeline
@@ -188,7 +188,7 @@ async def test_r2_03_legacy_keeps_apply_facts(rig, monkeypatch):
     r = rig
     s = setup_session(r, players=TWO)
     cog, calls = _stubs(r, monkeypatch)
-    await cog.play_intro(s, CONFLICTING, r.bot.get_channel(s.game_ch_id))
+    await play_intro(cog, s, CONFLICTING, r.bot.get_channel(s.game_ch_id))
     assert s.world_timeline["current_location"] == "성당" and s.world_timeline["current_date"] == "1999/01/01"
 
 

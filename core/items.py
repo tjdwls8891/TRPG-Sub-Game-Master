@@ -53,7 +53,7 @@ NEW_MAX_KINDS = 3
 NEW_MAX_QTY = 10
 
 OPS = ("TRANSFER", "ACQUIRE", "DROP", "CONSUME", "DAMAGE", "REPAIR", "OPEN", "CRAFT", "DISASSEMBLE",
-       "READ", "USE")
+       "READ", "USE", "IDENTIFY")
 OPS_FIELD = "item_ops"
 
 # 한국어 수 관형사·수량 단위(언어 수준 — 시나리오·장르 어휘가 아니다)
@@ -234,6 +234,8 @@ class ItemManifest:
                      "READ 글·기록을 실제로 읽음 · USE 소모 없이 사용.")
         lines.append(f"· ACQUIRE item={NEW_KEY}: 위 키에 없는 물건이 이번 묘사에 처음 나와 PC가 실제로 집어 챙긴 경우만 — "
                      "owner는 PC, name에 본문에 쓰인 물건 이름을 그대로(수량은 quantity). 키가 있는 물건은 그 키를 쓴다.")
+        lines.append("· IDENTIFY: 이미 가진 물건(H키)의 정체가 이번 묘사에서 밝혀진 경우만 — name에 본문에 쓰인 새 이름"
+                     "(예: 정체 모를 금속 물체 → 손전등). 물건이 바뀌거나 생기는 것이 아니다.")
         lines.append("· 보여 주기·만지기·시도만 한 것, 실패한 제작의 결과물, 묘사에 없는 이동은 넣지 말 것. 수량은 묘사에 "
                      "드러난 정수(불명이면 1). 소지에 없는 물건을 주거나 쓰는 묘사라도 새 키를 지어내지 말 것.")
         return "\n".join(lines) + "\n"
@@ -586,6 +588,20 @@ def run_ops(session, ops, *, defs=None, pc_name, scene_place, transaction_id, re
                     if oq > q:
                         raise ItemContractError(f"{why}: 부품 저작 없는 분해는 원재료 수량을 넘겨 회수할 수 없음")
                     s.give(op["from"], key, oq, why)
+        elif kind == "IDENTIFY":                       # v7.37(D6): 정체 확인 — 같은 물건의 이름만 바뀐다
+            if op.get("instance"):
+                r = s.inst_of(op["instance"])
+                if r.get("owner") != op["from"]:
+                    raise ItemContractError(f"{why}: 특수 물건 미보유")
+                r["name"] = op["name"]
+            else:
+                q = _qty(op["qty"], why)
+                sid = parse_key(op["stock"], defs)[0]
+                new = _alias_kind(op["name"], defs)
+                if new == sid.kind:
+                    raise ItemContractError(f"{why}: 이름 변화 없음")
+                s.take(op["from"], op["stock"], q, why)
+                s.give(op["from"], format_key(new, sid.unit, sid.condition), q, why)
         elif kind in ("READ", "USE"):
             k_, cond, refs = _subject_of(s, op, why)
             if kind == "USE":
@@ -645,12 +661,21 @@ def _squash(text) -> str:
     return re.sub(r"\s+", "", str(text or ""))
 
 
+def named_in(name: str, narration_text) -> bool:
+    """v7.37(A3): 물건 이름의 낱말이 모두 본문에 있는가("금속 물체" ← "금속의 질감 … 물체"). 표기 기호는 거부."""
+    words = str(name or "").split()
+    if not words or any(c in name for c in "[]〈〉"):
+        return False
+    body = _squash(narration_text)
+    return all(_squash(w) in body for w in words)
+
+
 def _new_source(r, owner, pc_name, narration_text, seen, why) -> dict:
-    """v7.35(D1) 처음 나온 물건 — PC만, 본문에 그 이름이 그대로 있을 때만, 한 턴 종류·수량 상한."""
+    """v7.35(D1) 처음 나온 물건 — PC만, 본문에 그 이름(v7.37: 낱말 단위)이 있을 때만, 한 턴 종류·수량 상한."""
     name = str(r.get("name") or "").strip()
     if owner != pc_name:
         raise ItemContractError(f"{why}: {NEW_KEY} 획득은 PC만")
-    if not name or any(c in name for c in "[]〈〉") or _squash(name) not in _squash(narration_text):
+    if not named_in(name, narration_text):
         raise ItemContractError(f"{why}: {NEW_KEY} 물건 이름 {name!r}이(가) 이번 묘사 본문에 없음")
     q = r.get("quantity")
     if isinstance(q, int) and not isinstance(q, bool) and q > NEW_MAX_QTY:
@@ -732,6 +757,13 @@ def normalize_raw_ops(manifest: ItemManifest, raw_ops, *, discovery_taken=(), pc
             rec["to"] = to
         elif op in ("DAMAGE", "REPAIR"):
             rec["condition"] = r.get("condition")
+        elif op == "IDENTIFY":
+            name = str(r.get("name") or "").strip()
+            if owner != pc_name:
+                raise ItemContractError(f"{why}: 정체 확인은 PC 소지품만")
+            if not named_in(name, narration_text):
+                raise ItemContractError(f"{why}: 새 이름 {name!r}이(가) 이번 묘사 본문에 없음")
+            rec["name"] = name
         elif op == "DISASSEMBLE":
             rec["outputs"] = [{"name": o.get("name"), "unit": o.get("unit"), "qty": o.get("quantity")}
                               for o in r.get("outputs") or () if isinstance(o, dict)]

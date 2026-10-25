@@ -595,12 +595,21 @@ _PNG_CACHE: dict = {}
 _PNG_CACHE_MAX = 32
 
 
-def render_png(world: CardWorld, card: dict, known, variation_choice, *, base: str = "media") -> bytes:
-    """동기 렌더(스레드에서 호출). 평가 → 안전 SVG → PNG."""
+def _card_svg(world: CardWorld, card: dict, known, variation_choice, base: str = "media") -> bytes:
     cfg = world.config
     variation = choose_variation(cfg, card, variation_choice)
     slots = evaluate_slots(cfg, card, known, variation)
-    svg = build_svg(cfg, slots, media_root(world.scenario_id, base))   # 자산 해시는 매번 검증한다
+    return build_svg(cfg, slots, media_root(world.scenario_id, base))   # 자산 해시는 매번 검증한다
+
+
+def cached_png(world: CardWorld, card: dict, known, variation_choice, *, base: str = "media") -> bytes | None:
+    """v7.37: 이미 그린 카드면 PNG, 아니면 None(래스터화하지 않는다 — 즉시 판별용). 저작 오류는 예외."""
+    return _PNG_CACHE.get(hashlib.sha256(_card_svg(world, card, known, variation_choice, base)).hexdigest())
+
+
+def render_png(world: CardWorld, card: dict, known, variation_choice, *, base: str = "media") -> bytes:
+    """동기 렌더(스레드에서 호출). 평가 → 안전 SVG → PNG."""
+    svg = _card_svg(world, card, known, variation_choice, base)
     key = hashlib.sha256(svg).hexdigest()
     png = _PNG_CACHE.get(key)
     if png is None:
@@ -645,6 +654,17 @@ def assigned_variation(card: dict, speaker: str, turn_key: str):
     return names[h % len(names)]
 
 
+def _instant_variation(session, ctx: DisplayContext, preparation=None):
+    """기다리지 않고 정할 수 있는 바리에이션 — (가능 여부, 값). 추출 선택을 기다려야 하면 (False, None)."""
+    if ctx.status == SPEAKER_FIXED:
+        turn_key = getattr(preparation, "transaction_id", None) or \
+            f"{getattr(session, 'session_id', '')}:{int(getattr(session, 'turn_count', 0) or 0)}"
+        return True, assigned_variation(ctx.card, ctx.speaker, turn_key)
+    if len(ctx.card.get("variations") or {}) > 1:
+        return False, None
+    return True, None
+
+
 async def _render_card(session, ctx: DisplayContext, preparation=None) -> bytes:
     """카드 PNG — 실패는 예외로 올린다(호출부가 '카드 없음'과 '실패'를 구분한다)."""
     if ctx.status == SPEAKER_FIXED:      # 추출을 기다리지 않는다 — 턴 정체성으로 배정
@@ -679,10 +699,11 @@ async def prepare_card(session, ctx: DisplayContext | None, preparation=None):
 # 렌더 실패·제한 시간 초과는 공용 오류 이미지(텍스트 자동 대체 없음) + 구조 로그.
 # 임계값 근거: 이 환경 실측 — 상태판 SVG 0.4~1.1초, 원본 카드 템플릿 13~17초.
 def loading_threshold_sec() -> float:
+    """그리지 않은 카드의 로딩 표시 전 대기(v7.37 기본 0.05초 — 즉시 실패만 거른다; 그려 둔 카드는 대기 없음)."""
     try:
-        return max(0.0, float(os.environ.get("SVG_LOADING_THRESHOLD_SEC", "1.5")))
+        return max(0.0, float(os.environ.get("SVG_LOADING_THRESHOLD_SEC", "0.05")))
     except ValueError:
-        return 1.5
+        return 0.05
 
 
 CARD_DEADLINE_SEC = RENDER_TIMEOUT_SEC + 30      # 로딩 표시 뒤 최종 대기 상한(넘으면 오류 이미지)
@@ -706,15 +727,24 @@ async def deliver_card(channel, session, ctx: DisplayContext | None, preparation
     from . import master_art as _art
     if ctx is None or ctx.card is None or ctx.world is None:
         return "NONE"
-    task = asyncio.ensure_future(_render_card(session, ctx, preparation))
-    wait = loading_threshold_sec() if threshold is None else threshold
-    try:
-        png = await asyncio.wait_for(asyncio.shield(task), timeout=wait)
-        err = None
-    except asyncio.TimeoutError:
-        png, err = None, "pending"
-    except Exception as e:  # noqa: BLE001
-        png, err = None, e
+    png, err, task = None, None, None
+    if threshold is None:
+        # v7.37: 그려 둔 카드면 바로, 아니면 기다리지 않고 로딩 이미지부터(렌더는 뒤에서 — 묘사가 멈추지 않게)
+        ok, var = _instant_variation(session, ctx, preparation)
+        if ok:
+            try:
+                png = await asyncio.to_thread(cached_png, ctx.world, ctx.card, ctx.known, var)
+            except Exception as e:  # noqa: BLE001 — 저작·자산 오류는 렌더해도 같다
+                err = e
+    if png is None and err is None:
+        task = asyncio.ensure_future(_render_card(session, ctx, preparation))
+        wait = loading_threshold_sec() if threshold is None else threshold
+        try:
+            png = await asyncio.wait_for(asyncio.shield(task), timeout=wait)
+        except asyncio.TimeoutError:
+            png, err = None, "pending"
+        except Exception as e:  # noqa: BLE001
+            png, err = None, e
     try:
         if png is not None:
             msg = await channel.send(file=discord.File(io.BytesIO(png), filename=_card_name(session)))
@@ -728,7 +758,7 @@ async def deliver_card(channel, session, ctx: DisplayContext | None, preparation
             state = "PENDING"
     except Exception as e:  # noqa: BLE001
         _logs.error("card", "카드 전송 실패(이미지 생략)", exc=e, session=session)
-        if not task.done():
+        if task is not None and not task.done():
             task.cancel()
         return "SEND_FAILED"
     if collector is not None:
@@ -1042,6 +1072,41 @@ async def turn_display_context(session, speaker: str, preparation=None, paragrap
     reveals = getattr(preparation, "identity_reveals", None) or {}
     extra = frozenset(iid for iid in pending if iid in reveals and reveals[iid] < paragraph_index)
     return display_context(session, speaker, extra_known=extra) if extra else ctx
+
+
+# ── v7.37 미리 그리기 — 장면 카드 인물의 지금 인지 기준 카드(+ 이번 턴 식별 후보 공개 뒤 카드)를 뒤에서 렌더 ──
+_WARM: set = set()
+
+
+def prewarm(session, wt=None) -> int:
+    """백그라운드 렌더를 예약한다(실패 흡수 · 결과는 PNG 캐시). 예약한 장 수."""
+    world = card_world(session)
+    if world is None or wt is None:
+        return 0
+    actors = world.config.get("actors") or {}
+    known = known_infos(session, world.pc_actor)
+    jobs = []
+    for aid in scene_card_actors(world, wt, session):
+        card = actors.get(aid) or {}
+        if len(card.get("variations") or {}) > 1:
+            continue                                   # 추출이 고를 그림 — 미리 정할 수 없다
+        know = card.get("knowledge") or {}
+        extra = {know.get(k) for k, ids in (("face", wt.identified_faces), ("name", wt.identified_names))
+                 if aid in (ids or ()) and know.get(k)}
+        for k in {frozenset(known), frozenset(known | extra)}:
+            jobs.append((card, k))
+    n = 0
+    for card, k in jobs:
+        try:
+            if cached_png(world, card, k, None) is not None:
+                continue
+        except Exception:  # noqa: BLE001
+            continue
+        fut = asyncio.ensure_future(asyncio.to_thread(render_png, world, card, k, None))
+        _WARM.add(fut)
+        fut.add_done_callback(lambda f: (_WARM.discard(f), f.exception() if not f.cancelled() else None))
+        n += 1
+    return n
 
 
 # 얼굴 식별(기존 호출 이름 유지)

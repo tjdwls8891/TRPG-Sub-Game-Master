@@ -433,7 +433,7 @@ def test_threshold_env(monkeypatch):
     monkeypatch.setenv("SVG_LOADING_THRESHOLD_SEC", "2.5")
     assert SC.loading_threshold_sec() == 2.5
     monkeypatch.setenv("SVG_LOADING_THRESHOLD_SEC", "x")
-    assert SC.loading_threshold_sec() == 1.5
+    assert SC.loading_threshold_sec() == 0.05                                       # v7.37 기본(그리지 않은 카드는 곧바로 로딩)
 
 
 # ── 경계: 새 공급자 호출 없음 ──────────────────────────────────

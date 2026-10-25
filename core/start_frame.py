@@ -11,6 +11,7 @@
 #   틀은 '인트로 생성 지시'와 '사전 확정 정보'를 함께 갖는다.
 #   추출 정보를 미리 정해두면 인트로 직후의 세계 상태가 흔들리지 않는다.
 import random
+import re
 
 # 유저에게 제시할 선택지 수 (기획 규정 — 삼지선다).
 CHOICE_COUNT = 3
@@ -191,19 +192,77 @@ def build_briefing(scenario_data: dict, profile: dict) -> str:
     return " · ".join(parts)
 
 
+BRIEFING_BEATS = ("identity", "look", "outfit", "items")
+_NATIVE = {1: "하나", 2: "둘", 3: "셋", 4: "넷", 5: "다섯", 6: "여섯", 7: "일곱", 8: "여덟", 9: "아홉", 10: "열"}
+_SLOT = re.compile(r"\{([^{}]+)\}")
+
+
+def items_phrase(bag: dict, instances=(), defs=None) -> str:
+    """정본 소지품 → 자연어("물통 하나, 성냥 둘, 물 500ml"). 특수 물건은 이름만."""
+    from .items import canonical_bag, parse_key
+    out = []
+    for key, n in sorted(canonical_bag(bag or {}, defs).items()):
+        if not isinstance(n, int) or isinstance(n, bool) or n <= 0:
+            continue
+        sid, _m = parse_key(key, defs)
+        name = sid.kind + (f"({sid.condition})" if sid.condition and sid.condition != "정상" else "")
+        out.append(f"{name} {n}{sid.unit}" if sid.unit else f"{name} {_NATIVE.get(n, f'{n}개')}")
+    out += [str(r.get("name")) for r in instances or () if r.get("name")]
+    return ", ".join(out)
+
+
+def _flat(profile: dict) -> dict:
+    from .master import _clean_slot
+    flat = {}
+    for key, val in (profile or {}).items():
+        if isinstance(val, dict):
+            val = ", ".join(f"{k} {v}" for k, v in val.items())
+        elif isinstance(val, list):
+            val = ", ".join(str(x) for x in val)
+        v = _clean_slot(str(val)) if val not in (None, "") else None
+        if v:
+            flat[key] = v
+    return flat
+
+
+def _variants(scenario_data: dict, beat: str) -> list:
+    """박자의 변주 — 시나리오 briefing_formats(박자 구조) > 옛 목록(정체 박자로) > 마스터 공용 템플릿."""
+    from .master import briefing_templates
+    fm = (scenario_data or {}).get("briefing_formats")
+    if isinstance(fm, dict) and isinstance(fm.get(beat), list):
+        return [v for v in fm[beat] if isinstance(v, str) and v.strip()]
+    if isinstance(fm, list) and beat == "identity" and fm:
+        return [v for v in fm if isinstance(v, str) and v.strip()]
+    return briefing_templates(beat)
+
+
+def briefing_beats(scenario_data: dict, profile: dict, items_text: str = "", *, rng=None) -> list:
+    """v7.37 R4(사용자 결정 D3 가) — 인물 소개 4박자(정체·모습·차림·소지품)를 코드가 템플릿으로 완성한다.
+
+    박자마다 슬롯을 모두 채울 수 있는 변주 중 하나를 무작위로 고른다. 채울 변주가 없는 박자는 건너뛴다.
+    값은 자르지 않는다. provider 호출 없음 — 묘사층위에는 보내지 않는다."""
+    rng = rng or random
+    flat = _flat(profile)
+    if items_text:
+        flat["소지품"] = items_text
+    beats = []
+    for beat in BRIEFING_BEATS:
+        ok = [v for v in _variants(scenario_data, beat) if all(k in flat for k in _SLOT.findall(v))]
+        if ok:
+            beats.append(substitute(rng.choice(ok), flat))
+    return beats
+
+
 def build_intro_instruction(scenario_data: dict, profile: dict,
                             chosen: dict) -> str:
     """인트로 생성 지시문을 조립한다.
 
-    기획 규정 — 브리핑 이후 인트로를 연결해 한 번에 스트리밍하고,
     원경에서 근경으로 배경·상황에 포커스를 맞추며 몰입되게 시작한다.
+    v7.37 R4: 인물 소개는 인트로 직전 마스터 박자(briefing_beats)가 맡는다 — 묘사층위에 브리핑을 보내지 않는다.
     """
-    briefing = build_briefing(scenario_data, profile)
     return (
         "[인트로 생성 지시]\n"
-        "아래 브리핑으로 시작해, 이어서 시작 상황을 묘사하십시오.\n"
-        "브리핑과 묘사는 하나의 흐름으로 이어져야 합니다.\n\n"
-        f"[플레이어 브리핑 — 이 내용으로 시작할 것]\n{briefing}\n\n"
+        "아래 시작 상황을 묘사하십시오. 인물 소개는 이미 플레이어에게 전했으니 되풀이하지 마십시오.\n\n"
         f"[시작 상황]\n{chosen.get('summary', '')}\n\n"
         f"[묘사 지시]\n{chosen.get('instruction', '')}\n\n"
         "[연출 원칙]\n"

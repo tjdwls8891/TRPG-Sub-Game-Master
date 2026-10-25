@@ -66,6 +66,11 @@ def flow(wired_bot, session_auto_ready, game_channel):
     return wired_bot, s, game_channel
 
 
+def _flow(ch):
+    """대화 메시지 — v7.37부터 그 위에 마스터 이미지 전용 메시지가 따로 있다."""
+    return next(m for m in reversed(ch.sent) if not m.files)
+
+
 def _press_answer(msg, i=0):
     btn = msg.view.children[i]
     return btn.callback(FakeInteraction(user=FakeUser(int(PLAYER_UID)), message=msg))
@@ -74,11 +79,11 @@ def _press_answer(msg, i=0):
 async def test_private_step_beats_in_one_message_then_decision(flow):
     bot, s, ch = flow
     await SF.render(bot, s, ch)
-    assert len(ch.sent) == 1
-    msg = ch.sent[0]
+    assert len(ch.sent) == 2 and ch.sent[0].files and not ch.sent[1].files      # v7.37: 이미지 메시지가 위
+    msg = _flow(ch)
     assert isinstance(msg.view, T.TalkView) and "공개" in msg.content
     await _press_answer(msg)
-    assert len(ch.sent) == 1                                                            # 같은 메시지를 고쳐 쓴다
+    assert len(ch.sent) == 2                                                            # 같은 메시지를 고쳐 쓴다
     assert isinstance(msg.view, SF.PrivateView) and "비공개로" in msg.content
     assert "-# ↳" in msg.content                                                        # 직전 응답 한 줄
     assert creation.current_step(s) == "private" and "private" not in (s.creation_state.get("data") or {})
@@ -90,7 +95,7 @@ async def test_either_answer_reaches_the_same_next_beat(flow, monkeypatch):
     monkeypatch.setattr(core.master, "line", lambda *_a, **_k: None)                    # 대체 문구(두 응답) 고정
     s.creation_state["step"] = "scenario"
     await SF.render(bot, s, ch)
-    msg = ch.sent[0]
+    msg = _flow(ch)
     labels = [c.label for c in msg.view.children]
     assert labels == ["네.", "어떤 세계가 있죠?"]
     await _press_answer(msg, len(labels) - 1)
@@ -106,7 +111,7 @@ async def test_either_answer_reaches_the_same_next_beat(flow, monkeypatch):
 async def test_non_owner_cannot_answer(flow):
     bot, s, ch = flow
     await SF.render(bot, s, ch)
-    msg = ch.sent[0]
+    msg = _flow(ch)
     other = FakeInteraction(user=FakeUser(999), message=msg)
     assert await msg.view.interaction_check(other) is False
     assert isinstance(msg.view, T.TalkView)
@@ -116,10 +121,10 @@ async def test_restart_resumes_at_decision_beat(flow):
     bot, s, ch = flow
     s.creation_state["step"] = "memory"
     await SF.render(bot, s, ch)
-    assert isinstance(ch.sent[0].view, T.TalkView)
+    assert isinstance(_flow(ch).view, T.TalkView)
     T._POS.clear()                                                                      # 재시작(메모리 소실)
     await SF.resume_session(bot, s)
-    msg = ch.sent[0]
+    msg = _flow(ch)
     assert isinstance(msg.view, SF.MemoryPlanView) and msg.embeds and msg.embeds[0].fields   # 플랜 카드는 결정 박자에만
 
 
@@ -127,7 +132,7 @@ async def test_scenario_intro_auto_split_then_confirm_with_cost(flow, monkeypatc
     bot, s, ch = flow
     data = {"scenario_intro": "\n\n".join(["가" * 200, "나" * 200]), "worldview": "w"}
     await SF.show_scenario_confirm(bot, s, ch, "테스트", data)
-    msg = ch.sent[0]
+    msg = _flow(ch)
     assert isinstance(msg.view, T.TalkView) and "가" * 50 in msg.content
     while isinstance(msg.view, T.TalkView):
         await _press_answer(msg)
@@ -139,7 +144,7 @@ async def test_streaming_edits_partials_before_full_beat(flow, monkeypatch):
     bot, s, ch = flow
     monkeypatch.setattr(T, "TICK", 0.001)
     await SF.render(bot, s, ch)
-    msg = ch.sent[0]
+    msg = _flow(ch)
     partial = [e for e in msg.edit_history if e.get("view") is None and "▍" in (e.get("content") or "")]
     assert partial and isinstance(msg.view, T.TalkView) and "▍" not in msg.content
     assert all("attachments" not in e for e in msg.edit_history)                       # 박자 편집은 이미지 재업로드 없음
@@ -149,7 +154,7 @@ async def test_greeting_beats_precede_private_decision(flow):
     bot, s, ch = flow
     s.creation_state["greeting"] = SF.greeting_text("<@1>", "<#2>")
     await SF.render(bot, s, ch)
-    msg = ch.sent[0]
+    msg = _flow(ch)
     assert msg.content.startswith("**공개 설정**") and "<@1> 님" in msg.content
     seen = [msg.content]
     while isinstance(msg.view, T.TalkView):

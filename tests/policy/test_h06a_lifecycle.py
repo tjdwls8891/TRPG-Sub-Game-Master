@@ -60,6 +60,18 @@ def _cog(r):
     return cog
 
 
+async def play_intro(cog, s, chosen, ch):
+    """v7.37 R4: 인트로 앞 인물 소개 박자를 끝까지 넘긴다(응답 버튼 — 마지막 박자가 인트로를 연다)."""
+    from core import talk as T
+    from tests.fakes.discord_fakes import FakeInteraction, FakeUser
+    await cog.play_intro(s, chosen, ch)
+    for _ in range(10):
+        msg = next((m for m in reversed(getattr(ch, "sent", [])) if isinstance(m.view, T.TalkView)), None)
+        if msg is None:
+            return
+        await msg.view.children[0].callback(FakeInteraction(FakeUser(int(PLAYER_UID)), ch, msg))
+
+
 def journal_inits(s):
     return [e for e in CM.read_journal(s.session_id) if e.get("cause_kind") == WS.CAUSE_INITIALIZATION]
 
@@ -213,10 +225,10 @@ async def test_initial_cache_failure_after_genesis_stays_initialized_and_retry_d
     monkeypatch.setattr(cog, "upload_cache", _upload)
     monkeypatch.setattr(r.bot.get_cog("GameCog"), "_execute_proceed", _intro)
     s.start_frame = {"id": "harbor"}
-    await cog.play_intro(s, {"id": "harbor"}, r.bot.get_channel(s.game_ch_id))
+    await play_intro(cog, s, {"id": "harbor"}, r.bot.get_channel(s.game_ch_id))
     assert s.world_lifecycle == WL.LIFECYCLE_INITIALIZED and calls["intro"] == 0
     genesis = copy.deepcopy(s.world_version)
-    await cog.play_intro(s, {"id": "harbor"}, r.bot.get_channel(s.game_ch_id))   # 재시도
+    await play_intro(cog, s, {"id": "harbor"}, r.bot.get_channel(s.game_ch_id))   # 재시도
     assert calls == {"upload": 2, "intro": 1}
     assert s.world_version == genesis and len(journal_inits(s)) == 1            # genesis 재적용 없음
     assert s.world_lifecycle == WL.LIFECYCLE_OPEN and PW.session_world_context(s).dynamic
@@ -239,10 +251,10 @@ async def test_legacy_play_intro_unchanged_and_deferred_cache_opened(rig, monkey
     monkeypatch.setattr(cog, "upload_cache", _upload)
     monkeypatch.setattr(r.bot.get_cog("GameCog"), "_execute_proceed", _intro)
     # v7.33(②, 사용자 승인): 레거시도 캐시 업로드가 실패하면 인트로로 넘어가지 않고 재시도 대기(옛 의미: 실패해도 계속)
-    await cog.play_intro(s, {"id": "harbor"}, r.bot.get_channel(s.game_ch_id))
+    await play_intro(cog, s, {"id": "harbor"}, r.bot.get_channel(s.game_ch_id))
     assert seen == ["upload"] and s.world_lifecycle is None and s._intro_pending
     result["ok"] = True                                               # [세션 다시 열기] → 같은 경로로 재시도
-    await cog.play_intro(s, {"id": "harbor"}, r.bot.get_channel(s.game_ch_id))
+    await play_intro(cog, s, {"id": "harbor"}, r.bot.get_channel(s.game_ch_id))
     assert seen == ["upload", "upload", "intro"] and s.world_lifecycle is None
 
 

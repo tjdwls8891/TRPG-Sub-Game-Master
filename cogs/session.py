@@ -205,9 +205,24 @@ class InitialKnowledgeView(discord.ui.View):
     async def _resend(self, interaction):
         if not await self._guard(interaction):
             return
-        st = await core.initial_knowledge.resend(self.bot, self.session, self.uid, self.phase, interaction.channel)
+        shown = []
+
+        async def cont():                       # v7.37(D1): 다시 보낸 박자의 마지막에서 이어 간다
+            shown.append(True)
+            await self._finish(interaction)
+        st = await core.initial_knowledge.resend(self.bot, self.session, self.uid, self.phase, interaction.channel,
+                                                 on_delivered=cont)
+        if shown:
+            return
         if st in core.initial_knowledge.DONE:
             await self._finish(interaction)
+        elif st == core.initial_knowledge.PRESENTING:
+            for c in self.children:
+                c.disabled = True
+            try:
+                await interaction.message.edit(view=self)
+            except Exception:
+                pass
         else:
             self._busy = False
 
@@ -679,10 +694,58 @@ class SessionCog(commands.Cog):
                     profile["능력치"] = prof_stat
                 break
 
+        game_cog = self.bot.get_cog("GameCog")
+        if game_cog and await self._present_briefing(
+                session, profile, game_channel,
+                lambda: self._play_intro_body(session, chosen, game_channel, profile, game_cog)):
+            return                                # v7.37 R4: 소개 박자의 마지막('첫 장면을 열겠습니다')이 이어 간다
+        await self._play_intro_body(session, chosen, game_channel, profile, game_cog)
+
+    async def _present_briefing(self, session, profile, channel, then) -> bool:
+        """v7.37 R4·R1(사용자 결정 D3 가) — 인물 소개 박자(정체·모습·차림·소지품) → '첫 장면을 열겠습니다' 박자.
+
+        코드가 템플릿으로 완성한다(provider 호출 0). 마지막 박자를 그리면 then(인트로)을 부른다. 소개할 것이
+        없으면 False(바로 인트로). 재시작으로 끊기면 같은 메시지에 [세션 다시 열기]가 다시 붙는다(동적 세계)."""
+        name = str(profile.get("이름") or "")
+        bag = (getattr(session, "resources", None) or {}).get(name) or {}
+        inst = [r for r in (getattr(session, "item_instances", None) or {}).values() if r.get("owner") == name]
+        defs = core.items.definitions_of(getattr(session, "scenario_data", None))
+        beats = core.start_frame.briefing_beats(session.scenario_data, profile,
+                                                core.start_frame.items_phrase(bag, inst, defs))
+        if not beats or channel is None:
+            return False
+        enter = core.master.say("intro.enter", "그럼, 첫 장면을 열겠습니다.")
+        text = "\n[[]]\n".join(beats + [f"*{enter}*"])
+        key = f"briefing:{getattr(session, 'session_id', '')}"
+        holder = {"msg": None}
+        sf = core.session_flow
+        retry = getattr(session, "world_lifecycle", None) == core.world_lifecycle.LIFECYCLE_INITIALIZED
+
+        async def draw(body, *, final, view, partial, first):
+            try:
+                if holder["msg"] is None:
+                    holder["msg"] = await channel.send(content=body, view=view)
+                    if retry:
+                        await sf.remember_prompt(self.bot, session, sf.PROMPT_OPEN_RETRY, channel, holder["msg"])
+                else:
+                    await holder["msg"].edit(content=body, view=view)
+            except Exception as e:  # noqa: BLE001
+                print(f"[인트로] 소개 박자 전송 실패: {e}")
+                if holder["msg"] is None:
+                    await then()                  # 소개를 못 보내도 인트로는 진행한다
+                return
+            if final and not partial:
+                if retry:
+                    sf.forget_prompt(session, sf.PROMPT_OPEN_RETRY)
+                await then()
+
+        core.talk.reset(session, key)
+        await core.talk.run(session, key, text, draw, check=lambda i: sf.owner_only(self.bot, session, i))
+        return True
+
+    async def _play_intro_body(self, session, chosen, game_channel, profile, game_cog):
         instruction = core.start_frame.build_intro_instruction(
             session.scenario_data, profile, chosen)
-
-        game_cog = self.bot.get_cog("GameCog")
         intro_ok = True
         if game_cog:
             # 묘사층위로 인트로를 생성한다. 이후 턴과 같은 경로를 쓴다.

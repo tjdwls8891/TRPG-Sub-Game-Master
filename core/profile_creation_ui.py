@@ -341,6 +341,7 @@ async def _send(state, channel, res: dict, *, view, await_kind: str | None = Non
             return
         except Exception:
             state.message = None
+    await _art_above(state, channel)
     state.message = await channel.send(**_first_send_kwargs(state, embed, view))
 
 
@@ -801,15 +802,15 @@ def _completion_embed(state, result: dict, lead: str | None = None) -> discord.E
 
 
 def _first_send_kwargs(state, embed, view, master_key="profile.step"):
-    """새 메시지 송출 인자 — 대화 본문은 content(P2 #4), 마스터 이미지는 첫 송출에만 붙인다(편집은 첨부 유지)."""
-    try:
-        mfile, _path, _state = _master_art.file_for(state.session, master_key)
-    except Exception:  # noqa: BLE001 — 이미지는 부가 요소: 실패해도 화면은 나간다
-        mfile = None
-    extra = {"view": view}
-    if mfile is not None:
-        extra["file"] = mfile
-    return _conv.send_kwargs(embed, **extra)
+    """새 메시지 송출 인자 — 대화 본문은 content(P2 #4). v7.37(D2): 마스터 이미지는 위의 전용 메시지(_art_above)."""
+    return _conv.send_kwargs(embed, view=view)
+
+
+async def _art_above(state, channel, master_key="profile.step"):
+    """v7.37(D2): 새 생성 화면 메시지를 보내기 전에 그 위에 마스터 이미지 메시지를 둔다(그림이 같으면 그대로)."""
+    store = state.__dict__.setdefault("_art", {})
+    await _master_art.drop_art(channel, store)
+    await _master_art.art_above(channel, state.session, master_key, store)
 
 
 async def _show_save(state, channel):
@@ -837,6 +838,7 @@ async def _show_save(state, channel):
             except Exception:
                 state.message = None
         if not state.message:
+            await _art_above(state, channel, "profile.completed")
             state.message = await channel.send(**_first_send_kwargs(state, e, v, "profile.completed"))
         if final:
             save_view.message = state.message
@@ -1590,6 +1592,7 @@ async def start(bot, session, uid, char_name: str, channel, *, begun: bool = Fal
             state.run["gen"] = int(state.run.get("gen") or 0) + 1
             view.gen = state.run["gen"]
             await _persist(state)
+            await _art_above(state, channel, "profile.prefill")
             state.message = await channel.send(**_first_send_kwargs(state, e, view, "profile.prefill"))
             return state
 

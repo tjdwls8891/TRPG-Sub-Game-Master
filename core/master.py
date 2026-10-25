@@ -28,12 +28,15 @@ def _load() -> dict:
             events = data.get("events") if isinstance(data, dict) else None
             acks = [tuple(a for a in pair if isinstance(a, str) and a.strip())
                     for pair in (data.get("acks") or []) if isinstance(pair, list)]
+            bt = data.get("briefing_templates") if isinstance(data.get("briefing_templates"), dict) else {}
             _cache = {"events": events if isinstance(events, dict) else {},
                       "slots": set((data.get("reserved_placeholders") or {}).keys()),
-                      "acks": [a for a in acks if a]}
+                      "acks": [a for a in acks if a],
+                      "briefing": {k: [v for v in vs if isinstance(v, str) and v.strip()]
+                                   for k, vs in bt.items() if isinstance(vs, list)}}
         except Exception as e:
             print(f"[마스터] 대사 데이터 로드 실패(기존 문구 사용): {e}")
-            _cache = {"events": {}, "slots": set(), "acks": []}
+            _cache = {"events": {}, "slots": set(), "acks": [], "briefing": {}}
     return _cache
 
 
@@ -72,6 +75,11 @@ def line(key: str, *, slots: dict | None = None) -> str | None:
 def acks() -> list:
     """v7.36 공용 응답 쌍(대화 박자 — 저작 응답이 없는 박자)."""
     return list(_load().get("acks") or [])
+
+
+def briefing_templates(beat: str) -> list:
+    """v7.37 R4 공용 인물 소개 박자 변주(슬롯 = 프로필 항목명 — 대사 슬롯 규약과 별개)."""
+    return list((_load().get("briefing") or {}).get(beat) or [])
 
 
 def has_key(key: str) -> bool:

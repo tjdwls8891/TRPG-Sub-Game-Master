@@ -92,19 +92,22 @@ async def show(bot, session, channel, embed, view=None, *, replace: bool = True,
     """
     st = creation.get_state(session)
     mid = st.get("flow_msg_id") if replace else None
-    mfile, _path, _state = _master_art.file_for(session, master_key)
+    # v7.37(D2): 마스터 이미지는 대화 메시지 위의 전용 메시지 — 대화 메시지는 글만 고쳐 쓴다
+    art_store = st.setdefault("flow_art", {})
 
     if mid:
         try:
             msg = await channel.fetch_message(mid)
-            # v7.36: 대화 박자 편집은 이미지를 다시 올리지 않는다(art=False — 첨부 유지)
-            extra = {"attachments": [mfile]} if art else {}
-            await msg.edit(**_conv.edit_kwargs(embed, view=view, **extra))
+            await msg.edit(**_conv.edit_kwargs(embed, view=view))
+            if art:
+                await _master_art.art_above(channel, session, master_key, art_store, create=False)
             return msg
         except Exception:
-            mfile, _path, _state = _master_art.file_for(session, master_key)   # 사용한 File은 다시 못 쓴다
+            pass
 
-    msg = await channel.send(**_conv.send_kwargs(embed, view=view, file=mfile))
+    await _master_art.drop_art(channel, art_store)                   # 대화 메시지를 새로 만들 때는 이미지도 그 위에 새로
+    await _master_art.art_above(channel, session, master_key, art_store)
+    msg = await channel.send(**_conv.send_kwargs(embed, view=view))
     st["flow_msg_id"] = msg.id
     return msg
 
@@ -113,6 +116,7 @@ async def close_flow_message(bot, session, channel, text: str = None):
     """제작 화면을 정리한다. 다음 흐름이 채널을 쓰기 전에 호출한다."""
     st = creation.get_state(session)
     mid = st.pop("flow_msg_id", None)
+    await _master_art.drop_art(channel, st.setdefault("flow_art", {}))
     if not mid:
         return
     try:
@@ -141,7 +145,8 @@ MEMORY_TEXT = ("턴이 쌓이면 지난 일을 간추려 보관해 둡니다.\n[
                "**한 번 정하시면 도중에 바꿀 수 없습니다.** 어떻게 하시겠습니까?")
 OPEN_TEXT = ("이제 세계를 불러올 차례입니다.\n[[네.]]\n"
              "머무르실 시간만큼 미리 받고, 일찍 닫으시면 남은 만큼 돌려드립니다.\n[[알겠습니다.]]\n"
-             "얼마나 머무르실 생각이십니까? 아래 버튼을 누르고 이 채널에 답해 주십시오.")
+             "얼마나 머무르실 생각이십니까? 이 채널에 바로 답해 주십시오.")
+OPEN_EXAMPLES = "-# 예: 3시간 · 90분 · 20턴 · 적당히 · 알아서"
 START_TEXT = ("이야기가 시작될 자리를 정하겠습니다.\n[[네.|어디서 시작하죠?]]\n"
               "셋 중 하나를 고르시면 그 자리에서 이야기가 열립니다.")
 GREETING_TEXT = ("어서 오십시오.\n[[네.|안녕하세요.]]\n"
@@ -248,9 +253,11 @@ async def render(bot, session, channel):
                         master_key="profile.begin", final_fn=_begin)
 
     elif step == "open":
+        async def _ask(body):
+            await ask_open_time(bot, session, channel, body)
         await talk_step(bot, session, channel, "open", _master.say("session.open_time", OPEN_TEXT),
-                        lambda body, _f: step_embed(session, "세션 열기", body),
-                        OpenTimeView(bot, session, channel), master_key="cache.time_question")
+                        lambda body, _f: step_embed(session, "세션 열기", body), None,
+                        master_key="cache.time_question", final_fn=_ask)
 
     elif step == "start":
         async def _frames(body):
@@ -847,23 +854,25 @@ def awaiting_open_here(session, channel_id) -> bool:
         getattr(session, "_open_input_ch_id", None) == channel_id
 
 
-class OpenTimeView(_Step):
-    @discord.ui.button(label="⏱️ 시간 입력", style=discord.ButtonStyle.primary)
-    async def ask(self, interaction, _b):
-        # v7.21.4: 세션 첫 생성은 진행 중인 게임 채널에서 바로 답한다(디스플레이로 옮기지 않음).
-        #   채팅은 1회만 언락하고, 답변 처리(gm._handle_open_time_input)가 이 질문을 종결 정리한다.
-        from . import message_lifecycle as _ml
-        self.session.awaiting_display_input = True
-        self.session._open_input_ch_id = self.channel.id
-        await _ml.clear(self.bot, self.session, _ml.KEY_DISPLAY_OPEN_PROMPT)
-        await interaction.response.send_message(
-            f"⏱️ **{_master.say('cache.time_question', '세션을 얼마나 유지하시겠습니까?')}**\n"
-            "이 채널에 답해 주십시오. (예: `3시간`, `20턴`, `적당히`, `알아서`)")
-        try:
-            _ml.register(self.session, _ml.KEY_DISPLAY_OPEN_PROMPT,
-                         await interaction.original_response(), cls=_ml.INTERACTION_PROMPT)
-        except Exception as e:  # noqa: BLE001
-            print(f"[세션플로우] 유지 시간 질문 핸들 확보 실패: {e}")
+async def ask_open_time(bot, session, channel, body: str):
+    """v7.37(R1): 세션 첫 생성의 유지 시간 — 대화 메시지가 묻고 이 채널의 다음 답을 바로 받는다(버튼 단계 없음).
+    답 처리(gm._handle_open_time_input)가 같은 대화 메시지에 해석·확인을 이어 쓴다."""
+    await show(bot, session, channel, step_embed(session, "세션 열기", f"{body}\n{OPEN_EXAMPLES}"), None,
+               master_key="cache.time_question", art=False)
+    session.awaiting_display_input = True
+    session._open_input_ch_id = channel.id
+
+
+def open_in_flow(session, channel_id) -> bool:
+    """이 답이 세션 첫 생성 대화(게임 채널 제작 메시지)의 유지 시간 답인가."""
+    return (creation.current_step(session) == "open" and bool(creation.get_state(session).get("flow_msg_id"))
+            and channel_id == getattr(session, "game_ch_id", None))
+
+
+async def open_feedback(bot, session, channel, text: str, view=None):
+    """유지 시간 해석·재질문·확인을 같은 대화 메시지에 쓴다(새 메시지 없음)."""
+    return await show(bot, session, channel, step_embed(session, "세션 열기", text), view,
+                      master_key="cache.time_question", art=False)
 
 
 async def _start_profile(bot, session, channel):
@@ -946,9 +955,21 @@ async def initial_knowledge_gate(bot, session, channel, phase, *, frame=None, on
         return True                                   # 이 틀은 genesis가 없다(LEGACY 시작) — 인지할 곳이 없으므로 생략
     if phase == "PROFILE" and not any(f.get("world_start") for f in frames):
         return True
-    st = await _ik.run_phase(bot, session, uids[0], phase, channel, definition, frame=frame)
+    shown = []
+
+    async def _cont():                                # v7.37(D1): 마지막 박자를 그린 뒤 멈췄던 단계를 이어 간다
+        shown.append(True)
+        if on_resolved is not None:
+            await on_resolved()
+        else:
+            await continue_after_initial_knowledge(bot, session, channel, phase)
+    st = await _ik.run_phase(bot, session, uids[0], phase, channel, definition, frame=frame, on_delivered=_cont)
+    if shown:
+        return False                                  # 박자 마지막에서 이미 이어 갔다
     if st in _ik.DONE:
         return True
+    if st == _ik.PRESENTING:
+        return False                                  # 대화 박자 진행 중 — 마지막 박자가 이어 간다
     try:
         view_cls = getattr(__import__("cogs.session", fromlist=["InitialKnowledgeView"]), "InitialKnowledgeView")
         if st == _ik.UNCERTAIN:

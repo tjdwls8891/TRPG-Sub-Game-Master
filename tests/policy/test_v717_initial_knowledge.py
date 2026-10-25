@@ -115,8 +115,19 @@ def ai(monkeypatch):
     return st
 
 
+async def press_through(s, ch, phase, st):
+    """v7.37(D1): 초기 지식은 대화 박자로 전달된다 — 응답 버튼을 끝까지 눌러 마지막 박자(영수증)까지 그린다."""
+    from core import talk as T
+    while st == IK.PRESENTING:
+        msg = next(m for m in reversed(ch.sent) if isinstance(m.view, T.TalkView))
+        await msg.view.children[0].callback(FakeInteraction(FakeUser(int(PLAYER_UID)), ch, msg))
+        st = IK.state_of(s, PLAYER_UID, phase)
+    return st
+
+
 async def deliver(r, s, ch, phase, frame=None):
-    return await IK.run_phase(r.bot, s, PLAYER_UID, phase, ch, defn(s), frame=frame)
+    st = await IK.run_phase(r.bot, s, PLAYER_UID, phase, ch, defn(s), frame=frame)
+    return await press_through(s, ch, phase, st)
 
 
 def pc_cog(s):
@@ -190,7 +201,9 @@ async def test_T11_T12_summary_rendered_verbatim_rumor_as_hearsay(rig, ai):
     ch = Ch()
     ai.resp = {"optional_keys": ["K2"], "recontextualized_keys": [], "master_briefing": "안개 이야기는 잊어도 됩니다."}
     await deliver(r, s, ch, "PROFILE")
-    text = str(ch.sent[-1].content)   # P2 #4: content
+    rec = IK.record(s, PLAYER_UID, "PROFILE")
+    text = IK.talk_text(rec, "PROFILE")   # v7.37(D1): 박자 원문 — 같은 메시지를 박자마다 고쳐 쓴다
+    assert rec["delivery_nonce"] in str(ch.sent[-1].content)                            # 마지막 박자 = 영수증
     assert "· 항구에는 밤마다 짙은 안개가 낀다." in text                                   # AI 문장이 덮어도 원문 유지
     assert "· 전해 들은 말 — 성당 지하에 옛 기록이 있다는 소문" in text
     assert text.index("안개 이야기는") < text.index("**알고 있는 것**")
@@ -216,6 +229,8 @@ async def test_T05_profile_phase_before_flow_advances(rig, ai, monkeypatch):
     assert order == [] and IK.state_of(s, PLAYER_UID, "PROFILE") == IK.FAILED_RETRYABLE   # 실패 — 진행 안 함
     ch.fail_send = None
     await core.session_flow.on_profile_done(r.bot, s, ch)
+    assert order == []                                                                   # 박자 진행 중
+    await press_through(s, ch, "PROFILE", IK.state_of(s, PLAYER_UID, "PROFILE"))        # 마지막 박자가 이어 간다
     assert order == ["record", "advance", "render"] and len(ai.calls) == 1               # 재시도는 같은 패킷
     assert IK.state_of(s, PLAYER_UID, "PROFILE") == IK.DELIVERED
 
@@ -238,8 +253,18 @@ async def test_T06_T07_start_phase_before_genesis_frame_specific_no_redelivery(r
         return await orig(bot, session, chosen)
     monkeypatch.setattr(core.world_lifecycle, "initialize_world", spy)
     ai.resp = {"optional_keys": [], "recontextualized_keys": ["R1"], "master_briefing": "기억나십니까"}
-    assert await cog.open_dynamic_world(s, {"id": "harbor", "title": "항구의 밤", "summary": "항구에 막 도착했다"}, ch)
-    assert seen["start"] == IK.DELIVERED and WL.world_bound(s)
+    frame = {"id": "harbor", "title": "항구의 밤", "summary": "항구에 막 도착했다"}
+    assert not await cog.open_dynamic_world(s, frame, ch)                                # 박자 진행 중(genesis 전)
+    assert "start" not in seen
+    s.start_frame = frame
+    played = []
+
+    async def _play(session, chosen, channel):
+        played.append(chosen["id"])
+        return await cog.open_dynamic_world(session, chosen, channel)
+    monkeypatch.setattr(cog, "play_intro", _play)
+    await press_through(s, ch, "START", IK.state_of(s, PLAYER_UID, "START"))           # 마지막 박자 → 인트로 재진입
+    assert played == ["harbor"] and seen["start"] == IK.DELIVERED and WL.world_bound(s)
     st = s.initial_knowledge_progress["players"][PLAYER_UID]["START"]
     assert [x["id"] for x in st["selected_info"]] == ["ik.dock"]                         # 1차 항목 재부여 없음
     assert st["recontextualized"] == ["ik.common"] and "R1: 항구에는" in ai.calls[-1]
@@ -386,7 +411,7 @@ async def test_T17_X08_revision_or_profile_change_not_auto_granted(rig, ai):
 async def test_T17_stale_unsent_packet_is_rebuilt(rig, ai, monkeypatch):
     r = rig
     s = setup(r)
-    monkeypatch.setattr(IK, "send", lambda *a, **k: _ret(IK.FAILED_RETRYABLE))
+    monkeypatch.setattr(IK, "present", lambda *a, **k: _ret(IK.FAILED_RETRYABLE))
     await deliver(r, s, Ch(), "PROFILE")
     monkeypatch.undo()
     s.players[PLAYER_UID]["profile"]["소속"] = "도적 길드"

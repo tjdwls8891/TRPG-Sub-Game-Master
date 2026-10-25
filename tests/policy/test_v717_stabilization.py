@@ -20,7 +20,8 @@ from core import world_lifecycle as WL
 from tests.conftest import PLAYER_UID
 from tests.policy.test_h05bc_turn_wiring import PC, drig, extraction, judgment, turn  # noqa: F401
 from tests.policy.test_ready_barrier import rig  # noqa: F401
-from tests.policy.test_v717_initial_knowledge import INFOS, Ch, ai, deliver, ik_raw, pc_cog, setup  # noqa: F401
+from tests.policy.test_v717_initial_knowledge import (INFOS, Ch, ai, deliver, ik_raw, pc_cog,  # noqa: F401
+                                                     press_through, setup)
 
 pytestmark = pytest.mark.policy
 ROOT = pathlib.Path(__file__).resolve().parents[2]
@@ -84,7 +85,8 @@ async def test_P1_yeongdo_profile_one_call_start_zero_calls(rig, ai):
     assert d is not None, why
     frame = next(f for f in d["initialization_definitions"]["start_frames"] if f.get("world_start"))
     ch = Ch()
-    assert await IK.run_phase(r.bot, s, PLAYER_UID, "PROFILE", ch, d) == IK.DELIVERED
+    st = await IK.run_phase(r.bot, s, PLAYER_UID, "PROFILE", ch, d)
+    assert await press_through(s, ch, "PROFILE", st) == IK.DELIVERED                 # v7.37(D1): 박자 끝까지
     assert await IK.run_phase(r.bot, s, PLAYER_UID, "START", ch, d, frame={"id": frame["frame_id"]}) == IK.SKIPPED
     assert len(ai.calls) == 1 and len(ch.sent) == 1
     rows = s.initial_knowledge_progress["players"][PLAYER_UID]["PROFILE"]["selected_info"]
@@ -213,6 +215,7 @@ async def test_P3_restart_after_save_choice_resumes_to_next_step_once(rig, ai, f
     draft = {"run": {"values": {"직업": "초안직업"}}}
     s.players[PLAYER_UID]["draft_should_not_be_read"] = draft
     assert await core.profile_creation_ui.resume_all(r.bot) == 1
+    await press_through(s, ch, "PROFILE", IK.state_of(s, PLAYER_UID, "PROFILE"))  # v7.37(D1): 박자 끝에서 이어 감
     assert flow_spy == [("render", "open")] and len(ai.calls) == 1 and len(ch.sent) == 1
     assert "상인" in ai.calls[0] and "초안직업" not in ai.calls[0]                  # (d) 확정 프로필만
     # 다음 단계 화면을 띄운 뒤 다시 재시작해도(단계 미저장 포함) 중복 발송·인지 없음
