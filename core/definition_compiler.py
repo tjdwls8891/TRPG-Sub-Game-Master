@@ -1298,7 +1298,7 @@ PERSONA_KEYS = ("surface", "core", "stances", "now", "initial_trust")
 PERSONA_SURFACE = ("impression", "voice", "lines")
 PERSONA_CORE = ("value", "crack", "fear", "ties", "rivals")
 PERSONA_STANCES = ("stranger", "known", "trusted", "hostile")
-PERSONA_NOW = ("when", "goal", "worry", "body")
+PERSONA_NOW = ("when", "goal", "worry", "mood", "body")
 PERSONA_REQUIRED = {"surface": ("impression", "voice", "lines"), "core": ("value",), "stances": ("stranger",)}
 
 
@@ -1318,7 +1318,7 @@ def _persona_texts(p, ps):
             if isinstance(x, str):
                 yield f"{ps}.{sec}.{k}", x, PERSONA_LIMITS[sec]
     for i, r in enumerate(p.get("now") or () if isinstance(p.get("now"), list) else ()):
-        for k in ("goal", "worry", "body"):
+        for k in ("goal", "worry", "mood", "body"):
             if isinstance(r, dict) and isinstance(r.get(k), str):
                 yield f"{ps}.now[{i}].{k}", r[k], PERSONA_LIMITS["now"]
 

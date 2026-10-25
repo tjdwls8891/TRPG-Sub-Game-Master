@@ -216,6 +216,8 @@ def now_text(row: dict) -> str:
     bits = [f"목표 — {row['goal']}"]
     if row.get("worry"):
         bits.append(f"걱정 — {row['worry']}")
+    if row.get("mood"):
+        bits.append(f"기분 — {row['mood']}")
     if row.get("body"):
         bits.append(f"몸 — {row['body']}")
     return " · ".join(bits)
