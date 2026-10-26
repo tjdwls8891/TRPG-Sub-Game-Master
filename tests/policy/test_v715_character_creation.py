@@ -616,8 +616,8 @@ async def test_t18_yeongdo_guides_authored_and_followed_in_order(fake_bot, sessi
     assert PG.validate_steps(sd) == []
     steps = {s["field"]: s for s in sd["profile_creation"]}
     assert [f for f in steps if PG.is_long_form(steps[f])] == ["외형", "배경", "복장"]
-    assert [s["field"] for s in sd["profile_creation"]] == ["성별", "이름", "나이", "직업", "스킬", "능력치",
-                                                             "외모", "외형", "배경", "복장"]      # 순서 불변
+    assert [s["field"] for s in sd["profile_creation"]] == ["성별", "이름", "나이", "직업", "스킬", "시작 소지품",
+                                                             "능력치", "외모", "외형", "배경", "복장"]  # v7.43 시작 소지품 추가
     s = session_factory("yd", scenario=sd)
     s.scenario_id = "영도"
     fake_bot.register_session(s)
@@ -630,6 +630,7 @@ async def test_t18_yeongdo_guides_authored_and_followed_in_order(fake_bot, sessi
     state = PCU.ProfileCreationSession(fake_bot, s, PLAYER_UID, "x", channel_id=ch.id)
     state.run = core.profile_runner.new_run(sd, prefill={
         "성별": "남", "이름": "a", "나이": "30", "직업": next(iter(sd["jobs"])), "스킬": [],
+        "시작 소지품": sd["starting_item_choices"]["직업"][next(iter(sd["jobs"]))][:2],
         "능력치": {"근력": 10, "민첩": 10, "기술": 10}, "외모": "5", "외형": "마름"})
     PCU._register(state)
     async with state.lock:
