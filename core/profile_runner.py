@@ -195,6 +195,10 @@ def step(scenario_data: dict, run: dict, user_input: str = None) -> dict:
         msg = f"**{value}**"
         if desc and desc != "(설명 없음)":
             msg += f"\n> {desc}"
+        # 선택지별 덧붙임 한 줄(예: 영도 job_guides — 이 섬에서 그 직업의 의미)
+        note = ((scenario_data or {}).get(args.get("note_from") or "") or {}).get(value)
+        if isinstance(note, str) and note.strip():
+            msg += f"\n> {note.strip()}"
         if warn:
             msg += f"\n⚠️ {warn}"
             return {"type": WARN, "field": field, "options": result["options"],
