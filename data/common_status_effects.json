@@ -299,5 +299,100 @@
         "const": true
       }
     }
+  },
+  {
+    "name": "불면",
+    "apply_condition": "며칠째 잠을 제대로 못 잠(악몽·경계 근무·불안 등)",
+    "weight": -1,
+    "remove_condition": "6시간 이상 깊이 잠",
+    "rules": {
+      "clear_gate": {
+        "activity_in": [
+          "SLEEP"
+        ],
+        "min_minutes": 360
+      }
+    }
+  },
+  {
+    "name": "불안",
+    "apply_condition": "위협이 지난 뒤에도 긴장·불안이 며칠째 가라앉지 않음(한 장면의 공포는 '공황')",
+    "weight": -1,
+    "remove_condition": "안전한 곳에서 오래 쉬거나 믿는 사람과 시간을 보냄"
+  },
+  {
+    "name": "죄책감",
+    "apply_condition": "자기 선택으로 누군가 다치거나 죽었다는 생각에 사로잡힘",
+    "weight": -1,
+    "remove_condition": "털어놓거나 속죄할 일을 함"
+  },
+  {
+    "name": "무기력",
+    "apply_condition": "해야 할 일을 놓을 만큼 의욕이 꺼짐",
+    "weight": -1,
+    "remove_condition": "의미 있는 일이나 사람을 다시 붙잡음"
+  },
+  {
+    "name": "분노",
+    "apply_condition": "특정 대상에 대한 분노가 판단을 흐림",
+    "weight": -1,
+    "remove_condition": "분노의 대상과 결판이 나거나 마음이 풀림"
+  },
+  {
+    "name": "트라우마",
+    "apply_condition": "특정 기억·장소·소리에 몸이 굳고 그때로 끌려감",
+    "weight": -2,
+    "remove_condition": "붙은 지 7일 이상 지나고 그 기억과 마주해 견뎌 냄",
+    "rules": {
+      "clear_gate": {
+        "status_time": "SINCE_APPLIED_GTE",
+        "minutes": 10080
+      }
+    }
+  },
+  {
+    "name": "알코올 의존",
+    "apply_condition": "술 없이는 손이 떨리고 버티지 못함",
+    "weight": -2,
+    "remove_condition": "7일 이상 술을 끊고 버팀",
+    "rules": {
+      "clear_gate": {
+        "status_time": "SINCE_APPLIED_GTE",
+        "minutes": 10080
+      }
+    }
+  },
+  {
+    "name": "난청",
+    "apply_condition": "한쪽 또는 양쪽 귀가 잘 들리지 않음(폭음·수압·부상)",
+    "weight": -1,
+    "remove_condition": "해제 불가(영구)",
+    "rules": {
+      "clear_gate": {
+        "const": false
+      }
+    }
+  },
+  {
+    "name": "만성 호흡기 질환",
+    "apply_condition": "쇳가루·분진·유독 가스에 오래 노출돼 기침이 멎지 않음",
+    "weight": -1,
+    "remove_condition": "해제 불가(영구)",
+    "rules": {
+      "clear_gate": {
+        "const": false
+      }
+    }
+  },
+  {
+    "name": "노쇠",
+    "apply_condition": "나이로 몸이 예전 같지 않음",
+    "weight": -1,
+    "remove_condition": "해제 불가(영구)",
+    "rules": {
+      "clear_gate": {
+        "const": false
+      }
+    }
   }
 ]

@@ -159,3 +159,23 @@ async def test_dynamic_turn_applies_cold_from_extraction_and_tracks_it(drig):
     assert tx.status == core.turn_transaction.TurnStatus.COMMITTED
     assert "추위" in r.sess.statuses["테스터"]
     assert "추위" in r.sess.status_clock["테스터"]["applied"]
+
+
+# ── v7.42: 인물 데이터 정리(상태 라벨 → 공용 상태 · 소지품 표기) ─────────
+
+def test_npc_statuses_are_registered_statuses_and_items_have_no_memo_marks():
+    import re
+    npcs = YD["default_npcs"]
+    assert all(s in MERGED for v in npcs.values() for s in v["statuses"])
+    assert not [k for v in npcs.values() for k in v["resources"] if re.search(r"\((은닉|절도|배터리)", k)]
+    assert "항바이러스 시료" not in npcs["강지수"]["resources"]                 # 치료제 암시 금지
+
+
+def test_permanent_statuses_cannot_be_cleared_and_long_ones_wait_a_week():
+    for s in ("난청", "만성 호흡기 질환", "노쇠"):
+        assert run(ctx(99999, active={s}, applied={s: 0}), clear=[s]).clear == []
+    assert run(ctx(600, active={"트라우마"}, applied={"트라우마": 0}), clear=["트라우마"]).clear == []
+    assert names(run(ctx(10080, active={"트라우마"}, applied={"트라우마": 0}), clear=["트라우마"]).clear) == ["트라우마"]
+    slept = run(ctx(400, active={"불면"}, applied={"불면": 0}, turn_minutes=380, activity="SLEEP"), clear=["불면"])
+    assert names(slept.clear) == ["불면"]
+    assert run(ctx(400, active={"불면"}, applied={"불면": 0}, turn_minutes=60, activity="SLEEP"), clear=["불면"]).clear == []
