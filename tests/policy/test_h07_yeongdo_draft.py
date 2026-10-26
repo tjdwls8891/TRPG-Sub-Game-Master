@@ -176,7 +176,7 @@ def test_genesis_places_pc_clock_npcs_and_no_unnarrated_signals(frame):
     assert start_npc and placed == {start_npc: SP.at_place(ch.start_place)}
     from core import npc_position as NP
     srcs = {a: NP.effective_position(D, w, a)["source"] for a in D["actor_definitions"] if a != start_npc}
-    assert sum(1 for a in D["actor_definitions"].values() if a.get("routine")) == 35      # 일과 저작 35 · 미저작 12
+    assert sum(1 for a in D["actor_definitions"].values() if a.get("routine")) == 47      # v7.42: 일과 저작 47(전원)
     assert all(v in (NP.ROUTINE, NP.UNTRACKED) for v in srcs.values())  # 파생 또는 미추적(정본 아님)
     assert all(srcs[a] == NP.UNTRACKED for a, d in D["actor_definitions"].items() if not d.get("routine")
                and a != start_npc)
@@ -365,3 +365,17 @@ def test_every_legacy_quest_has_a_mapping_and_mapped_templates_exist():
             assert tid in D["event_templates"], (qid, tid)
     review = open(os.path.join(ROOT, "handoff", "H07_FINAL_IMPLEMENTATION_REPORT.md"), encoding="utf-8").read()
     assert all(f"| {q['id']} |" in review for q in quests)
+
+
+def test_v742_previously_untracked_npcs_follow_authored_routines():
+    from core import npc_position as NP
+    D, _ = _defn()
+    morning, _ = genesis("arrive_person")                             # 10:20 오전
+    dawn, _ = genesis("arrive_plain")                                 # 05:40 새벽
+    at = lambda w, a: dict(NP.effective_position(D, w, a), **(NP.effective_position(D, w, a).get("placement") or {}))  # noqa: E731
+    assert at(morning, "yd.npc.na_yongsun")["place_id"] == "바자르"      # 거상은 오전에 시장을 돈다
+    assert at(dawn, "yd.npc.na_yongsun")["place_id"] == "장부방"
+    assert at(morning, "yd.npc.kim_taeho")["place_id"] == "실습 공장"
+    assert at(dawn, "yd.npc.jo_han")["place_id"] == "갯바위 지대"
+    assert all(at(w, a)["source"] == NP.ROUTINE for w in (morning, dawn)
+               for a in ("yd.npc.choi_minjun", "yd.npc.bae_hyeongsik", "yd.npc.kwon_sangtae"))

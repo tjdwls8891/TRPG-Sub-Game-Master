@@ -736,7 +736,19 @@
       "statuses": [
         "연대에 대한 증오"
       ],
-      "actor_id": "yd.npc.choi_minjun"
+      "actor_id": "yd.npc.choi_minjun",
+      "routine": {
+        "entries": [
+          {
+            "place": "정보 거래소",
+            "dayparts": [
+              "한낮",
+              "오후"
+            ]
+          }
+        ],
+        "default_place": "채무자 숙소"
+      }
     },
     "법운": {
       "name": "법운",
@@ -1008,7 +1020,19 @@
       "statuses": [
         "허위 보고 죄책감"
       ],
-      "actor_id": "yd.npc.jang_ujin"
+      "actor_id": "yd.npc.jang_ujin",
+      "routine": {
+        "entries": [
+          {
+            "place": "산복도로 상단",
+            "dayparts": [
+              "오전",
+              "한낮"
+            ]
+          }
+        ],
+        "default_place": "스카이웨이"
+      }
     },
     "강병철": {
       "name": "강병철",
@@ -1108,7 +1132,20 @@
       "statuses": [
         "억눌린 분노"
       ],
-      "actor_id": "yd.npc.park_haeun"
+      "actor_id": "yd.npc.park_haeun",
+      "routine": {
+        "entries": [
+          {
+            "place": "봉래산 능선",
+            "dayparts": [
+              "오전",
+              "한낮",
+              "오후"
+            ]
+          }
+        ],
+        "default_place": "해련 자치 마을"
+      }
     },
     "윤점순": {
       "name": "윤점순",
@@ -1699,7 +1736,26 @@
         "표준 군장": 1
       },
       "statuses": [],
-      "actor_id": "yd.npc.bae_hyeongsik"
+      "actor_id": "yd.npc.bae_hyeongsik",
+      "routine": {
+        "entries": [
+          {
+            "place": "혁신지구 캠퍼스",
+            "dayparts": [
+              "오전",
+              "한낮",
+              "오후"
+            ]
+          },
+          {
+            "place": "캠퍼스 마당",
+            "dayparts": [
+              "해질 무렵"
+            ]
+          }
+        ],
+        "default_place": "강의동 병영"
+      }
     },
     "최수연": {
       "name": "최수연",
@@ -1800,7 +1856,18 @@
       "statuses": [
         "극도의 긴장"
       ],
-      "actor_id": "yd.npc.kim_taeho"
+      "actor_id": "yd.npc.kim_taeho",
+      "routine": {
+        "entries": [
+          {
+            "place": "태양광 패널 옥상",
+            "dayparts": [
+              "한낮"
+            ]
+          }
+        ],
+        "default_place": "실습 공장"
+      }
     },
     "문상철": {
       "name": "문상철",
@@ -1903,7 +1970,18 @@
         "첩자 정보": 3
       },
       "statuses": [],
-      "actor_id": "yd.npc.na_yongsun"
+      "actor_id": "yd.npc.na_yongsun",
+      "routine": {
+        "entries": [
+          {
+            "place": "바자르",
+            "dayparts": [
+              "오전"
+            ]
+          }
+        ],
+        "default_place": "장부방"
+      }
     },
     "엄주섭": {
       "name": "엄주섭",
@@ -2057,7 +2135,25 @@
         "군용 식량(은닉)": 2
       },
       "statuses": [],
-      "actor_id": "yd.npc.jo_han"
+      "actor_id": "yd.npc.jo_han",
+      "routine": {
+        "entries": [
+          {
+            "place": "갯바위 지대",
+            "dayparts": [
+              "새벽",
+              "이른 아침"
+            ]
+          },
+          {
+            "place": "장부방",
+            "dayparts": [
+              "해질 무렵"
+            ]
+          }
+        ],
+        "default_place": "중리 해변"
+      }
     },
     "진복례": {
       "name": "진복례",
@@ -2273,7 +2369,20 @@
       "statuses": [
         "채무 압박"
       ],
-      "actor_id": "yd.npc.jang_hyeonsu"
+      "actor_id": "yd.npc.jang_hyeonsu",
+      "routine": {
+        "entries": [
+          {
+            "place": "바자르",
+            "dayparts": [
+              "오전",
+              "한낮",
+              "오후"
+            ]
+          }
+        ],
+        "default_place": "채무자 숙소"
+      }
     },
     "박미래": {
       "name": "박미래",
@@ -2322,7 +2431,25 @@
         "접선 정보": 2
       },
       "statuses": [],
-      "actor_id": "yd.npc.park_mirae"
+      "actor_id": "yd.npc.park_mirae",
+      "routine": {
+        "entries": [
+          {
+            "place": "바자르",
+            "dayparts": [
+              "오전"
+            ]
+          },
+          {
+            "place": "정보 거래소",
+            "dayparts": [
+              "오후",
+              "해질 무렵"
+            ]
+          }
+        ],
+        "default_place": "채무자 숙소"
+      }
     },
     "권상태": {
       "name": "권상태",
@@ -2371,7 +2498,19 @@
       "statuses": [
         "극심한 경계심"
       ],
-      "actor_id": "yd.npc.kwon_sangtae"
+      "actor_id": "yd.npc.kwon_sangtae",
+      "routine": {
+        "entries": [
+          {
+            "place": "바리케이드 미로",
+            "dayparts": [
+              "오전",
+              "한낮"
+            ]
+          }
+        ],
+        "default_place": "채무자 숙소"
+      }
     },
     "신창호": {
       "name": "신창호",
@@ -2422,7 +2561,18 @@
         "광적인 분노",
         "자해 흔적"
       ],
-      "actor_id": "yd.npc.shin_changho"
+      "actor_id": "yd.npc.shin_changho",
+      "routine": {
+        "entries": [
+          {
+            "place": "바리케이드 미로",
+            "dayparts": [
+              "밤"
+            ]
+          }
+        ],
+        "default_place": "동삼동 해안로"
+      }
     },
     "백인하": {
       "name": "백인하",
@@ -2471,7 +2621,18 @@
         "면역 아동 위치 메모": 1
       },
       "statuses": [],
-      "actor_id": "yd.npc.baek_inha"
+      "actor_id": "yd.npc.baek_inha",
+      "routine": {
+        "entries": [
+          {
+            "place": "약국",
+            "dayparts": [
+              "한낮"
+            ]
+          }
+        ],
+        "default_place": "태종대 방면 숲"
+      }
     },
     "한도윤": {
       "name": "한도윤",

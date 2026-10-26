@@ -30,7 +30,7 @@ pytestmark = pytest.mark.policy
 NOH = "yd.npc.no_sangjin"
 LEE = "yd.npc.lee_junhyeok"
 SEON = "yd.npc.lee_seonhui"            # 일과: 중리 해변(자주)
-SHIN = "yd.npc.shin_changho"           # untracked
+SHIN = "yd.npc.shin_changho"           # untracked(v7.42: 영도는 47명 모두 일과 — T-8은 일과를 뺀 정의 사본으로 검증)
 
 
 def _now(w):
@@ -221,13 +221,14 @@ def test_t7_yeongdo_unknown_public_route_departs_and_secret_is_not_used():
 # ── T-8 일과 없는 시나리오·인물 ───────────────────────────────
 
 def test_t8_untracked_npc_never_materializes_and_legacy_scenarios_compile_unchanged():
-    D, _ = _defn()
+    D = copy.deepcopy(_defn()[0])
+    D["actor_definitions"][SHIN].pop("routine", None)                  # 일과 없는 인물(정의 사본)
     w, _ = genesis("arrive_plain")
     for minutes in (0, 400, 800, 1200):
         if minutes:
             w, _ = _wait_until(w, 400)
         assert NP.effective_position(D, w, SHIN)["source"] == NP.UNTRACKED
-        assert all(SHIN not in _scene_npcs(w, p) for p in D["place_definitions"])
+        assert all(SHIN not in [a for a, _ in NP.actors_at(D, w, p, exclude=(PC,))] for p in D["place_definitions"])
     # v7.12: stat_system 공통 판정 문구 정정(2d50)으로 scenario.example·무협·빈시나리오 revision 갱신(다크판타지 불변)
     # v7.34: 무협 desc_guide에 무협 전용 예법 절 이관(묘사 공통 지시의 장르 중립화 — 사용자 승인 A1)으로 무협 revision 갱신
     revs = {"scenario.example": "sha256:eb812596eb87fefa64ddd65f8955a30b6ea45f814a6905fb087f7f95080c9e0a",
