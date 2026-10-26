@@ -126,7 +126,7 @@ async def test_dynamic_turn_commit_clears_dehydration_on_drinking_and_records_cl
     r.sess.statuses = {"테스터": ["탈수"]}
     r.prov.routes["judgment"] = judgment()
     r.prov.routes["extraction"] = [extraction({"item_ops": [
-        {"op": "CONSUME", "owner": "O1", "item": "H1", "quantity": 1}]}, status=[("테스터", "탈수", 40)])]
+        {"op": "CONSUME", "owner": "O1", "item": "H1", "quantity": 1}]}, status_scores=[{"target": "테스터", "status": "탈수", "score": 40}])]
     tx = await turn(r, "물통의 물을 다 마신다")
     assert tx.status == tt.TurnStatus.COMMITTED
     assert "탈수" not in (r.sess.statuses.get("테스터") or [])
@@ -139,7 +139,7 @@ async def test_dynamic_turn_withholds_early_dehydration(drig):
     r.make(raw_patch=lambda raw: raw.update(intake_groups={"water": ["물"]}))
     r.sess.statuses = {"테스터": []}
     r.prov.routes["judgment"] = judgment()
-    r.prov.routes["extraction"] = [extraction({}, status=[("테스터", "탈수", 80)])]
+    r.prov.routes["extraction"] = [extraction({}, status_scores=[{"target": "테스터", "status": "탈수", "score": 80}])]
     tx = await turn(r, "주변을 둘러본다")
     assert tx.status == tt.TurnStatus.COMMITTED and "탈수" not in (r.sess.statuses.get("테스터") or [])
 
