@@ -726,7 +726,11 @@ async def finish(state: ProfileCreationSession, channel):
         state.session.players[state.uid] = player
 
     profile = dict(player.get("profile") or {})
+    granted = {st.get("field") for st in profile_gen.get_steps(state.session.scenario_data)
+               if (st.get("args") or {}).get("grant_items")}
     for key, val in result.items():
+        if key in granted:      # v7.43: 고른 시작 물건은 소지품으로만 간다(프로필 글에 남기지 않음)
+            continue
         # 능력치는 하위 항목으로 펼쳐 pc_template 구조에 맞춘다.
         if isinstance(val, dict):
             profile.update({k: v for k, v in val.items()})
@@ -741,15 +745,16 @@ async def finish(state: ProfileCreationSession, channel):
     if result.get("외형"):
         player["appearance"] = str(result["외형"])
 
-    # 초기 소지품 — 공통 + 직업별 (석 달을 버틴 사람이 배로 건너온 규모)
+    # 초기 소지품 — 공통 + 직업별 + 고른 것 (석 달을 버틴 사람이 배로 건너온 규모)
     try:
+        sd = state.session.scenario_data
         items = profile_gen.starting_items(
-            state.session.scenario_data, result.get("직업"))
+            sd, result.get("직업"), profile_gen.granted_choices(sd, result))
         if items:
             res = dict(getattr(state.session, "resources", {}) or {})
             bag = dict(res.get(state.char_name) or {})
-            for it in items:
-                bag[it] = bag.get(it, 0) + 1
+            for it, n in items.items():
+                bag[it] = bag.get(it, 0) + n
             res[state.char_name] = bag
             state.session.resources = res
     except Exception as e:
@@ -792,10 +797,11 @@ def _completion_embed(state, result: dict, lead: str | None = None) -> discord.E
         e.add_field(name="알림", value="\n".join(f"· {n}" for n in state.notes)[:1024], inline=False)
         state.notes = []
     try:
+        sd = state.session.scenario_data
         items = profile_gen.starting_items(
-            state.session.scenario_data, result.get("직업"))
+            sd, result.get("직업"), profile_gen.granted_choices(sd, result))
         if items:
-            e.add_field(name="소지품", value=", ".join(items), inline=False)
+            e.add_field(name="소지품", value=profile_gen.items_text(items)[:1024], inline=False)
     except Exception:
         pass
     return e
@@ -899,7 +905,9 @@ class ChoiceView(_Base):
     def __init__(self, state, channel, res: dict):
         super().__init__(state, channel)
         options = res.get("options") or []
-        if len(options) <= SELECT_THRESHOLD:
+        if res.get("multi"):
+            self.add_item(MultiChoiceSelect(options, int(res["multi"])))
+        elif len(options) <= SELECT_THRESHOLD:
             for opt in options[:SELECT_THRESHOLD]:
                 self.add_item(ChoiceButton(str(opt)))
         else:
@@ -930,6 +938,22 @@ class ChoiceSelect(discord.ui.Select):
         v = self.view
         val = self.values[0]
         await _guarded(v, interaction, lambda: render(v.state, v.channel, user_input=val))
+
+
+class MultiChoiceSelect(discord.ui.Select):
+    """v7.43 — 정확히 n개를 고르는 셀렉트(시작 물건 등)."""
+
+    def __init__(self, options, n: int):
+        super().__init__(
+            placeholder=f"{n}개 선택", min_values=n, max_values=n,
+            options=[discord.SelectOption(label=str(o)[:100], value=str(o))
+                     for o in options[:MAX_OPTIONS]],
+        )
+
+    async def callback(self, interaction):
+        v = self.view
+        vals = list(self.values)
+        await _guarded(v, interaction, lambda: render(v.state, v.channel, user_input=vals))
 
 
 class ConfirmView(_Base):

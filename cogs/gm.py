@@ -250,12 +250,16 @@ def _npc_stats(session, name: str, world_turn=None) -> dict | None:
 
 
 def _judge_side(view, side: dict, name: str, world_turn=None) -> dict:
-    """한 판정 당사자의 목표치 조립. A는 코드가 정본 원스탯에서 환산, S=0(사용자 결정 — 스킬 보너스 추후 통합),
+    """한 판정 당사자의 목표치 조립. A는 코드가 정본 원스탯에서 환산, S는 지목 스킬이 PC 프로필에 있을 때만(v7.43),
     M·H·D는 판단층위 계약값(검증 통과분). 능력치를 확인할 수 없으면 target=None(굴리지 않음)."""
     stat = str(side.get("stat") or "")
     uid = core.get_uid_by_char_name(view, name)
+    skill, s = "", 0
     if uid:
-        raw = ((view.players.get(uid) or {}).get("profile") or {}).get(stat)
+        _prof = (view.players.get(uid) or {}).get("profile") or {}
+        raw = _prof.get(stat)
+        s = core.judgment.skill_mod(_prof, side.get("skill"))
+        skill = str(side.get("skill") or "").strip() if s else ""
     else:
         raw = (_npc_stats(view, name, world_turn) or {}).get(stat)
     a = core.judgment.ability_mod(raw)
@@ -264,13 +268,13 @@ def _judge_side(view, side: dict, name: str, world_turn=None) -> dict:
     h = int(side.get("status_mod") or 0)
     d = core.judgment.DIFFICULTY[diff]
     out = {"name": name, "stat": stat, "is_pc": bool(uid), "uid": uid, "difficulty": diff,
-           "A": a, "S": 0, "M": m, "H": h, "D": d,
+           "A": a, "S": s, "skill": skill, "M": m, "H": h, "D": d,
            "method_basis": str(side.get("method_basis") or ""),
            "status_basis": str(side.get("status_basis") or ""), "T": None}
     if a is None:
         return out
-    out["T"] = core.judgment.target(a, 0, m, h, d)
-    terms = [(a, "능력"), (m, "행동"), (h, "상태"), (d, f"난이도 {diff}")]
+    out["T"] = core.judgment.target(a, s, m, h, d)
+    terms = [(a, "능력"), (s, f"숙련 {skill}"), (m, "행동"), (h, "상태"), (d, f"난이도 {diff}")]
     _terms = "".join(f"{v:+d}({n})" for v, n in terms if v)
     out["breakdown"] = f"{core.judgment.BASE}{_terms}={out['T']}" if _terms else f"{out['T']}"
     return out

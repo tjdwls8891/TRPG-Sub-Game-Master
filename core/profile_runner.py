@@ -119,6 +119,19 @@ def step(scenario_data: dict, run: dict, user_input: str = None) -> dict:
             return {"type": AUTO, "field": field, "options": pool,
                     "value": picked, "guide": guide, "can_back": True,
                     "message": f"{field}: {', '.join(picked)}"}
+        # v7.43: choose가 지정되면 플레이어가 정확히 그 수만큼 고른다(다중 선택 → 확인 화면).
+        n = min(int(args.get("choose") or 0), len(pool))
+        if n:
+            if isinstance(user_input, list):
+                vals = [v for v in dict.fromkeys(str(x) for x in user_input) if v in pool]
+                if len(vals) == n:
+                    run["pending"] = {"field": field, "value": vals}
+                    return {"type": CONFIRM, "field": field, "options": pool, "value": vals,
+                            "guide": guide, "can_back": can_back,
+                            "message": " · ".join(f"**{v}**" for v in vals)}
+            return {"type": ASK, "field": field, "options": pool, "value": None, "multi": n,
+                    "message": args.get("prompt") or f"{field}에서 {n}개를 골라 주십시오.",
+                    "guide": guide, "can_back": can_back}
         if user_input is None:
             return {"type": ASK, "field": field, "options": pool, "value": None,
                     "message": f"{field}을(를) 선택해 주십시오.",
@@ -332,7 +345,7 @@ def expected_type_ok(step: dict, value) -> bool:
         return isinstance(value, dict) and all(isinstance(v, int) and not isinstance(v, bool)
                                                for v in value.values())
     if module == "intersect_list":
-        return isinstance(value, list) if args.get("pick") else isinstance(value, (str, list))
+        return isinstance(value, list) if (args.get("pick") or args.get("choose")) else isinstance(value, (str, list))
     return isinstance(value, str)
 
 

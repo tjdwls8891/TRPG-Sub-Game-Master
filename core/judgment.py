@@ -5,8 +5,8 @@
 #   성공 = R < T (동점 실패), 성공 여유 m = T - R
 #
 # A(능력)는 코드가 정본 원스탯에서 환산한다. M(행동)·H(상태)·D(난이도 단계)는 판단층위가
-# 계약값으로 내고 코드가 범위를 검증한 뒤 조립한다. S(숙련)는 저작된 수치 스킬만 인정하며
-# 현재 판정에는 쓰지 않는다(사용자 결정 2026-10-13 — 스킬 보너스·고유 규칙은 추후 통합) → 0.
+# 계약값으로 내고 코드가 범위를 검증한 뒤 조립한다. S(숙련)는 판단층위가 지목한 스킬이
+# 그 PC 프로필 스킬 목록에 정확히 있을 때만 SKILL_BONUS, 그 밖(목록 밖·NPC·빈 값)은 0(v7.43).
 # 대성공·대실패 구간은 미정이라 두지 않는다. 이 모듈은 순수 함수만 둔다.
 import random
 
@@ -26,6 +26,17 @@ KINDS = ("GENERAL", "CONTEST", "CRAFT")
 
 METHOD_RANGE = (-12, 12)
 STATUS_RANGE = (-15, 15)
+
+SKILL_BONUS = 6
+SKILL_FIELD = "스킬"
+
+
+def skill_mod(profile: dict, skill) -> int:
+    """지목 스킬이 PC 프로필 스킬 목록(쉼표 구분)에 정확히 있으면 SKILL_BONUS, 아니면 0."""
+    name = str(skill or "").strip()
+    raw = (profile or {}).get(SKILL_FIELD)
+    owned = raw if isinstance(raw, list) else str(raw or "").split(",")
+    return SKILL_BONUS if name and name in {str(x).strip() for x in owned} else 0
 
 STAT_MIN, STAT_MAX = 1, 20
 

@@ -457,12 +457,30 @@ def job_top_stat(scenario_data: dict, job: str) -> str | None:
     return None
 
 
-def starting_items(scenario_data: dict, job: str) -> list:
-    """초기 소지품 — 공통 + 직업별."""
-    src = (scenario_data or {}).get("starting_items") or {}
-    out = list(src.get("공통") or [])
-    out += list((src.get("직업별") or {}).get(job) or [])
+def granted_choices(scenario_data: dict, result: dict) -> list:
+    """v7.43 — 플레이어가 고른 시작 물건(args.grant_items 단계의 값). 프로필 글이 아니라 소지품으로만 간다."""
+    out = []
+    for st in get_steps(scenario_data):
+        if (st.get("args") or {}).get("grant_items"):
+            v = (result or {}).get(st.get("field"))
+            out += [str(x) for x in v] if isinstance(v, list) else ([str(v)] if v else [])
     return out
+
+
+def starting_items(scenario_data: dict, job: str, chosen=()) -> dict:
+    """초기 소지품 {이름: 수량} — 공통 + 직업별 + 플레이어가 고른 것. 수량은 starting_items.수량(없으면 1)."""
+    src = (scenario_data or {}).get("starting_items") or {}
+    qty = src.get("수량") if isinstance(src.get("수량"), dict) else {}
+    out = {}
+    for name in [*(src.get("공통") or []), *((src.get("직업별") or {}).get(job) or []), *chosen]:
+        n = qty.get(name, 1)
+        out[name] = out.get(name, 0) + (n if isinstance(n, int) and not isinstance(n, bool) and n > 0 else 1)
+    return out
+
+
+def items_text(items: dict) -> str:
+    """{이름: 수량} → 표시 문구('붕대[롤] ×2')."""
+    return ", ".join(k if v == 1 else f"{k} ×{v}" for k, v in (items or {}).items())
 
 
 def reroll_stats(args: dict, previous: dict = None, **constraints) -> dict:
