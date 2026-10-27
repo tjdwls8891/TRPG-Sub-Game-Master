@@ -24,6 +24,7 @@
 #   청구되고, 중도 이탈 시 그대로 손실이 된다. 유지 시간도 이 시점에는
 #   아직 답을 받지 못했다.
 import asyncio
+import json
 
 import discord
 
@@ -693,11 +694,24 @@ class ScenarioView(_Step):
         self.add_item(ScenarioSelect(scenarios))
 
 
+def scenario_genre(sid: str) -> str | None:
+    """v7.45.2: 시나리오 선택 화면 표시용 대략적 장르 — data/scenario_catalog.json(세계 정의 밖, revision 무관)."""
+    import os
+    path = os.path.join(os.path.dirname(__file__), "..", "data", "scenario_catalog.json")
+    try:
+        with open(path, encoding="utf-8") as f:
+            g = ((json.load(f) or {}).get(sid) or {}).get("genre")
+    except Exception:  # noqa: BLE001 — 표시 정보가 없으면 설명 줄만 비운다
+        return None
+    return g[:100] if isinstance(g, str) and g.strip() else None
+
+
 class ScenarioSelect(discord.ui.Select):
     def __init__(self, scenarios):
+        _genre = scenario_genre
         super().__init__(
             placeholder="시나리오 선택",
-            options=[discord.SelectOption(label=s[:100], value=s)
+            options=[discord.SelectOption(label=s[:100], value=s, description=_genre(s))
                      for s in scenarios[:25]])
 
     async def callback(self, interaction):

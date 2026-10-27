@@ -127,3 +127,10 @@ def test_display_button_reads_notebook_only_when_authored(fake_bot):
         v = DP.build_view(fake_bot, SimpleNamespace(scenario_data=sd, is_processing=False, cache_name=None))
         return next(c.label for c in v.children if getattr(c, "custom_id", "") == "disp:knowledge")
     assert label(RAW) == "📜 수첩" and label({}) == "📜 초기 지식"
+
+
+def test_scenario_picker_shows_genre_line():
+    from core import session_flow as SF
+    sel = SF.ScenarioSelect(["설화재", "영도", "빈시나리오"])
+    desc = {o.value: o.description for o in sel.options}
+    assert desc == {"설화재": "고립 추리", "영도": "포스트 아포칼립스 생존", "빈시나리오": None}
