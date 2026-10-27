@@ -660,12 +660,15 @@ def build_view(bot, session) -> discord.ui.View:
     # 만료됐으면 다시 열 수 있어야 한다. cache_name만 보면 열기가 잠긴다.
     from .cache import is_session_open
     is_open = is_session_open(session)
+    notebook = bool(((getattr(session, "scenario_data", None) or {}).get("knowledge_notebook") or {}).get("groups"))
     for child in view.children:
         cid = getattr(child, "custom_id", "")
         if cid == "disp:open" and is_open:
             child.disabled = True
         elif cid == "disp:close" and not is_open:
             child.disabled = True
+        elif cid == "disp:knowledge" and notebook:
+            child.label = "📜 수첩"           # v7.45: 수첩을 저작한 시나리오(같은 버튼 — 초기 지식 + 수첩)
     return view
 
 

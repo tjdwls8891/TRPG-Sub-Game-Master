@@ -117,3 +117,13 @@ def test_arrest_needs_suspect_in_scene_and_notebook_groups_clues():
     from tests.conftest import PLAYER_UID
     note = TW.notebook_text(s, PLAYER_UID)
     assert "🔎 증거" in note and "손목" in note and "🗣️ 증언" in note
+
+
+def test_display_button_reads_notebook_only_when_authored(fake_bot):
+    from types import SimpleNamespace
+    from core import display as DP
+
+    def label(sd):
+        v = DP.build_view(fake_bot, SimpleNamespace(scenario_data=sd, is_processing=False, cache_name=None))
+        return next(c.label for c in v.children if getattr(c, "custom_id", "") == "disp:knowledge")
+    assert label(RAW) == "📜 수첩" and label({}) == "📜 초기 지식"
