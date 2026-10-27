@@ -696,19 +696,30 @@ def event_guide_block(ctx, plan, session) -> str:
     ev = (world.domain("event_instances") if isinstance(world, _wm.ProjectedWorld)
           else getattr(world, "event_instances", None)) or {}
     lines = []
+    found = unknown_finds(D, world, ctx.lead_pc, scene)
+    istate = (world.domain("information_state") if isinstance(world, _wm.ProjectedWorld)
+              else getattr(world, "information_state", None)) or {}
     for iid in sorted(ev):
         inst = ev[iid]
         if not isinstance(inst, dict) or inst.get("lifecycle") != _ev.ACTIVE:
             continue
         tpl = _ev.template(D, inst.get("template_id")) or {}
         ph = (tpl.get("phases") or {}).get(inst.get("current_phase")) or {}
-        if not ph.get("guide") or not _ev.instance_relevant(D, inst, scene):
+        clues = [f for i, f in found if i == iid]
+        if not (ph.get("guide") or clues) or not (_ev.instance_relevant(D, inst, scene) or clues):
             continue
-        lines.append(f"· {tpl.get('name') or inst.get('template_id')}: {ph['guide']}")
-        if ph.get("finds"):                          # v7.38(A3): 저작 후보 중 이 사건이 품은 하나(인스턴스 결정적)
-            pick = ph["finds"][int(hashlib.sha256(str(iid).encode("utf-8")).hexdigest()[:8], 16) % len(ph["finds"])]
+        lines.append(f"· {tpl.get('name') or inst.get('template_id')}: {ph.get('guide') or '(조사 단서만)'}")
+        names = [x for x in ph.get("finds") or () if isinstance(x, str)]
+        if names:                                    # v7.38(A3): 저작 후보 중 이 사건이 품은 하나(인스턴스 결정적)
+            pick = names[int(hashlib.sha256(str(iid).encode("utf-8")).hexdigest()[:8], 16) % len(names)]
             lines.append(f"  └ 여기서 찾을 수 있는 쓸 만한 것(코드 확정): {pick} — 플레이어가 실제로 찾아 나설 때만 "
                          "드러낸다. 다른 쓸 만한 물건을 지어내지 말 것")
+        for f in clues:                              # v7.44(E4): 조사하면 드러나는 저작 단서 — 정본(PC가 아직 모르는 것만)
+            summ = (_info.resolve_definition(D, istate, f["info"]) or {}).get("summary")
+            lines.append(f"  └ 이 장면에서 조사하면 드러날 수 있는 단서(코드 확정): {summ}"
+                         + (f" — 실물: {f['object']}" if f.get("object") else "")
+                         + " · 플레이어가 그 대상을 직접 살필 때만 드러내고, 판정이 필요하면 판단층위가 정한다. "
+                           "다른 결정적 단서를 지어내지 말 것")
         res = (inst.get("local_state") or {}).get(_ev.RESOLUTION_KEY)
         opts = {o["option_id"]: o["label"] for o in ph.get("resolution_options") or ()}
         if opts and res is None and _ev.resolution_relevant(D, world, inst, scene):   # player-facing 관련성 gate
@@ -720,6 +731,94 @@ def event_guide_block(ctx, plan, session) -> str:
         return ""
     return ("\n[진행 중인 사건 — 지시층위 전용 지침(정본 결과·세계 사실을 정하지 않는다. 플레이어의 자유 행동을 "
             "이 사건의 분기로 억지 해석하지 말 것)]\n" + "\n".join(lines) + "\n" + GUIDE_REPEAT_RULE + "\n")
+
+
+def unknown_finds(definition: dict, world, pc: str, scene) -> list:
+    """v7.44(E4): 지금 장면에서 찾을 수 있고 PC가 아직 내용을 모르는 저작 단서 [(instance_id, find)]."""
+    from . import events as _ev
+    cog = ((world.domain("cognition_state") if isinstance(world, _wm.ProjectedWorld)
+            else getattr(world, "cognition_state", None)) or {}).get(_cog.actor_holder(pc)) or {}
+    return [(i, f) for i, f in _ev.active_finds(definition, world, scene)
+            if (cog.get(f["info"]) or {}).get("awareness") != _cog.CONTENT]
+
+
+def find_object_ops(definition: dict, world, pc: str, scene, exposed, *, prefix: str, transaction_id: str,
+                    at_minute, place_name: str) -> list:
+    """v7.44(E4): 이번 턴 드러난 저작 단서 중 실물(object)이 있는 것 → 그 자리의 주변 발견 물건(D키 수거 대상)으로.
+
+    발견과 같은 정보·인지 경로(RUNTIME 정보 + PC 인지)라 이후 줍기·소진은 기존 D키 경로가 처리한다."""
+    from . import events as _ev
+    ops = []
+    st = (world.domain("information_state") if isinstance(world, _wm.ProjectedWorld) else
+          getattr(world, "information_state", None)) or {}
+    hits = {f["info"]: f for _i, f in _ev.active_finds(definition, world, scene) if f.get("object")}
+    for n, iid in enumerate(sorted(set(exposed) & set(hits))):
+        f = hits[iid]
+        rid = "rt.find." + stable_digest("find.object.v1", iid, scene, length=12)
+        if _info.exists(definition, st, rid):
+            continue
+        create = _wm.make_op(f"{prefix}.fo{n}", _info.OP_INFORMATION_CREATE, "OBSERVATION", {
+            "definition": ambient_record(rid, f["object"], "OBJECT", scene, place_name, at_minute)})
+        ops.append(create)
+        ops.append(_wm.make_op(f"{prefix}.fa{n}", _cog.OP_COGNITION_ACQUIRE, "OBSERVATION", {
+            "holder": _cog.actor_holder(pc), "info_id": rid, "awareness": _cog.CONTENT,
+            "acquisition": _cog.acquisition_record(f"turn:{transaction_id}:find:{rid}", "WITNESS",
+                                                   at_minute=at_minute)}, causal_parent_op_ids=(create.op_id,)))
+    return ops
+
+
+def notebook_text(session, uid) -> str | None:
+    """v7.44(E5) 수첩 — 시나리오가 `knowledge_notebook`({title?, groups:[{tag, label}]})을 저작했을 때만.
+
+    누른 플레이어 PC가 내용까지 아는(CONTENT) 정보를 저작 태그별로 묶어 공개 안전 요약(summary)으로 보인다.
+    정본 읽기만(호출·인지·비용 0). 태그가 없는 정보·다른 PC는 보이지 않는다."""
+    cfg = (getattr(session, "scenario_data", None) or {}).get("knowledge_notebook")
+    groups = (cfg or {}).get("groups") if isinstance(cfg, dict) else None
+    if not groups:
+        return None
+    wctx = _pw.session_world_context(session)
+    if wctx.mode != _pw.MODE_DYNAMIC or wctx.uid_of.get(wctx.lead_pc) != str(uid):
+        return None
+    st = getattr(session, "information_state", None) or {}
+    recs = (getattr(session, "cognition_state", None) or {}).get(_cog.actor_holder(wctx.lead_pc)) or {}
+    rows = {}
+    for iid in sorted(recs):
+        if not isinstance(recs[iid], dict) or recs[iid].get("awareness") != _cog.CONTENT:
+            continue
+        d = _info.resolve_definition(wctx.definition, st, iid) or {}
+        summ = d.get("summary")
+        if isinstance(summ, str) and summ.strip():
+            for tag in d.get("tags") or ():
+                rows.setdefault(tag, []).append(summ.strip())
+    parts = []
+    for g in groups:
+        if isinstance(g, dict) and rows.get(g.get("tag")):
+            parts.append(f"**{g.get('label') or g['tag']}**\n" + "\n".join(f"· {x}" for x in rows[g["tag"]]))
+    title = (cfg.get("title") if isinstance(cfg.get("title"), str) else None) or "수첩"
+    return f"**{title}**\n\n" + ("\n\n".join(parts) if parts else "아직 적어 둔 것이 없습니다.")
+
+
+def ending_block(ctx, plan, session) -> str:
+    """v7.44(E3): 이번 턴에 이야기가 결말 국면에 닿으면 — 지시층위 전용 맺음 지침(묘사 뒤 세션이 닫힌다)."""
+    from . import events as _ev
+    if plan is None or plan.status != _pw.PLAN_PLANNED or plan.projected_world is None:
+        return ""
+    ends = _ev.new_endings(ctx.definition, session, plan.projected_world)
+    if not ends:
+        return ""
+    lines = [f"· {e['title']}" + (f"({e['tone']})" if e.get("tone") else "") + f": {e['epilogue']}" for e in ends]
+    return ("\n[결말 — 지시층위 전용. 이번 묘사가 이 이야기의 마지막이다. 아래 지침대로 맺고, 다음 행동을 묻지 않는다]\n"
+            + "\n".join(lines) + "\n")
+
+
+def session_ending(session) -> dict | None:
+    """v7.44(E3): 커밋된 정본이 저작 결말 국면에 닿았으면 그 결말(첫 하나), 아니면 None(동적 세계 세션만)."""
+    from . import events as _ev
+    wctx = _pw.session_world_context(session)
+    if wctx.mode != _pw.MODE_DYNAMIC:
+        return None
+    ends = list(_ev.endings_in(wctx.definition, session).values())
+    return ends[0] if ends else None
 
 
 def scene_npc_projections(ctx, plan, session) -> tuple:
@@ -1438,6 +1537,12 @@ def build_observation_manifest(definition: dict, ctx, plan, base_world, *, disco
                 if (pc_recs.get(iid) or {}).get("awareness") == _cog.CONTENT:
                     continue
                 cand.setdefault(iid, summary)
+    # v7.44(E4): 지금 장면에서 조사하면 드러날 수 있는 저작 단서(PC가 아직 모르는 것) — 묘사가 드러냈을 때만 노출
+    istate_f = world.domain("information_state") or {}
+    for _i, f in unknown_finds(definition, world, lead, scene):
+        summ = (_info.resolve_definition(definition, istate_f, f["info"]) or {}).get("summary")
+        if isinstance(summ, str) and summ.strip():
+            cand.setdefault(f["info"], summ)
     infos = tuple((f"X{n}", iid, cand[iid]) for n, iid in enumerate(sorted(cand), 1))
     sigs = [((s["signal_id"], s["instance_id"]), s["cue"])
             for s in observable_signals(plan.signals if plan is not None else ())]
@@ -1618,6 +1723,13 @@ def process_observation(ctx, base_world, plan, obs_manifest: ObservationManifest
     # ②-b H07 §5.2: 정보가 드러낸 공간 지식(장소 이름·숨은 길 발견) — 실제로 알게 된 정보의 저작 reveals만
     acq += reveal_ops(D, lead, list(exposures) + read_ids, prefix=f"{prefix}.rv",
                       at_minute=(start_world.domain("world_clock") or {}).get("minute_index"))
+    # ②-b' v7.44(E4): 드러난 저작 단서의 실물 → 그 자리의 주변 발견 물건(다음부터 D키로 줍는다)
+    _scene0 = (plan.scene_place if plan is not None and plan.status == _pw.PLAN_PLANNED else None) or \
+        (_sp.placement_of(start_world, lead) or {}).get("place_id")
+    if exposures and _scene0:
+        acq += find_object_ops(D, start_world, lead, _scene0, exposures, prefix=prefix, transaction_id=transaction_id,
+                               at_minute=(start_world.domain("world_clock") or {}).get("minute_index"),
+                               place_name=_pd.display_for(D, start_world, lead, _scene0, require_known=False))
     # ②-c v7.14 주변 발견: 승인·성공 발견 생성 + PC 인지, 추출이 키로 지목한 수거·소진(같은 묶음 — 원자적)
     d_ops, gains, d_diags = discovery_ops(ctx, start_world, obs_manifest, raw, discovery, prefix=prefix,
                                           transaction_id=transaction_id,

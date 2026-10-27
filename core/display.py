@@ -476,8 +476,12 @@ class DisplayView(discord.ui.View):
     async def knowledge(self, interaction, _b):
         """v7.17 — 누른 사람 본인의 초기 지식 안내 원문(전달 당시 스냅샷)만 비공개로 다시 보여 준다(호출·인지·비용 0)."""
         from . import initial_knowledge as _ik
+        from . import turn_world as _tw
         session = self.bot.active_sessions.get(interaction.channel.id)
         text = _ik.review_text(session, interaction.user.id) if session else None
+        note = _tw.notebook_text(session, interaction.user.id) if session else None   # v7.44(E5) 수첩(저작 시)
+        if note:
+            text = f"{text}\n\n{note}" if text else note
         if not text:
             text = "다시 볼 초기 지식 안내가 없습니다."
         # 정본 문장을 자르지 않는다 — 임베드 페이지로 나눠 보인다

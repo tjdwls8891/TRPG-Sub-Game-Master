@@ -53,6 +53,7 @@ REASON_PLAYER_CLOSE = "PLAYER_CLOSE"        # 디스플레이 세션 닫기
 REASON_EXPIRED = "EXPIRED"                  # 유지 시간 만료
 REASON_OPERATOR_DELETE = "OPERATOR_DELETE"  # 운영자 !캐시 삭제
 REASON_OPERATOR_END = "OPERATOR_END"        # 운영자 !세션종료
+REASON_ENDING = "SCENARIO_ENDING"           # v7.44(E3) 저작 결말 국면 도달 → 자동 종료
 REASON_LEGACY = "LEGACY_DIRECT"             # process_cache_deletion 호환 래퍼
 REASON_REISSUE_FAILED = "REISSUE_FAILED"    # 교체 생성 실패 → 창 종료
 

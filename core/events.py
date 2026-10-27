@@ -568,8 +568,74 @@ def open_resolutions(definition: dict, world, scene) -> list:
         if not ph.get("resolution_options") or not resolution_relevant(definition, world, inst, scene):
             continue
         for o in ph["resolution_options"]:
-            out.append((iid, o["option_id"], o["label"]))
+            if not o.get("target"):
+                out.append((iid, o["option_id"], o["label"]))
+                continue
+            out += _targeted_options(definition, world, scene, iid, o)
     return out
+
+
+def _targeted_options(definition: dict, world, scene, iid, opt) -> list:
+    """v7.44(E2): 대상 결단 — 후보 인물마다 (iid, 'option_id:ActorId', '라벨 — 이름'). present면 장면에 있는 인물만.
+    값은 문자열 하나라 저작 케이스가 기존 비교(EVENT_LOCAL resolution == 'arrest:npc_…')로 가른다."""
+    from . import npc_position as _npos
+    reg = (world.domain("actor_registry") if isinstance(world, _wm.ProjectedWorld)
+           else getattr(world, "actor_registry", {})) or {}
+    adefs = definition.get("actor_definitions") or {}
+    tg = opt["target"]
+    out = []
+    for aid in tg["actors"]:
+        if tg.get("present") and (scene is None or _npos.effective_place(definition, world, aid) != scene):
+            continue
+        name = (reg.get(aid) or {}).get("display_name") or (adefs.get(aid) or {}).get("display_name") or aid
+        out.append((iid, f"{opt['option_id']}:{aid}", f"{opt['label']} — {name}"))
+    return out
+
+
+def active_finds(definition: dict, world, scene) -> list:
+    """v7.44(E4): [(instance_id, find)] — 진행 중 사건의 현재 국면에 저작된 구조 단서 중 지금 장면에서 찾을 수 있는 것.
+
+    place가 있으면 장면 장소(또는 그 상위)가 그곳일 때만, 없으면 사건이 장면과 닿을 때(instance_relevant)."""
+    if scene is None:
+        return []
+    ev = world.domain("event_instances") if isinstance(world, _wm.ProjectedWorld) else getattr(world, "event_instances", {})
+    pdefs = definition.get("place_definitions") or {}
+    chain, cur = set(), scene
+    while cur and cur not in chain:
+        chain.add(cur)
+        cur = (pdefs.get(cur) or {}).get("parent")
+    out = []
+    for iid in sorted(ev or {}):
+        inst = ev[iid]
+        if not isinstance(inst, dict) or inst.get("lifecycle") != ACTIVE:
+            continue
+        ph = ((template(definition, inst.get("template_id")) or {}).get("phases") or {}).get(inst.get("current_phase"))
+        for f in (ph or {}).get("finds") or ():
+            if not isinstance(f, dict):
+                continue
+            if (f["place"] in chain) if f.get("place") else instance_relevant(definition, inst, scene):
+                out.append((iid, dict(f)))
+    return out
+
+
+def endings_in(definition: dict, world) -> dict:
+    """v7.44(E3): {instance_id: ending} — 현재 국면에 ending이 저작된 사건 인스턴스(수명주기 무관)."""
+    ev = world.domain("event_instances") if isinstance(world, _wm.ProjectedWorld) else getattr(world, "event_instances", {})
+    out = {}
+    for iid in sorted(ev or {}):
+        inst = ev[iid]
+        if not isinstance(inst, dict):
+            continue
+        ph = ((template(definition, inst.get("template_id")) or {}).get("phases") or {}).get(inst.get("current_phase"))
+        if (ph or {}).get("ending"):
+            out[iid] = dict(ph["ending"])
+    return out
+
+
+def new_endings(definition: dict, base, projected) -> list:
+    """v7.44(E3): 이번 계획에서 처음 닿은 결말 [ending] — 기준 세계엔 없고 투영 세계에 있는 것(정렬)."""
+    before = endings_in(definition, base)
+    return [e for iid, e in endings_in(definition, projected).items() if before.get(iid, {}).get("id") != e["id"]]
 
 
 def find_step(definition: dict, ref: str):

@@ -211,6 +211,19 @@ def main(argv=None) -> int:
                 for c, m in st_errs:
                     print(f"     [{c}] {m}")
 
+        # v7.44(E6) 진상 변형별 풀이 가능성(variant_check 저작 시에만)
+        from core import variant_check as _vc
+        v_diags = _vc.check(src.raw, res.definition) if res.ok else []
+        if any(sv == _vc.ERROR for sv, _c, _m in v_diags):
+            worst = 1
+        if v_diags:
+            if args.json:
+                summaries[-1]["variant_check"] = [{"severity": a, "code": b, "message": c} for a, b, c in v_diags]
+            else:
+                print(f"   variant_check: {len(v_diags)}건")
+                for sv, c, m in v_diags:
+                    print(f"     [{sv}] {c} {m}")
+
         if args.compile_out:
             if not res.ok:
                 print("ERROR가 있어 정의를 기록하지 않습니다", file=sys.stderr)

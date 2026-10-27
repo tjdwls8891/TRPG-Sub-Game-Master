@@ -4,6 +4,7 @@ import json
 import copy
 import random
 import asyncio
+import time
 import dataclasses
 from types import SimpleNamespace
 import discord
@@ -814,6 +815,10 @@ def _build_logic_user_prompt(session, player_message: str, roll_results: list,
             if _gb:
                 place_block += _gb
                 manifest.append("사건 국면 지침")
+            _eb = core.turn_world.ending_block(world_turn.ctx, world_turn.plan, session)        # v7.44 E3
+            if _eb:
+                place_block += _eb
+                manifest.append("결말")
             _kb = core.turn_world.pc_knowledge_block(world_turn.ctx, world_turn.plan, session)  # H07-C
             if _kb:
                 place_block += _kb
@@ -3407,6 +3412,7 @@ class GMCog(commands.Cog):
                 await core.refresh_display(self.bot, session, reason="turn_end")
             except Exception as e:
                 print(f"[디스플레이] 턴 종료 갱신 실패: {e}")
+            await self._conclude_if_ending(session, master_ch)
             return True
         if outcome == CC.CommitOutcome.FAILED_PRE_PERSIST:
             # 정본 미영속 — 전달된 묘사는 정본이 아니므로 정리하고 재선언을 안내한다.
@@ -3444,6 +3450,53 @@ class GMCog(commands.Cog):
                     pass
             return False
         return False     # REJECTED — 이 호출은 흐름을 소유하지 않는다
+
+    async def _conclude_if_ending(self, session, master_ch) -> bool:
+        """v7.44(E3): 커밋된 정본이 저작 결말 국면에 닿았으면 — 결말 카드 → 기존 종료 경로(정산·환급) → 채널 잠금·기록.
+
+        자동 GM을 끈다(다음 라운드 없음). 종료가 지금 막히면(진행 중 이력 작업 등) 보고만 하고 다음 커밋에서 다시 본다."""
+        end = core.turn_world.session_ending(session)
+        if not end:
+            return False
+        session.gm_active = False
+        res = await core.world_lifecycle.close_session(self.bot, session, reason=core.cache_lifecycle.REASON_ENDING)
+        if not res.get("ok"):
+            session.gm_active = True
+            if master_ch:
+                try:
+                    await master_ch.send(f"⏸️ 결말({end['id']})에 닿았으나 세션을 아직 닫지 못했습니다: {res.get('reason')}")
+                except Exception:
+                    pass
+            return False
+        game_ch = self.bot.get_channel(session.game_ch_id)
+        if game_ch:
+            try:
+                await game_ch.send(embed=discord.Embed(title=f"🏁 {end['title']}",
+                                                       description="이야기가 끝났습니다. 채널을 잠급니다.",
+                                                       color=0x2b2d31))
+                await game_ch.set_permissions(game_ch.guild.default_role, send_messages=False)
+            except Exception as e:
+                print(f"[결말] 결말 카드·채널 잠금 실패: {e}")
+        try:
+            started = getattr(session, "started_at", 0.0) or 0.0
+            seconds = max(0.0, time.time() - started) if started else 0.0
+            for uid in (getattr(session, "players", {}) or {}):
+                await core.stats.bump(uid, session_seconds=seconds)
+                await core.stats.add_ending(uid, getattr(session, "scenario_id", ""), end["id"])
+            if game_ch is not None:
+                await core.refresh_boards(self.bot, game_ch.guild)
+        except Exception as e:
+            print(f"[결말] 통계·보드 갱신 실패: {e}")
+        await core.save_session_data(self.bot, session)
+        if master_ch:
+            try:
+                refund = res.get("refund") or {}
+                await master_ch.send(f"🏁 결말 `{end['id']}` — {end['title']} · 세션 종료·정산 완료"
+                                     + (" · 환급 " + ", ".join(f"<@{u}> {v}잉크" for u, v in refund.items())
+                                        if refund else ""))
+            except Exception:
+                pass
+        return True
 
     async def _cleanup_uncommitted_output(self, session, prep) -> None:
         """커밋되지 않은 시도의 전달 출력 정리(ID는 tx에 보존) — 정본처럼 남지 않게."""

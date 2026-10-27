@@ -1262,7 +1262,7 @@ _TPL_KEYS = ("version", "name", "slots", "distinct", "spawn_when", "repeat_polic
              "access_when", "phase_selector", "phases", "transition_cases", "case_selection", "case_required",
              "resolve_when", "cancel_when", "relevance_places")
 _PHASE_KEYS = ("eligible_when", "retain_when", "priority", "base_score", "score_terms", "rank", "terminal",
-               "guide", "resolution_options", "finds")
+               "guide", "resolution_options", "finds", "ending")
 # H07(사용자 결정 — 메인 결말·플레이어 명시 결단): phases[*].resolution_options = [{option_id, label}] — 이 국면에서
 #      플레이어가 **명시적으로** 내릴 수 있는 결단. 판단층위가 플레이어 선언에서 키만 고르고, 코드가 예약 사건 지역
 #      상태 'resolution'에 typed EVENT_LOCAL_SET(PLAYER_RESOLUTION)으로 쓴다. 이후 결과는 기존 국면·케이스가 적용한다
@@ -1706,21 +1706,52 @@ def _compile_event_templates(raw, caps, actors, actor_index, places, infos, acce
                 else:
                     phases[pid]["guide"] = ph["guide"]
             if "finds" in ph:                       # v7.38(A3): 이 국면에서 찾을 수 있는 물건 후보(코드가 하나를 고른다)
-                fs = ph["finds"]
-                if not (isinstance(fs, list) and fs and all(isinstance(x, str) and x.strip() for x in fs)):
-                    d.add(ERROR, "EVENT_PHASE_FINDS_INVALID", f"{pp}.finds", "finds는 비어 있지 않은 문자열 목록")
+                fs = ph["finds"]                    # v7.44(E4): {info, object?, place?} — 조사하면 드러나는 저작 단서(정본)
+
+                def _find_ok(x):
+                    if isinstance(x, str):
+                        return bool(x.strip())
+                    summ = (infos.get(x.get("info")) or {}).get("summary") if isinstance(x, dict) else None
+                    return (isinstance(x, dict) and set(x) - {"object", "place"} == {"info"}
+                            and isinstance(summ, str) and bool(summ.strip())
+                            and ("object" not in x or (isinstance(x["object"], str) and bool(x["object"].strip())))
+                            and ("place" not in x or x["place"] in places))
+                if not (isinstance(fs, list) and fs and all(_find_ok(x) for x in fs)):
+                    d.add(ERROR, "EVENT_PHASE_FINDS_INVALID", f"{pp}.finds",
+                          "finds는 비어 있지 않은 목록 — 문자열 또는 {info(summary 있는 정보), object?, place?}")
                 else:
-                    phases[pid]["finds"] = list(fs)
+                    phases[pid]["finds"] = [x if isinstance(x, str) else dict(x) for x in fs]
+            if "ending" in ph:                      # v7.44(E3): 이 국면에 들어가면 이야기가 끝난다(에필로그 → 세션 종료)
+                en = ph["ending"]
+                if not (isinstance(en, dict) and set(en) - {"tone"} == {"id", "title", "epilogue"}
+                        and is_valid_explicit_id(en["id"])
+                        and all(isinstance(en[k], str) and en[k].strip() for k in ("title", "epilogue"))
+                        and isinstance(en.get("tone", ""), str)):
+                    d.add(ERROR, "EVENT_PHASE_ENDING_INVALID", f"{pp}.ending",
+                          "ending은 {id(명시 id), title, epilogue(지시층위 전용 맺음 지침), tone?}")
+                else:
+                    phases[pid]["ending"] = dict(en)
             if "resolution_options" in ph:
                 ro = ph["resolution_options"]
                 okr = isinstance(ro, list) and ro and all(
-                    isinstance(o, dict) and set(o) == {"option_id", "label"} and is_valid_explicit_id(o["option_id"])
+                    isinstance(o, dict) and set(o) - {"target"} == {"option_id", "label"}
+                    and is_valid_explicit_id(o["option_id"])
                     and isinstance(o["label"], str) and o["label"].strip() for o in ro)
                 if not okr or len({o["option_id"] for o in ro}) != len(ro):
                     d.add(ERROR, "EVENT_RESOLUTION_OPTIONS_INVALID", f"{pp}.resolution_options",
-                          "resolution_options는 중복 없는 [{option_id(명시 id), label(문자열)}] 목록")
+                          "resolution_options는 중복 없는 [{option_id(명시 id), label(문자열), target?}] 목록")
                 else:
-                    phases[pid]["resolution_options"] = [dict(o) for o in ro]
+                    opts = []
+                    for oi, o in enumerate(ro):
+                        row = {"option_id": o["option_id"], "label": o["label"]}
+                        if "target" in o:
+                            tg = _compile_resolution_target(o["target"], actor_index,
+                                                            f"{pp}.resolution_options[{oi}].target", d)
+                            if tg is None:
+                                continue
+                            row["target"] = tg
+                        opts.append(row)
+                    phases[pid]["resolution_options"] = opts
         prios = {}
         for pid in sorted(phases):
             pr = phases[pid]["priority"]
@@ -2123,6 +2154,21 @@ def _compile_start_items(items, place_defs, actor_index, p, d):
                 return None
         out.append({k: it[k] for k in ("key", "quantity", "place", "owner", "contains") if k in it})
     return out
+
+
+def _compile_resolution_target(tg, actor_index, p, d):
+    """v7.44(E2) 결단 대상 — {"type": "ACTOR", "from": [저작 NPC 이름], "present"?: bool} → {type, actors, present}.
+
+    대상이 있는 선택지는 후보 인물마다 하나의 결단 후보(option_id:ActorId)로 펼쳐진다. present면 장면에 있는 인물만."""
+    ok = (isinstance(tg, dict) and set(tg) - {"present"} == {"type", "from"} and tg["type"] == "ACTOR"
+          and isinstance(tg["from"], list) and tg["from"] and len(set(map(str, tg["from"]))) == len(tg["from"])
+          and all(isinstance(n, str) and n in actor_index for n in tg["from"])
+          and isinstance(tg.get("present", False), bool))
+    if not ok:
+        d.add(ERROR, "EVENT_RESOLUTION_TARGET_INVALID", p,
+              "target은 {type: ACTOR, from: [저작 NPC 이름(중복 없음)], present?: true/false}")
+        return None
+    return {"type": "ACTOR", "actors": [actor_index[n] for n in tg["from"]], "present": bool(tg.get("present", False))}
 
 
 def _compile_npc_choices(rows, place_defs, actor_index, p, d):

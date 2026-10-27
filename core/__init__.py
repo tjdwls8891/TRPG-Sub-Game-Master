@@ -282,6 +282,7 @@ from . import voice_profile  # P2 음성 프로필(마스터 성별 목소리·N
 from . import master_art  # P2 마스터 이미지 슬롯(manifest)·공용 로딩/오류 이미지
 from . import conversational  # P2 대화형 안내 = 일반 메시지(content) 변환
 from . import talk  # v7.36 대화 박자(마스터 안내 박자·응답 버튼·스트리밍)
+from . import variant_check  # v7.44 E6 진상 변형별 풀이 가능성 검사(도구 전용)
 from . import status_rules  # v7.38 상태이상 조건 환경(공용·시나리오 구분 · 시간·장소·섭취 규칙)
 from .cost import (
     extract_token_usage,

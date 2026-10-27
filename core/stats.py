@@ -112,6 +112,16 @@ async def bump(user_id, **deltas) -> dict:
         return st
 
 
+async def add_ending(user_id, scenario_id: str, ending_id: str) -> None:
+    """v7.44(E3): 본 결말을 시나리오별로 기록한다({시나리오: {결말: 횟수}})."""
+    async with _lock_for(user_id):
+        st = load_stats(user_id)
+        ends = st.setdefault("endings", {})
+        row = ends.setdefault(str(scenario_id or ""), {})
+        row[str(ending_id)] = int(row.get(str(ending_id)) or 0) + 1
+        _write(st)
+
+
 async def add_npcs(user_id, names: list) -> int:
     """만난 NPC를 중복 없이 누적한다. 새로 추가된 수를 반환한다."""
     names = [n for n in (names or []) if isinstance(n, str) and n]
