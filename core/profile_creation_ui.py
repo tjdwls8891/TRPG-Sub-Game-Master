@@ -1417,12 +1417,19 @@ class SaveProfileView(_Base):
             self.remove_item(self.save)
             self.skip.label = "계속"
 
-    async def _close(self, interaction, note: str):
+    async def _close(self, interaction, note: str = ""):
+        """완성 화면을 지우고(위 마스터 이미지 포함) 다음 단계로 — 남길 정보(저장 태그 등)는 본인에게만 알린다."""
         self.clear_items()
         try:
-            await interaction.message.edit(content=f"**{self.state.char_name}**\n{note}", embeds=[], view=None)
+            await interaction.message.delete()
         except Exception:
             pass
+        await _master_art.drop_art(interaction.channel, self.state.__dict__.setdefault("_art", {}))
+        if note:
+            try:
+                await interaction.followup.send(f"**{self.state.char_name}**\n{note}", ephemeral=True)
+            except Exception:
+                pass
         self.state.message = None
         self.stop()
         await _complete(self.state)
@@ -1451,10 +1458,7 @@ class SaveProfileView(_Base):
         async def fn():
             self.state.run["gen"] = int(self.state.run.get("gen") or 0) + 1
             unchanged = profile_changed(self.state.run) is False
-            note = master.say("profile.save_skipped", "준비가 끝났습니다.")
-            if unchanged:
-                note = "불러온 프로필에서 바뀐 것이 없어 따로 저장하지 않았습니다.\n" + note
-            await self._close(interaction, note)
+            await self._close(interaction, "불러온 프로필에서 바뀐 것이 없어 따로 저장하지 않았습니다." if unchanged else "")
         await _guarded(self, interaction, fn)
 
 

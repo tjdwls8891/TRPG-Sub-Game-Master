@@ -389,7 +389,8 @@ def talk_text(rec, phase) -> str:
         beats = [""]
     beats[0] = f"**{title}**\n{beats[0]}"
     done = master.say("knowledge.complete", "전해 드릴 것은 여기까지입니다.")
-    beats[-1] = f"{beats[-1]}\n\n*{done}*\n-# {_footer(rec['delivery_nonce'], 1, 1)}"
+    # 마무리 한마디는 따로 마지막 박자로 — 마지막 항목에도 응답 버튼이 붙어 읽고 넘어간다(전달 뒤 메시지는 지운다)
+    beats.append(f"*{done}*\n-# {_footer(rec['delivery_nonce'], 1, 1)}")
     return "\n[[]]\n".join(beats)
 
 
@@ -434,6 +435,11 @@ async def present(bot, session, uid, phase, channel, on_delivered=None, later=No
             if not await _strict_save(bot, session):
                 rec["state"], rec["reason"] = UNCERTAIN, "DELIVERED_SAVE_FAILED"
                 return
+            # 전달이 기록됐다 — 다음 단계 화면 위에 지난 안내를 남기지 않는다(재열람은 디스플레이 '알고 있는 것')
+            try:
+                await holder["msg"].delete()
+            except Exception:  # noqa: BLE001
+                pass
             if on_delivered is None:
                 return
             if holder["inside"] and later is not None:
