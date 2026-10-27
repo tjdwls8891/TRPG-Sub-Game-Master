@@ -24,8 +24,8 @@ from tests.policy.test_h05a_intent_planning import PC, make_session, manifest, p
 pytestmark = pytest.mark.policy
 
 RAW = json.loads(pathlib.Path(REPO_ROOT, "scenarios", "설화재.json").read_text(encoding="utf-8"))
-CASES = {"S1": "윤서진", "S2": "윤서진", "D1": "한도윤", "D2": "한도윤",
-         "M1": "마정호", "M2": "마정호", "O1": "오세린", "O2": "오세린"}
+CASES = {f"{k}{n}": who for k, who in (("S", "윤서진"), ("D", "한도윤"), ("M", "마정호"), ("O", "오세린"))
+         for n in range(1, 5)}                                              # v7.45.3: 진범 4 × 수법 4 = 16
 AID = {n: d["actor_id"] for n, d in RAW["default_npcs"].items()}
 
 
@@ -50,7 +50,7 @@ def _truth(s):
 
 
 def _seed_for(case):
-    for n in range(200):
+    for n in range(400):
         s, D = _world(f"seed{n}")
         if _truth(s)["local_state"]["case"] == case:
             return s, D
@@ -68,9 +68,9 @@ def test_scenario_compiles_and_every_case_is_solvable():
         assert len(mine) >= 3 and sum(cfg[i]["strength"] == "decisive" for i in mine) == 1, case
 
 
-def test_each_session_fixes_one_case_and_all_eight_occur():
+def test_each_session_fixes_one_case_and_all_sixteen_occur():
     seen = {}
-    for n in range(64):
+    for n in range(160):
         s, D = _world(f"seed{n}")
         loc = _truth(s)["local_state"]
         assert CASES[loc["case"]] == loc["culprit"]

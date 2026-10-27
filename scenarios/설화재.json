@@ -1633,6 +1633,390 @@
       "tags": [
         "증거"
       ]
+    },
+    "sh.s3.tod": {
+      "proposition": "시신 상태로 보아 사망은 02:30~03:30 무렵이다",
+      "summary": "시신 상태로 보아 사망은 02:30~03:30 무렵이다",
+      "subject_refs": [
+        "place:201호"
+      ],
+      "tags": [
+        "현장"
+      ]
+    },
+    "sh.s3.vent": {
+      "proposition": "201호 환기구에 은색 테이프가 덧붙어 막혀 있다",
+      "summary": "201호 환기구에 은색 테이프가 덧붙어 막혀 있다",
+      "subject_refs": [
+        "place:201호"
+      ],
+      "tags": [
+        "현장"
+      ]
+    },
+    "sh.s3.tape": {
+      "proposition": "보일러실의 같은 은색 테이프 롤 — 잘린 끝이 환기구 테이프와 들어맞는다",
+      "summary": "보일러실의 같은 은색 테이프 롤 — 잘린 끝이 환기구 테이프와 들어맞는다",
+      "subject_refs": [
+        "place:보일러실·창고"
+      ],
+      "tags": [
+        "증거"
+      ]
+    },
+    "sh.s3.heater": {
+      "proposition": "김보람: 23:00 윤서진이 휴대용 등유 난로를 들고 201호로 올라갔다",
+      "summary": "김보람: 23:00 윤서진이 휴대용 등유 난로를 들고 201호로 올라갔다",
+      "subject_refs": [],
+      "tags": [
+        "증언"
+      ]
+    },
+    "sh.s3.pink": {
+      "proposition": "피해자의 얼굴과 입술이 이상하게 선홍빛이다 — 연기 중독의 흔적",
+      "summary": "피해자의 얼굴과 입술이 이상하게 선홍빛이다 — 연기 중독의 흔적",
+      "subject_refs": [
+        "place:201호"
+      ],
+      "tags": [
+        "현장"
+      ]
+    },
+    "sh.s4.tod": {
+      "proposition": "시신 상태로 보아 사망은 01:00 무렵 무렵이다",
+      "summary": "시신 상태로 보아 사망은 01:00 무렵 무렵이다",
+      "subject_refs": [
+        "place:201호"
+      ],
+      "tags": [
+        "현장"
+      ]
+    },
+    "sh.s4.stab": {
+      "proposition": "상처는 짧고 가는 칼날에 찔린 자국 하나다",
+      "summary": "상처는 짧고 가는 칼날에 찔린 자국 하나다",
+      "subject_refs": [
+        "place:201호"
+      ],
+      "tags": [
+        "현장"
+      ]
+    },
+    "sh.s4.key": {
+      "proposition": "사무실 열쇠 보관함의 201호 마스터키가 엉뚱한 고리에 걸려 있다",
+      "summary": "사무실 열쇠 보관함의 201호 마스터키가 엉뚱한 고리에 걸려 있다",
+      "subject_refs": [
+        "place:사무실"
+      ],
+      "tags": [
+        "현장"
+      ]
+    },
+    "sh.s4.knife": {
+      "proposition": "주방 칼꽂이의 과도 — 씻었지만 손잡이 틈에 피가 남았다",
+      "summary": "주방 칼꽂이의 과도 — 씻었지만 손잡이 틈에 피가 남았다",
+      "subject_refs": [
+        "place:주방"
+      ],
+      "tags": [
+        "증거"
+      ]
+    },
+    "sh.s4.jingle": {
+      "proposition": "강태오: 01:00쯤 복도 끝에서 열쇠 꾸러미가 짤랑이는 소리를 들었다",
+      "summary": "강태오: 01:00쯤 복도 끝에서 열쇠 꾸러미가 짤랑이는 소리를 들었다",
+      "subject_refs": [],
+      "tags": [
+        "증언"
+      ]
+    },
+    "sh.d3.tod": {
+      "proposition": "시신 상태로 보아 사망은 02:00 전후 무렵이다",
+      "summary": "시신 상태로 보아 사망은 02:00 전후 무렵이다",
+      "subject_refs": [
+        "place:201호"
+      ],
+      "tags": [
+        "현장"
+      ]
+    },
+    "sh.d3.glasses": {
+      "proposition": "응접 탁자의 위스키 잔 두 개 — 한 잔에만 하얀 침전물",
+      "summary": "응접 탁자의 위스키 잔 두 개 — 한 잔에만 하얀 침전물",
+      "subject_refs": [
+        "place:201호"
+      ],
+      "tags": [
+        "현장"
+      ]
+    },
+    "sh.d3.blister": {
+      "proposition": "202호 쓰레기통에 뜯어낸 수면제 낱알 포장이 스무 칸 넘게 비어 있다",
+      "summary": "202호 쓰레기통에 뜯어낸 수면제 낱알 포장이 스무 칸 넘게 비어 있다",
+      "subject_refs": [
+        "place:202호"
+      ],
+      "tags": [
+        "증거"
+      ]
+    },
+    "sh.d3.twoglass": {
+      "proposition": "김보람: 00:30 한도윤이 바에서 빈 잔 두 개를 가져갔다",
+      "summary": "김보람: 00:30 한도윤이 바에서 빈 잔 두 개를 가져갔다",
+      "subject_refs": [],
+      "tags": [
+        "증언"
+      ]
+    },
+    "sh.d3.memo": {
+      "proposition": "피해자 수첩: \"도윤 — 화해하자고. 유언장은 그대로\"",
+      "summary": "피해자 수첩: \"도윤 — 화해하자고. 유언장은 그대로\"",
+      "subject_refs": [
+        "place:201호"
+      ],
+      "tags": [
+        "인물"
+      ]
+    },
+    "sh.d4.tod": {
+      "proposition": "시신 상태로 보아 사망은 03:00~04:00 무렵이다",
+      "summary": "시신 상태로 보아 사망은 03:00~04:00 무렵이다",
+      "subject_refs": [
+        "place:201호"
+      ],
+      "tags": [
+        "현장"
+      ]
+    },
+    "sh.d4.vomit": {
+      "proposition": "커피잔의 쓴 냄새, 피해자의 침 흘린 자국과 구토",
+      "summary": "커피잔의 쓴 냄새, 피해자의 침 흘린 자국과 구토",
+      "subject_refs": [
+        "place:201호"
+      ],
+      "tags": [
+        "현장"
+      ]
+    },
+    "sh.d4.nicotine": {
+      "proposition": "202호 전자담배 니코틴 원액 병이 거의 비어 있다",
+      "summary": "202호 전자담배 니코틴 원액 병이 거의 비어 있다",
+      "subject_refs": [
+        "place:202호"
+      ],
+      "tags": [
+        "증거"
+      ]
+    },
+    "sh.d4.coffee": {
+      "proposition": "김보람: 23:40 한도윤이 주방에서 커피 두 잔을 타 갔다",
+      "summary": "김보람: 23:40 한도윤이 주방에서 커피 두 잔을 타 갔다",
+      "subject_refs": [],
+      "tags": [
+        "증언"
+      ]
+    },
+    "sh.d4.willtalk": {
+      "proposition": "피해자 수첩: \"도윤 — 유언장 얘기 다시. 내일 변호사\"",
+      "summary": "피해자 수첩: \"도윤 — 유언장 얘기 다시. 내일 변호사\"",
+      "subject_refs": [
+        "place:201호"
+      ],
+      "tags": [
+        "인물"
+      ]
+    },
+    "sh.m3.tod": {
+      "proposition": "시신 상태로 보아 사망은 01:10 무렵 무렵이다",
+      "summary": "시신 상태로 보아 사망은 01:10 무렵 무렵이다",
+      "subject_refs": [
+        "place:201호"
+      ],
+      "tags": [
+        "현장"
+      ]
+    },
+    "sh.m3.blade": {
+      "proposition": "가늘고 긴 날에 찔린 상처 — 피해자 서류가방의 페이퍼나이프가 사라졌다",
+      "summary": "가늘고 긴 날에 찔린 상처 — 피해자 서류가방의 페이퍼나이프가 사라졌다",
+      "subject_refs": [
+        "place:201호"
+      ],
+      "tags": [
+        "현장"
+      ]
+    },
+    "sh.m3.ash": {
+      "proposition": "라운지 벽난로 재 속에 타다 남은 감사 보고서 귀퉁이, 피 얼룩",
+      "summary": "라운지 벽난로 재 속에 타다 남은 감사 보고서 귀퉁이, 피 얼룩",
+      "subject_refs": [
+        "place:본관 로비·라운지"
+      ],
+      "tags": [
+        "증거"
+      ]
+    },
+    "sh.m3.gone": {
+      "proposition": "김보람: 01:10~01:20 마정호가 라운지 자리를 비웠다",
+      "summary": "김보람: 01:10~01:20 마정호가 라운지 자리를 비웠다",
+      "subject_refs": [],
+      "tags": [
+        "증언"
+      ]
+    },
+    "sh.m3.audit": {
+      "proposition": "피해자 서류가방의 감사 보고서 사본 — 마정호 결재란에 빨간 동그라미",
+      "summary": "피해자 서류가방의 감사 보고서 사본 — 마정호 결재란에 빨간 동그라미",
+      "subject_refs": [
+        "place:201호"
+      ],
+      "tags": [
+        "인물"
+      ]
+    },
+    "sh.m4.tod": {
+      "proposition": "시신 상태로 보아 사망은 01:00~01:20 무렵이다",
+      "summary": "시신 상태로 보아 사망은 01:00~01:20 무렵이다",
+      "subject_refs": [
+        "place:201호"
+      ],
+      "tags": [
+        "현장"
+      ]
+    },
+    "sh.m4.twomarks": {
+      "proposition": "목에 매단 끈 자국과 그 아래 졸린 자국이 따로 두 줄이다",
+      "summary": "목에 매단 끈 자국과 그 아래 졸린 자국이 따로 두 줄이다",
+      "subject_refs": [
+        "place:201호"
+      ],
+      "tags": [
+        "현장"
+      ]
+    },
+    "sh.m4.practice": {
+      "proposition": "203호 노트북 가방 속 피해자 필체를 흉내 낸 연습 메모지",
+      "summary": "203호 노트북 가방 속 피해자 필체를 흉내 낸 연습 메모지",
+      "subject_refs": [
+        "place:203호"
+      ],
+      "tags": [
+        "증거"
+      ]
+    },
+    "sh.m4.note": {
+      "proposition": "탁자 위 '유서' — 회사 감사 실패를 자책하는 내용으로, 마정호에게 유리하다",
+      "summary": "탁자 위 '유서' — 회사 감사 실패를 자책하는 내용으로, 마정호에게 유리하다",
+      "subject_refs": [
+        "place:201호"
+      ],
+      "tags": [
+        "현장"
+      ]
+    },
+    "sh.m4.absent": {
+      "proposition": "김보람: 00:50~01:10 마정호가 라운지에 없었다",
+      "summary": "김보람: 00:50~01:10 마정호가 라운지에 없었다",
+      "subject_refs": [],
+      "tags": [
+        "증언"
+      ]
+    },
+    "sh.o3.tod": {
+      "proposition": "시신 상태로 보아 사망은 00:50 무렵 무렵이다",
+      "summary": "시신 상태로 보아 사망은 00:50 무렵 무렵이다",
+      "subject_refs": [
+        "place:201호"
+      ],
+      "tags": [
+        "현장"
+      ]
+    },
+    "sh.o3.round": {
+      "proposition": "상처가 둥근 금속 막대 끝에 맞은 모양이다",
+      "summary": "상처가 둥근 금속 막대 끝에 맞은 모양이다",
+      "subject_refs": [
+        "place:201호"
+      ],
+      "tags": [
+        "현장"
+      ]
+    },
+    "sh.o3.tripod": {
+      "proposition": "205호 삼각대 다리 하나만 닦였고 고무 마개 안쪽에 피가 남았다",
+      "summary": "205호 삼각대 다리 하나만 닦였고 고무 마개 안쪽에 피가 남았다",
+      "subject_refs": [
+        "place:205호"
+      ],
+      "tags": [
+        "증거"
+      ]
+    },
+    "sh.o3.drag": {
+      "proposition": "강태오: 00:50쯤 2층 복도에서 무거운 장비를 끄는 소리를 들었다",
+      "summary": "강태오: 00:50쯤 2층 복도에서 무거운 장비를 끄는 소리를 들었다",
+      "subject_refs": [],
+      "tags": [
+        "증언"
+      ]
+    },
+    "sh.o3.gap": {
+      "proposition": "오세린 카메라에 00:40~01:10 사이 사진이 한 장도 없다",
+      "summary": "오세린 카메라에 00:40~01:10 사이 사진이 한 장도 없다",
+      "subject_refs": [
+        "place:205호"
+      ],
+      "tags": [
+        "증거"
+      ]
+    },
+    "sh.o4.tod": {
+      "proposition": "시신 상태로 보아 사망은 04:00 전후 무렵이다",
+      "summary": "시신 상태로 보아 사망은 04:00 전후 무렵이다",
+      "subject_refs": [
+        "place:201호"
+      ],
+      "tags": [
+        "현장"
+      ]
+    },
+    "sh.o4.cold": {
+      "proposition": "창이 활짝 열려 방이 얼음장이고, 이불이 걷힌 피해자는 얇은 잠옷 차림이다",
+      "summary": "창이 활짝 열려 방이 얼음장이고, 이불이 걷힌 피해자는 얇은 잠옷 차림이다",
+      "subject_refs": [
+        "place:201호"
+      ],
+      "tags": [
+        "현장"
+      ]
+    },
+    "sh.o4.glove": {
+      "proposition": "205호 촬영 장갑 손바닥 미끄럼 방지 점에 낀 201호 창틀 페인트 조각",
+      "summary": "205호 촬영 장갑 손바닥 미끄럼 방지 점에 낀 201호 창틀 페인트 조각",
+      "subject_refs": [
+        "place:205호"
+      ],
+      "tags": [
+        "증거"
+      ]
+    },
+    "sh.o4.visit": {
+      "proposition": "김보람: 23:20 오세린이 '사진을 보여 드린다'며 201호에 들어갔다",
+      "summary": "김보람: 23:20 오세린이 '사진을 보여 드린다'며 201호에 들어갔다",
+      "subject_refs": [],
+      "tags": [
+        "증언"
+      ]
+    },
+    "sh.o4.scrap": {
+      "proposition": "205호 노트의 8년 전 붕괴 사고 기사, 피해자 이름에 그은 굵은 줄",
+      "summary": "205호 노트의 8년 전 붕괴 사고 기사, 피해자 이름에 그은 굵은 줄",
+      "subject_refs": [
+        "place:205호"
+      ],
+      "tags": [
+        "인물"
+      ]
     }
   },
   "event_templates": {
@@ -1719,6 +2103,24 @@
                       "info": "sh.s2.bar"
                     },
                     "value": "CONTENT"
+                  },
+                  {
+                    "cmp": "EQ",
+                    "ref": {
+                      "ref": "COGNITION_AWARENESS",
+                      "holder": "$session_pc",
+                      "info": "sh.s3.tape"
+                    },
+                    "value": "CONTENT"
+                  },
+                  {
+                    "cmp": "EQ",
+                    "ref": {
+                      "ref": "COGNITION_AWARENESS",
+                      "holder": "$session_pc",
+                      "info": "sh.s4.knife"
+                    },
+                    "value": "CONTENT"
                   }
                 ]
               }
@@ -1776,6 +2178,24 @@
                         "ref": "COGNITION_AWARENESS",
                         "holder": "$session_pc",
                         "info": "sh.s2.bar"
+                      },
+                      "value": "CONTENT"
+                    },
+                    {
+                      "cmp": "EQ",
+                      "ref": {
+                        "ref": "COGNITION_AWARENESS",
+                        "holder": "$session_pc",
+                        "info": "sh.s3.tape"
+                      },
+                      "value": "CONTENT"
+                    },
+                    {
+                      "cmp": "EQ",
+                      "ref": {
+                        "ref": "COGNITION_AWARENESS",
+                        "holder": "$session_pc",
+                        "info": "sh.s4.knife"
                       },
                       "value": "CONTENT"
                     }
@@ -1837,6 +2257,24 @@
                       "info": "sh.d2.scratch"
                     },
                     "value": "CONTENT"
+                  },
+                  {
+                    "cmp": "EQ",
+                    "ref": {
+                      "ref": "COGNITION_AWARENESS",
+                      "holder": "$session_pc",
+                      "info": "sh.d3.blister"
+                    },
+                    "value": "CONTENT"
+                  },
+                  {
+                    "cmp": "EQ",
+                    "ref": {
+                      "ref": "COGNITION_AWARENESS",
+                      "holder": "$session_pc",
+                      "info": "sh.d4.nicotine"
+                    },
+                    "value": "CONTENT"
                   }
                 ]
               }
@@ -1894,6 +2332,24 @@
                         "ref": "COGNITION_AWARENESS",
                         "holder": "$session_pc",
                         "info": "sh.d2.scratch"
+                      },
+                      "value": "CONTENT"
+                    },
+                    {
+                      "cmp": "EQ",
+                      "ref": {
+                        "ref": "COGNITION_AWARENESS",
+                        "holder": "$session_pc",
+                        "info": "sh.d3.blister"
+                      },
+                      "value": "CONTENT"
+                    },
+                    {
+                      "cmp": "EQ",
+                      "ref": {
+                        "ref": "COGNITION_AWARENESS",
+                        "holder": "$session_pc",
+                        "info": "sh.d4.nicotine"
                       },
                       "value": "CONTENT"
                     }
@@ -1955,6 +2411,24 @@
                       "info": "sh.m2.watch"
                     },
                     "value": "CONTENT"
+                  },
+                  {
+                    "cmp": "EQ",
+                    "ref": {
+                      "ref": "COGNITION_AWARENESS",
+                      "holder": "$session_pc",
+                      "info": "sh.m3.ash"
+                    },
+                    "value": "CONTENT"
+                  },
+                  {
+                    "cmp": "EQ",
+                    "ref": {
+                      "ref": "COGNITION_AWARENESS",
+                      "holder": "$session_pc",
+                      "info": "sh.m4.practice"
+                    },
+                    "value": "CONTENT"
                   }
                 ]
               }
@@ -2012,6 +2486,24 @@
                         "ref": "COGNITION_AWARENESS",
                         "holder": "$session_pc",
                         "info": "sh.m2.watch"
+                      },
+                      "value": "CONTENT"
+                    },
+                    {
+                      "cmp": "EQ",
+                      "ref": {
+                        "ref": "COGNITION_AWARENESS",
+                        "holder": "$session_pc",
+                        "info": "sh.m3.ash"
+                      },
+                      "value": "CONTENT"
+                    },
+                    {
+                      "cmp": "EQ",
+                      "ref": {
+                        "ref": "COGNITION_AWARENESS",
+                        "holder": "$session_pc",
+                        "info": "sh.m4.practice"
                       },
                       "value": "CONTENT"
                     }
@@ -2073,6 +2565,24 @@
                       "info": "sh.o2.clock"
                     },
                     "value": "CONTENT"
+                  },
+                  {
+                    "cmp": "EQ",
+                    "ref": {
+                      "ref": "COGNITION_AWARENESS",
+                      "holder": "$session_pc",
+                      "info": "sh.o3.tripod"
+                    },
+                    "value": "CONTENT"
+                  },
+                  {
+                    "cmp": "EQ",
+                    "ref": {
+                      "ref": "COGNITION_AWARENESS",
+                      "holder": "$session_pc",
+                      "info": "sh.o4.glove"
+                    },
+                    "value": "CONTENT"
                   }
                 ]
               }
@@ -2130,6 +2640,24 @@
                         "ref": "COGNITION_AWARENESS",
                         "holder": "$session_pc",
                         "info": "sh.o2.clock"
+                      },
+                      "value": "CONTENT"
+                    },
+                    {
+                      "cmp": "EQ",
+                      "ref": {
+                        "ref": "COGNITION_AWARENESS",
+                        "holder": "$session_pc",
+                        "info": "sh.o3.tripod"
+                      },
+                      "value": "CONTENT"
+                    },
+                    {
+                      "cmp": "EQ",
+                      "ref": {
+                        "ref": "COGNITION_AWARENESS",
+                        "holder": "$session_pc",
+                        "info": "sh.o4.glove"
                       },
                       "value": "CONTENT"
                     }
@@ -2421,6 +2949,166 @@
               "type": "SET_EVENT_LOCAL",
               "key": "case",
               "value": "O2"
+            }
+          ]
+        },
+        {
+          "case_id": "spawn_S3",
+          "from": null,
+          "to": "investigate",
+          "weight": 1,
+          "steps": [
+            {
+              "step_id": "who",
+              "type": "SET_EVENT_LOCAL",
+              "key": "culprit",
+              "value": "윤서진"
+            },
+            {
+              "step_id": "case",
+              "type": "SET_EVENT_LOCAL",
+              "key": "case",
+              "value": "S3"
+            }
+          ]
+        },
+        {
+          "case_id": "spawn_S4",
+          "from": null,
+          "to": "investigate",
+          "weight": 1,
+          "steps": [
+            {
+              "step_id": "who",
+              "type": "SET_EVENT_LOCAL",
+              "key": "culprit",
+              "value": "윤서진"
+            },
+            {
+              "step_id": "case",
+              "type": "SET_EVENT_LOCAL",
+              "key": "case",
+              "value": "S4"
+            }
+          ]
+        },
+        {
+          "case_id": "spawn_D3",
+          "from": null,
+          "to": "investigate",
+          "weight": 1,
+          "steps": [
+            {
+              "step_id": "who",
+              "type": "SET_EVENT_LOCAL",
+              "key": "culprit",
+              "value": "한도윤"
+            },
+            {
+              "step_id": "case",
+              "type": "SET_EVENT_LOCAL",
+              "key": "case",
+              "value": "D3"
+            }
+          ]
+        },
+        {
+          "case_id": "spawn_D4",
+          "from": null,
+          "to": "investigate",
+          "weight": 1,
+          "steps": [
+            {
+              "step_id": "who",
+              "type": "SET_EVENT_LOCAL",
+              "key": "culprit",
+              "value": "한도윤"
+            },
+            {
+              "step_id": "case",
+              "type": "SET_EVENT_LOCAL",
+              "key": "case",
+              "value": "D4"
+            }
+          ]
+        },
+        {
+          "case_id": "spawn_M3",
+          "from": null,
+          "to": "investigate",
+          "weight": 1,
+          "steps": [
+            {
+              "step_id": "who",
+              "type": "SET_EVENT_LOCAL",
+              "key": "culprit",
+              "value": "마정호"
+            },
+            {
+              "step_id": "case",
+              "type": "SET_EVENT_LOCAL",
+              "key": "case",
+              "value": "M3"
+            }
+          ]
+        },
+        {
+          "case_id": "spawn_M4",
+          "from": null,
+          "to": "investigate",
+          "weight": 1,
+          "steps": [
+            {
+              "step_id": "who",
+              "type": "SET_EVENT_LOCAL",
+              "key": "culprit",
+              "value": "마정호"
+            },
+            {
+              "step_id": "case",
+              "type": "SET_EVENT_LOCAL",
+              "key": "case",
+              "value": "M4"
+            }
+          ]
+        },
+        {
+          "case_id": "spawn_O3",
+          "from": null,
+          "to": "investigate",
+          "weight": 1,
+          "steps": [
+            {
+              "step_id": "who",
+              "type": "SET_EVENT_LOCAL",
+              "key": "culprit",
+              "value": "오세린"
+            },
+            {
+              "step_id": "case",
+              "type": "SET_EVENT_LOCAL",
+              "key": "case",
+              "value": "O3"
+            }
+          ]
+        },
+        {
+          "case_id": "spawn_O4",
+          "from": null,
+          "to": "investigate",
+          "weight": 1,
+          "steps": [
+            {
+              "step_id": "who",
+              "type": "SET_EVENT_LOCAL",
+              "key": "culprit",
+              "value": "오세린"
+            },
+            {
+              "step_id": "case",
+              "type": "SET_EVENT_LOCAL",
+              "key": "case",
+              "value": "O4"
             }
           ]
         },
@@ -3132,6 +3820,566 @@
         "const": false
       }
     },
+    "sh_case_S3": {
+      "version": 1,
+      "name": "진상 S3",
+      "spawn_when": {
+        "all": [
+          {
+            "cmp": "EQ",
+            "ref": {
+              "ref": "EVENT_LOCAL",
+              "template": "sh_truth",
+              "key": "culprit"
+            },
+            "value": "윤서진"
+          },
+          {
+            "cmp": "EQ",
+            "ref": {
+              "ref": "EVENT_LOCAL",
+              "template": "sh_truth",
+              "key": "case"
+            },
+            "value": "S3"
+          }
+        ]
+      },
+      "phases": {
+        "open": {
+          "eligible_when": {
+            "const": true
+          },
+          "priority": 1,
+          "finds": [
+            {
+              "info": "sh.s3.tod",
+              "place": "201호"
+            },
+            {
+              "info": "sh.s3.vent",
+              "place": "201호"
+            },
+            {
+              "info": "sh.s3.tape",
+              "place": "보일러실·창고",
+              "object": "은색 테이프 롤"
+            },
+            {
+              "info": "sh.s3.heater",
+              "actor": "김보람"
+            },
+            {
+              "info": "sh.s3.pink",
+              "place": "201호"
+            }
+          ],
+          "guide": "진상: 윤서진이 정전을 핑계로 23:00 201호에 휴대용 등유 난로를 넣어 주며 환기구를 은색 테이프로 막았다. 새벽 02:30~03:30 연기 중독으로 숨졌다. '난로는 손님들 방마다 넣었다'고 말하지만 201호만 환기구가 막혔다. 테이프 롤은 보일러실에 있다. 이번 판의 다른 사람들은 진범이 아니다 — 그들의 비밀은 오해를 살 뿐 범행이 아니다. 진범은 증거를 직접 들이밀기 전에는 침착하게 거짓 알리바이를 유지한다. GM·묘사는 진범을 암시하거나 단서를 지어내지 않는다. 자백은 결말 국면에서만."
+        }
+      },
+      "transition_cases": [
+        {
+          "case_id": "spawn",
+          "from": null,
+          "to": "open",
+          "steps": []
+        }
+      ],
+      "repeat_policy": "ONCE_PER_SESSION",
+      "resolve_when": {
+        "const": false
+      }
+    },
+    "sh_case_S4": {
+      "version": 1,
+      "name": "진상 S4",
+      "spawn_when": {
+        "all": [
+          {
+            "cmp": "EQ",
+            "ref": {
+              "ref": "EVENT_LOCAL",
+              "template": "sh_truth",
+              "key": "culprit"
+            },
+            "value": "윤서진"
+          },
+          {
+            "cmp": "EQ",
+            "ref": {
+              "ref": "EVENT_LOCAL",
+              "template": "sh_truth",
+              "key": "case"
+            },
+            "value": "S4"
+          }
+        ]
+      },
+      "phases": {
+        "open": {
+          "eligible_when": {
+            "const": true
+          },
+          "priority": 1,
+          "finds": [
+            {
+              "info": "sh.s4.tod",
+              "place": "201호"
+            },
+            {
+              "info": "sh.s4.stab",
+              "place": "201호"
+            },
+            {
+              "info": "sh.s4.key",
+              "place": "사무실"
+            },
+            {
+              "info": "sh.s4.knife",
+              "place": "주방",
+              "object": "과도"
+            },
+            {
+              "info": "sh.s4.jingle",
+              "actor": "강태오"
+            }
+          ],
+          "guide": "진상: 윤서진이 01:00 사무실의 201호 마스터키로 들어가 주방 과도로 피해자를 찔렀다. 과도는 씻어 칼꽂이에 되돌렸고, 마스터키는 서둘러 다른 고리에 걸었다. '00시 이후 별채에서 잤다'고 말한다. 이번 판의 다른 사람들은 진범이 아니다 — 그들의 비밀은 오해를 살 뿐 범행이 아니다. 진범은 증거를 직접 들이밀기 전에는 침착하게 거짓 알리바이를 유지한다. GM·묘사는 진범을 암시하거나 단서를 지어내지 않는다. 자백은 결말 국면에서만."
+        }
+      },
+      "transition_cases": [
+        {
+          "case_id": "spawn",
+          "from": null,
+          "to": "open",
+          "steps": []
+        }
+      ],
+      "repeat_policy": "ONCE_PER_SESSION",
+      "resolve_when": {
+        "const": false
+      }
+    },
+    "sh_case_D3": {
+      "version": 1,
+      "name": "진상 D3",
+      "spawn_when": {
+        "all": [
+          {
+            "cmp": "EQ",
+            "ref": {
+              "ref": "EVENT_LOCAL",
+              "template": "sh_truth",
+              "key": "culprit"
+            },
+            "value": "한도윤"
+          },
+          {
+            "cmp": "EQ",
+            "ref": {
+              "ref": "EVENT_LOCAL",
+              "template": "sh_truth",
+              "key": "case"
+            },
+            "value": "D3"
+          }
+        ]
+      },
+      "phases": {
+        "open": {
+          "eligible_when": {
+            "const": true
+          },
+          "priority": 1,
+          "finds": [
+            {
+              "info": "sh.d3.tod",
+              "place": "201호"
+            },
+            {
+              "info": "sh.d3.glasses",
+              "place": "201호"
+            },
+            {
+              "info": "sh.d3.blister",
+              "place": "202호",
+              "object": "빈 수면제 포장"
+            },
+            {
+              "info": "sh.d3.twoglass",
+              "actor": "김보람"
+            },
+            {
+              "info": "sh.d3.memo",
+              "place": "201호"
+            }
+          ],
+          "guide": "진상: 한도윤이 00:30 '화해하자'며 잔 두 개를 들고 가, 아버지의 수면제를 대량으로 녹인 위스키를 권했다. 02:00 전후 호흡이 멈췄다. 빈 수면제 포장은 202호 쓰레기통에 버렸다. '기절해 잤다'고 말한다. 아버지 수첩에는 정작 '유언장은 그대로'라고 적혀 있다 — 도윤은 그걸 모른다. 이번 판의 다른 사람들은 진범이 아니다 — 그들의 비밀은 오해를 살 뿐 범행이 아니다. 진범은 증거를 직접 들이밀기 전에는 침착하게 거짓 알리바이를 유지한다. GM·묘사는 진범을 암시하거나 단서를 지어내지 않는다. 자백은 결말 국면에서만."
+        }
+      },
+      "transition_cases": [
+        {
+          "case_id": "spawn",
+          "from": null,
+          "to": "open",
+          "steps": []
+        }
+      ],
+      "repeat_policy": "ONCE_PER_SESSION",
+      "resolve_when": {
+        "const": false
+      }
+    },
+    "sh_case_D4": {
+      "version": 1,
+      "name": "진상 D4",
+      "spawn_when": {
+        "all": [
+          {
+            "cmp": "EQ",
+            "ref": {
+              "ref": "EVENT_LOCAL",
+              "template": "sh_truth",
+              "key": "culprit"
+            },
+            "value": "한도윤"
+          },
+          {
+            "cmp": "EQ",
+            "ref": {
+              "ref": "EVENT_LOCAL",
+              "template": "sh_truth",
+              "key": "case"
+            },
+            "value": "D4"
+          }
+        ]
+      },
+      "phases": {
+        "open": {
+          "eligible_when": {
+            "const": true
+          },
+          "priority": 1,
+          "finds": [
+            {
+              "info": "sh.d4.tod",
+              "place": "201호"
+            },
+            {
+              "info": "sh.d4.vomit",
+              "place": "201호"
+            },
+            {
+              "info": "sh.d4.nicotine",
+              "place": "202호",
+              "object": "니코틴 원액 병"
+            },
+            {
+              "info": "sh.d4.coffee",
+              "actor": "김보람"
+            },
+            {
+              "info": "sh.d4.willtalk",
+              "place": "201호"
+            }
+          ],
+          "guide": "진상: 한도윤이 23:40 커피 두 잔을 타 가서 한 잔에 전자담배 니코틴 원액을 섞었다. 새벽 03:00~04:00 중독으로 숨졌다. '커피는 내가 마시려던 것'이라 둘러댄다. 원액 병은 거의 비었다. 이번 판의 다른 사람들은 진범이 아니다 — 그들의 비밀은 오해를 살 뿐 범행이 아니다. 진범은 증거를 직접 들이밀기 전에는 침착하게 거짓 알리바이를 유지한다. GM·묘사는 진범을 암시하거나 단서를 지어내지 않는다. 자백은 결말 국면에서만."
+        }
+      },
+      "transition_cases": [
+        {
+          "case_id": "spawn",
+          "from": null,
+          "to": "open",
+          "steps": []
+        }
+      ],
+      "repeat_policy": "ONCE_PER_SESSION",
+      "resolve_when": {
+        "const": false
+      }
+    },
+    "sh_case_M3": {
+      "version": 1,
+      "name": "진상 M3",
+      "spawn_when": {
+        "all": [
+          {
+            "cmp": "EQ",
+            "ref": {
+              "ref": "EVENT_LOCAL",
+              "template": "sh_truth",
+              "key": "culprit"
+            },
+            "value": "마정호"
+          },
+          {
+            "cmp": "EQ",
+            "ref": {
+              "ref": "EVENT_LOCAL",
+              "template": "sh_truth",
+              "key": "case"
+            },
+            "value": "M3"
+          }
+        ]
+      },
+      "phases": {
+        "open": {
+          "eligible_when": {
+            "const": true
+          },
+          "priority": 1,
+          "finds": [
+            {
+              "info": "sh.m3.tod",
+              "place": "201호"
+            },
+            {
+              "info": "sh.m3.blade",
+              "place": "201호"
+            },
+            {
+              "info": "sh.m3.ash",
+              "place": "본관 로비·라운지",
+              "object": "탄 서류 조각"
+            },
+            {
+              "info": "sh.m3.gone",
+              "actor": "김보람"
+            },
+            {
+              "info": "sh.m3.audit",
+              "place": "201호"
+            }
+          ],
+          "guide": "진상: 마정호가 01:10 라운지에서 잠깐 자리를 떠 201호에서 피해자의 페이퍼나이프로 찔렀다. 피 묻은 감사 보고서를 라운지 벽난로에 태웠으나 귀퉁이가 남았다. 나이프는 눈 속에 던졌다. '라운지에서 한 번도 안 일어났다'고 말한다. 이번 판의 다른 사람들은 진범이 아니다 — 그들의 비밀은 오해를 살 뿐 범행이 아니다. 진범은 증거를 직접 들이밀기 전에는 침착하게 거짓 알리바이를 유지한다. GM·묘사는 진범을 암시하거나 단서를 지어내지 않는다. 자백은 결말 국면에서만."
+        }
+      },
+      "transition_cases": [
+        {
+          "case_id": "spawn",
+          "from": null,
+          "to": "open",
+          "steps": []
+        }
+      ],
+      "repeat_policy": "ONCE_PER_SESSION",
+      "resolve_when": {
+        "const": false
+      }
+    },
+    "sh_case_M4": {
+      "version": 1,
+      "name": "진상 M4",
+      "spawn_when": {
+        "all": [
+          {
+            "cmp": "EQ",
+            "ref": {
+              "ref": "EVENT_LOCAL",
+              "template": "sh_truth",
+              "key": "culprit"
+            },
+            "value": "마정호"
+          },
+          {
+            "cmp": "EQ",
+            "ref": {
+              "ref": "EVENT_LOCAL",
+              "template": "sh_truth",
+              "key": "case"
+            },
+            "value": "M4"
+          }
+        ]
+      },
+      "phases": {
+        "open": {
+          "eligible_when": {
+            "const": true
+          },
+          "priority": 1,
+          "finds": [
+            {
+              "info": "sh.m4.tod",
+              "place": "201호"
+            },
+            {
+              "info": "sh.m4.twomarks",
+              "place": "201호"
+            },
+            {
+              "info": "sh.m4.practice",
+              "place": "203호",
+              "object": "연습 메모지"
+            },
+            {
+              "info": "sh.m4.note",
+              "place": "201호"
+            },
+            {
+              "info": "sh.m4.absent",
+              "actor": "김보람"
+            }
+          ],
+          "guide": "진상: 마정호가 00:50 201호에 가 피해자를 끈으로 졸라 죽인 뒤 목을 매달아 자살로 꾸몄다. 감사 실패를 자책하는 '유서'를 피해자 필체로 위조했다 — 연습한 메모지가 203호 노트북 가방에 있다. '대표님이 요즘 많이 힘들어했다'며 자살을 기정사실처럼 말한다. 이번 판의 다른 사람들은 진범이 아니다 — 그들의 비밀은 오해를 살 뿐 범행이 아니다. 진범은 증거를 직접 들이밀기 전에는 침착하게 거짓 알리바이를 유지한다. GM·묘사는 진범을 암시하거나 단서를 지어내지 않는다. 자백은 결말 국면에서만."
+        }
+      },
+      "transition_cases": [
+        {
+          "case_id": "spawn",
+          "from": null,
+          "to": "open",
+          "steps": []
+        }
+      ],
+      "repeat_policy": "ONCE_PER_SESSION",
+      "resolve_when": {
+        "const": false
+      }
+    },
+    "sh_case_O3": {
+      "version": 1,
+      "name": "진상 O3",
+      "spawn_when": {
+        "all": [
+          {
+            "cmp": "EQ",
+            "ref": {
+              "ref": "EVENT_LOCAL",
+              "template": "sh_truth",
+              "key": "culprit"
+            },
+            "value": "오세린"
+          },
+          {
+            "cmp": "EQ",
+            "ref": {
+              "ref": "EVENT_LOCAL",
+              "template": "sh_truth",
+              "key": "case"
+            },
+            "value": "O3"
+          }
+        ]
+      },
+      "phases": {
+        "open": {
+          "eligible_when": {
+            "const": true
+          },
+          "priority": 1,
+          "finds": [
+            {
+              "info": "sh.o3.tod",
+              "place": "201호"
+            },
+            {
+              "info": "sh.o3.round",
+              "place": "201호"
+            },
+            {
+              "info": "sh.o3.tripod",
+              "place": "205호",
+              "object": "삼각대"
+            },
+            {
+              "info": "sh.o3.drag",
+              "actor": "강태오"
+            },
+            {
+              "info": "sh.o3.gap",
+              "place": "205호"
+            }
+          ],
+          "guide": "진상: 오세린이 00:50 촬영 이야기를 핑계로 201호에 가 철제 삼각대로 피해자를 내리쳤다. 삼각대 다리를 닦았으나 고무 마개 안쪽을 놓쳤다. 그 시간대 사진이 비어 있다. '밤새 앞마당에서 찍었다'고 말한다. 동기는 8년 전 붕괴 사고. 이번 판의 다른 사람들은 진범이 아니다 — 그들의 비밀은 오해를 살 뿐 범행이 아니다. 진범은 증거를 직접 들이밀기 전에는 침착하게 거짓 알리바이를 유지한다. GM·묘사는 진범을 암시하거나 단서를 지어내지 않는다. 자백은 결말 국면에서만."
+        }
+      },
+      "transition_cases": [
+        {
+          "case_id": "spawn",
+          "from": null,
+          "to": "open",
+          "steps": []
+        }
+      ],
+      "repeat_policy": "ONCE_PER_SESSION",
+      "resolve_when": {
+        "const": false
+      }
+    },
+    "sh_case_O4": {
+      "version": 1,
+      "name": "진상 O4",
+      "spawn_when": {
+        "all": [
+          {
+            "cmp": "EQ",
+            "ref": {
+              "ref": "EVENT_LOCAL",
+              "template": "sh_truth",
+              "key": "culprit"
+            },
+            "value": "오세린"
+          },
+          {
+            "cmp": "EQ",
+            "ref": {
+              "ref": "EVENT_LOCAL",
+              "template": "sh_truth",
+              "key": "case"
+            },
+            "value": "O4"
+          }
+        ]
+      },
+      "phases": {
+        "open": {
+          "eligible_when": {
+            "const": true
+          },
+          "priority": 1,
+          "finds": [
+            {
+              "info": "sh.o4.tod",
+              "place": "201호"
+            },
+            {
+              "info": "sh.o4.cold",
+              "place": "201호"
+            },
+            {
+              "info": "sh.o4.glove",
+              "place": "205호",
+              "object": "촬영 장갑"
+            },
+            {
+              "info": "sh.o4.visit",
+              "actor": "김보람"
+            },
+            {
+              "info": "sh.o4.scrap",
+              "place": "205호"
+            }
+          ],
+          "guide": "진상: 오세린이 23:20 사진을 핑계로 201호에 들어가 수면제를 탄 술을 권했고, 잠든 뒤 창을 활짝 열고 이불을 걷어 두었다. 영하 15도의 새벽 04:00 전후 저체온으로 숨졌다. 창틀을 열 때 촬영 장갑에 페인트가 묻었다. 동기는 8년 전 붕괴 사고. 이번 판의 다른 사람들은 진범이 아니다 — 그들의 비밀은 오해를 살 뿐 범행이 아니다. 진범은 증거를 직접 들이밀기 전에는 침착하게 거짓 알리바이를 유지한다. GM·묘사는 진범을 암시하거나 단서를 지어내지 않는다. 자백은 결말 국면에서만."
+        }
+      },
+      "transition_cases": [
+        {
+          "case_id": "spawn",
+          "from": null,
+          "to": "open",
+          "steps": []
+        }
+      ],
+      "repeat_policy": "ONCE_PER_SESSION",
+      "resolve_when": {
+        "const": false
+      }
+    },
     "sh_herring_syj": {
       "version": 1,
       "name": "윤서진의 비밀",
@@ -3312,6 +4560,15 @@
               "template": "sh_truth",
               "key": "case"
             },
+            "value": "M1"
+          },
+          {
+            "cmp": "NE",
+            "ref": {
+              "ref": "EVENT_LOCAL",
+              "template": "sh_truth",
+              "key": "case"
+            },
             "value": "M2"
           },
           {
@@ -3321,7 +4578,16 @@
               "template": "sh_truth",
               "key": "case"
             },
-            "value": "M1"
+            "value": "M3"
+          },
+          {
+            "cmp": "NE",
+            "ref": {
+              "ref": "EVENT_LOCAL",
+              "template": "sh_truth",
+              "key": "case"
+            },
+            "value": "M4"
           }
         ]
       },
@@ -3573,6 +4839,134 @@
         "strength": "support"
       },
       "sh.o2.buckle": {
+        "points_to": "오세린",
+        "strength": "support"
+      },
+      "sh.s3.vent": {
+        "points_to": "윤서진",
+        "strength": "support"
+      },
+      "sh.s3.tape": {
+        "points_to": "윤서진",
+        "strength": "decisive"
+      },
+      "sh.s3.heater": {
+        "points_to": "윤서진",
+        "strength": "support"
+      },
+      "sh.s3.pink": {
+        "points_to": "윤서진",
+        "strength": "support"
+      },
+      "sh.s4.stab": {
+        "points_to": "윤서진",
+        "strength": "support"
+      },
+      "sh.s4.key": {
+        "points_to": "윤서진",
+        "strength": "support"
+      },
+      "sh.s4.knife": {
+        "points_to": "윤서진",
+        "strength": "decisive"
+      },
+      "sh.s4.jingle": {
+        "points_to": "윤서진",
+        "strength": "support"
+      },
+      "sh.d3.glasses": {
+        "points_to": "한도윤",
+        "strength": "support"
+      },
+      "sh.d3.blister": {
+        "points_to": "한도윤",
+        "strength": "decisive"
+      },
+      "sh.d3.twoglass": {
+        "points_to": "한도윤",
+        "strength": "support"
+      },
+      "sh.d3.memo": {
+        "points_to": "한도윤",
+        "strength": "support"
+      },
+      "sh.d4.vomit": {
+        "points_to": "한도윤",
+        "strength": "support"
+      },
+      "sh.d4.nicotine": {
+        "points_to": "한도윤",
+        "strength": "decisive"
+      },
+      "sh.d4.coffee": {
+        "points_to": "한도윤",
+        "strength": "support"
+      },
+      "sh.d4.willtalk": {
+        "points_to": "한도윤",
+        "strength": "support"
+      },
+      "sh.m3.blade": {
+        "points_to": "마정호",
+        "strength": "support"
+      },
+      "sh.m3.ash": {
+        "points_to": "마정호",
+        "strength": "decisive"
+      },
+      "sh.m3.gone": {
+        "points_to": "마정호",
+        "strength": "support"
+      },
+      "sh.m3.audit": {
+        "points_to": "마정호",
+        "strength": "support"
+      },
+      "sh.m4.twomarks": {
+        "points_to": "마정호",
+        "strength": "support"
+      },
+      "sh.m4.practice": {
+        "points_to": "마정호",
+        "strength": "decisive"
+      },
+      "sh.m4.note": {
+        "points_to": "마정호",
+        "strength": "support"
+      },
+      "sh.m4.absent": {
+        "points_to": "마정호",
+        "strength": "support"
+      },
+      "sh.o3.round": {
+        "points_to": "오세린",
+        "strength": "support"
+      },
+      "sh.o3.tripod": {
+        "points_to": "오세린",
+        "strength": "decisive"
+      },
+      "sh.o3.drag": {
+        "points_to": "오세린",
+        "strength": "support"
+      },
+      "sh.o3.gap": {
+        "points_to": "오세린",
+        "strength": "support"
+      },
+      "sh.o4.cold": {
+        "points_to": "오세린",
+        "strength": "support"
+      },
+      "sh.o4.glove": {
+        "points_to": "오세린",
+        "strength": "decisive"
+      },
+      "sh.o4.visit": {
+        "points_to": "오세린",
+        "strength": "support"
+      },
+      "sh.o4.scrap": {
         "points_to": "오세린",
         "strength": "support"
       },
