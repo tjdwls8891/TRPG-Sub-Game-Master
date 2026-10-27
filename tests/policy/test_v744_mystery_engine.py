@@ -28,6 +28,7 @@ from tests.policy.test_h05a_intent_planning import PC, ctx_of, make_session, man
 pytestmark = pytest.mark.policy
 
 ROOM = "성당"
+NAMES = {KANG: "강지수", PARK: "박노인"}
 SELF_RES = {"ref": "EVENT_LOCAL", "instance": "$self", "key": "resolution"}
 CLUE = {"proposition": "제단 밑 쓰레기통에 피 묻은 장갑이 버려져 있다", "summary": "제단 밑의 피 묻은 장갑",
         "subject_refs": ["place:성당"], "tags": ["증거"]}
@@ -36,7 +37,7 @@ CLUE = {"proposition": "제단 밑 쓰레기통에 피 묻은 장갑이 버려�
 def _mystery(culprit=KANG, *, present=True):
     arrest = {"option_id": "arrest", "label": "체포",
               "target": {"type": "ACTOR", "from": ["강지수", "박노인"], "present": present}}
-    right = {"cmp": "EQ", "ref": SELF_RES, "value": f"arrest:{culprit}"}
+    right = {"cmp": "EQ", "ref": SELF_RES, "value": f"arrest:{NAMES[culprit]}"}
     return {"version": 1, "name": "성당 사건",
             "spawn_when": {"const": True},
             "phases": {
@@ -90,7 +91,7 @@ def test_new_keys_compile_only_when_authored():
     D = dc.compile_scenario(_raw(), "t").definition
     ph = D["event_templates"]["mystery"]["phases"]
     assert ph["investigate"]["resolution_options"][0]["target"] == {"type": "ACTOR", "actors": [KANG, PARK],
-                                                                     "present": True}
+                                                                     "names": ["강지수", "박노인"], "present": True}
     assert ph["wrong"]["ending"]["tone"] == "씁쓸" and ph["investigate"]["finds"][0]["object"] == "피 묻은 장갑"
     plain = dc.compile_scenario(ev_raw({"m": {**_mystery(), "phases": {
         "investigate": {"eligible_when": {"const": True}, "priority": 1,
@@ -125,7 +126,7 @@ def test_target_resolution_lists_present_suspects_only():
 @pytest.mark.parametrize("culprit,ending", [(KANG, "solved"), (PARK, "wrong")])
 def test_arrest_reaches_authored_ending_and_guides_the_last_narration(culprit, ending):
     s, D = _session(_mystery(culprit))
-    key = next(k for k, (_, oid), _ in manifest(s).resolutions if oid == f"arrest:{KANG}")
+    key = next(k for k, (_, oid), _ in manifest(s).resolutions if oid == "arrest:강지수")
     p, _, intent = plan(s, {"movement_kind": "NONE", "time_kind": "NONE", "resolution": key})
     assert p.status == PW.PLAN_PLANNED and _inst(p.projected_world)["current_phase"] == ending
     assert [e["id"] for e in EV.new_endings(D, s, p.projected_world)] == [ending]
@@ -255,3 +256,19 @@ def test_variant_check_passes_solvable_and_flags_failures():
     out = VC.check(raw, dc.compile_scenario(raw, "t").definition)
     assert [c for _s, c, _m in out] == ["VARIANT_DECISIVE_MISLEAD"] and KANG in out[0][2]
     assert VC.check({}, D) == []                                                        # 미저작
+
+
+def test_actor_bound_clue_only_while_that_person_is_here():
+    t = _mystery()
+    t["phases"]["investigate"]["finds"].append({"info": "C2", "actor": "강지수"})
+    raw = _raw(t)
+    raw["information_definitions"]["C2"] = dict(CLUE, summary="강지수 왼쪽 손목의 긁힌 상처")
+    s, D = make_session(raw, at=ROOM, places=("항구", ROOM))
+    s.spatial_state["placements"][KANG] = {"kind": "AT_PLACE", "place_id": ROOM}
+    r = run(D, s, K, progress={"observer_actor": PC, "scene_place": ROOM}, outer_origin="INITIALIZATION",
+            initial_full_scan=True)
+    s.event_instances = r.projected_world.domain("event_instances")
+    assert "C2" in {f["info"] for _i, f in TW.unknown_finds(D, s, PC, ROOM)}
+    assert "강지수에게 묻거나" in TW.event_guide_block(ctx_of(s), None, s)
+    s.spatial_state["placements"][KANG] = {"kind": "AT_PLACE", "place_id": "항구"}
+    assert "C2" not in {f["info"] for _i, f in TW.unknown_finds(D, s, PC, ROOM)}

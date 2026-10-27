@@ -718,6 +718,7 @@ def event_guide_block(ctx, plan, session) -> str:
             summ = (_info.resolve_definition(D, istate, f["info"]) or {}).get("summary")
             lines.append(f"  └ 이 장면에서 조사하면 드러날 수 있는 단서(코드 확정): {summ}"
                          + (f" — 실물: {f['object']}" if f.get("object") else "")
+                         + (f" — {f['actor']}에게 묻거나 그를 살필 때" if f.get("actor") else "")
                          + " · 플레이어가 그 대상을 직접 살필 때만 드러내고, 판정이 필요하면 판단층위가 정한다. "
                            "다른 결정적 단서를 지어내지 말 것")
         res = (inst.get("local_state") or {}).get(_ev.RESOLUTION_KEY)

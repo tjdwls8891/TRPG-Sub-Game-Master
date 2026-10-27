@@ -576,19 +576,19 @@ def open_resolutions(definition: dict, world, scene) -> list:
 
 
 def _targeted_options(definition: dict, world, scene, iid, opt) -> list:
-    """v7.44(E2): 대상 결단 — 후보 인물마다 (iid, 'option_id:ActorId', '라벨 — 이름'). present면 장면에 있는 인물만.
-    값은 문자열 하나라 저작 케이스가 기존 비교(EVENT_LOCAL resolution == 'arrest:npc_…')로 가른다."""
+    """v7.44(E2·B2): 대상 결단 — 후보 인물마다 (iid, 'option_id:저작 이름', '라벨 — 표시명'). present면 장면 인물만.
+    값은 문자열 하나라 저작 케이스가 기존 비교(EVENT_LOCAL resolution == 'arrest:윤서진')로 가른다."""
     from . import npc_position as _npos
     reg = (world.domain("actor_registry") if isinstance(world, _wm.ProjectedWorld)
            else getattr(world, "actor_registry", {})) or {}
     adefs = definition.get("actor_definitions") or {}
     tg = opt["target"]
     out = []
-    for aid in tg["actors"]:
+    for aid, legacy in zip(tg["actors"], tg.get("names") or tg["actors"]):
         if tg.get("present") and (scene is None or _npos.effective_place(definition, world, aid) != scene):
             continue
-        name = (reg.get(aid) or {}).get("display_name") or (adefs.get(aid) or {}).get("display_name") or aid
-        out.append((iid, f"{opt['option_id']}:{aid}", f"{opt['label']} — {name}"))
+        name = (reg.get(aid) or {}).get("display_name") or (adefs.get(aid) or {}).get("display_name") or legacy
+        out.append((iid, f"{opt['option_id']}:{legacy}", f"{opt['label']} — {name}"))
     return out
 
 
@@ -613,7 +613,13 @@ def active_finds(definition: dict, world, scene) -> list:
         for f in (ph or {}).get("finds") or ():
             if not isinstance(f, dict):
                 continue
-            if (f["place"] in chain) if f.get("place") else instance_relevant(definition, inst, scene):
+            if f.get("actor_id"):                    # B1: 그 인물이 지금 장면에 있을 때만(장소 조건이 있으면 그것도)
+                from . import npc_position as _npos
+                ok = _npos.effective_place(definition, world, f["actor_id"]) == scene and \
+                    (not f.get("place") or f["place"] in chain)
+            else:
+                ok = (f["place"] in chain) if f.get("place") else instance_relevant(definition, inst, scene)
+            if ok:
                 out.append((iid, dict(f)))
     return out
 

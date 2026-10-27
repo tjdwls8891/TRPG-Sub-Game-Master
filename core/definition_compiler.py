@@ -1712,15 +1712,19 @@ def _compile_event_templates(raw, caps, actors, actor_index, places, infos, acce
                     if isinstance(x, str):
                         return bool(x.strip())
                     summ = (infos.get(x.get("info")) or {}).get("summary") if isinstance(x, dict) else None
-                    return (isinstance(x, dict) and set(x) - {"object", "place"} == {"info"}
+                    return (isinstance(x, dict) and set(x) - {"object", "place", "actor"} == {"info"}
                             and isinstance(summ, str) and bool(summ.strip())
                             and ("object" not in x or (isinstance(x["object"], str) and bool(x["object"].strip())))
-                            and ("place" not in x or x["place"] in places))
+                            and ("place" not in x or x["place"] in places)
+                            and ("actor" not in x or x["actor"] in actor_index))
                 if not (isinstance(fs, list) and fs and all(_find_ok(x) for x in fs)):
                     d.add(ERROR, "EVENT_PHASE_FINDS_INVALID", f"{pp}.finds",
                           "finds는 비어 있지 않은 목록 — 문자열 또는 {info(summary 있는 정보), object?, place?}")
                 else:
-                    phases[pid]["finds"] = [x if isinstance(x, str) else dict(x) for x in fs]
+                    # v7.44 B1: actor = 그 인물이 장면에 있을 때 묻거나 살피면 드러나는 단서(증언·인물 관찰)
+                    phases[pid]["finds"] = [x if isinstance(x, str) else
+                                            dict(x, **({"actor_id": actor_index[x["actor"]]} if "actor" in x else {}))
+                                            for x in fs]
             if "ending" in ph:                      # v7.44(E3): 이 국면에 들어가면 이야기가 끝난다(에필로그 → 세션 종료)
                 en = ph["ending"]
                 if not (isinstance(en, dict) and set(en) - {"tone"} == {"id", "title", "epilogue"}
@@ -2159,7 +2163,7 @@ def _compile_start_items(items, place_defs, actor_index, p, d):
 def _compile_resolution_target(tg, actor_index, p, d):
     """v7.44(E2) 결단 대상 — {"type": "ACTOR", "from": [저작 NPC 이름], "present"?: bool} → {type, actors, present}.
 
-    대상이 있는 선택지는 후보 인물마다 하나의 결단 후보(option_id:ActorId)로 펼쳐진다. present면 장면에 있는 인물만."""
+    대상이 있는 선택지는 후보 인물마다 하나의 결단 후보(option_id:저작 이름)로 펼쳐진다. present면 장면에 있는 인물만."""
     ok = (isinstance(tg, dict) and set(tg) - {"present"} == {"type", "from"} and tg["type"] == "ACTOR"
           and isinstance(tg["from"], list) and tg["from"] and len(set(map(str, tg["from"]))) == len(tg["from"])
           and all(isinstance(n, str) and n in actor_index for n in tg["from"])
@@ -2168,7 +2172,8 @@ def _compile_resolution_target(tg, actor_index, p, d):
         d.add(ERROR, "EVENT_RESOLUTION_TARGET_INVALID", p,
               "target은 {type: ACTOR, from: [저작 NPC 이름(중복 없음)], present?: true/false}")
         return None
-    return {"type": "ACTOR", "actors": [actor_index[n] for n in tg["from"]], "present": bool(tg.get("present", False))}
+    return {"type": "ACTOR", "actors": [actor_index[n] for n in tg["from"]], "names": list(tg["from"]),
+            "present": bool(tg.get("present", False))}
 
 
 def _compile_npc_choices(rows, place_defs, actor_index, p, d):
