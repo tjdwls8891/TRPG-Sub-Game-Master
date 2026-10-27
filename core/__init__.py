@@ -188,6 +188,7 @@ from . import intro
 from . import session_flow
 from .session_open import (
     resolve_minutes,
+    quick_parse,
     should_charge_interpretation,
     format_confirmation,
     VAGUE_MINUTES,
@@ -391,7 +392,7 @@ __all__ = [
     # ink / accounts
     "creation", "profiles", "profile_gen", "profile_runner", "profile_ai", "quest", "quest_filter", "memory_plan", "start_frame", "koreantext", "places",
     "open_manager", "ProfileHomeView", "profile_creation_ui", "session_flow", "intro",
-    "resolve_minutes", "should_charge_interpretation", "format_confirmation",
+    "resolve_minutes", "quick_parse", "should_charge_interpretation", "format_confirmation",
     "VAGUE_MINUTES", "MINUTES_PER_TURN", "MIN_MINUTES", "MAX_MINUTES",
     "TERMS_TEXT", "SIGNUP_GIFT_INK", "build_terms_embed", "TermsView",
     "start_registration", "ensure_agreed",

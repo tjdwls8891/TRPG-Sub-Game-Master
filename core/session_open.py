@@ -8,6 +8,8 @@
 # [해석 비용]
 #   기획 규정 — 저비용 모델로 해석하고, 2잉크 이상 발생하는 경우에만
 #   캐시 업로드 시점에 청구한다. 대개 1잉크 미만이라 사실상 무료다.
+import re
+
 from .constants import CACHE_TTL_SECONDS
 from .ink import cost_to_ink
 
@@ -30,6 +32,36 @@ MAX_MINUTES = CACHE_TTL_SECONDS // 60
 
 # 해석 비용을 청구하는 하한(잉크). 미만이면 청구하지 않는다.
 INTERPRET_CHARGE_THRESHOLD = 2
+
+
+# 숫자·단위가 분명한 답은 코드가 바로 읽는다(provider 호출 0). 못 읽으면 None → 모델 분류로 넘긴다.
+_NATIVE = {"한": 1, "두": 2, "세": 3, "네": 4, "다섯": 5, "여섯": 6, "일곱": 7, "여덟": 8, "아홉": 9,
+           "열": 10, "열한": 11, "열두": 12, "스무": 20}
+_NUM = r"(\d+(?:\.\d+)?|" + "|".join(sorted(_NATIVE, key=len, reverse=True)) + ")"
+_TAIL = r"\s*(?:정도|쯤|가량|만)?\s*(?:이요|요)?\s*[.!~]*"
+_HM = re.compile(rf"^{_NUM}\s*시간(?:\s*(반)|\s*(\d+)\s*분)?{_TAIL}$")
+_M = re.compile(rf"^(\d+)\s*분{_TAIL}$")
+_T = re.compile(rf"^{_NUM}\s*턴{_TAIL}$")
+
+
+def _num(tok: str) -> float:
+    return float(tok) if tok[0].isdigit() else float(_NATIVE[tok])
+
+
+def quick_parse(text: str) -> dict | None:
+    """'2시간'·'두 시간 반'·'1시간 30분'·'90분'·'20턴' 같은 답을 코드로 읽어 해석 응답 형태로 돌려준다."""
+    t = str(text or "").strip()
+    m = _HM.match(t)
+    if m:
+        minutes = _num(m.group(1)) * 60 + (30 if m.group(2) else int(m.group(3) or 0))
+        return {"case": "explicit", "minutes": int(round(minutes))} if minutes > 0 else None
+    m = _M.match(t)
+    if m:
+        return {"case": "explicit", "minutes": int(m.group(1))} if int(m.group(1)) > 0 else None
+    m = _T.match(t)
+    if m and _num(m.group(1)) == int(_num(m.group(1))) and _num(m.group(1)) > 0:
+        return {"case": "turns", "turns": int(_num(m.group(1)))}
+    return None
 
 
 def resolve_minutes(result: dict) -> dict:

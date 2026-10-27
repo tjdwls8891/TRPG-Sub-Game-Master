@@ -78,7 +78,7 @@ async def _interpret(cbot, s, provider, *, prompt=200_000):
     provider.outcomes = [FakeGenAIResponse(
         json.dumps({"case": "explicit", "minutes": 180}),
         usage=FakeUsageMetadata(prompt=prompt, candidates=prompt // 10))]
-    res = await gm.interpret_cache_time(s, "3시간")
+    res = await gm.interpret_cache_time(s, "저녁 먹기 전까지 할게요")
     assert res["minutes"] == 180
     return gm, res
 
@@ -528,7 +528,7 @@ async def test_p15_strict_costevent_failure_means_no_charge(sess, cbot, clock, p
     provider.outcomes = [FakeGenAIResponse(
         json.dumps({"case": "explicit", "minutes": 180}),
         usage=FakeUsageMetadata(prompt=200_000, candidates=20_000))]
-    res = await gm.interpret_cache_time(sess, "3시간")
+    res = await gm.interpret_cache_time(sess, "저녁 먹기 전까지 할게요")
     inject.undo()
     assert provider.attempt_count == 1                                # provider 호출은 성공했다
     assert res["retry"] is True and res.get("minutes", 0) == 0        # 결과 미확정(재질문)
@@ -552,7 +552,7 @@ async def test_p15b_no_cost_ledger_means_no_charge(sess, cbot, clock, provider):
     provider.outcomes = [FakeGenAIResponse(
         json.dumps({"case": "explicit", "minutes": 180}),
         usage=FakeUsageMetadata(prompt=200_000, candidates=20_000))]
-    res = await gm.interpret_cache_time(sess, "3시간")
+    res = await gm.interpret_cache_time(sess, "저녁 먹기 전까지 할게요")
     assert res["retry"] is True
     assert _rows(IT.KIND_INTERPRETATION_CHARGE) == [] and _bal() == 1000
     assert "INTERPRETED" not in _billing_types(sess.session_id)
@@ -630,3 +630,26 @@ def test_p8b_interpretation_path_uses_strict_fact_before_billing():
     cl = pathlib.Path(REPO_ROOT, "core/cost_ledger.py").read_text(encoding="utf-8")
     k = cl.index("    def record(self")
     assert "record_cost_event(event)" in cl[k:cl.index("    def record_fact_strict(self")]
+
+
+@pytest.mark.parametrize("text,minutes", [("2시간", 120), ("두 시간 반", 150), ("60분", 60), ("20턴", 104)])
+async def test_v743_simple_time_read_by_code_without_provider(sess, cbot, clock, provider, text, minutes):
+    """숫자·단위가 분명한 답은 코드가 읽는다 — provider 호출·원장·청구 0(사용자 지시 2026-10-27)."""
+    import cogs.gm as gm_mod
+    gm = gm_mod.GMCog.__new__(gm_mod.GMCog)
+    gm.bot = cbot
+    res = await gm.interpret_cache_time(sess, text)
+    assert res["ok"] and res["minutes"] == minutes and res["interpret_charge"] == {"ink": 0, "complete": True}
+    assert provider.attempt_count == 0 and _events(cbot, CL.OP_CACHE_TIME_INTERPRET) == []
+    assert _rows(IT.KIND_INTERPRETATION_CHARGE) == [] and _bal() == 1000
+
+
+async def test_v743_unreadable_time_still_goes_to_provider(sess, cbot, clock, provider):
+    import cogs.gm as gm_mod
+    gm = gm_mod.GMCog.__new__(gm_mod.GMCog)
+    gm.bot = cbot
+    provider.outcomes = [FakeGenAIResponse(json.dumps({"case": "vague", "minutes": 0, "turns": 0,
+                                                       "degree": "long", "reasoning": "x"}),
+                                           usage=FakeUsageMetadata(prompt=100, candidates=10))]
+    res = await gm.interpret_cache_time(sess, "넉넉히")
+    assert provider.attempt_count == 1 and res["minutes"] == core.VAGUE_MINUTES["long"]

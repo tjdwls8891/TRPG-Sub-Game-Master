@@ -5525,6 +5525,11 @@ class GMCog(commands.Cog):
         Returns:
             core.resolve_minutes의 결과 dict
         """
+        quick = core.quick_parse(text)
+        if quick is not None:                 # 숫자·단위가 분명한 답 — 코드가 읽는다(호출·해석 비용 0)
+            resolved = core.resolve_minutes(quick)
+            resolved["interpret_charge"] = {"ink": 0, "complete": True}
+            return resolved
         config = types.GenerateContentConfig(
             system_instruction=CACHE_TIME_SYSTEM_INSTRUCTION,
             temperature=0.1,
