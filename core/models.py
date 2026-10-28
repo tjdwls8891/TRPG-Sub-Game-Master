@@ -275,7 +275,8 @@ class TRPGSession:
         self.item_instances = {}      # 특수 개별 물건(고유 ID·소유자 또는 장소·상태·정보 참조)
         self.place_items = {}         # 장소에 놓인 물건 원천(내려놓기 — 남은 수량의 단일 권위)
         self.item_facts = {}          # 직전 커밋 턴의 사용·지급 사실(P1: 같은 턴 보충 진행에서 평가 — 기록용)
-        self.equipment = {}           # v7.46 착용·손에 든 것 {소유자: {자리: {key, tags}}}
+        self.equipment = {}           # v7.46 착용·손에 든 것 {소유자: {자리: {key}}}
+        self.item_traits = {}         # v7.46 이 세션에서 정해진 물건 착용 특성 {종류: {slots, tags, source}}
         # ========== [P1 전달 대기 — 단일 출처 core.world_state.DELIVERY_FIELDS(되감기 대상)] ==========
         self.world_pending_signals = []   # 본문이 아직 전하지 못한 관찰 신호(다음 본문 '그동안')
         self.status_clock = {}            # v7.38 상태 시계(단일 출처 core.world_state.STATUS_FIELDS — 되감기 대상)

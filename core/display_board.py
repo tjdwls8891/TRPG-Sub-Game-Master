@@ -131,7 +131,7 @@ def board_data(session) -> dict:
             "fields": short_profile_fields(prof, name),
             "unassigned": not prof,
             "statuses": [str(s) for s in ((getattr(session, "statuses", {}) or {}).get(name) or [])],
-            "resources": [f"{k} {v}" for k, v in res.items()],
+            "resources": _resource_chips(session, name, res),
         })
     ex = getattr(session, "last_extraction", {}) or {}
     sit = ex.get("situation") or {}
@@ -261,6 +261,13 @@ def _section(o, y, h, title, bars) -> None:
         o.append(f'<rect x="{bx:g}" y="{y + 23}" width="{bw}" height="6" fill="{color}"/>')
         bx += bw
     o.append(f'<line x1="52" y1="{y + 50}" x2="1148" y2="{y + 50}" class="line"/>')
+
+
+def _resource_chips(session, name, res) -> list:
+    """v7.46(C4): 소지 칩 — 입거나 든 것은 앞에 '(착용)' 표시."""
+    worn = {(e or {}).get("key") for e in ((getattr(session, "equipment", None) or {}).get(name) or {}).values()}
+    first = [f"{k} {v}(착용)" for k, v in res.items() if k in worn]
+    return first + [f"{k} {v}" for k, v in res.items() if k not in worn]
 
 
 def _flow(items, x0, x1, gap_x=12):

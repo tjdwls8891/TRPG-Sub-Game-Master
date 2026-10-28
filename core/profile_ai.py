@@ -207,7 +207,7 @@ async def outfit(bot, session, *, text: str) -> list:
 
     실패하면 빈 목록 — 착용 없이 진행한다(복장 글은 프로필에 그대로 남는다)."""
     from prompts import PROFILE_OUTFIT_RESPONSE_SCHEMA, PROFILE_OUTFIT_SYSTEM_INSTRUCTION
-    from .items import effect_vocab, free_tags
+    from .items import effect_vocab, free_tags, reference_text
 
     if not str(text or "").strip():
         return []
@@ -215,7 +215,9 @@ async def outfit(bot, session, *, text: str) -> list:
     wear_slots = [x for x in voc["slots"] if x not in voc["hand_slots"]]
     tags = free_tags(voc["tags"])
     user_prompt = (f"[복장 글]\n{text}\n\n[자리 목록]\n{', '.join(wear_slots)}\n\n"
-                   "[효과 태그 목록]\n" + "\n".join(f"{t}: {voc['tags'][t].get('desc', '')}" for t in tags))
+                   "[효과 태그 목록]\n" + "\n".join(f"{t}: {voc['tags'][t].get('desc', '')}" for t in tags)
+                   + "\n\n[참고 묶음 — 비슷한 옷은 이 묶음의 자리·효과를 따른다(목록에 없는 태그는 쓰지 않는다)]\n"
+                   + reference_text())
     ok, data = await _call(bot, PROFILE_OUTFIT_SYSTEM_INSTRUCTION, PROFILE_OUTFIT_RESPONSE_SCHEMA, user_prompt,
                            session)
     if not ok or not isinstance(data, dict):

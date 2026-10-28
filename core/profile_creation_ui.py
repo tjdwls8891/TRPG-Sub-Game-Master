@@ -448,7 +448,7 @@ async def _show_final(state, channel):
             lines.append(f"**{f}** — (미정)")
             bad.append(f)
             continue
-        if not runner.expected_type_ok(st, v):
+        if not runner.expected_type_ok(st, v, state.session.scenario_data, run["chosen"]):
             bad.append(f)
             lines.append(f"**{f}** — ⚠️ 저장된 값의 형식이 맞지 않습니다. 다시 정해 주십시오.")
             continue
@@ -764,21 +764,31 @@ async def finish(state: ProfileCreationSession, channel):
     try:
         wstep = next((st for st in profile_gen.get_steps(state.session.scenario_data)
                       if (st.get("args") or {}).get("wear_items")), None)
-        if wstep and result.get(wstep.get("field")):
+        solo = len([p for p in (state.session.players or {}).values() if isinstance(p, dict)]) <= 1
+        if wstep and result.get(wstep.get("field")) and solo:     # C5: 착용은 단일 PC 동적 세계에서만 쓰인다
             from . import profile_ai
+            from . import items as core_items
             worn = await profile_ai.outfit(state.bot, state.session, text=str(result[wstep["field"]]))
             if worn:
                 res = dict(getattr(state.session, "resources", {}) or {})
                 bag = dict(res.get(state.char_name) or {})
                 eq = dict(getattr(state.session, "equipment", {}) or {})
+                tr = dict(getattr(state.session, "item_traits", {}) or {})
+                defs = state.session.scenario_data.get("item_definitions") or {}
                 mine = {}
                 for w in worn:
                     bag[w["name"]] = bag.get(w["name"], 0) + 1
-                    mine[w["slot"]] = {"key": w["name"], "tags": w["tags"]}
+                    mine[w["slot"]] = {"key": w["name"]}
+                    t, src = core_items.traits_of(w["name"], defs, tr)      # 저작·세션·참고 묶음이 판독 태그보다 우선
+                    if src in ("REFERENCE", None):
+                        tr[w["name"]] = {"slots": sorted(set((t or {}).get("slots") or []) | {w["slot"]}),
+                                         "tags": list(t["tags"]) if t else w["tags"],
+                                         "source": "REFERENCE" if t else "OUTFIT"}
                 res[state.char_name] = bag
                 eq[state.char_name] = mine
                 state.session.resources = res
                 state.session.equipment = eq
+                state.session.item_traits = tr
     except Exception as e:
         print(f"[프로필] 복장 착용 반영 실패: {e}")
 

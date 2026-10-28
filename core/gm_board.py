@@ -46,7 +46,13 @@ def stat_items(st: dict) -> list:
             ("클리어 퀘스트", str(st.get("quests_cleared", 0))), ("만난 NPC", str(st.get("npcs_met", 0))),
             ("주사위", f"{st.get('dice_rolled', 0):,}"),
             ("상태이상 획득/해제", f"{st.get('status_applied', 0)} / {st.get('status_cleared', 0)}"),
-            ("소모", f"{st.get('ink_spent', 0):,}잉크")]
+            ("소모", f"{st.get('ink_spent', 0):,}잉크"), ("본 결말", ending_text(st))]
+
+
+def ending_text(st: dict) -> str:
+    """v7.46(B2): 본 결말 — 서로 다른 결말 수(본 횟수 합)."""
+    rows = [n for sc in (st.get("endings") or {}).values() if isinstance(sc, dict) for n in sc.values()]
+    return f"{len(rows)}종 ({sum(int(n or 0) for n in rows)}회)" if rows else "0"
 
 
 def hall_data(member_ids: list, names: dict, guild_name: str = "") -> dict:

@@ -760,7 +760,8 @@ async def show_scenario_confirm(bot, session, channel, sid: str, data: dict):
     cost = _cost_field(data)
 
     def _embed(body, final):
-        e = discord.Embed(title=sid, description=body, color=0x5865F2)
+        _g = scenario_genre(sid)                       # v7.46(C7): 소개 화면 제목에도 장르
+        e = discord.Embed(title=f"{sid} · {_g}" if _g else sid, description=body, color=0x5865F2)
         if final and cost:
             e.add_field(name="예상 비용", value=cost, inline=False)
         return e

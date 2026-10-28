@@ -1,4 +1,5 @@
 # 프롬프트 빌더 — 턴 진행용 LLM 프롬프트 조립 및 기억 압축 프롬프트 생성
+from .items import prompt_profile
 from .models import TRPGSession
 from prompts import build_compression_prompt_text
 
@@ -50,7 +51,7 @@ class PromptBuilder:
             block = "\n▶ 참가 플레이어 정보:\n"
             for uid, p_data in self.session.players.items():
                 c_name = p_data['name']
-                block += f"  - {c_name}: [스탯] {p_data['profile']}\n"
+                block += f"  - {c_name}: [스탯] {prompt_profile(self.session, c_name, p_data['profile'])}\n"
                 if p_data.get("appearance"):
                     block += f"    * [외형]: {p_data['appearance']}\n"
 

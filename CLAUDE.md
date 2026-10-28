@@ -169,7 +169,7 @@ python main.py
 |---|---|---|
 | `constants.py` | 143 | 모델 ID, `EXCHANGE_RATE`, `PRICING_1M`, `TTS_VOICES`, `__version__` |
 | `models.py` | 319 | `TRPGSession` — 단일 세션의 모든 상태 |
-| `io.py` | 535 | `SCHEMA_VERSION`, `SESSION_FIELDS`(109), `migrate_session_data`, 직렬화·로그 |
+| `io.py` | 535 | `SCHEMA_VERSION`, `SESSION_FIELDS`(110), `migrate_session_data`, 직렬화·로그 |
 | `cache.py` | 604 | 룰북 캐시 빌드, `remaining_ttl`, `is_cache_expired`, `is_session_open`, 세션 복구 |
 | `resilience.py` | 207 | `call_with_retry` — 재시도·타임아웃. 시도 실패는 구조 로그 ERROR, provider 호출 맥락(층위·작업·시도·세션)을 설정 |
 | `logs.py` | 589 | **구조 로그 단일 owner** — 세션 `logs/`(`calls`·`blobs`·`events`·`domain`·`chat` JSONL)·전역 `logs/bot.jsonl`(회전 10MB×5, 모든 print 포착 — 세션 ID 출력·세션 이벤트는 전역에 위치·길이만(P3 D1), 원문은 세션 events). provider 호출은 `install_client_proxy`가 `genai_client.models`를 감싸 1건씩 기록(동작 불변). 요청·응답은 줄 조각 해시 델타(반복 줄은 참조만, 테스트 세션 요청 원문 대비 27%). 모든 세션 줄 `b`(부팅)·`seq`(단조), 호출 `op_id` = `cost.event.operation_id`(P3). 도메인 kind는 등록부 `DOMAIN_KINDS`(필드 사전 `docs/LOG_SCHEMA.md` — `!세션이력` zip에 `_index/LOG_README.md`로 동봉): `session.meta`·`tx.*`·`turn.summary`·`turn.delta`(되감기 레코드 pre→post 상태 차이)·`commit`(청구·세계 typed op)·`cost.*`·`ink.*`·`display`·`history.*`(+`history.selection`)·`card.*`. 열람은 `tools/log_view.py` |
@@ -582,7 +582,7 @@ pip install -r requirements-dev.txt
 python3 -m pytest tests/ -q
 ```
 
-`tests/`는 **현재 동작과 권위 불변식을 고정**한다. 현재 1,894건(특성화 61 · 결함 27 · 정책 1,806)이 모두 통과하며 strict xfail은 0건이다.
+`tests/`는 **현재 동작과 권위 불변식을 고정**한다. 현재 1,904건(특성화 61 · 결함 27 · 정책 1,816)이 모두 통과하며 strict xfail은 0건이다.
 
 | 분류 | 의미 |
 |---|---|
@@ -821,7 +821,7 @@ python3 tools/scenario_check.py --all     # 전 시나리오 컴파일·진단(E
 | v7.21.3 반영 | 코드 재시작만. 봇에 게임 채널 `메시지 관리` 권한이 있어야 답변이 지워진다(없으면 남고 진행은 정상) |
 | v7.21.4 반영 | 코드 재시작만. 재시작 전에 디스플레이로 시간 질문을 받아 둔 생성 중 세션은 재시작 뒤 [⏱️ 시간 입력]을 다시 누르면 게임 채널에서 받는다 |
 | v7.21.5 반영 | 마스터 대사 데이터만 변경 — 재시작만(캐시 재발급 불필요) |
-| v7.46 반영 | 영도 프로필 재저작(5스탯 근력·민첩·지성·감각·정신 · 직업 8 · 스킬 = 직업 전용 2 + 스탯 구간별 공통 선택 · 시작 물건 = 공통 2 + 역할별 1개씩 + 직업 물건 2 · NPC 47명 스탯 재저작)은 **새 영도 세션에만**(사용자 결정: 기존 LEGACY 영도 세션의 옛 '기술' PC는 지원하지 않음 — 재시작 뒤 그 PC의 판정 스탯이 없다). 착용 아이템: 공용 효과 어휘 `data/common_item_effects.json`(자리·태그·mod)·아이템 정의 `wear{slots, tags}`·세션 필드 `equipment`(되감기 대상, 기본 {})·추출 `item_ops` WEAR/REMOVE·판정 장비 보정 E(`T = 52+A+S+E+M+H+D`, 입거나 든 물건 + 가방 속 손에 드는 저작 물건, 그 밖 도구는 M — 혼합형)·상태 조건 `wearing`(공용 추위: 보온 착용 + 마른 몸이면 부여 막고 해제)·캐릭터 생성 복장 → 착용 판독 1회(무료 프로필 AI). 판단 굴림 `skill`은 PC 스킬 목록, `item`은 E키로 열거(스키마 사본). `prompts.py` 판단 지시(장비 항)·복장 판독 지시 신설 — 판단은 캐시 미사용이라 재시작만. 동적 세계(DYNAMIC)만 착용 반영 |
+| v7.46 반영 | 영도 프로필 재저작(5스탯 근력·민첩·지성·감각·정신 · 직업 8 · 스킬 = 직업 전용 2 + 스탯 구간별 공통 선택 · 시작 물건 = 공통 2 + 역할별 1개씩 + 직업 물건 2 · NPC 47명 스탯 재저작)은 **새 영도 세션에만**(사용자 결정: 기존 LEGACY 영도 세션의 옛 '기술' PC는 지원하지 않음 — 재시작 뒤 그 PC의 판정 스탯이 없다). 착용 아이템: 공용 효과 어휘 `data/common_item_effects.json`(자리 9·판정 분야 11 → 여러 시나리오 스탯 이름(시나리오 `item_effect_domains`로 덮어씀)·태그 23(curated = 저작·참고 묶음만)·흔한 옷·도구 참고 묶음 31)·아이템 정의 `wear{slots, tags}`·특성 결정 순서 저작 > 세션 기록 `item_traits` > 참고 묶음 > 추출·복장 판독(한 번 정하면 그 세션에서 유지)·세션 필드 `equipment`·`item_traits`(되감기 대상, 기본 {})·추출 `item_ops` WEAR/REMOVE·판정 장비 보정 E(`T = 52+A+S+E+M+H+D`, 입거나 든 물건 + 가방 속 손에 드는 저작 물건, 그 밖 도구는 M — 혼합형)·상태 조건 `wearing`(공용 추위: 보온 착용 + 마른 몸이면 부여 막고 해제)·캐릭터 생성 복장 → 착용 판독 1회(무료 프로필 AI). 판단 굴림 `skill`은 PC 스킬 목록, `item`은 E키로 열거(스키마 사본). `prompts.py` 판단 지시(장비 항)·복장 판독 지시 신설 — 판단은 캐시 미사용이라 재시작만. 동적 세계(DYNAMIC)만 착용 반영. 후속 보정: 옛 저장 프로필 내용 검사(스탯 이름·선택지·스킬 구성)·직업/능력치 수정 시 스킬 비움·소개 소지품에서 입은 옷 제외·착용 정본이 있으면 프롬프트의 복장 글 대신 '착용 기준'·대결 상대 NPC 무기 보정·영도 공구 categories·설화재 스킬 쓰임·복장 판독·결말 통계 표시·상태판 '(착용)'·소개 스킬 3개 + 외 N·간호사 항생제 → 해열제·룰북 생성 범위 문구·소개 화면 장르 |
 | v7.45.4 반영 | 코드 재시작만(`prompts.py`·세션 필드 불변 — 판단·선언 검증 블록은 런타임). 장면의 저작 단서 실물(`finds.object`, PC 미인지)을 지목해 찾는 선언은 주변 발견 제안이 아니라 일반 조사(선언 검증 호출 0 — 단서는 관찰 매니페스트로 드러남). 설화재 시작 틀 문안에서 투숙객이 '모여든다' 제거(정본은 각자 자리) — 새 세션부터 |
 | v7.45.3 반영 | 설화재 정의만 — 진상 케이스 8 → 16(진범마다 수법 2개 추가: 연기 중독·과도 / 수면제 술·니코틴 / 페이퍼나이프·자살 위장 / 삼각대·동사). 새 세션부터(바인딩 스냅샷). 코드·`prompts.py` 불변 |
 | v7.45.2 반영 | 코드 재시작만. 시나리오 선택 목록에 대략적 장르가 설명 줄로 보인다 — 표시 정보는 `data/scenario_catalog.json`(영도 '포스트 아포칼립스 생존'·설화재 '고립 추리'·무협 '무협'·다크판타지 '다크 판타지'). 시나리오 JSON 밖이라 정의 revision·원문 복원 불변. 새 시나리오는 이 파일에 한 줄 추가 |

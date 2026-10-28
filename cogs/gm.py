@@ -250,7 +250,7 @@ def _npc_stats(session, name: str, world_turn=None) -> dict | None:
     return stats if isinstance(stats, dict) and stats else None
 
 
-def _judge_side(view, side: dict, name: str, world_turn=None) -> dict:
+def _judge_side(view, side: dict, name: str, world_turn=None, contest: bool = False) -> dict:
     """한 판정 당사자의 목표치 조립. A는 코드가 정본 원스탯에서 환산, S는 지목 스킬이 PC 프로필에 있을 때만(v7.43),
     M·H·D는 판단층위 계약값(검증 통과분). 능력치를 확인할 수 없으면 target=None(굴리지 않음)."""
     stat = str(side.get("stat") or "")
@@ -265,10 +265,12 @@ def _judge_side(view, side: dict, name: str, world_turn=None) -> dict:
             _defs = core.items.definitions_of(world_turn.ctx.definition)
             row = next((r for r in core.items.equip_rows(view, name, _defs) if r[0] == side.get("item")), None)
             if row is not None:
-                e = core.items.equip_mod(row[3], stat)
+                e = core.items.equip_mod(row[3], stat, getattr(view, "scenario_data", None))
                 item = row[2] if e else ""
     else:
         raw = (_npc_stats(view, name, world_turn) or {}).get(stat)
+        if world_turn is not None and contest:  # v7.46(B3): 대결 상대 NPC — 손에 드는 무기·보호구 중 가장 유리한 것 하나
+            item, e = core.items.npc_equip_mod(view, name, stat, core.items.definitions_of(world_turn.ctx.definition))
     a = core.judgment.ability_mod(raw)
     diff = side.get("difficulty") if side.get("difficulty") in core.judgment.DIFFICULTY else "보통"
     m = int(side.get("method_mod") or 0)
@@ -294,7 +296,7 @@ def _judge_plan(view, spec: dict, world_turn=None) -> dict:
     opp = None
     if kind == "CONTEST" and isinstance(spec.get("opponent"), dict):
         o = spec["opponent"]
-        opp = _judge_side(view, o, str(o.get("name") or "?"), world_turn)
+        opp = _judge_side(view, o, str(o.get("name") or "?"), world_turn, contest=True)
     return {"kind": kind, "actor": actor, "opponent": opp}
 
 
@@ -346,7 +348,7 @@ def _build_judgment_user_prompt(session, player_message: str, roll_results: list
         if not isinstance(p_data, dict):
             continue
         c_name = p_data.get("name") or "(이름 미상)"
-        prof_lines.append(f"- {c_name}: [스탯] {p_data.get('profile') or '(미배분)'}")
+        prof_lines.append(f"- {c_name}: [스탯] {core.items.prompt_profile(session, c_name, p_data.get('profile')) or '(미배분)'}")
         if p_data.get("appearance"):
             prof_lines.append(f"    외형: {p_data['appearance']}")
         c_res = (session.resources or {}).get(c_name, {})
@@ -371,7 +373,7 @@ def _build_judgment_user_prompt(session, player_message: str, roll_results: list
                 f"{n}({core.profile_gen.skill_note(session.scenario_data, n) or '쓰임 미저작'})" for n in _sk))
         if world_turn is not None:
             _eb = core.items.equip_block(core.items.equip_rows(
-                session, c_name, core.items.definitions_of(world_turn.ctx.definition)))
+                session, c_name, core.items.definitions_of(world_turn.ctx.definition)), session.scenario_data)
             if _eb:
                 prof_lines.append("    " + _eb.replace("\n", "\n    "))
     lines.append("[플레이어 프로필]\n" + ("\n".join(prof_lines) if prof_lines else "(없음)"))
@@ -400,7 +402,9 @@ def _build_judgment_user_prompt(session, player_message: str, roll_results: list
                 _npc_entry(n, _npc_stats(session, n), (session.statuses or {}).get(n)) for n in npc_names[:30]))
     lines.append("※ NPC 능력치는 판정 계산 전용 비공개 값이다 — bridge_message에 쓰지 말 것. 능력 차이는 코드가 "
                  "능력 보정(A)으로 반영하므로 difficulty·method_mod에 다시 넣지 말 것. 능력치가 없는 인물과는 "
-                 "CONTEST를 만들지 말 것.")
+                 "CONTEST를 만들지 말 것."
+                 + (" 대결 상대 NPC가 가진 무기·보호구의 보정도 코드가 더하므로 opponent의 method_mod에 넣지 말 것."
+                    if world_turn is not None else ""))
 
     # ②-3 현재 세계 상태 — 추출층위가 갱신한 위치·시간대
     tl = getattr(session, "world_timeline", {}) or {}
@@ -519,7 +523,8 @@ def _build_logic_user_prompt(session, player_message: str, roll_results: list,
     # WP-C: 같은 턴 ROLL 성장이 스테이징돼 있으면 투영(정본 미변경)을 읽는다.
     for uid, p in core.turn_preparation.projected_players(session).items():
         if p.get("name") == target_char:
-            stats = ", ".join([f"{k}:{v}" for k, v in p.get("profile", {}).items() if isinstance(v, (int, str))])
+            stats = ", ".join([f"{k}:{v}" for k, v in core.items.prompt_profile(session, target_char, p.get("profile", {})).items()
+                               if isinstance(v, (int, str))])
             pc_profile_summary = stats
             break
 

@@ -236,6 +236,9 @@ def _variants(scenario_data: dict, beat: str) -> list:
     return briefing_templates(beat)
 
 
+BRIEF_SKILLS = 3
+
+
 def briefing_beats(scenario_data: dict, profile: dict, items_text: str = "", *, rng=None) -> list:
     """v7.37 R4(사용자 결정 D3 가) — 인물 소개 4박자(정체·모습·차림·소지품)를 코드가 템플릿으로 완성한다.
 
@@ -245,6 +248,9 @@ def briefing_beats(scenario_data: dict, profile: dict, items_text: str = "", *, 
     flat = _flat(profile)
     if items_text:
         flat["소지품"] = items_text
+    sk = [x.strip() for x in str(flat.get("스킬") or "").split(",") if x.strip()]
+    if len(sk) > BRIEF_SKILLS:                         # v7.46(C2): 스킬이 많으면 앞 몇 개만 소리 내어 말한다
+        flat["스킬"] = ", ".join(sk[:BRIEF_SKILLS]) + f" 외 {len(sk) - BRIEF_SKILLS}가지"
     beats = []
     for beat in BRIEFING_BEATS:
         ok = [v for v in _variants(scenario_data, beat) if all(k in flat for k in _SLOT.findall(v))]

@@ -707,7 +707,11 @@ class SessionCog(commands.Cog):
         코드가 템플릿으로 완성한다(provider 호출 0). 마지막 박자를 그리면 then(인트로)을 부른다. 소개할 것이
         없으면 False(바로 인트로). 재시작으로 끊기면 같은 메시지에 [세션 다시 열기]가 다시 붙는다(동적 세계)."""
         name = str(profile.get("이름") or "")
-        bag = (getattr(session, "resources", None) or {}).get(name) or {}
+        bag = dict((getattr(session, "resources", None) or {}).get(name) or {})
+        for _e in ((getattr(session, "equipment", None) or {}).get(name) or {}).values():   # v7.46(A3): 입은 옷은 차림 박자로
+            _k = (_e or {}).get("key")
+            if isinstance(bag.get(_k), int):
+                bag[_k] -= 1
         inst = [r for r in (getattr(session, "item_instances", None) or {}).values() if r.get("owner") == name]
         defs = core.items.definitions_of(getattr(session, "scenario_data", None))
         beats = core.start_frame.briefing_beats(session.scenario_data, profile,

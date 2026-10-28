@@ -202,5 +202,6 @@ def format_summary(stats: dict) -> str:
         f"주사위 {stats.get('dice_rolled', 0):,}\n"
         f"상태이상 획득 {stats.get('status_applied', 0)} / "
         f"해제 {stats.get('status_cleared', 0)} · "
-        f"소모 {stats.get('ink_spent', 0):,}잉크"
+        f"소모 {stats.get('ink_spent', 0):,}잉크 · "
+        f"본 결말 {sum(len(v) for v in (stats.get('endings') or {}).values() if isinstance(v, dict))}종"
     )

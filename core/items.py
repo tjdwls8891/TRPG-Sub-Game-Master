@@ -31,7 +31,8 @@ ITEM_FIELDS = {
     "place_items": {},      # {source_id: {place, key, quantity, origin, by, tx, closed?, inside?}}
                             #   v7.29 용기: closed=True(닫힌 용기) · inside=용기 source_id(그 안의 물건)
     "item_facts": {},       # 직전 커밋 턴의 사용·지급 사실 {tx, used:[종류], paid:[종류]} — 다음 턴 사건 조건 입력
-    "equipment": {},        # v7.46 착용·들기 {소유자: {자리: {key: 재고 키, tags: [효과]}}} — 착용 물건도 재고에 그대로 센다
+    "equipment": {},        # v7.46 착용·들기 {소유자: {자리: {key: 재고 키}}} — 착용 물건도 재고에 그대로 센다
+    "item_traits": {},      # v7.46 이 세션에서 정해진 물건 착용 특성 {종류: {slots, tags, source}} — 한 번 정하면 유지
 }
 
 
@@ -58,8 +59,11 @@ OPS = ("TRANSFER", "ACQUIRE", "DROP", "CONSUME", "DAMAGE", "REPAIR", "OPEN", "CR
 
 
 # ── v7.46 착용·들기 — 공용 효과 어휘(data/common_item_effects.json) ──
-#   착용 물건의 효과 = 저작 정의 wear.tags(있으면 권위) · 없으면 착용 기록의 tags(어휘 안 · authored_only 제외).
-#   효과는 판정 보정 E(태그 mod, 그 스탯 판정만)와 상태 규칙 wearing 조건에만 쓰인다. 태그 없는 옷은 효과 없음.
+#   물건의 착용 특성(자리·효과 태그) 결정 순서 — 한 번 정해지면 그 세션에서 유지한다:
+#     ① 시나리오 저작 정의 item_definitions.wear  ② 세션 기록 item_traits(이미 정해진 물건)
+#     ③ 공용 참고 묶음 references(묶음 예시 낱말이 이름에 들어 있음 — 가장 긴 낱말)  ④ 추출·복장 판독이 붙인 태그
+#        (curated 아닌 어휘만). ③④로 정해지면 item_traits에 기록한다(되감기 대상).
+#   효과는 판정 보정 E(태그 분야 → 그 시나리오 스탯 판정에만)와 상태 규칙 wearing 조건에만 쓰인다.
 _VOCAB = None
 
 
@@ -74,50 +78,92 @@ def effect_vocab() -> dict:
         except Exception as e:  # noqa: BLE001
             print(f"[아이템] 효과 어휘 로드 실패: {e}")
             _VOCAB = {}
-        _VOCAB.setdefault("slots", [])
-        _VOCAB.setdefault("hand_slots", [])
-        _VOCAB.setdefault("tags", {})
+        for k, dv in (("slots", []), ("hand_slots", []), ("tags", {}), ("domains", {}), ("references", [])):
+            _VOCAB.setdefault(k, dv)
     return _VOCAB
 
 
 def free_tags(tags) -> list:
-    """저작 정의 없는 물건에 붙일 수 있는 태그 — 어휘 안 · authored_only 아님(중복 제거, 순서 유지)."""
+    """추출·복장 판독이 붙일 수 있는 태그 — 어휘 안 · curated 아님(중복 제거, 순서 유지)."""
     voc = effect_vocab()["tags"]
-    return [t for t in dict.fromkeys(str(x) for x in (tags or ())) if t in voc and not voc[t].get("authored_only")]
+    return [t for t in dict.fromkeys(str(x) for x in (tags or ())) if t in voc and not voc[t].get("curated")]
 
 
 def wear_def(kind: str, defs=None) -> dict | None:
     return ((defs or {}).get(kind) or {}).get("wear")
 
 
-def entry_tags(entry: dict, defs=None) -> list:
-    """착용 기록 하나의 효과 태그(저작 정의 우선)."""
-    w = wear_def(parse_key(entry.get("key", ""), defs)[0].kind, defs)
-    return list(w["tags"]) if w else free_tags(entry.get("tags"))
+def reference_of(name: str) -> dict | None:
+    """공용 참고 묶음 — 묶음 예시 낱말이 이름(공백 무시)에 들어 있으면 가장 긴 낱말의 묶음."""
+    flat = re.sub(r"\s+", "", str(name or ""))
+    best, size = None, 0
+    for g in effect_vocab()["references"]:
+        for ex in g.get("examples") or ():
+            e = re.sub(r"\s+", "", ex)
+            if e and e in flat and len(e) > size:
+                best, size = g, len(e)
+    return best
 
 
-def worn_tags(session, owner: str, defs=None, equipment=None) -> frozenset:
+def traits_of(kind: str, defs=None, session_traits=None) -> tuple:
+    """(특성 {slots, tags}, 출처) — 출처 AUTHORED·SESSION·REFERENCE, 모르면 (None, None)."""
+    w = wear_def(kind, defs)
+    if w:
+        return {"slots": list(w["slots"]), "tags": list(w["tags"])}, "AUTHORED"
+    rec = (session_traits or {}).get(kind)
+    if isinstance(rec, dict):
+        return {"slots": list(rec.get("slots") or []), "tags": list(rec.get("tags") or [])}, "SESSION"
+    ref = reference_of(kind)
+    if ref:
+        return {"slots": list(ref["slots"]), "tags": list(ref["tags"])}, "REFERENCE"
+    return None, None
+
+
+def key_tags(key: str, defs=None, session_traits=None) -> list:
+    t, _src = traits_of(parse_key(key or "", defs)[0].kind, defs, session_traits)
+    return list(t["tags"]) if t else []
+
+
+def worn_tags(session, owner: str, defs=None, equipment=None, traits=None) -> frozenset:
     eq = (equipment if equipment is not None else getattr(session, "equipment", None) or {}).get(owner) or {}
+    st = traits if traits is not None else getattr(session, "item_traits", None) or {}
     out = set()
     for e in eq.values():
         if isinstance(e, dict) and usable(e.get("key", ""), defs):
-            out.update(entry_tags(e, defs))
+            out.update(key_tags(e["key"], defs, st))
     return frozenset(out)
 
 
-def equip_rows(session, owner: str, defs=None) -> list:
-    """판정 후보 [(E키, 표시, 재고 키, 태그)] — 착용·손에 든 것 + 가방 속 '손에 드는' 저작 물건(꺼내 쓰는 것도 같은 행동).
+def domain_stats(scenario_data=None) -> dict:
+    """판정 분야 → 스탯 이름(시나리오 item_effect_domains가 있으면 그 분야만 덮어쓴다)."""
+    out = {d: list(v.get("stats") or ()) for d, v in effect_vocab()["domains"].items()}
+    for d, stats in ((scenario_data or {}).get("item_effect_domains") or {}).items():
+        if isinstance(stats, list):
+            out[d] = [str(x) for x in stats]
+    return out
 
-    고장·파손 물건은 빠진다."""
+
+def equip_mod(tags, stat: str, scenario_data=None) -> int:
+    """장비 보정 E — 태그 분야가 그 판정 스탯을 포함하면 그 태그 mod를 더한다."""
+    voc, dm = effect_vocab()["tags"], domain_stats(scenario_data)
+    return sum(int(voc[t].get("mod") or 0) for t in tags or ()
+               if t in voc and stat in (dm.get(voc[t].get("domain")) or ()))
+
+
+def equip_rows(session, owner: str, defs=None) -> list:
+    """판정 후보 [(E키, 표시, 재고 키, 태그)] — 착용·손에 든 것 + 가방 속 '손에 드는' 물건(꺼내 쓰는 것도 같은 행동).
+
+    판정 보정(mod)이 있는 태그를 가진 물건만, 고장·파손 제외."""
     voc = effect_vocab()
     hands = set(voc["hand_slots"])
+    st = getattr(session, "item_traits", None) or {}
     eq = (getattr(session, "equipment", None) or {}).get(owner) or {}
     rows, seen = [], set()
     for slot in voc["slots"]:
         e = eq.get(slot)
         if not isinstance(e, dict) or not usable(e.get("key", ""), defs):
             continue
-        tags = [t for t in entry_tags(e, defs) if voc["tags"].get(t, {}).get("mod")]
+        tags = [t for t in key_tags(e["key"], defs, st) if voc["tags"].get(t, {}).get("mod")]
         if tags:
             rows.append((e["key"], f"{e['key']}({slot})", tags))
         seen.add(e["key"])
@@ -125,32 +171,64 @@ def equip_rows(session, owner: str, defs=None) -> list:
     for k in sorted(bag):
         if k in seen or not isinstance(bag[k], int) or bag[k] <= 0 or not usable(k, defs):
             continue
-        w = wear_def(parse_key(k, defs)[0].kind, defs)
-        if w and set(w["slots"]) & hands:
-            tags = [t for t in w["tags"] if voc["tags"].get(t, {}).get("mod")]
+        t, _src = traits_of(parse_key(k, defs)[0].kind, defs, st)
+        if t and set(t["slots"]) & hands:
+            tags = [x for x in t["tags"] if voc["tags"].get(x, {}).get("mod")]
             if tags:
                 rows.append((k, f"{k}(가방 속 — 꺼내 쓰는 것까지 한 행동)", tags))
     return [(f"E{i}", lbl, k, tags) for i, (k, lbl, tags) in enumerate(rows, 1)]
 
 
-def equip_mod(tags, stat: str) -> int:
-    """장비 보정 E — 그 판정 스탯에 해당하는 태그 mod의 합."""
+COMBAT_DOMAINS = ("근접", "원거리", "방어")
+
+
+def npc_equip_mod(session, owner: str, stat: str, defs=None) -> tuple:
+    """B3: 대결 상대 NPC — 소지한 무기·보호구(전투 분야 태그) 중 그 판정에 가장 유리한 것 하나의 E (물건 이름, 값)."""
+    best = ("", 0)
+    sd = getattr(session, "scenario_data", None)
     voc = effect_vocab()["tags"]
-    return sum(int(voc[t].get("mod") or 0) for t in tags or () if t in voc and stat in (voc[t].get("stats") or ()))
+    for _k, _lbl, key, tags in equip_rows(session, owner, defs):
+        v = equip_mod([t for t in tags if voc.get(t, {}).get("domain") in COMBAT_DOMAINS], stat, sd)
+        if v > best[1]:
+            best = (key, v)
+    return best
 
 
-def equip_block(rows) -> str:
+def prompt_profile(session, name: str, profile: dict) -> dict:
+    """v7.46(A4): 프롬프트에 싣는 PC 프로필 — 착용 정본이 있으면 생성 때 쓴 복장 글 대신 '착용 기준' 표시.
+
+    복장 글은 캐릭터 생성 때의 차림이다. 입고 벗은 뒤의 차림 권위는 equipment(물건 블록)다."""
+    prof = dict(profile or {})
+    if not ((getattr(session, "equipment", None) or {}).get(name)):
+        return prof
+    from .profile_gen import get_steps
+    for st in get_steps(getattr(session, "scenario_data", None) or {}):
+        f = st.get("field")
+        if (st.get("args") or {}).get("wear_items") and f in prof:
+            prof[f] = "(처음 차림 — 지금 입은 것은 물건 블록의 착용이 기준)"
+    return prof
+
+
+def reference_text() -> str:
+    """추출·복장 판독 참고 — 묶음 이름: 예시 → 자리 · 태그(효과 없음은 '없음')."""
+    return "\n".join(f"· {g['group']}({'·'.join(g['examples'][:4])}) → {'/'.join(g['slots'])} · "
+                     f"{', '.join(g['tags']) or '효과 없음'}" for g in effect_vocab()["references"])
+
+
+def equip_block(rows, scenario_data=None) -> str:
     """판단층위 — 착용·손에 든 것(코드 확정 효과). 행이 없으면 빈 문자열."""
     if not rows:
         return ""
-    voc = effect_vocab()["tags"]
+    voc, dm = effect_vocab()["tags"], domain_stats(scenario_data)
+
     def tag_txt(t):
         v = voc.get(t) or {}
-        return f"{t}[{'/'.join(v.get('stats') or ())} {int(v.get('mod') or 0):+d} — {v.get('desc', '')}]"
+        return f"{t}[{'/'.join(dm.get(v.get('domain')) or ())} {int(v.get('mod') or 0):+d} — {v.get('desc', '')}]"
     return ("[착용·손에 든 것 — 코드 확정 장비 보정. 굴림에 직접 쓰이면 rolls의 item에 그 키 하나(PC 굴림만). "
             "장비 보정은 코드가 더하므로 그 물건의 유리함을 method_mod에 다시 넣지 말 것. 여기 없는 소지품의 쓰임은 "
             "지금처럼 method_mod]\n" + "\n".join(f"{k}={lbl}: " + ", ".join(tag_txt(t) for t in tags)
                                               for k, lbl, _stock, tags in rows))
+
 OPS_FIELD = "item_ops"
 
 # 한국어 수 관형사·수량 단위(언어 수준 — 시나리오·장르 어휘가 아니다)
@@ -274,6 +352,7 @@ class ItemManifest:
     scene_place: str | None = None
     payments: tuple = ()      # 코드가 이미 처리하는 지급(접근 확인) — 추출이 다시 적지 않는다
     worn: tuple = ()          # v7.46 PC 착용 표시("자리=물건(H키)")
+    known: tuple = ()         # v7.46 효과가 정해진 PC 소지 물건("H키=물건: 태그")
 
     def owner_of(self, k):
         return next((r[1] for r in self.owners if r[0] == k), None)
@@ -329,14 +408,20 @@ class ItemManifest:
             lines.append("코드가 이미 처리한 지급(다시 적지 말 것): " + ", ".join(self.payments))
         if self.worn:
             lines.append("PC 착용·손에 든 것: " + ", ".join(self.worn))
+        if self.known:
+            lines.append("효과가 이미 정해진 PC 물건(WEAR할 때 tags를 비울 것): " + ", ".join(self.known))
         lines.append("· TRANSFER owner→to 건넴 · ACQUIRE 현장 물건(L·D키)을 owner가 집음 · DROP owner가 내려놓음 · "
                      "CONSUME 써 버림·잃음·파괴 · DAMAGE/REPAIR 상태 변화(condition) · OPEN 포장 개봉 또는 닫힌 용기(L키) 열기 — "
                      "여는 것만이고 안의 물건을 집으면 따로 ACQUIRE · "
                      "CRAFT 완성된 제작(inputs 재료 소모, outputs 결과 — recipe가 있으면 그 키) · DISASSEMBLE 분해(outputs 회수 부품) · "
                      "READ 글·기록을 실제로 읽음 · USE 소모 없이 사용 · "
                      "WEAR PC가 소지한 물건(H키, 또는 이번에 NEW로 챙긴 것은 item=NEW + name)을 입거나 손에 듦 — slot에 자리"
-                     "(오른손·왼손 = 손에 듦), tags에는 그 물건이 실제로 가진 효과만(속옷처럼 효과 없는 옷은 빈 목록) · "
+                     "(오른손·왼손 = 손에 듦). tags는 효과가 아직 정해지지 않은 물건에만 — 아래 참고 묶음과 비슷한 물건이면 "
+                     "그 묶음의 효과를, 어디에도 맞지 않으면 실제로 가진 효과만(속옷처럼 효과 없는 옷은 빈 목록) · "
                      "REMOVE 입은 것을 벗거나 손에서 내려 소지함(slot을 비우면 그 물건 전부). 버리면 DROP, 건네면 TRANSFER.")
+        lines.append("· 착용 효과 참고 묶음: " + " / ".join(
+            f"{g['group']}({'·'.join(g['examples'][:3])})={','.join(g['tags'])}"
+            for g in effect_vocab()["references"] if g.get("tags")))
         lines.append(f"· ACQUIRE item={NEW_KEY}: 위 키에 없는 물건이 이번 묘사에 처음 나와 PC가 실제로 집어 챙긴 경우만 — "
                      "owner는 PC, name에 본문에 쓰인 물건 이름을 그대로(수량은 quantity). 키가 있는 물건은 그 키를 쓴다.")
         lines.append("· IDENTIFY: 이미 가진 물건(H키)의 정체가 이번 묘사에서 밝혀진 경우만 — name에 본문에 쓰인 새 이름"
@@ -399,7 +484,14 @@ def build_manifest(session, *, pc_name: str, scene_owner_names=(), scene_place=N
     hkey = {h[2]: h[0] for h in holdings if h[1] == pc_name and h[2]}
     eq = (getattr(session, "equipment", None) or {}).get(pc_name) or {}
     worn = tuple(f"{sl}={e.get('key')}({hkey.get(e.get('key'), '?')})" for sl, e in eq.items() if isinstance(e, dict))
-    return ItemManifest(owners, holdings, places, disc, rc, scene_place, tuple(payments), worn)
+    st = getattr(session, "item_traits", None) or {}
+    known = []
+    for h in holdings:
+        if h[1] == pc_name and h[2]:
+            t, _src = traits_of(parse_key(h[2], defs)[0].kind, defs, st)
+            if t is not None:
+                known.append(f"{h[0]}={h[2]}: {', '.join(t['tags']) or '효과 없음'}")
+    return ItemManifest(owners, holdings, places, disc, rc, scene_place, tuple(payments), worn, tuple(known))
 
 
 def _inst_label(r: dict) -> str:
@@ -449,6 +541,7 @@ class _Sim:
         self.inst = copy.deepcopy(getattr(session, "item_instances", None) or {})
         self.places = copy.deepcopy(getattr(session, "place_items", None) or {})
         self.equip = copy.deepcopy(getattr(session, "equipment", None) or {})
+        self.traits = copy.deepcopy(getattr(session, "item_traits", None) or {})
         self.touched = set()
         self.gained = set()
         self.report = []
@@ -747,16 +840,21 @@ def run_ops(session, ops, *, defs=None, pc_name, scene_place, transaction_id, re
                 raise ItemContractError(f"{why}: {owner}이(가) 그 물건을 갖고 있지 않음")
             if slot not in voc["slots"]:
                 raise ItemContractError(f"{why}: 알 수 없는 자리 {slot!r}")
-            w = wear_def(parse_key(key, defs)[0].kind, defs)
-            if w and slot not in w["slots"]:
-                raise ItemContractError(f"{why}: {key}은(는) {slot}에 착용할 수 없음({', '.join(w['slots'])})")
+            kind_ = parse_key(key, defs)[0].kind
+            t, src = traits_of(kind_, defs, s.traits)
+            if src == "AUTHORED" and slot not in t["slots"]:
+                raise ItemContractError(f"{why}: {key}은(는) {slot}에 착용할 수 없음({', '.join(t['slots'])})")
             if not usable(key, defs):
                 raise ItemContractError(f"{why}: {key}은(는) 고장·파손 상태")
             mine = s.equip.setdefault(owner, {})
             worn_n = sum(1 for sl, e in mine.items() if sl != slot and e.get("key") == key)
             if s.bag(owner)[key] - worn_n <= 0:
                 raise ItemContractError(f"{why}: {key}은(는) 이미 다른 자리에 모두 착용 중")
-            mine[slot] = {"key": key, "tags": [] if w else free_tags(op.get("tags"))}
+            mine[slot] = {"key": key}
+            if src in ("REFERENCE", None):     # 처음 정해지는 물건 — 이 세션에서 유지(이미 정해졌으면 추출 태그는 버린다)
+                s.traits[kind_] = {"slots": sorted(set((t or {}).get("slots") or []) | {slot}),
+                                   "tags": list(t["tags"]) if t else free_tags(op.get("tags")),
+                                   "source": "REFERENCE" if t else "EXTRACTION"}
         elif kind == "REMOVE":
             mine = s.equip.get(op["from"]) or {}
             hit = [sl for sl, e in mine.items() if e.get("key") == op.get("stock")
@@ -1023,6 +1121,7 @@ def apply_plan(session, plan: ItemPlan) -> list:
     session.item_instances = sim.inst
     session.place_items = sim.places
     session.equipment = sim.equip
+    session.item_traits = sim.traits
     session.item_facts = {"tx": plan.transaction_id, **copy.deepcopy(plan.facts)}
     return sim.report
 
@@ -1076,9 +1175,11 @@ def item_block(session, *, pc_name, scene_owner_names=(), scene_place=None, defs
     lines = ["\n[물건 — 정본 소지(코드 확정 · 룰북의 초기 소지품보다 우선). 여기 없는 물건을 가진 것처럼 쓰지 말 것. "
              "〈고장〉〈파손〉 물건은 제 기능으로 쓸 수 없다]"]
     worn = (getattr(session, "equipment", None) or {}).get(pc_name) or {}
+    traits = getattr(session, "item_traits", None) or {}
     if worn:
-        lines.append("· PC 착용·손에 든 것: " + ", ".join(
-            f"{sl} {e.get('key')}" + (f"({'·'.join(entry_tags(e, defs))})" if entry_tags(e, defs) else "")
+        lines.append("· PC 착용·손에 든 것(정본 — 프로필 복장 글보다 우선): " + ", ".join(
+            f"{sl} {e.get('key')}" + (f"({'·'.join(key_tags(e['key'], defs, traits))})"
+                                       if key_tags(e.get("key"), defs, traits) else "")
             for sl, e in worn.items() if isinstance(e, dict)))
     for n in [pc_name] + [x for x in scene_owner_names if x != pc_name]:
         bag = canonical_bag(res.get(n) or {}, defs)

@@ -361,7 +361,11 @@ def dependents_of(scenario_data: dict, field: str) -> list:
     """field에 의존하는 뒤 단계 필드(args.depends 기준 — 예: 직업 → 스킬)."""
     out = []
     for st in profile_gen.get_steps(scenario_data):
-        if field in ((st.get("args") or {}).get("depends") or []) and st.get("field"):
+        args = st.get("args") or {}
+        deps = list(args.get("depends") or [])
+        if st.get("module") == "choose_skills":    # v7.46(A2): 직업 전용 스킬·스탯 구간 개수가 이 둘에서 나온다
+            deps += [args.get("job_field") or "직업", args.get("stats_field") or "능력치"]
+        if field in deps and st.get("field"):
             out.append(st["field"])
     return out
 
@@ -380,18 +384,47 @@ def edit_field(scenario_data: dict, run: dict, field: str) -> tuple:
     return True, field
 
 
-def expected_type_ok(step: dict, value) -> bool:
-    """단계 모듈이 기대하는 값 자료형인가(불러온 저장 프로필 검증용 — 자동 형변환 없음)."""
+def expected_type_ok(step: dict, value, scenario_data: dict = None, chosen: dict = None) -> bool:
+    """단계 모듈이 기대하는 값인가(불러온 저장 프로필 검증용 — 자동 형변환 없음).
+
+    v7.46(A1): 시나리오를 함께 주면 내용도 본다 — 능력치는 지금 스탯 이름 그대로, 선택지 단계는 지금 선택지 안의 값,
+    묶음 선택은 지금 직업·능력치로 다시 계산한 구성과 같아야 한다(옛 체계로 저장된 프로필은 다시 정하게 한다)."""
     module = (step or {}).get("module")
     args = (step or {}).get("args") or {}
+    sd, ch = scenario_data, chosen or {}
     if module == "roll_stats":
-        return isinstance(value, dict) and all(isinstance(v, int) and not isinstance(v, bool)
-                                               for v in value.values())
+        ok = isinstance(value, dict) and all(isinstance(v, int) and not isinstance(v, bool) for v in value.values())
+        return ok and (sd is None or not args.get("stats") or set(value) == set(args["stats"]))
     if module in ("choose_skills", "choose_groups"):
-        return isinstance(value, list)
+        if not isinstance(value, list):
+            return False
+        if sd is None:
+            return True
+        if module == "choose_skills":
+            fixed, groups = profile_gen.skill_groups(sd, args, ch)
+        else:
+            fixed, groups = [], profile_gen.item_groups(sd, args)
+        vals = [str(x) for x in value]
+        rest = [x for x in vals if x not in fixed]
+        if set(fixed) - set(vals):
+            return False
+        for _label, _v, opts, n in groups:
+            if sum(1 for x in rest if x in opts) != n:
+                return False
+        return len(rest) == sum(g[3] for g in groups)
     if module == "intersect_list":
-        return isinstance(value, list) if (args.get("pick") or args.get("choose")) else isinstance(value, (str, list))
-    return isinstance(value, str)
+        if (args.get("pick") or args.get("choose")):
+            if not isinstance(value, list):
+                return False
+            pool = profile_gen.intersect_list(sd, args, ch) if sd is not None else []
+            return not pool or set(map(str, value)) <= set(pool)
+        return isinstance(value, (str, list))
+    if not isinstance(value, str):
+        return False
+    if module == "select_one" and sd is not None:
+        opts = profile_gen._resolve_options(sd, args, ch)
+        return not opts or value in [str(o) for o in opts]
+    return True
 
 
 async def run_ai_module(bot, session, scenario_data: dict, run: dict,
