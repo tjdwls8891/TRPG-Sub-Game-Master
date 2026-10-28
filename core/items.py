@@ -83,10 +83,41 @@ def effect_vocab() -> dict:
     return _VOCAB
 
 
-def free_tags(tags) -> list:
-    """추출·복장 판독이 붙일 수 있는 태그 — 공용 어휘 안의 것 전부(중복 제거, 순서 유지)."""
-    voc = effect_vocab()["tags"]
-    return [t for t in dict.fromkeys(str(x) for x in (tags or ())) if t in voc]
+def free_tags(tags, slot=None) -> list:
+    """추출·복장 판독이 붙인 태그의 범위 강제 — 공용 어휘 안 · 그 자리에 허용된 태그 · 같은 group은 한 단계만
+    (mod가 가장 낮은 것 — 보수적으로) · 물건 하나에 max_tags_per_item개까지(앞에서부터). 강한 효과도 붙일 수 있다."""
+    v = effect_vocab()
+    voc, cap = v["tags"], int(v.get("max_tags_per_item") or 3)
+    out, by_group = [], {}
+    for t in dict.fromkeys(str(x) for x in (tags or ())):
+        rec = voc.get(t)
+        if rec is None or (slot and rec.get("slots") and slot not in rec["slots"]):
+            continue
+        g = rec.get("group")
+        if g and g in by_group:
+            prev = by_group[g]
+            if int(rec.get("mod") or 0) < int(voc[prev].get("mod") or 0):
+                out[out.index(prev)] = t
+                by_group[g] = t
+            continue
+        if g:
+            by_group[g] = t
+        out.append(t)
+    return out[:cap]
+
+
+def guide_text() -> str:
+    """추출·복장 판독용 태그 가이드 — 태그(분야 보정·허용 자리): 붙이는 기준 / 붙이지 않는 경우."""
+    v = effect_vocab()
+    hands = set(v["hand_slots"])
+    lines = []
+    for t, r in v["tags"].items():
+        sl = r.get("slots") or v["slots"]
+        where = "손" if set(sl) <= hands else ("몸·손" if set(sl) & hands else "몸")
+        eff = f"{r['domain']} {int(r.get('mod') or 0):+d}" if r.get("domain") else "상태"
+        lines.append(f"· {t}({eff}·{where}): {r.get('guide') or r.get('desc', '')}")
+    return ("[착용 효과 태그 — 같은 계열(약·기본·강)은 하나만, 물건 하나에 "
+            f"{int(v.get('max_tags_per_item') or 3)}개까지. 애매하면 약한 쪽·또는 붙이지 않는다]\n" + "\n".join(lines))
 
 
 def wear_def(kind: str, defs=None) -> dict | None:
@@ -389,7 +420,7 @@ class ItemManifest:
                     "condition": {"type": "string", "enum": ["NONE", COND_NORMAL] + list(CONDITIONS)},
                     "recipe": enum(self.recipes),
                     "slot": {"type": "string", "enum": ["NONE"] + list(effect_vocab()["slots"])},
-                    "tags": {"type": "array", "items": {"type": "string", "enum": free_tags(effect_vocab()["tags"])}},
+                    "tags": {"type": "array", "items": {"type": "string", "enum": list(effect_vocab()["tags"])}},
                     "inputs": {"type": "array", "items": ref},
                     "outputs": {"type": "array", "items": out}},
                     "required": ["op", "owner", "item", "quantity"]}}
@@ -419,6 +450,7 @@ class ItemManifest:
                      "(오른손·왼손 = 손에 듦). tags는 효과가 아직 정해지지 않은 물건에만 — 아래 참고 묶음과 비슷한 물건이면 "
                      "그 묶음의 효과를, 어디에도 맞지 않으면 실제로 가진 효과만(속옷처럼 효과 없는 옷은 빈 목록) · "
                      "REMOVE 입은 것을 벗거나 손에서 내려 소지함(slot을 비우면 그 물건 전부). 버리면 DROP, 건네면 TRANSFER.")
+        lines.append(guide_text())
         lines.append("· 착용 효과 참고 묶음: " + " / ".join(
             f"{g['group']}({'·'.join(g['examples'][:3])})={','.join(g['tags'])}"
             for g in effect_vocab()["references"] if g.get("tags")))
@@ -853,7 +885,7 @@ def run_ops(session, ops, *, defs=None, pc_name, scene_place, transaction_id, re
             mine[slot] = {"key": key}
             if src in ("REFERENCE", None):     # 처음 정해지는 물건 — 이 세션에서 유지(이미 정해졌으면 추출 태그는 버린다)
                 s.traits[kind_] = {"slots": sorted(set((t or {}).get("slots") or []) | {slot}),
-                                   "tags": list(t["tags"]) if t else free_tags(op.get("tags")),
+                                   "tags": list(t["tags"]) if t else free_tags(op.get("tags"), slot),
                                    "source": "REFERENCE" if t else "EXTRACTION"}
         elif kind == "REMOVE":
             mine = s.equip.get(op["from"]) or {}

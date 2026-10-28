@@ -203,19 +203,18 @@ async def merge(bot, session, *, field: str, values: list,
 
 
 async def outfit(bot, session, *, text: str) -> list:
-    """v7.46 복장 글 → 착용 물건 [{name, slot, tags}](공용 자리·태그 어휘로 검증 — 어휘 밖 태그만 버린다).
+    """v7.46 복장 글 → 착용 물건 [{name, slot, tags}](공용 자리·태그 어휘와 범위 — 허용 자리·계열당 한 단계·개수 상한 — 를 코드가 강제).
 
     실패하면 빈 목록 — 착용 없이 진행한다(복장 글은 프로필에 그대로 남는다)."""
     from prompts import PROFILE_OUTFIT_RESPONSE_SCHEMA, PROFILE_OUTFIT_SYSTEM_INSTRUCTION
-    from .items import effect_vocab, free_tags, reference_text
+    from .items import effect_vocab, free_tags, guide_text, reference_text
 
     if not str(text or "").strip():
         return []
     voc = effect_vocab()
     wear_slots = [x for x in voc["slots"] if x not in voc["hand_slots"]]
-    tags = free_tags(voc["tags"])
     user_prompt = (f"[복장 글]\n{text}\n\n[자리 목록]\n{', '.join(wear_slots)}\n\n"
-                   "[효과 태그 목록]\n" + "\n".join(f"{t}: {voc['tags'][t].get('desc', '')}" for t in tags)
+                   + guide_text()
                    + "\n\n[참고 묶음 — 비슷한 옷은 이 묶음의 자리·효과를 따른다(목록에 없는 태그는 쓰지 않는다)]\n"
                    + reference_text())
     ok, data = await _call(bot, PROFILE_OUTFIT_SYSTEM_INSTRUCTION, PROFILE_OUTFIT_RESPONSE_SCHEMA, user_prompt,
@@ -230,7 +229,7 @@ async def outfit(bot, session, *, text: str) -> list:
         if not name or any(c in name for c in "[]〈〉") or slot not in wear_slots or slot in seen:
             continue
         seen.add(slot)
-        out.append({"name": name, "slot": slot, "tags": free_tags(it.get("tags"))})
+        out.append({"name": name, "slot": slot, "tags": free_tags(it.get("tags"), slot)})
     return out
 
 

@@ -96,9 +96,9 @@ def test_wear_traits_follow_authored_session_reference_then_extraction():
                  {"op": "WEAR", "item": "이상한 망토", "slot": "머리", "tags": ["은폐", "방호(강)", "없는태그"]}])  # 추출 — 강한 효과도 가능, 어휘 밖만 제외
     tr = s.item_traits
     assert "우비" not in tr and "쇠파이프" not in tr                               # 저작 물건은 기록하지 않는다
-    assert tr["검은 롱패딩"]["tags"] == ["보온"] and tr["검은 롱패딩"]["source"] == "REFERENCE"
+    assert tr["검은 롱패딩"]["tags"] == ["보온", "방호(약)"] and tr["검은 롱패딩"]["source"] == "REFERENCE"
     assert tr["이상한 망토"] == {"slots": ["머리"], "tags": ["은폐", "방호(강)"], "source": "EXTRACTION"}
-    assert IT.worn_tags(s, "P", DEFS) == {"근접무기", "방수", "보온", "은폐", "방호(강)"}
+    assert IT.worn_tags(s, "P", DEFS) == {"근접무기", "방수", "보온", "방호(약)", "은폐", "방호(강)"}
     assert s.resources["P"]["이상한 망토"] == 1                                    # 입어도 소지 수량 그대로
     run_ops(s, [{"op": "REMOVE", "item": "이상한 망토"}])
     run_ops(s, [{"op": "WEAR", "item": "이상한 망토", "slot": "겉옷", "tags": ["보온"]}])  # 이미 정해짐 — 새 태그 무시
@@ -268,7 +268,7 @@ async def test_wear_commits_through_turn_and_rewinds(drig):
     tx = await turn(r, "패딩을 입는다")
     assert tx.status == core.turn_transaction.TurnStatus.COMMITTED
     assert r.sess.equipment == {"테스터": {"겉옷": {"key": "검은 패딩"}}}
-    assert r.sess.item_traits["검은 패딩"]["tags"] == ["보온"]                       # 참고 묶음이 추출 태그보다 우선
+    assert r.sess.item_traits["검은 패딩"]["tags"] == ["보온", "방호(약)"]                       # 참고 묶음이 추출 태그보다 우선
     res = await core.turn_history.rewind(r.bot, r.sess, 1)
     assert res["ok"], res
     assert r.sess.equipment == {} and r.sess.item_traits == {}
@@ -313,7 +313,7 @@ async def test_finish_reads_outfit_into_items_and_equipment(monkeypatch):
     monkeypatch.setattr(PCU, "_persistent", lambda s: True)
     await PCU.finish(state, None)
     assert sess.resources["a"]["검은 패딩"] == 1 and sess.equipment["a"]["머리"] == {"key": "기묘한 두건"}
-    assert sess.item_traits["검은 패딩"]["tags"] == ["보온"] and sess.item_traits["기묘한 두건"]["source"] == "OUTFIT"
+    assert sess.item_traits["검은 패딩"]["tags"] == ["보온", "방호(약)"] and sess.item_traits["기묘한 두건"]["source"] == "OUTFIT"
 
 
 def test_tool_items_count_as_tool_capability_and_scenario_follow_ups():
@@ -325,3 +325,19 @@ def test_tool_items_count_as_tool_capability_and_scenario_follow_ups():
     SH = json.loads((ROOT / "scenarios" / "설화재.json").read_text(encoding="utf-8"))   # B4
     assert PG.skill_note(SH, "현장 감식") and any((s.get("args") or {}).get("wear_items") for s in SH["profile_creation"])
     assert IT.equip_mod(IT.key_tags("손전등"), "관찰") == 3                           # 설화재 스탯으로 장비 보정
+
+
+def test_extraction_tags_are_range_limited_but_strong_effects_allowed():
+    # 강한 효과 자체는 가능 — 다만 허용 자리·계열당 한 단계(약한 쪽)·개수 상한을 코드가 강제한다
+    assert IT.free_tags(["근접무기(강)"], "오른손") == ["근접무기(강)"]
+    assert IT.free_tags(["근접무기(강)"], "겉옷") == []                                  # 무기는 손에만
+    assert IT.free_tags(["방호(강)", "방호(약)", "보온"], "겉옷") == ["방호(약)", "보온"]   # 같은 계열은 약한 쪽
+    assert IT.free_tags(["보온", "방수", "방호(약)", "은폐"], "겉옷") == ["보온", "방수", "방호(약)"]   # 3개까지
+    assert IT.free_tags(["가벼운 차림"], "겉옷") == []                                   # 자리 밖
+    assert IT.reference_of("검은 롱패딩")["tags"] == ["보온", "방호(약)"]                 # 두꺼운 옷 = 방호(약)
+    g = IT.guide_text()
+    assert "방호(약)(방어 +2·몸): 패딩" in g and "근접무기(강)(근접 +6·손)" in g
+    m = IT.build_manifest(S({"P": {"x": 1}}), pc_name="P", defs=DEFS)
+    assert "같은 계열(약·기본·강)은 하나만" in m.render()
+    enum = m.schema()["items"]["properties"]["tags"]["items"]["enum"]
+    assert len(enum) == len(IT.effect_vocab()["tags"])                                 # 스키마는 어휘 전부
