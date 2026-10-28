@@ -134,3 +134,25 @@ def test_scenario_picker_shows_genre_line():
     sel = SF.ScenarioSelect(["설화재", "영도", "빈시나리오"])
     desc = {o.value: o.description for o in sel.options}
     assert desc == {"설화재": "고립 추리", "영도": "포스트 아포칼립스 생존", "빈시나리오": None}
+
+
+async def test_naming_an_authored_clue_object_is_an_investigation_not_an_ambient_discovery():
+    """v7.45.4: 이 장면의 저작 단서 실물을 지목해 찾으면 새 주변 발견(rt.ambient)이 아니라 일반 조사 — 검증 호출 0."""
+    from types import SimpleNamespace
+    from cogs.gm import GMCog
+    s, D = _seed_for("S1")
+    assert TW.find_object_names(D, s, PC, "별채") == ["수면제 포장"]
+    gate_in = {"dynamic": True, "place": "별채", "place_name": "별채", "rows": [], "failed": [],
+               "finds": TW.find_object_names(D, s, PC, "별채")}
+    judgment = {"action": "ROLL", "ambient_proposal": True, "discovery_target": "수면제 포장",
+                "rolls": [{"discovery": True}]}
+
+    async def no_call(*a, **k):
+        raise AssertionError("선언 검증 provider 호출")
+    cog = GMCog.__new__(GMCog)
+    cog._call_declaration_gate = no_call
+    _j, gate = await cog._dynamic_declaration_check(
+        s, "별채에서 수면제 포장을 찾아본다", [], judgment, gate_in, None, transaction_id="t", cache_ok=True)
+    assert (gate["classification"], gate["resolution"]) == ("ORDINARY", "CONTINUE")
+    s.cognition_state = {core.cognition.actor_holder(PC): {"sh.s1.wrapper": {"awareness": "CONTENT"}}}
+    assert TW.find_object_names(D, s, PC, "별채") == []                   # 이미 아는 단서는 대상이 아니다

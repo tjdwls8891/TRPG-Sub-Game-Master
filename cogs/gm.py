@@ -437,6 +437,14 @@ def _build_judgment_user_prompt(session, player_message: str, roll_results: list
         if discovery_rows:
             lines.append("[이 장소에서 PC가 이미 발견한 것 — 선언이 이것을 가리키면 discovery_ref에 그 키]\n"
                          + core.turn_world.discovery_rows_text(discovery_rows))
+        try:                                       # v7.45.4: 저작 단서 실물 — 지목해 찾아도 주변 발견 제안이 아니다
+            _finds = core.turn_world.find_object_names(world_turn.ctx.definition, session, world_turn.ctx.lead_pc,
+                                                       core.turn_world.pc_place(world_turn.ctx, session))
+        except Exception:
+            _finds = []
+        if _finds:
+            lines.append("[이 장소에 실재가 코드로 확정된 조사 대상 — 선언이 이것을 찾거나 가리키면 일반 조사다"
+                         "(ambient_proposal 아님). 플레이어에게 이 목록을 알리지 말 것]\n" + ", ".join(_finds))
     lines.append(f"[플레이어 신규 발언]\n{player_message}")
     return "\n\n".join(lines)
 
@@ -2251,7 +2259,7 @@ class GMCog(commands.Cog):
 
     def _gate_inputs(self, session, transaction_id) -> dict:
         """v7.14 선언 게이트 입력 — DYNAMIC만: PC 정본 장소·표시명·유효 발견(D키)·찾지 못한 이전 탐색."""
-        out = {"dynamic": False, "place": None, "place_name": None, "rows": [], "failed": []}
+        out = {"dynamic": False, "place": None, "place_name": None, "rows": [], "failed": [], "finds": []}
         wt = self._world_turn(session, transaction_id, create=True)
         if wt is None:
             return out
@@ -2265,6 +2273,7 @@ class GMCog(commands.Cog):
             out["place_name"] = core.turn_world.pc_place_name(ctx, session, place)
             out["rows"] = core.turn_world.discoveries_at(ctx.definition, session, ctx.lead_pc, place)
             out["failed"] = core.turn_history.recent_failed_discoveries(session.session_id, place)
+            out["finds"] = core.turn_world.find_object_names(ctx.definition, session, ctx.lead_pc, place)
         except Exception as e:
             print(f"[선언 게이트] 입력 조립 실패(발견 목록 생략): {e}")
         return out
@@ -2497,6 +2506,11 @@ class GMCog(commands.Cog):
                     source = "CODE"
                 else:
                     gate = None
+            elif any(core.turn_world.same_target(n, target) for n in gate_in.get("finds") or ()):
+                # v7.45.4: 이 장면의 저작 단서 실물을 지목했다 — 새 주변 발견이 아니라 일반 조사(단서는 X키로 드러난다)
+                gate = _parse_gate({"classification": "ORDINARY", "resolution": "CONTINUE", "reason_code": "NONE"},
+                                   player_message, **pk)
+                source = "FIND"
         if gate is None and cache_ok:
             raw = await self._call_declaration_gate(session, player_message, judgment, gate_in, master_ch,
                                                     transaction_id=transaction_id)
@@ -2544,6 +2558,8 @@ class GMCog(commands.Cog):
             f"[이번 턴 플레이어 행동]\n{player_message}\n\n"
             "[이 장소에서 PC가 이미 발견한 것]\n"
             + (core.turn_world.discovery_rows_text(rows) if rows else "(없음)")
+            + ("\n[이 장소에 실재가 코드로 확정된 조사 대상 — 선언이 이것을 찾거나 가리키면 ORDINARY·CONTINUE"
+               "(새 발견 아님)]\n" + ", ".join(gi["finds"]) if gi.get("finds") else "")
             + "\n[이 장소에서 찾지 못한 이전 탐색 — 실패는 부재가 아니다]\n"
             + ("\n".join(f"· {f['target']} — 당시 선언: {f['declaration']}" for f in failed) if failed else "(없음)")
             + "\n\n[지시사항]\n이번 플레이어 선언을 [선언 게이트 규칙]에 따라 declaration_gate로 판정하십시오.")

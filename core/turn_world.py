@@ -743,6 +743,14 @@ def unknown_finds(definition: dict, world, pc: str, scene) -> list:
             if (cog.get(f["info"]) or {}).get("awareness") != _cog.CONTENT]
 
 
+def find_object_names(definition: dict, world, pc: str, scene) -> list:
+    """v7.45.4: 지금 장면에서 찾을 수 있고 PC가 아직 모르는 저작 단서의 실물 이름(선언 검증·판단 입력 — 요약 없음).
+
+    플레이어가 이 물건을 지목해 찾으면 주변 발견 제안이 아니라 저작 단서 조사다(관찰 매니페스트 X키로 드러난다)."""
+    return list(dict.fromkeys(f["object"] for _i, f in unknown_finds(definition, world, pc, scene)
+                              if isinstance(f.get("object"), str) and f["object"].strip()))
+
+
 def find_object_ops(definition: dict, world, pc: str, scene, exposed, *, prefix: str, transaction_id: str,
                     at_minute, place_name: str) -> list:
     """v7.44(E4): 이번 턴 드러난 저작 단서 중 실물(object)이 있는 것 → 그 자리의 주변 발견 물건(D키 수거 대상)으로.
