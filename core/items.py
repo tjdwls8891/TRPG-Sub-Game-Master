@@ -62,7 +62,7 @@ OPS = ("TRANSFER", "ACQUIRE", "DROP", "CONSUME", "DAMAGE", "REPAIR", "OPEN", "CR
 #   물건의 착용 특성(자리·효과 태그) 결정 순서 — 한 번 정해지면 그 세션에서 유지한다:
 #     ① 시나리오 저작 정의 item_definitions.wear  ② 세션 기록 item_traits(이미 정해진 물건)
 #     ③ 공용 참고 묶음 references(묶음 예시 낱말이 이름에 들어 있음 — 가장 긴 낱말)  ④ 추출·복장 판독이 붙인 태그
-#        (curated 아닌 어휘만). ③④로 정해지면 item_traits에 기록한다(되감기 대상).
+#        (공용 어휘 안의 태그 — 강한 효과 포함, 경우의 수에 대응). ③④로 정해지면 item_traits에 기록한다(되감기 대상).
 #   효과는 판정 보정 E(태그 분야 → 그 시나리오 스탯 판정에만)와 상태 규칙 wearing 조건에만 쓰인다.
 _VOCAB = None
 
@@ -84,9 +84,9 @@ def effect_vocab() -> dict:
 
 
 def free_tags(tags) -> list:
-    """추출·복장 판독이 붙일 수 있는 태그 — 어휘 안 · curated 아님(중복 제거, 순서 유지)."""
+    """추출·복장 판독이 붙일 수 있는 태그 — 공용 어휘 안의 것 전부(중복 제거, 순서 유지)."""
     voc = effect_vocab()["tags"]
-    return [t for t in dict.fromkeys(str(x) for x in (tags or ())) if t in voc and not voc[t].get("curated")]
+    return [t for t in dict.fromkeys(str(x) for x in (tags or ())) if t in voc]
 
 
 def wear_def(kind: str, defs=None) -> dict | None:

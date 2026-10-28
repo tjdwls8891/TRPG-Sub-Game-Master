@@ -93,16 +93,16 @@ def test_wear_traits_follow_authored_session_reference_then_extraction():
                 [{"op": "WEAR", "item": "쇠파이프", "slot": "오른손"},
                  {"op": "WEAR", "item": "우비", "slot": "겉옷", "tags": ["보온"]},              # 저작 태그가 권위
                  {"op": "WEAR", "item": "검은 롱패딩", "slot": "상의", "tags": ["방수"]},       # 참고 묶음(두꺼운 외투)
-                 {"op": "WEAR", "item": "이상한 망토", "slot": "머리", "tags": ["은폐", "방호(강)"]}])  # 추출 — curated 제외
+                 {"op": "WEAR", "item": "이상한 망토", "slot": "머리", "tags": ["은폐", "방호(강)", "없는태그"]}])  # 추출 — 강한 효과도 가능, 어휘 밖만 제외
     tr = s.item_traits
     assert "우비" not in tr and "쇠파이프" not in tr                               # 저작 물건은 기록하지 않는다
     assert tr["검은 롱패딩"]["tags"] == ["보온"] and tr["검은 롱패딩"]["source"] == "REFERENCE"
-    assert tr["이상한 망토"] == {"slots": ["머리"], "tags": ["은폐"], "source": "EXTRACTION"}
-    assert IT.worn_tags(s, "P", DEFS) == {"근접무기", "방수", "보온", "은폐"}
+    assert tr["이상한 망토"] == {"slots": ["머리"], "tags": ["은폐", "방호(강)"], "source": "EXTRACTION"}
+    assert IT.worn_tags(s, "P", DEFS) == {"근접무기", "방수", "보온", "은폐", "방호(강)"}
     assert s.resources["P"]["이상한 망토"] == 1                                    # 입어도 소지 수량 그대로
     run_ops(s, [{"op": "REMOVE", "item": "이상한 망토"}])
     run_ops(s, [{"op": "WEAR", "item": "이상한 망토", "slot": "겉옷", "tags": ["보온"]}])  # 이미 정해짐 — 새 태그 무시
-    assert IT.key_tags("이상한 망토", DEFS, s.item_traits) == ["은폐"]
+    assert IT.key_tags("이상한 망토", DEFS, s.item_traits) == ["은폐", "방호(강)"]
 
 
 def test_wear_rejects_unowned_wrong_authored_slot_and_unknown_new():
@@ -191,13 +191,13 @@ async def test_outfit_reading_validates_slots_and_tags(monkeypatch):
     from core import profile_ai
 
     async def fake(*a, **k):
-        return True, {"items": [{"name": "검은 패딩", "slot": "겉옷", "tags": ["보온", "방호(강)"]},
+        return True, {"items": [{"name": "검은 패딩", "slot": "겉옷", "tags": ["보온", "방호(강)", "없는태그"]},
                                 {"name": "팬티", "slot": "하의", "tags": []},
                                 {"name": "칼", "slot": "오른손", "tags": []},           # 손은 옷 자리가 아님
                                 {"name": "모자[개]", "slot": "머리", "tags": []}]}       # 괄호 기호 거부
     monkeypatch.setattr(profile_ai, "_call", fake)
     out = await profile_ai.outfit(None, None, text="검은 패딩, 속옷")
-    assert out == [{"name": "검은 패딩", "slot": "겉옷", "tags": ["보온"]}, {"name": "팬티", "slot": "하의", "tags": []}]
+    assert out == [{"name": "검은 패딩", "slot": "겉옷", "tags": ["보온", "방호(강)"]}, {"name": "팬티", "slot": "하의", "tags": []}]
 
 
 # ── A1·A2 저장 프로필·최종 검토 ─────────────────────────────

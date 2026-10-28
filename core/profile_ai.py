@@ -203,7 +203,7 @@ async def merge(bot, session, *, field: str, values: list,
 
 
 async def outfit(bot, session, *, text: str) -> list:
-    """v7.46 복장 글 → 착용 물건 [{name, slot, tags}](공용 자리·태그로 검증, authored_only 태그 제외).
+    """v7.46 복장 글 → 착용 물건 [{name, slot, tags}](공용 자리·태그 어휘로 검증 — 어휘 밖 태그만 버린다).
 
     실패하면 빈 목록 — 착용 없이 진행한다(복장 글은 프로필에 그대로 남는다)."""
     from prompts import PROFILE_OUTFIT_RESPONSE_SCHEMA, PROFILE_OUTFIT_SYSTEM_INSTRUCTION
