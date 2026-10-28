@@ -255,12 +255,18 @@ def _judge_side(view, side: dict, name: str, world_turn=None) -> dict:
     M·H·D는 판단층위 계약값(검증 통과분). 능력치를 확인할 수 없으면 target=None(굴리지 않음)."""
     stat = str(side.get("stat") or "")
     uid = core.get_uid_by_char_name(view, name)
-    skill, s = "", 0
+    skill, s, item, e = "", 0, "", 0
     if uid:
         _prof = (view.players.get(uid) or {}).get("profile") or {}
         raw = _prof.get(stat)
         s = core.judgment.skill_mod(_prof, side.get("skill"))
         skill = str(side.get("skill") or "").strip() if s else ""
+        if world_turn is not None and side.get("item") not in (None, "", "NONE"):   # v7.46 장비 보정 E
+            _defs = core.items.definitions_of(world_turn.ctx.definition)
+            row = next((r for r in core.items.equip_rows(view, name, _defs) if r[0] == side.get("item")), None)
+            if row is not None:
+                e = core.items.equip_mod(row[3], stat)
+                item = row[2] if e else ""
     else:
         raw = (_npc_stats(view, name, world_turn) or {}).get(stat)
     a = core.judgment.ability_mod(raw)
@@ -269,13 +275,13 @@ def _judge_side(view, side: dict, name: str, world_turn=None) -> dict:
     h = int(side.get("status_mod") or 0)
     d = core.judgment.DIFFICULTY[diff]
     out = {"name": name, "stat": stat, "is_pc": bool(uid), "uid": uid, "difficulty": diff,
-           "A": a, "S": s, "skill": skill, "M": m, "H": h, "D": d,
+           "A": a, "S": s, "skill": skill, "E": e, "item": item, "M": m, "H": h, "D": d,
            "method_basis": str(side.get("method_basis") or ""),
            "status_basis": str(side.get("status_basis") or ""), "T": None}
     if a is None:
         return out
-    out["T"] = core.judgment.target(a, s, m, h, d)
-    terms = [(a, "능력"), (s, f"숙련 {skill}"), (m, "행동"), (h, "상태"), (d, f"난이도 {diff}")]
+    out["T"] = core.judgment.target(a, s, m, h, d, e)
+    terms = [(a, "능력"), (s, f"숙련 {skill}"), (e, f"장비 {item}"), (m, "행동"), (h, "상태"), (d, f"난이도 {diff}")]
     _terms = "".join(f"{v:+d}({n})" for v, n in terms if v)
     out["breakdown"] = f"{core.judgment.BASE}{_terms}={out['T']}" if _terms else f"{out['T']}"
     return out
@@ -290,6 +296,13 @@ def _judge_plan(view, spec: dict, world_turn=None) -> dict:
         o = spec["opponent"]
         opp = _judge_side(view, o, str(o.get("name") or "?"), world_turn)
     return {"kind": kind, "actor": actor, "opponent": opp}
+
+
+def _pc_skills(session, p_data) -> list:
+    """v7.46: PC 프로필 스킬 이름 목록(쉼표 구분 문자열 또는 목록)."""
+    raw = ((p_data or {}).get("profile") or {}).get(core.judgment.SKILL_FIELD)
+    vals = raw if isinstance(raw, list) else str(raw or "").split(",")
+    return [x for x in dict.fromkeys(str(v).strip() for v in vals) if x]
 
 
 def _build_judgment_user_prompt(session, player_message: str, roll_results: list,
@@ -351,6 +364,16 @@ def _build_judgment_user_prompt(session, player_message: str, roll_results: list
             prof_lines.append(
                 f"    · {_sn}: 적용조건=[{_e.get('apply_condition', '')}] / 제거조건=[{_e.get('remove_condition', '')}]"
                 + (f" / 저작 가중치 {int(_w):+d}(옛 D20 척도 — T로는 ×2, 참고용)" if isinstance(_w, int) and _w else ""))
+        # v7.46(A): 스킬 쓰임 — rolls의 skill은 이 목록에서만(스키마 열거)
+        _sk = _pc_skills(session, p_data)
+        if _sk:
+            prof_lines.append("    스킬(쓰임): " + " / ".join(
+                f"{n}({core.profile_gen.skill_note(session.scenario_data, n) or '쓰임 미저작'})" for n in _sk))
+        if world_turn is not None:
+            _eb = core.items.equip_block(core.items.equip_rows(
+                session, c_name, core.items.definitions_of(world_turn.ctx.definition)))
+            if _eb:
+                prof_lines.append("    " + _eb.replace("\n", "\n    "))
     lines.append("[플레이어 프로필]\n" + ("\n".join(prof_lines) if prof_lines else "(없음)"))
 
     # ②-2 등장 NPC — 무대에 누가 있는지 알아야 ASK 대상과 판정 대상을 정할 수 있다
@@ -4474,6 +4497,22 @@ class GMCog(commands.Cog):
                 _schema["properties"]["discovery_target"] = {"type": "string"}
                 _schema["properties"]["discovery_ref"] = {"type": "string",
                                                           "enum": ["NONE"] + [r[0] for r in discovery_rows]}
+        # v7.46(A): 굴림 skill은 PC가 가진 스킬 이름만, item은 착용·손에 든 물건 키만(스키마 사본 — prompts.py 원본 불변)
+        _skills = sorted({n for p in (session.players or {}).values() if isinstance(p, dict)
+                          for n in _pc_skills(session, p)})
+        _ekeys = []
+        if _wt is not None:
+            _defs = core.items.definitions_of(_wt.ctx.definition)
+            _ekeys = sorted({r[0] for p in (session.players or {}).values() if isinstance(p, dict)
+                             for r in core.items.equip_rows(session, p.get("name"), _defs)})
+        if _skills or _ekeys:
+            import copy as _copy
+            _schema = _copy.deepcopy(_schema)
+            _ri = _schema["properties"]["rolls"]["items"]["properties"]
+            if _skills:
+                _ri["skill"] = dict(_ri.get("skill") or {"type": "string"}, enum=["NONE"] + _skills)
+            _ri["item"] = {"type": "string", "enum": ["NONE"] + _ekeys,
+                           "description": "PC 굴림에 직접 쓰인 착용·손에 든 물건 키(E키). 없으면 NONE"}
         user_prompt = _build_judgment_user_prompt(session, player_message, roll_results, world_turn=_wt, gate=gate,
                                                   declaration_draft=declaration_draft and not gate,
                                                   discovery_rows=discovery_rows if declaration_draft and not gate else ())

@@ -140,6 +140,43 @@ def step(scenario_data: dict, run: dict, user_input: str = None) -> dict:
         module = "select_one"
         handler = profile_gen.select_one
 
+    # ── v7.46 묶음별 선택 — 묶음마다 차례로 고르고 마지막에 한 번 확인 ──
+    if module in ("choose_skills", "choose_groups"):
+        if module == "choose_skills":
+            fixed, groups = profile_gen.skill_groups(scenario_data, args, run["chosen"])
+        else:
+            fixed, groups = [], profile_gen.item_groups(scenario_data, args)
+        part = run.get("partial") or {}
+        if part.get("field") != field:
+            part = {"field": field, "done": {}}
+        todo = [g for g in groups if g[0] not in part["done"]]
+        if todo and isinstance(user_input, list):
+            label, _v, opts, n = todo[0]
+            vals = [v for v in dict.fromkeys(str(x) for x in user_input) if v in opts]
+            if len(vals) == n:
+                part["done"][label] = vals
+                todo = todo[1:]
+        run["partial"] = part
+        table = (scenario_data or {}).get(args.get("source") or "skills")
+        if todo:
+            label, v, opts, n = todo[0]
+            picked = [x for g in groups for x in part["done"].get(g[0], [])]
+            if module == "choose_skills":
+                msg = (f"**{label} {v}** — 이 스탯과 이어진 스킬을 **{n}개** 골라 주십시오."
+                       + (f"\n> 직업 스킬: {', '.join(fixed)}" if fixed else ""))
+            else:
+                msg = (args.get("prompt") or "시작 물건을 역할마다 하나씩 골라 주십시오.") + f"\n> **{label}**"
+            if picked:
+                msg += f"\n> 고른 것: {', '.join(picked)}"
+            return {"type": ASK, "field": field, "options": opts, "value": None, "multi": n,
+                    "option_desc": {o: profile_gen.option_note(table, o) or "" for o in opts},
+                    "message": msg, "guide": guide, "can_back": can_back}
+        value = list(fixed) + [x for g in groups for x in part["done"].get(g[0], [])]
+        run["partial"] = None
+        run["pending"] = {"field": field, "value": value}
+        return {"type": CONFIRM, "field": field, "options": [], "value": value, "guide": guide,
+                "can_back": can_back, "message": " · ".join(f"**{v}**" for v in value) or "(없음)"}
+
     # ── 능력치 배분 ──
     # 산출은 언제나 랜덤이며, 총합·최대편차·최고항목은 선택 제약이다.
     # 제약은 run["stat_constraints"]에 보관되어 재굴림에도 유지된다.
@@ -188,9 +225,13 @@ def step(scenario_data: dict, run: dict, user_input: str = None) -> dict:
         result = profile_gen.select_one(scenario_data, args, run["chosen"],
                                         user_input)
         if result["status"] == "prompt":
+            msg = f"{field}을(를) 선택해 주십시오."
+            if args.get("list_desc"):      # v7.46: 고르기 전에 선택지마다 성격 한 줄을 함께 본다
+                msg += "".join(f"\n> **{o}** — {profile_gen.describe_option(scenario_data, args, o)}"
+                               for o in result["options"])
             return {"type": ASK, "field": field, "options": result["options"],
                     "value": None, "guide": guide, "can_back": can_back,
-                    "message": f"{field}을(를) 선택해 주십시오."}
+                    "message": msg}
         if result["status"] == "retry":
             sug = result["suggestions"]
             msg = f"'{user_input}'을(를) 찾지 못했습니다."
@@ -281,6 +322,7 @@ def confirm(scenario_data: dict, run: dict) -> dict:
 def cancel_pending(run: dict):
     """확인을 취소한다. 재선택으로 돌아가며 이전 선택 흔적을 지운다."""
     run["pending"] = None
+    run["partial"] = None
 
 
 def go_back(scenario_data: dict, run: dict) -> tuple:
@@ -296,6 +338,7 @@ def go_back(scenario_data: dict, run: dict) -> tuple:
     if step_def:
         run["chosen"].pop(step_def.get("field"), None)
     run["pending"] = None
+    run["partial"] = None
     return True, step_def.get("field") if step_def else None
 
 
@@ -344,6 +387,8 @@ def expected_type_ok(step: dict, value) -> bool:
     if module == "roll_stats":
         return isinstance(value, dict) and all(isinstance(v, int) and not isinstance(v, bool)
                                                for v in value.values())
+    if module in ("choose_skills", "choose_groups"):
+        return isinstance(value, list)
     if module == "intersect_list":
         return isinstance(value, list) if (args.get("pick") or args.get("choose")) else isinstance(value, (str, list))
     return isinstance(value, str)

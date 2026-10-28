@@ -332,8 +332,10 @@ def test_D07_disassemble_authored_parts_no_duplication():
 
 
 def test_D08_item_tool_only_via_existing_method_mod():
+    # v7.46(사용자 결정 7 혼합형): 착용·손에 든 물건만 코드 장비 보정 E, 그 밖의 도구 쓰임은 여전히 M 한 곳.
+    #   판정 수식 모듈은 순수 — 아이템 정본(resources)을 읽지 않고 E 값만 받는다.
     src = (ROOT / "core/judgment.py").read_text(encoding="utf-8")
-    assert "items" not in src and "resources" not in src        # 판정 수식에 아이템 별도 보너스 없음(M 한 곳)
+    assert "import" not in src.replace("import random", "") and "resources" not in src
 
 
 def test_D09_D10_carry_both_axes_and_ungraded_cap():

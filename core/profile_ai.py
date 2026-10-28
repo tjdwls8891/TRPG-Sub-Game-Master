@@ -202,6 +202,36 @@ async def merge(bot, session, *, field: str, values: list,
             "fallback": False, "too_long": len(merged) > max_length}
 
 
+async def outfit(bot, session, *, text: str) -> list:
+    """v7.46 복장 글 → 착용 물건 [{name, slot, tags}](공용 자리·태그로 검증, authored_only 태그 제외).
+
+    실패하면 빈 목록 — 착용 없이 진행한다(복장 글은 프로필에 그대로 남는다)."""
+    from prompts import PROFILE_OUTFIT_RESPONSE_SCHEMA, PROFILE_OUTFIT_SYSTEM_INSTRUCTION
+    from .items import effect_vocab, free_tags
+
+    if not str(text or "").strip():
+        return []
+    voc = effect_vocab()
+    wear_slots = [x for x in voc["slots"] if x not in voc["hand_slots"]]
+    tags = free_tags(voc["tags"])
+    user_prompt = (f"[복장 글]\n{text}\n\n[자리 목록]\n{', '.join(wear_slots)}\n\n"
+                   "[효과 태그 목록]\n" + "\n".join(f"{t}: {voc['tags'][t].get('desc', '')}" for t in tags))
+    ok, data = await _call(bot, PROFILE_OUTFIT_SYSTEM_INSTRUCTION, PROFILE_OUTFIT_RESPONSE_SCHEMA, user_prompt,
+                           session)
+    if not ok or not isinstance(data, dict):
+        return []
+    out, seen = [], set()
+    for it in data.get("items") or ():
+        if not isinstance(it, dict):
+            continue
+        name, slot = str(it.get("name") or "").strip(), it.get("slot")
+        if not name or any(c in name for c in "[]〈〉") or slot not in wear_slots or slot in seen:
+            continue
+        seen.add(slot)
+        out.append({"name": name, "slot": slot, "tags": free_tags(it.get("tags"))})
+    return out
+
+
 def format_validation(field: str, result: dict) -> str:
     """검증 결과 표시 문자열."""
     v = result.get("verdict")

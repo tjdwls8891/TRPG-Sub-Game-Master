@@ -114,7 +114,7 @@ IK_OPS = ("equals", "one_of")
 IK_SUMMARY_MAX = 300
 # v7.17 아이템 정의(선택) — 저작한 시나리오만 정의에 키가 생긴다(미저작 revision 불변)
 ITEM_DEF_KEYS = ("aliases", "categories", "units", "mass_grade", "bulk_grade", "parts", "info_refs",
-                 "special", "unique", "recipe_only", "instances", "name")
+                 "special", "unique", "recipe_only", "instances", "name", "wear")
 ITEM_GRADE_MAX = 5
 # H07: information_definitions[*].reveals = {"places": [PlaceId], "edges": [EdgeId|pair id]} — PC가 이 정보를 실제로
 #      알게 되면(CONTENT 획득) 함께 얻는 공간 지식(장소 이름·숨은 길 발견: NPC 제보·문서·지도·수색·사건 효과).
@@ -2350,6 +2350,18 @@ def _compile_items(raw, actor_index, places, d) -> tuple:
                     rec[flag] = True
         if isinstance(body.get("name"), str):
             rec["name"] = body["name"]
+        if body.get("wear") is not None:             # v7.46 착용·들기 — 자리와 효과 태그(공용 어휘)
+            from .items import effect_vocab
+            voc = effect_vocab()
+            w = body["wear"]
+            slots = _str_list((w or {}).get("slots")) if isinstance(w, dict) else None
+            tags = _str_list((w or {}).get("tags") or []) if isinstance(w, dict) else None
+            if not slots or tags is None or set(slots) - set(voc["slots"]) or set(tags) - set(voc["tags"]):
+                d.add(ERROR, "ITEM_WEAR_INVALID", f"{p}.wear",
+                      "wear는 {slots: [공용 자리], tags: [공용 효과 태그]}(data/common_item_effects.json)")
+                ok = False
+            else:
+                rec["wear"] = {"slots": slots, "tags": tags}
         insts = body.get("instances") or []
         if insts and not rec.get("unique"):
             d.add(ERROR, "ITEM_INSTANCES_NOT_UNIQUE", f"{p}.instances", "instances는 unique 물건에만 저작합니다")

@@ -1963,8 +1963,20 @@ def status_turn_facts(session, prep) -> dict | None:
         except Exception:  # noqa: BLE001 — 시간대 모름
             daypart = None
     outcome = getattr(getattr(wt, "plan", None), "outcome", None) or {}
+    # v7.46: 이번 턴 물건 연산(입기·벗기 포함)을 반영한 PC 착용 효과 태그
+    from . import items as _items
+    defs = _items.definitions_of(wt.ctx.definition)
+    equip = None
+    ip = getattr(getattr(prep, "extraction_plan", None), "item_plan", None)
+    if ip is not None:
+        try:
+            equip = _items.run_ops(session, ip.ops, defs=ip.defs, pc_name=ip.pc_name, scene_place=ip.scene_place,
+                                   transaction_id=ip.transaction_id, recipes=ip.recipes).equip
+        except Exception:  # noqa: BLE001 — 커밋이 같은 연산을 다시 검증한다(여기서는 직전 착용으로)
+            equip = None
     return {"now": now, "before": int((getattr(session, "world_clock", None) or {}).get("minute_index", now)),
             "start": int(clock.get("start_minute_index", now)),
             "place": pl.get("place_id") if pl.get("kind") == _sp.AT_PLACE else None,
-            "daypart": daypart, "activity": outcome.get("activity")}
+            "daypart": daypart, "activity": outcome.get("activity"),
+            "worn": _items.worn_tags(session, wt.ctx.lead_pc, defs, equipment=equip)}
 

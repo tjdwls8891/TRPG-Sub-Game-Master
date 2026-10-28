@@ -760,6 +760,28 @@ async def finish(state: ProfileCreationSession, channel):
     except Exception as e:
         print(f"[프로필] 소지품 지급 실패: {e}")
 
+    # v7.46 시작 복장 → 착용 물건(args.wear_items 단계 — 무료 판독 1회, 실패하면 착용 없이 진행)
+    try:
+        wstep = next((st for st in profile_gen.get_steps(state.session.scenario_data)
+                      if (st.get("args") or {}).get("wear_items")), None)
+        if wstep and result.get(wstep.get("field")):
+            from . import profile_ai
+            worn = await profile_ai.outfit(state.bot, state.session, text=str(result[wstep["field"]]))
+            if worn:
+                res = dict(getattr(state.session, "resources", {}) or {})
+                bag = dict(res.get(state.char_name) or {})
+                eq = dict(getattr(state.session, "equipment", {}) or {})
+                mine = {}
+                for w in worn:
+                    bag[w["name"]] = bag.get(w["name"], 0) + 1
+                    mine[w["slot"]] = {"key": w["name"], "tags": w["tags"]}
+                res[state.char_name] = bag
+                eq[state.char_name] = mine
+                state.session.resources = res
+                state.session.equipment = eq
+    except Exception as e:
+        print(f"[프로필] 복장 착용 반영 실패: {e}")
+
     # 정본 반영과 '최종 승인됨' 표식을 한 번의 저장에 담는다 — 재시작 뒤 두 번 반영되지 않는다.
     state.run["finalized"] = True
     state.run["phase"] = P_SAVE
@@ -906,7 +928,7 @@ class ChoiceView(_Base):
         super().__init__(state, channel)
         options = res.get("options") or []
         if res.get("multi"):
-            self.add_item(MultiChoiceSelect(options, int(res["multi"])))
+            self.add_item(MultiChoiceSelect(options, int(res["multi"]), res.get("option_desc")))
         elif len(options) <= SELECT_THRESHOLD:
             for opt in options[:SELECT_THRESHOLD]:
                 self.add_item(ChoiceButton(str(opt)))
@@ -943,10 +965,12 @@ class ChoiceSelect(discord.ui.Select):
 class MultiChoiceSelect(discord.ui.Select):
     """v7.43 — 정확히 n개를 고르는 셀렉트(시작 물건 등)."""
 
-    def __init__(self, options, n: int):
+    def __init__(self, options, n: int, desc=None):
+        desc = desc or {}
         super().__init__(
             placeholder=f"{n}개 선택", min_values=n, max_values=n,
-            options=[discord.SelectOption(label=str(o)[:100], value=str(o))
+            options=[discord.SelectOption(label=str(o)[:100], value=str(o),
+                                          description=(str(desc.get(o) or "")[:100] or None))
                      for o in options[:MAX_OPTIONS]],
         )
 

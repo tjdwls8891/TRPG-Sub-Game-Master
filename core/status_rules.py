@@ -23,6 +23,7 @@
 #     {"daypart_in": [시간대…]}  현재 시간대
 #     {"activity_in": [활동…], "min_minutes": n?}   이번 턴 활동(SLEEP·WAIT·TREAT…)과 그 턴의 경과 분
 #     {"status_active": s}       그 상태가 지금 붙어 있음
+#     {"wearing": 태그}          PC가 그 효과 태그의 물건을 입거나 들고 있음(v7.46 — 이번 턴 입기·벗기 반영, 공용 어휘)
 #
 #   시나리오 최상위 `intake_groups: {묶음: [물건 낱말…]}` — 물건 종류의 낱말 하나가 목록과 같으면 그 묶음.
 #   `status_common_exclude: [이름…]` — 공용 상태 빼기. 상태 `excludes: [이름…]` — 상호 배타(붙은 쪽이 다른 쪽을 푼다).
@@ -58,6 +59,7 @@ class Ctx:
     active: frozenset = frozenset()           # 판정 전 PC 상태
     clock: dict = field(default_factory=dict)  # 이 PC의 status_clock 항목
     seed: str = ""                            # 잠복 판정의 결정적 근거(세션 narrative_seed + PC)
+    worn: frozenset = frozenset()             # v7.46 PC 착용 효과 태그(없으면 빈 집합 — 입은 것이 없다는 사실)
 
 
 def _t_all(vals):
@@ -120,6 +122,8 @@ def evaluate(cond, ctx: Ctx, status: str) -> str:
         return _b(ok and ctx.turn_minutes >= int(cond.get("min_minutes") or 0))
     if "status_active" in cond:
         return _b(cond["status_active"] in ctx.active)
+    if "wearing" in cond:
+        return _b(cond["wearing"] in ctx.worn)
     return UNKNOWN
 
 
@@ -158,6 +162,9 @@ def check_condition(cond, *, groups=(), statuses=(), path="", place_groups=None)
             return [] if ok else [f"{path}: 정의되지 않은 섭취 묶음 {cond[key]!r}(intake_groups)"]
     if "status_active" in cond:
         return [] if cond["status_active"] in statuses else [f"{path}: 알 수 없는 상태 {cond['status_active']!r}"]
+    if "wearing" in cond:
+        from .items import effect_vocab
+        return [] if cond["wearing"] in effect_vocab()["tags"] else [f"{path}: 알 수 없는 효과 태그 {cond['wearing']!r}"]
     if "latent_due" in cond:
         return [] if cond["latent_due"] in statuses else [f"{path}: 알 수 없는 상태 {cond['latent_due']!r}"]
     if "place_within" in cond:
@@ -402,7 +409,7 @@ def resolve_turn(session, prep) -> list:
               place=place, place_chain=_place_chain(sd, place), place_groups=place_groups_of(sd), daypart=facts["daypart"], activity=facts["activity"],
               consumed=consumed, used=used, active=frozenset((session.statuses or {}).get(pc_name) or ()),
               clock=copy.deepcopy(store.get(pc_name) or {}),
-              seed=f"{getattr(session, 'narrative_seed', '') or ''}")
+              seed=f"{getattr(session, 'narrative_seed', '') or ''}", worn=facts.get("worn") or frozenset())
     mine = lambda e: e.get("target") == pc_name  # noqa: E731
     d = decide(merged, ctx, pc_name, [e for e in plan.status_apply if mine(e)],
                [e for e in plan.status_clear if mine(e)], consumed)

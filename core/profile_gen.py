@@ -630,6 +630,59 @@ def pick_random(items: list, spec) -> list:
     return random.sample(list(items), n)
 
 
+# ── v7.46 묶음별 선택(스탯 구간 스킬 · 역할별 시작 물건) ─────
+# 스킬: scenario["skills"] = {"공통": {스탯: {스킬: 쓰임}}, "직업": {직업: {스킬: 쓰임}}}
+#   args = {"source": "skills", "job_field": "직업", "stats_field": "능력치", "bands": [[하한, 상한, 개수], …]}
+#   직업 전용 스킬은 자동으로 갖고, 공통 스킬은 그 스탯 값이 든 구간의 개수만큼 그 스탯 묶음에서 고른다.
+# 물건: scenario[args.source] = {역할: {물건: 설명}} — 역할마다 하나씩 고른다(grant_items면 소지품으로만).
+def band_count(bands, value) -> int:
+    if not isinstance(value, int) or isinstance(value, bool):
+        return 0
+    for b in bands or ():
+        if isinstance(b, (list, tuple)) and len(b) == 3 and b[0] <= value <= b[1]:
+            return max(0, int(b[2]))
+    return 0
+
+
+def skill_groups(scenario_data: dict, args: dict, chosen: dict) -> tuple:
+    """(직업 전용 스킬, [(스탯, 값, 후보, 고를 수)]) — 고를 수 0인 묶음은 빠진다."""
+    src = (scenario_data or {}).get(args.get("source") or "skills") or {}
+    job = chosen.get(args.get("job_field") or "직업")
+    fixed = list(((src.get("직업") or {}).get(job) or {}))
+    stats = chosen.get(args.get("stats_field") or "능력치") or {}
+    out = []
+    for stat, pool in (src.get("공통") or {}).items():
+        opts = [o for o in (pool or {}) if o not in fixed]
+        n = min(band_count(args.get("bands"), stats.get(stat)), len(opts))
+        if n > 0:
+            out.append((stat, stats.get(stat), opts, n))
+    return fixed, out
+
+
+def item_groups(scenario_data: dict, args: dict) -> list:
+    """[(역할, None, 후보, 1)] — 역할마다 하나."""
+    src = (scenario_data or {}).get(args.get("source") or "") or {}
+    return [(g, None, list(opts), 1) for g, opts in src.items() if isinstance(opts, dict) and opts]
+
+
+def option_note(table, name: str) -> str | None:
+    """중첩 표({묶음: {이름: 설명}})에서 이름의 설명 한 줄."""
+    if isinstance(table, dict):
+        v = table.get(name)
+        if isinstance(v, str):
+            return v
+        for sub in table.values():
+            found = option_note(sub, name)
+            if found:
+                return found
+    return None
+
+
+def skill_note(scenario_data: dict, name: str) -> str | None:
+    """스킬의 쓰임 한 줄(판단층위 입력·선택 화면 공용)."""
+    return option_note((scenario_data or {}).get("skills"), name)
+
+
 # ── 실행부 지원 ─────────────────────────────────────────────
 MODULES = {
     "select_one": select_one,
@@ -642,6 +695,8 @@ MODULES = {
     "merge_inputs": merge_inputs,
     "guide_from_prior": guide_from_prior,
     "intersect_list": intersect_list,
+    "choose_skills": skill_groups,
+    "choose_groups": item_groups,
 }
 
 # AI 호출이 필요한 모듈. 실행부가 별도 경로로 처리한다.
@@ -681,6 +736,13 @@ def validate_steps(scenario_data: dict) -> list:
         for dep in (args.get("depends") or []):
             if dep not in fields[:i]:
                 errors.append(f"'{field}' 단계가 아직 정해지지 않은 '{dep}'에 의존합니다.")
+        if module in ("choose_skills", "choose_groups"):
+            if not isinstance((scenario_data or {}).get(args.get("source") or ("skills" if module == "choose_skills" else "")), dict):
+                errors.append(f"'{field}' 단계의 source '{args.get('source')}'가 시나리오에 없습니다.")
+            for dep in ((args.get("job_field") or "직업", args.get("stats_field") or "능력치")
+                        if module == "choose_skills" else ()):
+                if dep not in fields[:i]:
+                    errors.append(f"'{field}' 단계가 아직 정해지지 않은 '{dep}'에 의존합니다.")
         if args.get("from") and args["from"] not in (scenario_data or {}):
             errors.append(f"'{field}' 단계의 from '{args['from']}'이 시나리오에 없습니다.")
         errors += _guide_errors(field, module, args)
