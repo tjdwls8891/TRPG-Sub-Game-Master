@@ -155,13 +155,19 @@ def key_tags(key: str, defs=None, session_traits=None) -> list:
     return list(t["tags"]) if t else []
 
 
+def tags_at(tags, slot) -> list:
+    """W2: 그 자리에서 실제로 나는 효과만 — 태그별 허용 자리(옷을 손에 들면 보온·방호 없음, 무기를 입으면 무기 효과 없음)."""
+    voc = effect_vocab()["tags"]
+    return [t for t in tags or () if t in voc and (not voc[t].get("slots") or slot in voc[t]["slots"])]
+
+
 def worn_tags(session, owner: str, defs=None, equipment=None, traits=None) -> frozenset:
     eq = (equipment if equipment is not None else getattr(session, "equipment", None) or {}).get(owner) or {}
     st = traits if traits is not None else getattr(session, "item_traits", None) or {}
     out = set()
-    for e in eq.values():
+    for slot, e in eq.items():
         if isinstance(e, dict) and usable(e.get("key", ""), defs):
-            out.update(key_tags(e["key"], defs, st))
+            out.update(tags_at(key_tags(e["key"], defs, st), slot))
     return frozenset(out)
 
 
@@ -194,7 +200,7 @@ def equip_rows(session, owner: str, defs=None) -> list:
         e = eq.get(slot)
         if not isinstance(e, dict) or not usable(e.get("key", ""), defs):
             continue
-        tags = [t for t in key_tags(e["key"], defs, st) if voc["tags"].get(t, {}).get("mod")]
+        tags = [t for t in tags_at(key_tags(e["key"], defs, st), slot) if voc["tags"].get(t, {}).get("mod")]
         if tags:
             rows.append((e["key"], f"{e['key']}({slot})", tags))
         seen.add(e["key"])
@@ -204,7 +210,7 @@ def equip_rows(session, owner: str, defs=None) -> list:
             continue
         t, _src = traits_of(parse_key(k, defs)[0].kind, defs, st)
         if t and set(t["slots"]) & hands:
-            tags = [x for x in t["tags"] if voc["tags"].get(x, {}).get("mod")]
+            tags = [x for x in tags_at(t["tags"], voc["hand_slots"][0]) if voc["tags"].get(x, {}).get("mod")]
             if tags:
                 rows.append((k, f"{k}(가방 속 — 꺼내 쓰는 것까지 한 행동)", tags))
     return [(f"E{i}", lbl, k, tags) for i, (k, lbl, tags) in enumerate(rows, 1)]
@@ -438,7 +444,8 @@ class ItemManifest:
         if self.payments:
             lines.append("코드가 이미 처리한 지급(다시 적지 말 것): " + ", ".join(self.payments))
         if self.worn:
-            lines.append("PC 착용·손에 든 것: " + ", ".join(self.worn))
+            lines.append("PC 착용·손에 든 것(괄호 뒤는 효과 — 젖음·추위·더위 같은 상태 판단에 반영할 것): "
+                         + ", ".join(self.worn))
         if self.known:
             lines.append("효과가 이미 정해진 PC 물건(WEAR할 때 tags를 비울 것): " + ", ".join(self.known))
         lines.append("· TRANSFER owner→to 건넴 · ACQUIRE 현장 물건(L·D키)을 owner가 집음 · DROP owner가 내려놓음 · "
@@ -515,8 +522,10 @@ def build_manifest(session, *, pc_name: str, scene_owner_names=(), scene_place=N
     rc = tuple((f"C{i}", rid, _recipe_label(rid, r)) for i, (rid, r) in enumerate(sorted((recipes or {}).items()), 1))
     hkey = {h[2]: h[0] for h in holdings if h[1] == pc_name and h[2]}
     eq = (getattr(session, "equipment", None) or {}).get(pc_name) or {}
-    worn = tuple(f"{sl}={e.get('key')}({hkey.get(e.get('key'), '?')})" for sl, e in eq.items() if isinstance(e, dict))
     st = getattr(session, "item_traits", None) or {}
+    worn = tuple(f"{sl}={e.get('key')}({hkey.get(e.get('key'), '?')}"                     # W4: 효과까지(젖음·추위 판단 근거)
+                 + "".join(f"·{t}" for t in tags_at(key_tags(e.get("key"), defs, st), sl)) + ")"
+                 for sl, e in eq.items() if isinstance(e, dict))
     known = []
     for h in holdings:
         if h[1] == pc_name and h[2]:
@@ -879,12 +888,12 @@ def run_ops(session, ops, *, defs=None, pc_name, scene_place, transaction_id, re
             if not usable(key, defs):
                 raise ItemContractError(f"{why}: {key}은(는) 고장·파손 상태")
             mine = s.equip.setdefault(owner, {})
-            worn_n = sum(1 for sl, e in mine.items() if sl != slot and e.get("key") == key)
-            if s.bag(owner)[key] - worn_n <= 0:
-                raise ItemContractError(f"{why}: {key}은(는) 이미 다른 자리에 모두 착용 중")
+            others = [sl for sl, e in mine.items() if sl != slot and e.get("key") == key]
+            if s.bag(owner)[key] - len(others) <= 0:      # 모두 다른 자리에 있으면 하나를 옮긴다(손에 든 옷을 입음 등)
+                mine.pop(others[0])
             mine[slot] = {"key": key}
             if src in ("REFERENCE", None):     # 처음 정해지는 물건 — 이 세션에서 유지(이미 정해졌으면 추출 태그는 버린다)
-                s.traits[kind_] = {"slots": sorted(set((t or {}).get("slots") or []) | {slot}),
+                s.traits[kind_] = {"slots": sorted(set(t["slots"]) if t else {slot}),     # W2: 참고 묶음 자리에 합치지 않는다
                                    "tags": list(t["tags"]) if t else free_tags(op.get("tags"), slot),
                                    "source": "REFERENCE" if t else "EXTRACTION"}
         elif kind == "REMOVE":
@@ -1210,8 +1219,8 @@ def item_block(session, *, pc_name, scene_owner_names=(), scene_place=None, defs
     traits = getattr(session, "item_traits", None) or {}
     if worn:
         lines.append("· PC 착용·손에 든 것(정본 — 프로필 복장 글보다 우선): " + ", ".join(
-            f"{sl} {e.get('key')}" + (f"({'·'.join(key_tags(e['key'], defs, traits))})"
-                                       if key_tags(e.get("key"), defs, traits) else "")
+            f"{sl} {e.get('key')}" + (f"({'·'.join(tags_at(key_tags(e['key'], defs, traits), sl))})"
+                                       if tags_at(key_tags(e.get("key"), defs, traits), sl) else "")
             for sl, e in worn.items() if isinstance(e, dict)))
     for n in [pc_name] + [x for x in scene_owner_names if x != pc_name]:
         bag = canonical_bag(res.get(n) or {}, defs)

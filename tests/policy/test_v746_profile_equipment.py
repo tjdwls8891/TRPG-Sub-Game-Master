@@ -341,3 +341,14 @@ def test_extraction_tags_are_range_limited_but_strong_effects_allowed():
     assert "같은 계열(약·기본·강)은 하나만" in m.render()
     enum = m.schema()["items"]["properties"]["tags"]["items"]["enum"]
     assert len(enum) == len(IT.effect_vocab()["tags"])                                 # 스키마는 어휘 전부
+
+
+def test_effects_only_where_worn_or_held_and_shown_to_extraction():
+    # W2: 옷을 손에 들면 보온·방호가 없고, 무기를 입는 자리에 두면 무기 효과가 없다
+    s = run_ops(S({"P": {"검은 패딩": 1, "쇠파이프": 1}}), [{"op": "WEAR", "item": "검은 패딩", "slot": "오른손"}])
+    assert IT.worn_tags(s, "P", DEFS) == frozenset() and s.item_traits["검은 패딩"]["slots"] == ["겉옷"]
+    assert [r[2] for r in IT.equip_rows(s, "P", DEFS)] == ["쇠파이프"]
+    run_ops(s, [{"op": "WEAR", "item": "검은 패딩", "slot": "겉옷"}])
+    assert IT.worn_tags(s, "P", DEFS) == {"보온", "방호(약)"} and "오른손" not in s.equipment["P"]   # 손에서 몸으로 옮김
+    # W4: 추출 매니페스트 착용 줄에 효과가 보인다
+    assert "겉옷=검은 패딩(H1·보온·방호(약))" in IT.build_manifest(s, pc_name="P", defs=DEFS).render()
