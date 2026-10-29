@@ -26,17 +26,19 @@ DEFS = {"쇠파이프": {"wear": {"slots": ["오른손", "왼손"], "tags": ["�
         "우비": {"wear": {"slots": ["겉옷"], "tags": ["방수"]}}}
 
 
-def S(res=None, eq=None):
+def S(res=None, eq=None, traits=None):
     return SimpleNamespace(resources=copy.deepcopy(res or {}), item_instances={}, place_items={}, item_facts={},
-                           equipment=copy.deepcopy(eq or {}))
+                           equipment=copy.deepcopy(eq or {}), item_traits=copy.deepcopy(traits or {}))
 
 
-def run_ops(s, ops, narration=""):
+def run_ops(s, ops, narration="", traits=()):
+    """traits = 추출 item_traits(v7.47 — 처음 다룬 물건의 특성, item은 물건 이름 또는 NEW)."""
     m = IT.build_manifest(s, pc_name="P", defs=DEFS)
     key = {r[2]: r[0] for r in m.holdings}
     raw = [dict(o, owner="O1", item=key.get(o.get("item"), o.get("item")), quantity=o.get("quantity", 1))
            for o in ops]
-    p = IT.build_plan(s, m, raw, defs=DEFS, pc_name="P", transaction_id="tx", narration_text=narration)
+    rt = [dict(t, item=key.get(t.get("item"), t.get("item"))) for t in traits]
+    p = IT.build_plan(s, m, raw, defs=DEFS, pc_name="P", transaction_id="tx", narration_text=narration, raw_traits=rt)
     IT.apply_plan(s, p)
     return s
 
@@ -88,20 +90,25 @@ def test_job_select_lists_personality_before_choice():
 
 # ── 착용 ────────────────────────────────────────────────────
 
-def test_wear_traits_follow_authored_session_reference_then_extraction():
+def test_wear_traits_follow_authored_session_then_extraction():
+    # v7.47(3.1): 참고 묶음 이름 일치 폐지 — 저작 > 세션 기록 > 추출 item_traits(처음 다룬 턴)
     s = run_ops(S({"P": {"쇠파이프": 1, "우비": 1, "검은 롱패딩": 1, "이상한 망토": 1}}),
                 [{"op": "WEAR", "item": "쇠파이프", "slot": "오른손"},
-                 {"op": "WEAR", "item": "우비", "slot": "겉옷", "tags": ["보온"]},              # 저작 태그가 권위
-                 {"op": "WEAR", "item": "검은 롱패딩", "slot": "상의", "tags": ["방수"]},       # 참고 묶음(두꺼운 외투)
-                 {"op": "WEAR", "item": "이상한 망토", "slot": "머리", "tags": ["은폐", "방호(강)", "없는태그"]}])  # 추출 — 강한 효과도 가능, 어휘 밖만 제외
+                 {"op": "WEAR", "item": "우비", "slot": "겉옷"},
+                 {"op": "WEAR", "item": "검은 롱패딩", "slot": "상의"},
+                 {"op": "WEAR", "item": "이상한 망토", "slot": "머리"}],
+                traits=[{"item": "우비", "slots": ["겉옷"], "tags": ["보온"], "use": []},          # 저작 물건 — 무시
+                        {"item": "이상한 망토", "slots": ["머리", "겉옷"],                         # 강한 효과도 가능, 어휘 밖 제외
+                         "tags": ["은폐", "방호(강)", "없는태그"], "use": []}])
     tr = s.item_traits
     assert "우비" not in tr and "쇠파이프" not in tr                               # 저작 물건은 기록하지 않는다
-    assert tr["검은 롱패딩"]["tags"] == ["보온", "방호(약)"] and tr["검은 롱패딩"]["source"] == "REFERENCE"
-    assert tr["이상한 망토"] == {"slots": ["머리"], "tags": ["은폐", "방호(강)"], "source": "EXTRACTION"}
-    assert IT.worn_tags(s, "P", DEFS) == {"근접무기", "방수", "보온", "방호(약)", "은폐", "방호(강)"}
+    assert "검은 롱패딩" not in tr                                                # 이름이 패딩이어도 코드가 정하지 않는다
+    assert tr["이상한 망토"] == {"slots": ["머리", "겉옷"], "tags": ["은폐", "방호(강)"], "use": [], "source": "EXTRACTION"}
+    assert IT.worn_tags(s, "P", DEFS) == {"근접무기", "방수", "은폐", "방호(강)"}
     assert s.resources["P"]["이상한 망토"] == 1                                    # 입어도 소지 수량 그대로
     run_ops(s, [{"op": "REMOVE", "item": "이상한 망토"}])
-    run_ops(s, [{"op": "WEAR", "item": "이상한 망토", "slot": "겉옷", "tags": ["보온"]}])  # 이미 정해짐 — 새 태그 무시
+    run_ops(s, [{"op": "WEAR", "item": "이상한 망토", "slot": "겉옷"}],
+            traits=[{"item": "이상한 망토", "slots": ["겉옷"], "tags": ["보온"], "use": []}])   # 이미 정해짐 — 무시
     assert IT.key_tags("이상한 망토", DEFS, s.item_traits) == ["은폐", "방호(강)"]
 
 
@@ -116,7 +123,10 @@ def test_wear_rejects_unowned_wrong_authored_slot_and_unknown_new():
 def test_new_item_picked_up_and_worn_same_turn():
     s = run_ops(S({"P": {}}), [{"op": "ACQUIRE", "item": "NEW", "name": "털모자"},
                                {"op": "WEAR", "item": "NEW", "name": "털모자", "slot": "머리"}],
-                "선반에서 털모자를 집어 썼다")
+                "선반에서 털모자를 집어 썼다",
+                traits=[{"item": "NEW", "name": "털모자", "slots": ["머리"], "tags": ["보온"], "use": []},
+                        {"item": "NEW", "name": "지어낸 물건", "slots": [], "tags": [], "use": ["영양"]}])   # 챙기지 않은 NEW
+    assert "지어낸 물건" not in s.item_traits
     assert s.equipment["P"]["머리"]["key"] == "털모자" and IT.worn_tags(s, "P", DEFS) == {"보온"}
 
 
@@ -133,27 +143,36 @@ def test_dropping_or_damaging_worn_item_updates_equipment():
 
 
 def test_manifest_tells_extraction_known_effects_and_references():
-    s = S({"P": {"검은 패딩": 1, "수상한 상자": 1}})
-    text = IT.build_manifest(s, pc_name="P", defs=DEFS).render()
+    s = S({"P": {"검은 패딩": 1, "수상한 상자": 1}},
+          traits={"검은 패딩": {"slots": ["겉옷"], "tags": ["보온"], "use": [], "source": "OUTFIT"}})
+    m = IT.build_manifest(s, pc_name="P", defs=DEFS)
+    text = m.render()
     assert "검은 패딩: 보온" in text and "수상한 상자:" not in text.split("효과가 이미 정해진")[1].split("\n")[0]
-    assert "두꺼운 외투(패딩·파카·코트)=보온" in text
+    assert "H2=수상한 상자" in text.split("효과가 아직 정해지지 않은")[1].split("\n")[0]     # v7.47 미정 물건
+    assert m.traits_schema()["items"]["properties"]["item"]["enum"] == ["NONE", "NEW", "H2"]
+    assert "두꺼운 외투(패딩·파카·코트)=보온,방호(약)" in text                           # 참고 묶음은 예시로만
+
+
+LAMP = {"손전등": {"slots": ["오른손", "왼손", "머리"], "tags": ["조명"], "use": [], "source": "EXTRACTION"}}
 
 
 def test_equip_rows_and_domain_mod_across_scenarios():
-    s = S({"P": {"쇠파이프": 1, "우비": 1, "손전등": 1}}, {"P": {"겉옷": {"key": "우비"}}})
+    s = S({"P": {"쇠파이프": 1, "우비": 1, "손전등": 1}}, {"P": {"겉옷": {"key": "우비"}}}, LAMP)
     rows = IT.equip_rows(s, "P", DEFS)
     assert [(r[0], r[2]) for r in rows] == [("E1", "손전등"), ("E2", "쇠파이프")]   # 효과 mod 없는 우비는 후보 아님
     assert IT.equip_mod(rows[1][3], "근력") == 4 and IT.equip_mod(rows[1][3], "민첩") == 0
     assert IT.equip_mod(rows[0][3], "감각") == 3 and IT.equip_mod(rows[0][3], "관찰") == 3   # 설화재 스탯도 같은 분야
     assert IT.equip_mod(rows[1][3], "무공") == 4                                            # 무협 스탯
     assert IT.equip_mod(rows[1][3], "근력", {"item_effect_domains": {"근접": ["힘"]}}) == 0  # 시나리오가 덮어씀
+    assert IT.equip_mod(rows[1][3], "근력", domain="근접") == 4 and IT.equip_mod(rows[1][3], "근력", domain="방어") == 0
     assert core.judgment.target(0, 0, 0, 0, 0, 4) == core.judgment.BASE + 4
     assert "method_mod에 다시 넣지 말 것" in IT.equip_block(rows)
 
 
 def _view(eq=None, npc_res=None):
     return SimpleNamespace(players={"u": {"name": "P", "profile": {"근력": 10}}},
-                           resources={"P": {"쇠파이프": 1}, **(npc_res or {})}, equipment=eq or {}, item_traits={},
+                           resources={"P": {"쇠파이프": 1}, **(npc_res or {})}, equipment=eq or {},
+                           item_traits={"각목": {"slots": ["오른손"], "tags": ["근접무기"], "use": []}, **LAMP},
                            npcs={}, gm_target_char="P", scenario_data={})
 
 
@@ -170,15 +189,15 @@ def test_judge_side_adds_equipment_for_pc_and_contest_npc(monkeypatch):
     assert G._judge_side(v, dict(side, item=None), "깡패", wt)["E"] == 0                # 대결이 아니면 0
 
 
-def test_cold_rule_respects_warm_clothing_and_wetness():
+def test_cold_is_judged_by_extraction_not_blocked_by_warm_clothing():
+    # v7.47(W3·S3 나): 추위의 코드 착용 차단을 걷어 냈다 — 입은 것은 추출 판단의 근거(환경의 세기와 함께)
     merged = core.get_merged_status_effects({})
     def decide(worn, active=()):
         ctx = SR.Ctx(now=100, start_minute=0, active=frozenset(active), worn=frozenset(worn))
         return SR.decide(merged, ctx, "P", [{"target": "P", "status": "추위"}], [], ())
-    assert not [e for e in decide({"보온"}).apply if e.get("status") == "추위"]
-    assert [e for e in decide({"보온"}, {"젖음"}).apply if e.get("status") == "추위"]
-    assert [e for e in decide(set()).apply if e.get("status") == "추위"]          # 착용 기록 없는 시나리오 = 기존대로
-    assert SR.check_condition({"wearing": "보온"}) == [] and SR.check_condition({"wearing": "없는태그"})
+    assert [e for e in decide({"보온"}).apply if e.get("status") == "추위"]
+    assert "wearing" not in json.dumps(merged["추위"].get("rules"), ensure_ascii=False)
+    assert SR.check_condition({"wearing": "보온"}) == [] and SR.check_condition({"wearing": "없는태그"})   # 원자는 저작용으로 유지
 
 
 def test_compiler_validates_wear_and_keeps_other_revisions():
@@ -264,11 +283,12 @@ async def test_wear_commits_through_turn_and_rewinds(drig):
     r.prov.routes["extraction"] = [extraction({})]
     await turn(r, "숨을 고른다")
     r.prov.routes["extraction"] = [extraction({"item_ops": [
-        {"op": "WEAR", "owner": "O1", "item": "H1", "quantity": 1, "slot": "겉옷", "tags": ["방수"]}]})]
+        {"op": "WEAR", "owner": "O1", "item": "H1", "quantity": 1, "slot": "겉옷"}],
+        "item_traits": [{"item": "H1", "slots": ["겉옷"], "tags": ["보온", "방호(약)"], "use": []}]})]
     tx = await turn(r, "패딩을 입는다")
     assert tx.status == core.turn_transaction.TurnStatus.COMMITTED
     assert r.sess.equipment == {"테스터": {"겉옷": {"key": "검은 패딩"}}}
-    assert r.sess.item_traits["검은 패딩"]["tags"] == ["보온", "방호(약)"]                       # 참고 묶음이 추출 태그보다 우선
+    assert r.sess.item_traits["검은 패딩"]["tags"] == ["보온", "방호(약)"]                       # 처음 다룬 턴에 추출이 정함
     res = await core.turn_history.rewind(r.bot, r.sess, 1)
     assert res["ok"], res
     assert r.sess.equipment == {} and r.sess.item_traits == {}
@@ -280,6 +300,7 @@ async def test_judgment_schema_lists_only_owned_skills_and_equipment(drig):
     pc = next(iter(r.sess.players.values()))
     pc["profile"]["스킬"] = "수색, 은신"
     r.sess.resources = {pc["name"]: {"쇠파이프": 1}}
+    r.sess.item_traits = {"쇠파이프": {"slots": ["오른손"], "tags": ["근접무기"], "use": []}}
     seen = {}
     base = judgment()
 
@@ -299,8 +320,13 @@ async def test_finish_reads_outfit_into_items_and_equipment(monkeypatch):
     from core import profile_ai
     from core import profile_creation_ui as PCU
 
-    async def fake_outfit(bot, session, *, text):
-        return [{"name": "검은 패딩", "slot": "겉옷", "tags": []}, {"name": "기묘한 두건", "slot": "머리", "tags": ["은폐"]}]
+    seen = {}
+
+    async def fake_outfit(bot, session, *, text, carried=()):
+        seen["carried"] = list(carried)
+        return [{"name": "검은 패딩", "slot": "겉옷", "tags": ["보온", "방호(약)"]},
+                {"name": "기묘한 두건", "slot": "머리", "tags": ["은폐"]},
+                {"kind": "낡은 배낭", "slots": [], "tags": [], "use": []}]
     monkeypatch.setattr(profile_ai, "outfit", fake_outfit)
     sess = SimpleNamespace(players={}, scenario_data=YD, resources={}, equipment={}, item_traits={},
                            session_id="", profile_creation_progress={})
@@ -314,6 +340,9 @@ async def test_finish_reads_outfit_into_items_and_equipment(monkeypatch):
     await PCU.finish(state, None)
     assert sess.resources["a"]["검은 패딩"] == 1 and sess.equipment["a"]["머리"] == {"key": "기묘한 두건"}
     assert sess.item_traits["검은 패딩"]["tags"] == ["보온", "방호(약)"] and sess.item_traits["기묘한 두건"]["source"] == "OUTFIT"
+    # v7.47(3.1): 같은 판독 1회가 효과 미정 시작 물건의 특성도 정한다(저작 물건 — 붕대·생수 등 — 은 넘기지 않는다)
+    assert "낡은 배낭" in seen["carried"] and "붕대" not in seen["carried"] and "생수" not in seen["carried"]
+    assert sess.item_traits["낡은 배낭"] == {"slots": [], "tags": [], "use": [], "source": "OUTFIT"}
 
 
 def test_tool_items_count_as_tool_capability_and_scenario_follow_ups():
@@ -324,7 +353,7 @@ def test_tool_items_count_as_tool_capability_and_scenario_follow_ups():
     assert "5(해당 분야에 매우 취약함)에서 최대 15" not in YD["stat_system"]           # C3
     SH = json.loads((ROOT / "scenarios" / "설화재.json").read_text(encoding="utf-8"))   # B4
     assert PG.skill_note(SH, "현장 감식") and any((s.get("args") or {}).get("wear_items") for s in SH["profile_creation"])
-    assert IT.equip_mod(IT.key_tags("손전등"), "관찰") == 3                           # 설화재 스탯으로 장비 보정
+    assert IT.equip_mod(IT.key_tags("손전등", IT.definitions_of(D)), "관찰") == 3      # 설화재 스탯으로 장비 보정
 
 
 def test_extraction_tags_are_range_limited_but_strong_effects_allowed():
@@ -334,18 +363,19 @@ def test_extraction_tags_are_range_limited_but_strong_effects_allowed():
     assert IT.free_tags(["방호(강)", "방호(약)", "보온"], "겉옷") == ["방호(약)", "보온"]   # 같은 계열은 약한 쪽
     assert IT.free_tags(["보온", "방수", "방호(약)", "은폐"], "겉옷") == ["보온", "방수", "방호(약)"]   # 3개까지
     assert IT.free_tags(["가벼운 차림"], "겉옷") == []                                   # 자리 밖
-    assert IT.reference_of("검은 롱패딩")["tags"] == ["보온", "방호(약)"]                 # 두꺼운 옷 = 방호(약)
+    assert "두꺼운 외투(패딩·파카·코트·점퍼) → 겉옷 · 보온, 방호(약)" in IT.reference_text()   # 두꺼운 옷 = 방호(약)(예시)
     g = IT.guide_text()
     assert "방호(약)(방어 +2·몸): 패딩" in g and "근접무기(강)(근접 +6·손)" in g
     m = IT.build_manifest(S({"P": {"x": 1}}), pc_name="P", defs=DEFS)
     assert "같은 계열(약·기본·강)은 하나만" in m.render()
-    enum = m.schema()["items"]["properties"]["tags"]["items"]["enum"]
+    enum = m.traits_schema()["items"]["properties"]["tags"]["items"]["enum"]
     assert len(enum) == len(IT.effect_vocab()["tags"])                                 # 스키마는 어휘 전부
 
 
 def test_effects_only_where_worn_or_held_and_shown_to_extraction():
     # W2: 옷을 손에 들면 보온·방호가 없고, 무기를 입는 자리에 두면 무기 효과가 없다
-    s = run_ops(S({"P": {"검은 패딩": 1, "쇠파이프": 1}}), [{"op": "WEAR", "item": "검은 패딩", "slot": "오른손"}])
+    s = run_ops(S({"P": {"검은 패딩": 1, "쇠파이프": 1}}), [{"op": "WEAR", "item": "검은 패딩", "slot": "오른손"}],
+                traits=[{"item": "검은 패딩", "slots": ["겉옷"], "tags": ["보온", "방호(약)"], "use": []}])
     assert IT.worn_tags(s, "P", DEFS) == frozenset() and s.item_traits["검은 패딩"]["slots"] == ["겉옷"]
     assert [r[2] for r in IT.equip_rows(s, "P", DEFS)] == ["쇠파이프"]
     run_ops(s, [{"op": "WEAR", "item": "검은 패딩", "slot": "겉옷"}])

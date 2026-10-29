@@ -32,6 +32,19 @@
 #   v7.41 상태 선택 키: `deep: true` — 심화 상태(코드가 시간으로만 정한다, 추출 점수 무시 — 규칙에 gate const false).
 #     `latent: {"target": 상태, "chance": 0~100, "onset_minutes": [최소, 최대]}` — 이 상태가 붙는 순간 코드가 (세션 시드,
 #     PC, 시각)으로 대상 상태의 발현 여부·시각을 결정적으로 정한다.
+#
+#   v7.47 단계·불이익·처치(사용자 결정 S1~S6 — 계획서 v1):
+#     `stages: [이름…]` 단계(1부터). `stage_mods: [{분야: 값}…]`(단계별) 또는 `mods: {분야: 값}` — 판정 상태 보정 H
+#       ('전체'는 모든 판정, 분야 이름은 그 분야 판정에 더한다 — 분야 = 공용 효과 어휘 domains).
+#     `care: {사용 효과: down|treat|ease}` — 이번 턴 PC에게 쓴 물건의 사용 효과(core.items)로 코드가 처치한다.
+#       down = 한 단계 낮춤(1단계면 해제) · treat = 한 단계 낮춤(1단계면 처치 기록만 — 시간 규칙이 마무리) ·
+#       ease = EASE_MINUTES 동안 판정 불이익을 한 단계 낮은 값으로(원인은 그대로).
+#     `lower_by: "care"` — 추출이 단계를 낮추거나 해제하지 못한다(처치·시간 규칙만).
+#     `latent.cancel_by: 사용 효과` — 발현 전 그 효과로 처치하면 잠복 취소 · `latent.min_stage: n` — 그 단계 이상에서만 판정.
+#     rules 키 `raise_auto: C` — C가 TRUE면 코드가 한 단계 올린다.
+#     조건 원자: {"stage_min": n, "status"?: s}(그 상태 — 없으면 이 상태 — 가 n단계 이상) ·
+#       {"status_time": "SINCE_CARED_GTE", "minutes": n, "status"?: s}(마지막 처치 뒤 n분↑, 처치 없으면 FALSE).
+#     상태 시계 추가 키: "stage" {상태: 단계} · "cared" {상태: 분} · "eased" {상태: 끝나는 분}(비면 키 없음).
 from __future__ import annotations
 
 import copy
@@ -39,8 +52,11 @@ from dataclasses import dataclass, field
 
 TRUE, FALSE, UNKNOWN = "TRUE", "FALSE", "UNKNOWN"
 SCOPE_COMMON, SCOPE_SCENARIO = "공용", "시나리오"
-RULE_KEYS = ("apply_gate", "apply_auto", "clear_auto", "clear_gate")
-STATUS_TIMES = ("SINCE_INTAKE_GTE", "SINCE_APPLIED_GTE", "SINCE_STATUS_GTE", "SINCE_CLEARED_GTE")
+RULE_KEYS = ("apply_gate", "apply_auto", "clear_auto", "clear_gate", "raise_auto")
+STATUS_TIMES = ("SINCE_INTAKE_GTE", "SINCE_APPLIED_GTE", "SINCE_STATUS_GTE", "SINCE_CLEARED_GTE", "SINCE_CARED_GTE")
+CARE_ACTIONS = ("down", "treat", "ease")
+EASE_MINUTES = 240
+ALL_DOMAIN = "전체"
 
 
 @dataclass
@@ -60,6 +76,8 @@ class Ctx:
     clock: dict = field(default_factory=dict)  # 이 PC의 status_clock 항목
     seed: str = ""                            # 잠복 판정의 결정적 근거(세션 narrative_seed + PC)
     worn: frozenset = frozenset()             # v7.46 PC 착용 효과 태그(없으면 빈 집합 — 입은 것이 없다는 사실)
+    care: frozenset = frozenset()             # v7.47 이번 턴 PC에게 쓴 물건의 사용 효과(실패·물건 상태로 꺼진 것 제외)
+    stage_in: dict = field(default_factory=dict)   # v7.47 추출이 본 PC 상태 단계 {상태: 단계}
 
 
 def _t_all(vals):
@@ -92,6 +110,9 @@ def evaluate(cond, ctx: Ctx, status: str) -> str:
         if k == "SINCE_INTAKE_GTE":
             last = (ctx.clock.get("intake") or {}).get(cond.get("group"), ctx.start_minute)
             return _b(ctx.now - int(last) >= n)
+        if k == "SINCE_CARED_GTE":
+            at = (ctx.clock.get("cared") or {}).get(cond.get("status") or status)
+            return FALSE if at is None else _b(ctx.now - int(at) >= n)
         if k == "SINCE_CLEARED_GTE":
             name = cond.get("status")
             if name in ctx.active:
@@ -122,6 +143,11 @@ def evaluate(cond, ctx: Ctx, status: str) -> str:
         return _b(ok and ctx.turn_minutes >= int(cond.get("min_minutes") or 0))
     if "status_active" in cond:
         return _b(cond["status_active"] in ctx.active)
+    if "stage_min" in cond:
+        name = cond.get("status") or status
+        if name not in ctx.active:
+            return FALSE
+        return _b(int((ctx.clock.get("stage") or {}).get(name, 1)) >= int(cond["stage_min"]))
     if "wearing" in cond:
         return _b(cond["wearing"] in ctx.worn)
     return UNKNOWN
@@ -155,6 +181,8 @@ def check_condition(cond, *, groups=(), statuses=(), path="", place_groups=None)
             errs.append(f"{path}: 정의되지 않은 섭취 묶음 {cond.get('group')!r}(intake_groups)")
         if k in ("SINCE_STATUS_GTE", "SINCE_CLEARED_GTE") and cond.get("status") not in statuses:
             errs.append(f"{path}: 알 수 없는 상태 {cond.get('status')!r}")
+        if k == "SINCE_CARED_GTE" and cond.get("status") is not None and cond["status"] not in statuses:
+            errs.append(f"{path}: 알 수 없는 상태 {cond.get('status')!r}")
         return errs
     for key in ("consumed", "used"):
         if key in cond:
@@ -162,6 +190,10 @@ def check_condition(cond, *, groups=(), statuses=(), path="", place_groups=None)
             return [] if ok else [f"{path}: 정의되지 않은 섭취 묶음 {cond[key]!r}(intake_groups)"]
     if "status_active" in cond:
         return [] if cond["status_active"] in statuses else [f"{path}: 알 수 없는 상태 {cond['status_active']!r}"]
+    if "stage_min" in cond:
+        ok = isinstance(cond["stage_min"], int) and cond["stage_min"] >= 1 \
+            and (cond.get("status") is None or cond["status"] in statuses)
+        return [] if ok else [f"{path}: stage_min은 1 이상 정수(status는 알려진 상태)"]
     if "wearing" in cond:
         from .items import effect_vocab
         return [] if cond["wearing"] in effect_vocab()["tags"] else [f"{path}: 알 수 없는 효과 태그 {cond['wearing']!r}"]
@@ -237,6 +269,11 @@ def check_definitions(scenario_data, merged: dict) -> list:
                 and lat["onset_minutes"][0] <= lat["onset_minutes"][1]
             if not ok:
                 out.append(("STATUS_LATENT", f"{name}: latent는 {{target(상태), chance(0~100), onset_minutes[최소,최대]}}"))
+            elif lat.get("cancel_by") is not None and lat["cancel_by"] not in _use_effects():
+                out.append(("STATUS_LATENT", f"{name}: latent.cancel_by {lat['cancel_by']!r}는 공용 사용 효과가 아님"))
+            elif lat.get("min_stage") is not None and not (isinstance(lat["min_stage"], int) and lat["min_stage"] >= 1):
+                out.append(("STATUS_LATENT", f"{name}: latent.min_stage는 1 이상 정수"))
+        out += [("STATUS_STAGES", f"{name}: {e}") for e in _check_stage_keys(eff)]
         for other in eff.get("excludes") or ():
             if other not in names:
                 out.append(("STATUS_EXCLUDES", f"{name}: 알 수 없는 배타 상태 {other!r}"))
@@ -252,6 +289,111 @@ def check_definitions(scenario_data, merged: dict) -> list:
 #  판정
 # ══════════════════════════════════════════════════════════════
 
+def _use_effects() -> dict:
+    from .items import effect_vocab
+    return effect_vocab().get("use_effects") or {}
+
+
+def _domains() -> set:
+    from .items import effect_vocab
+    return set(effect_vocab().get("domains") or {}) | {ALL_DOMAIN}
+
+
+def _check_stage_keys(eff: dict) -> list:
+    """v7.47 stages·stage_mods·mods·care·lower_by 저작 검사."""
+    errs = []
+    st = eff.get("stages")
+    if st is not None and (not isinstance(st, list) or len(st) < 2 or not all(isinstance(x, str) and x for x in st)):
+        errs.append("stages는 이름 2개 이상의 목록")
+    dom = _domains()
+
+    def bad_mods(m):
+        return not isinstance(m, dict) or any(k not in dom or not isinstance(v, int) for k, v in m.items())
+    sm = eff.get("stage_mods")
+    if sm is not None and (not isinstance(st, list) or not isinstance(sm, list) or len(sm) != len(st)
+                           or any(bad_mods(m) for m in sm)):
+        errs.append("stage_mods는 단계 수만큼의 {분야: 정수} 목록(분야 = 공용 domains 또는 '전체')")
+    if eff.get("mods") is not None and bad_mods(eff["mods"]):
+        errs.append("mods는 {분야: 정수}(분야 = 공용 domains 또는 '전체')")
+    care = eff.get("care")
+    if care is not None and (not isinstance(care, dict) or any(
+            k not in _use_effects() or v not in CARE_ACTIONS for k, v in care.items())):
+        errs.append(f"care는 {{공용 사용 효과: {'|'.join(CARE_ACTIONS)}}}")
+    if eff.get("lower_by") not in (None, "care"):
+        errs.append("lower_by는 'care'만")
+    return errs
+
+
+def stages_of(eff) -> list:
+    st = (eff or {}).get("stages")
+    return list(st) if isinstance(st, list) else []
+
+
+def stage_of(clock, name: str) -> int:
+    return int(((clock or {}).get("stage") or {}).get(name, 1))
+
+
+def mods_at(eff, stage: int) -> dict:
+    """그 단계의 판정 불이익 {분야: 값}(단계 0 = 없음)."""
+    if stage < 1:
+        return {}
+    sm, st = (eff or {}).get("stage_mods"), stages_of(eff)
+    if isinstance(sm, list) and st:
+        return dict(sm[min(stage, len(sm)) - 1] or {})
+    return dict((eff or {}).get("mods") or {})
+
+
+def effective_stage(eff, clock, name: str, now) -> int:
+    """일시 완화(ease) 중이면 한 단계 낮은 값으로 계산한다."""
+    st = stage_of(clock, name) if stages_of(eff) else 1
+    until = ((clock or {}).get("eased") or {}).get(name)
+    return st - 1 if until is not None and now is not None and int(until) > int(now) else st
+
+
+def status_mod(merged: dict, statuses, clock, now, domain) -> tuple:
+    """v7.47(S2) PC 판정 상태 보정 H — (값, 근거 문구). '전체' + 그 분야 값의 합, 판정 범위(-15~+15)로 자른다."""
+    from .judgment import STATUS_RANGE
+    total, parts = 0, []
+    for s in statuses or ():
+        eff = (merged or {}).get(s)
+        if not isinstance(eff, dict):
+            continue
+        m = mods_at(eff, effective_stage(eff, clock, s, now))
+        v = int(m.get(ALL_DOMAIN, 0)) + (int(m.get(domain, 0)) if domain and domain != ALL_DOMAIN else 0)
+        if v:
+            total += v
+            parts.append(f"{label(merged, s, clock, now)} {v:+d}")
+    lo, hi = STATUS_RANGE
+    return max(lo, min(hi, total)), " · ".join(parts)
+
+
+def label(merged: dict, name: str, clock, now=None) -> str:
+    """표시 — '부상(중상)' · 완화 중이면 '부상(중상·완화)'."""
+    eff = (merged or {}).get(name) or {}
+    st = stages_of(eff)
+    bits = [st[min(stage_of(clock, name), len(st)) - 1]] if st else []
+    until = ((clock or {}).get("eased") or {}).get(name)
+    if until is not None and now is not None and int(until) > int(now):
+        bits.append("완화")
+    return name + (f"({'·'.join(bits)})" if bits else "")
+
+
+def labels_for(session, name: str) -> list:
+    """표시용 — 그 인물의 상태 이름(단계·완화 표기, 단계 기록이 없으면 이름 그대로)."""
+    from .utils import get_merged_status_effects
+    sts = (getattr(session, "statuses", None) or {}).get(name) or []
+    clock = (getattr(session, "status_clock", None) or {}).get(name)
+    if not clock:
+        return [str(x) for x in sts]
+    merged = get_merged_status_effects(getattr(session, "scenario_data", None) or {})
+    now = (getattr(session, "world_clock", None) or {}).get("minute_index")
+    return [label(merged, str(x), clock, now) for x in sts]
+
+
+def mods_text(m: dict) -> str:
+    return ", ".join(f"{k} {int(v):+d}" for k, v in m.items() if v) or "판정 영향 없음"
+
+
 @dataclass
 class Decision:
     apply: list                 # 추출 DTO 형식 [{target,status,score}] (코드 판정은 score=None)
@@ -261,20 +403,91 @@ class Decision:
 
 
 def decide(merged: dict, ctx: Ctx, pc_name: str, apply_in, clear_in, groups_consumed=()) -> Decision:
-    """PC 대상 추출 후보 + 코드 규칙 → 최종 부여·해제. NPC 대상 후보는 손대지 않는다(호출부가 그대로 둔다)."""
+    """PC 대상 추출 후보 + 처치 + 코드 규칙 → 최종 부여·해제·단계. NPC 대상 후보는 손대지 않는다(호출부가 그대로 둔다).
+
+    순서(v7.47): ① 처치(사용 효과 → down·treat·ease, 잠복 취소) ② 추출 단계(올림 허용, 처치 전용 상태는 내림 거부)
+    ③ 규칙(gate·auto·raise_auto·배타·잠복)."""
     notes = []
     clock = copy.deepcopy(ctx.clock or {})
     applied = dict(clock.get("applied") or {})
     for s in ctx.active:                      # 시계 없이 붙어 있던 상태(이전 버전) — 지금부터 잰다
         applied.setdefault(s, ctx.now)
     clock["applied"] = applied
+    stage = {k: int(v) for k, v in (clock.get("stage") or {}).items() if k in ctx.active}
+    cared = {k: v for k, v in (clock.get("cared") or {}).items() if k in ctx.active}
+    eased = {k: v for k, v in (clock.get("eased") or {}).items() if k in ctx.active and int(v) > ctx.now}
+    for s in ctx.active:
+        if stages_of(merged.get(s)):
+            stage.setdefault(s, 1)
+    clock["stage"], clock["cared"], clock["eased"] = stage, cared, eased
+    latent = dict(clock.get("latent") or {})
     ctx = Ctx(**{**ctx.__dict__, "clock": clock})
 
     def rules(s):
         r = (merged.get(s) or {}).get("rules")
         return r if isinstance(r, dict) else None
 
-    want_apply, want_clear = {}, set()
+    def nstages(s):
+        return len(stages_of(merged.get(s)))
+
+    def roll_latent(s, at_stage):
+        lat = (merged.get(s) or {}).get("latent")
+        if not (isinstance(lat, dict) and lat.get("target")):
+            return
+        if at_stage < int(lat.get("min_stage") or 1):
+            return
+        cur = latent.get(lat["target"])
+        if cur and cur.get("due") is not None and int(cur["due"]) > ctx.now:
+            return                                # 이미 발현 예정 — 다시 굴리지 않는다
+        rec = latent_roll(ctx.seed, pc_name, s, ctx.now, lat)
+        latent[lat["target"]] = rec
+        notes.append(f"{lat['target']} 잠복 판정(코드) — " + ("발현 예정" if rec["due"] is not None else "발현 없음"))
+
+    want_apply, want_clear, cared_now = {}, set(), set()
+
+    # ① 처치 — 이번 턴 PC에게 쓴 물건의 사용 효과
+    for s in sorted(ctx.active):
+        for eff_name, act in ((merged.get(s) or {}).get("care") or {}).items():
+            if eff_name not in ctx.care:
+                continue
+            cared_now.add(s)
+            if act == "ease":
+                eased[s] = ctx.now + EASE_MINUTES
+                notes.append(f"{s} 증상 완화 {EASE_MINUTES // 60}시간({eff_name}, 코드)")
+                continue
+            cared[s] = ctx.now
+            cur = stage.get(s, 1)
+            if nstages(s) and cur > 1:
+                stage[s] = cur - 1
+                notes.append(f"{label(merged, s, clock)} ← 한 단계 내려감({eff_name} 처치, 코드)")
+            elif act == "down":
+                want_clear.add(s)
+                notes.append(f"{s} 해제({eff_name} 처치, 코드)")
+            else:
+                notes.append(f"{s} 처치 기록({eff_name}) — 시간이 마무리한다(코드)")
+    for tgt, rec in list(latent.items()):        # 잠복 취소 — 발현 전 그 효과로 처치
+        src = (merged.get(rec.get("from")) or {}).get("latent") or {}
+        if src.get("cancel_by") in ctx.care and tgt not in ctx.active and rec.get("due") is not None:
+            latent.pop(tgt)
+            notes.append(f"{tgt} 잠복 취소({src['cancel_by']} 처치, 코드)")
+
+    # ② 추출 단계 — 붙어 있는 상태(이번 턴 처치한 상태는 처치 결과가 우선 — 처치 전 단계를 다시 올리지 않는다)
+    for s, n in (ctx.stage_in or {}).items():
+        if s not in ctx.active or s in want_clear or s in cared_now or not nstages(s):
+            continue
+        n, cur = max(1, min(int(n), nstages(s))), stage.get(s, 1)
+        if n > cur:
+            stage[s] = n
+            notes.append(f"{label(merged, s, clock)} ← 단계 올라감(추출)")
+            roll_latent(s, n)
+        elif n < cur:
+            if (merged.get(s) or {}).get("lower_by") == "care":
+                notes.append(f"{s} 단계 내림 보류 — 처치·시간으로만(코드)")
+            else:
+                stage[s] = n
+                notes.append(f"{label(merged, s, clock)} ← 단계 내려감(추출)")
+
+    # ③ 규칙
     for e in apply_in:
         r = rules(e["status"])
         if r and "apply_gate" in r and evaluate(r["apply_gate"], ctx, e["status"]) != TRUE:
@@ -282,13 +495,19 @@ def decide(merged: dict, ctx: Ctx, pc_name: str, apply_in, clear_in, groups_cons
             continue
         want_apply[e["status"]] = e
     for e in clear_in:
-        r = rules(e["status"])
+        s = e["status"]
+        if s in want_clear:
+            continue
+        if (merged.get(s) or {}).get("lower_by") == "care":
+            notes.append(f"{s} 해제 보류 — 처치·시간으로만(코드)")
+            continue
+        r = rules(s)
         if r is not None:
             gate = r.get("clear_gate")
-            if gate is None or evaluate(gate, ctx, e["status"]) != TRUE:
-                notes.append(f"{e['status']} 해제 보류 — 해소 근거 미충족(코드)")
+            if gate is None or evaluate(gate, ctx, s) != TRUE:
+                notes.append(f"{s} 해제 보류 — 해소 근거 미충족(코드)")
                 continue
-        want_clear.add(e["status"])
+        want_clear.add(s)
     for s in merged:
         r = rules(s)
         if not r:
@@ -299,6 +518,11 @@ def decide(merged: dict, ctx: Ctx, pc_name: str, apply_in, clear_in, groups_cons
                 want_apply.pop(s, None)
                 notes.append(f"{s} 해제(코드 확정)")
                 continue
+        if s in ctx.active and s not in want_clear and "raise_auto" in r and nstages(s) \
+                and stage.get(s, 1) < nstages(s) and evaluate(r["raise_auto"], ctx, s) == TRUE:
+            stage[s] = stage.get(s, 1) + 1
+            notes.append(f"{label(merged, s, clock)} ← 단계 올라감(코드 확정)")
+            roll_latent(s, stage[s])
         if s not in ctx.active and s not in want_apply and "apply_auto" in r \
                 and evaluate(r["apply_auto"], ctx, s) == TRUE:
             want_apply[s] = {"target": pc_name, "status": s, "score": None}
@@ -314,25 +538,28 @@ def decide(merged: dict, ctx: Ctx, pc_name: str, apply_in, clear_in, groups_cons
                 final.discard(o)
                 notes.append(f"{o} 해제 — {s}와(과) 배타(코드)")
     cleared = dict(clock.get("cleared") or {})
-    latent = dict(clock.get("latent") or {})
     for s in want_apply:
         if s not in ctx.active:
             applied[s] = ctx.now
             latent.pop(s, None)                   # 발현한 대상의 잠복 기록은 끝
-            lat = (merged.get(s) or {}).get("latent")
-            if isinstance(lat, dict) and lat.get("target"):
-                rec = latent_roll(ctx.seed, pc_name, s, ctx.now, lat)
-                latent[lat["target"]] = rec
-                notes.append(f"{lat['target']} 잠복 판정(코드) — " + ("발현 예정" if rec["due"] is not None else "발현 없음"))
+            n = nstages(s)
+            st = max(1, min(int((ctx.stage_in or {}).get(s) or 1), n)) if n else 1
+            if n:
+                stage[s] = st
+            roll_latent(s, st)
     for s in want_clear:
         applied.pop(s, None)
+        stage.pop(s, None)
+        cared.pop(s, None)
+        eased.pop(s, None)
         if s in ctx.active:
             cleared[s] = ctx.now
     clock["cleared"] = cleared
-    if latent:
-        clock["latent"] = latent
-    else:
-        clock.pop("latent", None)
+    for k, v in (("latent", latent), ("stage", stage), ("cared", cared), ("eased", eased)):
+        if v:
+            clock[k] = v
+        else:
+            clock.pop(k, None)
     intake = dict(clock.get("intake") or {})
     for g in groups_consumed:
         intake[g] = ctx.now
@@ -384,6 +611,16 @@ def _turn_groups(item_plan, groups) -> tuple:
     return frozenset(consumed), frozenset(used)
 
 
+def _stage_in(plan, pc_name) -> dict:
+    """v7.47 추출 status_scores의 PC 단계(stage ≥ 1만 — 0·없음은 단계 판단 없음)."""
+    out = {}
+    for e in ((getattr(plan, "result", None) or {}).get("status_scores") or []):
+        if isinstance(e, dict) and e.get("target") == pc_name and isinstance(e.get("stage"), int) \
+                and not isinstance(e.get("stage"), bool) and e["stage"] >= 1:
+            out[e.get("status")] = e["stage"]
+    return out
+
+
 def resolve_turn(session, prep) -> list:
     """DYNAMIC 턴의 PC 상태 후보를 규칙으로 확정하고 status_clock을 갱신한다. 반환: 보고 줄(빈 목록 = 변화 없음).
 
@@ -396,7 +633,7 @@ def resolve_turn(session, prep) -> list:
         return []
     sd = getattr(session, "scenario_data", None) or {}
     merged = get_merged_status_effects(sd)
-    if not any(isinstance(e.get("rules"), dict) for e in merged.values()):
+    if not any(isinstance(e.get("rules"), dict) or e.get("care") or e.get("stages") for e in merged.values()):
         return []
     pc_name = next((p.get("name") for p in (session.players or {}).values() if p.get("name")), None)
     if not pc_name:
@@ -404,12 +641,14 @@ def resolve_turn(session, prep) -> list:
     now, before, place = facts["now"], facts["before"], facts["place"]
     groups = groups_of(sd)
     consumed, used = _turn_groups(getattr(plan, "item_plan", None), groups)
+    consumed, used = consumed | facts.get("care_consumed", frozenset()), used | facts.get("care_used", frozenset())
     store = getattr(session, "status_clock", None) or {}
     ctx = Ctx(now=now, start_minute=facts["start"], turn_minutes=max(0, now - before),
               place=place, place_chain=_place_chain(sd, place), place_groups=place_groups_of(sd), daypart=facts["daypart"], activity=facts["activity"],
               consumed=consumed, used=used, active=frozenset((session.statuses or {}).get(pc_name) or ()),
               clock=copy.deepcopy(store.get(pc_name) or {}),
-              seed=f"{getattr(session, 'narrative_seed', '') or ''}", worn=facts.get("worn") or frozenset())
+              seed=f"{getattr(session, 'narrative_seed', '') or ''}", worn=facts.get("worn") or frozenset(),
+              care=facts.get("care") or frozenset(), stage_in=_stage_in(plan, pc_name))
     mine = lambda e: e.get("target") == pc_name  # noqa: E731
     d = decide(merged, ctx, pc_name, [e for e in plan.status_apply if mine(e)],
                [e for e in plan.status_clear if mine(e)], consumed)

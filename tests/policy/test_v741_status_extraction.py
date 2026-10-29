@@ -44,7 +44,7 @@ def names(rows):
 def test_definitions_are_valid_and_deep_statuses_are_marked():
     assert SR.check_definitions(YD, MERGED) == []
     assert {"추위", "더위", "젖음", "열탈진"} <= set(MERGED)
-    assert SR.deep_statuses(MERGED) == {"저체온", "열탈진", "감염"}
+    assert SR.deep_statuses(MERGED) == {"저체온", "열탈진", "감염", "염증"}   # v7.47 염증(코드 판정)
     assert "status_places" not in YD                                     # D3(가): 실내 판정 데이터 정리
 
 
@@ -129,7 +129,7 @@ def test_extraction_prompt_lists_every_active_status_with_clear_condition_and_el
                         status_clock={"테스터": {"applied": {"추위": START, "저체온": START + 120}}})
     text = core.build_extraction_limits(s)
     assert "하나도 빠짐없이" in text
-    assert "테스터: 추위(130분째) — 해제=[추위를 덜 수단을 무엇이든" in text
+    assert "테스터: 추위(쌀쌀함)(130분째) — 해제=[추위를 덜 수단을 무엇이든" in text   # v7.47 단계 표기
     assert "테스터: 저체온(10분째) — 코드 판정" in text
     assert "- 저체온 (코드 판정 — 점수를 넣지 말 것)" in text
 

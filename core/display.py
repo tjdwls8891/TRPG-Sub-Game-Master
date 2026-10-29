@@ -155,7 +155,8 @@ def build_embed(session) -> discord.Embed:
         if not isinstance(p, dict):
             continue
         name = p.get("name") or "?"
-        sta = (getattr(session, "statuses", {}) or {}).get(name) or []
+        from .status_rules import labels_for
+        sta = labels_for(session, name)
         res = (getattr(session, "resources", {}) or {}).get(name) or {}
         lines.append(
             f"**{name}** — {p.get('profile') or '(미배분)'}\n"

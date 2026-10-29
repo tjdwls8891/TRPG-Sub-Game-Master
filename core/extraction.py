@@ -580,30 +580,46 @@ def build_extraction_limits(session) -> str:
         # v7.38(D5): 해제 조건도 함께 준다(해제 판단의 근거) — 부여 조건만 주던 v7.37까지는 해소를 읽을 근거가 없었다
         # v7.41: 심화 상태(deep)는 코드가 시간으로 정한다 — 점수를 넣지 않게 표시한다
         lines = []
+        _acts = {"down": "한 단계↓(1단계면 해제)", "treat": "한 단계↓(마지막은 시간)", "ease": "증상 잠시 완화"}
         for e in rows:
             n, c, r = e["name"], e.get("apply_condition", ""), e.get("remove_condition", "")
             tag = " (코드 판정 — 점수를 넣지 말 것)" if n in deep else ""
-            lines.append(f"- {n}{tag}: 부여=[{c}]" + (f" / 해제=[{r}]" if r else "") if c else f"- {n}{tag}")
+            # v7.47(S1·S4): 단계 이름(status_scores.stage 번호 순서)·처치 효과(코드가 물건 사용으로 적용)
+            st = e.get("stages") if isinstance(e.get("stages"), list) else []
+            extra = (f" / 단계=[{' → '.join(f'{i}.{x}' for i, x in enumerate(st, 1))}]" if st else "") \
+                + (" / 처치(코드)=[" + ", ".join(f"{k} {_acts.get(v, v)}" for k, v in (e.get("care") or {}).items()) + "]"
+                   if e.get("care") else "") \
+                + (" / 추출로 낮추거나 풀지 않음(처치·시간)" if e.get("lower_by") == "care" and n not in deep else "")
+            lines.append((f"- {n}{tag}: 부여=[{c}]" + (f" / 해제=[{r}]" if r else "") if c else f"- {n}{tag}") + extra)
         blocks.append("\n[이 시나리오의 상태이상 — 이 목록에 없는 이름은 쓰지 말 것]\n"
-                      + "\n".join(lines))
+                      + "\n".join(lines)
+                      + ("\n· 단계가 있는 상태는 status_scores의 stage에 단계 번호(응답에 stage가 있을 때). 입은 것·쓴 물건의 효과는 "
+                         "근거일 뿐 자동이 아니다 — 환경의 세기와 함께 본다(예: 패딩을 입어도 젖은 몸으로 밤바다 바람을 맞으면 "
+                         "추위가 붙는다)." if any(e.get("stages") for e in rows) else ""))
         removal = {e["name"]: e.get("remove_condition", "") for e in rows}
         now = (getattr(session, "world_clock", None) or {}).get("minute_index")
         clocks = getattr(session, "status_clock", None) or {}
+        from .status_rules import label as _label
+        merged_d = {e["name"]: e for e in rows}
         cur = []
         for who, st in (getattr(session, "statuses", None) or {}).items():
             for x in st or ():
                 at = ((clocks.get(who) or {}).get("applied") or {}).get(x)
                 since = f"({int(now) - int(at)}분째)" if now is not None and at is not None else ""
+                shown = _label(merged_d, x, clocks.get(who) or {}, now)
                 if x in deep:
-                    cur.append(f"- {who}: {x}{since} — 코드 판정(점수 불필요)")
+                    cur.append(f"- {who}: {shown}{since} — 코드 판정(점수 불필요)")
                 else:
-                    cur.append(f"- {who}: {x}{since} — 해제=[{removal.get(x, '')}]")
+                    cur.append(f"- {who}: {shown}{since} — 해제=[{removal.get(x, '')}]")
         if cur:
             # v7.41(사용자 결정): 붙어 있는 상태는 매 턴 빠짐없이 다시 판단시킨다
             blocks.append("[지금 붙어 있는 상태 — 코드 판정 표시가 없는 것은 하나도 빠짐없이 이번 턴 status_scores에 넣는다]\n"
                           "· 해제 조건이나 그 상태를 덜어 줄 수단(무엇이든)이 이번 묘사에 들어왔으면 0~30(해소) — "
                           "증상이 조금 남았다는 이유로 유지하지 말 것.\n"
-                          "· 그대로면 31~70(유지). 더 나빠졌다고 새로 높일 필요는 없다.\n" + "\n".join(cur))
+                          "· 그대로면 31~70(유지). 더 나빠졌다고 새로 높일 필요는 없다.\n"
+                          "· 단계가 있는 상태는 stage에 지금 단계 번호를 적는다(나빠졌으면 올리고, 나아졌으면 내린다 — "
+                          "'추출로 낮추지 않음' 상태는 처치·시간이 내린다).\n"
+                          + "\n".join(cur))
 
     # 인물 — 고정 NPC와 이미 등장한 비정규 NPC.
     known = list((sd.get("default_npcs") or {}).keys())

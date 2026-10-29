@@ -252,34 +252,53 @@ def _npc_stats(session, name: str, world_turn=None) -> dict | None:
 
 def _judge_side(view, side: dict, name: str, world_turn=None, contest: bool = False) -> dict:
     """한 판정 당사자의 목표치 조립. A는 코드가 정본 원스탯에서 환산, S는 지목 스킬이 PC 프로필에 있을 때만(v7.43),
-    M·H·D는 판단층위 계약값(검증 통과분). 능력치를 확인할 수 없으면 target=None(굴리지 않음)."""
+    M·H·D는 판단층위 계약값(검증 통과분). 능력치를 확인할 수 없으면 target=None(굴리지 않음).
+
+    v7.47(동적 세계, 굴림 분야 domain이 있을 때): E = 지목 물건의 그 분야 효과 + 입은 것의 그 분야 불리 효과(자동, W5·W6),
+    PC의 H = 상태·단계 저작 불이익의 코드 합산(S2 — 판단층위 status_mod는 쓰지 않는다)."""
     stat = str(side.get("stat") or "")
     uid = core.get_uid_by_char_name(view, name)
+    sd = getattr(view, "scenario_data", None)
+    domain = side.get("domain") if world_turn is not None and side.get("domain") in _roll_domains() else None
     skill, s, item, e = "", 0, "", 0
+    h = int(side.get("status_mod") or 0)
+    status_basis = str(side.get("status_basis") or "")
     if uid:
         _prof = (view.players.get(uid) or {}).get("profile") or {}
         raw = _prof.get(stat)
         s = core.judgment.skill_mod(_prof, side.get("skill"))
         skill = str(side.get("skill") or "").strip() if s else ""
+        _defs = core.items.definitions_of(world_turn.ctx.definition) if world_turn is not None else {}
         if world_turn is not None and side.get("item") not in (None, "", "NONE"):   # v7.46 장비 보정 E
-            _defs = core.items.definitions_of(world_turn.ctx.definition)
             row = next((r for r in core.items.equip_rows(view, name, _defs) if r[0] == side.get("item")), None)
             if row is not None:
-                e = core.items.equip_mod(row[3], stat, getattr(view, "scenario_data", None))
+                e = core.items.equip_mod([t for t in row[3] if domain is None
+                                          or int((core.items.effect_vocab()["tags"].get(t) or {}).get("mod") or 0) > 0],
+                                         stat, sd, domain)
                 item = row[2] if e else ""
+        if domain is not None:
+            pen, pen_names = core.items.worn_penalty(view, name, domain, _defs, exclude_key=None)
+            if pen:
+                e += pen
+                item = ", ".join(([item] if item else []) + [f"{n}(불리)" for n in pen_names])
+            _clock = (getattr(view, "status_clock", None) or {}).get(name) or {}
+            h, status_basis = core.status_rules.status_mod(
+                core.get_merged_status_effects(sd or {}), (view.statuses or {}).get(name) or (),
+                _clock, (getattr(view, "world_clock", None) or {}).get("minute_index"), domain)
+            status_basis = (status_basis + " (코드 확정)") if status_basis else ""
     else:
         raw = (_npc_stats(view, name, world_turn) or {}).get(stat)
         if world_turn is not None and contest:  # v7.46(B3): 대결 상대 NPC — 손에 드는 무기·보호구 중 가장 유리한 것 하나
-            item, e = core.items.npc_equip_mod(view, name, stat, core.items.definitions_of(world_turn.ctx.definition))
+            item, e = core.items.npc_equip_mod(view, name, stat, core.items.definitions_of(world_turn.ctx.definition),
+                                               domain)
     a = core.judgment.ability_mod(raw)
     diff = side.get("difficulty") if side.get("difficulty") in core.judgment.DIFFICULTY else "보통"
     m = int(side.get("method_mod") or 0)
-    h = int(side.get("status_mod") or 0)
     d = core.judgment.DIFFICULTY[diff]
     out = {"name": name, "stat": stat, "is_pc": bool(uid), "uid": uid, "difficulty": diff,
-           "A": a, "S": s, "skill": skill, "E": e, "item": item, "M": m, "H": h, "D": d,
+           "A": a, "S": s, "skill": skill, "E": e, "item": item, "M": m, "H": h, "D": d, "domain": domain or "",
            "method_basis": str(side.get("method_basis") or ""),
-           "status_basis": str(side.get("status_basis") or ""), "T": None}
+           "status_basis": status_basis, "T": None}
     if a is None:
         return out
     out["T"] = core.judgment.target(a, s, m, h, d, e)
@@ -287,6 +306,11 @@ def _judge_side(view, side: dict, name: str, world_turn=None, contest: bool = Fa
     _terms = "".join(f"{v:+d}({n})" for v, n in terms if v)
     out["breakdown"] = f"{core.judgment.BASE}{_terms}={out['T']}" if _terms else f"{out['T']}"
     return out
+
+
+def _roll_domains() -> list:
+    """v7.47(W6) 굴림 분야 — 공용 효과 어휘 domains + 기타."""
+    return list(core.items.effect_vocab().get("domains") or {}) + ["기타"]
 
 
 def _judge_plan(view, spec: dict, world_turn=None) -> dict:
@@ -355,10 +379,24 @@ def _build_judgment_user_prompt(session, player_message: str, roll_results: list
         if c_res:
             prof_lines.append("    소지 자원: " + ", ".join(f"{k} {v}" for k, v in c_res.items()))
         c_sta = (session.statuses or {}).get(c_name, [])
-        prof_lines.append("    상태이상: " + (", ".join(c_sta) if c_sta else "없음"))
-        # v7.12: 상태 영향은 코드가 고정 가중치로 더하지 않는다 — 판단층위가 아래 정의를 보고 status_mod 하나로 종합.
         _defs = core.get_merged_status_effects(session.scenario_data or {})
-        for _sn in c_sta:
+        if world_turn is not None:
+            # v7.47(S2): 동적 세계 PC — 상태·단계 불이익은 코드가 굴림 분야로 더한다(status_mod는 0)
+            _clk = (getattr(session, "status_clock", None) or {}).get(c_name) or {}
+            _now = (getattr(session, "world_clock", None) or {}).get("minute_index")
+            prof_lines.append("    상태이상: " + (", ".join(core.status_rules.label(_defs, x, _clk, _now) for x in c_sta)
+                                                if c_sta else "없음")
+                              + (" — 판정 불이익은 코드가 굴림 분야에 맞춰 더한다(status_mod 0)" if c_sta else ""))
+            for _sn in c_sta:
+                _e = _defs.get(_sn)
+                if isinstance(_e, dict):
+                    _m = core.status_rules.mods_at(_e, core.status_rules.effective_stage(_e, _clk, _sn, _now))
+                    prof_lines.append(f"    · {core.status_rules.label(_defs, _sn, _clk, _now)}: "
+                                      f"{core.status_rules.mods_text(_m)} / 제거조건=[{_e.get('remove_condition', '')}]")
+        else:
+            prof_lines.append("    상태이상: " + (", ".join(c_sta) if c_sta else "없음"))
+        # v7.12: 상태 영향은 코드가 고정 가중치로 더하지 않는다 — 판단층위가 아래 정의를 보고 status_mod 하나로 종합.
+        for _sn in (c_sta if world_turn is None else ()):
             _e = _defs.get(_sn)
             if not isinstance(_e, dict):
                 continue
@@ -2841,7 +2879,8 @@ class GMCog(commands.Cog):
             pc_name=pc_name, transaction_id=prep.transaction_id,
             discovery_taken=[k for k in (obs.get("discovery_taken") or ()) if isinstance(k, str)],
             legacy_item_deltas=plan.item_deltas, payments=pays,
-            narration_text=getattr(getattr(prep, "narration", None), "text", "") or "")
+            narration_text=getattr(getattr(prep, "narration", None), "text", "") or "",
+            raw_traits=[r for r in (obs.get(core.items.TRAITS_FIELD) or ()) if isinstance(r, dict)])
 
     @staticmethod
     def _apply_discovery_gains(session, ctx, plan, gains) -> None:
@@ -3003,6 +3042,7 @@ class GMCog(commands.Cog):
         """v7.29 B2 — 물건 연산만 제외(발견물 수거 키·옛 소지 변화 포함)하고 관찰을 마친다. 부분 적용은 없다."""
         raw = dict(prep.world_observation_raw or {})
         raw.pop(core.items.OPS_FIELD, None)
+        raw.pop(core.items.TRAITS_FIELD, None)
         raw.pop("discovery_taken", None)
         prep.world_observation_raw = raw
         plan.item_deltas = []
@@ -4510,14 +4550,28 @@ class GMCog(commands.Cog):
             _defs = core.items.definitions_of(_wt.ctx.definition)
             _ekeys = sorted({r[0] for p in (session.players or {}).values() if isinstance(p, dict)
                              for r in core.items.equip_rows(session, p.get("name"), _defs)})
-        if _skills or _ekeys:
+        if _skills or _ekeys or _wt is not None:
             import copy as _copy
             _schema = _copy.deepcopy(_schema)
             _ri = _schema["properties"]["rolls"]["items"]["properties"]
             if _skills:
                 _ri["skill"] = dict(_ri.get("skill") or {"type": "string"}, enum=["NONE"] + _skills)
             _ri["item"] = {"type": "string", "enum": ["NONE"] + _ekeys,
-                           "description": "PC 굴림에 직접 쓰인 착용·손에 든 물건 키(E키). 없으면 NONE"}
+                           "description": "PC 굴림에 직접 쓰인 착용·손에 든 물건 키(E키) — 그 굴림 분야의 유리한 효과가 있는 것. "
+                                          "없으면 NONE"}
+            if _wt is not None:
+                # v7.47(W5·W6·S2): 굴림 분야 — 장비 효과·상태 불이익을 코드가 이 분야로 고른다. PC 상태 보정은 코드가 정한다.
+                _dom = {"type": "string", "enum": _roll_domains(),
+                        "description": "이 굴림 행동의 분야(근접=치고 베기, 방어=맞고 버티기·막기, 기동=달리기·오르기 …). "
+                                       "어디에도 맞지 않으면 기타"}
+                _ri["domain"] = _dom
+                _schema["properties"]["rolls"]["items"]["required"] = \
+                    list(_schema["properties"]["rolls"]["items"].get("required") or []) + ["domain"]
+                _ri["status_mod"] = dict(_ri.get("status_mod") or {"type": "integer"},
+                                         description="PC 굴림은 0(상태 보정은 코드가 단계 불이익으로 계산한다)")
+                _op = _ri.get("opponent") or {}
+                if isinstance(_op.get("properties"), dict):
+                    _op["properties"]["domain"] = dict(_dom, description="상대 쪽 행동의 분야(공격을 막으면 방어 등)")
         user_prompt = _build_judgment_user_prompt(session, player_message, roll_results, world_turn=_wt, gate=gate,
                                                   declaration_draft=declaration_draft and not gate,
                                                   discovery_rows=discovery_rows if declaration_draft and not gate else ())
@@ -6414,7 +6468,15 @@ class GMCog(commands.Cog):
             _wt.item_manifest = self._item_manifest(session, _wt)
             _ext_schema["properties"][core.turn_world.OBS_FIELD]["properties"][core.items.OPS_FIELD] = \
                 _wt.item_manifest.schema()
+            _ext_schema["properties"][core.turn_world.OBS_FIELD]["properties"][core.items.TRAITS_FIELD] = \
+                _wt.item_manifest.traits_schema()
             _obs_block += _wt.item_manifest.render()
+            # v7.47(S1): PC 상태 단계 — status_scores에 단계 번호(단계 없는 상태는 0)
+            _ss = _ext_schema["properties"].get("status_scores")
+            if isinstance(_ss, dict) and isinstance((_ss.get("items") or {}).get("properties"), dict):
+                _ss["items"]["properties"]["stage"] = {
+                    "type": "integer", "description": "단계가 있는 상태의 지금 단계 번호(1부터 — 상태 목록의 단계 순서). "
+                                                      "단계가 없는 상태·해소(0~30)는 0"}
             # SVG 카드: 장면 카드 인물별 허용 바리에이션 — 인물당 턴 하나(턴 로컬, 정본 저장 없음)
             _cw = core.speaker_card.card_world(session)
             _var_manifest = core.speaker_card.variation_manifest(_cw, _wt, session) if _cw else {}

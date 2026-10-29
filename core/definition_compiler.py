@@ -2362,6 +2362,15 @@ def _compile_items(raw, actor_index, places, d) -> tuple:
                 ok = False
             else:
                 rec["wear"] = {"slots": slots, "tags": tags}
+        if body.get("use") is not None:              # v7.47 사용 효과(공용 어휘 use_effects)
+            from .items import effect_vocab
+            uv = effect_vocab().get("use_effects") or {}
+            use = _str_list(body["use"]) if isinstance(body["use"], list) else None
+            if use is None or set(use) - set(uv):
+                d.add(ERROR, "ITEM_USE_INVALID", f"{p}.use", "use는 [공용 사용 효과](data/common_item_effects.json)")
+                ok = False
+            elif use:
+                rec["use"] = use
         insts = body.get("instances") or []
         if insts and not rec.get("unique"):
             d.add(ERROR, "ITEM_INSTANCES_NOT_UNIQUE", f"{p}.instances", "instances는 unique 물건에만 저작합니다")

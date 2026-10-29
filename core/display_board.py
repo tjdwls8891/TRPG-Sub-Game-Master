@@ -13,6 +13,7 @@ from datetime import datetime, timedelta, timezone
 from xml.sax.saxutils import escape
 
 from .constants import CACHE_TTL_SECONDS
+from . import status_rules as _status_rules
 
 W = 1200
 KST = timezone(timedelta(hours=9), "KST")
@@ -130,7 +131,7 @@ def board_data(session) -> dict:
             "name": name,
             "fields": short_profile_fields(prof, name),
             "unassigned": not prof,
-            "statuses": [str(s) for s in ((getattr(session, "statuses", {}) or {}).get(name) or [])],
+            "statuses": _status_rules.labels_for(session, name),     # v7.47 단계 표기(부상(중상))
             "resources": _resource_chips(session, name, res),
         })
     ex = getattr(session, "last_extraction", {}) or {}

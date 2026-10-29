@@ -202,20 +202,24 @@ async def merge(bot, session, *, field: str, values: list,
             "fallback": False, "too_long": len(merged) > max_length}
 
 
-async def outfit(bot, session, *, text: str) -> list:
+async def outfit(bot, session, *, text: str, carried=()) -> list:
     """v7.46 복장 글 → 착용 물건 [{name, slot, tags}](공용 자리·태그 어휘와 범위 — 허용 자리·계열당 한 단계·개수 상한 — 를 코드가 강제).
 
-    실패하면 빈 목록 — 착용 없이 진행한다(복장 글은 프로필에 그대로 남는다)."""
+    v7.47(3.1): carried(효과가 아직 정해지지 않은 시작 물건 종류)가 있으면 같은 호출에서 그 특성도 정한다 —
+    [{kind, slots, tags, use}]로 함께 돌려준다(목록에 있는 종류만). 실패하면 빈 목록 — 착용·특성 없이 진행한다."""
     from prompts import PROFILE_OUTFIT_RESPONSE_SCHEMA, PROFILE_OUTFIT_SYSTEM_INSTRUCTION
-    from .items import effect_vocab, free_tags, guide_text, reference_text
+    from .items import effect_vocab, free_tags, free_use, guide_text, reference_text, tags_at, use_guide_text
 
-    if not str(text or "").strip():
+    carried = [str(k) for k in dict.fromkeys(carried or ()) if str(k).strip()]
+    if not str(text or "").strip() and not carried:
         return []
     voc = effect_vocab()
     wear_slots = [x for x in voc["slots"] if x not in voc["hand_slots"]]
     user_prompt = (f"[복장 글]\n{text}\n\n[자리 목록]\n{', '.join(wear_slots)}\n\n"
-                   + guide_text()
-                   + "\n\n[참고 묶음 — 비슷한 옷은 이 묶음의 자리·효과를 따른다(목록에 없는 태그는 쓰지 않는다)]\n"
+                   + (f"[가진 물건 — carried에 하나씩 특성을 정한다]\n{', '.join(carried)}\n"
+                      f"[들 수 있는 자리]\n{', '.join(voc['slots'])}\n\n" if carried else "")
+                   + guide_text() + "\n" + use_guide_text()
+                   + "\n\n[참고 묶음 — 예시. 비슷한 물건은 이 정도로(목록에 없는 효과는 쓰지 않는다)]\n"
                    + reference_text())
     ok, data = await _call(bot, PROFILE_OUTFIT_SYSTEM_INSTRUCTION, PROFILE_OUTFIT_RESPONSE_SCHEMA, user_prompt,
                            session)
@@ -230,6 +234,15 @@ async def outfit(bot, session, *, text: str) -> list:
             continue
         seen.add(slot)
         out.append({"name": name, "slot": slot, "tags": free_tags(it.get("tags"), slot)})
+    done = set()
+    for it in data.get("carried") or ():
+        if not isinstance(it, dict) or it.get("name") not in carried or it.get("name") in done:
+            continue
+        done.add(it["name"])
+        slots = [x for x in dict.fromkeys(it.get("slots") or ()) if x in voc["slots"]]
+        out.append({"kind": it["name"], "slots": slots,
+                    "tags": free_tags([t for t in it.get("tags") or () if any(tags_at([t], sl) for sl in slots)]),
+                    "use": free_use(it.get("use"))})
     return out
 
 

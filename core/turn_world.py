@@ -1967,17 +1967,26 @@ def status_turn_facts(session, prep) -> dict | None:
     from . import items as _items
     defs = _items.definitions_of(wt.ctx.definition)
     equip = traits = None
+    care = []
     ip = getattr(getattr(prep, "extraction_plan", None), "item_plan", None)
     if ip is not None:
         try:
             _sim = _items.run_ops(session, ip.ops, defs=ip.defs, pc_name=ip.pc_name, scene_place=ip.scene_place,
                                   transaction_id=ip.transaction_id, recipes=ip.recipes)
-            equip, traits = _sim.equip, _sim.traits
+            equip, traits, care = _sim.equip, _sim.traits, _sim.care
         except Exception:  # noqa: BLE001 — 커밋이 같은 연산을 다시 검증한다(여기서는 직전 착용으로)
             equip = traits = None
+    # v7.47(S4): PC에게 쓴(실패하지 않은) 물건의 사용 효과 → 처치, 섭취 묶음 연결이 있으면 그 묶음도 섭취로 친다
+    #   착용·처치는 PC 이름이 소유자 키다(lead_pc는 행위자 id — v7.46은 여기서 행위자 id로 찾아 착용이 늘 비었다)
+    uid = (getattr(wt.ctx, "uid_of", None) or {}).get(wt.ctx.lead_pc)
+    pc_name = ((getattr(session, "players", None) or {}).get(uid) or {}).get("name") or getattr(ip, "pc_name", None)
+    effects = {e for c in care if c.get("on") == pc_name and not c.get("failed") for e in c.get("effects") or ()}
+    uv = _items.effect_vocab().get("use_effects") or {}
+    intake = frozenset(uv[e]["intake"] for e in effects if (uv.get(e) or {}).get("intake"))
     return {"now": now, "before": int((getattr(session, "world_clock", None) or {}).get("minute_index", now)),
             "start": int(clock.get("start_minute_index", now)),
             "place": pl.get("place_id") if pl.get("kind") == _sp.AT_PLACE else None,
             "daypart": daypart, "activity": outcome.get("activity"),
-            "worn": _items.worn_tags(session, wt.ctx.lead_pc, defs, equipment=equip, traits=traits)}
+            "worn": _items.worn_tags(session, pc_name, defs, equipment=equip, traits=traits),
+            "care": frozenset(effects), "care_consumed": intake, "care_used": intake}
 

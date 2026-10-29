@@ -768,27 +768,31 @@ async def finish(state: ProfileCreationSession, channel):
         if wstep and result.get(wstep.get("field")) and solo:     # C5: 착용은 단일 PC 동적 세계에서만 쓰인다
             from . import profile_ai
             from . import items as core_items
-            worn = await profile_ai.outfit(state.bot, state.session, text=str(result[wstep["field"]]))
+            defs = state.session.scenario_data.get("item_definitions") or {}
+            tr = dict(getattr(state.session, "item_traits", {}) or {})
+            _bag0 = (getattr(state.session, "resources", {}) or {}).get(state.char_name) or {}
+            carried = sorted({core_items.parse_key(k, defs)[0].kind for k in _bag0
+                              if core_items.traits_of(core_items.parse_key(k, defs)[0].kind, defs, tr)[1] is None})
+            got = await profile_ai.outfit(state.bot, state.session, text=str(result[wstep["field"]]), carried=carried)
+            worn = [w for w in got if w.get("slot")]
+            for c in got:                     # v7.47(3.1): 시작 물건 특성 — 같은 판독 1회(저작·세션 기록이 우선)
+                if c.get("kind") and core_items.traits_of(c["kind"], defs, tr)[1] is None:
+                    tr[c["kind"]] = {"slots": c["slots"], "tags": c["tags"], "use": c["use"], "source": "OUTFIT"}
+            res = dict(getattr(state.session, "resources", {}) or {})
+            bag = dict(res.get(state.char_name) or {})
+            eq = dict(getattr(state.session, "equipment", {}) or {})
             if worn:
-                res = dict(getattr(state.session, "resources", {}) or {})
-                bag = dict(res.get(state.char_name) or {})
-                eq = dict(getattr(state.session, "equipment", {}) or {})
-                tr = dict(getattr(state.session, "item_traits", {}) or {})
-                defs = state.session.scenario_data.get("item_definitions") or {}
                 mine = {}
                 for w in worn:
                     bag[w["name"]] = bag.get(w["name"], 0) + 1
                     mine[w["slot"]] = {"key": w["name"]}
-                    t, src = core_items.traits_of(w["name"], defs, tr)      # 저작·세션·참고 묶음이 판독 태그보다 우선
-                    if src in ("REFERENCE", None):
-                        tr[w["name"]] = {"slots": sorted(set((t or {}).get("slots") or []) | {w["slot"]}),
-                                         "tags": list(t["tags"]) if t else w["tags"],
-                                         "source": "REFERENCE" if t else "OUTFIT"}
+                    if core_items.traits_of(w["name"], defs, tr)[1] is None:     # 저작·세션 기록이 판독 태그보다 우선
+                        tr[w["name"]] = {"slots": [w["slot"]], "tags": w["tags"], "use": [], "source": "OUTFIT"}
                 res[state.char_name] = bag
                 eq[state.char_name] = mine
                 state.session.resources = res
                 state.session.equipment = eq
-                state.session.item_traits = tr
+            state.session.item_traits = tr
     except Exception as e:
         print(f"[프로필] 복장 착용 반영 실패: {e}")
 

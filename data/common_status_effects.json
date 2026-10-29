@@ -53,6 +53,9 @@
       "clear_gate": {
         "consumed": "water"
       }
+    },
+    "mods": {
+      "전체": -4
     }
   },
   {
@@ -80,6 +83,9 @@
       "clear_gate": {
         "consumed": "food"
       }
+    },
+    "mods": {
+      "전체": -2
     }
   },
   {
@@ -123,54 +129,81 @@
         "const": false
       }
     },
-    "deep": true
+    "deep": true,
+    "mods": {
+      "전체": -8
+    }
   },
   {
     "name": "추위",
-    "apply_condition": "춥다는 것이 묘사에 드러남(찬바람·밤바다·얇은 옷·젖은 몸·차가운 바닥 등) — 보온 착용 중이고 젖지 않았으면 붙지 않음(코드 판정)",
+    "apply_condition": "춥다는 것이 묘사에 드러남(찬바람·밤바다·얇은 옷·젖은 몸·차가운 바닥 등) — 입은 것의 보온은 근거일 뿐, 환경의 세기와 함께 본다",
     "weight": -1,
-    "remove_condition": "추위를 덜 수단을 무엇이든 들이면 해소(옷을 더 입음·담요·불·실내로 들어감·마른 옷·몸을 맞댐 등) · 보온 착용 + 마른 몸이면 코드가 해제",
+    "remove_condition": "추위를 덜 수단을 무엇이든 들이면 해소(옷을 더 입음·담요·불·실내로 들어감·마른 옷·몸을 맞댐 등)",
     "rules": {
-      "apply_gate": {
-        "any": [
-          {
-            "not": {
-              "wearing": "보온"
-            }
-          },
-          {
-            "status_active": "젖음"
-          }
-        ]
-      },
-      "clear_auto": {
-        "all": [
-          {
-            "wearing": "보온"
-          },
-          {
-            "not": {
-              "status_active": "젖음"
-            }
-          }
-        ]
-      },
       "clear_gate": {
         "const": true
       }
+    },
+    "stages": [
+      "쌀쌀함",
+      "떨림"
+    ],
+    "stage_mods": [
+      {
+        "수리": -2,
+        "의료": -2,
+        "원거리": -2
+      },
+      {
+        "전체": -2,
+        "수리": -2,
+        "의료": -2,
+        "원거리": -2
+      }
+    ],
+    "care": {
+      "덥히기": "down"
     }
   },
   {
     "name": "더위",
     "apply_condition": "덥다는 것이 묘사에 드러남(뙤약볕·밀폐된 열기·두꺼운 옷·불 곁 등)",
     "weight": -1,
-    "remove_condition": "더위를 덜 수단을 무엇이든 들이면 해소(그늘·바람·물을 끼얹음·옷을 벗음·서늘한 곳 등)"
+    "remove_condition": "더위를 덜 수단을 무엇이든 들이면 해소(그늘·바람·물을 끼얹음·옷을 벗음·서늘한 곳 등)",
+    "stages": [
+      "더움",
+      "숨막힘"
+    ],
+    "stage_mods": [
+      {
+        "기동": -2
+      },
+      {
+        "전체": -3
+      }
+    ],
+    "care": {
+      "식히기": "down"
+    }
   },
   {
     "name": "젖음",
     "apply_condition": "몸이나 옷이 물에 젖음(바다·비·물웅덩이·물을 뒤집어씀)",
     "weight": -1,
-    "remove_condition": "몸·옷을 말리거나 마른 옷으로 갈아입음"
+    "remove_condition": "몸·옷을 말리거나 마른 옷으로 갈아입음",
+    "stages": [
+      "축축함",
+      "흠뻑"
+    ],
+    "stage_mods": [
+      {},
+      {
+        "기동": -2
+      }
+    ],
+    "care": {
+      "말리기": "down"
+    }
   },
   {
     "name": "열탈진",
@@ -213,6 +246,9 @@
       "clear_gate": {
         "const": false
       }
+    },
+    "mods": {
+      "전체": -8
     }
   },
   {
@@ -235,6 +271,10 @@
         ],
         "min_minutes": 30
       }
+    },
+    "mods": {
+      "전체": -2,
+      "기동": -2
     }
   },
   {
@@ -260,10 +300,23 @@
   },
   {
     "name": "출혈",
-    "apply_condition": "예리한 무기나 파편에 의한 절상·자상",
+    "apply_condition": "예리한 무기나 파편에 의한 절상·자상(심한 출혈 = 피가 멎지 않고 흐름)",
     "weight": -3,
-    "remove_condition": "직접 지혈·봉합 등 의료 처치 완료, 또는 2시간이 지나 피가 멎음",
+    "remove_condition": "지혈 처치(심한 출혈 → 가벼운 출혈 → 멎음), 가벼운 출혈은 2시간이 지나면 저절로 멎음",
     "rules": {
+      "clear_auto": {
+        "all": [
+          {
+            "not": {
+              "stage_min": 2
+            }
+          },
+          {
+            "status_time": "SINCE_APPLIED_GTE",
+            "minutes": 120
+          }
+        ]
+      },
       "clear_gate": {
         "any": [
           {
@@ -275,46 +328,195 @@
             ]
           },
           {
-            "status_time": "SINCE_APPLIED_GTE",
-            "minutes": 120
+            "all": [
+              {
+                "not": {
+                  "stage_min": 2
+                }
+              },
+              {
+                "status_time": "SINCE_APPLIED_GTE",
+                "minutes": 120
+              }
+            ]
           }
         ]
       }
+    },
+    "stages": [
+      "가벼운 출혈",
+      "심한 출혈"
+    ],
+    "stage_mods": [
+      {
+        "전체": -2
+      },
+      {
+        "전체": -6
+      }
+    ],
+    "care": {
+      "지혈": "down"
+    },
+    "latent": {
+      "target": "염증",
+      "chance": 25,
+      "onset_minutes": [
+        720,
+        2880
+      ],
+      "cancel_by": "소독"
     }
   },
   {
     "name": "부상",
-    "apply_condition": "둔기 충격이나 낙하 등 물리적 충격",
+    "apply_condition": "둔기 충격이나 낙하 등 물리적 충격(경상 = 멍·삔 곳, 중상 = 골절·깊은 상처, 위중 = 목숨이 위태로움)",
     "weight": -2,
-    "remove_condition": "응급처치 및 충분한 안정(12시간 이상), 또는 3일이 지나 자연 회복",
+    "remove_condition": "응급처치로 한 단계씩 내려감(코드 판정 — 추출로 낮추지 않음). 경상은 처치 뒤 12시간, 처치 없으면 3일(허기·탈수 중에는 회복 멈춤). 중상 이상은 처치 없이 낫지 않음",
     "rules": {
-      "clear_gate": {
+      "clear_auto": {
         "any": [
           {
             "all": [
               {
-                "status_time": "SINCE_APPLIED_GTE",
-                "minutes": 720
+                "not": {
+                  "stage_min": 2
+                }
               },
               {
-                "any": [
-                  {
-                    "used": "medical"
-                  },
-                  {
-                    "activity_in": [
-                      "TREAT"
-                    ]
-                  }
-                ]
+                "status_time": "SINCE_CARED_GTE",
+                "minutes": 720
               }
             ]
           },
           {
-            "status_time": "SINCE_APPLIED_GTE",
-            "minutes": 4320
+            "all": [
+              {
+                "not": {
+                  "stage_min": 2
+                }
+              },
+              {
+                "status_time": "SINCE_APPLIED_GTE",
+                "minutes": 4320
+              },
+              {
+                "not": {
+                  "status_active": "허기"
+                }
+              },
+              {
+                "not": {
+                  "status_active": "탈수"
+                }
+              }
+            ]
           }
         ]
+      },
+      "clear_gate": {
+        "const": false
+      }
+    },
+    "stages": [
+      "경상",
+      "중상",
+      "위중"
+    ],
+    "stage_mods": [
+      {
+        "근접": -2,
+        "기동": -2
+      },
+      {
+        "전체": -3,
+        "근접": -3,
+        "기동": -3
+      },
+      {
+        "전체": -10
+      }
+    ],
+    "care": {
+      "응급처치": "treat",
+      "진통": "ease"
+    },
+    "lower_by": "care",
+    "latent": {
+      "target": "염증",
+      "chance": 25,
+      "onset_minutes": [
+        720,
+        2880
+      ],
+      "cancel_by": "소독",
+      "min_stage": 2
+    }
+  },
+  {
+    "name": "염증",
+    "apply_condition": "상처가 곪아 붓고 열이 남(코드 판정 — 출혈·중상 이상의 부상을 소독하지 않으면 일정 확률로 12~48시간 뒤 국소, 국소를 24시간 처치 없이 두면 전신)",
+    "weight": -2,
+    "remove_condition": "항생 처치(전신 → 국소), 국소는 항생 처치 뒤 24시간(코드 판정). 해열은 열만 잠시 내린다",
+    "deep": true,
+    "stages": [
+      "국소",
+      "전신"
+    ],
+    "stage_mods": [
+      {
+        "전체": -2
+      },
+      {
+        "전체": -6
+      }
+    ],
+    "care": {
+      "항생": "treat",
+      "해열": "ease"
+    },
+    "lower_by": "care",
+    "rules": {
+      "apply_gate": {
+        "const": false
+      },
+      "apply_auto": {
+        "latent_due": "염증"
+      },
+      "raise_auto": {
+        "all": [
+          {
+            "not": {
+              "stage_min": 2
+            }
+          },
+          {
+            "status_time": "SINCE_APPLIED_GTE",
+            "minutes": 1440
+          },
+          {
+            "not": {
+              "status_time": "SINCE_CARED_GTE",
+              "minutes": 0
+            }
+          }
+        ]
+      },
+      "clear_auto": {
+        "all": [
+          {
+            "not": {
+              "stage_min": 2
+            }
+          },
+          {
+            "status_time": "SINCE_CARED_GTE",
+            "minutes": 1440
+          }
+        ]
+      },
+      "clear_gate": {
+        "const": false
       }
     }
   },
@@ -327,6 +529,12 @@
       "clear_gate": {
         "const": true
       }
+    },
+    "mods": {
+      "전체": -6
+    },
+    "care": {
+      "진정": "down"
     }
   },
   {
@@ -341,31 +549,49 @@
         ],
         "min_minutes": 360
       }
+    },
+    "mods": {
+      "전체": -2
     }
   },
   {
     "name": "불안",
     "apply_condition": "위협이 지난 뒤에도 긴장·불안이 며칠째 가라앉지 않음(한 장면의 공포는 '공황')",
     "weight": -1,
-    "remove_condition": "안전한 곳에서 오래 쉬거나 믿는 사람과 시간을 보냄"
+    "remove_condition": "안전한 곳에서 오래 쉬거나 믿는 사람과 시간을 보냄",
+    "mods": {
+      "사교": -2,
+      "지식": -2
+    }
   },
   {
     "name": "죄책감",
     "apply_condition": "자기 선택으로 누군가 다치거나 죽었다는 생각에 사로잡힘",
     "weight": -1,
-    "remove_condition": "털어놓거나 속죄할 일을 함"
+    "remove_condition": "털어놓거나 속죄할 일을 함",
+    "mods": {
+      "사교": -2
+    }
   },
   {
     "name": "무기력",
     "apply_condition": "해야 할 일을 놓을 만큼 의욕이 꺼짐",
     "weight": -1,
-    "remove_condition": "의미 있는 일이나 사람을 다시 붙잡음"
+    "remove_condition": "의미 있는 일이나 사람을 다시 붙잡음",
+    "mods": {
+      "전체": -2
+    }
   },
   {
     "name": "분노",
     "apply_condition": "특정 대상에 대한 분노가 판단을 흐림",
     "weight": -1,
-    "remove_condition": "분노의 대상과 결판이 나거나 마음이 풀림"
+    "remove_condition": "분노의 대상과 결판이 나거나 마음이 풀림",
+    "mods": {
+      "사교": -4,
+      "은밀": -2,
+      "근접": 2
+    }
   },
   {
     "name": "트라우마",
@@ -377,6 +603,9 @@
         "status_time": "SINCE_APPLIED_GTE",
         "minutes": 10080
       }
+    },
+    "mods": {
+      "전체": -2
     }
   },
   {
@@ -389,6 +618,11 @@
         "status_time": "SINCE_APPLIED_GTE",
         "minutes": 10080
       }
+    },
+    "mods": {
+      "수리": -2,
+      "의료": -2,
+      "원거리": -2
     }
   },
   {
@@ -400,6 +634,10 @@
       "clear_gate": {
         "const": false
       }
+    },
+    "mods": {
+      "탐색": -4,
+      "사교": -2
     }
   },
   {
@@ -411,6 +649,10 @@
       "clear_gate": {
         "const": false
       }
+    },
+    "mods": {
+      "기동": -2,
+      "은밀": -2
     }
   },
   {
@@ -422,6 +664,10 @@
       "clear_gate": {
         "const": false
       }
+    },
+    "mods": {
+      "근접": -2,
+      "기동": -2
     }
   }
 ]
