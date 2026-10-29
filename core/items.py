@@ -224,22 +224,33 @@ def equip_mod(tags, stat: str, scenario_data=None, domain=None) -> int:
                if t in voc and stat in (dm.get(voc[t].get("domain")) or ()))
 
 
-def worn_penalty(session, owner: str, domain: str, defs=None, exclude_key=None) -> tuple:
-    """v7.47(W5): 입거나 든 것의 그 분야 불리한 효과(음수 mod) — 지목 없이 자동. (값, [물건 이름])."""
-    voc = effect_vocab()["tags"]
+def worn_auto(session, owner: str, domain: str, defs=None) -> tuple:
+    """v7.47(W5·D2 나): 지목 없이 그 분야 굴림에 자동으로 붙는 장비 효과 — (값, [물건 이름(+/-)]).
+
+    몸에 입은 것(손 아닌 자리)은 유리·불리 모두, 손에 든 것은 불리한 효과만(쓸지는 행동 선택 — 유리는 지목형)."""
+    voc = effect_vocab()
+    hands = set(voc["hand_slots"])
     eq = (getattr(session, "equipment", None) or {}).get(owner) or {}
     st = getattr(session, "item_traits", None) or {}
     total, names = 0, []
     for slot, e in eq.items():
         k = e.get("key") if isinstance(e, dict) else None
-        if not k or k == exclude_key or not usable(k, defs):
+        if not k or not usable(k, defs):
             continue
-        v = sum(int(voc[t].get("mod") or 0) for t in tags_at(key_tags(k, defs, st), slot)
-                if voc[t].get("domain") == domain and int(voc[t].get("mod") or 0) < 0)
+        v = sum(int(voc["tags"][t].get("mod") or 0) for t in tags_at(key_tags(k, defs, st), slot)
+                if voc["tags"][t].get("domain") == domain
+                and (slot not in hands or int(voc["tags"][t].get("mod") or 0) < 0))
         if v:
             total += v
-            names.append(k)
+            names.append(f"{k}({'+' if v > 0 else '-'})")
     return total, names
+
+
+def worn_on_body(session, owner: str, key: str) -> bool:
+    """그 재고 키가 손이 아닌 자리에 입혀져 있는가(자동 효과에 이미 들어간 물건)."""
+    hands = set(effect_vocab()["hand_slots"])
+    eq = (getattr(session, "equipment", None) or {}).get(owner) or {}
+    return any(isinstance(e, dict) and e.get("key") == key and sl not in hands for sl, e in eq.items())
 
 
 def equip_rows(session, owner: str, defs=None) -> list:
@@ -322,10 +333,11 @@ def equip_block(rows, scenario_data=None) -> str:
         v = voc.get(t) or {}
         mod = int(v.get("mod") or 0)
         return (f"{t}[{v.get('domain')} {mod:+d} — {v.get('desc', '')}"
-                + (" · 입고 있으면 그 분야 굴림에 코드가 자동으로 뺌" if mod < 0 else "") + "]")
+                + (" · 코드가 자동으로 뺌" if mod < 0 else "") + "]")
     return ("[착용·손에 든 것 — 코드 확정 장비 보정. 효과는 [분야 값]의 그 분야 굴림에만 붙는다(굴림의 domain이 기준). "
-            "굴림에 직접 쓰는 물건이 있으면 rolls의 item에 그 키 하나(PC 굴림만 — 그 굴림 분야의 유리한 효과가 있는 것). "
-            "불리한 효과(음수)는 지목하지 않아도 코드가 뺀다. 장비 보정은 코드가 더하므로 method_mod에 다시 넣지 말 것. "
+            "몸에 입은 것의 효과(유리·불리)와 손에 든 것의 불리한 효과는 지목하지 않아도 코드가 그 분야 굴림에 더한다. "
+            "손에 들었거나 가방 속에서 꺼내 쓰는 물건을 굴림에 직접 쓰면 rolls의 item에 그 키 하나(PC 굴림만 — 그 굴림 "
+            "분야의 유리한 효과가 있는 것). 장비 보정은 코드가 더하므로 method_mod에 다시 넣지 말 것. "
             "여기 없는 소지품의 쓰임은 지금처럼 method_mod]\n" + "\n".join(f"{k}={lbl}: " + ", ".join(tag_txt(t) for t in tags)
                                                       for k, lbl, _stock, tags in rows))
 
@@ -454,7 +466,7 @@ class ItemManifest:
     payments: tuple = ()      # 코드가 이미 처리하는 지급(접근 확인) — 추출이 다시 적지 않는다
     worn: tuple = ()          # v7.46 PC 착용 표시("자리=물건(H키)")
     known: tuple = ()         # v7.46 효과가 정해진 PC 소지 물건("H키=물건: 태그")
-    unknown: tuple = ()       # v7.47 효과가 아직 정해지지 않은 PC 소지 물건("H키=물건")
+    unknown: tuple = ()       # v7.47 효과가 아직 정해지지 않은 소지 물건("H키=물건") — PC·장면 인물(D1 나)
 
     def owner_of(self, k):
         return next((r[1] for r in self.owners if r[0] == k), None)
@@ -498,9 +510,9 @@ class ItemManifest:
                     "required": ["op", "owner", "item", "quantity"]}}
 
     def traits_schema(self) -> dict:
-        """v7.47(3.1) 추출 item_traits — 이번 턴에 다룬, 효과가 아직 정해지지 않은 PC 물건의 특성."""
+        """v7.47(3.1·D1) 추출 item_traits — 이번 턴에 다룬, 효과가 아직 정해지지 않은 물건(PC·장면 인물)의 특성."""
         v = effect_vocab()
-        return {"type": "array", "description": "이번 턴 처음 다룬 '효과 미정' PC 물건의 특성(그 밖은 빈 배열).",
+        return {"type": "array", "description": "이번 턴 처음 다룬 '효과 미정' 물건(PC·장면 인물)의 특성(그 밖은 빈 배열).",
                 "items": {"type": "object", "properties": {
                     "item": {"type": "string", "enum": ["NONE", NEW_KEY] + [r.split("=")[0] for r in self.unknown]},
                     "name": {"type": "string"},
@@ -527,7 +539,8 @@ class ItemManifest:
         if self.known:
             lines.append("효과가 이미 정해진 PC 물건(item_traits에 다시 적지 말 것): " + ", ".join(self.known))
         if self.unknown:
-            lines.append("효과가 아직 정해지지 않은 PC 물건 — 이번 묘사에서 실제로 다룬(줍기·받기·입기·쓰기 등) 것만 "
+            lines.append("효과가 아직 정해지지 않은 물건(PC·장면 인물) — 이번 묘사에서 그 소유자가 실제로 다룬(줍기·받기·입기·"
+                         "들기·쓰기 등) 것만 "
                          "item_traits에 적는다: " + ", ".join(self.unknown))
         lines.append("· TRANSFER owner→to 건넴 · ACQUIRE 현장 물건(L·D키)을 owner가 집음 · DROP owner가 내려놓음 · "
                      "CONSUME 써 버림·잃음·파괴 · DAMAGE/REPAIR 상태 변화(condition) · OPEN 포장 개봉 또는 닫힌 용기(L키) 열기 — "
@@ -540,7 +553,8 @@ class ItemManifest:
                      "WEAR PC가 소지한 물건(H키, 또는 이번에 NEW로 챙긴 것은 item=NEW + name)을 입거나 손에 듦 — slot에 자리"
                      "(오른손·왼손 = 손에 듦) · "
                      "REMOVE 입은 것을 벗거나 손에서 내려 소지함(slot을 비우면 그 물건 전부). 버리면 DROP, 건네면 TRANSFER.")
-        lines.append("[item_traits — 효과 미정 PC 물건(또는 이번에 NEW로 챙긴 물건: item=NEW + name)을 이번 턴에 다뤘으면 "
+        lines.append("[item_traits — 효과 미정 물건(PC·장면 인물, 또는 PC가 이번에 NEW로 챙긴 물건: item=NEW + name)을 "
+                     "이번 턴에 다뤘으면 "
                      "그 물건의 특성을 한 번 정한다: slots = 입거나 들 수 있는 자리(입지 않는 물건은 빈 목록), "
                      "tags = 착용 효과, use = 써서 나는 효과. 실제로 가진 효과만, 애매하면 약한 쪽·또는 비운다. "
                      "한 번 정하면 그 세션에서 바뀌지 않는다]")
@@ -622,13 +636,14 @@ def build_manifest(session, *, pc_name: str, scene_owner_names=(), scene_place=N
     worn = tuple(_worn(sl, e.get("key")) for sl, e in eq.items() if isinstance(e, dict))
     known, unknown = [], []
     for h in holdings:
-        if h[1] == pc_name and h[2]:
-            t, _src = traits_of(parse_key(h[2], defs)[0].kind, defs, st)
-            if t is not None:
-                known.append(f"{h[0]}={h[2]}: " + (", ".join(t["tags"]) or "착용 효과 없음")
-                             + (f" | 사용 {', '.join(t['use'])}" if t.get("use") else ""))
-            else:
-                unknown.append(f"{h[0]}={h[2]}")
+        if not h[2]:
+            continue
+        t, _src = traits_of(parse_key(h[2], defs)[0].kind, defs, st)
+        if t is None:
+            unknown.append(f"{h[0]}={h[2]}")             # D1 나: 장면 인물 물건도 처음 다룰 때 정한다
+        elif h[1] == pc_name:
+            known.append(f"{h[0]}={h[2]}: " + (", ".join(t["tags"]) or "착용 효과 없음")
+                         + (f" | 사용 {', '.join(t['use'])}" if t.get("use") else ""))
     return ItemManifest(owners, holdings, places, disc, rc, scene_place, tuple(payments), worn, tuple(known),
                         tuple(unknown))
 

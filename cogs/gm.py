@@ -271,16 +271,18 @@ def _judge_side(view, side: dict, name: str, world_turn=None, contest: bool = Fa
         _defs = core.items.definitions_of(world_turn.ctx.definition) if world_turn is not None else {}
         if world_turn is not None and side.get("item") not in (None, "", "NONE"):   # v7.46 장비 보정 E
             row = next((r for r in core.items.equip_rows(view, name, _defs) if r[0] == side.get("item")), None)
+            if row is not None and domain is not None and core.items.worn_on_body(view, name, row[2]):
+                row = None                     # D2 나: 몸에 입은 것은 아래 자동 효과에 이미 들어간다(이중 반영 없음)
             if row is not None:
                 e = core.items.equip_mod([t for t in row[3] if domain is None
                                           or int((core.items.effect_vocab()["tags"].get(t) or {}).get("mod") or 0) > 0],
                                          stat, sd, domain)
                 item = row[2] if e else ""
         if domain is not None:
-            pen, pen_names = core.items.worn_penalty(view, name, domain, _defs, exclude_key=None)
-            if pen:
-                e += pen
-                item = ", ".join(([item] if item else []) + [f"{n}(불리)" for n in pen_names])
+            auto, auto_names = core.items.worn_auto(view, name, domain, _defs)
+            if auto_names:
+                e += auto
+                item = ", ".join(([item] if item else []) + auto_names)
             _clock = (getattr(view, "status_clock", None) or {}).get(name) or {}
             h, status_basis = core.status_rules.status_mod(
                 core.get_merged_status_effects(sd or {}), (view.statuses or {}).get(name) or (),

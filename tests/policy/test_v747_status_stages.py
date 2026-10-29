@@ -181,7 +181,7 @@ def test_judge_side_uses_roll_domain_for_equipment_and_code_status_penalty():
     guard = G._judge_side(_view(), dict(side, domain="방어"), "P", wt)
     assert guard["E"] == 0                                                         # 공격 무기를 막기에 지목해도 0
     run = G._judge_side(_view(), dict(side, stat="민첩", item="NONE", domain="기동"), "P", wt)
-    assert run["E"] == -2 and "장화(불리)" in run["item"] and run["H"] == -6          # 장화 불리는 지목 없이 자동
+    assert run["E"] == -2 and "장화(-)" in run["item"] and run["H"] == -6          # 장화 불리는 지목 없이 자동
     legacy = G._judge_side(_view(), {k: v for k, v in side.items() if k != "domain"}, "P", wt)
     assert legacy["H"] == 7 and legacy["E"] == 4                                   # 분야 없는 옛 계약은 그대로
 
@@ -305,3 +305,49 @@ def test_same_turn_wound_and_treatment():
     ctx = SR.Ctx(now=100, start_minute=0, seed=seed, care=frozenset({"지혈"}))
     d = SR.decide(M, ctx, "P", [{"target": "P", "status": "출혈", "score": 90}], [], ())
     assert not d.apply and "염증" in d.clock["latent"]          # 바로 멎은 가벼운 출혈 — 소독 안 했으면 잠복은 남음
+
+
+def test_worn_body_gear_applies_automatically_hand_items_by_choice():
+    # D2 나: 몸에 입은 것은 유리·불리 모두 자동, 손에 든 것은 불리만 자동(유리는 지목)
+    import cogs.gm as G
+    v = SimpleNamespace(
+        players={"u": {"name": "P", "profile": {"근력": 10}}},
+        resources={"P": {"안전모": 1, "쇠파이프": 1, "확성기": 1}},
+        equipment={"P": {"머리": {"key": "안전모"}, "오른손": {"key": "쇠파이프"}, "왼손": {"key": "확성기"}}},
+        item_traits={"안전모": {"slots": ["머리"], "tags": ["방호"], "use": []},
+                     "확성기": {"slots": ["왼손"], "tags": ["소음"], "use": []}},
+        npcs={}, gm_target_char="P", scenario_data={}, statuses={}, status_clock={}, world_clock={"minute_index": 1})
+    wt = SimpleNamespace(ctx=SimpleNamespace(definition={"item_definitions": {
+        "쇠파이프": {"wear": {"slots": ["오른손", "왼손"], "tags": ["근접무기"]}}}}))
+    rows = {r[2]: r[0] for r in IT.equip_rows(v, "P", IT.definitions_of(wt.ctx.definition))}
+    base = {"stat": "근력", "difficulty": "보통", "method_mod": 0, "status_mod": 0}
+    guard = G._judge_side(v, dict(base, item="NONE", domain="방어"), "P", wt)
+    assert guard["E"] == 3 and "안전모(+)" in guard["item"]                        # 지목 없이 헬멧 방호
+    twice = G._judge_side(v, dict(base, item=rows["안전모"], domain="방어"), "P", wt)
+    assert twice["E"] == 3                                                         # 지목해도 두 번 더하지 않음
+    hit = G._judge_side(v, dict(base, item="NONE", domain="근접"), "P", wt)
+    assert hit["E"] == 0                                                           # 손에 든 무기는 지목해야
+    sneak = G._judge_side(v, dict(base, item="NONE", domain="은밀"), "P", wt)
+    assert sneak["E"] == -3 and "확성기(-)" in sneak["item"]                        # 손에 든 것의 불리는 자동
+
+
+def test_scene_npc_items_get_traits_when_handled_and_count_in_contest():
+    # D1 나: 장면 인물의 효과 미정 물건도 처음 다룰 때 추출이 정한다 → 대결 보정
+    import cogs.gm as G
+    s = SimpleNamespace(resources={"P": {}, "깡패": {"각목": 1}}, item_instances={}, place_items={}, item_facts={},
+                        equipment={}, item_traits={}, statuses={}, status_clock={})
+    m = IT.build_manifest(s, pc_name="P", scene_owner_names=["깡패"])
+    key = next(r[0] for r in m.holdings if r[1] == "깡패")
+    assert f"{key}=각목" in m.unknown and key in m.traits_schema()["items"]["properties"]["item"]["enum"]
+    p = IT.build_plan(s, m, [], pc_name="P", transaction_id="t",
+                      raw_traits=[{"item": key, "slots": ["오른손", "왼손"], "tags": ["근접무기"], "use": []}])
+    IT.apply_plan(s, p)
+    assert s.item_traits["각목"]["tags"] == ["근접무기"]
+    v = SimpleNamespace(players={}, resources=s.resources, equipment={}, item_traits=s.item_traits, npcs={},
+                        gm_target_char="P", scenario_data={}, statuses={}, status_clock={}, world_clock={})
+    wt = SimpleNamespace(ctx=SimpleNamespace(definition={"item_definitions": {}}))
+    import unittest.mock as um
+    with um.patch.object(G, "_npc_stats", lambda *a, **k: {"근력": 10}):
+        n = G._judge_side(v, {"stat": "근력", "difficulty": "보통", "method_mod": 0, "status_mod": 0, "domain": "근접"},
+                          "깡패", wt, contest=True)
+    assert n["E"] == 4
