@@ -293,3 +293,15 @@ async def test_judgment_schema_has_roll_domain_and_code_status_line(drig):
     items = seen["schema"]["properties"]["rolls"]["items"]
     assert "domain" in items["required"] and "기타" in items["properties"]["domain"]["enum"]
     assert "부상(중상): 전체 -3, 근접 -3, 기동 -3" in seen["text"]
+
+
+def test_same_turn_wound_and_treatment():
+    # 병합 전 시뮬레이션 발견: 같은 턴에 다치고 바로 처치하면 처치·잠복 취소가 새로 붙은 상태에도 적용된다
+    lat = M["출혈"]["latent"]
+    seed = next(f"s{i}" for i in range(400) if SR.latent_roll(f"s{i}", "P", "출혈", 100, lat)["due"] is not None)
+    ctx = SR.Ctx(now=100, start_minute=0, seed=seed, care=frozenset({"소독", "지혈"}), stage_in={"출혈": 2})
+    d = SR.decide(M, ctx, "P", [{"target": "P", "status": "출혈", "score": 90}], [], ())
+    assert applied_names(d) == {"출혈"} and d.clock["stage"] == {"출혈": 1} and "latent" not in d.clock
+    ctx = SR.Ctx(now=100, start_minute=0, seed=seed, care=frozenset({"지혈"}))
+    d = SR.decide(M, ctx, "P", [{"target": "P", "status": "출혈", "score": 90}], [], ())
+    assert not d.apply and "염증" in d.clock["latent"]          # 바로 멎은 가벼운 출혈 — 소독 안 했으면 잠복은 남음

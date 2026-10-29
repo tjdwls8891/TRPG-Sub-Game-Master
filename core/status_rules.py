@@ -445,8 +445,9 @@ def decide(merged: dict, ctx: Ctx, pc_name: str, apply_in, clear_in, groups_cons
 
     want_apply, want_clear, cared_now = {}, set(), set()
 
-    # ① 처치 — 이번 턴 PC에게 쓴 물건의 사용 효과
-    for s in sorted(ctx.active):
+    def apply_care(s):
+        """① 처치 — 이번 턴 PC에게 쓴 물건의 사용 효과. True면 이 처치로 해제(down의 1단계)."""
+        done = False
         for eff_name, act in ((merged.get(s) or {}).get("care") or {}).items():
             if eff_name not in ctx.care:
                 continue
@@ -461,15 +462,23 @@ def decide(merged: dict, ctx: Ctx, pc_name: str, apply_in, clear_in, groups_cons
                 stage[s] = cur - 1
                 notes.append(f"{label(merged, s, clock)} ← 한 단계 내려감({eff_name} 처치, 코드)")
             elif act == "down":
-                want_clear.add(s)
+                done = True
                 notes.append(f"{s} 해제({eff_name} 처치, 코드)")
+                break
             else:
                 notes.append(f"{s} 처치 기록({eff_name}) — 시간이 마무리한다(코드)")
-    for tgt, rec in list(latent.items()):        # 잠복 취소 — 발현 전 그 효과로 처치
-        src = (merged.get(rec.get("from")) or {}).get("latent") or {}
-        if src.get("cancel_by") in ctx.care and tgt not in ctx.active and rec.get("due") is not None:
-            latent.pop(tgt)
-            notes.append(f"{tgt} 잠복 취소({src['cancel_by']} 처치, 코드)")
+        return done
+
+    def cancel_latents():
+        for tgt, rec in list(latent.items()):        # 잠복 취소 — 발현 전 그 효과로 처치
+            src = (merged.get(rec.get("from")) or {}).get("latent") or {}
+            if src.get("cancel_by") in ctx.care and tgt not in ctx.active and rec.get("due") is not None:
+                latent.pop(tgt)
+                notes.append(f"{tgt} 잠복 취소({src['cancel_by']} 처치, 코드)")
+
+    for s in sorted(ctx.active):
+        if apply_care(s):
+            want_clear.add(s)
 
     # ② 추출 단계 — 붙어 있는 상태(이번 턴 처치한 상태는 처치 결과가 우선 — 처치 전 단계를 다시 올리지 않는다)
     for s, n in (ctx.stage_in or {}).items():
@@ -547,6 +556,12 @@ def decide(merged: dict, ctx: Ctx, pc_name: str, apply_in, clear_in, groups_cons
             if n:
                 stage[s] = st
             roll_latent(s, st)
+    for s in [x for x in want_apply if x not in ctx.active]:   # 같은 턴에 다치고 바로 처치한 경우도 처치한다
+        if apply_care(s):
+            want_apply.pop(s)
+            for k in (applied, stage, cared, eased):
+                k.pop(s, None)
+    cancel_latents()                                           # 같은 턴에 걸린 잠복도 같은 턴 처치로 취소
     for s in want_clear:
         applied.pop(s, None)
         stage.pop(s, None)
