@@ -585,9 +585,9 @@ def plan_player_turn(ctx: WorldContext, world, intent: _ai.ResolvedActionIntent,
             pre_ops.append(_wm.make_op(f"{prefix}.resolution", _ev.OP_EVENT_LOCAL_SET, _ev.RESOLUTION_SOURCE, {
                 "instance_id": iid, "key": _ev.RESOLUTION_KEY, "value": oid}))
             plan.outcome["resolution"] = {"instance_id": iid, "option_id": oid}
-    if (D.get("pursuers") or None) and here is not None:
+    from . import pursuit as _pu
+    if pursuit is not None and here is not None and _pu.configs(D):
         # v7.48(E3): 추적자 판단(묘사 전, 결정적) — 상태 갱신·이동을 이번 턴 진행의 기준 연산으로
-        from . import pursuit as _pu
         pre_ops += _pu.plan_ops(D, src, now=now, pc_place=here, pc_hidden=bool((pursuit or {}).get("hidden")),
                                 disabled=(pursuit or {}).get("disabled") or (), progress=observer, prefix=f"{prefix}.pu",
                                 diagnostics=plan.diagnostics)

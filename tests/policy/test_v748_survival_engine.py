@@ -2,6 +2,8 @@
 """v7.48 — 생존물(A) 엔진: E1 상태 조건 · E2 빈사/사망 결말 · D-3 NPC 상태 규칙 · E3 추적자 · E4 소음/숨음.
 
 사용자 결정(계획서 v1): D-1 나(빈사 20분) · D-2 가(영도 적용·설화재 제외) · D-3 나(모든 NPC에 상태 규칙).
+정리(R1~R4): 기능 선언(scenario_schema.capabilities — mortality·stealth·pursuit) · 상태 역할(roles) ·
+인물 행동 유형(default_npcs[*].behavior) · 연결 지점 정리.
 """
 from __future__ import annotations
 
@@ -20,7 +22,8 @@ from core import world_refs as RF
 
 pytestmark = pytest.mark.policy
 ROOT = pathlib.Path(__file__).resolve().parents[2]
-M = core.get_merged_status_effects({})
+CAPS = {"scenario_schema": {"capabilities": {"mortality": 1, "stealth": 1}}}
+M = core.get_merged_status_effects(CAPS)
 
 
 def decide(active=(), clock=None, apply=(), now=1000, npc=False, **kw):
@@ -65,7 +68,8 @@ def test_death_status_is_a_session_ending_with_scenario_override():
     end = SR.status_ending(M, ["부상", "사망"])
     assert end["id"] == "death" and end["status"] == "사망"
     sess = SimpleNamespace(players={"u": {"name": "P"}}, statuses={"P": ["사망"]},
-                           scenario_data={"status_endings": {"사망": {"title": "희생자", "epilogue": "호수는 다시 고요해졌다."}}})
+                           scenario_data={**CAPS, "status_endings": {"사망": {"title": "희생자",
+                                                                              "epilogue": "호수는 다시 고요해졌다."}}})
     e = core.turn_world.pc_status_ending(sess)
     assert e["title"] == "희생자" and e["id"] == "death"
     sess.statuses = {"P": [], "엄주섭": ["사망"]}
@@ -73,18 +77,38 @@ def test_death_status_is_a_session_ending_with_scenario_override():
 
 
 def test_dying_block_counts_down():
-    sess = SimpleNamespace(players={"u": {"name": "P"}}, statuses={"P": ["빈사"]}, scenario_data={},
+    sess = SimpleNamespace(players={"u": {"name": "P"}}, statuses={"P": ["빈사"]}, scenario_data=CAPS,
                            status_clock={"P": {"applied": {"빈사": 100}}}, world_clock={"minute_index": 108})
     assert "약 12분" in core.turn_world.dying_block(sess, None)
     sess.world_clock = {"minute_index": 125}
     assert "이번 턴 안에" in core.turn_world.dying_block(sess, None)
+    sess.scenario_data = {}
+    assert core.turn_world.dying_block(sess, None) == ""                           # 기능 미선언 = 빈사 정의 없음
 
 
-def test_seolhwajae_excludes_dying_and_death():
+def test_survival_statuses_follow_declared_capabilities():
+    """R1: 공용 상태 requires — 기능을 선언한 시나리오에만(D-2 가: 영도 mortality 선언, 설화재 미선언)."""
     SH = json.loads((ROOT / "scenarios" / "설화재.json").read_text(encoding="utf-8"))
     YD = json.loads((ROOT / "scenarios" / "영도.json").read_text(encoding="utf-8"))
-    assert {"빈사", "사망"} & set(core.get_merged_status_effects(SH)) == set()
-    assert {"빈사", "사망"} <= set(core.get_merged_status_effects(YD))
+    survival = {"빈사", "사망", "숨음"}
+    assert survival & set(core.get_merged_status_effects(SH)) == set() and "status_common_exclude" not in SH
+    assert {"빈사", "사망"} <= set(core.get_merged_status_effects(YD)) and "숨음" not in core.get_merged_status_effects(YD)
+    assert survival & set(core.get_merged_status_effects({})) == set()
+    assert "기절" in core.get_merged_status_effects({})                              # 기능 무관 공용 상태
+    bad = ev_raw_caps({"pursuit": 1})
+    assert "CAP_DEPENDENCY_MISSING" in [d.code for d in dc.compile_scenario(bad, "t").errors]   # pursuit → stealth
+
+
+def test_engine_reads_status_roles_not_names():
+    """R2: 숨음·무력화·죽어 감을 이름이 아니라 역할로 — 다른 이름의 상태도 역할만 주면 같게 동작한다."""
+    merged = {**M, "실신": {"name": "실신", "roles": ["incapacitated"]}, "은신": {"name": "은신", "roles": ["concealed"]}}
+    assert SR.has_role(merged, ["은신"], SR.ROLE_CONCEALED) and SR.has_role(merged, ["실신"], SR.ROLE_INCAPACITATED)
+    assert SR.with_role(M, SR.ROLE_DYING) == ["빈사"] and SR.death_timer(M, "빈사") == ("사망", 20)
+    D = {"actor_definitions": {"a": {"legacy_key": "괴한", "behavior": {"type": "pursuer", "mode": "walk"}}}}
+    ctx = PU.context(D, merged, {"P": ["은신"], "괴한": ["실신"]}, "P")
+    assert ctx == {"hidden": True, "disabled": ["a"]}
+    assert PU.context({"actor_definitions": {}}, merged, {}, "P") is None            # 추적자 없음 = 판단 입력 없음
+    assert any("roles" in m for _c, m in SR.check_definitions({}, {"x": {"name": "x", "roles": ["날기"]}}))
 
 
 # ── D-3 NPC 상태 규칙 ─────────────────────────────────────────
@@ -116,7 +140,8 @@ def test_hiding_breaks_on_moving_or_noise():
 
 # ── E3 추적자 ────────────────────────────────────────────────
 
-CFG = PU.cfg_of({"pursuers": {"k": {"actor": "a", "mode": "walk", "patrol": ["항구", "시장", "성당"]}}}, "k")
+CFG = PU.cfg_of({"actor_definitions": {"a": {"behavior": {"type": "pursuer", "mode": "walk",
+                                                          "patrol": ["항구", "시장", "성당"]}}}}, "a")
 
 
 def test_pursuer_decision_table():
@@ -138,24 +163,39 @@ def test_pursuer_decision_table():
     assert dest == "시장" and loc["patrol_i"] == 2                                  # 순회(지금 자리는 건너뜀)
 
 
+def ev_raw_caps(caps):
+    from tests.policy.test_h04b_events_progression import ev_raw
+    raw = ev_raw({})
+    raw["scenario_schema"]["capabilities"].update(caps)
+    return raw
+
+
 def _killer_raw(raw):
-    raw["pursuers"] = {"killer": {"actor": "강지수", "mode": "walk", "patrol": ["시장", "항구"],
-                                  "hearing": {"LOUD": 2, "NORMAL": 0}}}
+    raw["scenario_schema"]["capabilities"].update({"stealth": 1, "pursuit": 1})
+    raw["default_npcs"]["강지수"]["behavior"] = {"type": "pursuer", "mode": "walk", "patrol": ["시장", "항구"],
+                                                 "hearing": {"LOUD": 2, "NORMAL": 0}}
 
 
-def test_compiler_makes_state_template_and_keeps_other_revisions():
+def test_behavior_on_actor_compiles_state_template():
+    """R3: 추적자는 인물 정의의 행동 유형 — 기능 pursuit 선언이 필요하고, 검증 실패면 정의에서 빠진다."""
     from tests.policy.test_h04b_events_progression import ev_raw
     from tests.policy.test_h04a_actor_info import KANG
     raw = ev_raw({})
     _killer_raw(raw)
     res = dc.compile_scenario(raw, "t")
     assert res.ok, [(d.code, d.message) for d in res.errors]
-    assert res.definition["pursuers"]["killer"]["actor"] == KANG                     # 이름 → ActorId
-    assert "pursuer_killer" in res.definition["event_templates"]
+    assert res.definition["actor_definitions"][KANG]["behavior"]["type"] == "pursuer"
+    assert "behavior" not in res.definition["actor_definitions"][KANG]["profile_base"]
+    assert list(PU.configs(res.definition)) == [KANG] and PU.template_id(KANG) in res.definition["event_templates"]
+    nocap = ev_raw({})
+    nocap["default_npcs"]["강지수"]["behavior"] = raw["default_npcs"]["강지수"]["behavior"]
+    r2 = dc.compile_scenario(nocap, "t")
+    assert [d.code for d in r2.errors] == ["BEHAVIOR_INVALID"] and "capability" in r2.errors[0].message
     bad = ev_raw({})
-    bad["pursuers"] = {"killer": {"actor": "없는사람", "mode": "날기", "patrol": ["달"]}}
-    assert sum(d.code == "PURSUER_INVALID" for d in dc.compile_scenario(bad, "t").errors) == 3
-    assert "pursuers" not in dc.compile_scenario(ev_raw({}), "t").definition       # 미저작 = 키 없음(revision 불변)
+    _killer_raw(bad)
+    bad["default_npcs"]["강지수"]["behavior"].update(mode="날기", patrol=["달"])
+    assert sum(d.code == "BEHAVIOR_INVALID" for d in dc.compile_scenario(bad, "t").errors) == 2
+    assert not PU.configs(dc.compile_scenario(ev_raw({}), "t").definition)        # 미저작 = 추적자 없음
 
 
 # ── 통합 — 실제 턴 ───────────────────────────────────────────
@@ -163,6 +203,7 @@ def test_compiler_makes_state_template_and_keeps_other_revisions():
 from tests.policy.test_h05bc_turn_wiring import (  # noqa: E402,F401 — 픽스처 재사용
     H05Provider, PC, drig, extraction, judgment, turn)
 from tests.policy.test_ready_barrier import _json, rig  # noqa: E402,F401
+from tests.policy.test_h04a_actor_info import KANG  # noqa: E402
 
 
 def _spawn(r, D):
@@ -171,7 +212,7 @@ def _spawn(r, D):
     res = WP.project_world_progression(D, r.sess, r.sess.world_clock["minute_index"], narrative_seed="s",
                                        outer_origin="INITIALIZATION", initial_full_scan=True)
     r.sess.event_instances = copy.deepcopy(res.projected_world.domain("event_instances"))
-    assert PU.instance_of(r.sess, "killer")
+    assert PU.instance_of(r.sess, KANG)
 
 
 async def test_noise_brings_pursuer_and_encounter_is_forced(drig):
@@ -185,7 +226,8 @@ async def test_noise_brings_pursuer_and_encounter_is_forced(drig):
     r.prov.routes["judgment"] = judgment()
     r.prov.routes["extraction"] = [extraction({"noise": "LOUD"})]
     await turn(r, "유리창을 깬다")
-    iid = PU.instance_of(r.sess, "killer")
+    assert "[noise —" in r.prov.prompts["extraction"][-1][0]                          # 기능 stealth 선언 = 소음 판단
+    iid = PU.instance_of(r.sess, KANG)
     first = PU.locals_of(r.sess, iid)
     assert (first.get("heard") or {}).get("place") == "항구" or first.get("mode") == PU.CHASE   # 소리가 닿거나 이미 봄
     r.prov.routes["judgment"] = judgment(None, time_kind="DURATION", duration_minutes=30, activity="WAIT")
@@ -205,3 +247,13 @@ async def test_noise_brings_pursuer_and_encounter_is_forced(drig):
     back = SP.placement_of(r.sess, KANG)
     assert res["ok"] and back.get("kind") == "TRANSIT" and back.get("from_place") == "시장"   # 되감기 = 1턴 뒤 상태 복원
     assert PU.locals_of(r.sess, iid) == first
+
+
+async def test_noise_question_only_for_stealth_scenarios(drig):
+    """R1: 기능 stealth를 선언하지 않은 시나리오의 추출에는 소음 판단을 묻지 않는다(토큰·판단 낭비 없음)."""
+    r = drig
+    r.make(at="항구")
+    r.prov.routes["judgment"] = judgment()
+    r.prov.routes["extraction"] = [extraction()]
+    await turn(r, "주변을 둘러본다")
+    assert "[noise —" not in r.prov.prompts["extraction"][-1][0]

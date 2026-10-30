@@ -378,7 +378,7 @@ from .ui import (
 from .utils import (
     get_uid_by_char_name,
     generate_character_details,
-    get_merged_status_effects,
+    get_merged_status_effects, scenario_capabilities,
     status_roll_modifier,
     resolve_char_name,
     resolve_pc,
@@ -459,6 +459,6 @@ __all__ = [
     "_cleanup_session_memory", "ChannelSelect", "ChannelDeleteView",
     "GeneralDiceView", "DiceView",
     # utils
-    "get_uid_by_char_name", "generate_character_details", "get_merged_status_effects",
+    "get_uid_by_char_name", "generate_character_details", "get_merged_status_effects", "scenario_capabilities",
     "status_roll_modifier", "resolve_char_name", "resolve_pc", "decompose_hangul", "suggest_commands",
 ]

@@ -133,7 +133,9 @@ def signals(plan):
 def test_yeongdo_full_capability_definition_compiles_deterministically():
     D, rev = _defn()
     meta = D["scenario_meta"]
-    assert sorted(meta["validated_capabilities"]) == sorted(dc.KNOWN_CAPABILITIES)
+    # 세계 기반 capability 전부 + 선택 기능은 영도가 선언한 mortality만(v7.48 D-2 가)
+    assert sorted(meta["validated_capabilities"]) == sorted(
+        (set(dc.KNOWN_CAPABILITIES) - dc.FEATURE_CAPABILITIES) | {"mortality"})
     assert dc.compile_scenario(_raw(), "영도").revision == rev
     for need in WL.REQUIRED_CAPABILITIES:
         assert need in meta["validated_capabilities"]

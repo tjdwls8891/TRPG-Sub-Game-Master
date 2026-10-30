@@ -363,7 +363,8 @@ def test_aud014_merged_status_effects_preserved():
     merged = core.get_merged_status_effects({"status_effects": [
         {"name": c0, "apply_condition": "시나리오 정의", "weight": 3, "remove_condition": "x"},
         {"name": "시나리오전용", "apply_condition": "a", "weight": 0, "remove_condition": "b"}]})
-    assert {e["name"] for e in common} <= set(merged)            # 공통 목록 포함
+    assert {e["name"] for e in common if not e.get("requires")} <= set(merged)   # 공통 목록 포함
+    assert not {e["name"] for e in common if e.get("requires")} & set(merged)    # v7.48: 기능 상태는 선언한 시나리오만
     assert merged[c0]["apply_condition"] == "시나리오 정의"       # 시나리오가 덮어쓴다
     assert "시나리오전용" in merged
     assert "get_merged_status_effects" in source_of("core/extraction.py")   # 추출 유효 목록이 병합본을 쓴다

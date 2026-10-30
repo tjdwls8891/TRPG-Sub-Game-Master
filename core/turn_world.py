@@ -841,8 +841,7 @@ def pc_status_ending(session) -> dict | None:
     from .status_rules import status_ending
     from .utils import get_merged_status_effects
     sd = getattr(session, "scenario_data", None) or {}
-    pc = next((p.get("name") for p in (getattr(session, "players", None) or {}).values()
-               if isinstance(p, dict) and p.get("name")), None)
+    pc = _session_pc_name(session)
     end = status_ending(get_merged_status_effects(sd), (getattr(session, "statuses", None) or {}).get(pc) or ())
     if end is None:
         return None
@@ -854,14 +853,13 @@ def threat_block(ctx, plan, session) -> str:
     """v7.48(E3): 지시층위 — 추적자 위협(코드 확정). 같은 장소 = 등장 강제, 한 구간 거리에서 추적·경계 = 다가오는 징후.
     그 밖은 아무것도 쓰지 않는다(위치 유출 금지)."""
     from . import pursuit as _pu
-    if not (ctx.definition.get("pursuers") or None):
+    from . import status_rules as _sr
+    if not _pu.configs(ctx.definition):
         return ""
     world = plan.projected_world if plan is not None and getattr(plan, "projected_world", None) is not None else session
     pl = _sp.placement_of(world, ctx.lead_pc) or {}
     here = pl.get("place_id") if pl.get("kind") == _sp.AT_PLACE else None
-    pc = next((p.get("name") for p in (getattr(session, "players", None) or {}).values()
-               if isinstance(p, dict) and p.get("name")), None)
-    hidden = "숨음" in ((getattr(session, "statuses", None) or {}).get(pc) or ())
+    hidden = pc_has_role(session, _sr.ROLE_CONCEALED)
     lines = []
     for t in _pu.threats(ctx.definition, world, pc_place=here):
         if t["relation"] == "SAME" and hidden:
@@ -878,28 +876,41 @@ def threat_block(ctx, plan, session) -> str:
 
 
 def dying_block(session, plan) -> str:
-    """v7.48(E2): 지시층위 — PC가 빈사면 남은 시간(코드 확정). 처치 없이 시간이 다하면 그 턴이 끝이다."""
-    from .status_rules import status_ending  # noqa: F401 — 같은 상태 정의 출처
+    """v7.48(E2): 지시층위 — PC가 죽어 가는 상태(역할 dying)면 결말 상태까지 남은 시간(코드 확정)."""
+    from . import status_rules as _sr
     from .utils import get_merged_status_effects
-    sd = getattr(session, "scenario_data", None) or {}
-    merged = get_merged_status_effects(sd)
-    pc = next((p.get("name") for p in (getattr(session, "players", None) or {}).values()
-               if isinstance(p, dict) and p.get("name")), None)
-    if "빈사" not in ((getattr(session, "statuses", None) or {}).get(pc) or ()) or "사망" not in merged:
+    merged = get_merged_status_effects(getattr(session, "scenario_data", None) or {})
+    pc = _session_pc_name(session)
+    have = (getattr(session, "statuses", None) or {}).get(pc) or ()
+    dying = next((n for n in _sr.with_role(merged, _sr.ROLE_DYING) if n in have), None)
+    if dying is None:
         return ""
-    at = (((getattr(session, "status_clock", None) or {}).get(pc) or {}).get("applied") or {}).get("빈사")
-    rule = ((merged["사망"].get("rules") or {}).get("apply_auto") or {})
-    limit = int(rule.get("minutes") or 0) if rule.get("status") == "빈사" else 0
+    _end, limit = _sr.death_timer(merged, dying)
+    at = (((getattr(session, "status_clock", None) or {}).get(pc) or {}).get("applied") or {}).get(dying)
     now = getattr(plan, "end_minute", None) if plan is not None else None
     if now is None:
         now = (getattr(session, "world_clock", None) or {}).get("minute_index")
     if at is None or now is None or not limit:
         return ""
+    care = "·".join(sorted((merged[dying].get("care") or {}))) or "처치"
     left = int(at) + limit - int(now)
     if left <= 0:
-        return ("\n[빈사 — 코드 확정] PC는 이번 턴 안에 응급처치를 받지 못하면 숨진다. 처치가 묘사되지 않으면 이 묘사가 "
+        return (f"\n[{dying} — 코드 확정] PC는 이번 턴 안에 {care}를 받지 못하면 숨진다. 처치가 묘사되지 않으면 이 묘사가 "
                 "PC의 마지막 장면이다(죽음을 서둘러 확정하지는 말 것 — 확정은 코드가 한다).\n")
-    return f"\n[빈사 — 코드 확정] PC는 쓰러져 있다. 응급처치 없이 약 {left}분이 지나면 숨진다. 몸을 거의 움직일 수 없다.\n"
+    return f"\n[{dying} — 코드 확정] PC는 쓰러져 있다. {care} 없이 약 {left}분이 지나면 숨진다. 몸을 거의 움직일 수 없다.\n"
+
+
+def _session_pc_name(session):
+    return next((p.get("name") for p in (getattr(session, "players", None) or {}).values()
+                 if isinstance(p, dict) and p.get("name")), None)
+
+
+def pc_has_role(session, role: str) -> bool:
+    """PC에게 그 역할(status_rules.ROLES)의 상태가 붙어 있는가 — 상태를 이름이 아니라 역할로 읽는 공용 경계."""
+    from . import status_rules as _sr
+    from .utils import get_merged_status_effects
+    merged = get_merged_status_effects(getattr(session, "scenario_data", None) or {})
+    return _sr.has_role(merged, (getattr(session, "statuses", None) or {}).get(_session_pc_name(session)) or (), role)
 
 
 def scene_npc_projections(ctx, plan, session) -> tuple:
@@ -2097,7 +2108,7 @@ def pursuit_hearing_ops(session, prep, ctx, res, pc) -> tuple:
     from . import items as _items
     from . import pursuit as _pu
     D = ctx.definition
-    if not (D.get("pursuers") or None):
+    if not _pu.configs(D):
         return ()
     pl = _sp.placement_of(res.projected_world, ctx.lead_pc) or {}
     if pl.get("kind") != _sp.AT_PLACE:

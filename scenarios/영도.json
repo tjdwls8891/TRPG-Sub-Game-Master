@@ -5835,7 +5835,8 @@
       "information_registry": 1,
       "actor_cognition": 1,
       "dynamic_events": 1,
-      "scheduled_world_progression": 1
+      "scheduled_world_progression": 1,
+      "mortality": 1
     }
   },
   "calendar": {

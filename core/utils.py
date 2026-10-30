@@ -11,6 +11,12 @@ from .io import write_log
 from prompts import build_pc_appearance_prompt, build_npc_profile_prompt
 
 
+def scenario_capabilities(scenario_data) -> frozenset:
+    """시나리오가 선언한 엔진 기능 이름(scenario_schema.capabilities) — 기능 선택의 단일 출처."""
+    caps = ((scenario_data or {}).get("scenario_schema") or {}).get("capabilities") if isinstance(scenario_data, dict) else None
+    return frozenset(caps) if isinstance(caps, dict) else frozenset()
+
+
 def get_merged_status_effects(scenario_data: dict) -> dict:
     """
     공통 상태이상 목록(data/common_status_effects.json)과 시나리오별 status_effects를 병합.
@@ -30,10 +36,14 @@ def get_merged_status_effects(scenario_data: dict) -> dict:
     scenario_effects = scenario_data.get("status_effects", [])
     # v7.38(D5): 시나리오가 뺀 공용 상태(status_common_exclude) · 출처 표시(scope — 공용/시나리오)
     excluded = set(scenario_data.get("status_common_exclude") or ())
+    # v7.48: 기능에 딸린 공용 상태(requires)는 그 기능을 선언한 시나리오에만(scenario_schema.capabilities)
+    caps = scenario_capabilities(scenario_data)
 
     merged: dict = {}
     for effect in common_effects:
         name = effect.get("name")
+        if effect.get("requires") and effect["requires"] not in caps:
+            continue
         if name and name not in excluded:
             merged[name] = {**effect, "scope": "공용"}
     for effect in scenario_effects:

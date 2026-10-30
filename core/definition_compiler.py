@@ -68,15 +68,23 @@ KNOWN_CAPABILITIES = {
     "actor_cognition": 1,
     "dynamic_events": 1,
     "scheduled_world_progression": 1,
+    # v7.48: 생존물 기능 — 선언한 시나리오에만 붙는다(공용 상태 requires · 추출 소음 · 인물 행동 유형)
+    "mortality": 1,     # 빈사 → 사망(상태 결말)
+    "stealth": 1,       # 숨음 · 추출 소음(noise) 판단
+    "pursuit": 1,       # 인물 행동 유형 pursuer(추적자)
 }
 
 # 이 컴파일러 버전이 도메인 검증까지 끝내는 capability. 나머지는 선언을 기록하되
 # WARNING(CAP_VALIDATION_DEFERRED)으로 표시한다 — 해당 WP가 검증기를 넣을 때 옮긴다.
 VALIDATED_CAPABILITIES = frozenset({"stable_actors", "quantitative_time", "structured_places",
                                     "information_registry", "actor_cognition", "dynamic_actor_location",
-                                    "dynamic_events", "scheduled_world_progression"})
+                                    "dynamic_events", "scheduled_world_progression",
+                                    "mortality", "stealth", "pursuit"})
 # 주의: '검증됨'은 저작 정의의 컴파일·정적 검증이 끝났다는 뜻이다. 세션 초기화(H06)·플레이어 턴
 # 배선(H05)·프롬프트 공개 경계(H05)·시나리오 실제 저작 완성도(H07)는 별도 게이트다.
+
+# v7.48: 세계 기반이 아닌 '선택 기능' capability — 필요한 시나리오만 선언한다(세계 기반 capability와 구분).
+FEATURE_CAPABILITIES = frozenset({"mortality", "stealth", "pursuit"})
 
 # capability 의존성(DESIGN 08 §4). (요구 capability, 심각도)
 # dynamic_actor_location → structured_places 는 사용자 결정(H01 보정)으로 ERROR.
@@ -85,6 +93,7 @@ CAPABILITY_DEPENDENCIES = {
     "actor_cognition": (("stable_actors", "ERROR"), ("information_registry", "ERROR")),
     "dynamic_events": (("stable_actors", "ERROR"),),
     "dynamic_actor_location": (("structured_places", "ERROR"),),
+    "pursuit": (("stealth", "ERROR"), ("dynamic_events", "ERROR"), ("dynamic_actor_location", "ERROR")),
 }
 
 # 새 스키마용으로 예약된 키. 이 컴파일러가 구조화하지 않으므로, 있으면 경고한다
@@ -98,7 +107,7 @@ RESERVED_UNCOMPILED_KEYS = (
 INLINE_SECRET_FIELD = "비밀"
 # profile_base에서 빼는 필드: 구조화된 별도 권위(actor_id·name·비밀) + 레거시 런타임 초기값.
 PROFILE_BASE_EXCLUDED = ("actor_id", "name", INLINE_SECRET_FIELD, "resources", "statuses", "knowledge_seed",
-                         "routine")
+                         "routine", "behavior")
 # H07: default_npcs[*].knowledge_seed — 저작 NPC의 초기 공간 지식 seed id(genesis가 적용). 지식은 이동 허가가 아니라
 #      지름길·숨은 길·위험 회피 같은 경로 선택 품질의 근거다(H07 최종 지시 §6). 저작된 경우에만 정의에 키가 생긴다.
 # H07: default_npcs[*].routine — 선택적 평상시 일과(요일·시간대 → 장소). 정본 배치가 아니라 정의 + 정본 시계의
@@ -356,6 +365,8 @@ def _compile_actors(scenario_id, raw, d):
             defs[actor_id]["knowledge_seed"] = prof["knowledge_seed"]
         if "routine" in prof:
             defs[actor_id]["routine"] = copy.deepcopy(prof["routine"])     # _compile_routines가 정규화·검증
+        if "behavior" in prof:
+            defs[actor_id]["behavior"] = copy.deepcopy(prof["behavior"])   # v7.48: _compile_behaviors가 검증
         order.append(actor_id)
         index[key] = actor_id
     return defs, order, index
@@ -1568,29 +1579,34 @@ def _fixed_write_key(st):
     return None, None
 
 
-def _compile_pursuers(raw, actors, actor_index, places, modes, d) -> dict:
-    """v7.48(E3) pursuers — actor는 ActorId 또는 저작 인물 이름(이름이면 ActorId로 바꾼다)."""
+def _compile_behaviors(actors, places, modes, caps, d) -> list:
+    """v7.48 default_npcs[*].behavior — 인물 행동 유형(routine 옆 자리). 유형마다 그 기능 선언이 필요하다.
+    검증에 실패한 behavior는 정의에서 뺀다(routine과 같은 처리). 반환: 추적자 ActorId 목록(정렬)."""
     from . import pursuit as _pu
-    src = raw.get("pursuers")
-    if src is None:
-        return {}
-    out = copy.deepcopy(src) if isinstance(src, dict) else src
-    if isinstance(out, dict):
-        for pid, c in out.items():
-            if isinstance(c, dict) and c.get("actor") not in actors and c.get("actor") in (actor_index or {}):
-                c["actor"] = actor_index[c["actor"]]
-            if not is_valid_explicit_id(pid):
-                d.add(ERROR, "PURSUER_INVALID", f"pursuers.{pid}", "추적자 id는 명시 id")
-    for path, msg in _pu.check(out, actors=set(actors), places=set(places), modes=set(modes or {})):
-        d.add(ERROR, "PURSUER_INVALID", path, msg)
-    if isinstance(out, dict):
-        for pid, c in out.items():
-            if isinstance(c, dict) and c.get("active_when") is not None:
-                from . import predicates as _pr
-                for path, msg in _pr.validate(c["active_when"], _ref_scope(actors, places, {}, {}, modes),
-                                              f"pursuers.{pid}.active_when", allow_phase_time=False):
-                    d.add(ERROR, "PURSUER_INVALID", path, msg)
-    return out if isinstance(out, dict) else {}
+    from . import predicates as _pr
+    out = []
+    for aid in sorted(actors):
+        a = actors[aid]
+        if "behavior" not in a:
+            continue
+        b, p = a["behavior"], f"default_npcs.{a['legacy_key']}.behavior"
+        errs = []
+        if not isinstance(b, dict) or b.get("type") != _pu.BEHAVIOR_TYPE:
+            errs.append((f"{p}.type", f"행동 유형은 {_pu.BEHAVIOR_TYPE!r}만 있습니다"))
+        elif _pu.CAPABILITY not in caps:
+            errs.append((p, f"행동 유형 {_pu.BEHAVIOR_TYPE}에는 {_pu.CAPABILITY} capability 선언이 필요합니다"))
+        else:
+            errs += _pu.check(b, path=p, places=set(places), modes=set(modes or {}))
+            if b.get("active_when") is not None:
+                errs += _pr.validate(b["active_when"], _ref_scope(actors, places, {}, {}, modes),
+                                     f"{p}.active_when", allow_phase_time=False)
+        for path, msg in errs:
+            d.add(ERROR, "BEHAVIOR_INVALID", path, msg)
+        if errs:
+            del a["behavior"]
+        else:
+            out.append(aid)
+    return out
 
 
 def _compile_event_templates(raw, caps, actors, actor_index, places, infos, access, modes, edges, calendar, d):
@@ -2670,14 +2686,14 @@ def _compile_scenario(raw: dict, scenario_id: str, quests: dict | None = None) -
     series = _compile_info_series(raw, _ref_scope(actors, places, infos, access, modes, calendar=calendar), d)
     _compile_personas(raw, _ref_scope(actors, places, infos, access, modes, calendar=calendar,
                                                     templates=(raw.get("event_templates") or {}).keys()), d)
-    pursuers = _compile_pursuers(raw, actors, actor_index, places, modes, d)
+    pursuers = _compile_behaviors(actors, places, modes, cap["capabilities"], d)
     _raw_ev = raw
     if pursuers:                       # v7.48(E3): 추적자마다 상태를 담는 사건 템플릿(시작 즉시 생성)
         from . import pursuit as _pu
         synth = _pu.synth_templates(pursuers)
         clash = sorted(set(synth) & set(raw.get("event_templates") or {}))
         for tid in clash:
-            d.add(ERROR, "PURSUER_TEMPLATE_COLLISION", f"event_templates.{tid}", "추적자 상태 템플릿 이름과 겹칩니다")
+            d.add(ERROR, "BEHAVIOR_TEMPLATE_COLLISION", f"event_templates.{tid}", "추적자 상태 템플릿 이름과 겹칩니다")
         _raw_ev = {**raw, "event_templates": {**(raw.get("event_templates") or {}), **synth}}
     event_tpls = _compile_event_templates(_raw_ev, cap["capabilities"], actors, actor_index, places, infos, access,
                                           modes, edges, calendar, d)
@@ -2738,8 +2754,6 @@ def _compile_scenario(raw: dict, scenario_id: str, quests: dict | None = None) -
     if faction_caps:
         definition["faction_capabilities"] = faction_caps
     # v7.48(E3): 추적자 — 저작한 시나리오에만 키가 생긴다(미저작 시나리오 revision 불변)
-    if pursuers:
-        definition["pursuers"] = pursuers
     return CompileResult(scenario_id, definition["compiler_version"], definition,
                          definition_revision(definition), diagnostics)
 

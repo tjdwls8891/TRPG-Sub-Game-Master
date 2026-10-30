@@ -5006,9 +5006,5 @@
         "strength": "support"
       }
     }
-  },
-  "status_common_exclude": [
-    "빈사",
-    "사망"
-  ]
+  }
 }

@@ -1,17 +1,20 @@
-# 추적자 — 생존물 살인마처럼 PC를 감지해 쫓는 인물 (v7.48 E3·E4, 계획서 v1 · 사용자 결정 A2 나 · A3 가)
+# 추적자 행동 — 생존물 살인마처럼 PC를 감지해 쫓는 인물 (v7.48 E3·E4, 계획서 v1 · 사용자 결정 A2 나 · A3 가)
 #
-# [저작] 시나리오 최상위 선택 키 `pursuers` {추적자 id: {actor, mode, pace?, patrol?, hearing?, lose_after_minutes?,
-#   search_minutes?, capabilities?, active_when?}} — 컴파일러가 검증해 정의(`definition["pursuers"]`)로 옮기고, 추적자마다
-#   사건 템플릿 `pursuer_<id>`(시작 즉시 생성, 국면 하나)를 만든다. 추적자 상태는 그 인스턴스의 사건 지역 상태다 —
+# [저작] 인물 정의의 행동 유형 — default_npcs[이름].behavior {type: "pursuer", mode, pace?, patrol?, hearing?,
+#   lose_after_minutes?, search_minutes?, capabilities?, active_when?}. 일과(routine)와 같은 자리다 — 인물의 움직임은
+#   인물 정의 하나(routine = 평상시 · behavior = 행동 유형)에서 나온다. 시나리오는 기능 `pursuit`을 선언해야 한다
+#   (scenario_schema.capabilities — 의존: stealth·dynamic_events·dynamic_actor_location).
+#   컴파일러가 검증해 정의 actor_definitions[ActorId].behavior로 옮기고, 추적자마다 상태 저장용 사건 템플릿
+#   `pursuer_<ActorId>`(시작 즉시 생성, 국면 하나)를 만든다. 추적자 상태는 그 인스턴스의 사건 지역 상태다 —
 #   새 세션 필드·새 typed 연산 없이 기존 EVENT_LOCAL_SET으로 되감기·재현된다.
 #     지역 상태 키: mode(WANDER·ALERT·CHASE·SEARCH) · target(목표 장소) · since(그 모드가 시작된/마지막 감지 분) ·
 #                   patrol_i(순회 다음 번호) · heard({place, minute} — 직전 커밋에서 들은 소리)
 #
 # [매 턴 판단 — 묘사 전 계획(plan_player_turn), 결정적·순수]
-#   기절·빈사·사망(추적자 상태)이거나 active_when이 거짓이면 멈춤. 구간 위(TRANSIT)면 도착할 때까지 판단하지 않는다.
-#   보임(같은 장소 또는 정적 가시성, PC가 숨지 않음) → CHASE(PC 장소, 추적 속도) · 들음 → ALERT(소리 난 장소) ·
-#   CHASE·ALERT 목표에 닿음 → SEARCH(그 자리) · SEARCH가 search_minutes 지남 → WANDER · CHASE가 lose_after_minutes 동안
-#   감지 없음 → SEARCH · WANDER → 순회지 다음 장소.
+#   추적자에게 역할 incapacitated 상태(기절·빈사 등)가 있거나 active_when이 거짓이면 멈춤. 구간 위(TRANSIT)면 도착할
+#   때까지 판단하지 않는다. 보임(같은 장소 또는 정적 가시성, PC에게 역할 concealed 상태 없음) → CHASE(PC 장소, 추적 속도) ·
+#   들음 → ALERT(소리 난 장소) · CHASE·ALERT 목표에 닿음 → SEARCH(그 자리) · SEARCH가 search_minutes 지남 → WANDER ·
+#   CHASE가 lose_after_minutes 동안 감지 없음 → SEARCH · WANDER → 순회지 다음 장소.
 #   이동은 사건 이동과 같은 경로·시간 계산(world_progression._movement_ops — 일반 그래프 + 행위자 지식)을 쓰고, 이번 턴
 #   경과 시간 동안의 이동·도착은 기존 세계 진행이 처리한다.
 # [소리 — 커밋 단계] 추출 noise(조용함·보통·시끄러움)의 도달 거리(구간 수, 방향 무시) 안의 추적자는 그 장소·분을 기록
@@ -26,71 +29,83 @@ from .world_ids import stable_digest
 
 WANDER, ALERT, CHASE, SEARCH = "WANDER", "ALERT", "CHASE", "SEARCH"
 MODES = (WANDER, ALERT, CHASE, SEARCH)
+BEHAVIOR_TYPE = "pursuer"
+CAPABILITY = "pursuit"
 TEMPLATE_PREFIX = "pursuer_"
 SOURCE_KIND = "PURSUIT"
 DEFAULTS = {"pace": {"wander": "1", "chase": "0.6"}, "hearing": {"LOUD": 2, "NORMAL": 0},
             "lose_after_minutes": 20, "search_minutes": 15}
-DISABLING_STATUSES = ("기절", "빈사", "사망")
-KEYS = ("actor", "mode", "pace", "patrol", "hearing", "lose_after_minutes", "search_minutes", "capabilities",
+KEYS = ("type", "mode", "pace", "patrol", "hearing", "lose_after_minutes", "search_minutes", "capabilities",
         "active_when")
 
 
 def configs(definition) -> dict:
-    p = (definition or {}).get("pursuers")
-    return p if isinstance(p, dict) else {}
+    """{ActorId: 행동 정의 + actor} — 인물 정의 behavior.type == pursuer인 인물(정렬)."""
+    out = {}
+    for aid, a in sorted(((definition or {}).get("actor_definitions") or {}).items()):
+        b = (a or {}).get("behavior") if isinstance(a, dict) else None
+        if isinstance(b, dict) and b.get("type") == BEHAVIOR_TYPE:
+            out[aid] = {**b, "actor": aid}
+    return out
 
 
 def template_id(pid: str) -> str:
     return TEMPLATE_PREFIX + pid
 
 
-def synth_templates(raw_pursuers) -> dict:
+def synth_templates(pids) -> dict:
     """컴파일러용 — 추적자마다 상태를 담을 사건 템플릿(시작 즉시 생성, 국면 하나)."""
     out = {}
-    for pid in sorted(raw_pursuers or {}):
+    for pid in sorted(pids or ()):
         out[template_id(pid)] = {"version": 1, "name": f"추적자 {pid}", "spawn_when": {"const": True},
                                  "phases": {"hunt": {"eligible_when": {"const": True}, "priority": 1}}}
     return out
 
 
-def check(raw_pursuers, *, actors, places, modes, statuses=None) -> list:
-    """저작 검사 — [(경로, 문구)]."""
-    errs = []
-    if raw_pursuers is None:
-        return errs
-    if not isinstance(raw_pursuers, dict):
-        return [("pursuers", "pursuers는 {추적자 id: 정의} 객체")]
+def check(behavior, *, path: str, places, modes) -> list:
+    """저작 검사(행동 유형 pursuer 하나) — [(경로, 문구)]."""
     from .status_rules import NOISE_LEVELS
-    for pid, c in raw_pursuers.items():
-        p = f"pursuers.{pid}"
-        if not isinstance(c, dict):
-            errs.append((p, "정의는 객체"))
-            continue
-        extra = set(c) - set(KEYS)
-        if extra:
-            errs.append((p, f"알 수 없는 키 {sorted(extra)}"))
-        if c.get("actor") not in actors:
-            errs.append((f"{p}.actor", f"정의되지 않은 ActorId {c.get('actor')!r}"))
-        if c.get("mode") not in modes:
-            errs.append((f"{p}.mode", f"정의되지 않은 이동 방식 {c.get('mode')!r}"))
-        for x in c.get("patrol") or ():
-            if x not in places:
-                errs.append((f"{p}.patrol", f"정의되지 않은 장소 {x!r}"))
-        pace = c.get("pace")
-        if pace is not None and not (isinstance(pace, dict) and set(pace) <= {"wander", "chase"}
-                                     and all(_factor_ok(v) for v in pace.values())):
-            errs.append((f"{p}.pace", "pace는 {wander?, chase?: 양의 소수 문자열}"))
-        hear = c.get("hearing")
-        if hear is not None and not (isinstance(hear, dict) and set(hear) <= set(NOISE_LEVELS)
-                                     and all(isinstance(v, int) and v >= 0 for v in hear.values())):
-            errs.append((f"{p}.hearing", f"hearing은 {{{'·'.join(NOISE_LEVELS)}: 0 이상 정수(구간 수)}}"))
-        for k in ("lose_after_minutes", "search_minutes"):
-            if k in c and not (isinstance(c[k], int) and c[k] >= 0):
-                errs.append((f"{p}.{k}", "0 이상 정수(분)"))
-        caps = c.get("capabilities")
-        if caps is not None and not (isinstance(caps, list) and all(isinstance(x, str) for x in caps)):
-            errs.append((f"{p}.capabilities", "문자열 목록"))
+    c, p, errs = behavior, path, []
+    if not isinstance(c, dict):
+        return [(p, "behavior는 객체")]
+    extra = set(c) - set(KEYS)
+    if extra:
+        errs.append((p, f"알 수 없는 키 {sorted(extra)}"))
+    if c.get("mode") not in modes:
+        errs.append((f"{p}.mode", f"정의되지 않은 이동 방식 {c.get('mode')!r}"))
+    for x in c.get("patrol") or ():
+        if x not in places:
+            errs.append((f"{p}.patrol", f"정의되지 않은 장소 {x!r}"))
+    pace = c.get("pace")
+    if pace is not None and not (isinstance(pace, dict) and set(pace) <= {"wander", "chase"}
+                                 and all(_factor_ok(v) for v in pace.values())):
+        errs.append((f"{p}.pace", "pace는 {wander?, chase?: 양의 소수 문자열}"))
+    hear = c.get("hearing")
+    if hear is not None and not (isinstance(hear, dict) and set(hear) <= set(NOISE_LEVELS)
+                                 and all(isinstance(v, int) and v >= 0 for v in hear.values())):
+        errs.append((f"{p}.hearing", f"hearing은 {{{'·'.join(NOISE_LEVELS)}: 0 이상 정수(구간 수)}}"))
+    for k in ("lose_after_minutes", "search_minutes"):
+        if k in c and not (isinstance(c[k], int) and c[k] >= 0):
+            errs.append((f"{p}.{k}", "0 이상 정수(분)"))
+    caps = c.get("capabilities")
+    if caps is not None and not (isinstance(caps, list) and all(isinstance(x, str) for x in caps)):
+        errs.append((f"{p}.capabilities", "문자열 목록"))
     return errs
+
+
+def context(definition, merged_statuses, statuses, pc) -> dict | None:
+    """판단 입력 — PC가 숨었는가(역할 concealed) · 움직일 수 없는 추적자(역할 incapacitated). 추적자가 없으면 None.
+    statuses = {인물 이름: [상태]}(세션 상태 — 인물은 표시 이름 키)."""
+    from . import status_rules as _sr
+    cfgs = configs(definition)
+    if not cfgs:
+        return None
+    sts = statuses or {}
+    acts = (definition or {}).get("actor_definitions") or {}
+    disabled = [aid for aid in cfgs
+                if _sr.has_role(merged_statuses, sts.get((acts.get(aid) or {}).get("legacy_key")) or (),
+                                _sr.ROLE_INCAPACITATED)]
+    return {"hidden": _sr.has_role(merged_statuses, sts.get(pc) or (), _sr.ROLE_CONCEALED), "disabled": disabled}
 
 
 def _factor_ok(v) -> bool:

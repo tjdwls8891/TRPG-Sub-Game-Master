@@ -451,8 +451,8 @@ def _build_judgment_user_prompt(session, player_message: str, roll_results: list
 
     if world_turn is not None:
         _scene, _projs = core.turn_world.scene_npc_projections(world_turn.ctx, None, session)
-        _pursuers = {c.get("actor") for c in (world_turn.ctx.definition.get("pursuers") or {}).values()}
-        _hidden = "숨음" in ((session.statuses or {}).get(GMCog._pc_name(session, world_turn.ctx)) or ())
+        _pursuers = set(core.pursuit.configs(world_turn.ctx.definition))
+        _hidden = core.turn_world.pc_has_role(session, core.status_rules.ROLE_CONCEALED)
         _ents = [_npc_entry(p["display_name"], _npc_stats(session, p["display_name"], world_turn),
                             p.get("relevant_statuses"))
                  + (("[위협 — 추적자: PC가 숨어 있다. 들킬지는 CONTEST(그의 감각 대 PC의 은밀)로]" if _hidden
@@ -922,7 +922,7 @@ def _build_logic_user_prompt(session, player_message: str, roll_results: list,
             _db = core.turn_world.dying_block(session, world_turn.plan)                         # v7.48 E2
             if _db:
                 place_block += _db
-                manifest.append("빈사")
+                manifest.append("죽어 감")
             _tb = core.turn_world.threat_block(world_turn.ctx, world_turn.plan, session)        # v7.48 E3
             if _tb:
                 place_block += _tb
@@ -2510,24 +2510,9 @@ class GMCog(commands.Cog):
             item_facts=core.items.current_facts(session),           # v7.17: 직전 커밋 턴의 사실만
             stats=core.player_world.pc_stats(session, ctx.uid_of.get(ctx.lead_pc)),       # H07: 스탯 조건
             statuses=core.player_world.pc_statuses(session, ctx.uid_of.get(ctx.lead_pc)),  # v7.48(E1): 상태 조건
-            pursuit=self._pursuit_context(session, ctx),                                    # v7.48(E3): 추적자
+            pursuit=core.pursuit.context(ctx.definition, core.get_merged_status_effects(session.scenario_data or {}),
+                                         session.statuses, self._pc_name(session, ctx)),   # v7.48(E3): 추적자
             resolved_tie_orders=resolved_tie_orders)
-
-    @staticmethod
-    def _pursuit_context(session, ctx):
-        """v7.48(E3): 추적자 판단 입력 — PC 숨음 · 움직일 수 없는 추적자(기절·빈사·사망)."""
-        if not (ctx.definition.get("pursuers") or None):
-            return None
-        pc = GMCog._pc_name(session, ctx)
-        sts = getattr(session, "statuses", None) or {}
-        acts = ctx.definition.get("actor_definitions") or {}
-        disabled = []
-        for c in ctx.definition["pursuers"].values():
-            a = (acts.get(c.get("actor")) or {})
-            name = a.get("legacy_key") or a.get("name")
-            if set(sts.get(name) or ()) & set(core.pursuit.DISABLING_STATUSES):
-                disabled.append(c.get("actor"))
-        return {"hidden": "숨음" in (sts.get(pc) or ()), "disabled": disabled}
 
     def _ensure_world_plan(self, session, wt, transaction_id):
         cur = core.action_intent.world_version_id(session)
@@ -6529,13 +6514,15 @@ class GMCog(commands.Cog):
             _ext_schema["properties"][core.turn_world.OBS_FIELD]["properties"][core.items.TRAITS_FIELD] = \
                 _wt.item_manifest.traits_schema()
             _obs_block += _wt.item_manifest.render()
-            # v7.48(E4): 이번 묘사에서 PC 행동이 낸 소리 — 추적자 감지·숨음 해제의 근거(코드가 범위를 정한다)
-            _ext_schema["properties"][core.turn_world.OBS_FIELD]["properties"][core.turn_world.NOISE_FIELD] = {
-                "type": "string", "enum": ["QUIET", "NORMAL", "LOUD"],
-                "description": "이번 묘사에서 PC의 행동이 낸 소리"}
-            _obs_block += ("[noise — 이번 묘사에서 PC의 행동이 낸 소리] QUIET = 숨죽임·살금살금·속삭임 / NORMAL = 걷기·"
-                           "보통 대화·문 여닫기 / LOUD = 뛰기·비명·고함·유리·문 부수기·총성·물건 쓰러뜨림. "
-                           "다른 인물이 낸 소리는 넣지 않는다.\n")
+            # v7.48(E4): 이번 묘사에서 PC 행동이 낸 소리 — 추적자 감지·숨음 해제의 근거(코드가 범위를 정한다).
+            #   기능 stealth를 선언한 시나리오만(scenario_schema.capabilities)
+            if "stealth" in core.scenario_capabilities(session.scenario_data or {}):
+                _ext_schema["properties"][core.turn_world.OBS_FIELD]["properties"][core.turn_world.NOISE_FIELD] = {
+                    "type": "string", "enum": list(core.status_rules.NOISE_LEVELS),
+                    "description": "이번 묘사에서 PC의 행동이 낸 소리"}
+                _obs_block += ("[noise — 이번 묘사에서 PC의 행동이 낸 소리] QUIET = 숨죽임·살금살금·속삭임 / NORMAL = 걷기·"
+                               "보통 대화·문 여닫기 / LOUD = 뛰기·비명·고함·유리·문 부수기·총성·물건 쓰러뜨림. "
+                               "다른 인물이 낸 소리는 넣지 않는다.\n")
             # v7.47(S1): PC 상태 단계 — status_scores에 단계 번호(단계 없는 상태는 0)
             _ss = _ext_schema["properties"].get("status_scores")
             if isinstance(_ss, dict) and isinstance((_ss.get("items") or {}).get("properties"), dict):

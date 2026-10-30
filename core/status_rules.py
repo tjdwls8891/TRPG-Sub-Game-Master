@@ -51,12 +51,17 @@
 #     상태 선택 키 `ending: {id, title, epilogue, tone?}` — PC에게 붙으면 그 결말로 세션이 끝난다(사망 등).
 #     NPC도 같은 규칙으로 판정한다(D-3 나). NPC는 섭취·활동·착용·장소·이번 턴 사용을 추적하지 않으므로 그 조건은 '모름' —
 #     자동 부여·해제(auto)는 모름이면 일어나지 않고, 추출 부여·해제의 근거 조건(gate)은 모름이면 막지 않는다.
+#     상태 선택 키 `roles: [concealed|incapacitated|dying]` — 엔진이 상태를 이름이 아니라 역할로 읽는다
+#       (concealed = 숨어 보이지 않음 · incapacitated = 움직이거나 행동할 수 없음 · dying = 처치 없으면 죽어 감).
+#     공용 상태 선택 키 `requires: 기능` — 시나리오가 그 기능(scenario_schema.capabilities)을 선언해야 붙는다(core.utils).
 from __future__ import annotations
 
 import copy
 from dataclasses import dataclass, field
 
 TRUE, FALSE, UNKNOWN = "TRUE", "FALSE", "UNKNOWN"
+ROLE_CONCEALED, ROLE_INCAPACITATED, ROLE_DYING = "concealed", "incapacitated", "dying"
+ROLES = (ROLE_CONCEALED, ROLE_INCAPACITATED, ROLE_DYING)
 SCOPE_COMMON, SCOPE_SCENARIO = "공용", "시나리오"
 RULE_KEYS = ("apply_gate", "apply_auto", "clear_auto", "clear_gate", "raise_auto")
 STATUS_TIMES = ("SINCE_INTAKE_GTE", "SINCE_APPLIED_GTE", "SINCE_STATUS_GTE", "SINCE_CLEARED_GTE", "SINCE_CARED_GTE")
@@ -349,7 +354,30 @@ def _check_stage_keys(eff: dict) -> list:
     if end is not None and not (isinstance(end, dict) and all(isinstance(end.get(k), str) and end[k].strip()
                                                                for k in ("id", "title", "epilogue"))):
         errs.append("ending은 {id, title, epilogue, tone?} 문자열")
+    roles = eff.get("roles")
+    if roles is not None and not (isinstance(roles, list) and all(r in ROLES for r in roles)):
+        errs.append(f"roles는 [{'|'.join(ROLES)}] 목록")
+    if eff.get("requires") is not None and not (isinstance(eff["requires"], str) and eff["requires"]):
+        errs.append("requires는 기능 이름 문자열")
     return errs
+
+
+def with_role(merged: dict, role: str) -> list:
+    """그 역할을 가진 상태 이름(저작 순서)."""
+    return [n for n, e in (merged or {}).items() if role in ((e or {}).get("roles") or ())]
+
+
+def has_role(merged: dict, statuses, role: str) -> bool:
+    return bool(set(statuses or ()) & set(with_role(merged, role)))
+
+
+def death_timer(merged: dict, dying: str):
+    """(결말 상태 이름, 분) — dying 상태가 n분 지속되면 붙는 결말 상태(apply_auto SINCE_STATUS_GTE). 없으면 (None, 0)."""
+    for n, e in (merged or {}).items():
+        r = (((e or {}).get("rules") or {}).get("apply_auto") or {})
+        if isinstance((e or {}).get("ending"), dict) and r.get("status") == dying and isinstance(r.get("minutes"), int):
+            return n, r["minutes"]
+    return None, 0
 
 
 def status_ending(merged: dict, statuses) -> dict | None:

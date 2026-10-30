@@ -522,6 +522,11 @@
   },
   {
     "name": "빈사",
+    "requires": "mortality",
+    "roles": [
+      "dying",
+      "incapacitated"
+    ],
     "apply_condition": "부상이 위중에 이르러 쓰러짐(코드 판정)",
     "weight": -5,
     "remove_condition": "응급처치(코드 판정) — 처치 없이 20분이 지나면 사망",
@@ -548,6 +553,10 @@
   },
   {
     "name": "사망",
+    "requires": "mortality",
+    "roles": [
+      "incapacitated"
+    ],
     "apply_condition": "빈사 상태로 처치 없이 20분이 지남(코드 판정)",
     "weight": -5,
     "remove_condition": "해제 불가",
@@ -577,6 +586,10 @@
   },
   {
     "name": "숨음",
+    "requires": "stealth",
+    "roles": [
+      "concealed"
+    ],
     "apply_condition": "몸을 숨긴 것이 묘사에 드러남(가구 밑·옷장·덤불·어둠 속에 웅크림 등)",
     "weight": 0,
     "remove_condition": "자리를 옮기거나 소리를 내면 풀림(코드 판정) · 스스로 나옴",
@@ -598,6 +611,9 @@
   },
   {
     "name": "기절",
+    "roles": [
+      "incapacitated"
+    ],
     "apply_condition": "머리를 맞거나 강한 충격으로 정신을 잃음",
     "weight": -5,
     "remove_condition": "10분이 지나면 깨어남(코드 판정)",

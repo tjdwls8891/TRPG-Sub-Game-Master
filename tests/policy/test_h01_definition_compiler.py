@@ -130,7 +130,9 @@ def test_every_shipped_scenario_compiles_without_error_legacy_unless_migrated(si
     meta = res.definition["scenario_meta"]
     if sid in FULL_CAPABILITY_SCENARIOS:
         assert meta["schema_mode"] == "declared"
-        assert sorted(meta["validated_capabilities"]) == sorted(dc.KNOWN_CAPABILITIES)
+        # 세계 기반 capability 전부(v7.48 선택 기능 capability는 시나리오가 필요한 것만 선언한다)
+        assert sorted(set(meta["validated_capabilities"]) - dc.FEATURE_CAPABILITIES) == \
+            sorted(set(dc.KNOWN_CAPABILITIES) - dc.FEATURE_CAPABILITIES)
         assert meta["deferred_capabilities"] == []
     else:
         assert meta["schema_mode"] == "legacy"
