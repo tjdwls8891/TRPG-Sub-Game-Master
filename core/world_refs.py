@@ -33,7 +33,7 @@ REF_TYPES = (
     "ACTOR_PLACE", "ACTOR_PLACEMENT_KIND", "ACTOR_POSITION_SOURCE", "ACCESS_STATE", "INFO_VALIDITY",
     "COGNITION_AWARENESS", "COGNITION_BELIEF",
     "EVENT_LIFECYCLE", "EVENT_PHASE", "EVENT_LOCAL", "ROUTE_KNOWN_EXISTS",
-    "RELATION_STAGE",
+    "RELATION_STAGE", "OBSERVER_STATUS",
 )
 _PARAMS = {
     "CLOCK_MINUTE": ((), ()),
@@ -55,6 +55,7 @@ _PARAMS = {
     "EVENT_LOCAL": (("key",), ("instance", "template")),        # H07: template = 그 템플릿의 최신 인스턴스
     "ROUTE_KNOWN_EXISTS": (("actor", "to", "mode"), ("from",)),
     "RELATION_STAGE": (("actor",), ()),          # v7.39: 그 인물이 세션 PC를 대하는 관계 단계(stranger·known·trusted·hostile)
+    "OBSERVER_STATUS": (("status",), ("min_stage",)),   # v7.48(E1): 관찰자 PC에게 그 상태가 붙어 있는가(단계 이상)
 }
 SLOT_PREFIX = "$slot:"
 SELF = "$self"
@@ -70,6 +71,8 @@ OBSERVER_STATS_KEY = "observer:stats"
 # v7.17: 사용·지급 사실(보유와 다른 사실 — R2). 직전 커밋 턴의 item_facts를 다음 턴 계획이 공급한다(Q11 다음 턴 재평가).
 OBSERVER_USED_KEY = "observer:used_items"
 OBSERVER_PAID_KEY = "observer:paid_items"
+# v7.48(E1): 관찰자 PC의 상태·단계 {상태: 단계}(플레이어 턴이 공급 — 공급되지 않은 진행에서는 UNKNOWN)
+OBSERVER_STATUSES_KEY = "observer:statuses"
 
 
 def session_pc_actor(world):
@@ -216,6 +219,15 @@ def _r_stat(ctx, stat):
     return known(st[stat])
 
 
+def _r_status(ctx, status, min_stage=None):
+    st = ctx.progress.get("observer_statuses")
+    if not isinstance(st, dict):
+        return UNKNOWN
+    if status not in st:
+        return known(False)
+    return known(int(st[status] or 1) >= int(min_stage or 1))
+
+
 def _placement(ctx, actor):
     """유효 배치(H07 — core.npc_position 단일 경계): 정본 override > 평상시 일과 > None(untracked)."""
     from . import npc_position as _npos
@@ -340,7 +352,7 @@ _RESOLVERS = {
     "ACCESS_STATE": _r_access, "INFO_VALIDITY": _r_info_validity,
     "COGNITION_AWARENESS": _r_awareness, "COGNITION_BELIEF": _r_belief,
     "EVENT_LIFECYCLE": _r_lifecycle, "EVENT_PHASE": _r_phase, "EVENT_LOCAL": _r_local,
-    "ROUTE_KNOWN_EXISTS": _r_route, "RELATION_STAGE": _r_relation,
+    "ROUTE_KNOWN_EXISTS": _r_route, "RELATION_STAGE": _r_relation, "OBSERVER_STATUS": _r_status,
 }
 
 
@@ -393,6 +405,8 @@ def dependency_keys(ref: dict) -> list:
         return [OBSERVER_USED_KEY]
     if t == "OBSERVER_PAID_ITEM":
         return [OBSERVER_PAID_KEY]
+    if t == "OBSERVER_STATUS":
+        return [OBSERVER_STATUSES_KEY]
     if t == "OBSERVER_STAT":
         return [OBSERVER_STATS_KEY]              # H07: 진행 문맥 키 — 정본이 아니라 진행 시작 시 '변경'으로 공급
     return []                                       # CLOCK_MINUTE
@@ -450,6 +464,7 @@ class RefScope:
     has_calendar: bool = False
     dayparts: set = field(default_factory=set)
     calendar_obj: object = None
+    statuses: object = None          # v7.48(E1): 알려진 상태 이름(None = 검사 안 함)
 
 
 def _check_id(kind, v, pool, scope, slot_type, errs, path):
@@ -515,9 +530,14 @@ def validate_ref(ref, scope: RefScope, path: str) -> list:
         elif k == "template":
             if v not in scope.templates:
                 errs.append((p, f"정의되지 않은 사건 템플릿 {v!r}"))
-        elif k in ("item", "stat"):
+        elif k in ("item", "stat", "status"):
             if not isinstance(v, str) or not v.strip():
                 errs.append((p, f"{k}는 비어 있지 않은 문자열"))
+            elif k == "status" and scope.statuses is not None and v not in scope.statuses:
+                errs.append((p, f"알 수 없는 상태 {v!r}"))
+        elif k == "min_stage":
+            if not isinstance(v, int) or isinstance(v, bool) or v < 1:
+                errs.append((p, "min_stage는 1 이상 정수"))
         elif k == "key":
             if not isinstance(v, str) or not v:
                 errs.append((p, "key는 비어 있지 않은 문자열이어야 합니다"))

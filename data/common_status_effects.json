@@ -521,6 +521,100 @@
     }
   },
   {
+    "name": "빈사",
+    "apply_condition": "부상이 위중에 이르러 쓰러짐(코드 판정)",
+    "weight": -5,
+    "remove_condition": "응급처치(코드 판정) — 처치 없이 20분이 지나면 사망",
+    "deep": true,
+    "mods": {
+      "전체": -15
+    },
+    "care": {
+      "응급처치": "down"
+    },
+    "lower_by": "care",
+    "rules": {
+      "apply_gate": {
+        "const": false
+      },
+      "apply_auto": {
+        "stage_min": 3,
+        "status": "부상"
+      },
+      "clear_gate": {
+        "const": false
+      }
+    }
+  },
+  {
+    "name": "사망",
+    "apply_condition": "빈사 상태로 처치 없이 20분이 지남(코드 판정)",
+    "weight": -5,
+    "remove_condition": "해제 불가",
+    "deep": true,
+    "mods": {
+      "전체": -15
+    },
+    "ending": {
+      "id": "death",
+      "title": "사망",
+      "epilogue": "숨이 멎었다. 이 이야기는 여기서 끝난다.",
+      "tone": "비극"
+    },
+    "rules": {
+      "apply_gate": {
+        "const": false
+      },
+      "apply_auto": {
+        "status_time": "SINCE_STATUS_GTE",
+        "status": "빈사",
+        "minutes": 20
+      },
+      "clear_gate": {
+        "const": false
+      }
+    }
+  },
+  {
+    "name": "숨음",
+    "apply_condition": "몸을 숨긴 것이 묘사에 드러남(가구 밑·옷장·덤불·어둠 속에 웅크림 등)",
+    "weight": 0,
+    "remove_condition": "자리를 옮기거나 소리를 내면 풀림(코드 판정) · 스스로 나옴",
+    "rules": {
+      "clear_auto": {
+        "any": [
+          {
+            "moved": true
+          },
+          {
+            "noise_at_least": "NORMAL"
+          }
+        ]
+      },
+      "clear_gate": {
+        "const": true
+      }
+    }
+  },
+  {
+    "name": "기절",
+    "apply_condition": "머리를 맞거나 강한 충격으로 정신을 잃음",
+    "weight": -5,
+    "remove_condition": "10분이 지나면 깨어남(코드 판정)",
+    "mods": {
+      "전체": -15
+    },
+    "rules": {
+      "clear_auto": {
+        "status_time": "SINCE_APPLIED_GTE",
+        "minutes": 10
+      },
+      "clear_gate": {
+        "const": false
+      }
+    }
+  },
+  {
     "name": "공황",
     "apply_condition": "극한의 공포 상황에 장시간 노출",
     "weight": -4,

@@ -45,7 +45,7 @@ def _production_files():
 from tests.characterize.h04_scope import H04_DOMAIN_MODULES  # noqa: E402
 WORLD_IDS_REUSERS = {os.path.join("core", f"{m}.py")
                      for m in ("world_state", "world_mutation", "canonical_mutation") + H04_DOMAIN_MODULES
-                     + ("player_world", "turn_world")}
+                     + ("player_world", "turn_world", "pursuit")}   # v7.48 추적자(사건 지역 상태 도메인)
 # H05: 바인딩된 정의의 읽기 전용 소비자(쓰기·바인딩 없음 — 아래 writer 테스트가 계속 고정)
 # H06: 생애주기 owner(world_lifecycle — 컴파일·스냅샷 쓰기·바인딩)와 캐시 원천(cache_source — 스냅샷 읽기)
 DEFINITION_READERS = {os.path.join("core", "player_world.py"), os.path.join("core", "cache_source.py")}

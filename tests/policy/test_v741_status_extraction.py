@@ -44,7 +44,7 @@ def names(rows):
 def test_definitions_are_valid_and_deep_statuses_are_marked():
     assert SR.check_definitions(YD, MERGED) == []
     assert {"추위", "더위", "젖음", "열탈진"} <= set(MERGED)
-    assert SR.deep_statuses(MERGED) == {"저체온", "열탈진", "감염", "염증"}   # v7.47 염증(코드 판정)
+    assert SR.deep_statuses(MERGED) == {"저체온", "열탈진", "감염", "염증", "빈사", "사망"}   # v7.47 염증 · v7.48 빈사·사망
     assert "status_places" not in YD                                     # D3(가): 실내 판정 데이터 정리
 
 

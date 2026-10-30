@@ -514,7 +514,8 @@ def _ref_scope(actors, places, infos, access, modes, *, slots=None, allow_self=F
                           slots=dict(slots or {}), allow_self=allow_self, templates=set(templates),
                           has_calendar=calendar is not None,
                           dayparts=set((calendar or {}).get("dayparts") or {}),
-                          calendar_obj=_wc.Calendar(calendar) if calendar else None)
+                          calendar_obj=_wc.Calendar(calendar) if calendar else None,
+                          statuses=set(_STATUS_NAMES) if _STATUS_NAMES is not None else None)
 
 
 def _compile_info_series(raw, scope, d):
@@ -1567,6 +1568,31 @@ def _fixed_write_key(st):
     return None, None
 
 
+def _compile_pursuers(raw, actors, actor_index, places, modes, d) -> dict:
+    """v7.48(E3) pursuers — actor는 ActorId 또는 저작 인물 이름(이름이면 ActorId로 바꾼다)."""
+    from . import pursuit as _pu
+    src = raw.get("pursuers")
+    if src is None:
+        return {}
+    out = copy.deepcopy(src) if isinstance(src, dict) else src
+    if isinstance(out, dict):
+        for pid, c in out.items():
+            if isinstance(c, dict) and c.get("actor") not in actors and c.get("actor") in (actor_index or {}):
+                c["actor"] = actor_index[c["actor"]]
+            if not is_valid_explicit_id(pid):
+                d.add(ERROR, "PURSUER_INVALID", f"pursuers.{pid}", "추적자 id는 명시 id")
+    for path, msg in _pu.check(out, actors=set(actors), places=set(places), modes=set(modes or {})):
+        d.add(ERROR, "PURSUER_INVALID", path, msg)
+    if isinstance(out, dict):
+        for pid, c in out.items():
+            if isinstance(c, dict) and c.get("active_when") is not None:
+                from . import predicates as _pr
+                for path, msg in _pr.validate(c["active_when"], _ref_scope(actors, places, {}, {}, modes),
+                                              f"pursuers.{pid}.active_when", allow_phase_time=False):
+                    d.add(ERROR, "PURSUER_INVALID", path, msg)
+    return out if isinstance(out, dict) else {}
+
+
 def _compile_event_templates(raw, caps, actors, actor_index, places, infos, access, modes, edges, calendar, d):
     from . import events as _ev
     from . import predicates as _pr
@@ -2562,8 +2588,24 @@ def _compile_initial_knowledge(raw, infos, init, d) -> None:
 
 # ── 진입점 ────────────────────────────────────────────────────
 
+_STATUS_NAMES = None   # v7.48(E1): 컴파일 중인 시나리오의 상태 이름(공용 + 시나리오) — OBSERVER_STATUS 검증용
+
+
 def compile_scenario(raw: dict, scenario_id: str, quests: dict | None = None) -> CompileResult:
     """raw 시나리오(+퀘스트 부속)를 컴파일한다. 입력을 변경하지 않는다."""
+    global _STATUS_NAMES
+    try:
+        from .utils import get_merged_status_effects
+        _STATUS_NAMES = set(get_merged_status_effects(raw if isinstance(raw, dict) else {}))
+    except Exception:  # noqa: BLE001 — 상태 목록을 못 읽으면 이름 검사만 건너뛴다
+        _STATUS_NAMES = None
+    try:
+        return _compile_scenario(raw, scenario_id, quests)
+    finally:
+        _STATUS_NAMES = None
+
+
+def _compile_scenario(raw: dict, scenario_id: str, quests: dict | None = None) -> CompileResult:
     d = _Diags()
     if not isinstance(raw, dict):
         d.add(ERROR, "SOURCE_INVALID", "$", "시나리오 최상위가 객체가 아닙니다")
@@ -2628,7 +2670,16 @@ def compile_scenario(raw: dict, scenario_id: str, quests: dict | None = None) ->
     series = _compile_info_series(raw, _ref_scope(actors, places, infos, access, modes, calendar=calendar), d)
     _compile_personas(raw, _ref_scope(actors, places, infos, access, modes, calendar=calendar,
                                                     templates=(raw.get("event_templates") or {}).keys()), d)
-    event_tpls = _compile_event_templates(raw, cap["capabilities"], actors, actor_index, places, infos, access,
+    pursuers = _compile_pursuers(raw, actors, actor_index, places, modes, d)
+    _raw_ev = raw
+    if pursuers:                       # v7.48(E3): 추적자마다 상태를 담는 사건 템플릿(시작 즉시 생성)
+        from . import pursuit as _pu
+        synth = _pu.synth_templates(pursuers)
+        clash = sorted(set(synth) & set(raw.get("event_templates") or {}))
+        for tid in clash:
+            d.add(ERROR, "PURSUER_TEMPLATE_COLLISION", f"event_templates.{tid}", "추적자 상태 템플릿 이름과 겹칩니다")
+        _raw_ev = {**raw, "event_templates": {**(raw.get("event_templates") or {}), **synth}}
+    event_tpls = _compile_event_templates(_raw_ev, cap["capabilities"], actors, actor_index, places, infos, access,
                                           modes, edges, calendar, d)
 
     faction_caps = _compile_faction_capabilities(raw, event_tpls, access, d)
@@ -2686,6 +2737,9 @@ def compile_scenario(raw: dict, scenario_id: str, quests: dict | None = None) ->
     # v7.17.2: 소속(사건 결과 grant_faction) → 접근 capability 매핑 — 저작한 시나리오에만 키가 생긴다
     if faction_caps:
         definition["faction_capabilities"] = faction_caps
+    # v7.48(E3): 추적자 — 저작한 시나리오에만 키가 생긴다(미저작 시나리오 revision 불변)
+    if pursuers:
+        definition["pursuers"] = pursuers
     return CompileResult(scenario_id, definition["compiler_version"], definition,
                          definition_revision(definition), diagnostics)
 

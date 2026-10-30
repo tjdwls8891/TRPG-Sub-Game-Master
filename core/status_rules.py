@@ -45,6 +45,12 @@
 #     조건 원자: {"stage_min": n, "status"?: s}(그 상태 — 없으면 이 상태 — 가 n단계 이상) ·
 #       {"status_time": "SINCE_CARED_GTE", "minutes": n, "status"?: s}(마지막 처치 뒤 n분↑, 처치 없으면 FALSE).
 #     상태 시계 추가 키: "stage" {상태: 단계} · "cared" {상태: 분} · "eased" {상태: 끝나는 분}(비면 키 없음).
+#
+#   v7.48(생존물 A — 계획서 v1 · D-3 나):
+#     조건 원자 {"moved": true}(이번 턴 PC가 장소를 옮김) · {"noise_at_least": QUIET|NORMAL|LOUD}(이번 턴 PC가 낸 소리).
+#     상태 선택 키 `ending: {id, title, epilogue, tone?}` — PC에게 붙으면 그 결말로 세션이 끝난다(사망 등).
+#     NPC도 같은 규칙으로 판정한다(D-3 나). NPC는 섭취·활동·착용·장소·이번 턴 사용을 추적하지 않으므로 그 조건은 '모름' —
+#     자동 부여·해제(auto)는 모름이면 일어나지 않고, 추출 부여·해제의 근거 조건(gate)은 모름이면 막지 않는다.
 from __future__ import annotations
 
 import copy
@@ -55,6 +61,7 @@ SCOPE_COMMON, SCOPE_SCENARIO = "공용", "시나리오"
 RULE_KEYS = ("apply_gate", "apply_auto", "clear_auto", "clear_gate", "raise_auto")
 STATUS_TIMES = ("SINCE_INTAKE_GTE", "SINCE_APPLIED_GTE", "SINCE_STATUS_GTE", "SINCE_CLEARED_GTE", "SINCE_CARED_GTE")
 CARE_ACTIONS = ("down", "treat", "ease")
+NOISE_LEVELS = ("QUIET", "NORMAL", "LOUD")       # v7.48(E4) 이번 턴 PC 행동의 소리(작은 것부터)
 EASE_MINUTES = 240
 ALL_DOMAIN = "전체"
 
@@ -78,6 +85,9 @@ class Ctx:
     worn: frozenset = frozenset()             # v7.46 PC 착용 효과 태그(없으면 빈 집합 — 입은 것이 없다는 사실)
     care: frozenset = frozenset()             # v7.47 이번 턴 PC에게 쓴 물건의 사용 효과(실패·물건 상태로 꺼진 것 제외)
     stage_in: dict = field(default_factory=dict)   # v7.47 추출이 본 PC 상태 단계 {상태: 단계}
+    moved: object = None                      # v7.48 이번 턴 장소를 옮겼는가(None = 모름)
+    noise: object = None                      # v7.48 이번 턴 소리(NOISE_LEVELS, None = 모름)
+    npc: bool = False                         # v7.48(D-3) NPC 판정 — 추적하지 않는 사실은 모름
 
 
 def _t_all(vals):
@@ -107,6 +117,8 @@ def evaluate(cond, ctx: Ctx, status: str) -> str:
         return _b(cond["const"] is True)
     if "status_time" in cond:
         k, n = cond["status_time"], int(cond.get("minutes") or 0)
+        if k == "SINCE_INTAKE_GTE" and ctx.npc:
+            return UNKNOWN
         if k == "SINCE_INTAKE_GTE":
             last = (ctx.clock.get("intake") or {}).get(cond.get("group"), ctx.start_minute)
             return _b(ctx.now - int(last) >= n)
@@ -128,9 +140,15 @@ def evaluate(cond, ctx: Ctx, status: str) -> str:
         rec = (ctx.clock.get("latent") or {}).get(cond["latent_due"]) or {}
         return _b(rec.get("due") is not None and ctx.now >= int(rec["due"]))
     if "consumed" in cond:
-        return _b(cond["consumed"] in ctx.consumed)
+        return UNKNOWN if ctx.npc else _b(cond["consumed"] in ctx.consumed)
     if "used" in cond:
-        return _b(cond["used"] in ctx.used)
+        return UNKNOWN if ctx.npc else _b(cond["used"] in ctx.used)
+    if "moved" in cond:
+        return UNKNOWN if ctx.moved is None else _b(bool(ctx.moved) == bool(cond["moved"]))
+    if "noise_at_least" in cond:
+        if ctx.noise not in NOISE_LEVELS:
+            return UNKNOWN
+        return _b(NOISE_LEVELS.index(ctx.noise) >= NOISE_LEVELS.index(cond["noise_at_least"]))
     if "place_within" in cond:
         return UNKNOWN if ctx.place is None else _b(cond["place_within"] in ctx.place_chain)
     if "place_group" in cond:
@@ -139,6 +157,8 @@ def evaluate(cond, ctx: Ctx, status: str) -> str:
     if "daypart_in" in cond:
         return UNKNOWN if ctx.daypart is None else _b(ctx.daypart in (cond["daypart_in"] or ()))
     if "activity_in" in cond:
+        if ctx.npc:
+            return UNKNOWN
         ok = ctx.activity in (cond["activity_in"] or ())
         return _b(ok and ctx.turn_minutes >= int(cond.get("min_minutes") or 0))
     if "status_active" in cond:
@@ -149,7 +169,7 @@ def evaluate(cond, ctx: Ctx, status: str) -> str:
             return FALSE
         return _b(int((ctx.clock.get("stage") or {}).get(name, 1)) >= int(cond["stage_min"]))
     if "wearing" in cond:
-        return _b(cond["wearing"] in ctx.worn)
+        return UNKNOWN if ctx.npc else _b(cond["wearing"] in ctx.worn)
     return UNKNOWN
 
 
@@ -190,6 +210,10 @@ def check_condition(cond, *, groups=(), statuses=(), path="", place_groups=None)
             return [] if ok else [f"{path}: 정의되지 않은 섭취 묶음 {cond[key]!r}(intake_groups)"]
     if "status_active" in cond:
         return [] if cond["status_active"] in statuses else [f"{path}: 알 수 없는 상태 {cond['status_active']!r}"]
+    if "moved" in cond:
+        return [] if isinstance(cond["moved"], bool) else [f"{path}: moved는 true/false"]
+    if "noise_at_least" in cond:
+        return [] if cond["noise_at_least"] in NOISE_LEVELS else [f"{path}: noise_at_least는 {NOISE_LEVELS}"]
     if "stage_min" in cond:
         ok = isinstance(cond["stage_min"], int) and cond["stage_min"] >= 1 \
             and (cond.get("status") is None or cond["status"] in statuses)
@@ -321,7 +345,21 @@ def _check_stage_keys(eff: dict) -> list:
         errs.append(f"care는 {{공용 사용 효과: {'|'.join(CARE_ACTIONS)}}}")
     if eff.get("lower_by") not in (None, "care"):
         errs.append("lower_by는 'care'만")
+    end = eff.get("ending")
+    if end is not None and not (isinstance(end, dict) and all(isinstance(end.get(k), str) and end[k].strip()
+                                                               for k in ("id", "title", "epilogue"))):
+        errs.append("ending은 {id, title, epilogue, tone?} 문자열")
     return errs
+
+
+def status_ending(merged: dict, statuses) -> dict | None:
+    """v7.48(E2): 그 인물에게 붙은 상태 중 결말을 가진 첫 상태의 결말(저작 순서), 없으면 None."""
+    have = set(statuses or ())
+    for name, eff in (merged or {}).items():
+        end = (eff or {}).get("ending")
+        if name in have and isinstance(end, dict):
+            return {**end, "status": name}
+    return None
 
 
 def stages_of(eff) -> list:
@@ -497,9 +535,12 @@ def decide(merged: dict, ctx: Ctx, pc_name: str, apply_in, clear_in, groups_cons
                 notes.append(f"{label(merged, s, clock)} ← 단계 내려감(추출)")
 
     # ③ 규칙
+    def gate_ok(v):
+        return v == TRUE or (ctx.npc and v == UNKNOWN)
+
     for e in apply_in:
         r = rules(e["status"])
-        if r and "apply_gate" in r and evaluate(r["apply_gate"], ctx, e["status"]) != TRUE:
+        if r and "apply_gate" in r and not gate_ok(evaluate(r["apply_gate"], ctx, e["status"])):
             notes.append(f"{e['status']} 부여 보류 — 근거 조건 미충족(코드)")
             continue
         want_apply[e["status"]] = e
@@ -513,7 +554,7 @@ def decide(merged: dict, ctx: Ctx, pc_name: str, apply_in, clear_in, groups_cons
         r = rules(s)
         if r is not None:
             gate = r.get("clear_gate")
-            if gate is None or evaluate(gate, ctx, s) != TRUE:
+            if gate is None or not gate_ok(evaluate(gate, ctx, s)):
                 notes.append(f"{s} 해제 보류 — 해소 근거 미충족(코드)")
                 continue
         want_clear.add(s)
@@ -637,9 +678,9 @@ def _stage_in(plan, pc_name) -> dict:
 
 
 def resolve_turn(session, prep) -> list:
-    """DYNAMIC 턴의 PC 상태 후보를 규칙으로 확정하고 status_clock을 갱신한다. 반환: 보고 줄(빈 목록 = 변화 없음).
+    """DYNAMIC 턴의 상태 후보를 규칙으로 확정하고 status_clock을 갱신한다. 반환: 보고 줄(빈 목록 = 변화 없음).
 
-    plan.status_apply/status_clear의 PC 항목만 바꾼다(NPC 항목은 그대로). LEGACY·정본 시계 없음이면 아무것도 안 한다."""
+    PC와 NPC(v7.48 D-3 나 — 추적하지 않는 사실은 모름)를 판정한다. LEGACY·정본 시계 없음이면 아무것도 안 한다."""
     from . import turn_world as _tw
     from .utils import get_merged_status_effects
     plan = getattr(prep, "extraction_plan", None)
@@ -663,18 +704,36 @@ def resolve_turn(session, prep) -> list:
               consumed=consumed, used=used, active=frozenset((session.statuses or {}).get(pc_name) or ()),
               clock=copy.deepcopy(store.get(pc_name) or {}),
               seed=f"{getattr(session, 'narrative_seed', '') or ''}", worn=facts.get("worn") or frozenset(),
-              care=facts.get("care") or frozenset(), stage_in=_stage_in(plan, pc_name))
+              care=facts.get("care") or frozenset(), stage_in=_stage_in(plan, pc_name),
+              moved=facts.get("moved"), noise=facts.get("noise"))
     mine = lambda e: e.get("target") == pc_name  # noqa: E731
     d = decide(merged, ctx, pc_name, [e for e in plan.status_apply if mine(e)],
                [e for e in plan.status_clear if mine(e)], consumed)
     plan.status_apply = [e for e in plan.status_apply if not mine(e)] + d.apply
     plan.status_clear = [e for e in plan.status_clear if not mine(e)] + d.clear
-    session.status_clock = {**store, pc_name: d.clock}
+    new_store = {**store, pc_name: d.clock}
     scored = {e.get("status") for e in ((getattr(plan, "result", None) or {}).get("status_scores") or [])
               if isinstance(e, dict) and e.get("target") == pc_name}
     deep = deep_statuses(merged)
     for s in sorted(ctx.active - scored - deep):          # v7.41(D4 가): 붙어 있는데 판단이 빠진 표면 상태 — 유지
         d.notes.append(f"{s} 판단 누락(유지)")
-    if d.notes:
-        plan.diagnostics["status_rules"] = list(d.notes)
-    return d.notes
+    notes = list(d.notes)
+    # v7.48(D-3 나): NPC도 같은 규칙 — 이번 턴 추출 후보가 있거나 상태가 붙어 있는 인물
+    touched = {e.get("target") for e in plan.status_apply + plan.status_clear} \
+        | {n for n, st in (session.statuses or {}).items() if st}
+    for npc in sorted(t for t in touched if t and t != pc_name):
+        own = lambda e, _n=npc: e.get("target") == _n  # noqa: E731
+        nctx = Ctx(now=now, start_minute=facts["start"], turn_minutes=max(0, now - before), daypart=facts["daypart"],
+                   active=frozenset((session.statuses or {}).get(npc) or ()), clock=copy.deepcopy(store.get(npc) or {}),
+                   seed=f"{getattr(session, 'narrative_seed', '') or ''}",
+                   care=(facts.get("care_by") or {}).get(npc) or frozenset(), stage_in=_stage_in(plan, npc), npc=True)
+        dn = decide(merged, nctx, npc, [e for e in plan.status_apply if own(e)],
+                    [e for e in plan.status_clear if own(e)], ())
+        plan.status_apply = [e for e in plan.status_apply if not own(e)] + dn.apply
+        plan.status_clear = [e for e in plan.status_clear if not own(e)] + dn.clear
+        new_store[npc] = dn.clock
+        notes += [f"{npc}: {n}" for n in dn.notes]
+    session.status_clock = new_store
+    if notes:
+        plan.diagnostics["status_rules"] = list(notes)
+    return notes

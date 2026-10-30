@@ -32,6 +32,7 @@ from . import world_progression as _wp
 from .world_ids import stable_digest
 
 OBS_FIELD = "world_observation"
+NOISE_FIELD = "noise"            # v7.48(E4) 관찰 — 이번 묘사에서 PC 행동이 낸 소리(QUIET·NORMAL·LOUD)
 MAX_EXTRA_MINUTES = 240                # 추출이 주는 비코드 소유 추가 시간 상한(안전)
 
 TW_READY = "READY"
@@ -821,13 +822,84 @@ def ending_block(ctx, plan, session) -> str:
 
 
 def session_ending(session) -> dict | None:
-    """v7.44(E3): 커밋된 정본이 저작 결말 국면에 닿았으면 그 결말(첫 하나), 아니면 None(동적 세계 세션만)."""
+    """v7.44(E3): 커밋된 정본이 저작 결말 국면에 닿았으면 그 결말(첫 하나), 아니면 None(동적 세계 세션만).
+
+    v7.48(E2): PC에게 결말을 가진 상태(사망 등)가 붙었으면 그 결말이 먼저다(시나리오 status_endings로 문안 덮어쓰기)."""
     from . import events as _ev
     wctx = _pw.session_world_context(session)
     if wctx.mode != _pw.MODE_DYNAMIC:
         return None
+    end = pc_status_ending(session)
+    if end is not None:
+        return end
     ends = list(_ev.endings_in(wctx.definition, session).values())
     return ends[0] if ends else None
+
+
+def pc_status_ending(session) -> dict | None:
+    """v7.48(E2): PC 상태 결말 — 공용·시나리오 상태의 ending(시나리오 status_endings[상태]가 문안을 덮어쓴다)."""
+    from .status_rules import status_ending
+    from .utils import get_merged_status_effects
+    sd = getattr(session, "scenario_data", None) or {}
+    pc = next((p.get("name") for p in (getattr(session, "players", None) or {}).values()
+               if isinstance(p, dict) and p.get("name")), None)
+    end = status_ending(get_merged_status_effects(sd), (getattr(session, "statuses", None) or {}).get(pc) or ())
+    if end is None:
+        return None
+    over = (sd.get("status_endings") or {}).get(end["status"])
+    return {**end, **over} if isinstance(over, dict) else end
+
+
+def threat_block(ctx, plan, session) -> str:
+    """v7.48(E3): 지시층위 — 추적자 위협(코드 확정). 같은 장소 = 등장 강제, 한 구간 거리에서 추적·경계 = 다가오는 징후.
+    그 밖은 아무것도 쓰지 않는다(위치 유출 금지)."""
+    from . import pursuit as _pu
+    if not (ctx.definition.get("pursuers") or None):
+        return ""
+    world = plan.projected_world if plan is not None and getattr(plan, "projected_world", None) is not None else session
+    pl = _sp.placement_of(world, ctx.lead_pc) or {}
+    here = pl.get("place_id") if pl.get("kind") == _sp.AT_PLACE else None
+    pc = next((p.get("name") for p in (getattr(session, "players", None) or {}).values()
+               if isinstance(p, dict) and p.get("name")), None)
+    hidden = "숨음" in ((getattr(session, "statuses", None) or {}).get(pc) or ())
+    lines = []
+    for t in _pu.threats(ctx.definition, world, pc_place=here):
+        if t["relation"] == "SAME" and hidden:
+            lines.append(f"· {t['name']}이(가) 이 장소에 있다 — PC는 숨어 있다. 그가 주변을 뒤진다. 들켰는지는 판정 전까지 "
+                         "확정하지 말 것(긴장만 묘사).")
+        elif t["relation"] == "SAME":
+            lines.append(f"· {t['name']}이(가) 이 장소에 나타난다(반드시 등장 — 어떻게 나타나는지는 묘사 재량). PC는 그와 "
+                         "마주쳤다. PC의 반응·결과는 확정하지 말 것.")
+        else:
+            lines.append(f"· {t['name']}이(가) 바로 옆까지 다가오고 있다 — 발소리·문소리 같은 징후만(모습은 아직 보이지 않음).")
+    if not lines:
+        return ""
+    return "\n[위협 — 코드 확정]\n" + "\n".join(lines) + "\n"
+
+
+def dying_block(session, plan) -> str:
+    """v7.48(E2): 지시층위 — PC가 빈사면 남은 시간(코드 확정). 처치 없이 시간이 다하면 그 턴이 끝이다."""
+    from .status_rules import status_ending  # noqa: F401 — 같은 상태 정의 출처
+    from .utils import get_merged_status_effects
+    sd = getattr(session, "scenario_data", None) or {}
+    merged = get_merged_status_effects(sd)
+    pc = next((p.get("name") for p in (getattr(session, "players", None) or {}).values()
+               if isinstance(p, dict) and p.get("name")), None)
+    if "빈사" not in ((getattr(session, "statuses", None) or {}).get(pc) or ()) or "사망" not in merged:
+        return ""
+    at = (((getattr(session, "status_clock", None) or {}).get(pc) or {}).get("applied") or {}).get("빈사")
+    rule = ((merged["사망"].get("rules") or {}).get("apply_auto") or {})
+    limit = int(rule.get("minutes") or 0) if rule.get("status") == "빈사" else 0
+    now = getattr(plan, "end_minute", None) if plan is not None else None
+    if now is None:
+        now = (getattr(session, "world_clock", None) or {}).get("minute_index")
+    if at is None or now is None or not limit:
+        return ""
+    left = int(at) + limit - int(now)
+    if left <= 0:
+        return ("\n[빈사 — 코드 확정] PC는 이번 턴 안에 응급처치를 받지 못하면 숨진다. 처치가 묘사되지 않으면 이 묘사가 "
+                "PC의 마지막 장면이다(죽음을 서둘러 확정하지는 말 것 — 확정은 코드가 한다).\n")
+    return f"\n[빈사 — 코드 확정] PC는 쓰러져 있다. 응급처치 없이 약 {left}분이 지나면 숨진다. 몸을 거의 움직일 수 없다.\n"
 
 
 def scene_npc_projections(ctx, plan, session) -> tuple:
@@ -1981,12 +2053,62 @@ def status_turn_facts(session, prep) -> dict | None:
     uid = (getattr(wt.ctx, "uid_of", None) or {}).get(wt.ctx.lead_pc)
     pc_name = ((getattr(session, "players", None) or {}).get(uid) or {}).get("name") or getattr(ip, "pc_name", None)
     effects = {e for c in care if c.get("on") == pc_name and not c.get("failed") for e in c.get("effects") or ()}
+    care_by = {}                                   # v7.48(D-3): NPC에게 쓴 처치도 그 인물의 처치로
+    for c in care:
+        if c.get("on") and c.get("on") != pc_name and not c.get("failed"):
+            care_by.setdefault(c["on"], set()).update(c.get("effects") or ())
     uv = _items.effect_vocab().get("use_effects") or {}
     intake = frozenset(uv[e]["intake"] for e in effects if (uv.get(e) or {}).get("intake"))
     return {"now": now, "before": int((getattr(session, "world_clock", None) or {}).get("minute_index", now)),
             "start": int(clock.get("start_minute_index", now)),
             "place": pl.get("place_id") if pl.get("kind") == _sp.AT_PLACE else None,
             "daypart": daypart, "activity": outcome.get("activity"),
-            "worn": _items.worn_tags(session, pc_name, defs, equipment=equip, traits=traits),
-            "care": frozenset(effects), "care_consumed": intake, "care_used": intake}
+            "worn": (worn := _items.worn_tags(session, pc_name, defs, equipment=equip, traits=traits)),
+            "care": frozenset(effects), "care_consumed": intake, "care_used": intake,
+            "care_by": {k: frozenset(v) for k, v in care_by.items()},
+            "moved": _pc_moved(session, wt.ctx.lead_pc, pl),
+            "noise": _turn_noise(prep, worn)}
 
+
+def _pc_moved(session, lead, after_pl) -> bool:
+    """v7.48: 이번 턴 PC가 장소를 옮겼는가(턴 시작 정본 배치 대 투영 배치)."""
+    before = _sp.placement_of(session, lead) or {}
+    return (before.get("kind"), before.get("place_id")) != (after_pl.get("kind"), after_pl.get("place_id"))
+
+
+def _turn_noise(prep, worn=()):
+    """v7.48(E4): 이번 턴 PC 행동의 소리 — 추출 관찰 noise(+ 입은 '소음' 효과면 한 단계 위), 모르면 None."""
+    raw = (getattr(prep, "world_observation_raw", None) or {}).get(NOISE_FIELD)
+    from .status_rules import NOISE_LEVELS
+    if raw not in NOISE_LEVELS:
+        return None
+    lvl = NOISE_LEVELS.index(raw)
+    if "소음" in (worn or ()) and lvl > 0:          # 조용히 움직일 때(QUIET)는 그대로 — 행동이 소리를 낼 때만 커진다
+        lvl = min(lvl + 1, len(NOISE_LEVELS) - 1)
+    return NOISE_LEVELS[lvl]
+
+
+
+def pursuit_hearing_ops(session, prep, ctx, res, pc) -> tuple:
+    """v7.48(E4): 이번 턴 PC 소리(추출 noise + 입은 '소음')가 닿은 추적자에 들은 장소·분을 기록(다음 턴 반응).
+
+    커밋 직전 투영 세계 기준 — 이번 턴 연산 전부를 인과 부모로 둔다.
+    """
+    from . import items as _items
+    from . import pursuit as _pu
+    D = ctx.definition
+    if not (D.get("pursuers") or None):
+        return ()
+    pl = _sp.placement_of(res.projected_world, ctx.lead_pc) or {}
+    if pl.get("kind") != _sp.AT_PLACE:
+        return ()
+    worn = _items.worn_tags(session, pc, _items.definitions_of(D))
+    noise = _turn_noise(prep, worn)
+    now = (res.projected_world.domain("world_clock") or {}).get("minute_index")
+    ops = _pu.hearing_ops(D, res.projected_world, now=now, pc_place=pl.get("place_id"), noise=noise,
+                          prefix=turn_op_prefix("puh", prep.transaction_id))
+    if not ops:
+        return ()
+    barrier = [o.op_id for o in res.ops]
+    return tuple(_wm.make_op(o.op_id, o.op_type, o.source_kind, o.payload, causal_parent_op_ids=barrier)
+                 for o in ops)

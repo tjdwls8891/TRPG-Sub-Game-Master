@@ -147,6 +147,15 @@ def legacy_narrative_retired(session) -> bool:
     return bool(getattr(session, "definition_revision", None)) or bool(_lc.world_bound(session))
 
 
+def pc_statuses(session, uid) -> dict:
+    """v7.48(E1): 관찰자 PC의 상태·단계 {상태: 단계}(단계 없는 상태는 1) — 상태 조건 사건의 진행 문맥."""
+    name = ((getattr(session, "players", None) or {}).get(uid) or {}).get("name")
+    if not name:
+        return {}
+    stage = (((getattr(session, "status_clock", None) or {}).get(name) or {}).get("stage") or {})
+    return {str(s): int(stage.get(s, 1)) for s in ((getattr(session, "statuses", None) or {}).get(name) or ())}
+
+
 def pc_stats(session, uid) -> dict:
     """H07: 관찰자 PC 능력치(프로필의 정수 항목) — 레거시 min_stat 조건 의미 보존용 진행 문맥."""
     prof = ((getattr(session, "players", None) or {}).get(uid) or {}).get("profile") or {}
@@ -524,7 +533,8 @@ def default_mode(definition: dict) -> str | None:
 def plan_player_turn(ctx: WorldContext, world, intent: _ai.ResolvedActionIntent, *, transaction_id: str,
                      narrative_seed: str, capabilities=(), resolved_tie_orders=None,
                      policy: RouteChoicePolicy = DEFAULT_ROUTE_POLICY, stats=None,
-                     item_facts=None, access_capabilities=None) -> PlayerWorldPlan:
+                     item_facts=None, access_capabilities=None, statuses=None,
+                     pursuit=None) -> PlayerWorldPlan:
     """ResolvedActionIntent → PlayerWorldPlan(순수). world는 세션 또는 ProjectedWorld."""
     D = ctx.definition
     src = world if isinstance(world, _wm.ProjectedWorld) else _wm.ProjectedWorld.capture(world)
@@ -550,6 +560,8 @@ def plan_player_turn(ctx: WorldContext, world, intent: _ai.ResolvedActionIntent,
     if stats is not None:
         observer["observer_stats"] = {k: v for k, v in dict(stats).items()
                                       if isinstance(v, int) and not isinstance(v, bool)}
+    if statuses is not None:                       # v7.48(E1): PC 상태·단계(상태 조건 사건)
+        observer["observer_statuses"] = {str(k): int(v or 1) for k, v in dict(statuses).items()}
     run = _Run(D, src, seed=narrative_seed, tie_orders=resolved_tie_orders, prefix=prefix, observer=observer)
     plan.observer = dict(observer)                 # P1: 진행 없이 끝나는 계획도 보충 진행에 같은 관찰자 문맥을 준다
     pre_ops = []
@@ -573,6 +585,12 @@ def plan_player_turn(ctx: WorldContext, world, intent: _ai.ResolvedActionIntent,
             pre_ops.append(_wm.make_op(f"{prefix}.resolution", _ev.OP_EVENT_LOCAL_SET, _ev.RESOLUTION_SOURCE, {
                 "instance_id": iid, "key": _ev.RESOLUTION_KEY, "value": oid}))
             plan.outcome["resolution"] = {"instance_id": iid, "option_id": oid}
+    if (D.get("pursuers") or None) and here is not None:
+        # v7.48(E3): 추적자 판단(묘사 전, 결정적) — 상태 갱신·이동을 이번 턴 진행의 기준 연산으로
+        from . import pursuit as _pu
+        pre_ops += _pu.plan_ops(D, src, now=now, pc_place=here, pc_hidden=bool((pursuit or {}).get("hidden")),
+                                disabled=(pursuit or {}).get("disabled") or (), progress=observer, prefix=f"{prefix}.pu",
+                                diagnostics=plan.diagnostics)
     mv = intent.movement
     # v7.17.2: 실제 접근 판정은 소속 capability까지(access_capabilities), 사건 보유 조건(observer_items)은 소지품만
     move_caps = tuple(access_capabilities) if access_capabilities is not None else capabilities

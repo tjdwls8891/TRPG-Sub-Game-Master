@@ -230,6 +230,18 @@ def _clean_proceed_instruction(instruction: str) -> str:
     return re.sub(r'\s+', ' ', result).strip()
 
 
+def _npc_key(session, name: str, world_turn=None):
+    """판정 대상 NPC의 정본 이름(DYNAMIC은 현재 장면 인물의 표시명 → 레거시 이름, 겹치거나 장면 밖이면 None)."""
+    if world_turn is None:
+        return name
+    try:
+        _scene, projs = core.turn_world.scene_npc_projections(world_turn.ctx, None, session)
+    except Exception:
+        projs = []
+    hits = [p for p in projs if p.get("display_name") == name]
+    return hits[0].get("legacy_name") if len(hits) == 1 else None
+
+
 def _npc_stats(session, name: str, world_turn=None) -> dict | None:
     """판정 대상 NPC의 정본 능력치(session.npcs[*].stats). 확인할 수 없으면 None — 허구 수치 없음.
 
@@ -293,6 +305,13 @@ def _judge_side(view, side: dict, name: str, world_turn=None, contest: bool = Fa
         if world_turn is not None and contest:  # v7.46(B3): 대결 상대 NPC — 손에 드는 무기·보호구 중 가장 유리한 것 하나
             item, e = core.items.npc_equip_mod(view, name, stat, core.items.definitions_of(world_turn.ctx.definition),
                                                domain)
+        _nk = _npc_key(view, name, world_turn) if domain is not None else None
+        if _nk:                                 # v7.48(D-3 나): NPC 상태·단계 불이익도 코드 합산(분야가 있을 때)
+            h, status_basis = core.status_rules.status_mod(
+                core.get_merged_status_effects(sd or {}), (view.statuses or {}).get(_nk) or (),
+                (getattr(view, "status_clock", None) or {}).get(_nk) or {},
+                (getattr(view, "world_clock", None) or {}).get("minute_index"), domain)
+            status_basis = (status_basis + " (코드 확정)") if status_basis else ""
     a = core.judgment.ability_mod(raw)
     diff = side.get("difficulty") if side.get("difficulty") in core.judgment.DIFFICULTY else "보통"
     m = int(side.get("method_mod") or 0)
@@ -432,8 +451,13 @@ def _build_judgment_user_prompt(session, player_message: str, roll_results: list
 
     if world_turn is not None:
         _scene, _projs = core.turn_world.scene_npc_projections(world_turn.ctx, None, session)
+        _pursuers = {c.get("actor") for c in (world_turn.ctx.definition.get("pursuers") or {}).values()}
+        _hidden = "숨음" in ((session.statuses or {}).get(GMCog._pc_name(session, world_turn.ctx)) or ())
         _ents = [_npc_entry(p["display_name"], _npc_stats(session, p["display_name"], world_turn),
-                            p.get("relevant_statuses")) for p in _projs]
+                            p.get("relevant_statuses"))
+                 + (("[위협 — 추적자: PC가 숨어 있다. 들킬지는 CONTEST(그의 감각 대 PC의 은밀)로]" if _hidden
+                     else "[위협 — 추적자: PC와 마주침]") if p.get("actor_id") in _pursuers else "")
+                 for p in _projs]
         lines.append("[현재 장면 NPC — 정본 위치 기준]\n" + (", ".join(_ents) if _ents else "(없음)"))
     else:
         npc_names = list((session.npcs or {}).keys())
@@ -895,6 +919,14 @@ def _build_logic_user_prompt(session, player_message: str, roll_results: list,
             if _eb:
                 place_block += _eb
                 manifest.append("결말")
+            _db = core.turn_world.dying_block(session, world_turn.plan)                         # v7.48 E2
+            if _db:
+                place_block += _db
+                manifest.append("빈사")
+            _tb = core.turn_world.threat_block(world_turn.ctx, world_turn.plan, session)        # v7.48 E3
+            if _tb:
+                place_block += _tb
+                manifest.append("위협")
             _kb = core.turn_world.pc_knowledge_block(world_turn.ctx, world_turn.plan, session)  # H07-C
             if _kb:
                 place_block += _kb
@@ -2477,7 +2509,25 @@ class GMCog(commands.Cog):
                 session, ctx.uid_of.get(ctx.lead_pc), ctx.definition),                     # v7.17.2: 접근 판정 전용
             item_facts=core.items.current_facts(session),           # v7.17: 직전 커밋 턴의 사실만
             stats=core.player_world.pc_stats(session, ctx.uid_of.get(ctx.lead_pc)),       # H07: 스탯 조건
+            statuses=core.player_world.pc_statuses(session, ctx.uid_of.get(ctx.lead_pc)),  # v7.48(E1): 상태 조건
+            pursuit=self._pursuit_context(session, ctx),                                    # v7.48(E3): 추적자
             resolved_tie_orders=resolved_tie_orders)
+
+    @staticmethod
+    def _pursuit_context(session, ctx):
+        """v7.48(E3): 추적자 판단 입력 — PC 숨음 · 움직일 수 없는 추적자(기절·빈사·사망)."""
+        if not (ctx.definition.get("pursuers") or None):
+            return None
+        pc = GMCog._pc_name(session, ctx)
+        sts = getattr(session, "statuses", None) or {}
+        acts = ctx.definition.get("actor_definitions") or {}
+        disabled = []
+        for c in ctx.definition["pursuers"].values():
+            a = (acts.get(c.get("actor")) or {})
+            name = a.get("legacy_key") or a.get("name")
+            if set(sts.get(name) or ()) & set(core.pursuit.DISABLING_STATUSES):
+                disabled.append(c.get("actor"))
+        return {"hidden": "숨음" in (sts.get(pc) or ()), "disabled": disabled}
 
     def _ensure_world_plan(self, session, wt, transaction_id):
         cur = core.action_intent.world_version_id(session)
@@ -2935,8 +2985,9 @@ class GMCog(commands.Cog):
             narrative_seed=getattr(session, "narrative_seed", None) or session.session_id,
             prefix=core.turn_world.turn_op_prefix("snpc", prep.transaction_id),
             barrier=[o.op_id for o in res.ops], present=_promoted)
+        _pu_ops = core.turn_world.pursuit_hearing_ops(session, prep, wt.ctx, res, self._pc_name(session, wt.ctx)) if res.projected_world is not None else ()
         try:
-            core.turn_preparation.stage_world_ops(prep, tuple(res.ops) + tuple(_reg_ops))
+            core.turn_preparation.stage_world_ops(prep, tuple(res.ops) + tuple(_reg_ops) + tuple(_pu_ops))
         except core.turn_preparation.BarrierViolationError as e:
             prep.violations.append(f"world_stage:{e}")
             return FC.COMMIT_VALIDATION_FAILURE.value
@@ -3557,8 +3608,11 @@ class GMCog(commands.Cog):
         game_ch = self.bot.get_channel(session.game_ch_id)
         if game_ch:
             try:
+                _desc = "이야기가 끝났습니다. 채널을 잠급니다."
+                if end.get("status"):            # v7.48(E2) 상태 결말(사망 등)은 묘사가 맺지 못했을 수 있다 — 맺음말을 카드에
+                    _desc = f"{end.get('epilogue', '')}\n\n{_desc}"
                 await game_ch.send(embed=discord.Embed(title=f"🏁 {end['title']}",
-                                                       description="이야기가 끝났습니다. 채널을 잠급니다.",
+                                                       description=_desc,
                                                        color=0x2b2d31))
                 await game_ch.set_permissions(game_ch.guild.default_role, send_messages=False)
             except Exception as e:
@@ -4574,6 +4628,8 @@ class GMCog(commands.Cog):
                 _op = _ri.get("opponent") or {}
                 if isinstance(_op.get("properties"), dict):
                     _op["properties"]["domain"] = dict(_dom, description="상대 쪽 행동의 분야(공격을 막으면 방어 등)")
+                    _op["properties"]["status_mod"] = dict(_op["properties"].get("status_mod") or {"type": "integer"},
+                                                           description="0(상태 보정은 코드가 계산한다)")
         user_prompt = _build_judgment_user_prompt(session, player_message, roll_results, world_turn=_wt, gate=gate,
                                                   declaration_draft=declaration_draft and not gate,
                                                   discovery_rows=discovery_rows if declaration_draft and not gate else ())
@@ -6473,6 +6529,13 @@ class GMCog(commands.Cog):
             _ext_schema["properties"][core.turn_world.OBS_FIELD]["properties"][core.items.TRAITS_FIELD] = \
                 _wt.item_manifest.traits_schema()
             _obs_block += _wt.item_manifest.render()
+            # v7.48(E4): 이번 묘사에서 PC 행동이 낸 소리 — 추적자 감지·숨음 해제의 근거(코드가 범위를 정한다)
+            _ext_schema["properties"][core.turn_world.OBS_FIELD]["properties"][core.turn_world.NOISE_FIELD] = {
+                "type": "string", "enum": ["QUIET", "NORMAL", "LOUD"],
+                "description": "이번 묘사에서 PC의 행동이 낸 소리"}
+            _obs_block += ("[noise — 이번 묘사에서 PC의 행동이 낸 소리] QUIET = 숨죽임·살금살금·속삭임 / NORMAL = 걷기·"
+                           "보통 대화·문 여닫기 / LOUD = 뛰기·비명·고함·유리·문 부수기·총성·물건 쓰러뜨림. "
+                           "다른 인물이 낸 소리는 넣지 않는다.\n")
             # v7.47(S1): PC 상태 단계 — status_scores에 단계 번호(단계 없는 상태는 0)
             _ss = _ext_schema["properties"].get("status_scores")
             if isinstance(_ss, dict) and isinstance((_ss.get("items") or {}).get("properties"), dict):
