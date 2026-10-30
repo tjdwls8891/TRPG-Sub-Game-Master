@@ -75,6 +75,7 @@ KNOWN_CAPABILITIES = {
     # v7.50: 헌터물 기능
     "combat_wounds": 1,  # 공격 대결 성공 여유 → 진 쪽 부상 단계(코드) · 쓰러짐
     "growth": 1,         # 성장 포인트·등급(사건 지급 · 플레이어 선언 사용)
+    "party": 1,          # v7.51 NPC 파티(역할 행동 · 합류 조건 · 적 stance)
 }
 
 # 이 컴파일러 버전이 도메인 검증까지 끝내는 capability. 나머지는 선언을 기록하되
@@ -82,12 +83,12 @@ KNOWN_CAPABILITIES = {
 VALIDATED_CAPABILITIES = frozenset({"stable_actors", "quantitative_time", "structured_places",
                                     "information_registry", "actor_cognition", "dynamic_actor_location",
                                     "dynamic_events", "scheduled_world_progression",
-                                    "mortality", "stealth", "pursuit", "combat_wounds", "growth"})
+                                    "mortality", "stealth", "pursuit", "combat_wounds", "growth", "party"})
 # 주의: '검증됨'은 저작 정의의 컴파일·정적 검증이 끝났다는 뜻이다. 세션 초기화(H06)·플레이어 턴
 # 배선(H05)·프롬프트 공개 경계(H05)·시나리오 실제 저작 완성도(H07)는 별도 게이트다.
 
 # v7.48: 세계 기반이 아닌 '선택 기능' capability — 필요한 시나리오만 선언한다(세계 기반 capability와 구분).
-FEATURE_CAPABILITIES = frozenset({"mortality", "stealth", "pursuit", "combat_wounds", "growth"})
+FEATURE_CAPABILITIES = frozenset({"mortality", "stealth", "pursuit", "combat_wounds", "growth", "party"})
 
 # capability 의존성(DESIGN 08 §4). (요구 capability, 심각도)
 # dynamic_actor_location → structured_places 는 사용자 결정(H01 보정)으로 ERROR.
@@ -99,6 +100,7 @@ CAPABILITY_DEPENDENCIES = {
     "pursuit": (("stealth", "ERROR"), ("dynamic_events", "ERROR"), ("dynamic_actor_location", "ERROR")),
     "combat_wounds": (("mortality", "ERROR"), ("dynamic_events", "ERROR")),
     "growth": (("dynamic_events", "ERROR"),),
+    "party": (("combat_wounds", "ERROR"), ("dynamic_events", "ERROR")),
 }
 
 # 새 스키마용으로 예약된 키. 이 컴파일러가 구조화하지 않으므로, 있으면 경고한다
@@ -112,7 +114,7 @@ RESERVED_UNCOMPILED_KEYS = (
 INLINE_SECRET_FIELD = "비밀"
 # profile_base에서 빼는 필드: 구조화된 별도 권위(actor_id·name·비밀) + 레거시 런타임 초기값.
 PROFILE_BASE_EXCLUDED = ("actor_id", "name", INLINE_SECRET_FIELD, "resources", "statuses", "knowledge_seed",
-                         "routine", "behavior")
+                         "routine", "behavior", "party", "stance")
 # H07: default_npcs[*].knowledge_seed — 저작 NPC의 초기 공간 지식 seed id(genesis가 적용). 지식은 이동 허가가 아니라
 #      지름길·숨은 길·위험 회피 같은 경로 선택 품질의 근거다(H07 최종 지시 §6). 저작된 경우에만 정의에 키가 생긴다.
 # H07: default_npcs[*].routine — 선택적 평상시 일과(요일·시간대 → 장소). 정본 배치가 아니라 정의 + 정본 시계의
@@ -372,6 +374,9 @@ def _compile_actors(scenario_id, raw, d):
             defs[actor_id]["routine"] = copy.deepcopy(prof["routine"])     # _compile_routines가 정규화·검증
         if "behavior" in prof:
             defs[actor_id]["behavior"] = copy.deepcopy(prof["behavior"])   # v7.48: _compile_behaviors가 검증
+        for k in ("party", "stance"):                                       # v7.51: _compile_party가 검증
+            if k in prof:
+                defs[actor_id][k] = copy.deepcopy(prof[k])
         order.append(actor_id)
         index[key] = actor_id
     return defs, order, index
@@ -1306,6 +1311,8 @@ _STEP_PARAMS = {
     "CLEAR_ACTOR_STATUS": (("actor",), ("status",)),
     "GRANT_GROWTH": (("points",), ()),
     "SET_PC_RECORD": (("field", "value"), ()),
+    "JOIN_PARTY": (("actor",), ()),
+    "LEAVE_PARTY": (("actor",), ()),
 }
 # H07: EMIT_SIGNAL.exposes — 이 신호가 묘사되면 PC가 알게 될 수 있는 저작 정보(공개 안전 summary 필수).
 #      관찰 매니페스트 후보가 될 뿐, 노출 확정은 확정 묘사의 추출 관찰(info_exposed)만 한다.
@@ -1313,7 +1320,7 @@ _STEP_PARAMS = {
 _EFFECT_STEP_TYPES = ("SET_ACCESS_STATE", "SET_ACTOR_PLACEMENT", "CLEAR_ACTOR_PLACEMENT", "START_MOVEMENT", "CREATE_INFORMATION",
                       "SUPERSEDE_INFORMATION", "ACQUIRE_INFORMATION", "SET_COGNITION_BELIEF",
                       "APPEND_RELATIONSHIP_DELTA", "SET_EVENT_LOCAL", "EMIT_SIGNAL", "SET_ACTOR_STATUS",
-                      "CLEAR_ACTOR_STATUS", "GRANT_GROWTH", "SET_PC_RECORD")
+                      "CLEAR_ACTOR_STATUS", "GRANT_GROWTH", "SET_PC_RECORD", "JOIN_PARTY", "LEAVE_PARTY")
 
 
 PERSONA_KEYS = ("surface", "core", "stances", "now", "initial_trust")
@@ -1486,6 +1493,12 @@ def _compile_step(st, p, scope, access, edges, created, d, *, nested=False):
             bad("STEP_REF_UNKNOWN", f"growth.records에 선언되지 않은 기록 {st['field']!r}")
         elif not (isinstance(st["value"], int) and not isinstance(st["value"], bool)):
             bad("STEP_PARAMS_INVALID", "value는 정수(등급은 1부터 — growth.records 이름표 순서)")
+    elif t in ("JOIN_PARTY", "LEAVE_PARTY"):
+        if "party" not in (_CAPS or ()):
+            bad("STEP_CAPABILITY_REQUIRED", f"{t}에는 party capability 선언이 필요합니다")
+        ref_id(st["actor"], "ActorId", scope.actors, "ACTOR")
+        if isinstance(st["actor"], str) and st["actor"] in (_PARTY_ACTORS or {}) and not _PARTY_ACTORS[st["actor"]]:
+            bad("STEP_REF_UNKNOWN", f"인물 {st['actor']!r}에게 party(역할)가 없습니다")
     elif t == "START_MOVEMENT":
         ref_id(st["actor"], "ActorId", scope.actors, "ACTOR")
         ref_id(st["destination"], "PlaceId", scope.places, "PLACE")
@@ -1634,6 +1647,52 @@ def _compile_behaviors(actors, places, modes, caps, d, *, calendar=None, templat
         else:
             out.append(aid)
     return out
+
+
+def _compile_party(raw, actors, caps, d, scope) -> dict | None:
+    """v7.51 NPC 파티 — 시나리오 party_roles·party_limit, 인물 party·stance 검증. 실패한 인물 키는 정의에서 뺀다.
+    반환: 정의 키 party {roles, limit}(기능 party 선언 시) 또는 None."""
+    from . import party as _pa
+    from . import predicates as _pr
+    from .items import effect_vocab
+    vocab = effect_vocab()
+    roles = raw.get("party_roles")
+    cfg = None
+    if "party" in caps:
+        errs = _pa.check_roles(roles, statuses=set(_STATUS_DEFS or {}), domains=set(vocab.get("domains") or {}) | {"기타"},
+                               effects=set(vocab.get("use_effects") or {}))
+        lim = raw.get("party_limit", _pa.DEFAULT_LIMIT)
+        if not (isinstance(lim, int) and not isinstance(lim, bool) and 1 <= lim <= 8):
+            errs.append(("party_limit", "1~8 정수"))
+        for path, msg in errs:
+            d.add(ERROR, "PARTY_INVALID", path, msg)
+        if not errs:
+            cfg = {"roles": copy.deepcopy(roles), "limit": lim}
+    elif roles is not None or "party_limit" in raw:
+        d.add(ERROR, "PARTY_INVALID", "party_roles", "party_roles·party_limit에는 party capability 선언이 필요합니다")
+    for aid in sorted(actors):
+        a = actors[aid]
+        base = f"default_npcs.{a['legacy_key']}"
+        if "party" in a:
+            p = f"{base}.party"
+            errs = ([(p, "party에는 party capability 선언이 필요합니다")] if "party" not in caps
+                    else _pa.check_member(a["party"], (cfg or {}).get("roles") or {}, p))
+            if not errs and a["party"].get("join_when") is not None:
+                errs = [(path, msg) for _c, path, msg in _pr.validate(a["party"]["join_when"], scope, f"{p}.join_when",
+                                                                       allow_phase_time=False)]
+            for path, msg in errs:
+                d.add(ERROR, "PARTY_MEMBER_INVALID", path, msg)
+            if errs:
+                del a["party"]
+        if "stance" in a:
+            p = f"{base}.stance"
+            errs = ([(p, "stance에는 combat_wounds capability 선언이 필요합니다")] if "combat_wounds" not in caps
+                    else _pa.check_stance(a["stance"], p))
+            for path, msg in errs:
+                d.add(ERROR, "STANCE_INVALID", path, msg)
+            if errs:
+                del a["stance"]
+    return cfg
 
 
 def _compile_event_templates(raw, caps, actors, actor_index, places, infos, access, modes, edges, calendar, d):
@@ -2635,11 +2694,12 @@ _STATUS_NAMES = None   # v7.48(E1): 컴파일 중인 시나리오의 상태 이�
 _STATUS_DEFS = None    # v7.49: 같은 출처의 상태 정의(역할 dead 판별)
 _CAPS = None           # v7.50: 컴파일 중인 시나리오의 선언 capability(사건 단계 검증용)
 _PC_RECORDS = None     # v7.50: growth.records(프로필 기록 선언)
+_PARTY_ACTORS = None   # v7.51: {ActorId: 파티 역할 있음} — JOIN_PARTY·LEAVE_PARTY 대상 검증
 
 
 def compile_scenario(raw: dict, scenario_id: str, quests: dict | None = None) -> CompileResult:
     """raw 시나리오(+퀘스트 부속)를 컴파일한다. 입력을 변경하지 않는다."""
-    global _STATUS_NAMES, _STATUS_DEFS, _CAPS, _PC_RECORDS
+    global _STATUS_NAMES, _STATUS_DEFS, _CAPS, _PC_RECORDS, _PARTY_ACTORS
     try:
         from .utils import scenario_capabilities
         _CAPS = scenario_capabilities(raw if isinstance(raw, dict) else {})
@@ -2655,7 +2715,7 @@ def compile_scenario(raw: dict, scenario_id: str, quests: dict | None = None) ->
     try:
         return _compile_scenario(raw, scenario_id, quests)
     finally:
-        _STATUS_NAMES = None
+        _STATUS_NAMES = _PARTY_ACTORS = None
 
 
 def _compile_scenario(raw: dict, scenario_id: str, quests: dict | None = None) -> CompileResult:
@@ -2725,6 +2785,11 @@ def _compile_scenario(raw: dict, scenario_id: str, quests: dict | None = None) -
                                                     templates=(raw.get("event_templates") or {}).keys()), d)
     pursuers = _compile_behaviors(actors, places, modes, cap["capabilities"], d, calendar=calendar,
                                   templates=(raw.get("event_templates") or {}).keys())
+    global _PARTY_ACTORS
+    party_cfg = _compile_party(raw, actors, cap["capabilities"], d,
+                               _ref_scope(actors, places, infos, access, modes, calendar=calendar,
+                                          templates=(raw.get("event_templates") or {}).keys()))
+    _PARTY_ACTORS = {aid: "party" in a for aid, a in actors.items()}
     _raw_ev = raw
     if "combat_wounds" in cap["capabilities"]:      # v7.50(E6): 전투 기록 사건(공격 대결로 쓰러진 인물의 상태)
         from . import events as _ev0
@@ -2799,6 +2864,8 @@ def _compile_scenario(raw: dict, scenario_id: str, quests: dict | None = None) -
         definition["faction_capabilities"] = faction_caps
     # v7.49: 사건이 붙이는 역할 dead 상태(SET_ACTOR_STATUS) — 그 상태가 붙은 인물은 유효 위치를 잃는다.
     #   그런 step을 저작한 시나리오에만 키가 생긴다(미저작 시나리오 revision 불변)
+    if party_cfg is not None:                   # v7.51: 기능 party를 선언한 시나리오에만 키가 생긴다
+        definition["party"] = party_cfg
     removing = _removing_statuses(event_tpls, combat="combat_wounds" in cap["capabilities"])
     if removing:
         definition["actor_removing_statuses"] = removing

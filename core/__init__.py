@@ -285,6 +285,7 @@ from . import talk  # v7.36 대화 박자(마스터 안내 박자·응답 버튼
 from . import variant_check  # v7.44 E6 진상 변형별 풀이 가능성 검사(도구 전용)
 from . import status_rules  # v7.38 상태이상 조건 환경(공용·시나리오 구분 · 시간·장소·섭취 규칙)
 from . import pursuit  # v7.48 추적자(생존물 — 배회·수상·추적·수색, 소리 감지)
+from . import party  # v7.51 NPC 파티(역할 행동 4종 · 합류 조건 · 적 stance)
 from .cost import (
     extract_token_usage,
     format_cost,

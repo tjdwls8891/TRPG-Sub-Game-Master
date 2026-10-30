@@ -590,9 +590,13 @@ def plan_player_turn(ctx: WorldContext, world, intent: _ai.ResolvedActionIntent,
         from . import events as _ev
         holder = next((iid for iid, r in sorted((src.domain("event_instances") or {}).items())
                        if isinstance(r, dict) and r.get("template_id") == _ev.COMBAT_TEMPLATE), None)
-        for aid, st in (combat_deaths if holder else ()):
+        for aid, st, *rest in (combat_deaths if holder else ()):
             pre_ops.append(_wm.make_op(f"{prefix}.cb.{aid}", _ev.OP_EVENT_LOCAL_SET, "COMBAT", {
                 "instance_id": holder, "key": _ev.ACTOR_STATUS_PREFIX + aid, "value": {"status": st, "minute": now}}))
+            if rest and rest[0]:            # v7.51(D-P6 가): PC 처치 성장 — 성장 기록 장부(growth_ledger)에 그대로
+                pre_ops.append(_wm.make_op(f"{prefix}.kill.{aid}", _ev.OP_EVENT_LOCAL_SET, "COMBAT", {
+                    "instance_id": holder, "key": f"{_ev.GROWTH_GRANT_PREFIX}kill.{aid}.{now}",
+                    "value": {"points": int(rest[0]), "minute": now}}))
     from . import pursuit as _pu
     if pursuit is not None and here is not None and _pu.configs(D):
         # v7.48(E3): 추적자 판단(묘사 전, 결정적) — 상태 갱신·이동을 이번 턴 진행의 기준 연산으로

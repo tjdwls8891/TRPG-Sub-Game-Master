@@ -329,8 +329,16 @@ def _judge_side(view, side: dict, name: str, world_turn=None, contest: bool = Fa
            "status_basis": status_basis, "T": None}
     if a is None:
         return out
-    out["T"] = core.judgment.target(a, s, m, h, d, e)
-    terms = [(a, "능력"), (s, f"숙련 {skill}"), (e, f"장비 {item}"), (m, "행동"), (h, "상태"), (d, f"난이도 {diff}")]
+    return _side_total(out)
+
+
+def _side_total(out: dict) -> dict:
+    """목표치 T와 내역 — 능력·숙련·장비·행동·상태·난이도 + v7.51 파티 보조(P, 행동 보정과 같은 자리)."""
+    a, s, e, m, h, d, p = (out.get(k) or 0 for k in ("A", "S", "E", "M", "H", "D", "P"))
+    out["T"] = core.judgment.target(a, s, m + p, h, d, e)
+    terms = [(a, "능력"), (s, f"숙련 {out.get('skill')}"), (e, f"장비 {out.get('item')}"), (m, "행동"),
+             (p, f"{core.party.ASSIST_LABEL} {out.get('assist_by_display') or ''}".strip()), (h, "상태"),
+             (d, f"난이도 {out.get('difficulty')}")]
     _terms = "".join(f"{v:+d}({n})" for v, n in terms if v)
     out["breakdown"] = f"{core.judgment.BASE}{_terms}={out['T']}" if _terms else f"{out['T']}"
     return out
@@ -349,7 +357,110 @@ def _judge_plan(view, spec: dict, world_turn=None) -> dict:
     if kind == "CONTEST" and isinstance(spec.get("opponent"), dict):
         o = spec["opponent"]
         opp = _judge_side(view, o, str(o.get("name") or "?"), world_turn, contest=True)
+        _party_assist(view, world_turn, actor, opp)
     return {"kind": kind, "actor": actor, "opponent": opp}
+
+
+def _party_scene(view, world_turn):
+    """(파티원 목록, 장면의 적 표시명 집합) — 기능 party가 없거나 동적 세계 턴이 아니면 ([], set())."""
+    if world_turn is None or not core.party.config(world_turn.ctx.definition):
+        return [], set()
+    try:
+        members = core.turn_world.party_members(world_turn.ctx, view)
+        _scene, projs = core.turn_world.scene_npc_projections(world_turn.ctx, None, view)
+    except Exception:  # noqa: BLE001 — 파티 재료를 못 읽으면 파티 행동 없음
+        return [], set()
+    return members, {p["display_name"] for p in projs if core.party.is_hostile(world_turn.ctx.definition, p["actor_id"])}
+
+
+def _attack_domains(view) -> tuple:
+    return tuple((getattr(view, "scenario_data", None) or {}).get("attack_domains") or ("근접", "원거리"))
+
+
+def _party_assist(view, world_turn, actor, opp) -> None:
+    """v7.51 보조 역할: PC가 적과 공격 분야로 맞서는 대결 굴림에 bonus를 더한다(행동 가능한 보조 파티원 첫째)."""
+    if actor.get("T") is None or not actor.get("is_pc") or opp is None or actor.get("domain") not in _attack_domains(view):
+        return
+    members, foes = _party_scene(view, world_turn)
+    if opp.get("name") not in foes:
+        return
+    m = next((m for m in members if m["act"] == core.party.ASSIST and core.turn_world.party_can_act(view, m)), None)
+    if m is None:
+        return
+    actor["P"] = int(m["def"].get("bonus") or core.party.DEFAULT_ASSIST)
+    actor["assist_by"], actor["assist_by_display"] = m["name"], m["display"]
+    _side_total(actor)
+
+
+def _party_round(view, world_turn, records, roll_side, game_line) -> tuple:
+    """v7.51(D-P1 가) 전투 턴의 파티 행동 — (기록, 게임 줄, 로직 줄).
+
+    전투 턴 = 이번 턴 대결에 장면의 적(stance hostile)이 있다. 막기 = 파티 기록 guard(부상 대신 받기 — combat_hits),
+    공격 = 적 하나와 코드 대결(역할 능력치·분야, 상시 자동 + 마력이 남은 가장 큰 발동 기술), 보조 = PC 굴림에 이미 더한
+    보정의 비용 기록. 플레이어가 명령한 파티원(이번 턴 굴림의 행위자)은 자동 행동이 없다. 치유는 커밋(매 턴)."""
+    members, foes = _party_scene(view, world_turn)
+    if not members or not foes:
+        return [], [], []
+    names = lambda r: {(r.get("actor") or {}).get("name"), (r.get("opponent") or {}).get("name")}  # noqa: E731
+    fights = [r for r in records if r.get("kind") == "CONTEST" and names(r) & foes]
+    if not fights:
+        return [], [], []
+    D = world_turn.ctx.definition
+    sd = getattr(view, "scenario_data", None) or {}
+    commanded = {(r.get("actor") or {}).get("name") for r in records}
+    engaged = next((n for r in fights for n in names(r) if n in foes), None)
+    party = {"kind": "PARTY", "guard": None, "assist": None, "spend": {}}
+    out, game, logic = [], [], []
+
+    def spend(m, sp):
+        row = party["spend"].setdefault(m["name"], {})
+        for st, n in sp.items():
+            row[st] = row.get(st, 0) + int(n)
+    for r in records:                                  # 보조 — PC 굴림에 이미 더한 보정의 비용(턴 1회)
+        a = r.get("actor") or {}
+        if a.get("assist_by") and not party["assist"]:
+            m = next((m for m in members if m["name"] == a["assist_by"]), None)
+            if m is not None:
+                party["assist"] = m["name"]
+                spend(m, core.party.cost_of(m["def"]))
+                logic.append(f"- [파티] {m['display']}({m['role']}) 보조 — PC 공격 +{a.get('P')}")
+    for m in members:
+        if m["display"] in commanded or not core.turn_world.party_can_act(view, m):
+            continue
+        if m["act"] == core.party.GUARD and party["guard"] is None:
+            party["guard"] = m["name"]
+            spend(m, core.party.cost_of(m["def"]))
+            logic.append(f"- [파티] {m['display']}({m['role']}) 막기 — 적이 PC를 이긴 공격 하나를 대신 받는다(코드)")
+        elif m["act"] == core.party.STRIKE:
+            dom = (m["def"].get("domains") or [_attack_domains(view)[0]])[0]
+            stats = _npc_stats(view, m["display"], world_turn) or {}
+            stat = m["def"].get("stat") if m["def"].get("stat") in stats else (max(stats, key=stats.get) if stats else "")
+            side = _judge_side(view, {"stat": stat, "domain": dom, "difficulty": "보통"}, m["display"], world_turn)
+            foe = engaged or sorted(foes)[0]
+            fstats = _npc_stats(view, foe, world_turn) or {}
+            fstat = stat if stat in fstats else (max(fstats, key=fstats.get) if fstats else "")
+            opp = _judge_side(view, {"stat": fstat, "domain": _attack_domains(view)[0], "difficulty": "보통"}, foe,
+                              world_turn, contest=True)
+            if side["T"] is None or opp["T"] is None:
+                continue
+            prof = (((D.get("actor_definitions") or {}).get(m["aid"]) or {}).get("profile_base") or {})
+            exh = lambda st, _n=m["name"]: core.turn_world.party_exhausted(view, _n, st)  # noqa: E731
+            side["S"], side["skill"], side["spend"] = core.judgment.skill_terms(
+                prof, sd, core.party.best_invoked(prof, sd, dom, exh), dom, exh)
+            _side_total(side)
+            side["spend"] = {**side["spend"], **{k: side["spend"].get(k, 0) + v
+                                                 for k, v in core.party.cost_of(m["def"]).items()}}
+            roll_side(side)
+            roll_side(opp)
+            side["contest"] = opp["contest"] = core.judgment.contest_outcome(side["margin"], opp["margin"])
+            win = {"A": side["name"], "B": opp["name"]}.get(side["contest"])
+            out.append({"kind": "CONTEST", "actor": side, "opponent": opp, "party": True})
+            game += [game_line(side), game_line(opp),
+                     f"> ⚔️ [파티] {side['name']} 대 {opp['name']}: **{(win + ' 우세') if win else '우열 없음'}**"]
+            logic.append(f"- [파티] {side['name']}({m['role']}) {stat} 공격 대 {opp['name']}: R={side['R']}/T={side['breakdown']} "
+                         f"대 R={opp['R']}/T={opp['T']} → {(win + ' 우세') if win else '우열 없음'}(부상은 코드)")
+    recs = out + ([party] if party["guard"] or party["assist"] or party["spend"] else [])
+    return recs, game, logic
 
 
 def _pc_skills(session, p_data) -> list:
@@ -517,6 +628,12 @@ def _build_judgment_user_prompt(session, player_message: str, roll_results: list
         _rel_block = core.turn_world.relation_judgment_block(world_turn.ctx, world_turn.plan, session)
         if _rel_block:
             lines.append(_rel_block)                 # v7.39(N3) 관계 단계 — 사회적 판정 보정 근거
+        try:                                         # v7.51 파티원 명단 — 명령받은 파티원만 굴림
+            _pb = core.turn_world.party_block(world_turn.ctx, world_turn.plan, session, for_judgment=True)
+        except Exception:
+            _pb = ""
+        if _pb:
+            lines.append(_pb)
     else:
         try:
             hint = core.places.build_move_hint(session, player_message)
@@ -936,6 +1053,10 @@ def _build_logic_user_prompt(session, player_message: str, roll_results: list,
             if _tb:
                 place_block += _tb
                 manifest.append("위협")
+            _pb = core.turn_world.party_block(world_turn.ctx, world_turn.plan, session)         # v7.51 파티
+            if _pb:
+                place_block += _pb
+                manifest.append("파티")
             _kb = core.turn_world.pc_knowledge_block(world_turn.ctx, world_turn.plan, session)  # H07-C
             if _kb:
                 place_block += _kb
@@ -2837,8 +2958,16 @@ class GMCog(commands.Cog):
         _kept, _clears, _cdiags = core.turn_world.companion_outcome(
             ctx, res.projected_world, res.ops, joined=plan.companions_joined, left=plan.companions_left,
             prefix=core.turn_world.turn_op_prefix("cmpo", prep.transaction_id))
+        # v7.51(기능 party): 파티 합류 조건·인원 한도 + 사건 합류·이탈(같은 동행 명단)
+        _kept, _pj, _pl, _pdiags = core.turn_world.party_outcome(ctx, session, res.projected_world, _kept)
+        if _pdiags:
+            _cdiags = list(_cdiags) + list(_pdiags)
+        if _pj or _pl:
+            plan.companions_joined = list(dict.fromkeys(list(_kept) + _pj))
+            plan.companions_left = list(dict.fromkeys(list(plan.companions_left or ()) + _pl))
+            _kept = plan.companions_joined
         if _cdiags:
-            _rej = {d.get("name") for d in _cdiags if d.get("code") == "COMPANION_JOIN_REJECTED"}
+            _rej = {d.get("name") for d in _cdiags if d.get("code") in ("COMPANION_JOIN_REJECTED", "PARTY_JOIN_REJECTED")}
             plan.companions_joined = list(_kept)
             plan.entries = [e for e in plan.entries
                             if not (e.get("domain") == "companion" and e.get("op") == "join" and e.get("target") in _rej)]
@@ -5251,6 +5380,23 @@ class GMCog(commands.Cog):
                         )
                 except Exception as e:
                     print(f"[성장·행운] 판정 실패(진행에는 영향 없음): {e}")
+
+        # v7.51(기능 party · D-P1 가): 전투 턴이면 파티원이 역할대로 움직인다(명령받은 파티원은 그 굴림이 대신한다)
+        try:
+            p_records, p_game, p_logic = _party_round(roll_session, wt, records, _roll_side, _game_line)
+        except Exception as e:  # noqa: BLE001 — 파티 행동 실패는 PC 판정을 막지 않는다
+            print(f"[파티] 역할 행동 실패: {e}")
+            p_records, p_game, p_logic = [], [], []
+        if p_records:
+            if game_ch:
+                for gl in p_game:
+                    await core.send_streamed(self.bot, game_ch, gl)
+            if master_ch and p_logic:
+                await master_ch.send("🤖 [파티 행동]\n" + "\n".join(p_logic))
+            for ll in p_logic:
+                session.current_turn_logs.append(ll.lstrip("- "))
+            results.extend(p_logic)
+            records.extend(p_records)
 
         if _prep is not None:
             # 재서술이 다시 굴리지 않고 같은 판정·성장 효과를 재사용하도록 판단 기록에 남긴다.

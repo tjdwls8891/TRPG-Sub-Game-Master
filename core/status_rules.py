@@ -765,6 +765,9 @@ def resolve_turn(session, prep) -> list:
     bumps = {}
     for st, n in (facts.get("spend") or {}).items():
         bumps.setdefault(pc_name, {})[st] = bumps.get(pc_name, {}).get(st, 0) + int(n)
+    for who, sp in (facts.get("npc_spend") or {}).items():          # v7.51: 파티원 역할·기술 비용
+        for st, n in sp.items():
+            bumps.setdefault(who, {})[st] = bumps.get(who, {}).get(st, 0) + int(n)
     from .turn_world import WOUND_STATUS
     for who, n in (facts.get("hits") or {}).items():
         bumps.setdefault(who, {})[WOUND_STATUS] = bumps.get(who, {}).get(WOUND_STATUS, 0) + int(n)

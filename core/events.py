@@ -48,7 +48,8 @@ SLOT_TYPES = ("ACTOR", "PLACE", "INFO")
 STEP_TYPES = ("SET_ACCESS_STATE", "SET_ACTOR_PLACEMENT", "CLEAR_ACTOR_PLACEMENT", "START_MOVEMENT", "CREATE_INFORMATION",
               "SUPERSEDE_INFORMATION", "ACQUIRE_INFORMATION", "SET_COGNITION_BELIEF",
               "APPEND_RELATIONSHIP_DELTA", "SET_EVENT_LOCAL", "SCHEDULE_WAKEUP", "SCHEDULE_EFFECT",
-              "EMIT_SIGNAL", "SET_ACTOR_STATUS", "CLEAR_ACTOR_STATUS", "GRANT_GROWTH", "SET_PC_RECORD")
+              "EMIT_SIGNAL", "SET_ACTOR_STATUS", "CLEAR_ACTOR_STATUS", "GRANT_GROWTH", "SET_PC_RECORD",
+              "JOIN_PARTY", "LEAVE_PARTY")
 # v7.49: SET_ACTOR_STATUS {actor, status} — 사건이 인물에게 상태를 붙인다(저작 사망 등). 정본은 그 사건의 지역 값
 #   `actor_status:<ActorId>` = {status, minute}(되감기 대상 — 새 typed 연산·세션 필드 없음). 세션 상태(session.statuses)
 #   반영은 커밋 상태 판정(status_rules.resolve_turn)이 하고, 역할 dead 상태면 그 인물은 유효 위치를 잃는다
@@ -64,6 +65,9 @@ COMBAT_TEMPLATE = "combat_record"
 #   SET_PC_RECORD {field, value} → `pc_record:<field>` = {value, minute}. 프로필 반영은 커밋(turn_world.pc_record_changes)이
 #   이번 턴 새로 생긴 기록만 한다(정본은 사건 기록 — 되감기 대상).
 GROWTH_GRANT_PREFIX, PC_RECORD_PREFIX = "growth_grant:", "pc_record:"
+# v7.51(기능 party): JOIN_PARTY {actor} · LEAVE_PARTY {actor} → 지역 값 `party:<ActorId>` = {in, minute}.
+#   세션 동행(companions) 반영은 커밋이 이번 턴 바뀐 기록만 한다(정본은 사건 기록 — 되감기 대상).
+PARTY_PREFIX = "party:"
 
 
 def growth_ledger(event_instances) -> tuple:
@@ -515,6 +519,29 @@ def _s_pc_record(step, sctx, parents):
                             "value": {"value": step["value"], "minute": sctx.now}}, parents)])
 
 
+def _s_party(join):
+    def fn(step, sctx, parents):
+        actor = sctx.resolve(step["actor"])
+        if not actor:
+            return StepResult(diagnostics=[_diag("STEP_UNBOUND", sctx, step)])
+        return StepResult([_mk(sctx, step["step_id"], 0, OP_EVENT_LOCAL_SET,
+                               {"instance_id": sctx.iid, "key": PARTY_PREFIX + actor,
+                                "value": {"in": join, "minute": sctx.now}}, parents)])
+    return fn
+
+
+def party_marks(event_instances) -> dict:
+    """{ActorId: 파티 소속(bool)} — 사건 JOIN_PARTY·LEAVE_PARTY 기록을 (분, 인스턴스) 순으로 겹쳐 읽은 최신 값."""
+    rows = []
+    for iid in sorted(event_instances or {}):
+        loc = ((event_instances[iid] or {}).get("local_state") or {}) if isinstance(event_instances[iid], dict) else {}
+        for k in sorted(loc):
+            v = loc[k]
+            if k.startswith(PARTY_PREFIX) and isinstance(v, dict) and isinstance(v.get("in"), bool):
+                rows.append((v.get("minute") if isinstance(v.get("minute"), int) else 0, iid, k[len(PARTY_PREFIX):], v["in"]))
+    return {aid: flag for _m, _i, aid, flag in sorted(rows)}
+
+
 def _s_local(step, sctx, parents):
     return StepResult([_mk(sctx, step["step_id"], 0, OP_EVENT_LOCAL_SET,
                            {"instance_id": sctx.iid, "key": step["key"], "value": step["value"]}, parents)])
@@ -569,6 +596,7 @@ STEP_HANDLERS = {
     "SCHEDULE_WAKEUP": _s_wakeup, "SCHEDULE_EFFECT": _s_effect, "EMIT_SIGNAL": _s_signal,
     "SET_ACTOR_STATUS": _s_actor_status, "CLEAR_ACTOR_STATUS": _s_actor_status_clear,
     "GRANT_GROWTH": _s_grant_growth, "SET_PC_RECORD": _s_pc_record,
+    "JOIN_PARTY": _s_party(True), "LEAVE_PARTY": _s_party(False),
 }
 
 

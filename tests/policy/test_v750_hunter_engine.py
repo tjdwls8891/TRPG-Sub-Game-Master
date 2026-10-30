@@ -114,7 +114,7 @@ def test_combat_hits_bands_both_sides_and_toughness():
 def test_combat_death_when_wounds_pass_the_last_stage():
     D = {"actor_definitions": {KANG: {"legacy_key": "강지수", "display_name": "강지수", "profile_base": {}}}}
     s = SimpleNamespace(**CW, statuses={"강지수": ["부상"]}, status_clock={"강지수": {"stage": {"부상": 3}}})
-    assert TW.combat_deaths(D, s, [_contest(10, 2)]) == [(KANG, "사망")]
+    assert TW.combat_deaths(D, s, [_contest(10, 2)]) == [(KANG, "사망", 0)]
     s.status_clock = {"강지수": {"stage": {"부상": 1}}}
     assert TW.combat_deaths(D, s, [_contest(10, 2)]) == []
 

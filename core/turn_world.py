@@ -2080,6 +2080,20 @@ def status_turn_facts(session, prep) -> dict | None:
             care_by.setdefault(c["on"], set()).update(c.get("effects") or ())
     uv = _items.effect_vocab().get("use_effects") or {}
     intake = frozenset(uv[e]["intake"] for e in effects if (uv.get(e) or {}).get("intake"))
+    # v7.51(기능 party): 치유 역할 — 처치 효과를 가장 위태로운 PC·파티원에게(v7.47 처치 규칙 그대로) + 비용
+    #   (섭취 묶음 연결은 물건 사용만 — 파티원의 치유는 섭취가 아니다)
+    npc_spend = _turn_npc_spend(session, prep, pc_name)
+    heal = party_heal(wt.ctx, session, proj)
+    if heal:
+        from . import party as _pa
+        healer, target, eff = heal
+        if target == pc_name:
+            effects = set(effects) | {eff}
+        else:
+            care_by.setdefault(target, set()).add(eff)
+        for st, n in _pa.cost_of(healer["def"]).items():
+            row = npc_spend.setdefault(healer["name"], {})
+            row[st] = row.get(st, 0) + n
     return {"now": now, "before": int((getattr(session, "world_clock", None) or {}).get("minute_index", now)),
             "start": int(clock.get("start_minute_index", now)),
             "place": pl.get("place_id") if pl.get("kind") == _sp.AT_PLACE else None,
@@ -2092,6 +2106,7 @@ def status_turn_facts(session, prep) -> dict | None:
             "event_statuses": _event_statuses(wt.ctx.definition, proj, session),
             "event_clears": _event_clears(wt.ctx.definition, proj, session),
             "spend": _turn_spend(session, prep, pc_name),
+            "npc_spend": npc_spend,
             "hits": combat_hits(wt.ctx.definition, session, turn_rolls(session, prep))}
 
 
@@ -2125,7 +2140,8 @@ def growth_changes(session, prep) -> dict:
 
 
 def combat_deaths(definition, session, rolls) -> list:
-    """v7.50(E6): 공격 대결로 부상이 마지막 단계를 넘는 NPC — [(ActorId, 역할 dead 상태)](계획이 세계에서 뺀다)."""
+    """v7.50(E6): 공격 대결로 부상이 마지막 단계를 넘는 NPC — [(ActorId, 역할 dead 상태, 처치 성장 포인트)]
+    (계획이 세계에서 뺀다). v7.51(D-P6 가): PC가 이긴 공격 대결로 부상을 입은 적만 PC 처치 — 파티원 처치는 0."""
     from . import status_rules as _sr
     from .utils import get_merged_status_effects
     hits = combat_hits(definition, session, rolls)
@@ -2137,6 +2153,10 @@ def combat_deaths(definition, session, rolls) -> list:
     if dead is None or not k:
         return []
     by_key = {(a or {}).get("legacy_key"): aid for aid, a in ((definition or {}).get("actor_definitions") or {}).items()}
+    from . import growth as _gr
+    from . import party as _pa
+    spec = _gr.growth_spec(getattr(session, "scenario_data", None) or {})
+    by_pc = _pc_hit_targets(definition, rolls)
     out = []
     for name, n in sorted(hits.items()):
         aid = by_key.get(name)
@@ -2146,7 +2166,24 @@ def combat_deaths(definition, session, rolls) -> list:
         cur = _sr.stage_of(((getattr(session, "status_clock", None) or {}).get(name) or {}), WOUND_STATUS) \
             if WOUND_STATUS in have else 0
         if cur + n > k:
-            out.append((aid, dead))
+            pts = _pa.kill_points(definition, aid, (spec or {}).get("kill_points") or 0) \
+                if spec is not None and name in by_pc else 0
+            out.append((aid, dead, pts))
+    return out
+
+
+def _pc_hit_targets(definition, rolls) -> set:
+    """PC가 이긴 공격 대결의 진 쪽(레거시 이름)."""
+    acts = ((definition or {}).get("actor_definitions") or {}).values()
+    key_of = {(a or {}).get("display_name"): (a or {}).get("legacy_key") for a in acts}
+    out = set()
+    for r in rolls:
+        act, opp = r.get("actor") or {}, r.get("opponent") or {}
+        if r.get("kind") != "CONTEST" or act.get("contest") not in ("A", "B") or "margin" not in opp:
+            continue
+        win, lose = (act, opp) if act["contest"] == "A" else (opp, act)
+        if win.get("is_pc"):
+            out.add(key_of.get(lose.get("name")) or lose.get("name"))
     return out
 
 
@@ -2177,6 +2214,160 @@ def _turn_spend(session, prep, pc_name) -> dict:
     return out
 
 
+def _turn_npc_spend(session, prep, pc_name) -> dict:
+    """v7.51: 이번 턴 파티원이 쓴 비용 {이름: {상태: 단계}} — 공격 굴림의 발동 기술 + 파티 기록(막기·보조)."""
+    acts = ((getattr(getattr(getattr(prep, "world_turn", None), "ctx", None), "definition", None) or {})
+            .get("actor_definitions") or {}).values()
+    key_of = {(a or {}).get("display_name"): (a or {}).get("legacy_key") for a in acts}
+    out = {}
+
+    def add(name, spend):
+        for st, n in (spend or {}).items():
+            row = out.setdefault(name, {})
+            row[st] = row.get(st, 0) + int(n)
+    for r in turn_rolls(session, prep):
+        if r.get("kind") == "PARTY":
+            for name, sp in (r.get("spend") or {}).items():
+                add(name, sp)
+        elif r.get("party"):
+            a = r.get("actor") or {}
+            if a.get("name") != pc_name:
+                add(key_of.get(a.get("name")) or a.get("name"), a.get("spend"))
+    return out
+
+
+# ── v7.51 NPC 파티(기능 party — core.party) ─────────────────────
+
+def _merged_statuses(session):
+    from .utils import get_merged_status_effects
+    return get_merged_status_effects(getattr(session, "scenario_data", None) or {})
+
+
+def party_exhausted(session, name, status) -> bool:
+    """그 인물의 비용 상태가 마지막 단계(고갈)인가."""
+    from . import status_rules as _sr
+    merged = _merged_statuses(session)
+    n = len(_sr.stages_of(merged.get(status)))
+    have = (getattr(session, "statuses", None) or {}).get(name) or ()
+    return bool(n) and status in have and \
+        _sr.stage_of(((getattr(session, "status_clock", None) or {}).get(name) or {}), status) >= n
+
+
+def party_members(ctx, session, world=None) -> list:
+    """PC와 같은 장소에 있는 파티원 — [{aid, name(레거시), display, role, act, def, down}](동행 순서).
+    down = 역할 incapacitated 상태(아무 행동도 하지 않는다)."""
+    from . import party as _pa
+    from . import status_rules as _sr
+    D = ctx.definition
+    if not _pa.config(D):
+        return []
+    world = world if world is not None else session
+    pl = _sp.placement_of(world, ctx.lead_pc) or {}
+    here = pl.get("place_id") if pl.get("kind") == _sp.AT_PLACE else None
+    merged = _merged_statuses(session)
+    out = []
+    for aid in _pa.member_ids(D, getattr(session, "companions", None) or (),
+                             lambda n: companion_actor_id(D, world, n)):
+        if here is None or _eff_place(D, world, aid) != here:
+            continue
+        role, rdef = _pa.role_of(D, aid)
+        name = _pa.legacy_key(D, aid)
+        a = (D.get("actor_definitions") or {}).get(aid) or {}
+        out.append({"aid": aid, "name": name, "display": a.get("display_name") or name, "role": role,
+                    "act": rdef.get("act"), "def": rdef,
+                    "down": _sr.has_role(merged, (getattr(session, "statuses", None) or {}).get(name) or (),
+                                         _sr.ROLE_INCAPACITATED)})
+    return out
+
+
+def _eff_place(definition, world, aid):
+    from . import npc_position as _npos
+    return _npos.effective_place(definition, world, aid)
+
+
+def party_can_act(session, m) -> bool:
+    """행동 불능이 아니고, 역할 비용 상태가 고갈이 아니다."""
+    from . import party as _pa
+    if m["down"]:
+        return False
+    return not any(party_exhausted(session, m["name"], st) for st in _pa.cost_of(m["def"]))
+
+
+def party_heal(ctx, session, world=None):
+    """치유 — (파티원, 대상 이름, 처치 효과) 또는 None. 한 턴 1회(가장 위태로운 PC·파티원)."""
+    from . import party as _pa
+    members = party_members(ctx, session, world)
+    healer = next((m for m in members if m["act"] == _pa.HEAL and party_can_act(session, m)), None)
+    if healer is None:
+        return None
+    effect = healer["def"].get("effect") or _pa.DEFAULT_EFFECT
+    pc = _session_pc_name(session)
+    target = _pa.heal_target([pc] + [m["name"] for m in members], effect, _merged_statuses(session),
+                             getattr(session, "statuses", None) or {}, getattr(session, "status_clock", None) or {})
+    return (healer, target, effect) if target else None
+
+
+def party_block(ctx, plan, session, *, for_judgment: bool = False) -> str:
+    """지시층위(코드 확정 파티 상태·역할) / 판단층위(명령 대상 명단)."""
+    from . import party as _pa
+    world = plan.projected_world if plan is not None and getattr(plan, "projected_world", None) is not None else session
+    members = party_members(ctx, session, world)
+    if not members:
+        return ""
+    if for_judgment:
+        return ("[파티원 — 플레이어가 특정 파티원에게 행동을 명령했을 때만 그 파티원 굴림(char_name)을 낸다. 명령이 없으면 "
+                "파티원 굴림을 내지 말 것 — 역할 행동은 코드가 굴린다]\n"
+                + "\n".join(f"· {m['display']} ({m['role']})" + (" — 행동 불능" if m["down"] else "") for m in members))
+    sts = getattr(session, "statuses", None) or {}
+    lines = []
+    for m in members:
+        st = ", ".join(sts.get(m["name"]) or ()) or "이상 없음"
+        state = "행동 불능" if m["down"] else ("지침 — 역할 행동 불가" if not party_can_act(session, m) else "행동 가능")
+        lines.append(f"· {m['display']} — {m['role']}({m['act']}) · {state} · 상태 {st}")
+    heal = party_heal(ctx, session, world)
+    if heal:
+        who = "PC" if heal[1] == _session_pc_name(session) else heal[1]
+        lines.append(f"· 이번 턴 {heal[0]['display']}이(가) {who}에게 {heal[2]}를 한다(코드 확정 — 효과는 코드가 적용).")
+    return ("\n[파티 — 코드 확정]\n" + "\n".join(lines)
+            + "\n· 파티원은 명령이 없어도 역할대로 움직인다. 굴림이 있는 파티원 행동의 성패·부상은 판정 결과 그대로 쓰고, "
+              "그 밖의 결과를 새로 만들지 말 것. 파티원의 말·몸짓은 묘사 재량이되 PC의 선택을 대신하지 말 것.\n")
+
+
+def party_outcome(ctx, session, end_world, kept):
+    """v7.51(D-P2 가): 서사 합류 제안 검증(join_when·인원 한도) + 사건 합류·이탈(JOIN_PARTY·LEAVE_PARTY) 반영.
+    (kept, joined_by_event, left_by_event, diagnostics). 순수 — 파티 역할이 없는 동행은 그대로 둔다."""
+    from . import events as _ev
+    from . import party as _pa
+    D = ctx.definition
+    if not _pa.config(D):
+        return list(kept or ()), [], [], []
+    comp = list(getattr(session, "companions", None) or ())
+    members = _pa.member_ids(D, comp, lambda n: companion_actor_id(D, end_world, n))
+    before = _ev.party_marks(getattr(session, "event_instances", None) or {})
+    after = _ev.party_marks(end_world.domain("event_instances") or {})
+    changed = {aid: f for aid, f in after.items() if before.get(aid) != f}
+    left_ev = [_pa.legacy_key(D, aid) for aid, f in sorted(changed.items()) if not f and aid in members]
+    members = [m for m in members if m not in {aid for aid, f in changed.items() if not f}]
+    joined_ev = []
+    for aid, f in sorted(changed.items()):
+        if f and aid not in members and _pa.role_of(D, aid):
+            if len(members) >= _pa.limit(D):
+                continue
+            members.append(aid)
+            joined_ev.append(_pa.legacy_key(D, aid))
+    out, diags = [], []
+    for name in kept or ():
+        aid = companion_actor_id(D, end_world, name)
+        ok, why = _pa.join_allowed(D, end_world, aid, members, progress={"observer_actor": ctx.lead_pc})
+        if not ok:
+            diags.append({"code": "PARTY_JOIN_REJECTED", "name": name, "actor_id": aid, "reason": why})
+            continue
+        if aid and _pa.role_of(D, aid) and aid not in members:
+            members.append(aid)
+        out.append(name)
+    return out, joined_ev, left_ev, diags
+
+
 WOUND_STATUS = "부상"
 WOUND_BANDS = ((30, 3), (15, 2), (1, 1))        # 성공 여유 차이 → 오르는 부상 단계(D-B4)
 
@@ -2195,6 +2386,8 @@ def combat_hits(definition, session, rolls) -> dict:
     tough = {(a or {}).get("legacy_key"): int(((a or {}).get("profile_base") or {}).get("toughness")
                                               or (a or {}).get("toughness") or 1) for a in acts}
     out = {}
+    # v7.51(기능 party): 막기 — 적이 PC를 이긴 공격 대결 하나의 부상을 막기 역할 파티원이 대신 받는다(턴 1회)
+    guard = next((r.get("guard") for r in rolls if r.get("kind") == "PARTY" and r.get("guard")), None)
     for r in rolls:
         act, opp = r.get("actor") or {}, r.get("opponent") or {}
         if r.get("kind") != "CONTEST" or act.get("contest") not in ("A", "B") or "margin" not in opp:
@@ -2205,6 +2398,8 @@ def combat_hits(definition, session, rolls) -> dict:
         diff = int(win["margin"]) - int(lose["margin"])
         n = next((k for lo, k in WOUND_BANDS if diff >= lo), 1)
         key = key_of.get(lose.get("name")) or lose.get("name")
+        if guard and lose.get("is_pc"):
+            key, guard = guard, None
         t = max(1, tough.get(key, 1))
         out[key] = out.get(key, 0) + -(-n // t)
     return out

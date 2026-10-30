@@ -239,7 +239,10 @@ def format_luck(char_name: str, result: dict) -> str:
 
 
 # ── v7.50(E8 · 기능 growth) 성장 포인트·등급 ─────────────────────────────
-#   시나리오 growth: {costs: {stat, skill}, records: {이름: {labels: [...]}}, places?: [PlaceId], learnable?: {직업: [기술]}}
+#   시나리오 growth: {costs: {stat, skill}, records: {이름: {labels: [...]}}, places?: [PlaceId], learnable?: {직업: [기술]},
+#                     kill_points?: 정수}
+#   v7.51(D-P6 가): 처치 성장 — PC가 이긴 공격 대결로 쓰러진 적(stance hostile)마다 그 적의 stance.kill_points
+#   (없으면 growth.kill_points, 기본 0)를 전투 기록 사건에 지급 기록으로 남긴다(파티원이 쓰러뜨린 적은 없음).
 #   지급·기록은 사건 단계(GRANT_GROWTH·SET_PC_RECORD)가 정본(사건 기록)에 남기고, 커밋이 이번 턴 새 기록만 프로필에 반영한다.
 #   사용은 플레이어 선언 → 판단층위 의도 키 growth(쓸 수 있을 때만 후보) → 커밋이 다시 검증해 반영.
 POINTS_FIELD = "성장 포인트"
@@ -348,6 +351,9 @@ def check_spec(scenario_data) -> list:
         if not (isinstance(r, dict) and isinstance(r.get("labels"), list) and r["labels"]
                 and all(isinstance(x, str) and x for x in r["labels"])):
             out.append(f"growth.records.{f}: {{labels: [이름…]}}(값 1 = 첫 이름)")
+    kp = spec.get("kill_points")
+    if kp is not None and not (isinstance(kp, int) and not isinstance(kp, bool) and kp >= 0):
+        out.append("growth.kill_points는 0 이상 정수")
     pl = spec.get("places")
     if pl is not None and not (isinstance(pl, list) and all(x in ((scenario_data or {}).get("places") or {})
                                                             for x in pl)):
