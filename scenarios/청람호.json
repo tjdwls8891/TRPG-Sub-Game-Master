@@ -1,0 +1,4844 @@
+{
+  "worldview": "[청람호 — 열세 번째 여름]\n1. 무대\n2027년 8월 13일 금요일 밤, 경기·강원 경계의 산속 호수 청람호 북쪽 기슭의 '청람호 청소년수련원'. 본관(로비·식당·주방·원장실·의무실), 숙소동(교사 숙소·직원 숙소·샤워장), 관리동(무전실·정비고), 강당, 캠프파이어장, 선착장(보트 창고), 호숫가 산책로, 숲길(전망대·옛 숙소동)로 이루어진다.\n\n2. 고립(고정 사실)\n- 여름 캠프는 오늘 오후 끝났고 아이들은 모두 떠났다. 남은 직원과 지도교사들이 정리하며 하룻밤 더 묵는다.\n- 저녁부터 폭우가 내려 진입로의 철제 다리가 불어난 계곡물에 잠겼다. 걸어서도 차로도 건널 수 없다.\n- 골짜기라 휴대폰은 거의 안 터진다. 22:00 낙뢰로 정전되면 유선 전화도 끊긴다. 관리동 발전기는 고장 나 있다.\n- 비는 새벽 05:40 무렵 그치고, 물이 빠지면 첫 차가 들어온다.\n\n3. 13년 전 그 밤\n2014년 8월, 캠프에 온 열두 살 윤하준이 밤사이 호수에서 숨진 채 발견됐다. 기록은 '취침 뒤 혼자 몰래 물에 들어간 사고'다. 그날 밤 호숫가 순찰은 없었고, 아이들 몇이 숙소를 빠져나갔다는 소문은 묻혔다. 옛 숙소동은 이듬해 폐쇄됐다.\n\n4. 사람들\n- 한경수(61): 원장.\n- 박태식(57): 시설관리인.\n- 문정애(52): 조리사.\n- 이서윤(28): 간호교사.\n- 정우빈(25): 동료 지도교사.\n- 최다현(24): 동료 지도교사.\n- PC: 이번 여름 고용된 대학생 지도교사.\n\n5. 오늘 밤\n누군가 돌아왔다. 비옷 차림에 얼굴을 가린 남자가 손도끼를 들고 수련원을 돈다. 정체와 이유는 단서로만 드러난다. 그는 쓰러뜨려도 잠시 기절할 뿐 끝나지 않는다. 살아남는 길은 탈출(승합차·무전 구조·보트), 그의 정체를 끝내는 것, 또는 새벽까지 버티는 것이다.",
+  "desc_guide": "긴장과 추격 위주의 슬래셔 생존물. 빗소리, 비상등의 녹색 빛, 손전등이 만드는 좁은 시야, 멀리서 들리는 발소리로 공포를 만든다.\n- 죽음은 직접 보여 주기보다 발견된 결과와 흔적으로 전한다. 잔혹하게 늘어놓지 않는다.\n- 비옷의 남자는 말하지 않는다. 나타날 때는 소리·그림자·빛으로 먼저 알린다.\n- 소리는 중요하다 — 뛰거나 부수거나 소리치면 그가 듣는다. 숨으면 들키지 않을 수 있다.",
+  "story_guide": "[진행 가이드]\n- 목표는 살아남는 것이다. 탈출(승합차·무전·보트)은 부품을 모아 그 장소에서 플레이어가 결단할 때만 이루어진다.\n- 비옷의 남자의 위치와 등장은 코드가 정한다([위협 — 코드 확정]). 그가 없는 장면에 그를 등장시키지 않는다.\n- 다른 생존자의 죽음은 저작된 사건으로만 일어난다. 묘사가 사람을 임의로 죽이지 않는다.\n- 단서·부품은 저작된 자리에만 있다. 새로 지어내지 않는다. 플레이어가 막히면 생존자들의 말과 소리로 방향을 비춘다.",
+  "scenario_intro": "본 시나리오는 현대 한국을 배경으로 하는 슬래셔 생존극 **[청람호 — 열세 번째 여름]**입니다.\n[[네.]]\n산속 호숫가의 청소년수련원. 여름 캠프가 끝난 금요일 밤, 폭우에 다리가 잠기고 전화가 끊깁니다. 남은 사람은 직원과 지도교사 일곱뿐입니다.\n[[그리고요?]]\n그리고 비옷을 입은 누군가가 수련원을 돌기 시작합니다. 13년 전 이 호수에서 한 아이가 죽었습니다.\n[[알겠습니다.]]\n부품을 모아 탈출하거나, 그의 정체를 밝혀 끝내거나, 새벽까지 숨어 버티십시오. 소리를 내면 그가 듣습니다. 쓰러진 채 오래 버티지는 못합니다.",
+  "prohibitions": [
+    "미성년자 미등장: 생존자는 모두 성인 직원이다. 아이를 등장시키지 않는다(13년 전 사건은 과거 사실로만).",
+    "PC 각본 사망 금지: PC의 죽음은 빈사 → 사망 코드 경로로만 일어난다. 묘사가 PC의 죽음을 확정하지 않는다.",
+    "살인마 처치 금지: 비옷의 남자를 죽이거나 끝내는 전개를 만들지 않는다. 쓰러뜨려도 잠시 기절할 뿐이다.",
+    "이른 구조 금지: 무전 구조를 완수하기 전에는 외부 구조가 새벽 전에 오지 않는다.",
+    "잔혹 묘사 절제: 죽음과 상처는 결과와 흔적으로 절제해 전한다."
+  ],
+  "status_code_block": "```css\n📅 [#{현재 턴 수}] [{시나리오상 날짜} {요일} {시간대}]\n📍 {현재 장소}\n상황 요약 : {현재 상황 20자 이내 요약}\n```",
+  "pc_template": {
+    "이름": "",
+    "성별": "",
+    "나이": "",
+    "직업": "",
+    "근력": "",
+    "민첩": "",
+    "감각": "",
+    "정신": "",
+    "스킬": "",
+    "외형": "",
+    "배경": "",
+    "복장": ""
+  },
+  "npc_template": {
+    "info_fields": [
+      "나이·성별",
+      "소속·직책",
+      "외모",
+      "특기·능력"
+    ],
+    "has_stats": true,
+    "has_resources": true,
+    "has_statuses": true
+  },
+  "npc_list_fields": [
+    "나이·성별",
+    "소속·직책"
+  ],
+  "ability_stats": [
+    "근력",
+    "민첩",
+    "감각",
+    "정신"
+  ],
+  "ability_stat_max": 20,
+  "stat_system": "[스탯 및 판정]\n1. 능력치 척도: 평균 10, 생성 범위 5~15. 판정 시 능력 보정 2×(스탯−10).\n2. 네 능력치\n- 근력: 들기·밀기·맞서기·버티기.\n- 민첩: 도주·오르기·조용한 이동·숨기.\n- 감각: 소리·흔적·위험 감지.\n- 정신: 공포 견디기·침착한 손작업·속이기.\n3. 숙련: 행동에 직접 쓰이는 PC 스킬이 있으면 +6(코드가 확인).",
+  "stat_descriptions": {
+    "근력": "들기·밀기·맞서기·버티기",
+    "민첩": "도주·오르기·조용한 이동·숨기",
+    "감각": "소리·흔적·위험 감지",
+    "정신": "공포 견디기·침착한 손작업·속이기"
+  },
+  "profile_secondary_stats": [
+    "스킬"
+  ],
+  "jobs": {
+    "체육교육": {
+      "desc": "몸이 먼저 나가는 체육교육과 학생. 달리고 헤엄친다.",
+      "top_stat": "근력"
+    },
+    "간호학": {
+      "desc": "실습을 막 마친 간호학과 학생. 피를 봐도 손이 떨리지 않는다.",
+      "top_stat": "정신"
+    },
+    "기계공학": {
+      "desc": "뭐든 뜯어보는 기계공학과 학생. 고장 난 것을 보면 손이 간다.",
+      "top_stat": "감각"
+    },
+    "연극영화": {
+      "desc": "무대에 서던 연극영화과 학생. 숨고 속이는 법을 안다.",
+      "top_stat": "민첩"
+    }
+  },
+  "skills": {
+    "공통": {
+      "근력": {
+        "조정": "노를 저어 보트를 몬다"
+      },
+      "민첩": {
+        "등반": "벽·난간·나무를 오른다",
+        "손재주": "자물쇠·매듭·작은 것을 재빨리 다룬다"
+      },
+      "감각": {
+        "길찾기": "어둠 속에서도 길과 지름길을 찾는다",
+        "무전": "무전기·주파수를 다룬다"
+      },
+      "정신": {
+        "요리": "불과 칼을 다루고 사람을 먹인다"
+      }
+    },
+    "직업": {
+      "체육교육": {
+        "수영": "물에서 헤엄치고 버틴다",
+        "달리기": "쫓길 때 빠르게 달아난다"
+      },
+      "간호학": {
+        "응급처치": "지혈·붕대·부목으로 다친 사람을 버티게 한다",
+        "침착": "공포·충격 앞에서 정신을 붙든다"
+      },
+      "기계공학": {
+        "정비": "엔진·배터리·발전기를 살린다",
+        "배선": "끊긴 전선·퓨즈·회로를 잇는다"
+      },
+      "연극영화": {
+        "은신": "몸을 숨기고 소리를 죽인다",
+        "연기": "말과 표정으로 상대를 속인다"
+      }
+    }
+  },
+  "starting_items": {
+    "공통": [
+      "손전등",
+      "휴대폰",
+      "지도교사 명찰",
+      "숙소 열쇠"
+    ],
+    "직업별": {
+      "체육교육": [
+        "호루라기"
+      ],
+      "간호학": [
+        "구급 파우치"
+      ],
+      "기계공학": [
+        "멀티툴"
+      ],
+      "연극영화": [
+        "라이터"
+      ]
+    }
+  },
+  "item_definitions": {
+    "손전등": {
+      "wear": {
+        "slots": [
+          "오른손",
+          "왼손"
+        ],
+        "tags": [
+          "조명"
+        ]
+      },
+      "mass_grade": 1,
+      "bulk_grade": 1
+    },
+    "멀티툴": {
+      "wear": {
+        "slots": [
+          "오른손",
+          "왼손"
+        ],
+        "tags": [
+          "공구"
+        ]
+      },
+      "mass_grade": 1,
+      "bulk_grade": 1,
+      "categories": [
+        "공구"
+      ]
+    },
+    "구급 파우치": {
+      "use": [
+        "지혈",
+        "응급처치",
+        "소독"
+      ],
+      "mass_grade": 1,
+      "bulk_grade": 1
+    },
+    "붕대": {
+      "use": [
+        "지혈",
+        "응급처치"
+      ],
+      "mass_grade": 0,
+      "bulk_grade": 1
+    },
+    "소독약": {
+      "use": [
+        "소독"
+      ],
+      "mass_grade": 1,
+      "bulk_grade": 1
+    },
+    "진통제": {
+      "use": [
+        "진통"
+      ],
+      "mass_grade": 0,
+      "bulk_grade": 0
+    },
+    "라이터": {
+      "use": [
+        "덥히기"
+      ],
+      "mass_grade": 0,
+      "bulk_grade": 0
+    },
+    "손도끼": {
+      "wear": {
+        "slots": [
+          "오른손",
+          "왼손"
+        ],
+        "tags": [
+          "근접무기",
+          "공구"
+        ]
+      },
+      "mass_grade": 2,
+      "bulk_grade": 1,
+      "categories": [
+        "공구"
+      ]
+    },
+    "식칼": {
+      "wear": {
+        "slots": [
+          "오른손",
+          "왼손"
+        ],
+        "tags": [
+          "근접무기(약)"
+        ]
+      },
+      "mass_grade": 1,
+      "bulk_grade": 1
+    },
+    "쇠지렛대": {
+      "wear": {
+        "slots": [
+          "오른손",
+          "왼손"
+        ],
+        "tags": [
+          "근접무기",
+          "공구"
+        ]
+      },
+      "mass_grade": 2,
+      "bulk_grade": 2,
+      "categories": [
+        "공구"
+      ]
+    },
+    "우비": {
+      "wear": {
+        "slots": [
+          "겉옷"
+        ],
+        "tags": [
+          "방수"
+        ]
+      },
+      "mass_grade": 1,
+      "bulk_grade": 1
+    },
+    "노": {
+      "wear": {
+        "slots": [
+          "오른손",
+          "왼손"
+        ],
+        "tags": [
+          "근접무기(약)"
+        ]
+      },
+      "mass_grade": 2,
+      "bulk_grade": 3
+    },
+    "휘발유통": {
+      "mass_grade": 3,
+      "bulk_grade": 2
+    },
+    "자동차 배터리": {
+      "mass_grade": 3,
+      "bulk_grade": 2
+    },
+    "무전기": {
+      "mass_grade": 2,
+      "bulk_grade": 2
+    },
+    "퓨즈": {
+      "mass_grade": 0,
+      "bulk_grade": 0
+    },
+    "승합차 열쇠": {
+      "mass_grade": 0,
+      "bulk_grade": 0
+    },
+    "보트 열쇠": {
+      "mass_grade": 0,
+      "bulk_grade": 0
+    },
+    "당직 일지 원본": {
+      "mass_grade": 1,
+      "bulk_grade": 1
+    },
+    "2014년 지도교사 명찰": {
+      "mass_grade": 0,
+      "bulk_grade": 0
+    },
+    "정우빈의 휴대폰": {
+      "mass_grade": 0,
+      "bulk_grade": 0
+    },
+    "하준의 수영 가방": {
+      "mass_grade": 1,
+      "bulk_grade": 1
+    }
+  },
+  "profile_creation": [
+    {
+      "field": "성별",
+      "module": "select_one",
+      "args": {
+        "options": [
+          "남",
+          "여"
+        ]
+      }
+    },
+    {
+      "field": "이름",
+      "module": "ai_validate",
+      "args": {
+        "prompt": "지도교사의 이름을 입력해 주십시오. (2027년 한국 배경)",
+        "rules": "현대 한국인 이름. 실존 유명인의 이름은 사용할 수 없습니다."
+      }
+    },
+    {
+      "field": "나이",
+      "module": "ai_validate",
+      "args": {
+        "prompt": "나이를 입력해 주십시오.",
+        "rules": "20세 이상 26세 이하의 숫자."
+      }
+    },
+    {
+      "field": "직업",
+      "module": "select_one",
+      "args": {
+        "from": "jobs",
+        "describe_from": "jobs",
+        "list_desc": true
+      }
+    },
+    {
+      "field": "능력치",
+      "module": "roll_stats",
+      "args": {
+        "stats": [
+          "근력",
+          "민첩",
+          "감각",
+          "정신"
+        ],
+        "max_single": 20,
+        "min_single": 1
+      }
+    },
+    {
+      "field": "스킬",
+      "module": "choose_skills",
+      "args": {
+        "source": "skills",
+        "job_field": "직업",
+        "stats_field": "능력치",
+        "bands": [
+          [
+            1,
+            11,
+            0
+          ],
+          [
+            12,
+            20,
+            1
+          ]
+        ]
+      }
+    },
+    {
+      "field": "외형",
+      "module": "ai_merge",
+      "args": {
+        "prompt": "외형을 알려 주십시오.",
+        "max_length": 250,
+        "creation_guide": {
+          "direct": true,
+          "compose_rules": "플레이어가 답한 외형 요소만 자연스럽게 잇는다. 답하지 않은 특징은 새로 넣지 않는다.",
+          "questions": [
+            {
+              "id": "build",
+              "prompt": "체격은 어떤 편입니까?",
+              "required": true,
+              "options": [
+                "마른 편",
+                "보통",
+                "다부진 편",
+                "큰 체구"
+              ]
+            },
+            {
+              "id": "face",
+              "prompt": "얼굴과 머리 모양은 어떻습니까?",
+              "required": true
+            },
+            {
+              "id": "mark",
+              "prompt": "눈에 띄는 특징이 있다면 적어 주십시오.",
+              "required": false
+            }
+          ]
+        }
+      }
+    },
+    {
+      "field": "배경",
+      "module": "ai_validate",
+      "args": {
+        "prompt": "이번 여름 지도교사로 오게 된 사정과 캠프에서의 한 달을 적어 주십시오.",
+        "rules": "2027년 한국 대학생. 초자연적 능력·특수부대 이력은 불가. 13년 전 사고와 직접 얽힌 과거는 불가.",
+        "creation_guide": {
+          "direct": true,
+          "compose_rules": "사정 → 한 달의 기억 순서로 잇는다. 답에 없는 사건·인맥은 만들지 않는다.",
+          "questions": [
+            {
+              "id": "why",
+              "prompt": "왜 이번 여름 수련원 지도교사가 됐습니까?",
+              "required": true
+            },
+            {
+              "id": "month",
+              "prompt": "캠프에서 가장 기억나는 일은 무엇입니까?",
+              "required": false
+            },
+            {
+              "id": "fear",
+              "prompt": "무서울 때의 버릇을 하나 적어 주십시오.",
+              "required": false
+            }
+          ]
+        }
+      }
+    },
+    {
+      "field": "복장",
+      "module": "ai_merge",
+      "args": {
+        "prompt": "지금 입고 있는 옷차림을 알려 주십시오.",
+        "max_length": 200,
+        "wear_items": true,
+        "creation_guide": {
+          "direct": true,
+          "compose_rules": "답한 옷차림만 적는다. 소지품은 적지 않는다.",
+          "questions": [
+            {
+              "id": "clothes",
+              "prompt": "지금 무엇을 입고 있습니까?",
+              "required": true
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "start_frames": [
+    {
+      "id": "last_night",
+      "title": "마지막 밤",
+      "conditions": {},
+      "slots": {
+        "때": "밤",
+        "장소": "로비"
+      },
+      "summary": "{때}. 본관 {장소}. 캠프 정리 회의가 끝나 갈 무렵, 창밖 빗소리가 굵어지고 원장의 휴대폰이 끊긴다.",
+      "instruction": "[장면] 21시 40분. 본관 로비. 접힌 현수막과 상자들 사이에 남은 일곱 사람이 모여 있다. 원장 한경수가 내일 아침 철수 순서를 정리하고, 문정애가 보리차를 돌린다. 박태식이 '다리가 잠겼다'며 젖은 우비로 들어온다. 창밖 숲 쪽, 옛 숙소동 방향에 잠깐 손전등 같은 불빛이 스친다 — 아무도 확실히 보지는 못했다.\n[정본] 지금은 모두 로비에 있다. 22:00에 정전되면 각자 자기 자리(원장실·정비고·주방·의무실·교사 숙소·강당)로 흩어진다. 비옷의 남자는 아직 등장하지 않는다 — 불빛 하나로만 암시한다. 날짜는 서술하지 않는다.",
+      "facts": {
+        "time": "{때}",
+        "location": "{장소}"
+      },
+      "world_start": {
+        "place": "로비",
+        "date": "2027-08-13",
+        "time": "21:40",
+        "knowledge_seed": "chr_staff",
+        "items": [
+          {
+            "key": "승합차 열쇠",
+            "quantity": 1,
+            "place": "원장실"
+          },
+          {
+            "key": "자동차 배터리",
+            "quantity": 1,
+            "place": "정비고"
+          },
+          {
+            "key": "휘발유통",
+            "quantity": 1,
+            "place": "정비고"
+          },
+          {
+            "key": "퓨즈",
+            "quantity": 2,
+            "place": "정비고"
+          },
+          {
+            "key": "쇠지렛대",
+            "quantity": 1,
+            "place": "정비고"
+          },
+          {
+            "key": "무전기",
+            "quantity": 1,
+            "place": "무전실"
+          },
+          {
+            "key": "보트 열쇠",
+            "quantity": 1,
+            "place": "보트 창고"
+          },
+          {
+            "key": "노",
+            "quantity": 2,
+            "place": "보트 창고"
+          },
+          {
+            "key": "우비",
+            "quantity": 2,
+            "place": "보트 창고"
+          },
+          {
+            "key": "붕대",
+            "quantity": 3,
+            "place": "의무실"
+          },
+          {
+            "key": "소독약",
+            "quantity": 1,
+            "place": "의무실"
+          },
+          {
+            "key": "진통제",
+            "quantity": 2,
+            "place": "의무실"
+          },
+          {
+            "key": "식칼",
+            "quantity": 2,
+            "place": "주방"
+          }
+        ]
+      }
+    }
+  ],
+  "start_points": [
+    "로비"
+  ],
+  "status_endings": {
+    "사망": {
+      "title": "열세 번째 희생자",
+      "epilogue": "빗소리가 멀어진다. 검은 호수가 마지막으로 보인다. 아침이 오면 누군가 이 자리에서 당신을 발견할 것이다.",
+      "tone": "비극"
+    }
+  },
+  "scenario_schema": {
+    "version": 1,
+    "capabilities": {
+      "structured_places": 1,
+      "quantitative_time": 1,
+      "stable_actors": 1,
+      "dynamic_actor_location": 1,
+      "information_registry": 1,
+      "actor_cognition": 1,
+      "dynamic_events": 1,
+      "scheduled_world_progression": 1,
+      "mortality": 1,
+      "stealth": 1,
+      "pursuit": 1
+    }
+  },
+  "calendar": {
+    "calendar_id": "chr_gregorian_2027",
+    "type": "GREGORIAN",
+    "dayparts": {
+      "새벽": {
+        "start": "04:30",
+        "end": "06:30",
+        "representative": "05:30"
+      },
+      "이른 아침": {
+        "start": "06:30",
+        "end": "08:30",
+        "representative": "07:30"
+      },
+      "오전": {
+        "start": "08:30",
+        "end": "11:30",
+        "representative": "10:00"
+      },
+      "한낮": {
+        "start": "11:30",
+        "end": "14:30",
+        "representative": "13:00"
+      },
+      "오후": {
+        "start": "14:30",
+        "end": "17:30",
+        "representative": "16:00"
+      },
+      "해질 무렵": {
+        "start": "17:30",
+        "end": "19:30",
+        "representative": "18:30"
+      },
+      "밤": {
+        "start": "19:30",
+        "end": "00:00",
+        "representative": "22:00"
+      },
+      "한밤": {
+        "start": "00:00",
+        "end": "04:30",
+        "representative": "02:00"
+      }
+    }
+  },
+  "movement_modes": {
+    "walk": {
+      "base_speed_m_per_min": 50
+    }
+  },
+  "places": {
+    "청람호 청소년수련원": {
+      "location_desc": "경기·강원 경계의 산속 호수 청람호 북쪽 기슭의 청소년수련원. 산길 하나로만 드나든다.",
+      "exterior": "검은 호수를 등진 낡은 2층 본관과 숙소동, 관리동. 빗줄기 사이로 숲이 바짝 다가와 있다.",
+      "mood_exterior": "비에 갇힌 여름의 끝"
+    },
+    "진입로 다리": {
+      "parent": "청람호 청소년수련원",
+      "location_desc": "계곡을 건너 마을로 나가는 유일한 철제 다리. 불어난 계곡물에 잠겼다.",
+      "exterior": "흙탕물이 다리 난간까지 넘실대며 굉음을 낸다.",
+      "mood_exterior": "끊긴 세상의 끝"
+    },
+    "정문·주차장": {
+      "parent": "청람호 청소년수련원",
+      "location_desc": "정문 안쪽 자갈 주차장. 수련원 승합차 한 대가 서 있다.",
+      "exterior": "빗물이 고인 자갈 바닥, 헤드라이트가 꺼진 흰 승합차.",
+      "mood_exterior": "멈춘 탈출구"
+    },
+    "본관": {
+      "parent": "청람호 청소년수련원",
+      "location_desc": "로비·식당·주방·원장실·의무실이 있는 2층 건물.",
+      "exterior": "창마다 비상등 녹색 불빛만 희미하다.",
+      "mood_exterior": "사람의 온기가 남은 곳"
+    },
+    "로비": {
+      "parent": "본관",
+      "location_desc": "본관 1층 로비. 소파와 게시판, 캠프 사진이 붙은 벽.",
+      "interior": "벽 가득한 아이들 사진, 접힌 현수막, 정리하다 만 상자들.",
+      "mood_interior": "끝난 축제의 잔해"
+    },
+    "식당": {
+      "parent": "본관",
+      "location_desc": "긴 식탁이 늘어선 식당.",
+      "interior": "쌓아 올린 의자, 식은 보리차 주전자.",
+      "mood_interior": "텅 빈 소란"
+    },
+    "주방": {
+      "parent": "본관",
+      "location_desc": "업소용 화구와 냉장고가 있는 주방. 칼과 가스 밸브가 있다.",
+      "interior": "스테인리스 조리대, 칼꽂이, 커다란 들통.",
+      "mood_interior": "차갑게 번들거리는 쇠"
+    },
+    "원장실": {
+      "parent": "본관",
+      "location_desc": "원장의 사무실. 책상, 서류장, 작은 금고.",
+      "interior": "누렇게 바랜 상장과 감사패, 잠긴 서류장.",
+      "mood_interior": "오래 덮어 둔 것들의 냄새"
+    },
+    "의무실": {
+      "parent": "본관",
+      "location_desc": "침대 두 개와 약품장이 있는 의무실.",
+      "interior": "소독약 냄새, 커튼 칸막이, 약품장 유리문.",
+      "mood_interior": "하얗게 질린 정적"
+    },
+    "숙소동": {
+      "parent": "청람호 청소년수련원",
+      "location_desc": "지도교사·직원 숙소와 샤워장이 있는 단층 건물.",
+      "exterior": "긴 복도형 단층 건물. 처마 끝에서 빗물이 줄줄 떨어진다.",
+      "mood_exterior": "얇은 벽 너머의 기척"
+    },
+    "교사 숙소": {
+      "parent": "숙소동",
+      "location_desc": "지도교사들이 묵는 방. 2층 침대와 사물함.",
+      "interior": "벗어 둔 캠프 티셔츠, 충전기 줄이 얽힌 콘센트.",
+      "mood_interior": "한 달 산 냄새"
+    },
+    "직원 숙소": {
+      "parent": "숙소동",
+      "location_desc": "상주 직원 방.",
+      "interior": "개어 둔 이불, 작은 텔레비전.",
+      "mood_interior": "조용한 생활"
+    },
+    "샤워장": {
+      "parent": "숙소동",
+      "location_desc": "칸막이 샤워실이 늘어선 공용 샤워장. 숨을 곳이 많다.",
+      "interior": "물 떨어지는 소리, 칸막이 아래 틈.",
+      "mood_interior": "울리는 물소리"
+    },
+    "관리동": {
+      "parent": "청람호 청소년수련원",
+      "location_desc": "무전실과 정비고가 있는 시설 관리 건물.",
+      "exterior": "녹슨 철문, 지붕 위 휘어진 안테나.",
+      "mood_exterior": "기름 냄새"
+    },
+    "무전실": {
+      "parent": "관리동",
+      "location_desc": "수련원 비상 무전기가 놓인 좁은 방.",
+      "interior": "먼지 앉은 무전기, 벽의 비상 연락망.",
+      "mood_interior": "닿지 않는 목소리"
+    },
+    "정비고": {
+      "parent": "관리동",
+      "location_desc": "공구와 예비 부품, 발전기가 있는 정비 창고.",
+      "interior": "공구 벽, 기름통, 고장 난 발전기.",
+      "mood_interior": "쇠와 기름"
+    },
+    "강당": {
+      "parent": "청람호 청소년수련원",
+      "location_desc": "무대가 있는 강당. 무대 아래로 기어들 수 있다.",
+      "interior": "접이식 의자 더미, 무대 커튼, 무대 아래 검은 틈.",
+      "mood_interior": "메아리"
+    },
+    "캠프파이어장": {
+      "parent": "청람호 청소년수련원",
+      "location_desc": "숙소동·강당·관리동·선착장·숲길로 갈라지는 둥근 공터.",
+      "exterior": "비에 젖은 장작더미와 통나무 의자.",
+      "mood_exterior": "갈림목"
+    },
+    "선착장": {
+      "parent": "청람호 청소년수련원",
+      "location_desc": "호수로 나가는 나무 선착장. 엔진 보트 한 척과 노 젓는 보트 한 척.",
+      "exterior": "삐걱이는 판자, 검은 수면에 부딪히는 보트.",
+      "mood_exterior": "물이 부르는 곳"
+    },
+    "보트 창고": {
+      "parent": "선착장",
+      "location_desc": "노·구명조끼·보트 열쇠 걸이가 있는 창고.",
+      "interior": "주황 구명조끼 더미, 벽의 열쇠 걸이.",
+      "mood_interior": "축축한 나무 냄새"
+    },
+    "호숫가 산책로": {
+      "parent": "청람호 청소년수련원",
+      "location_desc": "선착장에서 옛 숙소동까지 호숫가를 따라 이어진 어두운 길.",
+      "exterior": "빗소리 사이로 물결 소리. 손전등 빛이 몇 걸음 앞에서 끊긴다.",
+      "mood_exterior": "보이지 않는 거리"
+    },
+    "숲길": {
+      "parent": "청람호 청소년수련원",
+      "location_desc": "캠프파이어장에서 산으로 오르는 숲길. 전망대와 옛 숙소동으로 갈라진다.",
+      "exterior": "젖은 낙엽, 나무 사이로 드는 어둠.",
+      "mood_exterior": "숨을 죽인 숲"
+    },
+    "전망대": {
+      "parent": "숲길",
+      "location_desc": "호수가 내려다보이는 산 중턱 전망대. 무전 전파가 닿는 유일한 높이.",
+      "exterior": "바람에 흔들리는 난간, 아래로 펼쳐진 검은 호수.",
+      "mood_exterior": "세상과 닿는 곳"
+    },
+    "옛 숙소동": {
+      "parent": "숲길",
+      "location_desc": "2015년 폐쇄된 옛 숙소 건물. 판자로 막힌 창.",
+      "interior": "곰팡이 핀 벽지, 무너진 2층 침대, 누군가 최근 머문 흔적.",
+      "mood_interior": "13년 묵은 밤"
+    }
+  },
+  "movement_edges": [
+    {
+      "id": "chr.e01",
+      "from": "정문·주차장",
+      "to": "진입로 다리",
+      "bidirectional": true,
+      "distance_m": 300,
+      "movement_tags": [
+        "rain"
+      ],
+      "knowledge_visibility": "PUBLIC"
+    },
+    {
+      "id": "chr.e02",
+      "from": "정문·주차장",
+      "to": "로비",
+      "bidirectional": true,
+      "distance_m": 60,
+      "movement_tags": [
+        "rain"
+      ],
+      "knowledge_visibility": "PUBLIC"
+    },
+    {
+      "id": "chr.e03",
+      "from": "로비",
+      "to": "식당",
+      "bidirectional": true,
+      "distance_m": 15,
+      "movement_tags": [
+        "rain"
+      ],
+      "knowledge_visibility": "PUBLIC"
+    },
+    {
+      "id": "chr.e04",
+      "from": "식당",
+      "to": "주방",
+      "bidirectional": true,
+      "distance_m": 10,
+      "movement_tags": [
+        "rain"
+      ],
+      "knowledge_visibility": "PUBLIC"
+    },
+    {
+      "id": "chr.e05",
+      "from": "로비",
+      "to": "원장실",
+      "bidirectional": true,
+      "distance_m": 15,
+      "movement_tags": [
+        "rain"
+      ],
+      "knowledge_visibility": "PUBLIC"
+    },
+    {
+      "id": "chr.e06",
+      "from": "로비",
+      "to": "의무실",
+      "bidirectional": true,
+      "distance_m": 15,
+      "movement_tags": [
+        "rain"
+      ],
+      "knowledge_visibility": "PUBLIC"
+    },
+    {
+      "id": "chr.e07",
+      "from": "로비",
+      "to": "캠프파이어장",
+      "bidirectional": true,
+      "distance_m": 120,
+      "movement_tags": [
+        "rain"
+      ],
+      "knowledge_visibility": "PUBLIC"
+    },
+    {
+      "id": "chr.e08",
+      "from": "캠프파이어장",
+      "to": "교사 숙소",
+      "bidirectional": true,
+      "distance_m": 80,
+      "movement_tags": [
+        "rain"
+      ],
+      "knowledge_visibility": "PUBLIC"
+    },
+    {
+      "id": "chr.e09",
+      "from": "교사 숙소",
+      "to": "직원 숙소",
+      "bidirectional": true,
+      "distance_m": 10,
+      "movement_tags": [
+        "rain"
+      ],
+      "knowledge_visibility": "PUBLIC"
+    },
+    {
+      "id": "chr.e10",
+      "from": "교사 숙소",
+      "to": "샤워장",
+      "bidirectional": true,
+      "distance_m": 20,
+      "movement_tags": [
+        "rain"
+      ],
+      "knowledge_visibility": "PUBLIC"
+    },
+    {
+      "id": "chr.e11",
+      "from": "캠프파이어장",
+      "to": "강당",
+      "bidirectional": true,
+      "distance_m": 70,
+      "movement_tags": [
+        "rain"
+      ],
+      "knowledge_visibility": "PUBLIC"
+    },
+    {
+      "id": "chr.e12",
+      "from": "캠프파이어장",
+      "to": "무전실",
+      "bidirectional": true,
+      "distance_m": 90,
+      "movement_tags": [
+        "rain"
+      ],
+      "knowledge_visibility": "PUBLIC"
+    },
+    {
+      "id": "chr.e13",
+      "from": "무전실",
+      "to": "정비고",
+      "bidirectional": true,
+      "distance_m": 10,
+      "movement_tags": [
+        "rain"
+      ],
+      "knowledge_visibility": "PUBLIC"
+    },
+    {
+      "id": "chr.e14",
+      "from": "정비고",
+      "to": "정문·주차장",
+      "bidirectional": true,
+      "distance_m": 100,
+      "movement_tags": [
+        "rain"
+      ],
+      "knowledge_visibility": "PUBLIC"
+    },
+    {
+      "id": "chr.e15",
+      "from": "캠프파이어장",
+      "to": "선착장",
+      "bidirectional": true,
+      "distance_m": 100,
+      "movement_tags": [
+        "rain"
+      ],
+      "knowledge_visibility": "PUBLIC"
+    },
+    {
+      "id": "chr.e16",
+      "from": "선착장",
+      "to": "보트 창고",
+      "bidirectional": true,
+      "distance_m": 10,
+      "movement_tags": [
+        "rain"
+      ],
+      "knowledge_visibility": "PUBLIC"
+    },
+    {
+      "id": "chr.e17",
+      "from": "선착장",
+      "to": "호숫가 산책로",
+      "bidirectional": true,
+      "distance_m": 150,
+      "movement_tags": [
+        "rain"
+      ],
+      "knowledge_visibility": "PUBLIC"
+    },
+    {
+      "id": "chr.e18",
+      "from": "캠프파이어장",
+      "to": "숲길",
+      "bidirectional": true,
+      "distance_m": 120,
+      "movement_tags": [
+        "rain"
+      ],
+      "knowledge_visibility": "PUBLIC"
+    },
+    {
+      "id": "chr.e19",
+      "from": "숲길",
+      "to": "전망대",
+      "bidirectional": true,
+      "distance_m": 300,
+      "movement_tags": [
+        "rain"
+      ],
+      "knowledge_visibility": "PUBLIC"
+    },
+    {
+      "id": "chr.e20",
+      "from": "숲길",
+      "to": "옛 숙소동",
+      "bidirectional": true,
+      "distance_m": 150,
+      "movement_tags": [
+        "rain"
+      ],
+      "knowledge_visibility": "PUBLIC"
+    },
+    {
+      "id": "chr.e21",
+      "from": "호숫가 산책로",
+      "to": "옛 숙소동",
+      "bidirectional": true,
+      "distance_m": 250,
+      "movement_tags": [
+        "rain"
+      ],
+      "knowledge_visibility": "PUBLIC"
+    }
+  ],
+  "spatial_knowledge_seeds": {
+    "chr_staff": {
+      "known_places": [
+        "강당",
+        "관리동",
+        "교사 숙소",
+        "로비",
+        "무전실",
+        "보트 창고",
+        "본관",
+        "샤워장",
+        "선착장",
+        "숙소동",
+        "숲길",
+        "식당",
+        "옛 숙소동",
+        "원장실",
+        "의무실",
+        "전망대",
+        "정문·주차장",
+        "정비고",
+        "주방",
+        "직원 숙소",
+        "진입로 다리",
+        "청람호 청소년수련원",
+        "캠프파이어장",
+        "호숫가 산책로"
+      ],
+      "known_edges": [
+        "chr.e01",
+        "chr.e02",
+        "chr.e03",
+        "chr.e04",
+        "chr.e05",
+        "chr.e06",
+        "chr.e07",
+        "chr.e08",
+        "chr.e09",
+        "chr.e10",
+        "chr.e11",
+        "chr.e12",
+        "chr.e13",
+        "chr.e14",
+        "chr.e15",
+        "chr.e16",
+        "chr.e17",
+        "chr.e18",
+        "chr.e19",
+        "chr.e20",
+        "chr.e21"
+      ]
+    }
+  },
+  "default_npcs": {
+    "한경수": {
+      "name": "한경수",
+      "나이·성별": "61세, 남성",
+      "소속·직책": "청람호 청소년수련원 원장",
+      "외모": "희끗한 올백 머리, 다림질한 반팔 셔츠. 금테 안경 너머 눈이 자주 문 쪽을 본다.",
+      "특기·능력": "수련원 운영 25년. 사람을 다루고 말을 고르는 데 능하다.",
+      "stats": {
+        "근력": 9,
+        "민첩": 8,
+        "감각": 11,
+        "정신": 12
+      },
+      "resources": {},
+      "statuses": [],
+      "actor_id": "chr.npc.han_gyeongsu",
+      "routine": {
+        "entries": [
+          {
+            "place": "로비",
+            "from": "19:00",
+            "to": "22:00"
+          }
+        ],
+        "default_place": "원장실"
+      },
+      "persona": {
+        "surface": {
+          "impression": "권위적이고 체면을 중시하는 원장. 오늘따라 신경이 곤두서 있다.",
+          "voice": "느릿한 반말 섞인 존댓말. 곤란하면 '그건 내가 알아서 하네'.",
+          "lines": [
+            "다들 동요하지 말고 자기 자리 지켜요.",
+            "옛날 일은 꺼내지 말게.",
+            "…서류는 내가 정리하겠네."
+          ]
+        },
+        "core": {
+          "value": "수련원과 자기 이름",
+          "crack": "몰리면 화를 내며 말을 끊는다",
+          "fear": "13년 전 일이 드러나는 것",
+          "ties": "수련원 사람들",
+          "rivals": "과거를 캐는 사람"
+        },
+        "stances": {
+          "stranger": "거리를 두고 지시한다",
+          "known": "필요한 말은 해 준다",
+          "trusted": "그날 밤 일을 조금 털어놓는다",
+          "hostile": "문을 걸어 잠근다"
+        },
+        "now": [
+          {
+            "goal": "밤을 무사히 넘기고 아무 일도 없었던 것으로 만들기",
+            "worry": "누군가 옛 사고를 아는 것"
+          }
+        ],
+        "initial_trust": 1
+      }
+    },
+    "박태식": {
+      "name": "박태식",
+      "나이·성별": "57세, 남성",
+      "소속·직책": "시설관리인",
+      "외모": "햇볕에 그을린 얼굴, 기름때 낀 작업복. 왼손 새끼손가락이 반쯤 없다.",
+      "특기·능력": "수련원 모든 건물과 기계를 안다. 발전기·보트 엔진을 고칠 줄 안다.",
+      "stats": {
+        "근력": 14,
+        "민첩": 9,
+        "감각": 12,
+        "정신": 10
+      },
+      "resources": {},
+      "statuses": [],
+      "actor_id": "chr.npc.park_taesik",
+      "routine": {
+        "entries": [
+          {
+            "place": "로비",
+            "from": "19:00",
+            "to": "22:00"
+          }
+        ],
+        "default_place": "정비고"
+      },
+      "persona": {
+        "surface": {
+          "impression": "말수 적은 토박이 관리인.",
+          "voice": "짧은 사투리. 대답 대신 고개를 끄덕인다.",
+          "lines": [
+            "…발전기는 내가 볼게.",
+            "밤엔 호숫가 가지 마.",
+            "그날? 몰라. 술 먹었어."
+          ]
+        },
+        "core": {
+          "value": "맡은 일을 해내는 것",
+          "crack": "술 이야기에 얼굴이 굳는다",
+          "fear": "그날 밤 순찰을 빼먹은 것이 드러나는 것",
+          "ties": "문정애",
+          "rivals": "원장"
+        },
+        "stances": {
+          "stranger": "고개만 끄덕인다",
+          "known": "연장을 빌려준다",
+          "trusted": "그날 밤 이야기를 꺼낸다",
+          "hostile": "등을 돌린다"
+        },
+        "now": [
+          {
+            "goal": "발전기를 살려 불을 켜기",
+            "worry": "호숫가에서 본 불빛"
+          }
+        ],
+        "initial_trust": 1
+      }
+    },
+    "문정애": {
+      "name": "문정애",
+      "나이·성별": "52세, 여성",
+      "소속·직책": "조리사",
+      "외모": "앞치마에 고무장갑, 짧은 파마머리. 웃을 때 눈가 주름이 깊다.",
+      "특기·능력": "아이들 이름과 입맛을 다 기억한다. 사람을 모으고 먹이는 데 능하다.",
+      "stats": {
+        "근력": 10,
+        "민첩": 8,
+        "감각": 11,
+        "정신": 13
+      },
+      "resources": {},
+      "statuses": [],
+      "actor_id": "chr.npc.moon_jeongae",
+      "routine": {
+        "entries": [
+          {
+            "place": "로비",
+            "from": "19:00",
+            "to": "22:00"
+          }
+        ],
+        "default_place": "주방"
+      },
+      "persona": {
+        "surface": {
+          "impression": "수다스럽고 정 많은 조리사.",
+          "voice": "다정한 반말. '아이고'가 입버릇.",
+          "lines": [
+            "밥은 먹고 무서워해야지.",
+            "하준이… 그 애 생각 나네.",
+            "원장님 그 돈 얘기는 하지 마."
+          ]
+        },
+        "core": {
+          "value": "사람들을 먹이고 지키는 것",
+          "crack": "울컥하면 말을 멈추고 일을 찾는다",
+          "fear": "13년 전 받은 돈",
+          "ties": "박태식, 아이들",
+          "rivals": "원장"
+        },
+        "stances": {
+          "stranger": "친절하게 챙긴다",
+          "known": "속 이야기를 한다",
+          "trusted": "그날의 돈 이야기를 털어놓는다",
+          "hostile": "말없이 그릇만 내민다"
+        },
+        "now": [
+          {
+            "goal": "남은 사람들 먹일 것을 챙기기",
+            "worry": "어두운 호숫가"
+          }
+        ],
+        "initial_trust": 1
+      }
+    },
+    "이서윤": {
+      "name": "이서윤",
+      "나이·성별": "28세, 여성",
+      "소속·직책": "간호교사",
+      "외모": "단정히 묶은 머리, 남색 카디건. 손이 차갑고 침착하다.",
+      "특기·능력": "응급처치에 능하다. 상처를 보고 시간을 잰다.",
+      "stats": {
+        "근력": 9,
+        "민첩": 11,
+        "감각": 12,
+        "정신": 13
+      },
+      "resources": {},
+      "statuses": [],
+      "actor_id": "chr.npc.lee_seoyun",
+      "routine": {
+        "entries": [
+          {
+            "place": "로비",
+            "from": "19:00",
+            "to": "22:00"
+          }
+        ],
+        "default_place": "의무실"
+      },
+      "persona": {
+        "surface": {
+          "impression": "침착하고 원칙적인 간호교사. 이번 여름 처음 왔다.",
+          "voice": "또박또박한 존댓말.",
+          "lines": [
+            "다친 데 있으면 바로 오세요.",
+            "숨 천천히 쉬세요.",
+            "서류에 이상한 게 있었어요."
+          ]
+        },
+        "core": {
+          "value": "다친 사람을 살리는 것",
+          "crack": "통제가 안 되면 말이 빨라진다",
+          "fear": "아무도 못 구하는 것",
+          "ties": "PC",
+          "rivals": "원장"
+        },
+        "stances": {
+          "stranger": "정중하게 거리를 둔다",
+          "known": "도움을 준다",
+          "trusted": "본 것을 털어놓는다",
+          "hostile": "사무적으로만 대한다"
+        },
+        "now": [
+          {
+            "goal": "의무실을 지키며 다친 사람을 받기",
+            "worry": "피가 멎지 않는 상처"
+          }
+        ],
+        "initial_trust": 1
+      }
+    },
+    "정우빈": {
+      "name": "정우빈",
+      "나이·성별": "25세, 남성",
+      "소속·직책": "동료 지도교사",
+      "외모": "곱슬머리, 캠프 티셔츠에 반바지. 겁이 나면 말이 많아진다.",
+      "특기·능력": "아마추어 무선을 한다. 무전기와 주파수를 안다.",
+      "stats": {
+        "근력": 9,
+        "민첩": 12,
+        "감각": 11,
+        "정신": 8
+      },
+      "resources": {},
+      "statuses": [],
+      "actor_id": "chr.npc.jung_woobin",
+      "routine": {
+        "entries": [
+          {
+            "place": "로비",
+            "from": "19:00",
+            "to": "22:00"
+          }
+        ],
+        "default_place": "교사 숙소"
+      },
+      "persona": {
+        "surface": {
+          "impression": "장난기 많고 겁 많은 동료.",
+          "voice": "빠른 반말, 농담으로 긴장을 넘긴다.",
+          "lines": [
+            "야, 이거 몰래카메라 아니지?",
+            "무전기? 나 그거 할 줄 알아.",
+            "…나 여기 어릴 때 왔었어."
+          ]
+        },
+        "core": {
+          "value": "친구들과 웃으며 지내는 것",
+          "crack": "무서우면 농담이 끊기고 손을 떤다",
+          "fear": "13년 전 물가에서 본 것",
+          "ties": "PC, 최다현",
+          "rivals": "없음"
+        },
+        "stances": {
+          "stranger": "농담으로 대한다",
+          "known": "같이 다닌다",
+          "trusted": "그날 밤 본 것을 말한다",
+          "hostile": "말을 피한다"
+        },
+        "now": [
+          {
+            "goal": "아무 일 없이 아침을 맞기",
+            "worry": "호숫가에서 누군가를 본 기억"
+          }
+        ],
+        "initial_trust": 1
+      }
+    },
+    "최다현": {
+      "name": "최다현",
+      "나이·성별": "24세, 여성",
+      "소속·직책": "동료 지도교사",
+      "외모": "짧은 머리, 운동복. 어깨가 넓고 걸음이 빠르다.",
+      "특기·능력": "조정 선수 출신. 보트를 몰고 몸싸움에 밀리지 않는다.",
+      "stats": {
+        "근력": 14,
+        "민첩": 13,
+        "감각": 10,
+        "정신": 11
+      },
+      "resources": {},
+      "statuses": [],
+      "actor_id": "chr.npc.choi_dahyun",
+      "routine": {
+        "entries": [
+          {
+            "place": "로비",
+            "from": "19:00",
+            "to": "22:00"
+          }
+        ],
+        "default_place": "강당"
+      },
+      "persona": {
+        "surface": {
+          "impression": "대담하고 직선적인 동료.",
+          "voice": "짧고 단호한 반말.",
+          "lines": [
+            "뭐가 있으면 내가 먼저 간다.",
+            "보트는 내가 몰 수 있어.",
+            "숨는 건 체질 아니야."
+          ]
+        },
+        "core": {
+          "value": "동료를 지키는 것",
+          "crack": "두려움을 화로 덮는다",
+          "fear": "아무것도 못 하고 숨어 있는 것",
+          "ties": "PC, 정우빈",
+          "rivals": "없음"
+        },
+        "stances": {
+          "stranger": "털털하게 대한다",
+          "known": "앞장서 준다",
+          "trusted": "약한 모습을 보인다",
+          "hostile": "무시한다"
+        },
+        "now": [
+          {
+            "goal": "강당 정리 끝내기",
+            "worry": "끊긴 전화"
+          }
+        ],
+        "initial_trust": 1
+      }
+    },
+    "비옷의 남자": {
+      "name": "비옷의 남자",
+      "나이·성별": "알 수 없음, 남성",
+      "소속·직책": "알 수 없음",
+      "외모": "검은 비옷에 후드를 깊이 눌러쓰고, 얼굴을 낡은 수건으로 가렸다. 손에 손도끼.",
+      "특기·능력": "말이 없다. 수련원 지리를 안다.",
+      "stats": {
+        "근력": 15,
+        "민첩": 11,
+        "감각": 13,
+        "정신": 14
+      },
+      "resources": {
+        "손도끼": 1
+      },
+      "statuses": [],
+      "actor_id": "chr.npc.killer",
+      "routine": {
+        "entries": [],
+        "default_place": "옛 숙소동"
+      },
+      "behavior": {
+        "type": "pursuer",
+        "mode": "walk",
+        "patrol": [
+          "옛 숙소동",
+          "호숫가 산책로",
+          "선착장",
+          "교사 숙소",
+          "강당",
+          "정비고",
+          "원장실",
+          "주방",
+          "의무실",
+          "캠프파이어장"
+        ],
+        "pace": {
+          "wander": "1.2",
+          "chase": "0.8"
+        },
+        "hearing": {
+          "LOUD": 2,
+          "NORMAL": 0
+        },
+        "lose_after_minutes": 20,
+        "search_minutes": 15,
+        "active_when": {
+          "cmp": "EQ",
+          "ref": {
+            "ref": "EVENT_LOCAL",
+            "template": "chr_blackout",
+            "key": "done"
+          },
+          "value": true
+        }
+      },
+      "persona": {
+        "surface": {
+          "impression": "말없이 다가오는 비옷 차림의 남자.",
+          "voice": "말하지 않는다. 숨소리만.",
+          "lines": [
+            "…",
+            "(손도끼가 문틀을 긁는다)",
+            "(누군가의 이름을 낮게 부른다)"
+          ]
+        },
+        "core": {
+          "value": "케이스 지침이 정한다",
+          "crack": "케이스 지침이 정한다",
+          "fear": "케이스 지침이 정한다",
+          "ties": "13년 전 그 밤",
+          "rivals": "수련원 사람들"
+        },
+        "stances": {
+          "stranger": "말없이 지켜본다",
+          "known": "말없이 지켜본다",
+          "trusted": "말없이 지켜본다",
+          "hostile": "덮친다"
+        },
+        "now": [
+          {
+            "goal": "케이스 지침이 정한다",
+            "worry": "케이스 지침이 정한다"
+          }
+        ],
+        "initial_trust": -2
+      }
+    }
+  },
+  "information_definitions": {
+    "chr.k.report": {
+      "proposition": "2014년 사고 경위서: 하준(12)은 취침 뒤 혼자 몰래 호수에 들어갔다가 숨졌다(원장 진술)",
+      "summary": "2014년 사고 경위서: 하준(12)은 취침 뒤 혼자 몰래 호수에 들어갔다가 숨졌다(원장 진술)",
+      "subject_refs": [
+        "place:원장실"
+      ],
+      "tags": [
+        "단서"
+      ]
+    },
+    "chr.k.van": {
+      "proposition": "승합차는 배터리가 방전돼 시동이 안 걸린다 — 정비고의 예비 배터리를 갈고 연료를 채워야 한다",
+      "summary": "승합차는 배터리가 방전돼 시동이 안 걸린다 — 정비고의 예비 배터리를 갈고 연료를 채워야 한다",
+      "subject_refs": [
+        "place:정문·주차장"
+      ],
+      "tags": [
+        "탈출"
+      ]
+    },
+    "chr.k.radio": {
+      "proposition": "무전기는 퓨즈가 나갔다(정비고에 예비 퓨즈). 골짜기 아래에선 전파가 안 닿고 전망대에서만 닿는다",
+      "summary": "무전기는 퓨즈가 나갔다(정비고에 예비 퓨즈). 골짜기 아래에선 전파가 안 닿고 전망대에서만 닿는다",
+      "subject_refs": [
+        "place:무전실"
+      ],
+      "tags": [
+        "탈출"
+      ]
+    },
+    "chr.k.boat": {
+      "proposition": "엔진 보트는 보트 창고의 열쇠와 연료가 있어야 움직인다. 노 젓는 보트는 열쇠와 노만 있으면 된다",
+      "summary": "엔진 보트는 보트 창고의 열쇠와 연료가 있어야 움직인다. 노 젓는 보트는 열쇠와 노만 있으면 된다",
+      "subject_refs": [
+        "place:선착장"
+      ],
+      "tags": [
+        "탈출"
+      ]
+    },
+    "chr.k.bridge": {
+      "proposition": "진입로 다리는 불어난 계곡물에 잠겨 건널 수 없다",
+      "summary": "진입로 다리는 불어난 계곡물에 잠겨 건널 수 없다",
+      "subject_refs": [
+        "place:진입로 다리"
+      ],
+      "tags": [
+        "탈출"
+      ]
+    },
+    "chr.k.taesik_night": {
+      "proposition": "박태식: 그날 밤 호숫가 순찰을 빼먹고 술을 마셨다",
+      "summary": "박태식: 그날 밤 호숫가 순찰을 빼먹고 술을 마셨다",
+      "subject_refs": [
+        "actor:chr.npc.park_taesik"
+      ],
+      "tags": [
+        "사람"
+      ]
+    },
+    "chr.k.camp_rumor": {
+      "proposition": "문정애: 그날 밤 아이들 몇이 숙소를 빠져나갔다는 말이 있었지만 원장이 덮었다",
+      "summary": "문정애: 그날 밤 아이들 몇이 숙소를 빠져나갔다는 말이 있었지만 원장이 덮었다",
+      "subject_refs": [
+        "actor:chr.npc.moon_jeongae"
+      ],
+      "tags": [
+        "사람"
+      ]
+    },
+    "chr.k.woobin_radio": {
+      "proposition": "정우빈: 무전기는 전망대까지 들고 올라가야 전파가 닿는다",
+      "summary": "정우빈: 무전기는 전망대까지 들고 올라가야 전파가 닿는다",
+      "subject_refs": [
+        "actor:chr.npc.jung_woobin"
+      ],
+      "tags": [
+        "탈출"
+      ]
+    },
+    "chr.k.lodge_traces": {
+      "proposition": "옛 숙소동에 누군가 최근까지 머문 흔적이 있다(젖은 침낭·통조림 깡통)",
+      "summary": "옛 숙소동에 누군가 최근까지 머문 흔적이 있다(젖은 침낭·통조림 깡통)",
+      "subject_refs": [
+        "place:옛 숙소동"
+      ],
+      "tags": [
+        "단서"
+      ]
+    },
+    "chr.a.photo": {
+      "proposition": "옛 숙소동 벽에 하준의 사진과 2014년 익사 사고 신문 스크랩이 빼곡히 붙어 있다",
+      "summary": "옛 숙소동 벽에 하준의 사진과 2014년 익사 사고 신문 스크랩이 빼곡히 붙어 있다",
+      "subject_refs": [
+        "place:옛 숙소동"
+      ],
+      "tags": [
+        "단서"
+      ]
+    },
+    "chr.a.workwear": {
+      "proposition": "옛 숙소동에 크레인 회사 작업복이 걸려 있다 — 이름표 '윤재현'",
+      "summary": "옛 숙소동에 크레인 회사 작업복이 걸려 있다 — 이름표 '윤재현'",
+      "subject_refs": [
+        "place:옛 숙소동"
+      ],
+      "tags": [
+        "단서"
+      ]
+    },
+    "chr.a.letter": {
+      "proposition": "원장실 서류장의 유족 항의 편지: '내 아들은 혼자가 아니었다' — 윤재현 서명",
+      "summary": "원장실 서류장의 유족 항의 편지: '내 아들은 혼자가 아니었다' — 윤재현 서명",
+      "subject_refs": [
+        "place:원장실"
+      ],
+      "tags": [
+        "단서"
+      ]
+    },
+    "chr.a.truck": {
+      "proposition": "진입로 다리 앞 숲에 크레인 회사 로고가 박힌 1톤 트럭이 진흙에 빠져 있다",
+      "summary": "진입로 다리 앞 숲에 크레인 회사 로고가 박힌 1톤 트럭이 진흙에 빠져 있다",
+      "subject_refs": [
+        "place:진입로 다리"
+      ],
+      "tags": [
+        "단서"
+      ]
+    },
+    "chr.a.log": {
+      "proposition": "2014년 8월 당직 일지 원본: 그 밤 순찰 기록이 비어 있고, '아이 넷 숙소 이탈' 메모가 지워지지 않은 채 남아 있다",
+      "summary": "2014년 8월 당직 일지 원본: 그 밤 순찰 기록이 비어 있고, '아이 넷 숙소 이탈' 메모가 지워지지 않은 채 남아 있다",
+      "subject_refs": [
+        "place:원장실"
+      ],
+      "tags": [
+        "단서"
+      ]
+    },
+    "chr.a.confide": {
+      "proposition": "박태식: 올봄 술자리에서 하준이 아버지에게 그날 순찰이 없었다고 털어놨다",
+      "summary": "박태식: 올봄 술자리에서 하준이 아버지에게 그날 순찰이 없었다고 털어놨다",
+      "subject_refs": [
+        "actor:chr.npc.park_taesik"
+      ],
+      "tags": [
+        "사람"
+      ]
+    },
+    "chr.b.badge": {
+      "proposition": "옛 숙소동 상자 속 2014년 지도교사 명찰 — '강민석'",
+      "summary": "옛 숙소동 상자 속 2014년 지도교사 명찰 — '강민석'",
+      "subject_refs": [
+        "place:옛 숙소동"
+      ],
+      "tags": [
+        "단서"
+      ]
+    },
+    "chr.b.groupphoto": {
+      "proposition": "2014년 캠프 단체 사진: 지도교사 줄 가운데에 강민석이 웃고 있다",
+      "summary": "2014년 캠프 단체 사진: 지도교사 줄 가운데에 강민석이 웃고 있다",
+      "subject_refs": [
+        "place:옛 숙소동"
+      ],
+      "tags": [
+        "단서"
+      ]
+    },
+    "chr.b.suv": {
+      "proposition": "주차장 구석에 수련원 차가 아닌 검은 외제 SUV가 서 있다(키 없음, 서울 번호판)",
+      "summary": "주차장 구석에 수련원 차가 아닌 검은 외제 SUV가 서 있다(키 없음, 서울 번호판)",
+      "subject_refs": [
+        "place:정문·주차장"
+      ],
+      "tags": [
+        "단서"
+      ]
+    },
+    "chr.b.woobin": {
+      "proposition": "정우빈: 그날 밤 우리 넷을 호숫가로 데리고 나간 건 지도교사 강민석 선생님이었다 — 하준이 빠지자 우리를 몰고 도망쳤다",
+      "summary": "정우빈: 그날 밤 우리 넷을 호숫가로 데리고 나간 건 지도교사 강민석 선생님이었다 — 하준이 빠지자 우리를 몰고 도망쳤다",
+      "subject_refs": [
+        "actor:chr.npc.jung_woobin"
+      ],
+      "tags": [
+        "사람"
+      ]
+    },
+    "chr.b.seoyun": {
+      "proposition": "이서윤: 의무실 옛 서류철에서 2014년 지도교사 '강민석'이 사고 다음 날 그만뒀다는 기록을 봤다",
+      "summary": "이서윤: 의무실 옛 서류철에서 2014년 지도교사 '강민석'이 사고 다음 날 그만뒀다는 기록을 봤다",
+      "subject_refs": [
+        "actor:chr.npc.lee_seoyun"
+      ],
+      "tags": [
+        "사람"
+      ]
+    },
+    "chr.b.phone": {
+      "proposition": "정우빈의 휴대폰: '그날 밤 물가에서 본 사람을 찾습니다' — 최근 SNS 글과 낯선 번호의 협박 문자",
+      "summary": "정우빈의 휴대폰: '그날 밤 물가에서 본 사람을 찾습니다' — 최근 SNS 글과 낯선 번호의 협박 문자",
+      "subject_refs": [
+        "place:교사 숙소"
+      ],
+      "tags": [
+        "단서"
+      ]
+    },
+    "chr.c.bag": {
+      "proposition": "옛 숙소동 침대 위 하준의 수영 가방 — 이름표 붙은 물안경과 수모",
+      "summary": "옛 숙소동 침대 위 하준의 수영 가방 — 이름표 붙은 물안경과 수모",
+      "subject_refs": [
+        "place:옛 숙소동"
+      ],
+      "tags": [
+        "단서"
+      ]
+    },
+    "chr.c.brothers": {
+      "proposition": "옛 숙소동 벽의 사진: 열다섯 살 형 윤도현이 동생 하준의 손을 잡고 있다",
+      "summary": "옛 숙소동 벽의 사진: 열다섯 살 형 윤도현이 동생 하준의 손을 잡고 있다",
+      "subject_refs": [
+        "place:옛 숙소동"
+      ],
+      "tags": [
+        "단서"
+      ]
+    },
+    "chr.c.pills": {
+      "proposition": "의무실 서랍의 정신과 약 봉투 — 처방인 윤도현(숲에서 주웠다며 이서윤이 보관)",
+      "summary": "의무실 서랍의 정신과 약 봉투 — 처방인 윤도현(숲에서 주웠다며 이서윤이 보관)",
+      "subject_refs": [
+        "place:의무실"
+      ],
+      "tags": [
+        "단서"
+      ]
+    },
+    "chr.c.shoes": {
+      "proposition": "선착장 끝에 남의 신발이 물을 향해 가지런히 놓여 있다",
+      "summary": "선착장 끝에 남의 신발이 물을 향해 가지런히 놓여 있다",
+      "subject_refs": [
+        "place:선착장"
+      ],
+      "tags": [
+        "단서"
+      ]
+    },
+    "chr.c.jeongae": {
+      "proposition": "문정애: 하준이에게는 형이 있었다 — 늘 동생 손을 잡고 다니던 아이",
+      "summary": "문정애: 하준이에게는 형이 있었다 — 늘 동생 손을 잡고 다니던 아이",
+      "subject_refs": [
+        "actor:chr.npc.moon_jeongae"
+      ],
+      "tags": [
+        "사람"
+      ]
+    },
+    "chr.kill.park_taesik.garage": {
+      "proposition": "박태식이(가) 정비고에서 숨진 채 발견됐다",
+      "summary": "박태식이(가) 정비고에서 숨진 채 발견됐다",
+      "subject_refs": [
+        "actor:chr.npc.park_taesik",
+        "place:정비고"
+      ],
+      "tags": [
+        "사람"
+      ]
+    },
+    "chr.kill.moon_jeongae.kitchen": {
+      "proposition": "문정애이(가) 주방에서 숨진 채 발견됐다",
+      "summary": "문정애이(가) 주방에서 숨진 채 발견됐다",
+      "subject_refs": [
+        "actor:chr.npc.moon_jeongae",
+        "place:주방"
+      ],
+      "tags": [
+        "사람"
+      ]
+    },
+    "chr.kill.han_gyeongsu.office": {
+      "proposition": "한경수이(가) 원장실에서 숨진 채 발견됐다",
+      "summary": "한경수이(가) 원장실에서 숨진 채 발견됐다",
+      "subject_refs": [
+        "actor:chr.npc.han_gyeongsu",
+        "place:원장실"
+      ],
+      "tags": [
+        "사람"
+      ]
+    },
+    "chr.kill.jung_woobin.dorm": {
+      "proposition": "정우빈이(가) 교사 숙소에서 숨진 채 발견됐다",
+      "summary": "정우빈이(가) 교사 숙소에서 숨진 채 발견됐다",
+      "subject_refs": [
+        "actor:chr.npc.jung_woobin",
+        "place:교사 숙소"
+      ],
+      "tags": [
+        "사람"
+      ]
+    },
+    "chr.kill.lee_seoyun.infirmary": {
+      "proposition": "이서윤이(가) 의무실에서 숨진 채 발견됐다",
+      "summary": "이서윤이(가) 의무실에서 숨진 채 발견됐다",
+      "subject_refs": [
+        "actor:chr.npc.lee_seoyun",
+        "place:의무실"
+      ],
+      "tags": [
+        "사람"
+      ]
+    },
+    "chr.kill.moon_jeongae.dock": {
+      "proposition": "문정애이(가) 선착장에서 숨진 채 발견됐다",
+      "summary": "문정애이(가) 선착장에서 숨진 채 발견됐다",
+      "subject_refs": [
+        "actor:chr.npc.moon_jeongae",
+        "place:선착장"
+      ],
+      "tags": [
+        "사람"
+      ]
+    },
+    "chr.kill.choi_dahyun.dock": {
+      "proposition": "최다현이(가) 선착장에서 숨진 채 발견됐다",
+      "summary": "최다현이(가) 선착장에서 숨진 채 발견됐다",
+      "subject_refs": [
+        "actor:chr.npc.choi_dahyun",
+        "place:선착장"
+      ],
+      "tags": [
+        "사람"
+      ]
+    },
+    "chr.kill.park_taesik.lakepath": {
+      "proposition": "박태식이(가) 호숫가 산책로에서 숨진 채 발견됐다",
+      "summary": "박태식이(가) 호숫가 산책로에서 숨진 채 발견됐다",
+      "subject_refs": [
+        "actor:chr.npc.park_taesik",
+        "place:호숫가 산책로"
+      ],
+      "tags": [
+        "사람"
+      ]
+    }
+  },
+  "event_templates": {
+    "chr_truth": {
+      "version": 1,
+      "name": "청람호의 밤",
+      "spawn_when": {
+        "const": true
+      },
+      "transition_cases": [
+        {
+          "case_id": "spawn_A",
+          "from": null,
+          "to": "night",
+          "weight": 1,
+          "steps": [
+            {
+              "step_id": "case",
+              "type": "SET_EVENT_LOCAL",
+              "key": "case",
+              "value": "A"
+            }
+          ]
+        },
+        {
+          "case_id": "spawn_B",
+          "from": null,
+          "to": "night",
+          "weight": 1,
+          "steps": [
+            {
+              "step_id": "case",
+              "type": "SET_EVENT_LOCAL",
+              "key": "case",
+              "value": "B"
+            }
+          ]
+        },
+        {
+          "case_id": "spawn_C",
+          "from": null,
+          "to": "night",
+          "weight": 1,
+          "steps": [
+            {
+              "step_id": "case",
+              "type": "SET_EVENT_LOCAL",
+              "key": "case",
+              "value": "C"
+            }
+          ]
+        }
+      ],
+      "phases": {
+        "night": {
+          "eligible_when": {
+            "const": true
+          },
+          "priority": 1,
+          "finds": [
+            {
+              "info": "chr.k.report",
+              "place": "원장실"
+            },
+            {
+              "info": "chr.k.van",
+              "place": "정문·주차장"
+            },
+            {
+              "info": "chr.k.radio",
+              "place": "무전실"
+            },
+            {
+              "info": "chr.k.boat",
+              "place": "선착장"
+            },
+            {
+              "info": "chr.k.bridge",
+              "place": "진입로 다리"
+            },
+            {
+              "info": "chr.k.taesik_night",
+              "actor": "박태식"
+            },
+            {
+              "info": "chr.k.camp_rumor",
+              "actor": "문정애"
+            },
+            {
+              "info": "chr.k.woobin_radio",
+              "actor": "정우빈"
+            },
+            {
+              "info": "chr.k.lodge_traces",
+              "place": "옛 숙소동"
+            }
+          ],
+          "guide": "살아남는 밤이다. 탈출 경로(승합차·무전·보트)는 부품을 모아야 열리고, 새벽 05:40까지 버티면 구조된다. 부품과 단서는 저작된 자리에만 있다 — 새로 지어내지 않는다."
+        }
+      },
+      "repeat_policy": "ONCE_PER_SESSION",
+      "resolve_when": {
+        "const": false
+      }
+    },
+    "chr_blackout": {
+      "version": 1,
+      "name": "정전",
+      "spawn_when": {
+        "const": true
+      },
+      "phases": {
+        "lit": {
+          "eligible_when": {
+            "const": true
+          },
+          "priority": 1
+        },
+        "dark": {
+          "eligible_when": {
+            "any": [
+              {
+                "cmp": "EQ",
+                "ref": {
+                  "ref": "EVENT_PHASE",
+                  "instance": "$self"
+                },
+                "value": "dark"
+              },
+              {
+                "time": "AT_OR_AFTER_DATETIME",
+                "date": "2027-08-13",
+                "hhmm": "22:00"
+              }
+            ]
+          },
+          "priority": 2,
+          "guide": "22:00 낙뢰로 정전됐다. 유선 전화도 끊겼다. 비상등과 손전등뿐이다."
+        }
+      },
+      "transition_cases": [
+        {
+          "case_id": "spawn",
+          "from": null,
+          "to": "lit",
+          "steps": []
+        },
+        {
+          "case_id": "out",
+          "from": "lit",
+          "to": "dark",
+          "steps": [
+            {
+              "type": "SET_EVENT_LOCAL",
+              "step_id": "done",
+              "key": "done",
+              "value": true
+            },
+            {
+              "type": "EMIT_SIGNAL",
+              "step_id": "sig",
+              "signal_id": "chr_blackout",
+              "cue": "번쩍이는 낙뢰와 함께 수련원 전체의 불이 나가고 비상등만 녹색으로 켜진다",
+              "observable_when": {
+                "const": true
+              }
+            }
+          ]
+        }
+      ],
+      "repeat_policy": "ONCE_PER_SESSION",
+      "phase_selector": {
+        "mode": "PRIORITY",
+        "stability": "BEST_MATCH"
+      },
+      "resolve_when": {
+        "const": false
+      }
+    },
+    "chr_dawn": {
+      "version": 1,
+      "name": "새벽",
+      "spawn_when": {
+        "const": true
+      },
+      "phases": {
+        "night": {
+          "eligible_when": {
+            "const": true
+          },
+          "priority": 1
+        },
+        "dawn": {
+          "eligible_when": {
+            "all": [
+              {
+                "time": "AT_OR_AFTER_DATETIME",
+                "date": "2027-08-14",
+                "hhmm": "05:40"
+              },
+              {
+                "not": {
+                  "cmp": "EQ",
+                  "ref": {
+                    "ref": "OBSERVER_STATUS",
+                    "status": "빈사"
+                  },
+                  "value": true
+                }
+              }
+            ]
+          },
+          "priority": 2,
+          "terminal": true,
+          "ending": {
+            "id": "dawn",
+            "title": "새벽까지",
+            "epilogue": "비가 그친다. 호수 위로 희부연 빛이 번지고, 물이 빠진 다리 너머로 첫 차의 엔진 소리가 들려온다. 살아남은 얼굴들과 젖은 신발로 맺는다.",
+            "tone": "지친 생존"
+          }
+        }
+      },
+      "transition_cases": [
+        {
+          "case_id": "spawn",
+          "from": null,
+          "to": "night",
+          "steps": []
+        }
+      ],
+      "repeat_policy": "ONCE_PER_SESSION",
+      "phase_selector": {
+        "mode": "PRIORITY",
+        "stability": "BEST_MATCH"
+      },
+      "resolve_when": {
+        "const": false
+      }
+    },
+    "chr_case_a": {
+      "version": 1,
+      "name": "진상 A",
+      "spawn_when": {
+        "cmp": "EQ",
+        "ref": {
+          "ref": "EVENT_LOCAL",
+          "template": "chr_truth",
+          "key": "case"
+        },
+        "value": "A"
+      },
+      "phases": {
+        "open": {
+          "eligible_when": {
+            "const": true
+          },
+          "priority": 1,
+          "finds": [
+            {
+              "info": "chr.a.photo",
+              "place": "옛 숙소동"
+            },
+            {
+              "info": "chr.a.workwear",
+              "place": "옛 숙소동"
+            },
+            {
+              "info": "chr.a.letter",
+              "place": "원장실"
+            },
+            {
+              "info": "chr.a.truck",
+              "place": "진입로 다리"
+            },
+            {
+              "info": "chr.a.log",
+              "place": "원장실",
+              "object": "당직 일지 원본"
+            },
+            {
+              "info": "chr.a.confide",
+              "actor": "박태식"
+            }
+          ],
+          "guide": "진상(케이스 A — 아버지): 비옷의 남자는 13년 전 익사한 하준의 아버지 윤재현(48, 전직 크레인 기사)이다. 올봄 박태식에게 '그날 순찰이 없었다'는 말을 듣고, 원장이 아들의 죽음을 '혼자 들어간 사고'로 덮었다고 확신했다. 진실: 하준은 혼자가 아니었다 — 아이 넷이 몰래 호숫가에 나갔고 하준만 돌아오지 못했으며, 원장은 당직 일지 원본을 금고에 숨겼다. 그는 박태식 → 문정애 → 원장 순으로 노리고 원장은 마지막까지 남겨 자백을 받으려 한다. 사냥꾼이 아니라 복수하는 사람이다 — 원장 앞에서 망설임이 보이고, 당직 일지 이야기에만 반응한다. 당직 일지 원본을 직접 보여 주면 멈춘다(격퇴). 이번 판의 다른 케이스(다른 정체)는 사실이 아니다. 정체·동기는 단서와 인물의 말로만 드러난다 — 묘사가 정체를 먼저 말하지 않는다. 비옷의 남자는 말하지 않는다. 그가 PC 앞에 나타나는 것은 [위협 — 코드 확정]이 정한다. 그를 죽이거나 끝내는 전개는 없다 — 쓰러뜨려도 잠시 기절할 뿐이다."
+        }
+      },
+      "transition_cases": [
+        {
+          "case_id": "spawn",
+          "from": null,
+          "to": "open",
+          "steps": []
+        }
+      ],
+      "repeat_policy": "ONCE_PER_SESSION",
+      "resolve_when": {
+        "const": false
+      }
+    },
+    "chr_case_b": {
+      "version": 1,
+      "name": "진상 B",
+      "spawn_when": {
+        "cmp": "EQ",
+        "ref": {
+          "ref": "EVENT_LOCAL",
+          "template": "chr_truth",
+          "key": "case"
+        },
+        "value": "B"
+      },
+      "phases": {
+        "open": {
+          "eligible_when": {
+            "const": true
+          },
+          "priority": 1,
+          "finds": [
+            {
+              "info": "chr.b.badge",
+              "place": "옛 숙소동",
+              "object": "2014년 지도교사 명찰"
+            },
+            {
+              "info": "chr.b.groupphoto",
+              "place": "옛 숙소동"
+            },
+            {
+              "info": "chr.b.suv",
+              "place": "정문·주차장"
+            },
+            {
+              "info": "chr.b.woobin",
+              "actor": "정우빈"
+            },
+            {
+              "info": "chr.b.seoyun",
+              "actor": "이서윤"
+            }
+          ],
+          "guide": "진상(케이스 B — 그날의 가해자): 비옷의 남자는 2014년 그 캠프의 대학생 지도교사 강민석(37, 지금은 대기업 과장, 결혼을 앞둠)이다. 그날 밤 장난삼아 아이 넷을 데리고 호수에 나갔다가 하준이 빠지자 겁이 나 아이들을 몰고 도망쳤고, 후원자였던 그의 아버지 때문에 원장이 덮었다. 정우빈(그 아이 넷 중 하나)이 최근 SNS에 '그날 밤 본 사람'을 찾는 글을 올리자, 기억하는 사람을 모두 없애려 왔다. 정우빈 → 원장 → 이서윤 순으로 노린다. 침착하고 계산적이며 목격자를 먼저 노리고, 정체가 드러날 위험이 생기면 달아난다. 정우빈의 증언(또는 그의 휴대폰)을 알고 2014년 지도교사 명찰을 들이밀며 이름을 부르면 달아난다(격퇴). 이번 판의 다른 케이스(다른 정체)는 사실이 아니다. 정체·동기는 단서와 인물의 말로만 드러난다 — 묘사가 정체를 먼저 말하지 않는다. 비옷의 남자는 말하지 않는다. 그가 PC 앞에 나타나는 것은 [위협 — 코드 확정]이 정한다. 그를 죽이거나 끝내는 전개는 없다 — 쓰러뜨려도 잠시 기절할 뿐이다."
+        }
+      },
+      "transition_cases": [
+        {
+          "case_id": "spawn",
+          "from": null,
+          "to": "open",
+          "steps": []
+        }
+      ],
+      "repeat_policy": "ONCE_PER_SESSION",
+      "resolve_when": {
+        "const": false
+      }
+    },
+    "chr_case_c": {
+      "version": 1,
+      "name": "진상 C",
+      "spawn_when": {
+        "cmp": "EQ",
+        "ref": {
+          "ref": "EVENT_LOCAL",
+          "template": "chr_truth",
+          "key": "case"
+        },
+        "value": "C"
+      },
+      "phases": {
+        "open": {
+          "eligible_when": {
+            "const": true
+          },
+          "priority": 1,
+          "finds": [
+            {
+              "info": "chr.c.bag",
+              "place": "옛 숙소동",
+              "object": "하준의 수영 가방"
+            },
+            {
+              "info": "chr.c.brothers",
+              "place": "옛 숙소동"
+            },
+            {
+              "info": "chr.c.pills",
+              "place": "의무실"
+            },
+            {
+              "info": "chr.c.shoes",
+              "place": "선착장"
+            },
+            {
+              "info": "chr.c.jeongae",
+              "actor": "문정애"
+            }
+          ],
+          "guide": "진상(케이스 C — 형): 비옷의 남자는 하준의 형 윤도현(28)이다. 그 밤 열다섯 살로 같은 캠프에 와 있었고, 동생이 숙소를 나가는 것을 보고도 말리지 않았다. 그 뒤 마음이 무너져 치료를 그만뒀다. '하준이가 호수에서 혼자 있다'는 망상에 사람들을 물가로 데려가 동생의 '친구'로 만든다 — 문정애 → 최다현 → 박태식 순, 시신은 모두 물가에서 발견된다. 미움이 아니라 슬픔으로 움직이고, 혼잣말을 한다('하준아, 친구 데려왔어'). 하준의 수영 가방을 선착장에서 호수에 돌려주는 것을 그가 보면 무릎을 꿇고 멈춘다(격퇴). 이번 판의 다른 케이스(다른 정체)는 사실이 아니다. 정체·동기는 단서와 인물의 말로만 드러난다 — 묘사가 정체를 먼저 말하지 않는다. 비옷의 남자는 말하지 않는다. 그가 PC 앞에 나타나는 것은 [위협 — 코드 확정]이 정한다. 그를 죽이거나 끝내는 전개는 없다 — 쓰러뜨려도 잠시 기절할 뿐이다."
+        }
+      },
+      "transition_cases": [
+        {
+          "case_id": "spawn",
+          "from": null,
+          "to": "open",
+          "steps": []
+        }
+      ],
+      "repeat_policy": "ONCE_PER_SESSION",
+      "resolve_when": {
+        "const": false
+      }
+    },
+    "chr_kill_a1": {
+      "version": 1,
+      "name": "희생 A1 — 박태식",
+      "spawn_when": {
+        "cmp": "EQ",
+        "ref": {
+          "ref": "EVENT_LOCAL",
+          "template": "chr_truth",
+          "key": "case"
+        },
+        "value": "A"
+      },
+      "phases": {
+        "stalk": {
+          "eligible_when": {
+            "const": true
+          },
+          "priority": 1
+        },
+        "killed": {
+          "eligible_when": {
+            "any": [
+              {
+                "cmp": "EQ",
+                "ref": {
+                  "ref": "EVENT_PHASE",
+                  "instance": "$self"
+                },
+                "value": "killed"
+              },
+              {
+                "all": [
+                  {
+                    "time": "AT_OR_AFTER_DATETIME",
+                    "date": "2027-08-13",
+                    "hhmm": "23:10"
+                  },
+                  {
+                    "cmp": "EQ",
+                    "ref": {
+                      "ref": "ACTOR_PLACE",
+                      "actor": "chr.npc.park_taesik"
+                    },
+                    "value": "정비고"
+                  },
+                  {
+                    "cmp": "EQ",
+                    "ref": {
+                      "ref": "ACTOR_PLACE",
+                      "actor": "chr.npc.killer"
+                    },
+                    "value": "정비고"
+                  },
+                  {
+                    "cmp": "NE",
+                    "ref": {
+                      "ref": "SCENE_PLACE"
+                    },
+                    "value": "정비고"
+                  }
+                ]
+              }
+            ]
+          },
+          "priority": 4,
+          "finds": [
+            {
+              "info": "chr.kill.park_taesik.garage",
+              "place": "정비고"
+            }
+          ],
+          "guide": "박태식은(는) 정비고에서 비옷의 남자에게 살해됐다(PC가 없던 사이). 시신은 그 자리에 있다 — PC가 그곳에 가거나 살피면 발견한다. 잔혹하게 묘사하지 않는다.",
+          "terminal": true
+        },
+        "missed": {
+          "eligible_when": {
+            "any": [
+              {
+                "cmp": "EQ",
+                "ref": {
+                  "ref": "EVENT_PHASE",
+                  "instance": "$self"
+                },
+                "value": "missed"
+              },
+              {
+                "all": [
+                  {
+                    "time": "AT_OR_AFTER_DATETIME",
+                    "date": "2027-08-14",
+                    "hhmm": "01:10"
+                  },
+                  {
+                    "not": {
+                      "cmp": "EQ",
+                      "ref": {
+                        "ref": "EVENT_PHASE",
+                        "instance": "$self"
+                      },
+                      "value": "killed"
+                    }
+                  }
+                ]
+              }
+            ]
+          },
+          "priority": 3,
+          "terminal": true
+        }
+      },
+      "transition_cases": [
+        {
+          "case_id": "spawn",
+          "from": null,
+          "to": "stalk",
+          "steps": []
+        },
+        {
+          "case_id": "kill_from_stalk",
+          "from": "stalk",
+          "to": "killed",
+          "steps": [
+            {
+              "type": "SET_ACTOR_STATUS",
+              "step_id": "die",
+              "actor": "chr.npc.park_taesik",
+              "status": "사망"
+            },
+            {
+              "type": "SET_EVENT_LOCAL",
+              "step_id": "done",
+              "key": "done",
+              "value": true
+            }
+          ]
+        },
+        {
+          "case_id": "miss_from_stalk",
+          "from": "stalk",
+          "to": "missed",
+          "steps": [
+            {
+              "type": "SET_EVENT_LOCAL",
+              "step_id": "done",
+              "key": "done",
+              "value": true
+            }
+          ]
+        }
+      ],
+      "repeat_policy": "ONCE_PER_SESSION",
+      "phase_selector": {
+        "mode": "PRIORITY",
+        "stability": "BEST_MATCH"
+      },
+      "resolve_when": {
+        "const": false
+      }
+    },
+    "chr_kill_a2": {
+      "version": 1,
+      "name": "희생 A2 — 문정애",
+      "spawn_when": {
+        "all": [
+          {
+            "cmp": "EQ",
+            "ref": {
+              "ref": "EVENT_LOCAL",
+              "template": "chr_truth",
+              "key": "case"
+            },
+            "value": "A"
+          },
+          {
+            "cmp": "EQ",
+            "ref": {
+              "ref": "EVENT_LOCAL",
+              "template": "chr_kill_a1",
+              "key": "done"
+            },
+            "value": true
+          }
+        ]
+      },
+      "phases": {
+        "stalk": {
+          "eligible_when": {
+            "const": true
+          },
+          "priority": 1
+        },
+        "killed": {
+          "eligible_when": {
+            "any": [
+              {
+                "cmp": "EQ",
+                "ref": {
+                  "ref": "EVENT_PHASE",
+                  "instance": "$self"
+                },
+                "value": "killed"
+              },
+              {
+                "all": [
+                  {
+                    "time": "AT_OR_AFTER_DATETIME",
+                    "date": "2027-08-14",
+                    "hhmm": "00:40"
+                  },
+                  {
+                    "cmp": "EQ",
+                    "ref": {
+                      "ref": "ACTOR_PLACE",
+                      "actor": "chr.npc.moon_jeongae"
+                    },
+                    "value": "주방"
+                  },
+                  {
+                    "cmp": "EQ",
+                    "ref": {
+                      "ref": "ACTOR_PLACE",
+                      "actor": "chr.npc.killer"
+                    },
+                    "value": "주방"
+                  },
+                  {
+                    "cmp": "NE",
+                    "ref": {
+                      "ref": "SCENE_PLACE"
+                    },
+                    "value": "주방"
+                  }
+                ]
+              }
+            ]
+          },
+          "priority": 4,
+          "finds": [
+            {
+              "info": "chr.kill.moon_jeongae.kitchen",
+              "place": "주방"
+            }
+          ],
+          "guide": "문정애은(는) 주방에서 비옷의 남자에게 살해됐다(PC가 없던 사이). 시신은 그 자리에 있다 — PC가 그곳에 가거나 살피면 발견한다. 잔혹하게 묘사하지 않는다.",
+          "terminal": true
+        },
+        "missed": {
+          "eligible_when": {
+            "any": [
+              {
+                "cmp": "EQ",
+                "ref": {
+                  "ref": "EVENT_PHASE",
+                  "instance": "$self"
+                },
+                "value": "missed"
+              },
+              {
+                "all": [
+                  {
+                    "time": "AT_OR_AFTER_DATETIME",
+                    "date": "2027-08-14",
+                    "hhmm": "02:40"
+                  },
+                  {
+                    "not": {
+                      "cmp": "EQ",
+                      "ref": {
+                        "ref": "EVENT_PHASE",
+                        "instance": "$self"
+                      },
+                      "value": "killed"
+                    }
+                  }
+                ]
+              }
+            ]
+          },
+          "priority": 3,
+          "terminal": true
+        }
+      },
+      "transition_cases": [
+        {
+          "case_id": "spawn",
+          "from": null,
+          "to": "stalk",
+          "steps": []
+        },
+        {
+          "case_id": "kill_from_stalk",
+          "from": "stalk",
+          "to": "killed",
+          "steps": [
+            {
+              "type": "SET_ACTOR_STATUS",
+              "step_id": "die",
+              "actor": "chr.npc.moon_jeongae",
+              "status": "사망"
+            },
+            {
+              "type": "SET_EVENT_LOCAL",
+              "step_id": "done",
+              "key": "done",
+              "value": true
+            }
+          ]
+        },
+        {
+          "case_id": "miss_from_stalk",
+          "from": "stalk",
+          "to": "missed",
+          "steps": [
+            {
+              "type": "SET_EVENT_LOCAL",
+              "step_id": "done",
+              "key": "done",
+              "value": true
+            }
+          ]
+        }
+      ],
+      "repeat_policy": "ONCE_PER_SESSION",
+      "phase_selector": {
+        "mode": "PRIORITY",
+        "stability": "BEST_MATCH"
+      },
+      "resolve_when": {
+        "const": false
+      }
+    },
+    "chr_kill_a3": {
+      "version": 1,
+      "name": "희생 A3 — 한경수",
+      "spawn_when": {
+        "all": [
+          {
+            "cmp": "EQ",
+            "ref": {
+              "ref": "EVENT_LOCAL",
+              "template": "chr_truth",
+              "key": "case"
+            },
+            "value": "A"
+          },
+          {
+            "cmp": "EQ",
+            "ref": {
+              "ref": "EVENT_LOCAL",
+              "template": "chr_kill_a2",
+              "key": "done"
+            },
+            "value": true
+          }
+        ]
+      },
+      "phases": {
+        "stalk": {
+          "eligible_when": {
+            "const": true
+          },
+          "priority": 1
+        },
+        "killed": {
+          "eligible_when": {
+            "any": [
+              {
+                "cmp": "EQ",
+                "ref": {
+                  "ref": "EVENT_PHASE",
+                  "instance": "$self"
+                },
+                "value": "killed"
+              },
+              {
+                "all": [
+                  {
+                    "time": "AT_OR_AFTER_DATETIME",
+                    "date": "2027-08-14",
+                    "hhmm": "02:20"
+                  },
+                  {
+                    "cmp": "EQ",
+                    "ref": {
+                      "ref": "ACTOR_PLACE",
+                      "actor": "chr.npc.han_gyeongsu"
+                    },
+                    "value": "원장실"
+                  },
+                  {
+                    "cmp": "EQ",
+                    "ref": {
+                      "ref": "ACTOR_PLACE",
+                      "actor": "chr.npc.killer"
+                    },
+                    "value": "원장실"
+                  },
+                  {
+                    "cmp": "NE",
+                    "ref": {
+                      "ref": "SCENE_PLACE"
+                    },
+                    "value": "원장실"
+                  }
+                ]
+              }
+            ]
+          },
+          "priority": 4,
+          "finds": [
+            {
+              "info": "chr.kill.han_gyeongsu.office",
+              "place": "원장실"
+            }
+          ],
+          "guide": "한경수은(는) 원장실에서 비옷의 남자에게 살해됐다(PC가 없던 사이). 시신은 그 자리에 있다 — PC가 그곳에 가거나 살피면 발견한다. 잔혹하게 묘사하지 않는다.",
+          "terminal": true
+        },
+        "missed": {
+          "eligible_when": {
+            "any": [
+              {
+                "cmp": "EQ",
+                "ref": {
+                  "ref": "EVENT_PHASE",
+                  "instance": "$self"
+                },
+                "value": "missed"
+              },
+              {
+                "all": [
+                  {
+                    "time": "AT_OR_AFTER_DATETIME",
+                    "date": "2027-08-14",
+                    "hhmm": "04:20"
+                  },
+                  {
+                    "not": {
+                      "cmp": "EQ",
+                      "ref": {
+                        "ref": "EVENT_PHASE",
+                        "instance": "$self"
+                      },
+                      "value": "killed"
+                    }
+                  }
+                ]
+              }
+            ]
+          },
+          "priority": 3,
+          "terminal": true
+        }
+      },
+      "transition_cases": [
+        {
+          "case_id": "spawn",
+          "from": null,
+          "to": "stalk",
+          "steps": []
+        },
+        {
+          "case_id": "kill_from_stalk",
+          "from": "stalk",
+          "to": "killed",
+          "steps": [
+            {
+              "type": "SET_ACTOR_STATUS",
+              "step_id": "die",
+              "actor": "chr.npc.han_gyeongsu",
+              "status": "사망"
+            },
+            {
+              "type": "SET_EVENT_LOCAL",
+              "step_id": "done",
+              "key": "done",
+              "value": true
+            }
+          ]
+        },
+        {
+          "case_id": "miss_from_stalk",
+          "from": "stalk",
+          "to": "missed",
+          "steps": [
+            {
+              "type": "SET_EVENT_LOCAL",
+              "step_id": "done",
+              "key": "done",
+              "value": true
+            }
+          ]
+        }
+      ],
+      "repeat_policy": "ONCE_PER_SESSION",
+      "phase_selector": {
+        "mode": "PRIORITY",
+        "stability": "BEST_MATCH"
+      },
+      "resolve_when": {
+        "const": false
+      }
+    },
+    "chr_kill_b1": {
+      "version": 1,
+      "name": "희생 B1 — 정우빈",
+      "spawn_when": {
+        "cmp": "EQ",
+        "ref": {
+          "ref": "EVENT_LOCAL",
+          "template": "chr_truth",
+          "key": "case"
+        },
+        "value": "B"
+      },
+      "phases": {
+        "stalk": {
+          "eligible_when": {
+            "const": true
+          },
+          "priority": 1
+        },
+        "killed": {
+          "eligible_when": {
+            "any": [
+              {
+                "cmp": "EQ",
+                "ref": {
+                  "ref": "EVENT_PHASE",
+                  "instance": "$self"
+                },
+                "value": "killed"
+              },
+              {
+                "all": [
+                  {
+                    "time": "AT_OR_AFTER_DATETIME",
+                    "date": "2027-08-13",
+                    "hhmm": "23:10"
+                  },
+                  {
+                    "cmp": "EQ",
+                    "ref": {
+                      "ref": "ACTOR_PLACE",
+                      "actor": "chr.npc.jung_woobin"
+                    },
+                    "value": "교사 숙소"
+                  },
+                  {
+                    "cmp": "EQ",
+                    "ref": {
+                      "ref": "ACTOR_PLACE",
+                      "actor": "chr.npc.killer"
+                    },
+                    "value": "교사 숙소"
+                  },
+                  {
+                    "cmp": "NE",
+                    "ref": {
+                      "ref": "SCENE_PLACE"
+                    },
+                    "value": "교사 숙소"
+                  }
+                ]
+              }
+            ]
+          },
+          "priority": 4,
+          "finds": [
+            {
+              "info": "chr.kill.jung_woobin.dorm",
+              "place": "교사 숙소"
+            },
+            {
+              "info": "chr.b.phone",
+              "place": "교사 숙소",
+              "object": "정우빈의 휴대폰"
+            }
+          ],
+          "guide": "정우빈은(는) 교사 숙소에서 비옷의 남자에게 살해됐다(PC가 없던 사이). 시신은 그 자리에 있다 — PC가 그곳에 가거나 살피면 발견한다. 잔혹하게 묘사하지 않는다.",
+          "terminal": true
+        },
+        "missed": {
+          "eligible_when": {
+            "any": [
+              {
+                "cmp": "EQ",
+                "ref": {
+                  "ref": "EVENT_PHASE",
+                  "instance": "$self"
+                },
+                "value": "missed"
+              },
+              {
+                "all": [
+                  {
+                    "time": "AT_OR_AFTER_DATETIME",
+                    "date": "2027-08-14",
+                    "hhmm": "01:10"
+                  },
+                  {
+                    "not": {
+                      "cmp": "EQ",
+                      "ref": {
+                        "ref": "EVENT_PHASE",
+                        "instance": "$self"
+                      },
+                      "value": "killed"
+                    }
+                  }
+                ]
+              }
+            ]
+          },
+          "priority": 3,
+          "terminal": true
+        }
+      },
+      "transition_cases": [
+        {
+          "case_id": "spawn",
+          "from": null,
+          "to": "stalk",
+          "steps": []
+        },
+        {
+          "case_id": "kill_from_stalk",
+          "from": "stalk",
+          "to": "killed",
+          "steps": [
+            {
+              "type": "SET_ACTOR_STATUS",
+              "step_id": "die",
+              "actor": "chr.npc.jung_woobin",
+              "status": "사망"
+            },
+            {
+              "type": "SET_EVENT_LOCAL",
+              "step_id": "done",
+              "key": "done",
+              "value": true
+            }
+          ]
+        },
+        {
+          "case_id": "miss_from_stalk",
+          "from": "stalk",
+          "to": "missed",
+          "steps": [
+            {
+              "type": "SET_EVENT_LOCAL",
+              "step_id": "done",
+              "key": "done",
+              "value": true
+            }
+          ]
+        }
+      ],
+      "repeat_policy": "ONCE_PER_SESSION",
+      "phase_selector": {
+        "mode": "PRIORITY",
+        "stability": "BEST_MATCH"
+      },
+      "resolve_when": {
+        "const": false
+      }
+    },
+    "chr_kill_b2": {
+      "version": 1,
+      "name": "희생 B2 — 한경수",
+      "spawn_when": {
+        "all": [
+          {
+            "cmp": "EQ",
+            "ref": {
+              "ref": "EVENT_LOCAL",
+              "template": "chr_truth",
+              "key": "case"
+            },
+            "value": "B"
+          },
+          {
+            "cmp": "EQ",
+            "ref": {
+              "ref": "EVENT_LOCAL",
+              "template": "chr_kill_b1",
+              "key": "done"
+            },
+            "value": true
+          }
+        ]
+      },
+      "phases": {
+        "stalk": {
+          "eligible_when": {
+            "const": true
+          },
+          "priority": 1
+        },
+        "killed": {
+          "eligible_when": {
+            "any": [
+              {
+                "cmp": "EQ",
+                "ref": {
+                  "ref": "EVENT_PHASE",
+                  "instance": "$self"
+                },
+                "value": "killed"
+              },
+              {
+                "all": [
+                  {
+                    "time": "AT_OR_AFTER_DATETIME",
+                    "date": "2027-08-14",
+                    "hhmm": "00:40"
+                  },
+                  {
+                    "cmp": "EQ",
+                    "ref": {
+                      "ref": "ACTOR_PLACE",
+                      "actor": "chr.npc.han_gyeongsu"
+                    },
+                    "value": "원장실"
+                  },
+                  {
+                    "cmp": "EQ",
+                    "ref": {
+                      "ref": "ACTOR_PLACE",
+                      "actor": "chr.npc.killer"
+                    },
+                    "value": "원장실"
+                  },
+                  {
+                    "cmp": "NE",
+                    "ref": {
+                      "ref": "SCENE_PLACE"
+                    },
+                    "value": "원장실"
+                  }
+                ]
+              }
+            ]
+          },
+          "priority": 4,
+          "finds": [
+            {
+              "info": "chr.kill.han_gyeongsu.office",
+              "place": "원장실"
+            }
+          ],
+          "guide": "한경수은(는) 원장실에서 비옷의 남자에게 살해됐다(PC가 없던 사이). 시신은 그 자리에 있다 — PC가 그곳에 가거나 살피면 발견한다. 잔혹하게 묘사하지 않는다.",
+          "terminal": true
+        },
+        "missed": {
+          "eligible_when": {
+            "any": [
+              {
+                "cmp": "EQ",
+                "ref": {
+                  "ref": "EVENT_PHASE",
+                  "instance": "$self"
+                },
+                "value": "missed"
+              },
+              {
+                "all": [
+                  {
+                    "time": "AT_OR_AFTER_DATETIME",
+                    "date": "2027-08-14",
+                    "hhmm": "02:40"
+                  },
+                  {
+                    "not": {
+                      "cmp": "EQ",
+                      "ref": {
+                        "ref": "EVENT_PHASE",
+                        "instance": "$self"
+                      },
+                      "value": "killed"
+                    }
+                  }
+                ]
+              }
+            ]
+          },
+          "priority": 3,
+          "terminal": true
+        }
+      },
+      "transition_cases": [
+        {
+          "case_id": "spawn",
+          "from": null,
+          "to": "stalk",
+          "steps": []
+        },
+        {
+          "case_id": "kill_from_stalk",
+          "from": "stalk",
+          "to": "killed",
+          "steps": [
+            {
+              "type": "SET_ACTOR_STATUS",
+              "step_id": "die",
+              "actor": "chr.npc.han_gyeongsu",
+              "status": "사망"
+            },
+            {
+              "type": "SET_EVENT_LOCAL",
+              "step_id": "done",
+              "key": "done",
+              "value": true
+            }
+          ]
+        },
+        {
+          "case_id": "miss_from_stalk",
+          "from": "stalk",
+          "to": "missed",
+          "steps": [
+            {
+              "type": "SET_EVENT_LOCAL",
+              "step_id": "done",
+              "key": "done",
+              "value": true
+            }
+          ]
+        }
+      ],
+      "repeat_policy": "ONCE_PER_SESSION",
+      "phase_selector": {
+        "mode": "PRIORITY",
+        "stability": "BEST_MATCH"
+      },
+      "resolve_when": {
+        "const": false
+      }
+    },
+    "chr_kill_b3": {
+      "version": 1,
+      "name": "희생 B3 — 이서윤",
+      "spawn_when": {
+        "all": [
+          {
+            "cmp": "EQ",
+            "ref": {
+              "ref": "EVENT_LOCAL",
+              "template": "chr_truth",
+              "key": "case"
+            },
+            "value": "B"
+          },
+          {
+            "cmp": "EQ",
+            "ref": {
+              "ref": "EVENT_LOCAL",
+              "template": "chr_kill_b2",
+              "key": "done"
+            },
+            "value": true
+          }
+        ]
+      },
+      "phases": {
+        "stalk": {
+          "eligible_when": {
+            "const": true
+          },
+          "priority": 1
+        },
+        "killed": {
+          "eligible_when": {
+            "any": [
+              {
+                "cmp": "EQ",
+                "ref": {
+                  "ref": "EVENT_PHASE",
+                  "instance": "$self"
+                },
+                "value": "killed"
+              },
+              {
+                "all": [
+                  {
+                    "time": "AT_OR_AFTER_DATETIME",
+                    "date": "2027-08-14",
+                    "hhmm": "02:20"
+                  },
+                  {
+                    "cmp": "EQ",
+                    "ref": {
+                      "ref": "ACTOR_PLACE",
+                      "actor": "chr.npc.lee_seoyun"
+                    },
+                    "value": "의무실"
+                  },
+                  {
+                    "cmp": "EQ",
+                    "ref": {
+                      "ref": "ACTOR_PLACE",
+                      "actor": "chr.npc.killer"
+                    },
+                    "value": "의무실"
+                  },
+                  {
+                    "cmp": "NE",
+                    "ref": {
+                      "ref": "SCENE_PLACE"
+                    },
+                    "value": "의무실"
+                  }
+                ]
+              }
+            ]
+          },
+          "priority": 4,
+          "finds": [
+            {
+              "info": "chr.kill.lee_seoyun.infirmary",
+              "place": "의무실"
+            }
+          ],
+          "guide": "이서윤은(는) 의무실에서 비옷의 남자에게 살해됐다(PC가 없던 사이). 시신은 그 자리에 있다 — PC가 그곳에 가거나 살피면 발견한다. 잔혹하게 묘사하지 않는다.",
+          "terminal": true
+        },
+        "missed": {
+          "eligible_when": {
+            "any": [
+              {
+                "cmp": "EQ",
+                "ref": {
+                  "ref": "EVENT_PHASE",
+                  "instance": "$self"
+                },
+                "value": "missed"
+              },
+              {
+                "all": [
+                  {
+                    "time": "AT_OR_AFTER_DATETIME",
+                    "date": "2027-08-14",
+                    "hhmm": "04:20"
+                  },
+                  {
+                    "not": {
+                      "cmp": "EQ",
+                      "ref": {
+                        "ref": "EVENT_PHASE",
+                        "instance": "$self"
+                      },
+                      "value": "killed"
+                    }
+                  }
+                ]
+              }
+            ]
+          },
+          "priority": 3,
+          "terminal": true
+        }
+      },
+      "transition_cases": [
+        {
+          "case_id": "spawn",
+          "from": null,
+          "to": "stalk",
+          "steps": []
+        },
+        {
+          "case_id": "kill_from_stalk",
+          "from": "stalk",
+          "to": "killed",
+          "steps": [
+            {
+              "type": "SET_ACTOR_STATUS",
+              "step_id": "die",
+              "actor": "chr.npc.lee_seoyun",
+              "status": "사망"
+            },
+            {
+              "type": "SET_EVENT_LOCAL",
+              "step_id": "done",
+              "key": "done",
+              "value": true
+            }
+          ]
+        },
+        {
+          "case_id": "miss_from_stalk",
+          "from": "stalk",
+          "to": "missed",
+          "steps": [
+            {
+              "type": "SET_EVENT_LOCAL",
+              "step_id": "done",
+              "key": "done",
+              "value": true
+            }
+          ]
+        }
+      ],
+      "repeat_policy": "ONCE_PER_SESSION",
+      "phase_selector": {
+        "mode": "PRIORITY",
+        "stability": "BEST_MATCH"
+      },
+      "resolve_when": {
+        "const": false
+      }
+    },
+    "chr_kill_c1": {
+      "version": 1,
+      "name": "희생 C1 — 문정애",
+      "spawn_when": {
+        "cmp": "EQ",
+        "ref": {
+          "ref": "EVENT_LOCAL",
+          "template": "chr_truth",
+          "key": "case"
+        },
+        "value": "C"
+      },
+      "phases": {
+        "stalk": {
+          "eligible_when": {
+            "const": true
+          },
+          "priority": 1
+        },
+        "lured": {
+          "eligible_when": {
+            "any": [
+              {
+                "cmp": "EQ",
+                "ref": {
+                  "ref": "EVENT_PHASE",
+                  "instance": "$self"
+                },
+                "value": "lured"
+              },
+              {
+                "all": [
+                  {
+                    "time": "AT_OR_AFTER_DATETIME",
+                    "date": "2027-08-13",
+                    "hhmm": "23:10"
+                  },
+                  {
+                    "cmp": "EQ",
+                    "ref": {
+                      "ref": "ACTOR_PLACE",
+                      "actor": "chr.npc.moon_jeongae"
+                    },
+                    "value": "주방"
+                  },
+                  {
+                    "cmp": "NE",
+                    "ref": {
+                      "ref": "SCENE_PLACE"
+                    },
+                    "value": "주방"
+                  }
+                ]
+              }
+            ]
+          },
+          "priority": 2,
+          "guide": "문정애이(가) '누가 물가에서 부른다'며 선착장 쪽으로 혼자 나갔다(PC가 보지 못한 사이)."
+        },
+        "killed": {
+          "eligible_when": {
+            "any": [
+              {
+                "cmp": "EQ",
+                "ref": {
+                  "ref": "EVENT_PHASE",
+                  "instance": "$self"
+                },
+                "value": "killed"
+              },
+              {
+                "all": [
+                  {
+                    "time": "AT_OR_AFTER_DATETIME",
+                    "date": "2027-08-13",
+                    "hhmm": "23:10"
+                  },
+                  {
+                    "cmp": "EQ",
+                    "ref": {
+                      "ref": "ACTOR_PLACE",
+                      "actor": "chr.npc.moon_jeongae"
+                    },
+                    "value": "선착장"
+                  },
+                  {
+                    "cmp": "EQ",
+                    "ref": {
+                      "ref": "ACTOR_PLACE",
+                      "actor": "chr.npc.killer"
+                    },
+                    "value": "선착장"
+                  },
+                  {
+                    "cmp": "NE",
+                    "ref": {
+                      "ref": "SCENE_PLACE"
+                    },
+                    "value": "선착장"
+                  }
+                ]
+              }
+            ]
+          },
+          "priority": 4,
+          "finds": [
+            {
+              "info": "chr.kill.moon_jeongae.dock",
+              "place": "선착장"
+            }
+          ],
+          "guide": "문정애은(는) 선착장에서 비옷의 남자에게 살해됐다(PC가 없던 사이). 시신은 그 자리에 있다 — PC가 그곳에 가거나 살피면 발견한다. 잔혹하게 묘사하지 않는다.",
+          "terminal": true
+        },
+        "missed": {
+          "eligible_when": {
+            "any": [
+              {
+                "cmp": "EQ",
+                "ref": {
+                  "ref": "EVENT_PHASE",
+                  "instance": "$self"
+                },
+                "value": "missed"
+              },
+              {
+                "all": [
+                  {
+                    "time": "AT_OR_AFTER_DATETIME",
+                    "date": "2027-08-14",
+                    "hhmm": "01:10"
+                  },
+                  {
+                    "not": {
+                      "cmp": "EQ",
+                      "ref": {
+                        "ref": "EVENT_PHASE",
+                        "instance": "$self"
+                      },
+                      "value": "killed"
+                    }
+                  }
+                ]
+              }
+            ]
+          },
+          "priority": 3,
+          "terminal": true
+        }
+      },
+      "transition_cases": [
+        {
+          "case_id": "spawn",
+          "from": null,
+          "to": "stalk",
+          "steps": []
+        },
+        {
+          "case_id": "lure",
+          "from": "stalk",
+          "to": "lured",
+          "steps": [
+            {
+              "type": "START_MOVEMENT",
+              "step_id": "go",
+              "actor": "chr.npc.moon_jeongae",
+              "destination": "선착장",
+              "mode": "walk"
+            }
+          ]
+        },
+        {
+          "case_id": "kill_from_lured",
+          "from": "lured",
+          "to": "killed",
+          "steps": [
+            {
+              "type": "SET_ACTOR_STATUS",
+              "step_id": "die",
+              "actor": "chr.npc.moon_jeongae",
+              "status": "사망"
+            },
+            {
+              "type": "SET_EVENT_LOCAL",
+              "step_id": "done",
+              "key": "done",
+              "value": true
+            }
+          ]
+        },
+        {
+          "case_id": "miss_from_lured",
+          "from": "lured",
+          "to": "missed",
+          "steps": [
+            {
+              "type": "SET_EVENT_LOCAL",
+              "step_id": "done",
+              "key": "done",
+              "value": true
+            }
+          ]
+        },
+        {
+          "case_id": "kill_from_stalk",
+          "from": "stalk",
+          "to": "killed",
+          "steps": [
+            {
+              "type": "SET_ACTOR_STATUS",
+              "step_id": "die",
+              "actor": "chr.npc.moon_jeongae",
+              "status": "사망"
+            },
+            {
+              "type": "SET_EVENT_LOCAL",
+              "step_id": "done",
+              "key": "done",
+              "value": true
+            }
+          ]
+        },
+        {
+          "case_id": "miss_from_stalk",
+          "from": "stalk",
+          "to": "missed",
+          "steps": [
+            {
+              "type": "SET_EVENT_LOCAL",
+              "step_id": "done",
+              "key": "done",
+              "value": true
+            }
+          ]
+        }
+      ],
+      "repeat_policy": "ONCE_PER_SESSION",
+      "phase_selector": {
+        "mode": "PRIORITY",
+        "stability": "BEST_MATCH"
+      },
+      "resolve_when": {
+        "const": false
+      }
+    },
+    "chr_kill_c2": {
+      "version": 1,
+      "name": "희생 C2 — 최다현",
+      "spawn_when": {
+        "all": [
+          {
+            "cmp": "EQ",
+            "ref": {
+              "ref": "EVENT_LOCAL",
+              "template": "chr_truth",
+              "key": "case"
+            },
+            "value": "C"
+          },
+          {
+            "cmp": "EQ",
+            "ref": {
+              "ref": "EVENT_LOCAL",
+              "template": "chr_kill_c1",
+              "key": "done"
+            },
+            "value": true
+          }
+        ]
+      },
+      "phases": {
+        "stalk": {
+          "eligible_when": {
+            "const": true
+          },
+          "priority": 1
+        },
+        "lured": {
+          "eligible_when": {
+            "any": [
+              {
+                "cmp": "EQ",
+                "ref": {
+                  "ref": "EVENT_PHASE",
+                  "instance": "$self"
+                },
+                "value": "lured"
+              },
+              {
+                "all": [
+                  {
+                    "time": "AT_OR_AFTER_DATETIME",
+                    "date": "2027-08-14",
+                    "hhmm": "00:40"
+                  },
+                  {
+                    "cmp": "EQ",
+                    "ref": {
+                      "ref": "ACTOR_PLACE",
+                      "actor": "chr.npc.choi_dahyun"
+                    },
+                    "value": "강당"
+                  },
+                  {
+                    "cmp": "NE",
+                    "ref": {
+                      "ref": "SCENE_PLACE"
+                    },
+                    "value": "강당"
+                  }
+                ]
+              }
+            ]
+          },
+          "priority": 2,
+          "guide": "최다현이(가) '누가 물가에서 부른다'며 선착장 쪽으로 혼자 나갔다(PC가 보지 못한 사이)."
+        },
+        "killed": {
+          "eligible_when": {
+            "any": [
+              {
+                "cmp": "EQ",
+                "ref": {
+                  "ref": "EVENT_PHASE",
+                  "instance": "$self"
+                },
+                "value": "killed"
+              },
+              {
+                "all": [
+                  {
+                    "time": "AT_OR_AFTER_DATETIME",
+                    "date": "2027-08-14",
+                    "hhmm": "00:40"
+                  },
+                  {
+                    "cmp": "EQ",
+                    "ref": {
+                      "ref": "ACTOR_PLACE",
+                      "actor": "chr.npc.choi_dahyun"
+                    },
+                    "value": "선착장"
+                  },
+                  {
+                    "cmp": "EQ",
+                    "ref": {
+                      "ref": "ACTOR_PLACE",
+                      "actor": "chr.npc.killer"
+                    },
+                    "value": "선착장"
+                  },
+                  {
+                    "cmp": "NE",
+                    "ref": {
+                      "ref": "SCENE_PLACE"
+                    },
+                    "value": "선착장"
+                  }
+                ]
+              }
+            ]
+          },
+          "priority": 4,
+          "finds": [
+            {
+              "info": "chr.kill.choi_dahyun.dock",
+              "place": "선착장"
+            }
+          ],
+          "guide": "최다현은(는) 선착장에서 비옷의 남자에게 살해됐다(PC가 없던 사이). 시신은 그 자리에 있다 — PC가 그곳에 가거나 살피면 발견한다. 잔혹하게 묘사하지 않는다.",
+          "terminal": true
+        },
+        "missed": {
+          "eligible_when": {
+            "any": [
+              {
+                "cmp": "EQ",
+                "ref": {
+                  "ref": "EVENT_PHASE",
+                  "instance": "$self"
+                },
+                "value": "missed"
+              },
+              {
+                "all": [
+                  {
+                    "time": "AT_OR_AFTER_DATETIME",
+                    "date": "2027-08-14",
+                    "hhmm": "02:40"
+                  },
+                  {
+                    "not": {
+                      "cmp": "EQ",
+                      "ref": {
+                        "ref": "EVENT_PHASE",
+                        "instance": "$self"
+                      },
+                      "value": "killed"
+                    }
+                  }
+                ]
+              }
+            ]
+          },
+          "priority": 3,
+          "terminal": true
+        }
+      },
+      "transition_cases": [
+        {
+          "case_id": "spawn",
+          "from": null,
+          "to": "stalk",
+          "steps": []
+        },
+        {
+          "case_id": "lure",
+          "from": "stalk",
+          "to": "lured",
+          "steps": [
+            {
+              "type": "START_MOVEMENT",
+              "step_id": "go",
+              "actor": "chr.npc.choi_dahyun",
+              "destination": "선착장",
+              "mode": "walk"
+            }
+          ]
+        },
+        {
+          "case_id": "kill_from_lured",
+          "from": "lured",
+          "to": "killed",
+          "steps": [
+            {
+              "type": "SET_ACTOR_STATUS",
+              "step_id": "die",
+              "actor": "chr.npc.choi_dahyun",
+              "status": "사망"
+            },
+            {
+              "type": "SET_EVENT_LOCAL",
+              "step_id": "done",
+              "key": "done",
+              "value": true
+            }
+          ]
+        },
+        {
+          "case_id": "miss_from_lured",
+          "from": "lured",
+          "to": "missed",
+          "steps": [
+            {
+              "type": "SET_EVENT_LOCAL",
+              "step_id": "done",
+              "key": "done",
+              "value": true
+            }
+          ]
+        },
+        {
+          "case_id": "kill_from_stalk",
+          "from": "stalk",
+          "to": "killed",
+          "steps": [
+            {
+              "type": "SET_ACTOR_STATUS",
+              "step_id": "die",
+              "actor": "chr.npc.choi_dahyun",
+              "status": "사망"
+            },
+            {
+              "type": "SET_EVENT_LOCAL",
+              "step_id": "done",
+              "key": "done",
+              "value": true
+            }
+          ]
+        },
+        {
+          "case_id": "miss_from_stalk",
+          "from": "stalk",
+          "to": "missed",
+          "steps": [
+            {
+              "type": "SET_EVENT_LOCAL",
+              "step_id": "done",
+              "key": "done",
+              "value": true
+            }
+          ]
+        }
+      ],
+      "repeat_policy": "ONCE_PER_SESSION",
+      "phase_selector": {
+        "mode": "PRIORITY",
+        "stability": "BEST_MATCH"
+      },
+      "resolve_when": {
+        "const": false
+      }
+    },
+    "chr_kill_c3": {
+      "version": 1,
+      "name": "희생 C3 — 박태식",
+      "spawn_when": {
+        "all": [
+          {
+            "cmp": "EQ",
+            "ref": {
+              "ref": "EVENT_LOCAL",
+              "template": "chr_truth",
+              "key": "case"
+            },
+            "value": "C"
+          },
+          {
+            "cmp": "EQ",
+            "ref": {
+              "ref": "EVENT_LOCAL",
+              "template": "chr_kill_c2",
+              "key": "done"
+            },
+            "value": true
+          }
+        ]
+      },
+      "phases": {
+        "stalk": {
+          "eligible_when": {
+            "const": true
+          },
+          "priority": 1
+        },
+        "lured": {
+          "eligible_when": {
+            "any": [
+              {
+                "cmp": "EQ",
+                "ref": {
+                  "ref": "EVENT_PHASE",
+                  "instance": "$self"
+                },
+                "value": "lured"
+              },
+              {
+                "all": [
+                  {
+                    "time": "AT_OR_AFTER_DATETIME",
+                    "date": "2027-08-14",
+                    "hhmm": "02:20"
+                  },
+                  {
+                    "cmp": "EQ",
+                    "ref": {
+                      "ref": "ACTOR_PLACE",
+                      "actor": "chr.npc.park_taesik"
+                    },
+                    "value": "정비고"
+                  },
+                  {
+                    "cmp": "NE",
+                    "ref": {
+                      "ref": "SCENE_PLACE"
+                    },
+                    "value": "정비고"
+                  }
+                ]
+              }
+            ]
+          },
+          "priority": 2,
+          "guide": "박태식이(가) '누가 물가에서 부른다'며 호숫가 산책로 쪽으로 혼자 나갔다(PC가 보지 못한 사이)."
+        },
+        "killed": {
+          "eligible_when": {
+            "any": [
+              {
+                "cmp": "EQ",
+                "ref": {
+                  "ref": "EVENT_PHASE",
+                  "instance": "$self"
+                },
+                "value": "killed"
+              },
+              {
+                "all": [
+                  {
+                    "time": "AT_OR_AFTER_DATETIME",
+                    "date": "2027-08-14",
+                    "hhmm": "02:20"
+                  },
+                  {
+                    "cmp": "EQ",
+                    "ref": {
+                      "ref": "ACTOR_PLACE",
+                      "actor": "chr.npc.park_taesik"
+                    },
+                    "value": "호숫가 산책로"
+                  },
+                  {
+                    "cmp": "EQ",
+                    "ref": {
+                      "ref": "ACTOR_PLACE",
+                      "actor": "chr.npc.killer"
+                    },
+                    "value": "호숫가 산책로"
+                  },
+                  {
+                    "cmp": "NE",
+                    "ref": {
+                      "ref": "SCENE_PLACE"
+                    },
+                    "value": "호숫가 산책로"
+                  }
+                ]
+              }
+            ]
+          },
+          "priority": 4,
+          "finds": [
+            {
+              "info": "chr.kill.park_taesik.lakepath",
+              "place": "호숫가 산책로"
+            }
+          ],
+          "guide": "박태식은(는) 호숫가 산책로에서 비옷의 남자에게 살해됐다(PC가 없던 사이). 시신은 그 자리에 있다 — PC가 그곳에 가거나 살피면 발견한다. 잔혹하게 묘사하지 않는다.",
+          "terminal": true
+        },
+        "missed": {
+          "eligible_when": {
+            "any": [
+              {
+                "cmp": "EQ",
+                "ref": {
+                  "ref": "EVENT_PHASE",
+                  "instance": "$self"
+                },
+                "value": "missed"
+              },
+              {
+                "all": [
+                  {
+                    "time": "AT_OR_AFTER_DATETIME",
+                    "date": "2027-08-14",
+                    "hhmm": "04:20"
+                  },
+                  {
+                    "not": {
+                      "cmp": "EQ",
+                      "ref": {
+                        "ref": "EVENT_PHASE",
+                        "instance": "$self"
+                      },
+                      "value": "killed"
+                    }
+                  }
+                ]
+              }
+            ]
+          },
+          "priority": 3,
+          "terminal": true
+        }
+      },
+      "transition_cases": [
+        {
+          "case_id": "spawn",
+          "from": null,
+          "to": "stalk",
+          "steps": []
+        },
+        {
+          "case_id": "lure",
+          "from": "stalk",
+          "to": "lured",
+          "steps": [
+            {
+              "type": "START_MOVEMENT",
+              "step_id": "go",
+              "actor": "chr.npc.park_taesik",
+              "destination": "호숫가 산책로",
+              "mode": "walk"
+            }
+          ]
+        },
+        {
+          "case_id": "kill_from_lured",
+          "from": "lured",
+          "to": "killed",
+          "steps": [
+            {
+              "type": "SET_ACTOR_STATUS",
+              "step_id": "die",
+              "actor": "chr.npc.park_taesik",
+              "status": "사망"
+            },
+            {
+              "type": "SET_EVENT_LOCAL",
+              "step_id": "done",
+              "key": "done",
+              "value": true
+            }
+          ]
+        },
+        {
+          "case_id": "miss_from_lured",
+          "from": "lured",
+          "to": "missed",
+          "steps": [
+            {
+              "type": "SET_EVENT_LOCAL",
+              "step_id": "done",
+              "key": "done",
+              "value": true
+            }
+          ]
+        },
+        {
+          "case_id": "kill_from_stalk",
+          "from": "stalk",
+          "to": "killed",
+          "steps": [
+            {
+              "type": "SET_ACTOR_STATUS",
+              "step_id": "die",
+              "actor": "chr.npc.park_taesik",
+              "status": "사망"
+            },
+            {
+              "type": "SET_EVENT_LOCAL",
+              "step_id": "done",
+              "key": "done",
+              "value": true
+            }
+          ]
+        },
+        {
+          "case_id": "miss_from_stalk",
+          "from": "stalk",
+          "to": "missed",
+          "steps": [
+            {
+              "type": "SET_EVENT_LOCAL",
+              "step_id": "done",
+              "key": "done",
+              "value": true
+            }
+          ]
+        }
+      ],
+      "repeat_policy": "ONCE_PER_SESSION",
+      "phase_selector": {
+        "mode": "PRIORITY",
+        "stability": "BEST_MATCH"
+      },
+      "resolve_when": {
+        "const": false
+      }
+    },
+    "chr_escape_van": {
+      "version": 1,
+      "name": "승합차 탈출",
+      "spawn_when": {
+        "const": true
+      },
+      "phases": {
+        "idle": {
+          "eligible_when": {
+            "const": true
+          },
+          "priority": 1
+        },
+        "ready": {
+          "eligible_when": {
+            "all": [
+              {
+                "cmp": "EQ",
+                "ref": {
+                  "ref": "SCENE_PLACE"
+                },
+                "value": "정문·주차장"
+              },
+              {
+                "cmp": "EQ",
+                "ref": {
+                  "ref": "OBSERVER_HAS_ITEM",
+                  "item": "승합차 열쇠"
+                },
+                "value": true
+              },
+              {
+                "cmp": "EQ",
+                "ref": {
+                  "ref": "OBSERVER_HAS_ITEM",
+                  "item": "자동차 배터리"
+                },
+                "value": true
+              },
+              {
+                "cmp": "EQ",
+                "ref": {
+                  "ref": "OBSERVER_HAS_ITEM",
+                  "item": "휘발유통"
+                },
+                "value": true
+              }
+            ]
+          },
+          "priority": 2,
+          "guide": "승합차 열쇠·예비 배터리·연료가 모두 있다. 시동을 걸면 탈출을 결단할 수 있다(시동은 시끄럽다).",
+          "resolution_options": [
+            {
+              "option_id": "drive",
+              "label": "승합차로 탈출"
+            }
+          ]
+        },
+        "going": {
+          "eligible_when": {
+            "cmp": "EQ",
+            "ref": {
+              "ref": "EVENT_LOCAL",
+              "instance": "$self",
+              "key": "resolution"
+            },
+            "value": "drive"
+          },
+          "priority": 3,
+          "guide": "승합차 시동이 걸렸다 — 엔진 소리가 빗속에 울린다. 비옷의 남자가 같은 장소에 있으면 마지막 추격이다 — 그가 덮치고, PC가 빠져나가는지는 판정이 정한다(결과를 확정하지 말 것). 크게 다쳐 쓰러지면(빈사) 떠나지 못한다."
+        },
+        "done": {
+          "eligible_when": {
+            "all": [
+              {
+                "cmp": "EQ",
+                "ref": {
+                  "ref": "EVENT_PHASE",
+                  "instance": "$self"
+                },
+                "value": "going"
+              },
+              {
+                "time": "ELAPSED_SINCE_PHASE_GTE",
+                "minutes": 1
+              },
+              {
+                "not": {
+                  "cmp": "EQ",
+                  "ref": {
+                    "ref": "OBSERVER_STATUS",
+                    "status": "빈사"
+                  },
+                  "value": true
+                }
+              }
+            ]
+          },
+          "priority": 4,
+          "terminal": true,
+          "ending": {
+            "id": "escape_van",
+            "title": "승합차 탈출",
+            "epilogue": "덜컹이며 출발한 승합차가 빗속 산길을 내달린다. 물이 빠지기 시작한 다리를 건너는 순간을 그리고, 백미러 속 수련원 불빛이 멀어지며 맺는다. 함께 탄 사람이 있다면 그들의 숨소리로.",
+            "tone": "생존"
+          }
+        }
+      },
+      "transition_cases": [
+        {
+          "case_id": "spawn",
+          "from": null,
+          "to": "idle",
+          "steps": []
+        }
+      ],
+      "relevance_places": [
+        "정문·주차장"
+      ],
+      "repeat_policy": "ONCE_PER_SESSION",
+      "phase_selector": {
+        "mode": "PRIORITY",
+        "stability": "BEST_MATCH"
+      },
+      "resolve_when": {
+        "const": false
+      }
+    },
+    "chr_escape_radio": {
+      "version": 1,
+      "name": "무전 구조",
+      "spawn_when": {
+        "const": true
+      },
+      "phases": {
+        "idle": {
+          "eligible_when": {
+            "const": true
+          },
+          "priority": 1
+        },
+        "ready": {
+          "eligible_when": {
+            "all": [
+              {
+                "cmp": "EQ",
+                "ref": {
+                  "ref": "SCENE_PLACE"
+                },
+                "value": "전망대"
+              },
+              {
+                "cmp": "EQ",
+                "ref": {
+                  "ref": "OBSERVER_HAS_ITEM",
+                  "item": "무전기"
+                },
+                "value": true
+              },
+              {
+                "cmp": "EQ",
+                "ref": {
+                  "ref": "OBSERVER_HAS_ITEM",
+                  "item": "퓨즈"
+                },
+                "value": true
+              }
+            ]
+          },
+          "priority": 2,
+          "guide": "퓨즈를 갈아 끼운 무전기가 전망대에서 살아난다. 구조를 요청할 수 있다.",
+          "resolution_options": [
+            {
+              "option_id": "call",
+              "label": "무전으로 구조 요청"
+            }
+          ]
+        },
+        "going": {
+          "eligible_when": {
+            "cmp": "EQ",
+            "ref": {
+              "ref": "EVENT_LOCAL",
+              "instance": "$self",
+              "key": "resolution"
+            },
+            "value": "call"
+          },
+          "priority": 3,
+          "guide": "구조 요청이 닿았다 — 구조대가 오는 데 약 40분. 그때까지 버텨야 한다. 무전 소리는 멀리 퍼진다."
+        },
+        "done": {
+          "eligible_when": {
+            "all": [
+              {
+                "cmp": "EQ",
+                "ref": {
+                  "ref": "EVENT_PHASE",
+                  "instance": "$self"
+                },
+                "value": "going"
+              },
+              {
+                "time": "ELAPSED_SINCE_PHASE_GTE",
+                "minutes": 40
+              },
+              {
+                "not": {
+                  "cmp": "EQ",
+                  "ref": {
+                    "ref": "OBSERVER_STATUS",
+                    "status": "빈사"
+                  },
+                  "value": true
+                }
+              }
+            ]
+          },
+          "priority": 4,
+          "terminal": true,
+          "ending": {
+            "id": "rescue_radio",
+            "title": "구조",
+            "epilogue": "산 아래에서 경광등 불빛이 다리를 건너온다. 구조대의 손전등이 전망대를 비추는 순간을 그리고, 담요를 두른 채 내려다보는 검은 호수로 맺는다.",
+            "tone": "생존"
+          }
+        }
+      },
+      "transition_cases": [
+        {
+          "case_id": "spawn",
+          "from": null,
+          "to": "idle",
+          "steps": []
+        }
+      ],
+      "relevance_places": [
+        "전망대"
+      ],
+      "repeat_policy": "ONCE_PER_SESSION",
+      "phase_selector": {
+        "mode": "PRIORITY",
+        "stability": "BEST_MATCH"
+      },
+      "resolve_when": {
+        "const": false
+      }
+    },
+    "chr_escape_boat": {
+      "version": 1,
+      "name": "보트 탈출",
+      "spawn_when": {
+        "const": true
+      },
+      "phases": {
+        "idle": {
+          "eligible_when": {
+            "const": true
+          },
+          "priority": 1
+        },
+        "ready": {
+          "eligible_when": {
+            "all": [
+              {
+                "cmp": "EQ",
+                "ref": {
+                  "ref": "SCENE_PLACE"
+                },
+                "value": "선착장"
+              },
+              {
+                "cmp": "EQ",
+                "ref": {
+                  "ref": "OBSERVER_HAS_ITEM",
+                  "item": "보트 열쇠"
+                },
+                "value": true
+              },
+              {
+                "any": [
+                  {
+                    "cmp": "EQ",
+                    "ref": {
+                      "ref": "OBSERVER_HAS_ITEM",
+                      "item": "휘발유통"
+                    },
+                    "value": true
+                  },
+                  {
+                    "cmp": "EQ",
+                    "ref": {
+                      "ref": "OBSERVER_HAS_ITEM",
+                      "item": "노"
+                    },
+                    "value": true
+                  }
+                ]
+              }
+            ]
+          },
+          "priority": 2,
+          "guide": "보트 열쇠와 연료(또는 노)가 있다. 출항을 결단할 수 있다(엔진은 빠르고 시끄럽고, 노는 느리고 조용하다).",
+          "resolution_options": [
+            {
+              "option_id": "sail",
+              "label": "보트로 호수를 건넌다"
+            }
+          ]
+        },
+        "going": {
+          "eligible_when": {
+            "cmp": "EQ",
+            "ref": {
+              "ref": "EVENT_LOCAL",
+              "instance": "$self",
+              "key": "resolution"
+            },
+            "value": "sail"
+          },
+          "priority": 3,
+          "guide": "보트가 선착장을 떠난다. 비옷의 남자가 같은 장소에 있으면 마지막 추격이다 — 그가 덮치고, PC가 빠져나가는지는 판정이 정한다(결과를 확정하지 말 것). 크게 다쳐 쓰러지면(빈사) 떠나지 못한다."
+        },
+        "done": {
+          "eligible_when": {
+            "all": [
+              {
+                "cmp": "EQ",
+                "ref": {
+                  "ref": "EVENT_PHASE",
+                  "instance": "$self"
+                },
+                "value": "going"
+              },
+              {
+                "time": "ELAPSED_SINCE_PHASE_GTE",
+                "minutes": 1
+              },
+              {
+                "not": {
+                  "cmp": "EQ",
+                  "ref": {
+                    "ref": "OBSERVER_STATUS",
+                    "status": "빈사"
+                  },
+                  "value": true
+                }
+              }
+            ]
+          },
+          "priority": 4,
+          "terminal": true,
+          "ending": {
+            "id": "escape_boat",
+            "title": "호수를 건너",
+            "epilogue": "보트가 검은 호수 한가운데로 미끄러져 나간다. 멀어지는 선착장 끝에 선 비옷의 그림자를 그리고, 맞은편 기슭 마을 불빛으로 맺는다.",
+            "tone": "생존"
+          }
+        }
+      },
+      "transition_cases": [
+        {
+          "case_id": "spawn",
+          "from": null,
+          "to": "idle",
+          "steps": []
+        }
+      ],
+      "relevance_places": [
+        "선착장"
+      ],
+      "repeat_policy": "ONCE_PER_SESSION",
+      "phase_selector": {
+        "mode": "PRIORITY",
+        "stability": "BEST_MATCH"
+      },
+      "resolve_when": {
+        "const": false
+      }
+    },
+    "chr_repel_a": {
+      "version": 1,
+      "name": "격퇴 A",
+      "spawn_when": {
+        "cmp": "EQ",
+        "ref": {
+          "ref": "EVENT_LOCAL",
+          "template": "chr_truth",
+          "key": "case"
+        },
+        "value": "A"
+      },
+      "phases": {
+        "idle": {
+          "eligible_when": {
+            "const": true
+          },
+          "priority": 1
+        },
+        "ready": {
+          "eligible_when": {
+            "all": [
+              {
+                "cmp": "EQ",
+                "ref": {
+                  "ref": "EVENT_LOCAL",
+                  "template": "chr_truth",
+                  "key": "case"
+                },
+                "value": "A"
+              },
+              {
+                "cmp": "EQ",
+                "ref": {
+                  "ref": "OBSERVER_HAS_ITEM",
+                  "item": "당직 일지 원본"
+                },
+                "value": true
+              },
+              {
+                "cmp": "EQ",
+                "ref": {
+                  "ref": "ACTOR_PLACE",
+                  "actor": "chr.npc.killer"
+                },
+                "value_ref": {
+                  "ref": "SCENE_PLACE"
+                }
+              }
+            ]
+          },
+          "priority": 2,
+          "guide": "PC는 정체를 끝낼 것을 갖고 있고, 비옷의 남자가 바로 앞에 있다. 결단하면 격퇴로 간다.",
+          "resolution_options": [
+            {
+              "option_id": "repel",
+              "label": "당직 일지를 보여 준다"
+            }
+          ]
+        },
+        "going": {
+          "eligible_when": {
+            "cmp": "EQ",
+            "ref": {
+              "ref": "EVENT_LOCAL",
+              "instance": "$self",
+              "key": "resolution"
+            },
+            "value": "repel"
+          },
+          "priority": 3,
+          "guide": "PC가 정체를 들이댔다. 그가 멈칫한다 — 반응은 케이스 지침대로."
+        },
+        "done": {
+          "eligible_when": {
+            "all": [
+              {
+                "cmp": "EQ",
+                "ref": {
+                  "ref": "EVENT_PHASE",
+                  "instance": "$self"
+                },
+                "value": "going"
+              },
+              {
+                "time": "ELAPSED_SINCE_PHASE_GTE",
+                "minutes": 1
+              },
+              {
+                "not": {
+                  "cmp": "EQ",
+                  "ref": {
+                    "ref": "OBSERVER_STATUS",
+                    "status": "빈사"
+                  },
+                  "value": true
+                }
+              }
+            ]
+          },
+          "priority": 4,
+          "terminal": true,
+          "ending": {
+            "id": "repel_a",
+            "title": "그 아이는 혼자가 아니었다",
+            "epilogue": "윤재현이 당직 일지를 읽는다. 손도끼가 바닥에 떨어진다. '혼자가 아니었구나.' 그가 빗속으로 걸어 나가는 뒷모습과, 새벽에 들어온 경찰차 불빛으로 맺는다.",
+            "tone": "씁쓸한 해소"
+          }
+        }
+      },
+      "transition_cases": [
+        {
+          "case_id": "spawn",
+          "from": null,
+          "to": "idle",
+          "steps": []
+        }
+      ],
+      "repeat_policy": "ONCE_PER_SESSION",
+      "phase_selector": {
+        "mode": "PRIORITY",
+        "stability": "BEST_MATCH"
+      },
+      "resolve_when": {
+        "const": false
+      }
+    },
+    "chr_repel_b": {
+      "version": 1,
+      "name": "격퇴 B",
+      "spawn_when": {
+        "cmp": "EQ",
+        "ref": {
+          "ref": "EVENT_LOCAL",
+          "template": "chr_truth",
+          "key": "case"
+        },
+        "value": "B"
+      },
+      "phases": {
+        "idle": {
+          "eligible_when": {
+            "const": true
+          },
+          "priority": 1
+        },
+        "ready": {
+          "eligible_when": {
+            "all": [
+              {
+                "cmp": "EQ",
+                "ref": {
+                  "ref": "EVENT_LOCAL",
+                  "template": "chr_truth",
+                  "key": "case"
+                },
+                "value": "B"
+              },
+              {
+                "cmp": "EQ",
+                "ref": {
+                  "ref": "OBSERVER_HAS_ITEM",
+                  "item": "2014년 지도교사 명찰"
+                },
+                "value": true
+              },
+              {
+                "any": [
+                  {
+                    "cmp": "EQ",
+                    "ref": {
+                      "ref": "COGNITION_AWARENESS",
+                      "holder": "$session_pc",
+                      "info": "chr.b.woobin"
+                    },
+                    "value": "CONTENT"
+                  },
+                  {
+                    "cmp": "EQ",
+                    "ref": {
+                      "ref": "OBSERVER_HAS_ITEM",
+                      "item": "정우빈의 휴대폰"
+                    },
+                    "value": true
+                  }
+                ]
+              },
+              {
+                "cmp": "EQ",
+                "ref": {
+                  "ref": "ACTOR_PLACE",
+                  "actor": "chr.npc.killer"
+                },
+                "value_ref": {
+                  "ref": "SCENE_PLACE"
+                }
+              }
+            ]
+          },
+          "priority": 2,
+          "guide": "PC는 정체를 끝낼 것을 갖고 있고, 비옷의 남자가 바로 앞에 있다. 결단하면 격퇴로 간다.",
+          "resolution_options": [
+            {
+              "option_id": "repel",
+              "label": "강민석의 이름을 부른다"
+            }
+          ]
+        },
+        "going": {
+          "eligible_when": {
+            "cmp": "EQ",
+            "ref": {
+              "ref": "EVENT_LOCAL",
+              "instance": "$self",
+              "key": "resolution"
+            },
+            "value": "repel"
+          },
+          "priority": 3,
+          "guide": "PC가 정체를 들이댔다. 그가 멈칫한다 — 반응은 케이스 지침대로."
+        },
+        "done": {
+          "eligible_when": {
+            "all": [
+              {
+                "cmp": "EQ",
+                "ref": {
+                  "ref": "EVENT_PHASE",
+                  "instance": "$self"
+                },
+                "value": "going"
+              },
+              {
+                "time": "ELAPSED_SINCE_PHASE_GTE",
+                "minutes": 1
+              },
+              {
+                "not": {
+                  "cmp": "EQ",
+                  "ref": {
+                    "ref": "OBSERVER_STATUS",
+                    "status": "빈사"
+                  },
+                  "value": true
+                }
+              }
+            ]
+          },
+          "priority": 4,
+          "terminal": true,
+          "ending": {
+            "id": "repel_b",
+            "title": "이름을 불렀다",
+            "epilogue": "이름이 불리자 강민석의 얼굴에서 핏기가 빠진다. 그는 달아나다 불어난 계곡물 앞에서 멈춰 선다. 새벽, 다리 앞에서 체포되는 모습과 정우빈의 이름으로 맺는다.",
+            "tone": "무거운 해소"
+          }
+        }
+      },
+      "transition_cases": [
+        {
+          "case_id": "spawn",
+          "from": null,
+          "to": "idle",
+          "steps": []
+        }
+      ],
+      "repeat_policy": "ONCE_PER_SESSION",
+      "phase_selector": {
+        "mode": "PRIORITY",
+        "stability": "BEST_MATCH"
+      },
+      "resolve_when": {
+        "const": false
+      }
+    },
+    "chr_repel_c": {
+      "version": 1,
+      "name": "격퇴 C",
+      "spawn_when": {
+        "cmp": "EQ",
+        "ref": {
+          "ref": "EVENT_LOCAL",
+          "template": "chr_truth",
+          "key": "case"
+        },
+        "value": "C"
+      },
+      "phases": {
+        "idle": {
+          "eligible_when": {
+            "const": true
+          },
+          "priority": 1
+        },
+        "ready": {
+          "eligible_when": {
+            "all": [
+              {
+                "cmp": "EQ",
+                "ref": {
+                  "ref": "EVENT_LOCAL",
+                  "template": "chr_truth",
+                  "key": "case"
+                },
+                "value": "C"
+              },
+              {
+                "cmp": "EQ",
+                "ref": {
+                  "ref": "OBSERVER_HAS_ITEM",
+                  "item": "하준의 수영 가방"
+                },
+                "value": true
+              },
+              {
+                "cmp": "EQ",
+                "ref": {
+                  "ref": "SCENE_PLACE"
+                },
+                "value": "선착장"
+              },
+              {
+                "cmp": "EQ",
+                "ref": {
+                  "ref": "ACTOR_PLACE",
+                  "actor": "chr.npc.killer"
+                },
+                "value_ref": {
+                  "ref": "SCENE_PLACE"
+                }
+              }
+            ]
+          },
+          "priority": 2,
+          "guide": "PC는 정체를 끝낼 것을 갖고 있고, 비옷의 남자가 바로 앞에 있다. 결단하면 격퇴로 간다.",
+          "resolution_options": [
+            {
+              "option_id": "repel",
+              "label": "수영 가방을 호수에 돌려준다"
+            }
+          ]
+        },
+        "going": {
+          "eligible_when": {
+            "cmp": "EQ",
+            "ref": {
+              "ref": "EVENT_LOCAL",
+              "instance": "$self",
+              "key": "resolution"
+            },
+            "value": "repel"
+          },
+          "priority": 3,
+          "guide": "PC가 정체를 들이댔다. 그가 멈칫한다 — 반응은 케이스 지침대로."
+        },
+        "done": {
+          "eligible_when": {
+            "all": [
+              {
+                "cmp": "EQ",
+                "ref": {
+                  "ref": "EVENT_PHASE",
+                  "instance": "$self"
+                },
+                "value": "going"
+              },
+              {
+                "time": "ELAPSED_SINCE_PHASE_GTE",
+                "minutes": 1
+              },
+              {
+                "not": {
+                  "cmp": "EQ",
+                  "ref": {
+                    "ref": "OBSERVER_STATUS",
+                    "status": "빈사"
+                  },
+                  "value": true
+                }
+              }
+            ]
+          },
+          "priority": 4,
+          "terminal": true,
+          "ending": {
+            "id": "repel_c",
+            "title": "하준아",
+            "epilogue": "수영 가방이 검은 물에 가라앉는다. 윤도현이 물가에 무릎을 꿇고 운다. '하준아, 이제 혼자 아니야.' 아무도 더 데려가지 않는 물가와 밝아 오는 호수로 맺는다.",
+            "tone": "슬픈 해소"
+          }
+        }
+      },
+      "transition_cases": [
+        {
+          "case_id": "spawn",
+          "from": null,
+          "to": "idle",
+          "steps": []
+        }
+      ],
+      "repeat_policy": "ONCE_PER_SESSION",
+      "phase_selector": {
+        "mode": "PRIORITY",
+        "stability": "BEST_MATCH"
+      },
+      "resolve_when": {
+        "const": false
+      }
+    }
+  },
+  "knowledge_notebook": {
+    "title": "생존 메모",
+    "groups": [
+      {
+        "tag": "탈출",
+        "label": "🚪 탈출"
+      },
+      {
+        "tag": "단서",
+        "label": "🔎 단서"
+      },
+      {
+        "tag": "사람",
+        "label": "👤 사람"
+      }
+    ]
+  }
+}

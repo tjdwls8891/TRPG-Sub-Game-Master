@@ -48,7 +48,12 @@ SLOT_TYPES = ("ACTOR", "PLACE", "INFO")
 STEP_TYPES = ("SET_ACCESS_STATE", "SET_ACTOR_PLACEMENT", "CLEAR_ACTOR_PLACEMENT", "START_MOVEMENT", "CREATE_INFORMATION",
               "SUPERSEDE_INFORMATION", "ACQUIRE_INFORMATION", "SET_COGNITION_BELIEF",
               "APPEND_RELATIONSHIP_DELTA", "SET_EVENT_LOCAL", "SCHEDULE_WAKEUP", "SCHEDULE_EFFECT",
-              "EMIT_SIGNAL")
+              "EMIT_SIGNAL", "SET_ACTOR_STATUS")
+# v7.49: SET_ACTOR_STATUS {actor, status} — 사건이 인물에게 상태를 붙인다(저작 사망 등). 정본은 그 사건의 지역 값
+#   `actor_status:<ActorId>` = {status, minute}(되감기 대상 — 새 typed 연산·세션 필드 없음). 세션 상태(session.statuses)
+#   반영은 커밋 상태 판정(status_rules.resolve_turn)이 하고, 역할 dead 상태면 그 인물은 유효 위치를 잃는다
+#   (core.npc_position — 장면·사건 조건·추적에서 빠짐).
+ACTOR_STATUS_PREFIX = "actor_status:"
 INTERRUPT_POLICIES = ("NONE", "IF_OBSERVABLE")
 INSTANCE_KEYS = ("instance_id", "template_id", "template_version", "bound_slots", "lifecycle",
                  "current_phase", "phase_entered_at", "transition_ordinal", "occurrence_ordinal",
@@ -420,6 +425,27 @@ def _s_relationship(step, sctx, parents):
     return StepResult([_mk(sctx, step["step_id"], 0, _rel.OP_RELATIONSHIP_DELTA_APPEND, {"delta": d}, parents)])
 
 
+def _s_actor_status(step, sctx, parents):
+    actor = sctx.resolve(step["actor"])
+    if not actor:
+        return StepResult(diagnostics=[_diag("STEP_UNBOUND", sctx, step)])
+    return StepResult([_mk(sctx, step["step_id"], 0, OP_EVENT_LOCAL_SET,
+                           {"instance_id": sctx.iid, "key": ACTOR_STATUS_PREFIX + actor,
+                            "value": {"status": step["status"], "minute": sctx.now}}, parents)])
+
+
+def actor_status_marks(event_instances) -> dict:
+    """{ActorId: {상태: 분}} — 사건이 붙인 인물 상태(SET_ACTOR_STATUS) 전부(인스턴스 정렬, 먼저 붙은 분 유지)."""
+    out = {}
+    for iid in sorted(event_instances or {}):
+        loc = ((event_instances[iid] or {}).get("local_state") or {}) if isinstance(event_instances[iid], dict) else {}
+        for k in sorted(loc):
+            v = loc[k]
+            if k.startswith(ACTOR_STATUS_PREFIX) and isinstance(v, dict) and isinstance(v.get("status"), str):
+                out.setdefault(k[len(ACTOR_STATUS_PREFIX):], {}).setdefault(v["status"], v.get("minute"))
+    return out
+
+
 def _s_local(step, sctx, parents):
     return StepResult([_mk(sctx, step["step_id"], 0, OP_EVENT_LOCAL_SET,
                            {"instance_id": sctx.iid, "key": step["key"], "value": step["value"]}, parents)])
@@ -472,6 +498,7 @@ STEP_HANDLERS = {
     "ACQUIRE_INFORMATION": _s_acquire, "SET_COGNITION_BELIEF": _s_belief,
     "APPEND_RELATIONSHIP_DELTA": _s_relationship, "SET_EVENT_LOCAL": _s_local,
     "SCHEDULE_WAKEUP": _s_wakeup, "SCHEDULE_EFFECT": _s_effect, "EMIT_SIGNAL": _s_signal,
+    "SET_ACTOR_STATUS": _s_actor_status,
 }
 
 

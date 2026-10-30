@@ -2078,7 +2078,23 @@ def status_turn_facts(session, prep) -> dict | None:
             "care": frozenset(effects), "care_consumed": intake, "care_used": intake,
             "care_by": {k: frozenset(v) for k, v in care_by.items()},
             "moved": _pc_moved(session, wt.ctx.lead_pc, pl),
-            "noise": _turn_noise(prep, worn)}
+            "noise": _turn_noise(prep, worn),
+            "event_statuses": _event_statuses(wt.ctx.definition, proj, session)}
+
+
+def _event_statuses(definition, proj, session) -> dict:
+    """v7.49: 사건이 인물에게 붙인 상태(SET_ACTOR_STATUS) 중 아직 세션 상태에 없는 것 — {인물 이름: {상태: 분}}.
+    세션 상태 키는 인물 이름이다(저작 NPC = legacy_key)."""
+    from . import events as _ev
+    acts = (definition or {}).get("actor_definitions") or {}
+    have = getattr(session, "statuses", None) or {}
+    out = {}
+    for aid, marks in _ev.actor_status_marks(proj.domain("event_instances") or {}).items():
+        name = (acts.get(aid) or {}).get("legacy_key") or aid
+        new = {s: m for s, m in marks.items() if s not in (have.get(name) or ())}
+        if new:
+            out[name] = new
+    return out
 
 
 def _pc_moved(session, lead, after_pl) -> bool:

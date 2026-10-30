@@ -123,7 +123,7 @@ IK_OPS = ("equals", "one_of")
 IK_SUMMARY_MAX = 300
 # v7.17 아이템 정의(선택) — 저작한 시나리오만 정의에 키가 생긴다(미저작 revision 불변)
 ITEM_DEF_KEYS = ("aliases", "categories", "units", "mass_grade", "bulk_grade", "parts", "info_refs",
-                 "special", "unique", "recipe_only", "instances", "name", "wear")
+                 "special", "unique", "recipe_only", "instances", "name", "wear", "use")
 ITEM_GRADE_MAX = 5
 # H07: information_definitions[*].reveals = {"places": [PlaceId], "edges": [EdgeId|pair id]} — PC가 이 정보를 실제로
 #      알게 되면(CONTENT 획득) 함께 얻는 공간 지식(장소 이름·숨은 길 발견: NPC 제보·문서·지도·수색·사건 효과).
@@ -1297,13 +1297,14 @@ _STEP_PARAMS = {
     "SCHEDULE_WAKEUP": (("after_minutes",), ()),
     "SCHEDULE_EFFECT": (("after_minutes", "effect"), ("guard", "epoch_bound")),
     "EMIT_SIGNAL": (("signal_id", "cue"), ("interrupt_policy", "observable_when", "exposes")),
+    "SET_ACTOR_STATUS": (("actor", "status"), ()),
 }
 # H07: EMIT_SIGNAL.exposes — 이 신호가 묘사되면 PC가 알게 될 수 있는 저작 정보(공개 안전 summary 필수).
 #      관찰 매니페스트 후보가 될 뿐, 노출 확정은 확정 묘사의 추출 관찰(info_exposed)만 한다.
 # H07: CLEAR_ACTOR_PLACEMENT — 정본 override 해제(이후 평상시 일과/untracked). 명시 저작으로만 해제한다.
 _EFFECT_STEP_TYPES = ("SET_ACCESS_STATE", "SET_ACTOR_PLACEMENT", "CLEAR_ACTOR_PLACEMENT", "START_MOVEMENT", "CREATE_INFORMATION",
                       "SUPERSEDE_INFORMATION", "ACQUIRE_INFORMATION", "SET_COGNITION_BELIEF",
-                      "APPEND_RELATIONSHIP_DELTA", "SET_EVENT_LOCAL", "EMIT_SIGNAL")
+                      "APPEND_RELATIONSHIP_DELTA", "SET_EVENT_LOCAL", "EMIT_SIGNAL", "SET_ACTOR_STATUS")
 
 
 PERSONA_KEYS = ("surface", "core", "stances", "now", "initial_trust")
@@ -1460,6 +1461,10 @@ def _compile_step(st, p, scope, access, edges, created, d, *, nested=False):
         ref_id(st["place"], "PlaceId", scope.places, "PLACE")
     elif t == "CLEAR_ACTOR_PLACEMENT":
         ref_id(st["actor"], "ActorId", scope.actors, "ACTOR")
+    elif t == "SET_ACTOR_STATUS":
+        ref_id(st["actor"], "ActorId", scope.actors, "ACTOR")
+        if scope.statuses is not None and st["status"] not in scope.statuses:
+            bad("STEP_REF_UNKNOWN", f"정의되지 않은 상태 {st['status']!r}(공용·시나리오 상태, 기능 선언 포함)")
     elif t == "START_MOVEMENT":
         ref_id(st["actor"], "ActorId", scope.actors, "ACTOR")
         ref_id(st["destination"], "PlaceId", scope.places, "PLACE")
@@ -1579,7 +1584,7 @@ def _fixed_write_key(st):
     return None, None
 
 
-def _compile_behaviors(actors, places, modes, caps, d) -> list:
+def _compile_behaviors(actors, places, modes, caps, d, *, calendar=None, templates=()) -> list:
     """v7.48 default_npcs[*].behavior — 인물 행동 유형(routine 옆 자리). 유형마다 그 기능 선언이 필요하다.
     검증에 실패한 behavior는 정의에서 뺀다(routine과 같은 처리). 반환: 추적자 ActorId 목록(정렬)."""
     from . import pursuit as _pu
@@ -1598,8 +1603,9 @@ def _compile_behaviors(actors, places, modes, caps, d) -> list:
         else:
             errs += _pu.check(b, path=p, places=set(places), modes=set(modes or {}))
             if b.get("active_when") is not None:
-                errs += _pr.validate(b["active_when"], _ref_scope(actors, places, {}, {}, modes),
-                                     f"{p}.active_when", allow_phase_time=False)
+                errs += [(path, msg) for _code, path, msg in _pr.validate(
+                    b["active_when"], _ref_scope(actors, places, {}, {}, modes, calendar=calendar, templates=templates),
+                    f"{p}.active_when", allow_phase_time=False)]
         for path, msg in errs:
             d.add(ERROR, "BEHAVIOR_INVALID", path, msg)
         if errs:
@@ -2605,16 +2611,18 @@ def _compile_initial_knowledge(raw, infos, init, d) -> None:
 # ── 진입점 ────────────────────────────────────────────────────
 
 _STATUS_NAMES = None   # v7.48(E1): 컴파일 중인 시나리오의 상태 이름(공용 + 시나리오) — OBSERVER_STATUS 검증용
+_STATUS_DEFS = None    # v7.49: 같은 출처의 상태 정의(역할 dead 판별)
 
 
 def compile_scenario(raw: dict, scenario_id: str, quests: dict | None = None) -> CompileResult:
     """raw 시나리오(+퀘스트 부속)를 컴파일한다. 입력을 변경하지 않는다."""
-    global _STATUS_NAMES
+    global _STATUS_NAMES, _STATUS_DEFS
     try:
         from .utils import get_merged_status_effects
-        _STATUS_NAMES = set(get_merged_status_effects(raw if isinstance(raw, dict) else {}))
+        _STATUS_DEFS = get_merged_status_effects(raw if isinstance(raw, dict) else {})
+        _STATUS_NAMES = set(_STATUS_DEFS)
     except Exception:  # noqa: BLE001 — 상태 목록을 못 읽으면 이름 검사만 건너뛴다
-        _STATUS_NAMES = None
+        _STATUS_NAMES = _STATUS_DEFS = None
     try:
         return _compile_scenario(raw, scenario_id, quests)
     finally:
@@ -2686,7 +2694,8 @@ def _compile_scenario(raw: dict, scenario_id: str, quests: dict | None = None) -
     series = _compile_info_series(raw, _ref_scope(actors, places, infos, access, modes, calendar=calendar), d)
     _compile_personas(raw, _ref_scope(actors, places, infos, access, modes, calendar=calendar,
                                                     templates=(raw.get("event_templates") or {}).keys()), d)
-    pursuers = _compile_behaviors(actors, places, modes, cap["capabilities"], d)
+    pursuers = _compile_behaviors(actors, places, modes, cap["capabilities"], d, calendar=calendar,
+                                  templates=(raw.get("event_templates") or {}).keys())
     _raw_ev = raw
     if pursuers:                       # v7.48(E3): 추적자마다 상태를 담는 사건 템플릿(시작 즉시 생성)
         from . import pursuit as _pu
@@ -2753,9 +2762,31 @@ def _compile_scenario(raw: dict, scenario_id: str, quests: dict | None = None) -
     # v7.17.2: 소속(사건 결과 grant_faction) → 접근 capability 매핑 — 저작한 시나리오에만 키가 생긴다
     if faction_caps:
         definition["faction_capabilities"] = faction_caps
-    # v7.48(E3): 추적자 — 저작한 시나리오에만 키가 생긴다(미저작 시나리오 revision 불변)
+    # v7.49: 사건이 붙이는 역할 dead 상태(SET_ACTOR_STATUS) — 그 상태가 붙은 인물은 유효 위치를 잃는다.
+    #   그런 step을 저작한 시나리오에만 키가 생긴다(미저작 시나리오 revision 불변)
+    removing = _removing_statuses(event_tpls)
+    if removing:
+        definition["actor_removing_statuses"] = removing
     return CompileResult(scenario_id, definition["compiler_version"], definition,
                          definition_revision(definition), diagnostics)
+
+
+def _removing_statuses(event_tpls) -> list:
+    from .status_rules import ROLE_DEAD
+    used = set()
+
+    def walk(x):
+        if isinstance(x, dict):
+            if x.get("type") == "SET_ACTOR_STATUS" and isinstance(x.get("status"), str):
+                used.add(x["status"])
+            for v in x.values():
+                walk(v)
+        elif isinstance(x, list):
+            for v in x:
+                walk(v)
+    walk(event_tpls)
+    defs = _STATUS_DEFS or {}
+    return sorted(s for s in used if ROLE_DEAD in ((defs.get(s) or {}).get("roles") or ()))
 
 
 def compile_sources(sources: ScenarioSources) -> CompileResult:

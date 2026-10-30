@@ -161,6 +161,7 @@ def test_pursuer_decision_table():
     assert loc["mode"] == PU.SEARCH                                                 # 20분 놓침 → 수색
     loc, dest, _ = d({"mode": PU.WANDER, "patrol_i": 0})
     assert dest == "시장" and loc["patrol_i"] == 2                                  # 순회(지금 자리는 건너뜀)
+    assert PU.sees({}, "항구", "항구") and not PU.sees({}, "항구", "시장")           # v7.49: 시야 = 같은 장소(가시성 게이트 아님)
 
 
 def ev_raw_caps(caps):
@@ -172,7 +173,7 @@ def ev_raw_caps(caps):
 
 def _killer_raw(raw):
     raw["scenario_schema"]["capabilities"].update({"stealth": 1, "pursuit": 1})
-    raw["default_npcs"]["강지수"]["behavior"] = {"type": "pursuer", "mode": "walk", "patrol": ["시장", "항구"],
+    raw["default_npcs"]["강지수"]["behavior"] = {"type": "pursuer", "mode": "walk", "patrol": ["시장"],
                                                  "hearing": {"LOUD": 2, "NORMAL": 0}}
 
 
@@ -229,12 +230,12 @@ async def test_noise_brings_pursuer_and_encounter_is_forced(drig):
     assert "[noise —" in r.prov.prompts["extraction"][-1][0]                          # 기능 stealth 선언 = 소음 판단
     iid = PU.instance_of(r.sess, KANG)
     first = PU.locals_of(r.sess, iid)
-    assert (first.get("heard") or {}).get("place") == "항구" or first.get("mode") == PU.CHASE   # 소리가 닿거나 이미 봄
+    assert first.get("mode") == PU.WANDER and first["heard"]["place"] == "항구"          # 다른 장소 = 못 봄 · 소리는 들음
     r.prov.routes["judgment"] = judgment(None, time_kind="DURATION", duration_minutes=30, activity="WAIT")
     r.prov.routes["extraction"] = [extraction({"noise": "QUIET"})]
     await turn(r, "그 자리에서 기다린다")
     loc = PU.locals_of(r.sess, iid)
-    assert loc["mode"] in (PU.ALERT, PU.CHASE, PU.SEARCH) and loc.get("heard") is None   # 소리 또는 시야(정적 가시성)
+    assert loc["mode"] in (PU.ALERT, PU.CHASE, PU.SEARCH) and loc.get("heard") is None   # 소리 → 수상 → 도착 뒤 추적·수색
     assert SP.placement_of(r.sess, KANG).get("place_id") == "항구"                      # 소리 난 곳까지 왔다
     th = core.turn_world.threat_block(core.player_world.session_world_context(r.sess), None, r.sess)
     assert "반드시 등장" in th                                                          # 같은 장소 = 등장 강제
@@ -245,7 +246,7 @@ async def test_noise_brings_pursuer_and_encounter_is_forced(drig):
     assert "위협 — 추적자" in r.prov.prompts["judgment"][-1][0]                         # 판단층위 장면 인물 표시
     res = await core.turn_history.rewind(r.bot, r.sess, 1)
     back = SP.placement_of(r.sess, KANG)
-    assert res["ok"] and back.get("kind") == "TRANSIT" and back.get("from_place") == "시장"   # 되감기 = 1턴 뒤 상태 복원
+    assert res["ok"] and back.get("place_id") == "시장"                                # 되감기 = 1턴 뒤 상태 복원
     assert PU.locals_of(r.sess, iid) == first
 
 
@@ -257,3 +258,62 @@ async def test_noise_question_only_for_stealth_scenarios(drig):
     r.prov.routes["extraction"] = [extraction()]
     await turn(r, "주변을 둘러본다")
     assert "[noise —" not in r.prov.prompts["extraction"][-1][0]
+
+
+# ── v7.49 사건이 붙이는 인물 상태(SET_ACTOR_STATUS — 결정 2 나) ──────────────
+
+def _kill_raw(raw, status="사망"):
+    raw["scenario_schema"]["capabilities"].update({"mortality": 1})
+    raw["event_templates"]["kill"] = {
+        "version": 1, "name": "살해", "spawn_when": {"const": True},
+        "phases": {"done": {"eligible_when": {"const": True}, "priority": 1}},
+        "transition_cases": [{"case_id": "spawn", "from": None, "to": "done", "steps": [
+            {"type": "SET_ACTOR_STATUS", "step_id": "die", "actor": KANG, "status": status}]}],
+        "repeat_policy": "ONCE_PER_SESSION", "resolve_when": {"const": False}}
+
+
+def test_event_actor_status_compiles_and_removes_dead_actor_from_world():
+    from tests.policy.test_h04b_events_progression import ev_raw
+    from core import npc_position as NP
+    from core import spatial as SP
+    from core import world_progression as WP
+    raw = ev_raw({})
+    _kill_raw(raw)
+    res = dc.compile_scenario(raw, "t")
+    assert res.ok, [(d.code, d.message) for d in res.errors]
+    D = res.definition
+    assert D["actor_removing_statuses"] == ["사망"]                                   # 역할 dead 상태만
+    bad = ev_raw({})
+    _kill_raw(bad, status="없는상태")
+    assert "STEP_REF_UNKNOWN" in [d.code for d in dc.compile_scenario(bad, "t").errors]
+    nocap = ev_raw({})
+    _kill_raw(nocap)
+    nocap["scenario_schema"]["capabilities"].pop("mortality")
+    assert "STEP_REF_UNKNOWN" in [d.code for d in dc.compile_scenario(nocap, "t").errors]   # 기능 미선언 = 상태 없음
+    calm = ev_raw({})
+    _kill_raw(calm, status="기절")
+    assert "actor_removing_statuses" not in dc.compile_scenario(calm, "t").definition  # dead 아님 = 위치 유지
+    s = core.TRPGSession("s-v749", 1, 2, "x", {})
+    s.world_clock = {"minute_index": 1440 * 400, "start_minute_index": 1440 * 400}
+    s.spatial_state = {"placements": {KANG: SP.at_place("시장")}}
+    assert NP.effective_place(D, s, KANG) == "시장"
+    pw = WP.project_world_progression(D, s, s.world_clock["minute_index"], narrative_seed="s",
+                                      outer_origin="INITIALIZATION", initial_full_scan=True).projected_world
+    assert core.events.actor_status_marks(pw.domain("event_instances"))[KANG] == {"사망": 1440 * 400}
+    assert NP.effective_position(D, pw, KANG)["placement"] is None                     # 장면·사건 조건에서 빠짐
+    assert KANG not in [a for a, _ in NP.actors_at(D, pw, "시장")]
+
+
+async def test_event_actor_status_reaches_session_statuses(drig):
+    """커밋 상태 판정이 사건이 붙인 상태를 세션 상태에 반영한다(규칙·게이트 없이)."""
+    r = drig
+    D = r.make(raw_patch=_kill_raw, at="항구")
+    from core import world_progression as WP
+    res = WP.project_world_progression(D, r.sess, r.sess.world_clock["minute_index"], narrative_seed="s",
+                                       outer_origin="INITIALIZATION", initial_full_scan=True)
+    r.sess.event_instances = copy.deepcopy(res.projected_world.domain("event_instances"))
+    r.prov.routes["judgment"] = judgment()
+    r.prov.routes["extraction"] = [extraction()]
+    await turn(r, "주변을 둘러본다")
+    assert "사망" in (r.sess.statuses.get("강지수") or [])
+    assert r.sess.status_clock["강지수"]["applied"]["사망"] == r.sess.world_clock["start_minute_index"]

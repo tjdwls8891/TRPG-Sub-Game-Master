@@ -555,7 +555,8 @@
     "name": "사망",
     "requires": "mortality",
     "roles": [
-      "incapacitated"
+      "incapacitated",
+      "dead"
     ],
     "apply_condition": "빈사 상태로 처치 없이 20분이 지남(코드 판정)",
     "weight": -5,

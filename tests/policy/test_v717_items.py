@@ -493,6 +493,8 @@ def test_F05_unauthored_scenarios_revision_unchanged():
         if f.name.endswith(".quests.json") or f.stem == "영도":
             continue
         raw = json.loads(f.read_text(encoding="utf-8"))
+        if "item_definitions" in raw:                 # 저작한 시나리오(v7.49 청람호 등)는 대상이 아니다
+            continue
         res = core.definition_compiler.compile_scenario(raw, f.stem)
         if res.definition is not None:
             assert "item_definitions" not in res.definition and "carry_limits" not in res.definition

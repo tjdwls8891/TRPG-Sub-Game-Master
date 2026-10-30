@@ -91,8 +91,19 @@ def held_placement(world, actor_id: str, now):
     return rec.get("placement")
 
 
+def is_removed(definition: dict, world, actor_id: str) -> bool:
+    """v7.49: 사건 SET_ACTOR_STATUS가 이 인물에게 정의의 actor_removing_statuses(역할 dead) 중 하나를 붙였는가."""
+    removing = (definition or {}).get("actor_removing_statuses")
+    if not removing:
+        return False
+    from .events import actor_status_marks
+    return bool(set(actor_status_marks(_dom(world, "event_instances")).get(actor_id) or ()) & set(removing))
+
+
 def effective_position(definition: dict, world, actor_id: str) -> dict:
     """{"source": CANONICAL|ROUTINE|UNTRACKED, "placement": dict|None, "routine_entry": idx|'default'|None}."""
+    if is_removed(definition, world, actor_id):     # v7.49: 사건이 붙인 역할 dead 상태 — 세계에서 빠짐
+        return {"source": UNTRACKED, "placement": None, "routine_entry": None}
     pl = (_dom(world, "spatial_state").get("placements") or {}).get(actor_id)
     if pl is not None:
         return {"source": CANONICAL, "placement": dict(pl), "routine_entry": None}

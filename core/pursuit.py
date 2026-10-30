@@ -12,7 +12,7 @@
 #
 # [매 턴 판단 — 묘사 전 계획(plan_player_turn), 결정적·순수]
 #   추적자에게 역할 incapacitated 상태(기절·빈사 등)가 있거나 active_when이 거짓이면 멈춤. 구간 위(TRANSIT)면 도착할
-#   때까지 판단하지 않는다. 보임(같은 장소 또는 정적 가시성, PC에게 역할 concealed 상태 없음) → CHASE(PC 장소, 추적 속도) ·
+#   때까지 판단하지 않는다. 보임(같은 장소, PC에게 역할 concealed 상태 없음) → CHASE(PC 장소, 추적 속도) ·
 #   들음 → ALERT(소리 난 장소) · CHASE·ALERT 목표에 닿음 → SEARCH(그 자리) · SEARCH가 search_minutes 지남 → WANDER ·
 #   CHASE가 lose_after_minutes 동안 감지 없음 → SEARCH · WANDER → 순회지 다음 장소.
 #   이동은 사건 이동과 같은 경로·시간 계산(world_progression._movement_ops — 일반 그래프 + 행위자 지식)을 쓰고, 이번 턴
@@ -174,14 +174,9 @@ def distance(definition, a, b, limit: int) -> int | None:
 
 
 def sees(definition, from_place, to_place) -> bool:
-    if from_place is None or to_place is None:
-        return False
-    if from_place == to_place:
-        return True
-    try:
-        return bool(_sp.SpatialGraph(definition).is_visible_from(to_place, from_place))
-    except Exception:  # noqa: BLE001
-        return False
+    """시야 — 같은 장소만(v7.49 보정: 장소 visible_within은 '존재를 아는' 게이트라 시야가 아니다 —
+    게이트 없는 장소가 어디서나 보이는 것으로 읽혀 추적자가 섬 전체에서 PC를 봤다)."""
+    return from_place is not None and from_place == to_place
 
 
 def position(definition, world, actor) -> tuple:

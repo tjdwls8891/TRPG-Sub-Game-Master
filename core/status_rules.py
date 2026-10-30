@@ -51,8 +51,9 @@
 #     상태 선택 키 `ending: {id, title, epilogue, tone?}` — PC에게 붙으면 그 결말로 세션이 끝난다(사망 등).
 #     NPC도 같은 규칙으로 판정한다(D-3 나). NPC는 섭취·활동·착용·장소·이번 턴 사용을 추적하지 않으므로 그 조건은 '모름' —
 #     자동 부여·해제(auto)는 모름이면 일어나지 않고, 추출 부여·해제의 근거 조건(gate)은 모름이면 막지 않는다.
-#     상태 선택 키 `roles: [concealed|incapacitated|dying]` — 엔진이 상태를 이름이 아니라 역할로 읽는다
-#       (concealed = 숨어 보이지 않음 · incapacitated = 움직이거나 행동할 수 없음 · dying = 처치 없으면 죽어 감).
+#     상태 선택 키 `roles: [concealed|incapacitated|dying|dead]` — 엔진이 상태를 이름이 아니라 역할로 읽는다
+#       (concealed = 숨어 보이지 않음 · incapacitated = 움직이거나 행동할 수 없음 · dying = 처치 없으면 죽어 감 ·
+#        dead = 세계에서 빠짐 — v7.49: NPC는 장면·사건 조건·추적에서 사라진다).
 #     공용 상태 선택 키 `requires: 기능` — 시나리오가 그 기능(scenario_schema.capabilities)을 선언해야 붙는다(core.utils).
 from __future__ import annotations
 
@@ -60,8 +61,8 @@ import copy
 from dataclasses import dataclass, field
 
 TRUE, FALSE, UNKNOWN = "TRUE", "FALSE", "UNKNOWN"
-ROLE_CONCEALED, ROLE_INCAPACITATED, ROLE_DYING = "concealed", "incapacitated", "dying"
-ROLES = (ROLE_CONCEALED, ROLE_INCAPACITATED, ROLE_DYING)
+ROLE_CONCEALED, ROLE_INCAPACITATED, ROLE_DYING, ROLE_DEAD = "concealed", "incapacitated", "dying", "dead"
+ROLES = (ROLE_CONCEALED, ROLE_INCAPACITATED, ROLE_DYING, ROLE_DEAD)
 SCOPE_COMMON, SCOPE_SCENARIO = "공용", "시나리오"
 RULE_KEYS = ("apply_gate", "apply_auto", "clear_auto", "clear_gate", "raise_auto")
 STATUS_TIMES = ("SINCE_INTAKE_GTE", "SINCE_APPLIED_GTE", "SINCE_STATUS_GTE", "SINCE_CLEARED_GTE", "SINCE_CARED_GTE")
@@ -747,8 +748,9 @@ def resolve_turn(session, prep) -> list:
         d.notes.append(f"{s} 판단 누락(유지)")
     notes = list(d.notes)
     # v7.48(D-3 나): NPC도 같은 규칙 — 이번 턴 추출 후보가 있거나 상태가 붙어 있는 인물
+    forced = {n: m for n, m in (facts.get("event_statuses") or {}).items() if n != pc_name}
     touched = {e.get("target") for e in plan.status_apply + plan.status_clear} \
-        | {n for n, st in (session.statuses or {}).items() if st}
+        | {n for n, st in (session.statuses or {}).items() if st} | set(forced)
     for npc in sorted(t for t in touched if t and t != pc_name):
         own = lambda e, _n=npc: e.get("target") == _n  # noqa: E731
         nctx = Ctx(now=now, start_minute=facts["start"], turn_minutes=max(0, now - before), daypart=facts["daypart"],
@@ -759,6 +761,11 @@ def resolve_turn(session, prep) -> list:
                     [e for e in plan.status_clear if own(e)], ())
         plan.status_apply = [e for e in plan.status_apply if not own(e)] + dn.apply
         plan.status_clear = [e for e in plan.status_clear if not own(e)] + dn.clear
+        for s, at in sorted((forced.get(npc) or {}).items()):     # v7.49: 사건이 붙인 상태 — 규칙·게이트 없이 그대로
+            if s in merged and not any(e.get("status") == s for e in dn.apply):
+                plan.status_apply.append({"target": npc, "status": s, "score": 100})
+                dn.clock.setdefault("applied", {})[s] = int(at if at is not None else now)
+                dn.notes.append(f"{s} (사건)")
         new_store[npc] = dn.clock
         notes += [f"{npc}: {n}" for n in dn.notes]
     session.status_clock = new_store
