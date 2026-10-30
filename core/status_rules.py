@@ -42,6 +42,7 @@
 #     `lower_by: "care"` — 추출이 단계를 낮추거나 해제하지 못한다(처치·시간 규칙만).
 #     `latent.cancel_by: 사용 효과` — 발현 전 그 효과로 처치하면 잠복 취소 · `latent.min_stage: n` — 그 단계 이상에서만 판정.
 #     rules 키 `raise_auto: C` — C가 TRUE면 코드가 한 단계 올린다.
+#     v7.50 rules 키 `lower_auto: C` — C가 TRUE면 코드가 한 단계 내린다(1단계면 해제). 예: 휴식으로 마력 소모 회복.
 #     조건 원자: {"stage_min": n, "status"?: s}(그 상태 — 없으면 이 상태 — 가 n단계 이상) ·
 #       {"status_time": "SINCE_CARED_GTE", "minutes": n, "status"?: s}(마지막 처치 뒤 n분↑, 처치 없으면 FALSE).
 #     상태 시계 추가 키: "stage" {상태: 단계} · "cared" {상태: 분} · "eased" {상태: 끝나는 분}(비면 키 없음).
@@ -64,7 +65,7 @@ TRUE, FALSE, UNKNOWN = "TRUE", "FALSE", "UNKNOWN"
 ROLE_CONCEALED, ROLE_INCAPACITATED, ROLE_DYING, ROLE_DEAD = "concealed", "incapacitated", "dying", "dead"
 ROLES = (ROLE_CONCEALED, ROLE_INCAPACITATED, ROLE_DYING, ROLE_DEAD)
 SCOPE_COMMON, SCOPE_SCENARIO = "공용", "시나리오"
-RULE_KEYS = ("apply_gate", "apply_auto", "clear_auto", "clear_gate", "raise_auto")
+RULE_KEYS = ("apply_gate", "apply_auto", "clear_auto", "clear_gate", "raise_auto", "lower_auto")
 STATUS_TIMES = ("SINCE_INTAKE_GTE", "SINCE_APPLIED_GTE", "SINCE_STATUS_GTE", "SINCE_CLEARED_GTE", "SINCE_CARED_GTE")
 CARE_ACTIONS = ("down", "treat", "ease")
 NOISE_LEVELS = ("QUIET", "NORMAL", "LOUD")       # v7.48(E4) 이번 턴 PC 행동의 소리(작은 것부터)
@@ -602,6 +603,14 @@ def decide(merged: dict, ctx: Ctx, pc_name: str, apply_in, clear_in, groups_cons
             stage[s] = stage.get(s, 1) + 1
             notes.append(f"{label(merged, s, clock)} ← 단계 올라감(코드 확정)")
             roll_latent(s, stage[s])
+        elif s in ctx.active and s not in want_clear and "lower_auto" in r \
+                and evaluate(r["lower_auto"], ctx, s) == TRUE:
+            if nstages(s) and stage.get(s, 1) > 1:
+                stage[s] = stage.get(s, 1) - 1
+                notes.append(f"{label(merged, s, clock)} ← 단계 내려감(코드 확정)")
+            else:
+                want_clear.add(s)
+                notes.append(f"{s} 해제(코드 확정)")
         if s not in ctx.active and s not in want_apply and "apply_auto" in r \
                 and evaluate(r["apply_auto"], ctx, s) == TRUE:
             want_apply[s] = {"target": pc_name, "status": s, "score": None}
@@ -706,6 +715,30 @@ def _stage_in(plan, pc_name) -> dict:
     return out
 
 
+def pre_bump(merged, ctx, bumps) -> None:
+    """v7.50: 이미 붙은 상태의 코드 단계 상승을 판정 전에 반영(같은 턴 규칙 — 예: 중상 → 빈사 — 이 본다)."""
+    for st, n in sorted((bumps or {}).items()):
+        k = len(stages_of(merged.get(st)))
+        if st in ctx.active and k:
+            stage = ctx.clock.setdefault("stage", {})
+            stage[st] = min(k, stage_of(ctx.clock, st) + int(n))
+
+
+def post_bump(merged, ctx, d, target, bumps, plan) -> None:
+    """v7.50: 붙어 있지 않던 상태의 코드 상승 = 그 단계로 새로 붙인다(규칙·게이트 없이 — 판정 결과가 근거)."""
+    for st, n in sorted((bumps or {}).items()):
+        if st not in merged or st in ctx.active or any(e.get("status") == st for e in d.apply):
+            if st in ctx.active:
+                d.notes.append(f"{st} {stage_of(d.clock, st)}단계(코드)")
+            continue
+        plan.status_apply.append({"target": target, "status": st, "score": 100})
+        d.clock.setdefault("applied", {})[st] = ctx.now
+        k = len(stages_of(merged.get(st)))
+        if k:
+            d.clock.setdefault("stage", {})[st] = max(1, min(k, int(n)))
+        d.notes.append(f"{st} (코드)")
+
+
 def resolve_turn(session, prep) -> list:
     """DYNAMIC 턴의 상태 후보를 규칙으로 확정하고 status_clock을 갱신한다. 반환: 보고 줄(빈 목록 = 변화 없음).
 
@@ -728,6 +761,17 @@ def resolve_turn(session, prep) -> list:
     consumed, used = _turn_groups(getattr(plan, "item_plan", None), groups)
     consumed, used = consumed | facts.get("care_consumed", frozenset()), used | facts.get("care_used", frozenset())
     store = getattr(session, "status_clock", None) or {}
+    # v7.50(E5·E6): 코드가 정한 단계 상승 — 발동 기술 비용(PC) · 공격 대결 부상(PC·NPC). 같은 턴 추출의 그 대상 부상은 쓰지 않는다
+    bumps = {}
+    for st, n in (facts.get("spend") or {}).items():
+        bumps.setdefault(pc_name, {})[st] = bumps.get(pc_name, {}).get(st, 0) + int(n)
+    from .turn_world import WOUND_STATUS
+    for who, n in (facts.get("hits") or {}).items():
+        bumps.setdefault(who, {})[WOUND_STATUS] = bumps.get(who, {}).get(WOUND_STATUS, 0) + int(n)
+    if bumps:
+        hit = lambda e: WOUND_STATUS in (bumps.get(e.get("target")) or {}) and e.get("status") == WOUND_STATUS  # noqa
+        plan.status_apply = [e for e in plan.status_apply if not hit(e)]
+        plan.status_clear = [e for e in plan.status_clear if not hit(e)]
     ctx = Ctx(now=now, start_minute=facts["start"], turn_minutes=max(0, now - before),
               place=place, place_chain=_place_chain(sd, place), place_groups=place_groups_of(sd), daypart=facts["daypart"], activity=facts["activity"],
               consumed=consumed, used=used, active=frozenset((session.statuses or {}).get(pc_name) or ()),
@@ -735,9 +779,11 @@ def resolve_turn(session, prep) -> list:
               seed=f"{getattr(session, 'narrative_seed', '') or ''}", worn=facts.get("worn") or frozenset(),
               care=facts.get("care") or frozenset(), stage_in=_stage_in(plan, pc_name),
               moved=facts.get("moved"), noise=facts.get("noise"))
+    pre_bump(merged, ctx, bumps.get(pc_name))
     mine = lambda e: e.get("target") == pc_name  # noqa: E731
     d = decide(merged, ctx, pc_name, [e for e in plan.status_apply if mine(e)],
                [e for e in plan.status_clear if mine(e)], consumed)
+    post_bump(merged, ctx, d, pc_name, bumps.get(pc_name), plan)
     plan.status_apply = [e for e in plan.status_apply if not mine(e)] + d.apply
     plan.status_clear = [e for e in plan.status_clear if not mine(e)] + d.clear
     new_store = {**store, pc_name: d.clock}
@@ -750,17 +796,26 @@ def resolve_turn(session, prep) -> list:
     # v7.48(D-3 나): NPC도 같은 규칙 — 이번 턴 추출 후보가 있거나 상태가 붙어 있는 인물
     forced = {n: m for n, m in (facts.get("event_statuses") or {}).items() if n != pc_name}
     touched = {e.get("target") for e in plan.status_apply + plan.status_clear} \
-        | {n for n, st in (session.statuses or {}).items() if st} | set(forced)
+        | {n for n, st in (session.statuses or {}).items() if st} | set(forced) | set(bumps) \
+        | set(facts.get("event_clears") or {})
     for npc in sorted(t for t in touched if t and t != pc_name):
         own = lambda e, _n=npc: e.get("target") == _n  # noqa: E731
         nctx = Ctx(now=now, start_minute=facts["start"], turn_minutes=max(0, now - before), daypart=facts["daypart"],
                    active=frozenset((session.statuses or {}).get(npc) or ()), clock=copy.deepcopy(store.get(npc) or {}),
                    seed=f"{getattr(session, 'narrative_seed', '') or ''}",
                    care=(facts.get("care_by") or {}).get(npc) or frozenset(), stage_in=_stage_in(plan, npc), npc=True)
+        pre_bump(merged, nctx, bumps.get(npc))
         dn = decide(merged, nctx, npc, [e for e in plan.status_apply if own(e)],
                     [e for e in plan.status_clear if own(e)], ())
+        post_bump(merged, nctx, dn, npc, bumps.get(npc), plan)
         plan.status_apply = [e for e in plan.status_apply if not own(e)] + dn.apply
         plan.status_clear = [e for e in plan.status_clear if not own(e)] + dn.clear
+        for s in (facts.get("event_clears") or {}).get(npc) or ():  # v7.50(E7): 사건이 푼 상태 — 그대로 해제
+            if not any(e.get("status") == s for e in dn.clear):
+                plan.status_clear.append({"target": npc, "status": s})
+                for k in ("applied", "stage", "cared", "eased"):
+                    (dn.clock.get(k) or {}).pop(s, None)
+                dn.notes.append(f"{s} 해제(사건)")
         for s, at in sorted((forced.get(npc) or {}).items()):     # v7.49: 사건이 붙인 상태 — 규칙·게이트 없이 그대로
             if s in merged and not any(e.get("status") == s for e in dn.apply):
                 plan.status_apply.append({"target": npc, "status": s, "score": 100})

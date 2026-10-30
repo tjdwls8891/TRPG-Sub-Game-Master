@@ -49,6 +49,12 @@ def get_growth_config(session) -> dict:
                 cfg[k] = v
     except Exception:
         pass
+    try:                                     # v7.50(E8): 성장 포인트(기능 growth)를 선언하면 실패 누적 성장은 끈다
+        from .utils import scenario_capabilities
+        if "growth" in scenario_capabilities(session.scenario_data or {}):
+            cfg["enabled"] = False
+    except Exception:
+        pass
     return cfg
 
 
@@ -230,3 +236,120 @@ def format_luck(char_name: str, result: dict) -> str:
     """행운 발생 표시 문자열."""
     return (f"> 🍀 **[{char_name}] 행운 발생!** "
             f"(행운 판정 {result['rolled']} / 기준 {result['target']})")
+
+
+# ── v7.50(E8 · 기능 growth) 성장 포인트·등급 ─────────────────────────────
+#   시나리오 growth: {costs: {stat, skill}, records: {이름: {labels: [...]}}, places?: [PlaceId], learnable?: {직업: [기술]}}
+#   지급·기록은 사건 단계(GRANT_GROWTH·SET_PC_RECORD)가 정본(사건 기록)에 남기고, 커밋이 이번 턴 새 기록만 프로필에 반영한다.
+#   사용은 플레이어 선언 → 판단층위 의도 키 growth(쓸 수 있을 때만 후보) → 커밋이 다시 검증해 반영.
+POINTS_FIELD = "성장 포인트"
+DEFAULT_COSTS = {"stat": 2, "skill": 3}
+
+
+def growth_spec(scenario_data) -> dict | None:
+    from .utils import scenario_capabilities
+    if "growth" not in scenario_capabilities(scenario_data or {}):
+        return None
+    return (scenario_data or {}).get("growth") or {}
+
+
+def _points(profile) -> int:
+    try:
+        return max(0, int((profile or {}).get(POINTS_FIELD) or 0))
+    except (TypeError, ValueError):
+        return 0
+
+
+def spend_options(session, uid, scene_place=None) -> list:
+    """[(키, 설명, 비용)] — 지금 쓸 수 있는 성장(능력치:이름 / 기술:이름). 포인트·장소·상한을 코드가 거른다."""
+    sd = getattr(session, "scenario_data", None) or {}
+    spec = growth_spec(sd)
+    if spec is None:
+        return []
+    places = spec.get("places")
+    if places and scene_place not in places:
+        return []
+    prof = ((getattr(session, "players", None) or {}).get(uid) or {}).get("profile") or {}
+    pts = _points(prof)
+    costs = {**DEFAULT_COSTS, **(spec.get("costs") or {})}
+    out = []
+    if pts >= costs["stat"]:
+        for st in sd.get("ability_stats") or ():
+            try:
+                cur = int(prof.get(st))
+            except (TypeError, ValueError):
+                continue
+            if cur < growth_stat_cap(session, st):
+                out.append((f"능력치:{st}", f"{st} {cur} → {cur + 1}", costs["stat"]))
+    if pts >= costs["skill"]:
+        from .judgment import owned_skills
+        owned = set(owned_skills(prof))
+        job = prof.get("직업")
+        pool = list(((spec.get("learnable") or {}).get(job) or
+                     (((sd.get("skills") or {}).get("직업") or {}).get(job) or {})))
+        for n in pool:
+            if n not in owned:
+                out.append((f"기술:{n}", f"{n} 익히기", costs["skill"]))
+    return out
+
+
+def apply_turn(session, prep) -> list:
+    """커밋 — 사건 지급·기록과 이번 턴 성장 사용을 프로필에 반영(멱등은 커밋 경로가 보장). 반환: 보고 줄."""
+    from . import turn_world as _tw
+    from . import turn_transaction as _tt
+    spec = growth_spec(getattr(session, "scenario_data", None) or {})
+    if spec is None:
+        return []
+    uid = next(iter((getattr(session, "players", None) or {})), None)
+    player = (session.players or {}).get(uid) if uid else None
+    if not isinstance(player, dict) or not isinstance(player.get("profile"), dict):
+        return []
+    prof, lines = player["profile"], []
+    ch = _tw.growth_changes(session, prep)
+    if ch["points"]:
+        prof[POINTS_FIELD] = _points(prof) + ch["points"]
+        lines.append(f"성장 포인트 +{ch['points']} → {prof[POINTS_FIELD]}")
+    for f, v in sorted(ch["records"].items()):
+        prof[f] = v
+        labels = ((spec.get("records") or {}).get(f) or {}).get("labels") or []
+        lines.append(f"{f} → {labels[v - 1] if isinstance(v, int) and 0 < v <= len(labels) else v}")
+    tx = _tt.get_active_transaction(session)
+    choice = (((getattr(tx, "judgment_result", None) or {}).get("judgment") or {}).get("growth")
+              if tx is not None and getattr(tx, "transaction_id", None) == getattr(prep, "transaction_id", None) else None)
+    if choice and choice != "NONE":
+        opt = next((o for o in spend_options(session, uid, _tw.turn_scene(session, prep)) if o[0] == choice), None)
+        if opt is None:
+            lines.append(f"성장 {choice} — 지금 쓸 수 없음(포인트·장소·상한)")
+        else:
+            kind, _, name = choice.partition(":")
+            prof[POINTS_FIELD] = _points(prof) - opt[2]
+            if kind == "능력치":
+                prof[name] = int(prof[name]) + 1
+            else:
+                from .judgment import owned_skills, SKILL_FIELD
+                raw = prof.get(SKILL_FIELD)
+                cur = owned_skills(prof) + [name]
+                prof[SKILL_FIELD] = cur if isinstance(raw, list) else ", ".join(cur)
+            lines.append(f"성장: {opt[1]} (−{opt[2]}점, 남은 {prof[POINTS_FIELD]})")
+    return lines
+
+
+def check_spec(scenario_data) -> list:
+    """growth 저작 검사(기능 growth를 선언한 시나리오만) — [문구]."""
+    spec = growth_spec(scenario_data)
+    if spec is None:
+        return []
+    out = []
+    costs = spec.get("costs") or {}
+    if set(costs) - set(DEFAULT_COSTS) or not all(isinstance(v, int) and not isinstance(v, bool) and v > 0
+                                                  for v in costs.values()):
+        out.append("growth.costs는 {stat?, skill?: 양의 정수}")
+    for f, r in (spec.get("records") or {}).items():
+        if not (isinstance(r, dict) and isinstance(r.get("labels"), list) and r["labels"]
+                and all(isinstance(x, str) and x for x in r["labels"])):
+            out.append(f"growth.records.{f}: {{labels: [이름…]}}(값 1 = 첫 이름)")
+    pl = spec.get("places")
+    if pl is not None and not (isinstance(pl, list) and all(x in ((scenario_data or {}).get("places") or {})
+                                                            for x in pl)):
+        out.append("growth.places는 실재 장소 목록")
+    return out

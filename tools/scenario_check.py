@@ -195,6 +195,10 @@ def main(argv=None) -> int:
         from core import status_rules as _sr
         from core.utils import get_merged_status_effects
         st_errs = _sr.check_definitions(src.raw, get_merged_status_effects(src.raw or {}))
+        from core import judgment as _jd                  # v7.50 기술 종류(상시·발동)·비용 · 성장 저작
+        st_errs += [("SKILLS", m) for m in _jd.check_skills(src.raw, set(get_merged_status_effects(src.raw or {})))]
+        from core import growth as _gr
+        st_errs += [("GROWTH", m) for m in _gr.check_spec(src.raw)]
         bf = (src.raw or {}).get("briefing_formats")
         if isinstance(bf, dict):
             from core.start_frame import BRIEFING_BEATS

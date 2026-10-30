@@ -272,14 +272,20 @@ def _judge_side(view, side: dict, name: str, world_turn=None, contest: bool = Fa
     uid = core.get_uid_by_char_name(view, name)
     sd = getattr(view, "scenario_data", None)
     domain = side.get("domain") if world_turn is not None and side.get("domain") in _roll_domains() else None
-    skill, s, item, e = "", 0, "", 0
+    skill, s, item, e, spend = "", 0, "", 0, {}
     h = int(side.get("status_mod") or 0)
     status_basis = str(side.get("status_basis") or "")
     if uid:
         _prof = (view.players.get(uid) or {}).get("profile") or {}
         raw = _prof.get(stat)
-        s = core.judgment.skill_mod(_prof, side.get("skill"))
-        skill = str(side.get("skill") or "").strip() if s else ""
+        # v7.50(E5 · D-B3): 상시 기술(분야 자동) + 지목한 발동 기술(비용 상태가 고갈이면 0)
+        _clk = (getattr(view, "status_clock", None) or {}).get(name) or {}
+        _merged = core.get_merged_status_effects(sd or {})
+
+        def _exhausted(st, _c=_clk, _m=_merged, _have=(getattr(view, "statuses", None) or {}).get(name) or ()):
+            n = len(core.status_rules.stages_of(_m.get(st)))
+            return bool(n) and st in _have and core.status_rules.stage_of(_c, st) >= n
+        s, skill, spend = core.judgment.skill_terms(_prof, sd, side.get("skill"), domain, _exhausted)
         _defs = core.items.definitions_of(world_turn.ctx.definition) if world_turn is not None else {}
         if world_turn is not None and side.get("item") not in (None, "", "NONE"):   # v7.46 장비 보정 E
             row = next((r for r in core.items.equip_rows(view, name, _defs) if r[0] == side.get("item")), None)
@@ -317,6 +323,7 @@ def _judge_side(view, side: dict, name: str, world_turn=None, contest: bool = Fa
     m = int(side.get("method_mod") or 0)
     d = core.judgment.DIFFICULTY[diff]
     out = {"name": name, "stat": stat, "is_pc": bool(uid), "uid": uid, "difficulty": diff,
+           "spend": spend if uid else {},
            "A": a, "S": s, "skill": skill, "E": e, "item": item, "M": m, "H": h, "D": d, "domain": domain or "",
            "method_basis": str(side.get("method_basis") or ""),
            "status_basis": status_basis, "T": None}
@@ -429,7 +436,9 @@ def _build_judgment_user_prompt(session, player_message: str, roll_results: list
         _sk = _pc_skills(session, p_data)
         if _sk:
             prof_lines.append("    스킬(쓰임): " + " / ".join(
-                f"{n}({core.profile_gen.skill_note(session.scenario_data, n) or '쓰임 미저작'})" for n in _sk))
+                f"{n}({core.profile_gen.skill_note(session.scenario_data, n) or '쓰임 미저작'}"
+                + ("·상시 — 코드가 분야에 맞으면 자동" if not core.judgment.is_invoked(session.scenario_data, n) else "")
+                + ")" for n in _sk))
         if world_turn is not None:
             _eb = core.items.equip_block(core.items.equip_rows(
                 session, c_name, core.items.definitions_of(world_turn.ctx.definition)), session.scenario_data)
@@ -2512,6 +2521,8 @@ class GMCog(commands.Cog):
             statuses=core.player_world.pc_statuses(session, ctx.uid_of.get(ctx.lead_pc)),  # v7.48(E1): 상태 조건
             pursuit=core.pursuit.context(ctx.definition, core.get_merged_status_effects(session.scenario_data or {}),
                                          session.statuses, self._pc_name(session, ctx)),   # v7.48(E3): 추적자
+            combat_deaths=core.turn_world.combat_deaths(                                    # v7.50(E6): 전투 쓰러짐
+                ctx.definition, session, (self._tx_judgment(session, transaction_id) or {}).get("roll_records") or ()),
             resolved_tie_orders=resolved_tie_orders)
 
     def _ensure_world_plan(self, session, wt, transaction_id):
@@ -2971,6 +2982,8 @@ class GMCog(commands.Cog):
             prefix=core.turn_world.turn_op_prefix("snpc", prep.transaction_id),
             barrier=[o.op_id for o in res.ops], present=_promoted)
         _pu_ops = core.turn_world.pursuit_hearing_ops(session, prep, wt.ctx, res, self._pc_name(session, wt.ctx)) if res.projected_world is not None else ()
+        if res.projected_world is not None:            # v7.50(E9): 이번 커밋이 닿는 장 결말 — 커밋 뒤 카드·기록
+            prep.chapter_endings = core.turn_world.new_chapter_endings(wt.ctx.definition, session, res.projected_world)
         try:
             core.turn_preparation.stage_world_ops(prep, tuple(res.ops) + tuple(_reg_ops) + tuple(_pu_ops))
         except core.turn_preparation.BarrierViolationError as e:
@@ -3534,6 +3547,7 @@ class GMCog(commands.Cog):
                 await core.refresh_display(self.bot, session, reason="turn_end")
             except Exception as e:
                 print(f"[디스플레이] 턴 종료 갱신 실패: {e}")
+            await self._announce_chapters(session, getattr(prep, "chapter_endings", None) or ())
             await self._conclude_if_ending(session, master_ch)
             return True
         if outcome == CC.CommitOutcome.FAILED_PRE_PERSIST:
@@ -3572,6 +3586,23 @@ class GMCog(commands.Cog):
                     pass
             return False
         return False     # REJECTED — 이 호출은 흐름을 소유하지 않는다
+
+    async def _announce_chapters(self, session, endings) -> None:
+        """v7.50(E9): 장(章) 결말 — 결말 카드와 통계 기록만 남기고 세션은 이어 간다."""
+        game_ch = self.bot.get_channel(session.game_ch_id) if endings else None
+        for end in endings:
+            if game_ch:
+                try:
+                    await game_ch.send(embed=discord.Embed(title=f"📖 {end['title']}",
+                                                           description="한 장이 끝났습니다. 이야기는 이어집니다.",
+                                                           color=0x2b2d31))
+                except Exception as e:
+                    print(f"[장 결말] 카드 실패: {e}")
+            try:
+                for uid in (getattr(session, "players", {}) or {}):
+                    await core.stats.add_ending(uid, getattr(session, "scenario_id", ""), end["id"])
+            except Exception as e:
+                print(f"[장 결말] 기록 실패: {e}")
 
     async def _conclude_if_ending(self, session, master_ch) -> bool:
         """v7.44(E3): 커밋된 정본이 저작 결말 국면에 닿았으면 — 결말 카드 → 기존 종료 경로(정산·환급) → 채널 잠금·기록.
@@ -3926,6 +3957,9 @@ class GMCog(commands.Cog):
             self.bot.get_channel(getattr(session, "master_ch_id", 0))
         # v7.38(D5): DYNAMIC PC 상태 — 규칙(시간·장소·섭취)으로 부여·해제를 확정하고 상태 시계를 같은 커밋에 기록
         core.status_rules.resolve_turn(session, prep)
+        _gl = core.growth.apply_turn(session, prep)                     # v7.50(E8): 성장 포인트·등급·성장 사용
+        if _gl:
+            plan.diagnostics["growth"] = list(_gl)
         await self._apply_extraction_plan(session, plan, _mch, derived=derived)
 
     async def _retire_legacy_extraction_retry(self, session) -> bool:
@@ -4585,7 +4619,8 @@ class GMCog(commands.Cog):
                                                           "enum": ["NONE"] + [r[0] for r in discovery_rows]}
         # v7.46(A): 굴림 skill은 PC가 가진 스킬 이름만, item은 착용·손에 든 물건 키만(스키마 사본 — prompts.py 원본 불변)
         _skills = sorted({n for p in (session.players or {}).values() if isinstance(p, dict)
-                          for n in _pc_skills(session, p)})
+                          for n in _pc_skills(session, p)
+                          if core.judgment.is_invoked(session.scenario_data, n)})   # v7.50: 상시 기술은 지목하지 않는다
         _ekeys = []
         if _wt is not None:
             _defs = core.items.definitions_of(_wt.ctx.definition)
@@ -4615,9 +4650,23 @@ class GMCog(commands.Cog):
                     _op["properties"]["domain"] = dict(_dom, description="상대 쪽 행동의 분야(공격을 막으면 방어 등)")
                     _op["properties"]["status_mod"] = dict(_op["properties"].get("status_mod") or {"type": "integer"},
                                                            description="0(상태 보정은 코드가 계산한다)")
+        # v7.50(E8 · D-B2 가): 성장 사용 — 지금 쓸 수 있을 때만 후보(코드가 포인트·장소·상한을 거른다)
+        _gopts = core.growth.spend_options(session, next(iter(session.players or {}), None),
+                                           (getattr(session, "spatial_state", None) or {}).get("scene_place")) \
+            if _wt is not None else []
+        if _gopts:
+            import copy as _copy
+            _schema = _copy.deepcopy(_schema)
+            _schema["properties"]["growth"] = {
+                "type": "string", "enum": ["NONE"] + [k for k, _d, _c in _gopts],
+                "description": "플레이어가 이번 선언에서 성장(단련·학습)을 명시적으로 고를 때만 그 키, 아니면 NONE"}
         user_prompt = _build_judgment_user_prompt(session, player_message, roll_results, world_turn=_wt, gate=gate,
                                                   declaration_draft=declaration_draft and not gate,
                                                   discovery_rows=discovery_rows if declaration_draft and not gate else ())
+        if _gopts:
+            user_prompt += ("\n[성장 — 플레이어가 성장 포인트로 단련·학습을 명시적으로 선언할 때만 growth 키를 고른다. "
+                            "그 밖에는 NONE. 반영은 코드가 커밋에서 다시 확인한다]\n"
+                            + "\n".join(f"· {k}: {d_} ({c}점)" for k, d_, c in _gopts) + "\n")
 
         contents = [types.Content(role="user", parts=[types.Part.from_text(text=user_prompt)])]
         config = types.GenerateContentConfig(

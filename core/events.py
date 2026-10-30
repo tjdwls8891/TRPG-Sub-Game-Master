@@ -48,12 +48,45 @@ SLOT_TYPES = ("ACTOR", "PLACE", "INFO")
 STEP_TYPES = ("SET_ACCESS_STATE", "SET_ACTOR_PLACEMENT", "CLEAR_ACTOR_PLACEMENT", "START_MOVEMENT", "CREATE_INFORMATION",
               "SUPERSEDE_INFORMATION", "ACQUIRE_INFORMATION", "SET_COGNITION_BELIEF",
               "APPEND_RELATIONSHIP_DELTA", "SET_EVENT_LOCAL", "SCHEDULE_WAKEUP", "SCHEDULE_EFFECT",
-              "EMIT_SIGNAL", "SET_ACTOR_STATUS")
+              "EMIT_SIGNAL", "SET_ACTOR_STATUS", "CLEAR_ACTOR_STATUS", "GRANT_GROWTH", "SET_PC_RECORD")
 # v7.49: SET_ACTOR_STATUS {actor, status} — 사건이 인물에게 상태를 붙인다(저작 사망 등). 정본은 그 사건의 지역 값
 #   `actor_status:<ActorId>` = {status, minute}(되감기 대상 — 새 typed 연산·세션 필드 없음). 세션 상태(session.statuses)
 #   반영은 커밋 상태 판정(status_rules.resolve_turn)이 하고, 역할 dead 상태면 그 인물은 유효 위치를 잃는다
 #   (core.npc_position — 장면·사건 조건·추적에서 빠짐).
 ACTOR_STATUS_PREFIX = "actor_status:"
+# v7.50(E7): CLEAR_ACTOR_STATUS {actor, status?} — 사건이 붙였던 인물 상태를 푼다(게이트 회차 시작에 몬스터 되살리기 등).
+#   지역 값 `actor_status_clear:<ActorId>` = {status|None(전부), minute}. 기록은 분·인스턴스 순으로 겹쳐 읽는다.
+ACTOR_STATUS_CLEAR_PREFIX = "actor_status_clear:"
+# v7.50(E6): 전투 기록 사건 — 기능 combat_wounds를 선언한 시나리오에 컴파일러가 만든다(시작 즉시 생성, 국면 하나).
+#   공격 대결로 쓰러진 인물의 역할 dead 상태를 이 인스턴스의 actor_status 기록으로 남긴다.
+COMBAT_TEMPLATE = "combat_record"
+# v7.50(E8 · 기능 growth): GRANT_GROWTH {points} → 지역 값 `growth_grant:<step_id>` = {points, minute} ·
+#   SET_PC_RECORD {field, value} → `pc_record:<field>` = {value, minute}. 프로필 반영은 커밋(turn_world.pc_record_changes)이
+#   이번 턴 새로 생긴 기록만 한다(정본은 사건 기록 — 되감기 대상).
+GROWTH_GRANT_PREFIX, PC_RECORD_PREFIX = "growth_grant:", "pc_record:"
+
+
+def growth_ledger(event_instances) -> tuple:
+    """({(iid, key): points}, {field: (minute, iid, value)}) — 사건이 지급한 성장 포인트·최신 프로필 기록."""
+    grants, recs = {}, {}
+    for iid in sorted(event_instances or {}):
+        loc = ((event_instances[iid] or {}).get("local_state") or {}) if isinstance(event_instances[iid], dict) else {}
+        for k, v in sorted(loc.items()):
+            if not isinstance(v, dict):
+                continue
+            if k.startswith(GROWTH_GRANT_PREFIX) and isinstance(v.get("points"), int):
+                grants[(iid, k)] = v["points"]
+            elif k.startswith(PC_RECORD_PREFIX):
+                f = k[len(PC_RECORD_PREFIX):]
+                cand = (v.get("minute") or 0, iid, v.get("value"))
+                if f not in recs or cand[:2] > recs[f][:2]:
+                    recs[f] = cand
+    return grants, recs
+
+
+def synth_holder(name: str) -> dict:
+    return {"version": 1, "name": name, "spawn_when": {"const": True},
+            "phases": {"open": {"eligible_when": {"const": True}, "priority": 1}}}
 INTERRUPT_POLICIES = ("NONE", "IF_OBSERVABLE")
 INSTANCE_KEYS = ("instance_id", "template_id", "template_version", "bound_slots", "lifecycle",
                  "current_phase", "phase_entered_at", "transition_ordinal", "occurrence_ordinal",
@@ -435,15 +468,51 @@ def _s_actor_status(step, sctx, parents):
 
 
 def actor_status_marks(event_instances) -> dict:
-    """{ActorId: {상태: 분}} — 사건이 붙인 인물 상태(SET_ACTOR_STATUS) 전부(인스턴스 정렬, 먼저 붙은 분 유지)."""
-    out = {}
+    """{ActorId: {상태: 분}} — 사건이 붙인 인물 상태(SET_ACTOR_STATUS)에서 푼 것(CLEAR_ACTOR_STATUS)을 뺀 것.
+    기록을 (분, 인스턴스, 붙임 먼저) 순으로 겹쳐 읽는다 — 같은 분이면 붙임 뒤 해제."""
+    rows = []
     for iid in sorted(event_instances or {}):
         loc = ((event_instances[iid] or {}).get("local_state") or {}) if isinstance(event_instances[iid], dict) else {}
         for k in sorted(loc):
             v = loc[k]
-            if k.startswith(ACTOR_STATUS_PREFIX) and isinstance(v, dict) and isinstance(v.get("status"), str):
-                out.setdefault(k[len(ACTOR_STATUS_PREFIX):], {}).setdefault(v["status"], v.get("minute"))
-    return out
+            if not isinstance(v, dict):
+                continue
+            m = v.get("minute") if isinstance(v.get("minute"), int) else 0
+            if k.startswith(ACTOR_STATUS_PREFIX) and isinstance(v.get("status"), str):
+                rows.append((m, iid, 0, k[len(ACTOR_STATUS_PREFIX):], v["status"]))
+            elif k.startswith(ACTOR_STATUS_CLEAR_PREFIX):
+                rows.append((m, iid, 1, k[len(ACTOR_STATUS_CLEAR_PREFIX):], v.get("status")))
+    out = {}
+    for m, _iid, clear, aid, st in sorted(rows, key=lambda r: (r[0], r[1], r[2])):
+        if clear:
+            if st is None:
+                out.pop(aid, None)
+            else:
+                (out.get(aid) or {}).pop(st, None)
+        else:
+            out.setdefault(aid, {}).setdefault(st, m)
+    return {a: ms for a, ms in out.items() if ms}
+
+
+def _s_actor_status_clear(step, sctx, parents):
+    actor = sctx.resolve(step["actor"])
+    if not actor:
+        return StepResult(diagnostics=[_diag("STEP_UNBOUND", sctx, step)])
+    return StepResult([_mk(sctx, step["step_id"], 0, OP_EVENT_LOCAL_SET,
+                           {"instance_id": sctx.iid, "key": ACTOR_STATUS_CLEAR_PREFIX + actor,
+                            "value": {"status": step.get("status"), "minute": sctx.now}}, parents)])
+
+
+def _s_grant_growth(step, sctx, parents):
+    return StepResult([_mk(sctx, step["step_id"], 0, OP_EVENT_LOCAL_SET,
+                           {"instance_id": sctx.iid, "key": GROWTH_GRANT_PREFIX + step["step_id"],
+                            "value": {"points": int(step["points"]), "minute": sctx.now}}, parents)])
+
+
+def _s_pc_record(step, sctx, parents):
+    return StepResult([_mk(sctx, step["step_id"], 0, OP_EVENT_LOCAL_SET,
+                           {"instance_id": sctx.iid, "key": PC_RECORD_PREFIX + step["field"],
+                            "value": {"value": step["value"], "minute": sctx.now}}, parents)])
 
 
 def _s_local(step, sctx, parents):
@@ -498,7 +567,8 @@ STEP_HANDLERS = {
     "ACQUIRE_INFORMATION": _s_acquire, "SET_COGNITION_BELIEF": _s_belief,
     "APPEND_RELATIONSHIP_DELTA": _s_relationship, "SET_EVENT_LOCAL": _s_local,
     "SCHEDULE_WAKEUP": _s_wakeup, "SCHEDULE_EFFECT": _s_effect, "EMIT_SIGNAL": _s_signal,
-    "SET_ACTOR_STATUS": _s_actor_status,
+    "SET_ACTOR_STATUS": _s_actor_status, "CLEAR_ACTOR_STATUS": _s_actor_status_clear,
+    "GRANT_GROWTH": _s_grant_growth, "SET_PC_RECORD": _s_pc_record,
 }
 
 

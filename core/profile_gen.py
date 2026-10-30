@@ -671,6 +671,8 @@ def option_note(table, name: str) -> str | None:
         v = table.get(name)
         if isinstance(v, str):
             return v
+        if isinstance(v, dict) and isinstance(v.get("desc"), str):       # v7.50: 기술 객체 {desc, kind, …}
+            return v["desc"]
         for sub in table.values():
             found = option_note(sub, name)
             if found:

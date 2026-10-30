@@ -72,6 +72,9 @@ KNOWN_CAPABILITIES = {
     "mortality": 1,     # 빈사 → 사망(상태 결말)
     "stealth": 1,       # 숨음 · 추출 소음(noise) 판단
     "pursuit": 1,       # 인물 행동 유형 pursuer(추적자)
+    # v7.50: 헌터물 기능
+    "combat_wounds": 1,  # 공격 대결 성공 여유 → 진 쪽 부상 단계(코드) · 쓰러짐
+    "growth": 1,         # 성장 포인트·등급(사건 지급 · 플레이어 선언 사용)
 }
 
 # 이 컴파일러 버전이 도메인 검증까지 끝내는 capability. 나머지는 선언을 기록하되
@@ -79,12 +82,12 @@ KNOWN_CAPABILITIES = {
 VALIDATED_CAPABILITIES = frozenset({"stable_actors", "quantitative_time", "structured_places",
                                     "information_registry", "actor_cognition", "dynamic_actor_location",
                                     "dynamic_events", "scheduled_world_progression",
-                                    "mortality", "stealth", "pursuit"})
+                                    "mortality", "stealth", "pursuit", "combat_wounds", "growth"})
 # 주의: '검증됨'은 저작 정의의 컴파일·정적 검증이 끝났다는 뜻이다. 세션 초기화(H06)·플레이어 턴
 # 배선(H05)·프롬프트 공개 경계(H05)·시나리오 실제 저작 완성도(H07)는 별도 게이트다.
 
 # v7.48: 세계 기반이 아닌 '선택 기능' capability — 필요한 시나리오만 선언한다(세계 기반 capability와 구분).
-FEATURE_CAPABILITIES = frozenset({"mortality", "stealth", "pursuit"})
+FEATURE_CAPABILITIES = frozenset({"mortality", "stealth", "pursuit", "combat_wounds", "growth"})
 
 # capability 의존성(DESIGN 08 §4). (요구 capability, 심각도)
 # dynamic_actor_location → structured_places 는 사용자 결정(H01 보정)으로 ERROR.
@@ -94,6 +97,8 @@ CAPABILITY_DEPENDENCIES = {
     "dynamic_events": (("stable_actors", "ERROR"),),
     "dynamic_actor_location": (("structured_places", "ERROR"),),
     "pursuit": (("stealth", "ERROR"), ("dynamic_events", "ERROR"), ("dynamic_actor_location", "ERROR")),
+    "combat_wounds": (("mortality", "ERROR"), ("dynamic_events", "ERROR")),
+    "growth": (("dynamic_events", "ERROR"),),
 }
 
 # 새 스키마용으로 예약된 키. 이 컴파일러가 구조화하지 않으므로, 있으면 경고한다
@@ -1298,13 +1303,17 @@ _STEP_PARAMS = {
     "SCHEDULE_EFFECT": (("after_minutes", "effect"), ("guard", "epoch_bound")),
     "EMIT_SIGNAL": (("signal_id", "cue"), ("interrupt_policy", "observable_when", "exposes")),
     "SET_ACTOR_STATUS": (("actor", "status"), ()),
+    "CLEAR_ACTOR_STATUS": (("actor",), ("status",)),
+    "GRANT_GROWTH": (("points",), ()),
+    "SET_PC_RECORD": (("field", "value"), ()),
 }
 # H07: EMIT_SIGNAL.exposes — 이 신호가 묘사되면 PC가 알게 될 수 있는 저작 정보(공개 안전 summary 필수).
 #      관찰 매니페스트 후보가 될 뿐, 노출 확정은 확정 묘사의 추출 관찰(info_exposed)만 한다.
 # H07: CLEAR_ACTOR_PLACEMENT — 정본 override 해제(이후 평상시 일과/untracked). 명시 저작으로만 해제한다.
 _EFFECT_STEP_TYPES = ("SET_ACCESS_STATE", "SET_ACTOR_PLACEMENT", "CLEAR_ACTOR_PLACEMENT", "START_MOVEMENT", "CREATE_INFORMATION",
                       "SUPERSEDE_INFORMATION", "ACQUIRE_INFORMATION", "SET_COGNITION_BELIEF",
-                      "APPEND_RELATIONSHIP_DELTA", "SET_EVENT_LOCAL", "EMIT_SIGNAL", "SET_ACTOR_STATUS")
+                      "APPEND_RELATIONSHIP_DELTA", "SET_EVENT_LOCAL", "EMIT_SIGNAL", "SET_ACTOR_STATUS",
+                      "CLEAR_ACTOR_STATUS", "GRANT_GROWTH", "SET_PC_RECORD")
 
 
 PERSONA_KEYS = ("surface", "core", "stances", "now", "initial_trust")
@@ -1461,10 +1470,22 @@ def _compile_step(st, p, scope, access, edges, created, d, *, nested=False):
         ref_id(st["place"], "PlaceId", scope.places, "PLACE")
     elif t == "CLEAR_ACTOR_PLACEMENT":
         ref_id(st["actor"], "ActorId", scope.actors, "ACTOR")
-    elif t == "SET_ACTOR_STATUS":
+    elif t in ("SET_ACTOR_STATUS", "CLEAR_ACTOR_STATUS"):
         ref_id(st["actor"], "ActorId", scope.actors, "ACTOR")
-        if scope.statuses is not None and st["status"] not in scope.statuses:
+        if st.get("status") is not None and scope.statuses is not None and st["status"] not in scope.statuses:
             bad("STEP_REF_UNKNOWN", f"정의되지 않은 상태 {st['status']!r}(공용·시나리오 상태, 기능 선언 포함)")
+    elif t == "GRANT_GROWTH":
+        if "growth" not in (_CAPS or ()):
+            bad("STEP_CAPABILITY_REQUIRED", "GRANT_GROWTH에는 growth capability 선언이 필요합니다")
+        if not (isinstance(st["points"], int) and not isinstance(st["points"], bool) and st["points"] > 0):
+            bad("STEP_PARAMS_INVALID", "points는 양의 정수")
+    elif t == "SET_PC_RECORD":
+        if "growth" not in (_CAPS or ()):
+            bad("STEP_CAPABILITY_REQUIRED", "SET_PC_RECORD에는 growth capability 선언이 필요합니다")
+        if st["field"] not in (_PC_RECORDS or {}):
+            bad("STEP_REF_UNKNOWN", f"growth.records에 선언되지 않은 기록 {st['field']!r}")
+        elif not (isinstance(st["value"], int) and not isinstance(st["value"], bool)):
+            bad("STEP_PARAMS_INVALID", "value는 정수(등급은 1부터 — growth.records 이름표 순서)")
     elif t == "START_MOVEMENT":
         ref_id(st["actor"], "ActorId", scope.actors, "ACTOR")
         ref_id(st["destination"], "PlaceId", scope.places, "PLACE")
@@ -1775,12 +1796,12 @@ def _compile_event_templates(raw, caps, actors, actor_index, places, infos, acce
                                             for x in fs]
             if "ending" in ph:                      # v7.44(E3): 이 국면에 들어가면 이야기가 끝난다(에필로그 → 세션 종료)
                 en = ph["ending"]
-                if not (isinstance(en, dict) and set(en) - {"tone"} == {"id", "title", "epilogue"}
+                if not (isinstance(en, dict) and set(en) - {"tone", "chapter"} == {"id", "title", "epilogue"}
                         and is_valid_explicit_id(en["id"])
                         and all(isinstance(en[k], str) and en[k].strip() for k in ("title", "epilogue"))
-                        and isinstance(en.get("tone", ""), str)):
+                        and isinstance(en.get("tone", ""), str) and isinstance(en.get("chapter", False), bool)):
                     d.add(ERROR, "EVENT_PHASE_ENDING_INVALID", f"{pp}.ending",
-                          "ending은 {id(명시 id), title, epilogue(지시층위 전용 맺음 지침), tone?}")
+                          "ending은 {id(명시 id), title, epilogue(지시층위 전용 맺음 지침), tone?, chapter?(v7.50 장 결말)}")
                 else:
                     phases[pid]["ending"] = dict(en)
             if "resolution_options" in ph:
@@ -2612,11 +2633,19 @@ def _compile_initial_knowledge(raw, infos, init, d) -> None:
 
 _STATUS_NAMES = None   # v7.48(E1): 컴파일 중인 시나리오의 상태 이름(공용 + 시나리오) — OBSERVER_STATUS 검증용
 _STATUS_DEFS = None    # v7.49: 같은 출처의 상태 정의(역할 dead 판별)
+_CAPS = None           # v7.50: 컴파일 중인 시나리오의 선언 capability(사건 단계 검증용)
+_PC_RECORDS = None     # v7.50: growth.records(프로필 기록 선언)
 
 
 def compile_scenario(raw: dict, scenario_id: str, quests: dict | None = None) -> CompileResult:
     """raw 시나리오(+퀘스트 부속)를 컴파일한다. 입력을 변경하지 않는다."""
-    global _STATUS_NAMES, _STATUS_DEFS
+    global _STATUS_NAMES, _STATUS_DEFS, _CAPS, _PC_RECORDS
+    try:
+        from .utils import scenario_capabilities
+        _CAPS = scenario_capabilities(raw if isinstance(raw, dict) else {})
+        _PC_RECORDS = (((raw or {}).get("growth") or {}).get("records") or {}) if isinstance(raw, dict) else {}
+    except Exception:  # noqa: BLE001
+        _CAPS, _PC_RECORDS = frozenset(), {}
     try:
         from .utils import get_merged_status_effects
         _STATUS_DEFS = get_merged_status_effects(raw if isinstance(raw, dict) else {})
@@ -2697,13 +2726,19 @@ def _compile_scenario(raw: dict, scenario_id: str, quests: dict | None = None) -
     pursuers = _compile_behaviors(actors, places, modes, cap["capabilities"], d, calendar=calendar,
                                   templates=(raw.get("event_templates") or {}).keys())
     _raw_ev = raw
+    if "combat_wounds" in cap["capabilities"]:      # v7.50(E6): 전투 기록 사건(공격 대결로 쓰러진 인물의 상태)
+        from . import events as _ev0
+        if _ev0.COMBAT_TEMPLATE in (raw.get("event_templates") or {}):
+            d.add(ERROR, "COMBAT_TEMPLATE_COLLISION", f"event_templates.{_ev0.COMBAT_TEMPLATE}", "전투 기록 템플릿 이름과 겹칩니다")
+        _raw_ev = {**raw, "event_templates": {**(raw.get("event_templates") or {}),
+                                              _ev0.COMBAT_TEMPLATE: _ev0.synth_holder("전투 기록")}}
     if pursuers:                       # v7.48(E3): 추적자마다 상태를 담는 사건 템플릿(시작 즉시 생성)
         from . import pursuit as _pu
         synth = _pu.synth_templates(pursuers)
         clash = sorted(set(synth) & set(raw.get("event_templates") or {}))
         for tid in clash:
             d.add(ERROR, "BEHAVIOR_TEMPLATE_COLLISION", f"event_templates.{tid}", "추적자 상태 템플릿 이름과 겹칩니다")
-        _raw_ev = {**raw, "event_templates": {**(raw.get("event_templates") or {}), **synth}}
+        _raw_ev = {**_raw_ev, "event_templates": {**(_raw_ev.get("event_templates") or {}), **synth}}
     event_tpls = _compile_event_templates(_raw_ev, cap["capabilities"], actors, actor_index, places, infos, access,
                                           modes, edges, calendar, d)
 
@@ -2764,16 +2799,16 @@ def _compile_scenario(raw: dict, scenario_id: str, quests: dict | None = None) -
         definition["faction_capabilities"] = faction_caps
     # v7.49: 사건이 붙이는 역할 dead 상태(SET_ACTOR_STATUS) — 그 상태가 붙은 인물은 유효 위치를 잃는다.
     #   그런 step을 저작한 시나리오에만 키가 생긴다(미저작 시나리오 revision 불변)
-    removing = _removing_statuses(event_tpls)
+    removing = _removing_statuses(event_tpls, combat="combat_wounds" in cap["capabilities"])
     if removing:
         definition["actor_removing_statuses"] = removing
     return CompileResult(scenario_id, definition["compiler_version"], definition,
                          definition_revision(definition), diagnostics)
 
 
-def _removing_statuses(event_tpls) -> list:
-    from .status_rules import ROLE_DEAD
-    used = set()
+def _removing_statuses(event_tpls, combat=False) -> list:
+    from .status_rules import ROLE_DEAD, with_role
+    used = set(with_role(_STATUS_DEFS or {}, ROLE_DEAD)) if combat else set()
 
     def walk(x):
         if isinstance(x, dict):

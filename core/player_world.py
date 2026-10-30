@@ -534,7 +534,7 @@ def plan_player_turn(ctx: WorldContext, world, intent: _ai.ResolvedActionIntent,
                      narrative_seed: str, capabilities=(), resolved_tie_orders=None,
                      policy: RouteChoicePolicy = DEFAULT_ROUTE_POLICY, stats=None,
                      item_facts=None, access_capabilities=None, statuses=None,
-                     pursuit=None) -> PlayerWorldPlan:
+                     pursuit=None, combat_deaths=()) -> PlayerWorldPlan:
     """ResolvedActionIntent → PlayerWorldPlan(순수). world는 세션 또는 ProjectedWorld."""
     D = ctx.definition
     src = world if isinstance(world, _wm.ProjectedWorld) else _wm.ProjectedWorld.capture(world)
@@ -585,6 +585,14 @@ def plan_player_turn(ctx: WorldContext, world, intent: _ai.ResolvedActionIntent,
             pre_ops.append(_wm.make_op(f"{prefix}.resolution", _ev.OP_EVENT_LOCAL_SET, _ev.RESOLUTION_SOURCE, {
                 "instance_id": iid, "key": _ev.RESOLUTION_KEY, "value": oid}))
             plan.outcome["resolution"] = {"instance_id": iid, "option_id": oid}
+    if combat_deaths:
+        # v7.50(E6): 공격 대결로 쓰러진 인물 — 전투 기록 사건에 역할 dead 상태 기록(세계에서 빠짐 · 세션 상태 반영은 커밋)
+        from . import events as _ev
+        holder = next((iid for iid, r in sorted((src.domain("event_instances") or {}).items())
+                       if isinstance(r, dict) and r.get("template_id") == _ev.COMBAT_TEMPLATE), None)
+        for aid, st in (combat_deaths if holder else ()):
+            pre_ops.append(_wm.make_op(f"{prefix}.cb.{aid}", _ev.OP_EVENT_LOCAL_SET, "COMBAT", {
+                "instance_id": holder, "key": _ev.ACTOR_STATUS_PREFIX + aid, "value": {"status": st, "minute": now}}))
     from . import pursuit as _pu
     if pursuit is not None and here is not None and _pu.configs(D):
         # v7.48(E3): 추적자 판단(묘사 전, 결정적) — 상태 갱신·이동을 이번 턴 진행의 기준 연산으로

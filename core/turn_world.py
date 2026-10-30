@@ -816,9 +816,13 @@ def ending_block(ctx, plan, session) -> str:
     ends = _ev.new_endings(ctx.definition, session, plan.projected_world)
     if not ends:
         return ""
-    lines = [f"· {e['title']}" + (f"({e['tone']})" if e.get("tone") else "") + f": {e['epilogue']}" for e in ends]
-    return ("\n[결말 — 지시층위 전용. 이번 묘사가 이 이야기의 마지막이다. 아래 지침대로 맺고, 다음 행동을 묻지 않는다]\n"
-            + "\n".join(lines) + "\n")
+    line = lambda e: f"· {e['title']}" + (f"({e['tone']})" if e.get("tone") else "") + f": {e['epilogue']}"  # noqa
+    final = [line(e) for e in ends if not e.get("chapter")]
+    if final:
+        return ("\n[결말 — 지시층위 전용. 이번 묘사가 이 이야기의 마지막이다. 아래 지침대로 맺고, 다음 행동을 묻지 않는다]\n"
+                + "\n".join(final) + "\n")
+    return ("\n[장의 맺음 — 지시층위 전용(v7.50). 이번 묘사로 한 장(章)이 끝난다. 아래 지침대로 한 장을 맺되, "
+            "이야기는 이어진다 — 다음 행동은 평소처럼 묻는다]\n" + "\n".join(line(e) for e in ends) + "\n")
 
 
 def session_ending(session) -> dict | None:
@@ -832,8 +836,14 @@ def session_ending(session) -> dict | None:
     end = pc_status_ending(session)
     if end is not None:
         return end
-    ends = list(_ev.endings_in(wctx.definition, session).values())
+    ends = [e for e in _ev.endings_in(wctx.definition, session).values() if not e.get("chapter")]   # v7.50: 장 결말 제외
     return ends[0] if ends else None
+
+
+def new_chapter_endings(definition, session, projected) -> list:
+    """v7.50(E9): 이번 커밋에서 처음 닿는 장(章) 결말 — 세션을 닫지 않는다(카드·기록만)."""
+    from . import events as _ev
+    return [e for e in _ev.new_endings(definition, session, projected) if e.get("chapter")]
 
 
 def pc_status_ending(session) -> dict | None:
@@ -2079,7 +2089,125 @@ def status_turn_facts(session, prep) -> dict | None:
             "care_by": {k: frozenset(v) for k, v in care_by.items()},
             "moved": _pc_moved(session, wt.ctx.lead_pc, pl),
             "noise": _turn_noise(prep, worn),
-            "event_statuses": _event_statuses(wt.ctx.definition, proj, session)}
+            "event_statuses": _event_statuses(wt.ctx.definition, proj, session),
+            "event_clears": _event_clears(wt.ctx.definition, proj, session),
+            "spend": _turn_spend(session, prep, pc_name),
+            "hits": combat_hits(wt.ctx.definition, session, turn_rolls(session, prep))}
+
+
+def _event_clears(definition, proj, session) -> dict:
+    """v7.50(E7): 이번 턴 사건이 푼 인물 상태(CLEAR_ACTOR_STATUS) 중 세션 상태에 남아 있는 것 — {인물 이름: [상태]}."""
+    from . import events as _ev
+    acts = (definition or {}).get("actor_definitions") or {}
+    have = getattr(session, "statuses", None) or {}
+    before = _ev.actor_status_marks(getattr(session, "event_instances", None) or {})
+    after = _ev.actor_status_marks(proj.domain("event_instances") or {})
+    out = {}
+    for aid, marks in before.items():
+        name = (acts.get(aid) or {}).get("legacy_key") or aid
+        gone = [st for st in marks if st not in (after.get(aid) or {}) and st in (have.get(name) or ())]
+        if gone:
+            out[name] = sorted(gone)
+    return out
+
+
+def growth_changes(session, prep) -> dict:
+    """v7.50(E8): 이번 턴 사건이 새로 지급한 성장 포인트 합과 바뀐 프로필 기록 — {"points": n, "records": {field: value}}."""
+    from . import events as _ev
+    proj = getattr(getattr(prep, "world_projection", None), "world", None)
+    if not isinstance(proj, _wm.ProjectedWorld):
+        return {"points": 0, "records": {}}
+    g0, r0 = _ev.growth_ledger(getattr(session, "event_instances", None) or {})
+    g1, r1 = _ev.growth_ledger(proj.domain("event_instances") or {})
+    pts = sum(v for k, v in g1.items() if k not in g0)
+    recs = {f: v[2] for f, v in r1.items() if r0.get(f) != v}
+    return {"points": pts, "records": recs}
+
+
+def combat_deaths(definition, session, rolls) -> list:
+    """v7.50(E6): 공격 대결로 부상이 마지막 단계를 넘는 NPC — [(ActorId, 역할 dead 상태)](계획이 세계에서 뺀다)."""
+    from . import status_rules as _sr
+    from .utils import get_merged_status_effects
+    hits = combat_hits(definition, session, rolls)
+    if not hits:
+        return []
+    merged = get_merged_status_effects(getattr(session, "scenario_data", None) or {})
+    dead = next(iter(_sr.with_role(merged, _sr.ROLE_DEAD)), None)
+    k = len(_sr.stages_of(merged.get(WOUND_STATUS)))
+    if dead is None or not k:
+        return []
+    by_key = {(a or {}).get("legacy_key"): aid for aid, a in ((definition or {}).get("actor_definitions") or {}).items()}
+    out = []
+    for name, n in sorted(hits.items()):
+        aid = by_key.get(name)
+        if aid is None:
+            continue                                   # PC·세션 NPC는 빈사 규칙 / 세션 상태로
+        have = (getattr(session, "statuses", None) or {}).get(name) or ()
+        cur = _sr.stage_of(((getattr(session, "status_clock", None) or {}).get(name) or {}), WOUND_STATUS) \
+            if WOUND_STATUS in have else 0
+        if cur + n > k:
+            out.append((aid, dead))
+    return out
+
+
+def turn_scene(session, prep=None):
+    """이번 턴이 끝난(커밋 대상) 장면 장소 — 투영이 있으면 투영, 없으면 정본."""
+    proj = getattr(getattr(prep, "world_projection", None), "world", None)
+    st = proj.domain("spatial_state") if isinstance(proj, _wm.ProjectedWorld) else getattr(session, "spatial_state", None)
+    return (st or {}).get("scene_place")
+
+
+def turn_rolls(session, prep) -> list:
+    """이번 턴(이 트랜잭션)의 굴림 기록 — 판단 기록에 쌓인 roll_records(코드 성패·여유·분야)."""
+    from . import turn_transaction as _tt
+    tx = _tt.get_active_transaction(session)
+    if tx is None or getattr(tx, "transaction_id", None) != getattr(prep, "transaction_id", None):
+        return []
+    return [r for r in ((getattr(tx, "judgment_result", None) or {}).get("roll_records") or ()) if isinstance(r, dict)]
+
+
+def _turn_spend(session, prep, pc_name) -> dict:
+    """v7.50(E5): 이번 턴 PC가 쓴 발동 기술 비용 {상태: 단계 합}."""
+    out = {}
+    for r in turn_rolls(session, prep):
+        a = r.get("actor") or {}
+        if a.get("is_pc") and a.get("name") == pc_name:
+            for st, n in (a.get("spend") or {}).items():
+                out[st] = out.get(st, 0) + int(n)
+    return out
+
+
+WOUND_STATUS = "부상"
+WOUND_BANDS = ((30, 3), (15, 2), (1, 1))        # 성공 여유 차이 → 오르는 부상 단계(D-B4)
+
+
+def combat_hits(definition, session, rolls) -> dict:
+    """v7.50(E6 · 기능 combat_wounds): 공격 대결에서 진 쪽 {이름: 오를 부상 단계} — 이긴 쪽 분야가 공격 분야일 때만.
+    양쪽 모두(D-B1 가). 내구(인물 정의 toughness, 기본 1)로 나눠 올림."""
+    from .utils import scenario_capabilities
+    sd = getattr(session, "scenario_data", None) or {}
+    if "combat_wounds" not in scenario_capabilities(sd):
+        return {}
+    attack = set(sd.get("attack_domains") or ("근접", "원거리"))
+    acts = ((definition or {}).get("actor_definitions") or {}).values()
+    key_of = {**{(a or {}).get("display_name"): (a or {}).get("legacy_key") for a in acts},
+              **{(a or {}).get("legacy_key"): (a or {}).get("legacy_key") for a in acts}}
+    tough = {(a or {}).get("legacy_key"): int(((a or {}).get("profile_base") or {}).get("toughness")
+                                              or (a or {}).get("toughness") or 1) for a in acts}
+    out = {}
+    for r in rolls:
+        act, opp = r.get("actor") or {}, r.get("opponent") or {}
+        if r.get("kind") != "CONTEST" or act.get("contest") not in ("A", "B") or "margin" not in opp:
+            continue
+        win, lose = (act, opp) if act["contest"] == "A" else (opp, act)
+        if win.get("domain") not in attack:
+            continue
+        diff = int(win["margin"]) - int(lose["margin"])
+        n = next((k for lo, k in WOUND_BANDS if diff >= lo), 1)
+        key = key_of.get(lose.get("name")) or lose.get("name")
+        t = max(1, tough.get(key, 1))
+        out[key] = out.get(key, 0) + -(-n // t)
+    return out
 
 
 def _event_statuses(definition, proj, session) -> dict:

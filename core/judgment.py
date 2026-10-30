@@ -40,6 +40,112 @@ def skill_mod(profile: dict, skill) -> int:
     owned = raw if isinstance(raw, list) else str(raw or "").split(",")
     return SKILL_BONUS if name and name in {str(x).strip() for x in owned} else 0
 
+# v7.50(E5 · D-B3): 기술 종류 — 시나리오 skills 표의 항목은 설명 문자열(옛 형식 = 발동, +6) 또는 객체
+#   {desc, kind?: 상시|발동(기본 발동), bonus?(기본 SKILL_BONUS), domains?: [굴림 분야], cost?: {status, stages}}.
+#   상시 = 그 분야 굴림이면 코드가 자동으로 더한다(지목 불필요 — 가진 상시 기술 중 가장 큰 하나).
+#   발동 = 판단층위가 굴림마다 지목할 때만(분야가 정해져 있으면 그 분야일 때만). cost가 있으면 쓸 때 그 상태 단계가
+#   오르고(커밋), 비용 상태가 마지막 단계(고갈)면 보정 0·비용 없음.
+SKILL_ALWAYS, SKILL_INVOKED = "상시", "발동"
+SKILL_KINDS = (SKILL_ALWAYS, SKILL_INVOKED)
+SKILL_KEYS = ("desc", "kind", "bonus", "domains", "cost")
+
+
+def _find_skill(table, name):
+    if not isinstance(table, dict):
+        return None
+    if name in table and (isinstance(table[name], str) or (isinstance(table[name], dict) and "desc" in table[name])):
+        return table[name]
+    for v in table.values():
+        if isinstance(v, dict) and "desc" not in v:
+            hit = _find_skill(v, name)
+            if hit is not None:
+                return hit
+    return None
+
+
+def skill_entry(scenario_data, name) -> dict | None:
+    """기술 정의(정규화) — 표에 없으면 None(옛 동작: 프로필에 있으면 발동 +6)."""
+    raw = _find_skill((scenario_data or {}).get("skills"), str(name or "").strip())
+    if raw is None:
+        return None
+    if isinstance(raw, str):
+        return {"desc": raw, "kind": SKILL_INVOKED, "bonus": SKILL_BONUS, "domains": None, "cost": None}
+    return {"desc": str(raw.get("desc") or ""), "kind": raw.get("kind") or SKILL_INVOKED,
+            "bonus": int(raw.get("bonus", SKILL_BONUS)), "domains": raw.get("domains"), "cost": raw.get("cost")}
+
+
+def owned_skills(profile) -> list:
+    raw = (profile or {}).get(SKILL_FIELD)
+    vals = raw if isinstance(raw, list) else str(raw or "").split(",")
+    return [x for x in dict.fromkeys(str(v).strip() for v in vals) if x]
+
+
+def is_invoked(scenario_data, name) -> bool:
+    e = skill_entry(scenario_data, name)
+    return e is None or e["kind"] == SKILL_INVOKED
+
+
+def skill_terms(profile, scenario_data, designated, domain, exhausted=lambda _status: False) -> tuple:
+    """(S, 표시, 비용 {상태: 단계}) — 상시 기술(분야 자동) 중 가장 큰 하나 + 지목한 발동 기술.
+
+    domain이 없으면(레거시 판정) 상시는 붙지 않고 발동만 옛 규칙(+bonus)대로. exhausted(상태) = 비용 상태가 고갈인가."""
+    owned = owned_skills(profile)
+    best, best_name = 0, ""
+    for n in owned:
+        e = skill_entry(scenario_data, n)
+        if e and e["kind"] == SKILL_ALWAYS and domain and domain in (e["domains"] or ()) and e["bonus"] > best:
+            best, best_name = e["bonus"], n
+    s, labels, spend = best, ([best_name] if best_name else []), {}
+    name = str(designated or "").strip()
+    if name and name in owned and name != best_name:
+        e = skill_entry(scenario_data, name) or {"kind": SKILL_INVOKED, "bonus": SKILL_BONUS, "domains": None,
+                                                  "cost": None}
+        if e["kind"] == SKILL_INVOKED and not (e["domains"] and domain not in e["domains"]):
+            cost = e["cost"] if isinstance(e["cost"], dict) else None
+            if cost and exhausted(cost.get("status")):
+                labels.append(f"{name}(고갈)")
+            else:
+                s += e["bonus"]
+                labels.append(name)
+                if cost:
+                    spend[cost["status"]] = spend.get(cost["status"], 0) + int(cost.get("stages") or 1)
+    return s, ", ".join(labels), spend
+
+
+def check_skills(scenario_data, statuses=None) -> list:
+    """skills 표 저작 검사 — [문구]. statuses = 공용·시나리오 상태 이름(비용 상태 검사)."""
+    out = []
+
+    def walk(t, path):
+        for k, v in (t or {}).items():
+            if isinstance(v, str):
+                continue
+            if isinstance(v, dict) and "desc" in v:
+                p = f"{path}.{k}"
+                extra = set(v) - set(SKILL_KEYS)
+                if extra:
+                    out.append(f"{p}: 알 수 없는 키 {sorted(extra)}")
+                if v.get("kind", SKILL_INVOKED) not in SKILL_KINDS:
+                    out.append(f"{p}.kind는 {'|'.join(SKILL_KINDS)}")
+                if "bonus" in v and not (isinstance(v["bonus"], int) and not isinstance(v["bonus"], bool)
+                                         and 0 <= v["bonus"] <= 20):
+                    out.append(f"{p}.bonus는 0~20 정수")
+                if v.get("kind") == SKILL_ALWAYS and not v.get("domains"):
+                    out.append(f"{p}: 상시 기술은 domains(어느 분야 굴림에 붙는지)가 필요합니다")
+                if v.get("kind") == SKILL_ALWAYS and v.get("cost"):
+                    out.append(f"{p}: 상시 기술에는 cost를 둘 수 없습니다(발동 기술만)")
+                c = v.get("cost")
+                if c is not None and not (isinstance(c, dict) and isinstance(c.get("status"), str)
+                                          and isinstance(c.get("stages", 1), int) and c.get("stages", 1) >= 1):
+                    out.append(f"{p}.cost는 {{status, stages(1↑)}}")
+                elif c and statuses is not None and c["status"] not in statuses:
+                    out.append(f"{p}.cost.status {c['status']!r}는 정의되지 않은 상태")
+            elif isinstance(v, dict):
+                walk(v, f"{path}.{k}")
+    walk((scenario_data or {}).get("skills"), "skills")
+    return out
+
+
 STAT_MIN, STAT_MAX = 1, 20
 
 
