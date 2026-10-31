@@ -293,7 +293,6 @@ def revert(conv: Converted) -> dict:
     for iid, c in (ents.get("event") or {}).items():
         inst = dict(c["core"])
         inst["local_state"] = c.get("vars", {})
-        if "history" in c:
-            inst["history"] = c["history"]
+        inst["history"] = c.get("history", [])
         out["event_instances"][iid] = inst
     return out

@@ -90,7 +90,11 @@ def _kernel_shadow(monkeypatch, request):
         res = orig(source, batch, registry)
         if res.ok and registry is _wm.PRODUCTION_REGISTRY and not batch.is_empty():
             src = source if isinstance(source, _wm.ProjectedWorld) else _wm.ProjectedWorld.capture(source)
-            d = _sh.shadow_compare(src.to_dict(), batch, res.world.to_dict())
+            try:
+                d = _sh.shadow_compare(src.to_dict(), batch, res.world.to_dict())
+            except Exception as e:  # noqa: BLE001 — 그림자 검사의 결함이 운영 경로를 바꾸지 않게
+                import traceback
+                d = [f"그림자 검사 예외 {type(e).__name__}: {e} {traceback.format_exc()[-600:]}"]
             if d:
                 diffs.append((batch.batch_id, d[:5]))
         return res

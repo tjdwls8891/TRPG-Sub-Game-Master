@@ -6,11 +6,12 @@
 from indaim.kernel import WORLD, Component, EffectBatch, KernelError, Registry, make_effect, project
 from indaim.kernel.effects import compact
 from indaim.rules import FEATURES, register_all
+from indaim.rules.relations.components import target_of
 
 from . import v4
 
 PORTED = tuple((c.entity, c.name) for f in FEATURES for c in f.COMPONENTS)
-_PLACEHOLDERS = (("actor", ("reg", "mind", "vitals", "bag", "party", "bond", "stats")),
+_PLACEHOLDERS = (("actor", ("vitals", "bag", "party", "stats")),
                  ("item", ("state",)), ("place", ("floor",)), ("info", ("runtime", "status")),
                  ("event", ("core", "vars", "history")),
                  (WORLD, ("pending_signals", "item_lore", "info_series", "group_mind", "group_bond", "unresolved")))
@@ -26,15 +27,54 @@ def registry() -> Registry:
 
 
 def _actor_op(comp, op, keep=None):
-    def f(p):
+    def f(p, _op=None):
         args = {k: v for k, v in p.items() if k != "actor_id" and (keep is None or k in keep)}
         return [("actor", p.get("actor_id"), comp, op, args)]
     return f
 
 
 def _world_op(comp, op):
-    return lambda p: [(WORLD, "", comp, op, dict(p))]
+    return lambda p, _op=None: [(WORLD, "", comp, op, dict(p))]
 
+
+def _holder(comp_actor, comp_group, op):
+    def f(p, _op=None):
+        h = p.get("holder") or ""
+        args = {k: v for k, v in p.items() if k != "holder"}
+        if h.startswith("actor:"):
+            return [("actor", h[len("actor:"):], comp_actor, op, args)]
+        return [(WORLD, "", comp_group, op, dict(p))]
+    return f
+
+
+def _info_create(p, _op=None):
+    iid = (p.get("definition") or {}).get("info_id") if isinstance(p.get("definition"), dict) else None
+    return [("info", iid, "runtime", "create", dict(p)), ("info", iid, "status", "init", dict(p))]
+
+
+def _info_link(p, _op=None):
+    return [("info", p.get("predecessor"), "status", "add_successor", dict(p)),
+            ("info", p.get("successor"), "status", "add_predecessor", dict(p))]
+
+
+def _event_create(p, _op=None):
+    inst = dict(p.get("instance") or {}) if isinstance(p.get("instance"), dict) else {}
+    if isinstance(inst.get("local_state"), dict):
+        inst["local_state"] = {k: v for k, v in inst["local_state"].items() if not k.startswith(v4.LEDGER_PREFIXES)}
+    iid = inst.get("instance_id")
+    return [("event", iid, c, op, {"instance": inst}) for c, op in (("core", "create"), ("vars", "init"), ("history", "init"))]
+
+
+def _event_op(comp, op):
+    return lambda p, _op=None: [("event", p.get("instance_id"), comp, op,
+                                  {k: v for k, v in p.items() if k != "instance_id"})]
+
+
+def _event_local(p, op):
+    if isinstance(p.get("key"), str) and p["key"].startswith(v4.LEDGER_PREFIXES):
+        return []                         # 엔진 장부 — 주인 모듈(vitals·party·growth·items) 이식 때 그 효과가 된다
+    name = "resolve" if op.source_kind == "PLAYER_RESOLUTION" else "set"
+    return [("event", p.get("instance_id"), "vars", name, {k: v for k, v in p.items() if k != "instance_id"})]
 
 TRANSLATE = {
     "CLOCK_INITIALIZE": _world_op("clock", "init"),
@@ -46,12 +86,28 @@ TRANSLATE = {
     "ACCESS_STATE_SET": _world_op("access", "set"),
     "ACTOR_PLACEMENT_SET": _actor_op("pos", "place"),
     "ACTOR_TRANSIT_SET": _actor_op("pos", "transit"),
-    "ACTOR_PLACEMENT_CLEAR": lambda p: [("actor", p.get("actor_id"), "pos", "clear", {}),
+    "ACTOR_PLACEMENT_CLEAR": lambda p, _op=None: [("actor", p.get("actor_id"), "pos", "clear", {}),
                                         ("actor", p.get("actor_id"), "hold", "hold_current", {}),
                                         (WORLD, "", "schedule", "drop_movement_wakeups", {"actor_id": p.get("actor_id")})],
     "SPATIAL_PLACE_KNOWLEDGE_UPSERT": _actor_op("map", "place_know"),
     "SPATIAL_EDGE_KNOWLEDGE_UPSERT": _actor_op("map", "edge_know"),
     "SPATIAL_ACCESS_KNOWLEDGE_UPSERT": _actor_op("map", "access_know"),
+    "ACTOR_REGISTER": _actor_op("reg", "register"),
+    "ACTOR_RENAME": _actor_op("reg", "rename"),
+    "INFORMATION_CREATE": _info_create,
+    "INFORMATION_VALIDITY_SET": lambda p, _op=None: [("info", p.get("info_id"), "status", "validity",
+                                                       {k: v for k, v in p.items() if k != "info_id"})],
+    "INFORMATION_LINK": _info_link,
+    "INFORMATION_SERIES_SET": _world_op("info_series", "set"),
+    "COGNITION_ACQUIRE": _holder("mind", "group_mind", "acquire"),
+    "COGNITION_UPSERT": _holder("mind", "group_mind", "upsert"),
+    "COGNITION_BELIEF_SET": _holder("mind", "group_mind", "belief"),
+    "RELATIONSHIP_DELTA_APPEND": lambda p, _op=None: [(*target_of(p.get("delta")), "append", dict(p))],
+    "EVENT_INSTANCE_CREATE": _event_create,
+    "EVENT_PHASE_TRANSITION": _event_op("core", "transition"),
+    "EVENT_LIFECYCLE_SET": _event_op("core", "lifecycle"),
+    "EVENT_LOCAL_SET": _event_local,
+    "EVENT_HISTORY_APPEND": _event_op("history", "append"),
 }
 
 
@@ -66,7 +122,10 @@ def translate(ops) -> list:
         if fn is None:
             ids_of[op.op_id] = parents                        # 빠진 연산 = 부모를 그대로 물려준다
             continue
-        rows = fn(op.payload)
+        rows = fn(op.payload, op)
+        if not rows:
+            ids_of[op.op_id] = parents
+            continue
         ids = []
         for i, (kind, eid, comp, name, args) in enumerate(rows):
             eff_id = op.op_id if len(rows) == 1 else f"{op.op_id}#{i}"

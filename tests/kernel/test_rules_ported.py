@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""이식 모듈 time·space — 옛 handler와 같은 거부·no-op 규칙(그림자 비교가 못 보는 거부 경로 위주)."""
+"""이식 모듈 — 옛 handler와 같은 거부·no-op 규칙(그림자 비교가 못 보는 거부 경로 위주)."""
 from __future__ import annotations
 
 import pytest
@@ -65,3 +65,9 @@ def test_transit_and_knowledge_rules():
     rec = K.View(k.world, REG, None).read("actor", "a1", "map")
     assert rec["edges"]["e"]["acquisition_sources"] == ["x", "y"] and rec["revision"] == 2
     assert not run([("actor", "a1", "map", "access_know", {"ref": "r", "fields": {"observed_result": "MAYBE"}})]).ok
+
+
+def test_every_old_typed_op_is_translated():
+    """옛 production 연산 28종이 모두 새 효과로 번역된다(새 옛-연산이 그림자 비교를 조용히 건너뛰지 않게)."""
+    from core import world_mutation as W
+    assert set(ops_v4.TRANSLATE) == set(W.PRODUCTION_REGISTRY.op_types())
