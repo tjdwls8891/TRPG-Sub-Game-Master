@@ -79,8 +79,8 @@ def test_code_bumps_raise_existing_stage_before_rules_and_apply_new_status():
     ctx2 = SR.Ctx(now=50, start_minute=0, active=frozenset(), clock={})
     d2 = SR.decide({"마력 소모": MANA}, ctx2, "P", [], [], ())
     SR.post_bump({"마력 소모": MANA}, ctx2, d2, "P", {"마력 소모": 2}, plan)
-    assert plan.status_apply == [{"target": "P", "status": "마력 소모", "score": 100}] and \
-        d2.clock["stage"]["마력 소모"] == 2
+    assert {"target": "P", "status": "마력 소모", "score": 100} in d2.apply and plan.status_apply == [] and \
+        d2.clock["stage"]["마력 소모"] == 2                                       # v7.53.1(F1): d.apply로(호출자가 합친다)
 
 
 # ── E6 공격 대결 부상 ───────────────────────────────────────────

@@ -184,12 +184,19 @@ def heal_target(candidates, effect, merged, statuses, clocks) -> str | None:
     best = None
     for n in candidates:
         have = (statuses or {}).get(n) or ()
+        clock = (clocks or {}).get(n) or {}
         score = 0
         for st in have:
-            if effect not in ((merged.get(st) or {}).get("care") or {}):
+            act = ((merged.get(st) or {}).get("care") or {}).get(effect)
+            if act is None:
                 continue
-            s = 1000 if _sr.ROLE_DYING in ((merged.get(st) or {}).get("roles") or ()) \
-                else _sr.stage_of((clocks or {}).get(n) or {}, st) or 1
+            # v7.53.1(F3): 효과 없는 처치는 고르지 않는다 — 이미 처치한 1단계(treat)·완화 중(ease)
+            stg = _sr.stage_of(clock, st) or 1
+            if act == "treat" and stg <= 1 and st in (clock.get("cared") or {}):
+                continue
+            if act == "ease" and st in (clock.get("eased") or {}):
+                continue
+            s = 1000 if _sr.ROLE_DYING in ((merged.get(st) or {}).get("roles") or ()) else stg
             score = max(score, s)
         if score and (best is None or (-score, n) < (-best[0], best[1])):
             best = (score, n)

@@ -164,7 +164,7 @@ def evaluate(cond, ctx: Ctx, status: str) -> str:
     if "daypart_in" in cond:
         return UNKNOWN if ctx.daypart is None else _b(ctx.daypart in (cond["daypart_in"] or ()))
     if "activity_in" in cond:
-        if ctx.npc:
+        if ctx.activity is None:                  # v7.53.1: 활동을 모르면 모름(NPC는 PC와 함께한 파티원만 활동이 있다)
             return UNKNOWN
         ok = ctx.activity in (cond["activity_in"] or ())
         return _b(ok and ctx.turn_minutes >= int(cond.get("min_minutes") or 0))
@@ -731,7 +731,7 @@ def post_bump(merged, ctx, d, target, bumps, plan) -> None:
             if st in ctx.active:
                 d.notes.append(f"{st} {stage_of(d.clock, st)}단계(코드)")
             continue
-        plan.status_apply.append({"target": target, "status": st, "score": 100})
+        d.apply.append({"target": target, "status": st, "score": 100})   # v7.53.1: d.apply — 호출자가 plan에 합친다
         d.clock.setdefault("applied", {})[st] = ctx.now
         k = len(stages_of(merged.get(st)))
         if k:
@@ -803,7 +803,9 @@ def resolve_turn(session, prep) -> list:
         | set(facts.get("event_clears") or {})
     for npc in sorted(t for t in touched if t and t != pc_name):
         own = lambda e, _n=npc: e.get("target") == _n  # noqa: E731
+        # v7.53.1(F4 가): PC와 같은 장소의 파티원은 그 턴 PC의 활동을 함께 한다(함께 쉬면 함께 회복)
         nctx = Ctx(now=now, start_minute=facts["start"], turn_minutes=max(0, now - before), daypart=facts["daypart"],
+                   activity=facts["activity"] if npc in (facts.get("party_present") or ()) else None,
                    active=frozenset((session.statuses or {}).get(npc) or ()), clock=copy.deepcopy(store.get(npc) or {}),
                    seed=f"{getattr(session, 'narrative_seed', '') or ''}",
                    care=(facts.get("care_by") or {}).get(npc) or frozenset(), stage_in=_stage_in(plan, npc), npc=True)

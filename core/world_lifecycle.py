@@ -421,7 +421,7 @@ async def initialize_world(bot, session, chosen: dict) -> InitResult:
         return await _fail(bot, session, blocked)       # 전달 여부 미확정 — 인지·세계를 만들지 않는다
     saved = {k: copy.deepcopy(getattr(session, k, None))
              for k in ("definition_revision", "world_lifecycle", "world_initialization", "resources",
-                       "item_instances", "place_items", _ik.FIELD)}
+                       "item_instances", "place_items", _ik.FIELD, "players", "companions")}
     try:
         rev = bind_definition(session, definition)
     except Exception as e:  # noqa: BLE001 — 바인딩 실패 = 초기화 안 함(정본 불변)
@@ -452,6 +452,8 @@ async def initialize_world(bot, session, chosen: dict) -> InitResult:
                                           source_prefix=f"start.{choices.frame_id}").items():
         setattr(session, k, v)
     _ik.mark_committed(session, uids[0], entries, excluded)
+    from . import turn_world as _tw          # v7.53.1(F2): 시작 사건 기록(성장·PC 기록·물건·파티) — 같은 strict 저장
+    _tw.genesis_event_effects(definition, session, plan.projected_world)
     mres = await _cm.CanonicalMutationCoordinator(bot).apply(
         session, batch, cause_kind=_ws.CAUSE_INITIALIZATION, cause_id=init_id)
     if mres.outcome not in (_cm.OUTCOME_COMMITTED, _cm.OUTCOME_RECOVERY_PENDING):

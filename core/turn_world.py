@@ -2107,6 +2107,7 @@ def status_turn_facts(session, prep) -> dict | None:
             "event_clears": _event_clears(wt.ctx.definition, proj, session),
             "spend": _turn_spend(session, prep, pc_name),
             "npc_spend": npc_spend,
+            "party_present": frozenset(m["name"] for m in party_members(wt.ctx, session, proj)),
             "hits": combat_hits(wt.ctx.definition, session, turn_rolls(session, prep))}
 
 
@@ -2137,6 +2138,44 @@ def growth_changes(session, prep) -> dict:
     pts = sum(v for k, v in g1.items() if k not in g0)
     recs = {f: v[2] for f, v in r1.items() if r0.get(f) != v}
     return {"points": pts, "records": recs}
+
+
+def genesis_event_effects(definition, session, projected) -> list:
+    """v7.53.1(F2): 시작(INITIALIZATION)에 사건이 남긴 기록을 세션에 반영 — 플레이어 턴 반영과 같은 대상, '이전 = 빈 기록'.
+
+    성장 포인트·PC 기록(기능 growth) → 프로필, 물건 지급 → 소지품·현장 물건, 파티 합류 → 동행. 세션을 바꾼다(genesis
+    strict 저장과 같은 저장에 들어간다). 반환: 보고 줄."""
+    from . import events as _ev
+    from . import growth as _gr
+    from . import items as _items
+    from . import party as _pa
+    evs = (projected.domain("event_instances") or {}) if isinstance(projected, _wm.ProjectedWorld) else {}
+    lines = []
+    uid = next(iter(getattr(session, "players", None) or {}), None)
+    player = (session.players or {}).get(uid) if uid else None
+    prof = player.get("profile") if isinstance(player, dict) and isinstance(player.get("profile"), dict) else None
+    if _gr.growth_spec(getattr(session, "scenario_data", None) or {}) is not None and prof is not None:
+        grants, recs = _ev.growth_ledger(evs)
+        if grants:
+            prof[_gr.POINTS_FIELD] = _gr._points(prof) + sum(grants.values())
+            lines.append(f"성장 포인트 {prof[_gr.POINTS_FIELD]}")
+        for f, v in sorted(recs.items()):
+            prof[f] = v[2]
+            lines.append(f"{f} = {v[2]}")
+    grants = [{**v, "box": "ev." + stable_digest("item.grant.v1", f"{iid}|{k}", length=12)}
+              for (iid, k), v in sorted(_ev.item_grants(evs).items())]
+    if grants:
+        pc = (player or {}).get("name") if isinstance(player, dict) else None
+        lines += [f"물건 {r['target']} {r['item']} +{r['delta']}"
+                  for r in _items.apply_event_grants(session, grants, definition=definition, pc_name=pc)]
+    comp = list(getattr(session, "companions", None) or [])
+    for aid, flag in sorted(_ev.party_marks(evs).items()):
+        name = _pa.legacy_key(definition, aid)
+        if flag and name and _pa.role_of(definition, aid) and name not in comp:
+            comp.append(name)
+            lines.append(f"파티 합류 {name}")
+    session.companions = comp
+    return lines
 
 
 def item_grant_changes(session, prep) -> list:
