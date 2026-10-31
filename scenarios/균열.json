@@ -1,0 +1,3470 @@
+{
+  "worldview": "[균열 — 각성자의 도시]\n1. 무대\n2031년 3월, 대전광역시. 6년 전 갑천변에 첫 '게이트(균열)'가 열린 뒤 전국 도시에 크고 작은 게이트가 열리고 닫힌다. 협회 대전지부(로비·등급 심사장·마석 매입소·훈련장·의뢰 게시판), 은하수 길드 사무실, 중앙시장 헌터 상가, PC의 원룸, 그리고 게이트 현장들이 무대다.\n\n2. 게이트(고정 사실)\n- 게이트에는 등급(E~S)이 있다. 안에는 몬스터가 있고, 보스를 쓰러뜨리면 닫히기 시작한다.\n- 같은 게이트에 다시 들어가면 새 회차다 — 몬스터가 다시 자리를 잡는다.\n- 몬스터를 쓰러뜨리면 마석이 남는다고 알려져 있다(협회 매입소가 사들인다).\n\n3. 헌터\n- 각성자는 협회에 등록하고 등급 심사를 받는다. 등급보다 높은 게이트는 협회 통제선이 막는다.\n- 각성 능력을 쓰면 마력이 소모된다. 쉬면 돌아온다.\n- 공격대는 역할이 갈린다 — 탱커·근접 딜러·마법사·힐러·서포터.\n- 대부분의 헌터는 각성한 등급에서 크게 자라지 않는다. 그러나 PC는 다르다 — 싸울수록 강해진다(성장 포인트). 이 사실은 PC만 안다.\n\n4. 사람들\n- 윤채린(29): 협회 접수·심사 담당.\n- 강도형(41): 은하수 길드장, C급.\n- 한유진(26): 은하수 길드 탱커, D급.\n- 서아름(24): 은하수 길드 힐러, E급.\n- 도재경(31): 프리랜서 근접 딜러, D급.\n- 백소은(22): 신입 동기 마법사, E급.\n- 노태민(35): 짐꾼 출신 서포터, E급.\n- 차세윤(27): 천랑 길드 C급, 라이벌.\n- 마준혁(33): 브로커.\n- 오미숙(58): 헌터 상가 장비점 주인.\n- PC: 일주일 전 각성한 E급 신입 헌터.",
+  "desc_guide": "현대 각성 성장물. 게이트 안의 긴박한 전투와 공격대의 호흡, 도시의 일상을 오간다.\n- 전투는 빠르고 선명하게 쓰되 잔혹하게 늘어놓지 않는다. 판정 결과(우세·부상)를 그대로 그린다.\n- 파티원은 각자 역할대로 움직인다 — 탱커가 막고, 딜러가 베고, 힐러가 빛을 모으고, 서포터가 외친다.\n- 협회·길드의 현실(등급 차별, 시세)은 배경으로만 깐다.",
+  "story_guide": "[진행 가이드]\n- PC의 성장은 코드가 정한다(성장 포인트·등급). 묘사가 PC의 등급·능력을 임의로 올리지 않는다.\n- 몬스터는 게이트 회차가 배치한 자리(장면 인물 정본)에만 있다. 장면에 없는 몬스터를 등장시키지 않는다.\n- 공격대 합류는 대화와 사건으로만 — 파티원 상태와 역할 행동은 [파티 — 코드 확정]을 따른다.\n- 돈·마석·장비는 소지품 정본뿐이다. 지어내지 않는다.",
+  "scenario_intro": "본 시나리오는 현대 한국을 배경으로 하는 게이트 헌터 성장물 **[균열 — 각성자의 도시]**입니다.\n[[네.]]\n6년 전 대전 갑천변에 첫 균열이 열렸습니다. 이제 도시마다 게이트가 열리고, 각성자들이 공격대를 꾸려 그 안으로 들어갑니다.\n[[그리고요?]]\n당신은 일주일 전 각성한 E급 신입입니다. 그런데 당신만은 싸울수록 강해집니다.\n[[알겠습니다.]]\n동료를 모아 공격대를 꾸리고, 게이트를 공략하고, 등급을 올리십시오. 혼자 들어가면 E급 게이트도 무덤이 됩니다.",
+  "prohibitions": [
+    "등급 임의 상승 금지: PC의 등급은 승급 심사 사건으로만 오른다.",
+    "등급 밖 게이트 금지: 협회 통제선을 넘어 등급보다 높은 게이트에 들어가는 전개를 만들지 않는다.",
+    "재화 창작 금지: 돈·마석·장비는 소지품 정본에 있는 것만 있다.",
+    "PC 각본 사망 금지: PC의 죽음은 빈사 → 사망 코드 경로로만 일어난다.",
+    "잔혹 묘사 절제: 상처와 죽음은 결과와 흔적으로 절제해 전한다."
+  ],
+  "status_code_block": "```css\n📅 [#{현재 턴 수}] [{시나리오상 날짜} {요일} {시간대}]\n📍 {현재 장소}\n상황 요약 : {현재 상황 20자 이내 요약}\n```",
+  "pc_template": {
+    "이름": "",
+    "성별": "",
+    "나이": "",
+    "직업": "",
+    "근력": "",
+    "민첩": "",
+    "감각": "",
+    "정신": "",
+    "스킬": "",
+    "외형": "",
+    "배경": "",
+    "복장": ""
+  },
+  "npc_template": {
+    "info_fields": [
+      "나이·성별",
+      "소속·직책",
+      "외모",
+      "특기·능력"
+    ],
+    "has_stats": true,
+    "has_resources": true,
+    "has_statuses": true
+  },
+  "npc_list_fields": [
+    "나이·성별",
+    "소속·직책"
+  ],
+  "ability_stats": [
+    "근력",
+    "민첩",
+    "감각",
+    "정신"
+  ],
+  "ability_stat_max": 30,
+  "stat_system": "[스탯 및 판정]\n1. 능력치 척도: 평균 10, 생성 범위 5~15, 성장 상한 30. 판정 시 능력 보정 2×(스탯−10).\n2. 네 능력치\n- 근력: 베기·막기·버티기.\n- 민첩: 회피·기동·원거리 조준.\n- 감각: 탐색·위험 감지.\n- 정신: 마력·공포 견디기·설득.\n3. 기술: 상시 기술은 분야가 맞으면 자동, 발동 기술은 쓸 때 마력을 소모한다(코드).",
+  "stat_descriptions": {
+    "근력": "베기·막기·버티기",
+    "민첩": "회피·기동·원거리 조준",
+    "감각": "탐색·위험 감지",
+    "정신": "마력·공포 견디기·설득"
+  },
+  "profile_secondary_stats": [
+    "스킬"
+  ],
+  "jobs": {
+    "강화 계열": {
+      "desc": "몸을 단단히 하고 마력을 실어 친다. 앞에 서는 유형.",
+      "top_stat": "근력"
+    },
+    "화염 계열": {
+      "desc": "불을 다룬다. 멀리서 태우는 유형.",
+      "top_stat": "정신"
+    },
+    "감지 계열": {
+      "desc": "기척을 지우고 급소를 본다. 숨어서 노리는 유형.",
+      "top_stat": "감각"
+    },
+    "치유 계열": {
+      "desc": "상처를 덮는다. 공격대를 살리는 유형.",
+      "top_stat": "정신"
+    }
+  },
+  "skills": {
+    "공통": {
+      "근력": {
+        "버티기": {
+          "desc": "맞고도 버틴다",
+          "bonus": 4,
+          "domains": [
+            "방어"
+          ],
+          "kind": "상시"
+        },
+        "들어 올리기": "무거운 것을 든다"
+      },
+      "민첩": {
+        "달리기": {
+          "desc": "빠르게 달린다",
+          "bonus": 4,
+          "domains": [
+            "기동"
+          ],
+          "kind": "상시"
+        },
+        "손재주": "작은 장치와 자물쇠를 다룬다"
+      },
+      "감각": {
+        "경계": {
+          "desc": "위험을 먼저 알아챈다",
+          "bonus": 4,
+          "domains": [
+            "탐색"
+          ],
+          "kind": "상시"
+        },
+        "길찾기": "게이트 안에서도 길을 기억한다"
+      },
+      "정신": {
+        "침착": {
+          "desc": "공포 속에서도 정신을 붙든다",
+          "bonus": 4,
+          "domains": [
+            "사교",
+            "위압"
+          ],
+          "kind": "상시"
+        },
+        "협상": "말로 값을 맞춘다"
+      }
+    },
+    "직업": {
+      "강화 계열": {
+        "강철 피부": {
+          "desc": "몸을 강철처럼 단단히 한다",
+          "bonus": 6,
+          "domains": [
+            "방어"
+          ],
+          "kind": "상시"
+        },
+        "폭발 강타": {
+          "desc": "마력을 실은 일격",
+          "bonus": 10,
+          "domains": [
+            "근접"
+          ],
+          "cost": {
+            "status": "마력 소모",
+            "stages": 1
+          }
+        }
+      },
+      "화염 계열": {
+        "열기 감지": {
+          "desc": "열기로 숨은 것을 느낀다",
+          "bonus": 4,
+          "domains": [
+            "탐색"
+          ],
+          "kind": "상시"
+        },
+        "화염구": {
+          "desc": "불덩이를 날린다",
+          "bonus": 10,
+          "domains": [
+            "원거리"
+          ],
+          "cost": {
+            "status": "마력 소모",
+            "stages": 1
+          }
+        }
+      },
+      "감지 계열": {
+        "그림자 걸음": {
+          "desc": "기척을 지운다",
+          "bonus": 6,
+          "domains": [
+            "은밀"
+          ],
+          "kind": "상시"
+        },
+        "약점 간파": {
+          "desc": "급소를 꿰뚫어 본다",
+          "bonus": 8,
+          "domains": [
+            "근접",
+            "원거리"
+          ],
+          "cost": {
+            "status": "마력 소모",
+            "stages": 1
+          }
+        }
+      },
+      "치유 계열": {
+        "침착한 손": {
+          "desc": "떨지 않는 손으로 처치한다",
+          "bonus": 6,
+          "domains": [
+            "의료"
+          ],
+          "kind": "상시"
+        },
+        "치유의 빛": {
+          "desc": "빛으로 상처를 덮는다",
+          "bonus": 10,
+          "domains": [
+            "의료"
+          ],
+          "cost": {
+            "status": "마력 소모",
+            "stages": 1
+          }
+        }
+      }
+    },
+    "각성": {
+      "강화 계열": {
+        "철벽": {
+          "desc": "한순간 모든 공격을 막아 낸다",
+          "bonus": 10,
+          "domains": [
+            "방어"
+          ],
+          "cost": {
+            "status": "마력 소모",
+            "stages": 1
+          }
+        },
+        "지면 강타": {
+          "desc": "땅을 내리쳐 주변을 흔든다",
+          "bonus": 8,
+          "domains": [
+            "근접"
+          ],
+          "cost": {
+            "status": "마력 소모",
+            "stages": 1
+          }
+        }
+      },
+      "화염 계열": {
+        "화염 장벽": {
+          "desc": "불길로 길을 막는다",
+          "bonus": 8,
+          "domains": [
+            "방어"
+          ],
+          "cost": {
+            "status": "마력 소모",
+            "stages": 1
+          }
+        },
+        "열기 폭발": {
+          "desc": "가까운 적을 한꺼번에 태운다",
+          "bonus": 12,
+          "domains": [
+            "근접"
+          ],
+          "cost": {
+            "status": "마력 소모",
+            "stages": 1
+          }
+        }
+      },
+      "감지 계열": {
+        "마력 추적": {
+          "desc": "마력의 흔적을 쫓는다",
+          "bonus": 6,
+          "domains": [
+            "탐색"
+          ],
+          "kind": "상시"
+        },
+        "급소 찌르기": {
+          "desc": "간파한 급소를 찌른다",
+          "bonus": 12,
+          "domains": [
+            "근접"
+          ],
+          "cost": {
+            "status": "마력 소모",
+            "stages": 1
+          }
+        }
+      },
+      "치유 계열": {
+        "생명의 장막": {
+          "desc": "상처를 덮는 막을 친다",
+          "bonus": 8,
+          "domains": [
+            "방어"
+          ],
+          "cost": {
+            "status": "마력 소모",
+            "stages": 1
+          }
+        },
+        "정화": {
+          "desc": "독과 저주를 씻는다",
+          "bonus": 8,
+          "domains": [
+            "의료"
+          ],
+          "cost": {
+            "status": "마력 소모",
+            "stages": 1
+          }
+        }
+      }
+    }
+  },
+  "starting_items": {
+    "공통": [
+      "협회 임시 등록증",
+      "휴대폰",
+      "손전등"
+    ],
+    "수량": {
+      "현금[만원]": 30
+    },
+    "직업별": {
+      "강화 계열": [
+        "쇠파이프"
+      ],
+      "화염 계열": [
+        "내열 장갑"
+      ],
+      "감지 계열": [
+        "쌍안경"
+      ],
+      "치유 계열": [
+        "구급상자"
+      ]
+    }
+  },
+  "item_definitions": {
+    "협회 임시 등록증": {
+      "mass_grade": 0,
+      "bulk_grade": 0
+    },
+    "쇠파이프": {
+      "wear": {
+        "slots": [
+          "오른손",
+          "왼손"
+        ],
+        "tags": [
+          "근접무기"
+        ]
+      },
+      "mass_grade": 1,
+      "bulk_grade": 2
+    },
+    "내열 장갑": {
+      "wear": {
+        "slots": [
+          "장갑"
+        ],
+        "tags": [
+          "방열"
+        ]
+      },
+      "mass_grade": 0,
+      "bulk_grade": 1
+    },
+    "쌍안경": {
+      "mass_grade": 1,
+      "bulk_grade": 1
+    },
+    "구급상자": {
+      "use": [
+        "지혈",
+        "응급처치",
+        "소독"
+      ],
+      "mass_grade": 1,
+      "bulk_grade": 1
+    },
+    "손전등": {
+      "wear": {
+        "slots": [
+          "오른손",
+          "왼손"
+        ],
+        "tags": [
+          "조명"
+        ]
+      },
+      "mass_grade": 1,
+      "bulk_grade": 1
+    },
+    "회복 물약": {
+      "use": [
+        "지혈",
+        "응급처치"
+      ],
+      "mass_grade": 0,
+      "bulk_grade": 0
+    },
+    "강철 원형 방패": {
+      "wear": {
+        "slots": [
+          "왼손"
+        ],
+        "tags": [
+          "방호(강)"
+        ]
+      },
+      "mass_grade": 2,
+      "bulk_grade": 2
+    },
+    "헌터용 장검": {
+      "wear": {
+        "slots": [
+          "오른손"
+        ],
+        "tags": [
+          "근접무기"
+        ]
+      },
+      "mass_grade": 1,
+      "bulk_grade": 2
+    },
+    "가죽 경갑": {
+      "wear": {
+        "slots": [
+          "상의"
+        ],
+        "tags": [
+          "방호"
+        ]
+      },
+      "mass_grade": 1,
+      "bulk_grade": 2
+    }
+  },
+  "status_effects": [
+    {
+      "name": "마력 소모",
+      "apply_condition": "발동 기술·역할 행동으로 마력을 씀(코드)",
+      "weight": -1,
+      "remove_condition": "휴식·수면 30분마다 한 단계 회복",
+      "stages": [
+        "경미",
+        "심함",
+        "고갈"
+      ],
+      "stage_mods": [
+        {
+          "전체": 0
+        },
+        {
+          "전체": -5
+        },
+        {
+          "전체": -10
+        }
+      ],
+      "rules": {
+        "lower_auto": {
+          "activity_in": [
+            "SLEEP",
+            "WAIT"
+          ],
+          "min_minutes": 30
+        }
+      }
+    }
+  ],
+  "attack_domains": [
+    "근접",
+    "원거리"
+  ],
+  "party_roles": {
+    "탱커": {
+      "act": "막기"
+    },
+    "근접 딜러": {
+      "act": "공격",
+      "stat": "근력",
+      "domains": [
+        "근접"
+      ]
+    },
+    "마법사": {
+      "act": "공격",
+      "stat": "정신",
+      "domains": [
+        "원거리"
+      ]
+    },
+    "힐러": {
+      "act": "치유",
+      "effect": "응급처치",
+      "cost": {
+        "status": "마력 소모",
+        "stages": 1
+      }
+    },
+    "서포터": {
+      "act": "보조",
+      "bonus": 4,
+      "cost": {
+        "status": "마력 소모",
+        "stages": 1
+      }
+    }
+  },
+  "party_limit": 4,
+  "growth": {
+    "costs": {
+      "stat": 2,
+      "skill": 3
+    },
+    "places": [
+      "훈련장"
+    ],
+    "kill_points": 1,
+    "records": {
+      "등급": {
+        "labels": [
+          "E",
+          "D",
+          "C",
+          "B",
+          "A",
+          "S"
+        ]
+      }
+    },
+    "learnable": {
+      "강화 계열": [
+        "철벽",
+        "지면 강타"
+      ],
+      "화염 계열": [
+        "화염 장벽",
+        "열기 폭발"
+      ],
+      "감지 계열": [
+        "마력 추적",
+        "급소 찌르기"
+      ],
+      "치유 계열": [
+        "생명의 장막",
+        "정화"
+      ]
+    }
+  },
+  "profile_creation": [
+    {
+      "field": "성별",
+      "module": "select_one",
+      "args": {
+        "options": [
+          "남",
+          "여"
+        ]
+      }
+    },
+    {
+      "field": "이름",
+      "module": "ai_validate",
+      "args": {
+        "prompt": "헌터 등록 이름을 입력해 주십시오. (2031년 한국 배경)",
+        "rules": "현대 한국인 이름. 실존 유명인과 유명 작품 등장인물의 이름은 사용할 수 없습니다."
+      }
+    },
+    {
+      "field": "나이",
+      "module": "ai_validate",
+      "args": {
+        "prompt": "나이를 입력해 주십시오.",
+        "rules": "19세 이상 45세 이하의 숫자."
+      }
+    },
+    {
+      "field": "직업",
+      "module": "select_one",
+      "args": {
+        "from": "jobs",
+        "describe_from": "jobs",
+        "list_desc": true
+      }
+    },
+    {
+      "field": "능력치",
+      "module": "roll_stats",
+      "args": {
+        "stats": [
+          "근력",
+          "민첩",
+          "감각",
+          "정신"
+        ],
+        "max_single": 20,
+        "min_single": 1
+      }
+    },
+    {
+      "field": "스킬",
+      "module": "choose_skills",
+      "args": {
+        "source": "skills",
+        "job_field": "직업",
+        "stats_field": "능력치",
+        "bands": [
+          [
+            1,
+            11,
+            0
+          ],
+          [
+            12,
+            20,
+            1
+          ]
+        ]
+      }
+    },
+    {
+      "field": "외형",
+      "module": "ai_merge",
+      "args": {
+        "prompt": "외형을 알려 주십시오.",
+        "max_length": 250,
+        "creation_guide": {
+          "direct": true,
+          "compose_rules": "플레이어가 답한 외형 요소만 자연스럽게 잇는다. 답하지 않은 특징은 새로 넣지 않는다.",
+          "questions": [
+            {
+              "id": "build",
+              "prompt": "체격은 어떤 편입니까?",
+              "required": true,
+              "options": [
+                "마른 편",
+                "보통",
+                "다부진 편",
+                "큰 체구"
+              ]
+            },
+            {
+              "id": "face",
+              "prompt": "얼굴과 머리 모양은 어떻습니까?",
+              "required": true
+            },
+            {
+              "id": "mark",
+              "prompt": "각성 뒤 생긴 흔적이 있다면 적어 주십시오.",
+              "required": false
+            }
+          ]
+        }
+      }
+    },
+    {
+      "field": "배경",
+      "module": "ai_validate",
+      "args": {
+        "prompt": "각성 전의 삶과 각성한 날을 적어 주십시오.",
+        "rules": "2031년 한국. 각성 전 특수부대·초인 이력 불가. 이미 높은 등급이었던 과거는 불가.",
+        "creation_guide": {
+          "direct": true,
+          "compose_rules": "각성 전 → 각성한 날 순서로 잇는다. 답에 없는 사건·인맥은 만들지 않는다.",
+          "questions": [
+            {
+              "id": "before",
+              "prompt": "각성 전에는 무엇을 하며 살았습니까?",
+              "required": true
+            },
+            {
+              "id": "day",
+              "prompt": "각성한 날 무슨 일이 있었습니까?",
+              "required": false
+            },
+            {
+              "id": "why",
+              "prompt": "왜 헌터가 되기로 했습니까?",
+              "required": false
+            }
+          ]
+        }
+      }
+    },
+    {
+      "field": "복장",
+      "module": "ai_merge",
+      "args": {
+        "prompt": "지금 입고 있는 옷차림을 알려 주십시오.",
+        "max_length": 200,
+        "wear_items": true,
+        "creation_guide": {
+          "direct": true,
+          "compose_rules": "답한 옷차림만 적는다. 소지품은 적지 않는다.",
+          "questions": [
+            {
+              "id": "clothes",
+              "prompt": "지금 무엇을 입고 있습니까?",
+              "required": true
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "start_frames": [
+    {
+      "id": "first_day",
+      "title": "등록 첫날",
+      "conditions": {},
+      "slots": {
+        "때": "오전",
+        "장소": "협회 로비"
+      },
+      "summary": "{때}. 헌터 협회 대전지부 {장소}. 임시 등록증을 받은 첫날, 게이트 현황판이 쉴 새 없이 깜박인다.",
+      "instruction": "[장면] 09시 30분. 협회 로비. PC는 방금 임시 등록증을 받았다. 윤채린이 E급 신입 안내를 마치며 '혼자 들어가지 마세요'라고 덧붙인다. 대기석에서 같은 날 등록한 백소은이 불티 튀는 장갑을 만지작거리고, 벽 쪽에서 프리랜서 도재경이 공격대 모집 화면을 노려본다. 천랑 길드 점퍼를 입은 차세윤이 신입들을 훑어보며 웃는다.\n[정본] 지금 로비에는 윤채린·도재경·차세윤이 있다. 백소은은 훈련장에 있다 — 로비에 있다고 쓰지 말 것. 날짜는 서술하지 않는다.",
+      "facts": {
+        "time": "{때}",
+        "location": "{장소}"
+      },
+      "world_start": {
+        "place": "협회 로비",
+        "date": "2031-03-03",
+        "time": "09:30",
+        "knowledge_seed": "gy_city",
+        "items": [
+          {
+            "key": "회복 물약",
+            "quantity": 4,
+            "owner": "오미숙"
+          },
+          {
+            "key": "강철 원형 방패",
+            "quantity": 1,
+            "owner": "오미숙"
+          },
+          {
+            "key": "헌터용 장검",
+            "quantity": 1,
+            "owner": "오미숙"
+          },
+          {
+            "key": "가죽 경갑",
+            "quantity": 2,
+            "owner": "오미숙"
+          },
+          {
+            "key": "회복 물약",
+            "quantity": 2,
+            "owner": "서아름"
+          }
+        ]
+      }
+    }
+  ],
+  "start_points": [
+    "협회 로비"
+  ],
+  "status_endings": {
+    "사망": {
+      "title": "돌아오지 못한 신입",
+      "epilogue": "균열의 푸른 빛이 멀어진다. 협회 현황판에 이름 하나가 회색으로 바뀐다.",
+      "tone": "비극"
+    }
+  },
+  "scenario_schema": {
+    "version": 1,
+    "capabilities": {
+      "structured_places": 1,
+      "quantitative_time": 1,
+      "stable_actors": 1,
+      "dynamic_actor_location": 1,
+      "information_registry": 1,
+      "actor_cognition": 1,
+      "dynamic_events": 1,
+      "scheduled_world_progression": 1,
+      "mortality": 1,
+      "combat_wounds": 1,
+      "growth": 1,
+      "party": 1
+    }
+  },
+  "calendar": {
+    "calendar_id": "gy_gregorian_2031",
+    "type": "GREGORIAN",
+    "dayparts": {
+      "새벽": {
+        "start": "04:30",
+        "end": "06:30",
+        "representative": "05:30"
+      },
+      "이른 아침": {
+        "start": "06:30",
+        "end": "08:30",
+        "representative": "07:30"
+      },
+      "오전": {
+        "start": "08:30",
+        "end": "11:30",
+        "representative": "10:00"
+      },
+      "한낮": {
+        "start": "11:30",
+        "end": "14:30",
+        "representative": "13:00"
+      },
+      "오후": {
+        "start": "14:30",
+        "end": "17:30",
+        "representative": "16:00"
+      },
+      "해질 무렵": {
+        "start": "17:30",
+        "end": "19:30",
+        "representative": "18:30"
+      },
+      "밤": {
+        "start": "19:30",
+        "end": "00:00",
+        "representative": "22:00"
+      },
+      "한밤": {
+        "start": "00:00",
+        "end": "04:30",
+        "representative": "02:00"
+      }
+    }
+  },
+  "movement_modes": {
+    "walk": {
+      "base_speed_m_per_min": 60
+    }
+  },
+  "places": {
+    "대전광역시": {
+      "location_desc": "6년 전 갑천변에 첫 게이트가 열린 도시. 협회 대전지부와 크고 작은 길드가 모여 있다.",
+      "exterior": "출근길 버스 사이로 헌터 협회 광고판, 도로 곳곳의 게이트 통제선.",
+      "mood_exterior": "익숙해진 비상"
+    },
+    "둔산 거리": {
+      "parent": "대전광역시",
+      "location_desc": "협회 지부와 길드 사무실, 시장이 모인 대로.",
+      "exterior": "유리 빌딩과 노점, 무기 가방을 멘 사람들.",
+      "mood_exterior": "바쁜 일상"
+    },
+    "헌터 협회 대전지부": {
+      "parent": "대전광역시",
+      "location_desc": "등록·심사·매입·훈련을 맡은 협회 지부 건물.",
+      "exterior": "검은 유리 외벽에 협회 문장.",
+      "mood_exterior": "규정과 서류"
+    },
+    "협회 로비": {
+      "parent": "헌터 협회 대전지부",
+      "location_desc": "접수대와 대기석, 공격대 모집 화면이 있는 로비.",
+      "interior": "번호표 기계, 등급별 색 띠를 단 헌터들, 벽면 가득한 게이트 현황판.",
+      "mood_interior": "웅성이는 대기"
+    },
+    "등급 심사장": {
+      "parent": "헌터 협회 대전지부",
+      "location_desc": "마력 측정기와 심사관 책상이 있는 심사실.",
+      "interior": "유리 칸막이 너머 측정 구체.",
+      "mood_interior": "숨죽인 긴장"
+    },
+    "마석 매입소": {
+      "parent": "헌터 협회 대전지부",
+      "location_desc": "마석을 감정해 사들이는 창구.",
+      "interior": "저울과 감정 램프, 등급별 시세표.",
+      "mood_interior": "계산기 소리"
+    },
+    "훈련장": {
+      "parent": "헌터 협회 대전지부",
+      "location_desc": "각성자 전용 훈련장. 성장 포인트로 단련하는 곳.",
+      "interior": "강화 매트, 그을린 표적, 무게추.",
+      "mood_interior": "땀과 화약 냄새"
+    },
+    "의뢰 게시판": {
+      "parent": "헌터 협회 대전지부",
+      "location_desc": "공격대 모집과 소규모 의뢰가 붙는 게시판 코너.",
+      "interior": "빼곡한 전단과 디지털 화면.",
+      "mood_interior": "기회와 위험"
+    },
+    "은하수 길드 사무실": {
+      "parent": "대전광역시",
+      "location_desc": "상가 3층의 작은 길드 사무실.",
+      "interior": "낡은 소파, 단체 사진, 손때 묻은 장비 선반.",
+      "mood_interior": "식구 같은 온기"
+    },
+    "중앙시장 헌터 상가": {
+      "parent": "대전광역시",
+      "location_desc": "중앙시장 안쪽의 장비·물약 상점 골목.",
+      "exterior": "방패와 검이 걸린 가판, 물약 냉장고.",
+      "mood_exterior": "흥정"
+    },
+    "PC 원룸": {
+      "parent": "대전광역시",
+      "location_desc": "PC가 사는 작은 원룸.",
+      "interior": "접이식 침대, 라면 상자, 창밖 고가도로.",
+      "mood_interior": "혼자만의 쉼"
+    },
+    "지하철 공사장 게이트": {
+      "parent": "대전광역시",
+      "location_desc": "도시철도 공사 현장 지하에 열린 E급 게이트.",
+      "exterior": "공사 가림막 안쪽, 푸르게 일렁이는 균열.",
+      "mood_exterior": "작은 문"
+    },
+    "공사장 입구": {
+      "parent": "지하철 공사장 게이트",
+      "location_desc": "협회 통제선이 쳐진 게이트 입구.",
+      "exterior": "통제 요원의 천막과 푸른 균열의 막.",
+      "mood_exterior": "문턱"
+    },
+    "무너진 터널": {
+      "parent": "지하철 공사장 게이트",
+      "location_desc": "게이트 안쪽, 반쯤 무너진 공사 터널.",
+      "interior": "녹슨 레일과 꺾인 철골, 바닥의 작은 발자국.",
+      "mood_interior": "좁은 어둠"
+    },
+    "자재 창고": {
+      "parent": "지하철 공사장 게이트",
+      "location_desc": "자재가 뒤엉킨 창고 구역.",
+      "interior": "쓰러진 철근 더미, 갉아 먹힌 전선.",
+      "mood_interior": "부스럭임"
+    },
+    "환기 갱도": {
+      "parent": "지하철 공사장 게이트",
+      "location_desc": "위로 바람이 빨려 올라가는 갱도.",
+      "interior": "웅웅대는 바람, 벽의 손톱 자국.",
+      "mood_interior": "울림"
+    },
+    "굴착기 둥지": {
+      "parent": "지하철 공사장 게이트",
+      "location_desc": "보스가 둥지를 튼 굴착기 정거장.",
+      "interior": "뒤집힌 굴착기, 뼈와 쇳조각으로 쌓은 둥지.",
+      "mood_interior": "우두머리의 냄새"
+    },
+    "폐교 게이트": {
+      "parent": "대전광역시",
+      "location_desc": "대덕구 폐교 운동장에 열린 D급 게이트. 안은 밤이다.",
+      "exterior": "철문 너머 학교 전체가 보랏빛 안개에 잠겼다.",
+      "mood_exterior": "멈춘 교정"
+    },
+    "폐교 정문": {
+      "parent": "폐교 게이트",
+      "location_desc": "통제선이 쳐진 폐교 정문.",
+      "exterior": "녹슨 교문, 안개 속에 서 있는 교목.",
+      "mood_exterior": "문턱"
+    },
+    "운동장": {
+      "parent": "폐교 게이트",
+      "location_desc": "안개 낀 운동장.",
+      "exterior": "부서진 철봉과 녹슨 축구 골대.",
+      "mood_exterior": "넓은 침묵"
+    },
+    "본관 복도": {
+      "parent": "폐교 게이트",
+      "location_desc": "긴 본관 복도.",
+      "interior": "깨진 형광등, 끝없이 이어지는 교실 문.",
+      "mood_interior": "발소리 메아리"
+    },
+    "과학실": {
+      "parent": "폐교 게이트",
+      "location_desc": "뼈 표본이 늘어선 과학실.",
+      "interior": "깨진 비커와 표본장, 바닥의 분필 원.",
+      "mood_interior": "포르말린 냄새"
+    },
+    "폐교 강당": {
+      "parent": "폐교 게이트",
+      "location_desc": "보스가 기다리는 강당.",
+      "interior": "찢어진 무대 막, 줄지어 선 빈 의자.",
+      "mood_interior": "누군가의 강연"
+    },
+    "갑천 이중 게이트": {
+      "parent": "대전광역시",
+      "location_desc": "첫 게이트가 열렸던 갑천변. 닫힌 게이트 안에 두 번째 균열이 열렸다.",
+      "exterior": "강물 위에 겹쳐 열린 두 겹의 균열.",
+      "mood_exterior": "되돌아온 시작"
+    },
+    "강변 입구": {
+      "parent": "갑천 이중 게이트",
+      "location_desc": "협회 비상 통제선이 쳐진 강변.",
+      "exterior": "구급차와 통제 요원, 물비린내.",
+      "mood_exterior": "비상"
+    },
+    "갈대밭": {
+      "parent": "갑천 이중 게이트",
+      "location_desc": "사람 키보다 높은 갈대밭.",
+      "exterior": "바람에 쓸리는 갈대, 물에 잠긴 발목.",
+      "mood_exterior": "보이지 않는 것"
+    },
+    "안쪽 균열": {
+      "parent": "갑천 이중 게이트",
+      "location_desc": "두 번째 균열의 안쪽 — 물이 거꾸로 흐른다.",
+      "exterior": "공중에 뜬 물방울, 붉게 빛나는 수면.",
+      "mood_exterior": "뒤집힌 세계"
+    },
+    "갑천 둥지": {
+      "parent": "갑천 이중 게이트",
+      "location_desc": "보스의 둥지.",
+      "exterior": "거대한 비늘 껍질과 휘감긴 철교 잔해.",
+      "mood_exterior": "깊은 숨"
+    }
+  },
+  "movement_edges": [
+    {
+      "id": "gy.e01",
+      "from": "둔산 거리",
+      "to": "협회 로비",
+      "bidirectional": true,
+      "distance_m": 80,
+      "movement_tags": [],
+      "knowledge_visibility": "PUBLIC"
+    },
+    {
+      "id": "gy.e02",
+      "from": "협회 로비",
+      "to": "등급 심사장",
+      "bidirectional": true,
+      "distance_m": 20,
+      "movement_tags": [],
+      "knowledge_visibility": "PUBLIC"
+    },
+    {
+      "id": "gy.e03",
+      "from": "협회 로비",
+      "to": "마석 매입소",
+      "bidirectional": true,
+      "distance_m": 20,
+      "movement_tags": [],
+      "knowledge_visibility": "PUBLIC"
+    },
+    {
+      "id": "gy.e04",
+      "from": "협회 로비",
+      "to": "훈련장",
+      "bidirectional": true,
+      "distance_m": 40,
+      "movement_tags": [],
+      "knowledge_visibility": "PUBLIC"
+    },
+    {
+      "id": "gy.e05",
+      "from": "협회 로비",
+      "to": "의뢰 게시판",
+      "bidirectional": true,
+      "distance_m": 15,
+      "movement_tags": [],
+      "knowledge_visibility": "PUBLIC"
+    },
+    {
+      "id": "gy.e06",
+      "from": "둔산 거리",
+      "to": "은하수 길드 사무실",
+      "bidirectional": true,
+      "distance_m": 400,
+      "movement_tags": [],
+      "knowledge_visibility": "PUBLIC"
+    },
+    {
+      "id": "gy.e07",
+      "from": "둔산 거리",
+      "to": "중앙시장 헌터 상가",
+      "bidirectional": true,
+      "distance_m": 900,
+      "movement_tags": [],
+      "knowledge_visibility": "PUBLIC"
+    },
+    {
+      "id": "gy.e08",
+      "from": "둔산 거리",
+      "to": "PC 원룸",
+      "bidirectional": true,
+      "distance_m": 700,
+      "movement_tags": [],
+      "knowledge_visibility": "PUBLIC"
+    },
+    {
+      "id": "gy.e09",
+      "from": "둔산 거리",
+      "to": "공사장 입구",
+      "bidirectional": true,
+      "distance_m": 1500,
+      "movement_tags": [],
+      "knowledge_visibility": "PUBLIC"
+    },
+    {
+      "id": "gy.e10",
+      "from": "공사장 입구",
+      "to": "무너진 터널",
+      "bidirectional": true,
+      "distance_m": 60,
+      "movement_tags": [],
+      "knowledge_visibility": "PUBLIC"
+    },
+    {
+      "id": "gy.e11",
+      "from": "무너진 터널",
+      "to": "자재 창고",
+      "bidirectional": true,
+      "distance_m": 50,
+      "movement_tags": [],
+      "knowledge_visibility": "PUBLIC"
+    },
+    {
+      "id": "gy.e12",
+      "from": "무너진 터널",
+      "to": "환기 갱도",
+      "bidirectional": true,
+      "distance_m": 70,
+      "movement_tags": [],
+      "knowledge_visibility": "PUBLIC"
+    },
+    {
+      "id": "gy.e13",
+      "from": "환기 갱도",
+      "to": "굴착기 둥지",
+      "bidirectional": true,
+      "distance_m": 60,
+      "movement_tags": [],
+      "knowledge_visibility": "PUBLIC"
+    },
+    {
+      "id": "gy.e14",
+      "from": "자재 창고",
+      "to": "굴착기 둥지",
+      "bidirectional": true,
+      "distance_m": 80,
+      "movement_tags": [],
+      "knowledge_visibility": "PUBLIC"
+    },
+    {
+      "id": "gy.e15",
+      "from": "둔산 거리",
+      "to": "폐교 정문",
+      "bidirectional": true,
+      "distance_m": 2500,
+      "movement_tags": [],
+      "knowledge_visibility": "PUBLIC"
+    },
+    {
+      "id": "gy.e16",
+      "from": "폐교 정문",
+      "to": "운동장",
+      "bidirectional": true,
+      "distance_m": 50,
+      "movement_tags": [],
+      "knowledge_visibility": "PUBLIC"
+    },
+    {
+      "id": "gy.e17",
+      "from": "운동장",
+      "to": "본관 복도",
+      "bidirectional": true,
+      "distance_m": 60,
+      "movement_tags": [],
+      "knowledge_visibility": "PUBLIC"
+    },
+    {
+      "id": "gy.e18",
+      "from": "본관 복도",
+      "to": "과학실",
+      "bidirectional": true,
+      "distance_m": 30,
+      "movement_tags": [],
+      "knowledge_visibility": "PUBLIC"
+    },
+    {
+      "id": "gy.e19",
+      "from": "본관 복도",
+      "to": "폐교 강당",
+      "bidirectional": true,
+      "distance_m": 50,
+      "movement_tags": [],
+      "knowledge_visibility": "PUBLIC"
+    },
+    {
+      "id": "gy.e20",
+      "from": "둔산 거리",
+      "to": "강변 입구",
+      "bidirectional": true,
+      "distance_m": 2000,
+      "movement_tags": [],
+      "knowledge_visibility": "PUBLIC"
+    },
+    {
+      "id": "gy.e21",
+      "from": "강변 입구",
+      "to": "갈대밭",
+      "bidirectional": true,
+      "distance_m": 80,
+      "movement_tags": [],
+      "knowledge_visibility": "PUBLIC"
+    },
+    {
+      "id": "gy.e22",
+      "from": "갈대밭",
+      "to": "안쪽 균열",
+      "bidirectional": true,
+      "distance_m": 100,
+      "movement_tags": [],
+      "knowledge_visibility": "PUBLIC"
+    },
+    {
+      "id": "gy.e23",
+      "from": "안쪽 균열",
+      "to": "갑천 둥지",
+      "bidirectional": true,
+      "distance_m": 80,
+      "movement_tags": [],
+      "knowledge_visibility": "PUBLIC"
+    }
+  ],
+  "spatial_knowledge_seeds": {
+    "gy_city": {
+      "known_places": [
+        "PC 원룸",
+        "갈대밭",
+        "갑천 둥지",
+        "갑천 이중 게이트",
+        "강변 입구",
+        "공사장 입구",
+        "과학실",
+        "굴착기 둥지",
+        "대전광역시",
+        "둔산 거리",
+        "등급 심사장",
+        "마석 매입소",
+        "무너진 터널",
+        "본관 복도",
+        "안쪽 균열",
+        "운동장",
+        "은하수 길드 사무실",
+        "의뢰 게시판",
+        "자재 창고",
+        "중앙시장 헌터 상가",
+        "지하철 공사장 게이트",
+        "폐교 강당",
+        "폐교 게이트",
+        "폐교 정문",
+        "헌터 협회 대전지부",
+        "협회 로비",
+        "환기 갱도",
+        "훈련장"
+      ],
+      "known_edges": [
+        "gy.e01",
+        "gy.e02",
+        "gy.e03",
+        "gy.e04",
+        "gy.e05",
+        "gy.e06",
+        "gy.e07",
+        "gy.e08",
+        "gy.e09",
+        "gy.e10",
+        "gy.e11",
+        "gy.e12",
+        "gy.e13",
+        "gy.e14",
+        "gy.e15",
+        "gy.e16",
+        "gy.e17",
+        "gy.e18",
+        "gy.e19",
+        "gy.e20",
+        "gy.e21",
+        "gy.e22",
+        "gy.e23"
+      ]
+    }
+  },
+  "default_npcs": {
+    "윤채린": {
+      "name": "윤채린",
+      "나이·성별": "29세, 여성",
+      "소속·직책": "헌터 협회 대전지부 접수·심사 담당",
+      "외모": "단정한 협회 제복, 목에 건 사원증. 서류철을 늘 가슴에 안고 다닌다.",
+      "특기·능력": "규정과 게이트 현황을 꿰고 있다.",
+      "stats": {
+        "근력": 9,
+        "민첩": 10,
+        "감각": 13,
+        "정신": 12
+      },
+      "resources": {},
+      "statuses": [],
+      "actor_id": "gy.npc.yoon_chaerin",
+      "routine": {
+        "entries": [],
+        "default_place": "협회 로비"
+      },
+      "persona": {
+        "surface": {
+          "impression": "신입을 챙기지만 규정 앞에서는 단호한 협회 직원.",
+          "voice": "또박또박한 존댓말. '규정상'이 입버릇.",
+          "lines": [
+            "등록증 먼저 보여 주세요.",
+            "등급 밖 게이트는 안 됩니다. 규정이에요.",
+            "다치지 말고 돌아오세요."
+          ]
+        },
+        "core": {
+          "value": "아무도 등급 밖 게이트에서 죽지 않는 것",
+          "crack": "규정을 어기는 사람에게는 차가워진다",
+          "fear": "자기가 들여보낸 신입이 돌아오지 않는 것",
+          "ties": "신입 헌터들",
+          "rivals": "규정을 무시하는 대형 길드"
+        },
+        "stances": {
+          "stranger": "사무적으로 안내한다",
+          "known": "필요한 정보를 먼저 챙겨 준다",
+          "trusted": "속사정을 털어놓는다",
+          "hostile": "서류로만 대한다"
+        },
+        "now": [
+          {
+            "goal": "오늘 들어온 신입 등록을 마치기",
+            "worry": "갑천 쪽 마력 수치가 이상하다"
+          }
+        ],
+        "initial_trust": 0
+      }
+    },
+    "강도형": {
+      "name": "강도형",
+      "나이·성별": "41세, 남성",
+      "소속·직책": "은하수 길드장(C급)",
+      "외모": "희끗한 짧은 머리, 오른 팔뚝의 오래된 화상 자국. 낡은 가죽 재킷.",
+      "특기·능력": "은퇴를 앞둔 C급 탱커. 신입을 키워 왔다.",
+      "stats": {
+        "근력": 15,
+        "민첩": 9,
+        "감각": 11,
+        "정신": 12
+      },
+      "resources": {},
+      "statuses": [],
+      "actor_id": "gy.npc.kang_dohyung",
+      "routine": {
+        "entries": [],
+        "default_place": "은하수 길드 사무실"
+      },
+      "persona": {
+        "surface": {
+          "impression": "허허 웃는 동네 형 같은 길드장.",
+          "voice": "느긋한 반말. '천천히 가도 돼'.",
+          "lines": [
+            "우리 길드는 작아도 아무도 안 버려.",
+            "공격대는 혼자 하는 게 아니야.",
+            "다치면 바로 빠져. 그게 실력이야."
+          ]
+        },
+        "core": {
+          "value": "식구를 살려서 돌려보내는 것",
+          "crack": "무리하는 신입을 보면 언성이 높아진다",
+          "fear": "또 한 명을 잃는 것",
+          "ties": "한유진, 서아름",
+          "rivals": "천랑 길드"
+        },
+        "stances": {
+          "stranger": "반갑게 맞는다",
+          "known": "길드에 들어오라 권한다",
+          "trusted": "옛 공격대 이야기를 한다",
+          "hostile": "문을 가리킨다"
+        },
+        "now": [
+          {
+            "goal": "쓸 만한 신입을 하나 더 들이기",
+            "worry": "자기 은퇴 뒤 길드"
+          }
+        ],
+        "initial_trust": 0
+      }
+    },
+    "한유진": {
+      "name": "한유진",
+      "나이·성별": "26세, 여성",
+      "소속·직책": "은하수 길드원(D급 탱커)",
+      "외모": "어깨까지 오는 묶은 머리, 긁힌 자국투성이 원형 방패를 등에 멘다.",
+      "특기·능력": "강화 계열. 앞에서 버틴다.",
+      "stats": {
+        "근력": 15,
+        "민첩": 9,
+        "감각": 11,
+        "정신": 10
+      },
+      "resources": {},
+      "statuses": [],
+      "actor_id": "gy.npc.han_yujin",
+      "routine": {
+        "entries": [],
+        "default_place": "은하수 길드 사무실"
+      },
+      "persona": {
+        "surface": {
+          "impression": "과묵한 방패.",
+          "voice": "짧은 존댓말. 대답 대신 방패를 고쳐 멘다.",
+          "lines": [
+            "제 뒤에 계세요.",
+            "…괜찮습니다.",
+            "무리하지 마세요. 그건 제 일입니다."
+          ]
+        },
+        "core": {
+          "value": "뒤에 선 사람을 지키는 것",
+          "crack": "칭찬을 들으면 말을 돌린다",
+          "fear": "방패가 늦는 것",
+          "ties": "강도형, 서아름",
+          "rivals": "없음"
+        },
+        "stances": {
+          "stranger": "고개만 숙인다",
+          "known": "앞에 선다",
+          "trusted": "자기 이야기를 조금 한다",
+          "hostile": "말을 끊는다"
+        },
+        "now": [
+          {
+            "goal": "길드 공격대에 쓸 만한 딜러를 찾기",
+            "worry": "길드장의 은퇴"
+          }
+        ],
+        "initial_trust": 0
+      },
+      "party": {
+        "role": "탱커"
+      },
+      "스킬": "강철 피부"
+    },
+    "서아름": {
+      "name": "서아름",
+      "나이·성별": "24세, 여성",
+      "소속·직책": "은하수 길드원(E급 힐러)",
+      "외모": "동그란 안경, 허리에 찬 물약 주머니. 웃으면 보조개가 진다.",
+      "특기·능력": "치유 계열. 다친 사람을 먼저 본다.",
+      "stats": {
+        "근력": 8,
+        "민첩": 10,
+        "감각": 12,
+        "정신": 14
+      },
+      "resources": {},
+      "statuses": [],
+      "actor_id": "gy.npc.seo_areum",
+      "routine": {
+        "entries": [],
+        "default_place": "은하수 길드 사무실"
+      },
+      "persona": {
+        "surface": {
+          "impression": "밝고 걱정 많은 동기 힐러.",
+          "voice": "다정한 반말 섞인 존댓말.",
+          "lines": [
+            "다쳤으면 숨기지 말아요!",
+            "마력 바닥나면 저 진짜 아무것도 못 해요.",
+            "우리 같은 E급이잖아요."
+          ]
+        },
+        "core": {
+          "value": "아무도 빈사로 두지 않는 것",
+          "crack": "마력이 바닥나면 울먹인다",
+          "fear": "치유가 늦는 것",
+          "ties": "한유진, PC",
+          "rivals": "없음"
+        },
+        "stances": {
+          "stranger": "반갑게 인사한다",
+          "known": "같이 다니자고 한다",
+          "trusted": "고민을 털어놓는다",
+          "hostile": "거리를 둔다"
+        },
+        "now": [
+          {
+            "goal": "다음 공격대에서 쓰러지지 않기",
+            "worry": "자기 마력이 약하다는 것"
+          }
+        ],
+        "initial_trust": 0
+      },
+      "party": {
+        "role": "힐러"
+      }
+    },
+    "도재경": {
+      "name": "도재경",
+      "나이·성별": "31세, 남성",
+      "소속·직책": "프리랜서 헌터(D급 근접 딜러)",
+      "외모": "짧게 친 머리, 목에 감은 낡은 수건. 등에 멘 대검.",
+      "특기·능력": "강화 계열. 앞으로 뛰어든다.",
+      "stats": {
+        "근력": 16,
+        "민첩": 12,
+        "감각": 10,
+        "정신": 8
+      },
+      "resources": {},
+      "statuses": [],
+      "actor_id": "gy.npc.do_jaegyeong",
+      "routine": {
+        "entries": [],
+        "default_place": "협회 로비"
+      },
+      "persona": {
+        "surface": {
+          "impression": "돈만 맞으면 어디든 가는 용병.",
+          "voice": "건들거리는 반말.",
+          "lines": [
+            "몫만 제대로 주면 뭐든 베지.",
+            "탱커 없으면 나 안 간다.",
+            "E급이 뭘 안다고."
+          ]
+        },
+        "core": {
+          "value": "실력으로 대접받는 것",
+          "crack": "무시당하면 먼저 시비를 건다",
+          "fear": "길드에 묶이는 것",
+          "ties": "없음",
+          "rivals": "차세윤"
+        },
+        "stances": {
+          "stranger": "깔본다",
+          "known": "같이 가 준다",
+          "trusted": "옛 길드 이야기를 한다",
+          "hostile": "등을 돌린다"
+        },
+        "now": [
+          {
+            "goal": "좋은 공격대 자리 찾기",
+            "worry": "다친 무릎"
+          }
+        ],
+        "initial_trust": 0
+      },
+      "party": {
+        "role": "근접 딜러",
+        "join_when": {
+          "any": [
+            {
+              "cmp": "EQ",
+              "ref": {
+                "ref": "RELATION_STAGE",
+                "actor": "gy.npc.do_jaegyeong"
+              },
+              "value": "known"
+            },
+            {
+              "cmp": "EQ",
+              "ref": {
+                "ref": "RELATION_STAGE",
+                "actor": "gy.npc.do_jaegyeong"
+              },
+              "value": "trusted"
+            }
+          ]
+        }
+      },
+      "스킬": "폭발 강타"
+    },
+    "백소은": {
+      "name": "백소은",
+      "나이·성별": "22세, 여성",
+      "소속·직책": "신입 헌터(E급 마법사)",
+      "외모": "부스스한 단발, 그을린 장갑. 손끝에서 불티가 튄다.",
+      "특기·능력": "화염 계열. 멀리서 태운다.",
+      "stats": {
+        "근력": 7,
+        "민첩": 11,
+        "감각": 12,
+        "정신": 15
+      },
+      "resources": {},
+      "statuses": [],
+      "actor_id": "gy.npc.baek_soeun",
+      "routine": {
+        "entries": [],
+        "default_place": "훈련장"
+      },
+      "persona": {
+        "surface": {
+          "impression": "PC와 같은 날 등록한 신입 동기.",
+          "voice": "빠르고 들뜬 반말.",
+          "lines": [
+            "같은 날 등록했잖아! 같이 가자!",
+            "화염구 쏘면 나 좀 지켜 줘.",
+            "언젠간 S급 될 거야."
+          ]
+        },
+        "core": {
+          "value": "인정받는 것",
+          "crack": "실수하면 지나치게 사과한다",
+          "fear": "혼자 남는 것",
+          "ties": "PC",
+          "rivals": "없음"
+        },
+        "stances": {
+          "stranger": "수줍게 말을 건다",
+          "known": "같이 가자고 조른다",
+          "trusted": "속마음을 말한다",
+          "hostile": "토라진다"
+        },
+        "now": [
+          {
+            "goal": "첫 게이트를 무사히 다녀오기",
+            "worry": "자기 화염이 아군을 태울까 봐"
+          }
+        ],
+        "initial_trust": 0
+      },
+      "party": {
+        "role": "마법사",
+        "join_when": {
+          "any": [
+            {
+              "cmp": "EQ",
+              "ref": {
+                "ref": "RELATION_STAGE",
+                "actor": "gy.npc.baek_soeun"
+              },
+              "value": "known"
+            },
+            {
+              "cmp": "EQ",
+              "ref": {
+                "ref": "RELATION_STAGE",
+                "actor": "gy.npc.baek_soeun"
+              },
+              "value": "trusted"
+            }
+          ]
+        }
+      },
+      "스킬": "화염구"
+    },
+    "노태민": {
+      "name": "노태민",
+      "나이·성별": "35세, 남성",
+      "소속·직책": "짐꾼 출신 서포터(E급)",
+      "외모": "다부진 몸, 커다란 배낭. 늘 무언가를 수첩에 적는다.",
+      "특기·능력": "강화 계열 버퍼. 아군의 힘을 끌어올린다.",
+      "stats": {
+        "근력": 13,
+        "민첩": 9,
+        "감각": 12,
+        "정신": 11
+      },
+      "resources": {},
+      "statuses": [],
+      "actor_id": "gy.npc.no_taemin",
+      "routine": {
+        "entries": [],
+        "default_place": "중앙시장 헌터 상가"
+      },
+      "persona": {
+        "surface": {
+          "impression": "10년 짐꾼 출신의 성실한 서포터.",
+          "voice": "조용한 존댓말.",
+          "lines": [
+            "짐은 제가 들게요.",
+            "지금이에요, 한 번 더 버티세요!",
+            "게이트 안에선 욕심내면 죽습니다."
+          ]
+        },
+        "core": {
+          "value": "모두 살아서 나오는 것",
+          "crack": "무시당하면 묵묵히 일만 한다",
+          "fear": "또 짐꾼으로만 불리는 것",
+          "ties": "시장 상인들",
+          "rivals": "없음"
+        },
+        "stances": {
+          "stranger": "공손히 인사한다",
+          "known": "같이 가겠다고 한다",
+          "trusted": "짐꾼 시절 이야기를 한다",
+          "hostile": "물러선다"
+        },
+        "now": [
+          {
+            "goal": "공격대 서포터로 인정받기",
+            "worry": "딸의 학원비"
+          }
+        ],
+        "initial_trust": 0
+      },
+      "party": {
+        "role": "서포터",
+        "join_when": {
+          "any": [
+            {
+              "cmp": "EQ",
+              "ref": {
+                "ref": "RELATION_STAGE",
+                "actor": "gy.npc.no_taemin"
+              },
+              "value": "known"
+            },
+            {
+              "cmp": "EQ",
+              "ref": {
+                "ref": "RELATION_STAGE",
+                "actor": "gy.npc.no_taemin"
+              },
+              "value": "trusted"
+            }
+          ]
+        }
+      }
+    },
+    "차세윤": {
+      "name": "차세윤",
+      "나이·성별": "27세, 남성",
+      "소속·직책": "천랑 길드 C급 헌터",
+      "외모": "잘 다린 길드 점퍼, 은빛 장검. 웃을 때 입꼬리만 올라간다.",
+      "특기·능력": "C급 근접 딜러. 실력은 진짜다.",
+      "stats": {
+        "근력": 15,
+        "민첩": 14,
+        "감각": 12,
+        "정신": 11
+      },
+      "resources": {},
+      "statuses": [],
+      "actor_id": "gy.npc.cha_seyun",
+      "routine": {
+        "entries": [
+          {
+            "place": "훈련장",
+            "from": "13:00",
+            "to": "17:00"
+          }
+        ],
+        "default_place": "협회 로비"
+      },
+      "persona": {
+        "surface": {
+          "impression": "신입을 깔보는 대형 길드 에이스.",
+          "voice": "느긋한 비웃음 섞인 반말.",
+          "lines": [
+            "E급이 공격대 흉내를?",
+            "갑천은 우리 길드 몫이야.",
+            "…생각보다 하네."
+          ]
+        },
+        "core": {
+          "value": "최고가 되는 것",
+          "crack": "지는 것을 참지 못한다",
+          "fear": "자기보다 빨리 크는 사람",
+          "ties": "천랑 길드",
+          "rivals": "은하수 길드"
+        },
+        "stances": {
+          "stranger": "비웃는다",
+          "known": "경쟁심을 보인다",
+          "trusted": "인정한다",
+          "hostile": "대놓고 방해한다"
+        },
+        "now": [
+          {
+            "goal": "갑천 이중 게이트 공략권을 따내기",
+            "worry": "길드 안 서열"
+          }
+        ],
+        "initial_trust": 0
+      },
+      "스킬": "폭발 강타"
+    },
+    "마준혁": {
+      "name": "마준혁",
+      "나이·성별": "33세, 남성",
+      "소속·직책": "프리랜서 브로커",
+      "외모": "번쩍이는 손목시계, 늘 반쯤 웃는 얼굴.",
+      "특기·능력": "마석 뒷거래와 공격대 소개를 한다.",
+      "stats": {
+        "근력": 9,
+        "민첩": 11,
+        "감각": 13,
+        "정신": 14
+      },
+      "resources": {},
+      "statuses": [],
+      "actor_id": "gy.npc.ma_junhyuk",
+      "routine": {
+        "entries": [],
+        "default_place": "마석 매입소"
+      },
+      "persona": {
+        "surface": {
+          "impression": "친절한 척하는 브로커.",
+          "voice": "능글맞은 존댓말.",
+          "lines": [
+            "협회 시세보다 2할 더 쳐 드리죠.",
+            "좋은 공격대 자리 있는데, 소개비만.",
+            "규정? 다 사람이 만든 거예요."
+          ]
+        },
+        "core": {
+          "value": "돈",
+          "crack": "의심받으면 말을 돌린다",
+          "fear": "협회 감사",
+          "ties": "없음",
+          "rivals": "윤채린"
+        },
+        "stances": {
+          "stranger": "친절하게 다가온다",
+          "known": "거래를 제안한다",
+          "trusted": "뒷이야기를 흘린다",
+          "hostile": "사라진다"
+        },
+        "now": [
+          {
+            "goal": "신입에게 뒷거래 물꼬 트기",
+            "worry": "협회 단속"
+          }
+        ],
+        "initial_trust": 0
+      }
+    },
+    "오미숙": {
+      "name": "오미숙",
+      "나이·성별": "58세, 여성",
+      "소속·직책": "헌터 상가 장비점 주인",
+      "외모": "돋보기를 이마에 올린 앞치마 차림.",
+      "특기·능력": "장비 상태를 한눈에 본다.",
+      "stats": {
+        "근력": 10,
+        "민첩": 8,
+        "감각": 14,
+        "정신": 12
+      },
+      "resources": {},
+      "statuses": [],
+      "actor_id": "gy.npc.oh_misuk",
+      "routine": {
+        "entries": [],
+        "default_place": "중앙시장 헌터 상가"
+      },
+      "persona": {
+        "surface": {
+          "impression": "깐깐하지만 정 많은 장비점 주인.",
+          "voice": "시장 사투리 반말.",
+          "lines": [
+            "돈 없으면 구경만 혀.",
+            "방패는 아끼지 말어. 목숨 값이여.",
+            "태민이 데려가, 걔 성실혀."
+          ]
+        },
+        "core": {
+          "value": "제값 받고 제값 주는 것",
+          "crack": "흥정이 길어지면 짜증 낸다",
+          "fear": "단골이 안 돌아오는 것",
+          "ties": "노태민",
+          "rivals": "마준혁"
+        },
+        "stances": {
+          "stranger": "시큰둥하다",
+          "known": "덤을 얹어 준다",
+          "trusted": "옛 단골 이야기를 한다",
+          "hostile": "문을 닫는다"
+        },
+        "now": [
+          {
+            "goal": "오늘 물건 다 팔기",
+            "worry": "물약 공급"
+          }
+        ],
+        "initial_trust": 0
+      }
+    },
+    "고블린 척후": {
+      "name": "고블린 척후",
+      "나이·성별": "몬스터",
+      "소속·직책": "게이트 몬스터",
+      "외모": "작고 마른 녹색 피부, 녹슨 단도.",
+      "특기·능력": "",
+      "stats": {
+        "근력": 8,
+        "민첩": 13,
+        "감각": 12,
+        "정신": 6
+      },
+      "resources": {},
+      "statuses": [],
+      "actor_id": "gy.mob.goblin_scout",
+      "toughness": 1,
+      "stance": {
+        "type": "hostile",
+        "kill_points": 1
+      }
+    },
+    "고블린 전사": {
+      "name": "고블린 전사",
+      "나이·성별": "몬스터",
+      "소속·직책": "게이트 몬스터",
+      "외모": "어깨가 넓은 고블린, 못 박힌 몽둥이.",
+      "특기·능력": "",
+      "stats": {
+        "근력": 12,
+        "민첩": 9,
+        "감각": 8,
+        "정신": 6
+      },
+      "resources": {},
+      "statuses": [],
+      "actor_id": "gy.mob.goblin_warrior",
+      "toughness": 1,
+      "stance": {
+        "type": "hostile",
+        "kill_points": 1
+      }
+    },
+    "고블린 투척병": {
+      "name": "고블린 투척병",
+      "나이·성별": "몬스터",
+      "소속·직책": "게이트 몬스터",
+      "외모": "돌주머니를 찬 고블린.",
+      "특기·능력": "",
+      "stats": {
+        "근력": 8,
+        "민첩": 12,
+        "감각": 10,
+        "정신": 6
+      },
+      "resources": {},
+      "statuses": [],
+      "actor_id": "gy.mob.goblin_slinger",
+      "toughness": 1,
+      "stance": {
+        "type": "hostile",
+        "kill_points": 1
+      }
+    },
+    "고블린 우두머리": {
+      "name": "고블린 우두머리",
+      "나이·성별": "몬스터",
+      "소속·직책": "게이트 몬스터",
+      "외모": "사람만 한 덩치, 굴착기 날로 만든 도끼.",
+      "특기·능력": "",
+      "stats": {
+        "근력": 15,
+        "민첩": 10,
+        "감각": 10,
+        "정신": 8
+      },
+      "resources": {},
+      "statuses": [],
+      "actor_id": "gy.mob.goblin_chief",
+      "toughness": 2,
+      "stance": {
+        "type": "hostile",
+        "kill_points": 3
+      }
+    },
+    "해골 병사": {
+      "name": "해골 병사",
+      "나이·성별": "몬스터",
+      "소속·직책": "게이트 몬스터",
+      "외모": "녹슨 교복 단추가 붙은 해골, 부러진 철제 의자 다리.",
+      "특기·능력": "",
+      "stats": {
+        "근력": 12,
+        "민첩": 8,
+        "감각": 8,
+        "정신": 4
+      },
+      "resources": {},
+      "statuses": [],
+      "actor_id": "gy.mob.skeleton",
+      "toughness": 1,
+      "stance": {
+        "type": "hostile",
+        "kill_points": 2
+      }
+    },
+    "해골 궁수": {
+      "name": "해골 궁수",
+      "나이·성별": "몬스터",
+      "소속·직책": "게이트 몬스터",
+      "외모": "과학실 표본 같은 해골, 뼈로 만든 활.",
+      "특기·능력": "",
+      "stats": {
+        "근력": 8,
+        "민첩": 12,
+        "감각": 11,
+        "정신": 4
+      },
+      "resources": {},
+      "statuses": [],
+      "actor_id": "gy.mob.skeleton_archer",
+      "toughness": 1,
+      "stance": {
+        "type": "hostile",
+        "kill_points": 2
+      }
+    },
+    "구울": {
+      "name": "구울",
+      "나이·성별": "몬스터",
+      "소속·직책": "게이트 몬스터",
+      "외모": "네 발로 기는 회색 살덩이, 긴 손톱.",
+      "특기·능력": "",
+      "stats": {
+        "근력": 14,
+        "민첩": 12,
+        "감각": 10,
+        "정신": 5
+      },
+      "resources": {},
+      "statuses": [],
+      "actor_id": "gy.mob.ghoul",
+      "toughness": 2,
+      "stance": {
+        "type": "hostile",
+        "kill_points": 2
+      }
+    },
+    "강당의 망령": {
+      "name": "강당의 망령",
+      "나이·성별": "몬스터",
+      "소속·직책": "게이트 몬스터",
+      "외모": "무대 위에 뜬 검은 정장의 그림자, 손에 지시봉.",
+      "특기·능력": "",
+      "stats": {
+        "근력": 12,
+        "민첩": 11,
+        "감각": 14,
+        "정신": 16
+      },
+      "resources": {},
+      "statuses": [],
+      "actor_id": "gy.mob.hall_wraith",
+      "toughness": 3,
+      "stance": {
+        "type": "hostile",
+        "kill_points": 4
+      }
+    },
+    "늪도마뱀": {
+      "name": "늪도마뱀",
+      "나이·성별": "몬스터",
+      "소속·직책": "게이트 몬스터",
+      "외모": "사람 키만 한 비늘 도마뱀.",
+      "특기·능력": "",
+      "stats": {
+        "근력": 14,
+        "민첩": 11,
+        "감각": 10,
+        "정신": 5
+      },
+      "resources": {},
+      "statuses": [],
+      "actor_id": "gy.mob.marsh_lizard",
+      "toughness": 2,
+      "stance": {
+        "type": "hostile",
+        "kill_points": 3
+      }
+    },
+    "갈대 정령": {
+      "name": "갈대 정령",
+      "나이·성별": "몬스터",
+      "소속·직책": "게이트 몬스터",
+      "외모": "갈대가 엉겨 만든 여자의 형상.",
+      "특기·능력": "",
+      "stats": {
+        "근력": 8,
+        "민첩": 13,
+        "감각": 13,
+        "정신": 14
+      },
+      "resources": {},
+      "statuses": [],
+      "actor_id": "gy.mob.reed_spirit",
+      "toughness": 1,
+      "stance": {
+        "type": "hostile",
+        "kill_points": 3
+      }
+    },
+    "갑천의 주인": {
+      "name": "갑천의 주인",
+      "나이·성별": "몬스터",
+      "소속·직책": "게이트 몬스터",
+      "외모": "철교 잔해를 휘감은 거대한 수룡.",
+      "특기·능력": "",
+      "stats": {
+        "근력": 18,
+        "민첩": 10,
+        "감각": 12,
+        "정신": 14
+      },
+      "resources": {},
+      "statuses": [],
+      "actor_id": "gy.mob.gapcheon_lord",
+      "toughness": 4,
+      "stance": {
+        "type": "hostile",
+        "kill_points": 6
+      }
+    }
+  },
+  "information_definitions": {
+    "gy.k.rank_rule": {
+      "proposition": "등급보다 높은 게이트에는 들어갈 수 없다 — 협회 통제선이 막는다(지하철 공사장 E급 · 폐교 D급 · 갑천 C급)",
+      "summary": "등급보다 높은 게이트에는 들어갈 수 없다 — 협회 통제선이 막는다(지하철 공사장 E급 · 폐교 D급 · 갑천 C급)",
+      "subject_refs": [
+        "place:협회 로비"
+      ],
+      "tags": [
+        "협회"
+      ]
+    },
+    "gy.k.exam": {
+      "proposition": "E급 게이트를 한 번 공략하면 등급 심사장에서 승급 심사를 받을 수 있다",
+      "summary": "E급 게이트를 한 번 공략하면 등급 심사장에서 승급 심사를 받을 수 있다",
+      "subject_refs": [
+        "place:등급 심사장"
+      ],
+      "tags": [
+        "협회"
+      ]
+    },
+    "gy.k.party": {
+      "proposition": "공격대는 역할이 갈린다 — 탱커가 막고, 딜러가 베고, 힐러가 살리고, 서포터가 끌어올린다",
+      "summary": "공격대는 역할이 갈린다 — 탱커가 막고, 딜러가 베고, 힐러가 살리고, 서포터가 끌어올린다",
+      "subject_refs": [
+        "actor:gy.npc.kang_dohyung"
+      ],
+      "tags": [
+        "공격대"
+      ]
+    },
+    "gy.k.guild": {
+      "proposition": "은하수 길드에 들어가면 탱커 한유진과 힐러 서아름이 공격대에 함께한다",
+      "summary": "은하수 길드에 들어가면 탱커 한유진과 힐러 서아름이 공격대에 함께한다",
+      "subject_refs": [
+        "actor:gy.npc.kang_dohyung"
+      ],
+      "tags": [
+        "공격대"
+      ]
+    },
+    "gy.k.goblin": {
+      "proposition": "고블린 우두머리는 굴착기 둥지에 있다 — 부하를 먼저 정리하지 않으면 협공당한다",
+      "summary": "고블린 우두머리는 굴착기 둥지에 있다 — 부하를 먼저 정리하지 않으면 협공당한다",
+      "subject_refs": [
+        "place:공사장 입구"
+      ],
+      "tags": [
+        "게이트"
+      ]
+    },
+    "gy.k.wraith": {
+      "proposition": "강당의 망령은 단단하다(내구가 높다) — 탱커 없이 맞서면 오래 버티지 못한다",
+      "summary": "강당의 망령은 단단하다(내구가 높다) — 탱커 없이 맞서면 오래 버티지 못한다",
+      "subject_refs": [
+        "place:폐교 정문"
+      ],
+      "tags": [
+        "게이트"
+      ]
+    },
+    "gy.k.double": {
+      "proposition": "갑천에서 닫혔던 첫 게이트 안에 두 번째 균열이 열렸다 — 협회가 D급 이상 공격대를 비상 모집한다",
+      "summary": "갑천에서 닫혔던 첫 게이트 안에 두 번째 균열이 열렸다 — 협회가 D급 이상 공격대를 비상 모집한다",
+      "subject_refs": [
+        "actor:gy.npc.yoon_chaerin"
+      ],
+      "tags": [
+        "게이트"
+      ]
+    },
+    "gy.k.broker": {
+      "proposition": "마준혁의 뒷거래는 협회 규정 위반이다 — 걸리면 등록이 정지된다",
+      "summary": "마준혁의 뒷거래는 협회 규정 위반이다 — 걸리면 등록이 정지된다",
+      "subject_refs": [
+        "actor:gy.npc.yoon_chaerin"
+      ],
+      "tags": [
+        "협회"
+      ]
+    }
+  },
+  "event_templates": {
+    "gy_hunter": {
+      "version": 1,
+      "name": "헌터 등록",
+      "spawn_when": {
+        "const": true
+      },
+      "phases": {
+        "active": {
+          "eligible_when": {
+            "const": true
+          },
+          "priority": 1,
+          "finds": [
+            {
+              "info": "gy.k.rank_rule",
+              "actor": "윤채린"
+            },
+            {
+              "info": "gy.k.exam",
+              "actor": "윤채린"
+            },
+            {
+              "info": "gy.k.party",
+              "actor": "강도형"
+            },
+            {
+              "info": "gy.k.guild",
+              "actor": "강도형"
+            },
+            {
+              "info": "gy.k.goblin",
+              "place": "공사장 입구"
+            },
+            {
+              "info": "gy.k.wraith",
+              "place": "폐교 정문"
+            },
+            {
+              "info": "gy.k.broker",
+              "actor": "윤채린"
+            }
+          ],
+          "guide": "PC는 일주일 전 각성해 오늘 협회에 등록한 E급 신입이다. 혼자서는 E급 게이트도 위험하다 — 공격대(파티)를 꾸리는 것이 기본이다. 성장 포인트는 PC만 얻는다(처치·공략). 등급은 승급 심사로만 오른다."
+        }
+      },
+      "transition_cases": [
+        {
+          "case_id": "spawn",
+          "from": null,
+          "to": "active",
+          "steps": [
+            {
+              "type": "SET_PC_RECORD",
+              "step_id": "rank1",
+              "field": "등급",
+              "value": 1
+            }
+          ]
+        }
+      ],
+      "repeat_policy": "ONCE_PER_SESSION",
+      "resolve_when": {
+        "const": false
+      }
+    },
+    "gy_guild": {
+      "version": 1,
+      "name": "은하수 길드",
+      "spawn_when": {
+        "const": true
+      },
+      "phases": {
+        "open": {
+          "eligible_when": {
+            "const": true
+          },
+          "priority": 1,
+          "resolution_options": [
+            {
+              "option_id": "join",
+              "label": "은하수 길드에 가입한다"
+            }
+          ]
+        },
+        "joined": {
+          "eligible_when": {
+            "cmp": "EQ",
+            "ref": {
+              "ref": "EVENT_LOCAL",
+              "instance": "$self",
+              "key": "resolution"
+            },
+            "value": "join"
+          },
+          "priority": 2,
+          "terminal": true,
+          "guide": "PC가 은하수 길드에 들어왔다. 강도형이 웃으며 한유진과 서아름을 붙여 준다 — 이제 공격대다."
+        }
+      },
+      "transition_cases": [
+        {
+          "case_id": "spawn",
+          "from": null,
+          "to": "open",
+          "steps": []
+        },
+        {
+          "case_id": "join",
+          "from": "open",
+          "to": "joined",
+          "steps": [
+            {
+              "type": "SET_ACTOR_PLACEMENT",
+              "step_id": "yj_at",
+              "actor": "gy.npc.han_yujin",
+              "place": "은하수 길드 사무실"
+            },
+            {
+              "type": "SET_ACTOR_PLACEMENT",
+              "step_id": "ar_at",
+              "actor": "gy.npc.seo_areum",
+              "place": "은하수 길드 사무실"
+            },
+            {
+              "type": "JOIN_PARTY",
+              "step_id": "yj",
+              "actor": "gy.npc.han_yujin"
+            },
+            {
+              "type": "JOIN_PARTY",
+              "step_id": "ar",
+              "actor": "gy.npc.seo_areum"
+            }
+          ]
+        }
+      ],
+      "relevance_places": [
+        "은하수 길드 사무실"
+      ],
+      "repeat_policy": "ONCE_PER_SESSION",
+      "phase_selector": {
+        "mode": "PRIORITY",
+        "stability": "BEST_MATCH"
+      },
+      "resolve_when": {
+        "const": false
+      }
+    },
+    "gy_ch1": {
+      "version": 1,
+      "name": "1장 — 첫 균열",
+      "spawn_when": {
+        "const": true
+      },
+      "phases": {
+        "wait": {
+          "eligible_when": {
+            "const": true
+          },
+          "priority": 1
+        },
+        "exam": {
+          "eligible_when": {
+            "all": [
+              {
+                "cmp": "EQ",
+                "ref": {
+                  "ref": "EVENT_LOCAL",
+                  "template": "gy_gate_e",
+                  "key": "cleared_once"
+                },
+                "value": true
+              },
+              {
+                "cmp": "EQ",
+                "ref": {
+                  "ref": "SCENE_PLACE"
+                },
+                "value": "등급 심사장"
+              }
+            ]
+          },
+          "priority": 2,
+          "resolution_options": [
+            {
+              "option_id": "exam",
+              "label": "승급 심사를 받는다"
+            }
+          ],
+          "guide": "E급 게이트를 공략한 기록이 있다. 윤채린이 승급 심사를 권한다."
+        },
+        "passed": {
+          "eligible_when": {
+            "cmp": "EQ",
+            "ref": {
+              "ref": "EVENT_LOCAL",
+              "instance": "$self",
+              "key": "resolution"
+            },
+            "value": "exam"
+          },
+          "priority": 3,
+          "terminal": true,
+          "guide": "측정 구체가 PC의 마력에 반응해 빛이 한 단계 짙어진다. 심사관이 D급 판정을 내린다.",
+          "ending": {
+            "id": "ch1",
+            "title": "1장 — D급 헌터",
+            "chapter": true,
+            "epilogue": "새 등록증의 색 띠가 바뀐다. 처음 균열 앞에서 떨던 손이 이제 다음 게이트를 가리킨다.",
+            "tone": "성장"
+          }
+        }
+      },
+      "transition_cases": [
+        {
+          "case_id": "spawn",
+          "from": null,
+          "to": "wait",
+          "steps": []
+        },
+        {
+          "case_id": "pass",
+          "from": "exam",
+          "to": "passed",
+          "steps": [
+            {
+              "type": "SET_PC_RECORD",
+              "step_id": "rank2",
+              "field": "등급",
+              "value": 2
+            }
+          ]
+        }
+      ],
+      "relevance_places": [
+        "등급 심사장"
+      ],
+      "repeat_policy": "ONCE_PER_SESSION",
+      "phase_selector": {
+        "mode": "PRIORITY",
+        "stability": "BEST_MATCH"
+      },
+      "resolve_when": {
+        "const": false
+      }
+    },
+    "gy_ch2": {
+      "version": 1,
+      "name": "2장 — 갑천의 이중 균열",
+      "spawn_when": {
+        "cmp": "GTE",
+        "ref": {
+          "ref": "OBSERVER_STAT",
+          "stat": "등급"
+        },
+        "value": 2
+      },
+      "phases": {
+        "alert": {
+          "eligible_when": {
+            "const": true
+          },
+          "priority": 1,
+          "finds": [
+            {
+              "info": "gy.k.double",
+              "actor": "윤채린"
+            }
+          ],
+          "guide": "갑천 쪽 마력 수치가 치솟는다. 협회가 비상 공격대를 모집하고, 천랑 길드의 차세윤이 공략권을 노린다. 폐교 게이트(D급)를 공략한 공격대만 갑천 이중 게이트에 들어갈 수 있다."
+        },
+        "done": {
+          "eligible_when": {
+            "cmp": "EQ",
+            "ref": {
+              "ref": "EVENT_LOCAL",
+              "template": "gy_gate_c",
+              "key": "cleared_once"
+            },
+            "value": true
+          },
+          "priority": 2,
+          "terminal": true,
+          "ending": {
+            "id": "ch2",
+            "title": "2장 — 갑천의 밤",
+            "chapter": true,
+            "epilogue": "겹쳐 열렸던 두 균열이 한꺼번에 닫힌다. 강물이 다시 아래로 흐르고, 통제선 너머에서 박수가 터진다. 차세윤이 처음으로 PC의 이름을 부른다.",
+            "tone": "성장"
+          }
+        }
+      },
+      "transition_cases": [
+        {
+          "case_id": "spawn",
+          "from": null,
+          "to": "alert",
+          "steps": []
+        },
+        {
+          "case_id": "done",
+          "from": "alert",
+          "to": "done",
+          "steps": [
+            {
+              "type": "SET_PC_RECORD",
+              "step_id": "rank3",
+              "field": "등급",
+              "value": 3
+            }
+          ]
+        }
+      ],
+      "repeat_policy": "ONCE_PER_SESSION",
+      "phase_selector": {
+        "mode": "PRIORITY",
+        "stability": "BEST_MATCH"
+      },
+      "resolve_when": {
+        "const": false
+      }
+    },
+    "gy_gate_e": {
+      "version": 1,
+      "name": "지하철 공사장 게이트(E급)",
+      "spawn_when": {
+        "const": true
+      },
+      "phases": {
+        "sealed": {
+          "eligible_when": {
+            "const": true
+          },
+          "priority": 1
+        },
+        "run": {
+          "eligible_when": {
+            "any": [
+              {
+                "all": [
+                  {
+                    "cmp": "EQ",
+                    "ref": {
+                      "ref": "EVENT_PHASE",
+                      "instance": "$self"
+                    },
+                    "value": "run"
+                  },
+                  {
+                    "any": [
+                      {
+                        "cmp": "EQ",
+                        "ref": {
+                          "ref": "SCENE_PLACE"
+                        },
+                        "value": "공사장 입구"
+                      },
+                      {
+                        "cmp": "EQ",
+                        "ref": {
+                          "ref": "SCENE_PLACE"
+                        },
+                        "value": "무너진 터널"
+                      },
+                      {
+                        "cmp": "EQ",
+                        "ref": {
+                          "ref": "SCENE_PLACE"
+                        },
+                        "value": "자재 창고"
+                      },
+                      {
+                        "cmp": "EQ",
+                        "ref": {
+                          "ref": "SCENE_PLACE"
+                        },
+                        "value": "환기 갱도"
+                      },
+                      {
+                        "cmp": "EQ",
+                        "ref": {
+                          "ref": "SCENE_PLACE"
+                        },
+                        "value": "굴착기 둥지"
+                      }
+                    ]
+                  }
+                ]
+              },
+              {
+                "all": [
+                  {
+                    "cmp": "EQ",
+                    "ref": {
+                      "ref": "SCENE_PLACE"
+                    },
+                    "value": "공사장 입구"
+                  }
+                ]
+              }
+            ]
+          },
+          "priority": 2,
+          "guide": "E급 게이트 안이다. 고블린 무리가 구역마다 흩어져 있다(장면 인물 정본). 우두머리를 쓰러뜨리면 게이트가 닫히기 시작한다. 몬스터는 장면에 있을 때만 싸울 수 있고, 쓰러진 몬스터는 다시 일어나지 않는다(이번 회차)."
+        },
+        "cleared": {
+          "eligible_when": {
+            "all": [
+              {
+                "any": [
+                  {
+                    "cmp": "EQ",
+                    "ref": {
+                      "ref": "SCENE_PLACE"
+                    },
+                    "value": "공사장 입구"
+                  },
+                  {
+                    "cmp": "EQ",
+                    "ref": {
+                      "ref": "SCENE_PLACE"
+                    },
+                    "value": "무너진 터널"
+                  },
+                  {
+                    "cmp": "EQ",
+                    "ref": {
+                      "ref": "SCENE_PLACE"
+                    },
+                    "value": "자재 창고"
+                  },
+                  {
+                    "cmp": "EQ",
+                    "ref": {
+                      "ref": "SCENE_PLACE"
+                    },
+                    "value": "환기 갱도"
+                  },
+                  {
+                    "cmp": "EQ",
+                    "ref": {
+                      "ref": "SCENE_PLACE"
+                    },
+                    "value": "굴착기 둥지"
+                  }
+                ]
+              },
+              {
+                "any": [
+                  {
+                    "cmp": "EQ",
+                    "ref": {
+                      "ref": "EVENT_PHASE",
+                      "instance": "$self"
+                    },
+                    "value": "cleared"
+                  },
+                  {
+                    "all": [
+                      {
+                        "cmp": "EQ",
+                        "ref": {
+                          "ref": "EVENT_PHASE",
+                          "instance": "$self"
+                        },
+                        "value": "run"
+                      },
+                      {
+                        "cmp": "EQ",
+                        "ref": {
+                          "ref": "ACTOR_POSITION_SOURCE",
+                          "actor": "gy.mob.goblin_chief"
+                        },
+                        "value": "UNTRACKED"
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
+          },
+          "priority": 3,
+          "guide": "고블린 우두머리이(가) 쓰러졌다. 균열이 흔들리며 닫히기 시작한다 — 남은 몬스터는 힘을 잃는다. 밖으로 나가면 게이트가 닫힌다(다음에 들어오면 새 회차)."
+        }
+      },
+      "transition_cases": [
+        {
+          "case_id": "spawn",
+          "from": null,
+          "to": "sealed",
+          "steps": []
+        },
+        {
+          "case_id": "open_A",
+          "from": "sealed",
+          "to": "run",
+          "weight": 1,
+          "steps": [
+            {
+              "type": "CLEAR_ACTOR_STATUS",
+              "step_id": "rv_goblin_scout",
+              "actor": "gy.mob.goblin_scout"
+            },
+            {
+              "type": "SET_ACTOR_PLACEMENT",
+              "step_id": "pl_goblin_scout",
+              "actor": "gy.mob.goblin_scout",
+              "place": "무너진 터널"
+            },
+            {
+              "type": "CLEAR_ACTOR_STATUS",
+              "step_id": "rv_goblin_warrior",
+              "actor": "gy.mob.goblin_warrior"
+            },
+            {
+              "type": "SET_ACTOR_PLACEMENT",
+              "step_id": "pl_goblin_warrior",
+              "actor": "gy.mob.goblin_warrior",
+              "place": "자재 창고"
+            },
+            {
+              "type": "CLEAR_ACTOR_STATUS",
+              "step_id": "rv_goblin_slinger",
+              "actor": "gy.mob.goblin_slinger"
+            },
+            {
+              "type": "SET_ACTOR_PLACEMENT",
+              "step_id": "pl_goblin_slinger",
+              "actor": "gy.mob.goblin_slinger",
+              "place": "환기 갱도"
+            },
+            {
+              "type": "CLEAR_ACTOR_STATUS",
+              "step_id": "rv_goblin_chief",
+              "actor": "gy.mob.goblin_chief"
+            },
+            {
+              "type": "SET_ACTOR_PLACEMENT",
+              "step_id": "pl_goblin_chief",
+              "actor": "gy.mob.goblin_chief",
+              "place": "굴착기 둥지"
+            },
+            {
+              "type": "SET_EVENT_LOCAL",
+              "step_id": "layout",
+              "key": "layout",
+              "value": "A"
+            }
+          ]
+        },
+        {
+          "case_id": "open_B",
+          "from": "sealed",
+          "to": "run",
+          "weight": 1,
+          "steps": [
+            {
+              "type": "CLEAR_ACTOR_STATUS",
+              "step_id": "rv_goblin_scout",
+              "actor": "gy.mob.goblin_scout"
+            },
+            {
+              "type": "SET_ACTOR_PLACEMENT",
+              "step_id": "pl_goblin_scout",
+              "actor": "gy.mob.goblin_scout",
+              "place": "환기 갱도"
+            },
+            {
+              "type": "CLEAR_ACTOR_STATUS",
+              "step_id": "rv_goblin_warrior",
+              "actor": "gy.mob.goblin_warrior"
+            },
+            {
+              "type": "SET_ACTOR_PLACEMENT",
+              "step_id": "pl_goblin_warrior",
+              "actor": "gy.mob.goblin_warrior",
+              "place": "무너진 터널"
+            },
+            {
+              "type": "CLEAR_ACTOR_STATUS",
+              "step_id": "rv_goblin_slinger",
+              "actor": "gy.mob.goblin_slinger"
+            },
+            {
+              "type": "SET_ACTOR_PLACEMENT",
+              "step_id": "pl_goblin_slinger",
+              "actor": "gy.mob.goblin_slinger",
+              "place": "자재 창고"
+            },
+            {
+              "type": "CLEAR_ACTOR_STATUS",
+              "step_id": "rv_goblin_chief",
+              "actor": "gy.mob.goblin_chief"
+            },
+            {
+              "type": "SET_ACTOR_PLACEMENT",
+              "step_id": "pl_goblin_chief",
+              "actor": "gy.mob.goblin_chief",
+              "place": "굴착기 둥지"
+            },
+            {
+              "type": "SET_EVENT_LOCAL",
+              "step_id": "layout",
+              "key": "layout",
+              "value": "B"
+            }
+          ]
+        },
+        {
+          "case_id": "clear",
+          "from": "run",
+          "to": "cleared",
+          "steps": [
+            {
+              "type": "GRANT_GROWTH",
+              "step_id": "clear_points",
+              "points": 2
+            },
+            {
+              "type": "SET_EVENT_LOCAL",
+              "step_id": "once",
+              "key": "cleared_once",
+              "value": true
+            }
+          ]
+        }
+      ],
+      "relevance_places": [
+        "공사장 입구",
+        "무너진 터널",
+        "자재 창고",
+        "환기 갱도",
+        "굴착기 둥지"
+      ],
+      "repeat_policy": "ONCE_PER_SESSION",
+      "phase_selector": {
+        "mode": "PRIORITY",
+        "stability": "BEST_MATCH"
+      },
+      "resolve_when": {
+        "const": false
+      }
+    },
+    "gy_gate_d": {
+      "version": 1,
+      "name": "폐교 게이트(D급)",
+      "spawn_when": {
+        "const": true
+      },
+      "phases": {
+        "sealed": {
+          "eligible_when": {
+            "const": true
+          },
+          "priority": 1
+        },
+        "run": {
+          "eligible_when": {
+            "any": [
+              {
+                "all": [
+                  {
+                    "cmp": "EQ",
+                    "ref": {
+                      "ref": "EVENT_PHASE",
+                      "instance": "$self"
+                    },
+                    "value": "run"
+                  },
+                  {
+                    "any": [
+                      {
+                        "cmp": "EQ",
+                        "ref": {
+                          "ref": "SCENE_PLACE"
+                        },
+                        "value": "폐교 정문"
+                      },
+                      {
+                        "cmp": "EQ",
+                        "ref": {
+                          "ref": "SCENE_PLACE"
+                        },
+                        "value": "운동장"
+                      },
+                      {
+                        "cmp": "EQ",
+                        "ref": {
+                          "ref": "SCENE_PLACE"
+                        },
+                        "value": "본관 복도"
+                      },
+                      {
+                        "cmp": "EQ",
+                        "ref": {
+                          "ref": "SCENE_PLACE"
+                        },
+                        "value": "과학실"
+                      },
+                      {
+                        "cmp": "EQ",
+                        "ref": {
+                          "ref": "SCENE_PLACE"
+                        },
+                        "value": "폐교 강당"
+                      }
+                    ]
+                  }
+                ]
+              },
+              {
+                "all": [
+                  {
+                    "cmp": "EQ",
+                    "ref": {
+                      "ref": "SCENE_PLACE"
+                    },
+                    "value": "폐교 정문"
+                  },
+                  {
+                    "cmp": "GTE",
+                    "ref": {
+                      "ref": "OBSERVER_STAT",
+                      "stat": "등급"
+                    },
+                    "value": 2
+                  }
+                ]
+              }
+            ]
+          },
+          "priority": 2,
+          "guide": "D급 게이트 안이다. 학교 전체가 밤이고, 언데드가 복도를 지킨다. 강당의 망령은 지시봉을 휘두르며 '수업'을 계속하려 한다. 망령을 쓰러뜨리면 게이트가 닫히기 시작한다."
+        },
+        "cleared": {
+          "eligible_when": {
+            "all": [
+              {
+                "any": [
+                  {
+                    "cmp": "EQ",
+                    "ref": {
+                      "ref": "SCENE_PLACE"
+                    },
+                    "value": "폐교 정문"
+                  },
+                  {
+                    "cmp": "EQ",
+                    "ref": {
+                      "ref": "SCENE_PLACE"
+                    },
+                    "value": "운동장"
+                  },
+                  {
+                    "cmp": "EQ",
+                    "ref": {
+                      "ref": "SCENE_PLACE"
+                    },
+                    "value": "본관 복도"
+                  },
+                  {
+                    "cmp": "EQ",
+                    "ref": {
+                      "ref": "SCENE_PLACE"
+                    },
+                    "value": "과학실"
+                  },
+                  {
+                    "cmp": "EQ",
+                    "ref": {
+                      "ref": "SCENE_PLACE"
+                    },
+                    "value": "폐교 강당"
+                  }
+                ]
+              },
+              {
+                "any": [
+                  {
+                    "cmp": "EQ",
+                    "ref": {
+                      "ref": "EVENT_PHASE",
+                      "instance": "$self"
+                    },
+                    "value": "cleared"
+                  },
+                  {
+                    "all": [
+                      {
+                        "cmp": "EQ",
+                        "ref": {
+                          "ref": "EVENT_PHASE",
+                          "instance": "$self"
+                        },
+                        "value": "run"
+                      },
+                      {
+                        "cmp": "EQ",
+                        "ref": {
+                          "ref": "ACTOR_POSITION_SOURCE",
+                          "actor": "gy.mob.hall_wraith"
+                        },
+                        "value": "UNTRACKED"
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
+          },
+          "priority": 3,
+          "guide": "강당의 망령이(가) 쓰러졌다. 균열이 흔들리며 닫히기 시작한다 — 남은 몬스터는 힘을 잃는다. 밖으로 나가면 게이트가 닫힌다(다음에 들어오면 새 회차)."
+        }
+      },
+      "transition_cases": [
+        {
+          "case_id": "spawn",
+          "from": null,
+          "to": "sealed",
+          "steps": []
+        },
+        {
+          "case_id": "open_A",
+          "from": "sealed",
+          "to": "run",
+          "weight": 1,
+          "steps": [
+            {
+              "type": "CLEAR_ACTOR_STATUS",
+              "step_id": "rv_skeleton",
+              "actor": "gy.mob.skeleton"
+            },
+            {
+              "type": "SET_ACTOR_PLACEMENT",
+              "step_id": "pl_skeleton",
+              "actor": "gy.mob.skeleton",
+              "place": "운동장"
+            },
+            {
+              "type": "CLEAR_ACTOR_STATUS",
+              "step_id": "rv_skeleton_archer",
+              "actor": "gy.mob.skeleton_archer"
+            },
+            {
+              "type": "SET_ACTOR_PLACEMENT",
+              "step_id": "pl_skeleton_archer",
+              "actor": "gy.mob.skeleton_archer",
+              "place": "본관 복도"
+            },
+            {
+              "type": "CLEAR_ACTOR_STATUS",
+              "step_id": "rv_ghoul",
+              "actor": "gy.mob.ghoul"
+            },
+            {
+              "type": "SET_ACTOR_PLACEMENT",
+              "step_id": "pl_ghoul",
+              "actor": "gy.mob.ghoul",
+              "place": "과학실"
+            },
+            {
+              "type": "CLEAR_ACTOR_STATUS",
+              "step_id": "rv_hall_wraith",
+              "actor": "gy.mob.hall_wraith"
+            },
+            {
+              "type": "SET_ACTOR_PLACEMENT",
+              "step_id": "pl_hall_wraith",
+              "actor": "gy.mob.hall_wraith",
+              "place": "폐교 강당"
+            },
+            {
+              "type": "SET_EVENT_LOCAL",
+              "step_id": "layout",
+              "key": "layout",
+              "value": "A"
+            }
+          ]
+        },
+        {
+          "case_id": "open_B",
+          "from": "sealed",
+          "to": "run",
+          "weight": 1,
+          "steps": [
+            {
+              "type": "CLEAR_ACTOR_STATUS",
+              "step_id": "rv_skeleton",
+              "actor": "gy.mob.skeleton"
+            },
+            {
+              "type": "SET_ACTOR_PLACEMENT",
+              "step_id": "pl_skeleton",
+              "actor": "gy.mob.skeleton",
+              "place": "본관 복도"
+            },
+            {
+              "type": "CLEAR_ACTOR_STATUS",
+              "step_id": "rv_skeleton_archer",
+              "actor": "gy.mob.skeleton_archer"
+            },
+            {
+              "type": "SET_ACTOR_PLACEMENT",
+              "step_id": "pl_skeleton_archer",
+              "actor": "gy.mob.skeleton_archer",
+              "place": "과학실"
+            },
+            {
+              "type": "CLEAR_ACTOR_STATUS",
+              "step_id": "rv_ghoul",
+              "actor": "gy.mob.ghoul"
+            },
+            {
+              "type": "SET_ACTOR_PLACEMENT",
+              "step_id": "pl_ghoul",
+              "actor": "gy.mob.ghoul",
+              "place": "운동장"
+            },
+            {
+              "type": "CLEAR_ACTOR_STATUS",
+              "step_id": "rv_hall_wraith",
+              "actor": "gy.mob.hall_wraith"
+            },
+            {
+              "type": "SET_ACTOR_PLACEMENT",
+              "step_id": "pl_hall_wraith",
+              "actor": "gy.mob.hall_wraith",
+              "place": "폐교 강당"
+            },
+            {
+              "type": "SET_EVENT_LOCAL",
+              "step_id": "layout",
+              "key": "layout",
+              "value": "B"
+            }
+          ]
+        },
+        {
+          "case_id": "clear",
+          "from": "run",
+          "to": "cleared",
+          "steps": [
+            {
+              "type": "GRANT_GROWTH",
+              "step_id": "clear_points",
+              "points": 3
+            },
+            {
+              "type": "SET_EVENT_LOCAL",
+              "step_id": "once",
+              "key": "cleared_once",
+              "value": true
+            }
+          ]
+        }
+      ],
+      "relevance_places": [
+        "폐교 정문",
+        "운동장",
+        "본관 복도",
+        "과학실",
+        "폐교 강당"
+      ],
+      "repeat_policy": "ONCE_PER_SESSION",
+      "phase_selector": {
+        "mode": "PRIORITY",
+        "stability": "BEST_MATCH"
+      },
+      "resolve_when": {
+        "const": false
+      }
+    },
+    "gy_gate_c": {
+      "version": 1,
+      "name": "갑천 이중 게이트(C급)",
+      "spawn_when": {
+        "const": true
+      },
+      "phases": {
+        "sealed": {
+          "eligible_when": {
+            "const": true
+          },
+          "priority": 1
+        },
+        "run": {
+          "eligible_when": {
+            "any": [
+              {
+                "all": [
+                  {
+                    "cmp": "EQ",
+                    "ref": {
+                      "ref": "EVENT_PHASE",
+                      "instance": "$self"
+                    },
+                    "value": "run"
+                  },
+                  {
+                    "any": [
+                      {
+                        "cmp": "EQ",
+                        "ref": {
+                          "ref": "SCENE_PLACE"
+                        },
+                        "value": "강변 입구"
+                      },
+                      {
+                        "cmp": "EQ",
+                        "ref": {
+                          "ref": "SCENE_PLACE"
+                        },
+                        "value": "갈대밭"
+                      },
+                      {
+                        "cmp": "EQ",
+                        "ref": {
+                          "ref": "SCENE_PLACE"
+                        },
+                        "value": "안쪽 균열"
+                      },
+                      {
+                        "cmp": "EQ",
+                        "ref": {
+                          "ref": "SCENE_PLACE"
+                        },
+                        "value": "갑천 둥지"
+                      }
+                    ]
+                  }
+                ]
+              },
+              {
+                "all": [
+                  {
+                    "cmp": "EQ",
+                    "ref": {
+                      "ref": "SCENE_PLACE"
+                    },
+                    "value": "강변 입구"
+                  },
+                  {
+                    "cmp": "GTE",
+                    "ref": {
+                      "ref": "OBSERVER_STAT",
+                      "stat": "등급"
+                    },
+                    "value": 2
+                  },
+                  {
+                    "cmp": "EQ",
+                    "ref": {
+                      "ref": "EVENT_LOCAL",
+                      "template": "gy_gate_d",
+                      "key": "cleared_once"
+                    },
+                    "value": true
+                  }
+                ]
+              }
+            ]
+          },
+          "priority": 2,
+          "guide": "이중 게이트 안이다 — 닫혔던 첫 게이트 안에 두 번째 균열이 열렸다. 물이 거꾸로 흐르고 수생 괴수가 갈대 속에 숨는다. 갑천의 주인은 C급 공격대가 붙어야 할 상대다. 무리하면 빈사로 끝난다."
+        },
+        "cleared": {
+          "eligible_when": {
+            "all": [
+              {
+                "any": [
+                  {
+                    "cmp": "EQ",
+                    "ref": {
+                      "ref": "SCENE_PLACE"
+                    },
+                    "value": "강변 입구"
+                  },
+                  {
+                    "cmp": "EQ",
+                    "ref": {
+                      "ref": "SCENE_PLACE"
+                    },
+                    "value": "갈대밭"
+                  },
+                  {
+                    "cmp": "EQ",
+                    "ref": {
+                      "ref": "SCENE_PLACE"
+                    },
+                    "value": "안쪽 균열"
+                  },
+                  {
+                    "cmp": "EQ",
+                    "ref": {
+                      "ref": "SCENE_PLACE"
+                    },
+                    "value": "갑천 둥지"
+                  }
+                ]
+              },
+              {
+                "any": [
+                  {
+                    "cmp": "EQ",
+                    "ref": {
+                      "ref": "EVENT_PHASE",
+                      "instance": "$self"
+                    },
+                    "value": "cleared"
+                  },
+                  {
+                    "all": [
+                      {
+                        "cmp": "EQ",
+                        "ref": {
+                          "ref": "EVENT_PHASE",
+                          "instance": "$self"
+                        },
+                        "value": "run"
+                      },
+                      {
+                        "cmp": "EQ",
+                        "ref": {
+                          "ref": "ACTOR_POSITION_SOURCE",
+                          "actor": "gy.mob.gapcheon_lord"
+                        },
+                        "value": "UNTRACKED"
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
+          },
+          "priority": 3,
+          "guide": "갑천의 주인이(가) 쓰러졌다. 균열이 흔들리며 닫히기 시작한다 — 남은 몬스터는 힘을 잃는다. 밖으로 나가면 게이트가 닫힌다(다음에 들어오면 새 회차)."
+        }
+      },
+      "transition_cases": [
+        {
+          "case_id": "spawn",
+          "from": null,
+          "to": "sealed",
+          "steps": []
+        },
+        {
+          "case_id": "open_A",
+          "from": "sealed",
+          "to": "run",
+          "weight": 1,
+          "steps": [
+            {
+              "type": "CLEAR_ACTOR_STATUS",
+              "step_id": "rv_marsh_lizard",
+              "actor": "gy.mob.marsh_lizard"
+            },
+            {
+              "type": "SET_ACTOR_PLACEMENT",
+              "step_id": "pl_marsh_lizard",
+              "actor": "gy.mob.marsh_lizard",
+              "place": "갈대밭"
+            },
+            {
+              "type": "CLEAR_ACTOR_STATUS",
+              "step_id": "rv_reed_spirit",
+              "actor": "gy.mob.reed_spirit"
+            },
+            {
+              "type": "SET_ACTOR_PLACEMENT",
+              "step_id": "pl_reed_spirit",
+              "actor": "gy.mob.reed_spirit",
+              "place": "안쪽 균열"
+            },
+            {
+              "type": "CLEAR_ACTOR_STATUS",
+              "step_id": "rv_gapcheon_lord",
+              "actor": "gy.mob.gapcheon_lord"
+            },
+            {
+              "type": "SET_ACTOR_PLACEMENT",
+              "step_id": "pl_gapcheon_lord",
+              "actor": "gy.mob.gapcheon_lord",
+              "place": "갑천 둥지"
+            },
+            {
+              "type": "SET_EVENT_LOCAL",
+              "step_id": "layout",
+              "key": "layout",
+              "value": "A"
+            }
+          ]
+        },
+        {
+          "case_id": "open_B",
+          "from": "sealed",
+          "to": "run",
+          "weight": 1,
+          "steps": [
+            {
+              "type": "CLEAR_ACTOR_STATUS",
+              "step_id": "rv_marsh_lizard",
+              "actor": "gy.mob.marsh_lizard"
+            },
+            {
+              "type": "SET_ACTOR_PLACEMENT",
+              "step_id": "pl_marsh_lizard",
+              "actor": "gy.mob.marsh_lizard",
+              "place": "안쪽 균열"
+            },
+            {
+              "type": "CLEAR_ACTOR_STATUS",
+              "step_id": "rv_reed_spirit",
+              "actor": "gy.mob.reed_spirit"
+            },
+            {
+              "type": "SET_ACTOR_PLACEMENT",
+              "step_id": "pl_reed_spirit",
+              "actor": "gy.mob.reed_spirit",
+              "place": "갈대밭"
+            },
+            {
+              "type": "CLEAR_ACTOR_STATUS",
+              "step_id": "rv_gapcheon_lord",
+              "actor": "gy.mob.gapcheon_lord"
+            },
+            {
+              "type": "SET_ACTOR_PLACEMENT",
+              "step_id": "pl_gapcheon_lord",
+              "actor": "gy.mob.gapcheon_lord",
+              "place": "갑천 둥지"
+            },
+            {
+              "type": "SET_EVENT_LOCAL",
+              "step_id": "layout",
+              "key": "layout",
+              "value": "B"
+            }
+          ]
+        },
+        {
+          "case_id": "clear",
+          "from": "run",
+          "to": "cleared",
+          "steps": [
+            {
+              "type": "GRANT_GROWTH",
+              "step_id": "clear_points",
+              "points": 4
+            },
+            {
+              "type": "SET_EVENT_LOCAL",
+              "step_id": "once",
+              "key": "cleared_once",
+              "value": true
+            }
+          ]
+        }
+      ],
+      "relevance_places": [
+        "강변 입구",
+        "갈대밭",
+        "안쪽 균열",
+        "갑천 둥지"
+      ],
+      "repeat_policy": "ONCE_PER_SESSION",
+      "phase_selector": {
+        "mode": "PRIORITY",
+        "stability": "BEST_MATCH"
+      },
+      "resolve_when": {
+        "const": false
+      }
+    }
+  },
+  "knowledge_notebook": {
+    "title": "헌터 수첩",
+    "groups": [
+      {
+        "tag": "협회",
+        "label": "🏛️ 협회"
+      },
+      {
+        "tag": "공격대",
+        "label": "🛡️ 공격대"
+      },
+      {
+        "tag": "게이트",
+        "label": "🌀 게이트"
+      }
+    ]
+  }
+}

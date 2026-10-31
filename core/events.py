@@ -508,8 +508,10 @@ def _s_actor_status_clear(step, sctx, parents):
 
 
 def _s_grant_growth(step, sctx, parents):
+    # v7.52: 키에 전이 순번 — 반복 국면(게이트 회차)의 지급이 앞 회차 지급을 덮어쓰지 않는다
+    key = f"{GROWTH_GRANT_PREFIX}{step['step_id']}.{int(sctx.instance.get('transition_ordinal') or 0)}"
     return StepResult([_mk(sctx, step["step_id"], 0, OP_EVENT_LOCAL_SET,
-                           {"instance_id": sctx.iid, "key": GROWTH_GRANT_PREFIX + step["step_id"],
+                           {"instance_id": sctx.iid, "key": key,
                             "value": {"points": int(step["points"]), "minute": sctx.now}}, parents)])
 
 

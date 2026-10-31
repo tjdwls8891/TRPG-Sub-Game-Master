@@ -95,7 +95,13 @@ def changed_keys(before: _wm.ProjectedWorld, after: _wm.ProjectedWorld) -> set:
         if x.get("current_phase") != y.get("current_phase") or x.get("transition_ordinal") != y.get("transition_ordinal"):
             out.add(f"event:{iid}:phase")
         xl, yl = x.get("local_state") or {}, y.get("local_state") or {}
-        out |= {f"event:{iid}:local:{k}" for k in set(xl) | set(yl) if xl.get(k) != yl.get(k)}
+        diff = {k for k in set(xl) | set(yl) if xl.get(k) != yl.get(k)}
+        out |= {f"event:{iid}:local:{k}" for k in diff}
+        # v7.52: 사건이 붙이거나 푼 인물 상태(역할 dead면 유효 위치를 잃는다)는 그 인물의 위치 변화다
+        for k in diff:
+            for pre in (_ev.ACTOR_STATUS_PREFIX, _ev.ACTOR_STATUS_CLEAR_PREFIX):
+                if k.startswith(pre):
+                    out.add(f"actor:{k[len(pre):]}:placement")
     b, a = _d(before, "spatial_knowledge"), _d(after, "spatial_knowledge")
     out |= {f"knowledge:{x}:spatial" for x in set(b) | set(a) if b.get(x) != a.get(x)}
     b, a = _d(before, "relationship_state"), _d(after, "relationship_state")
