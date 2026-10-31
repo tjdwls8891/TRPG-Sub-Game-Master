@@ -10,8 +10,11 @@ from indaim.rules.relations.components import target_of
 
 from . import v4
 
-PORTED = tuple((c.entity, c.name) for f in FEATURES for c in f.COMPONENTS)
-_PLACEHOLDERS = (("actor", ("vitals", "bag", "party", "stats")),
+# 옛 typed 연산의 번역으로 비교하는 컴포넌트(투영 그림자). vitals 등 확정 훅 모듈은 커밋 단위 그림자로 따로 비교한다.
+_HOOK_FEATURES = ("vitals",)
+PORTED = tuple((c.entity, c.name) for f in FEATURES for c in f.COMPONENTS
+               if f.__name__.rsplit(".", 1)[-1] not in _HOOK_FEATURES)
+_PLACEHOLDERS = (("actor", ("bag", "party", "stats")),
                  ("item", ("state",)), ("place", ("floor",)), ("info", ("runtime", "status")),
                  ("event", ("core", "vars", "history")),
                  (WORLD, ("pending_signals", "item_lore", "info_series", "group_mind", "group_bond", "unresolved")))
@@ -157,7 +160,7 @@ def _ported_view(world, reg) -> dict:
     return out
 
 
-STATS = {"compared": 0, "effects": 0}
+STATS = {"compared": 0, "effects": 0, "vitals_turns": 0, "vitals_effects": 0}
 
 
 def shadow_compare(source_domains: dict, old_batch, result_domains: dict) -> list:
@@ -181,3 +184,29 @@ def shadow_compare(source_domains: dict, old_batch, result_domains: dict) -> lis
         return [f"새 커널 충돌: {[c.message for c in res.conflicts]}"]
     got = _ported_view(res.world, reg)
     return [f"{k}: 옛 {want.get(k)!r} ≠ 새 {got.get(k)!r}" for k in sorted(set(want) | set(got)) if want.get(k) != got.get(k)]
+
+
+def shadow_vitals(pre_fields: dict, inputs: dict, post_fields: dict, *, tx: str) -> list:
+    """T-1 그림자 — vitals 확정 훅(변환된 턴 전 세계 + 같은 판정 재료) ↔ 변환된 커밋 후 세계의 actor.vitals."""
+    from indaim.kernel import View
+    from indaim.rules import vitals
+    reg = registry()
+    pre = v4.convert(_fields(pre_fields), game_keys=set())
+    names, _canon, _amb = v4._names(_fields(pre_fields))
+    effs = vitals.settle(View(pre.world, reg, None), {**inputs, "names": names}, effect_prefix=tx)
+    STATS["vitals_turns"] += 1
+    STATS["vitals_effects"] += len(effs)
+    b = EffectBatch(batch_id=f"shadow.vitals.{tx}", origin="PLAYER_TURN", base_version_id=None, definition_revision=None)
+    b.extend(effs)
+    b.freeze()
+    res = project(pre.world, b, reg, None)
+    if not res.ok:
+        return [f"새 커널 충돌: {[c.message for c in res.conflicts]}"]
+
+    def vit(world):
+        w = compact(world, reg, None).to_dict()
+        return {aid: {k: v for k, v in c["vitals"].items() if k != "by_event"}
+                for aid, c in (w.get("entities", {}).get("actor") or {}).items() if "vitals" in c}
+    want = {a: v for a, v in vit(v4.convert(_fields(post_fields), game_keys=set()).world).items() if v}
+    got = {a: v for a, v in vit(res.world).items() if v}
+    return [f"{a}: 옛 {want.get(a)!r} ≠ 새 {got.get(a)!r}" for a in sorted(set(want) | set(got)) if want.get(a) != got.get(a)]

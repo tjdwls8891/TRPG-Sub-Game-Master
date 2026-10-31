@@ -248,7 +248,12 @@ def test_kernel_imports_stdlib_only():
     assert bad == []
 
 
-def test_core_does_not_import_indaim():
-    hits = [str(f) for d in ("core", "cogs") for f in (ROOT / d).glob("*.py")
-            if "indaim" in f.read_text(encoding="utf-8").split("\n#")[0] and "import indaim" in f.read_text(encoding="utf-8")]
-    assert hits == []
+def test_indaim_does_not_import_old_engine():
+    """새 엔진(indaim)은 옛 core·cogs를 import하지 않는다 — 옛 쪽이 새 모듈을 부르는 방향만 허용(교체 중 단일 구현)."""
+    bad = []
+    for f in sorted((ROOT / "indaim").rglob("*.py")):
+        for node in ast.walk(ast.parse(f.read_text(encoding="utf-8"))):
+            mods = [a.name for a in node.names] if isinstance(node, ast.Import) else \
+                [node.module or ""] if isinstance(node, ast.ImportFrom) and not node.level else []
+            bad += [f"{f.relative_to(ROOT)}:{m}" for m in mods if m.split(".")[0] in ("core", "cogs", "main", "prompts")]
+    assert bad == []

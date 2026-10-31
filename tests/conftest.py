@@ -99,6 +99,33 @@ def _kernel_shadow(monkeypatch, request):
                 diffs.append((batch.batch_id, d[:5]))
         return res
     monkeypatch.setattr(_wm, "project", shadow)
+    # T-1: 커밋의 추출 적용(상태 확정)마다 vitals 확정 훅을 같은 재료로 돌려 결과 상태를 대조한다
+    import copy as _copy
+    import cogs.gm as _gm
+    from indaim.migrate import v4 as _v4
+    from indaim.rules.vitals import logic as _vl
+    orig_apply, orig_decide, seen = _gm.GMCog._apply_prepared_extraction, _vl.decide_turn, []
+
+    def decide(merged, **kw):
+        seen.append({"merged": merged, **_copy.deepcopy(kw)})
+        return orig_decide(merged, **kw)
+
+    async def apply(self, session, prep, *a, **kw):
+        pre = _copy.deepcopy({f: getattr(session, f, None) for f in _v4.FIELDS})
+        seen.clear()
+        out = await orig_apply(self, session, prep, *a, **kw)
+        if len(seen) == 1:
+            try:
+                d = _sh.shadow_vitals(pre, seen[0], {f: getattr(session, f, None) for f in _v4.FIELDS},
+                                      tx=str(getattr(prep, "transaction_id", "tx")))
+            except Exception as e:  # noqa: BLE001
+                import traceback
+                d = [f"그림자 검사 예외 {type(e).__name__}: {e} {traceback.format_exc()[-600:]}"]
+            if d:
+                diffs.append(("vitals", d[:5]))
+        return out
+    monkeypatch.setattr(_vl, "decide_turn", decide)
+    monkeypatch.setattr(_gm.GMCog, "_apply_prepared_extraction", apply)
     yield
     if "no_kernel_shadow" not in request.keywords:
         assert not diffs, f"새 커널 그림자 불일치 {len(diffs)}건: {diffs[:3]}"
