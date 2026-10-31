@@ -42,8 +42,8 @@ def write(effect, path, semantics: str, value) -> Write:
         raise KernelError(f"{effect.id}: 경로는 비어 있지 않은 문자열 키의 나열이어야 합니다")
     if semantics == ADDITIVE and (not isinstance(value, (int, float)) or isinstance(value, bool)):
         raise KernelError(f"{effect.id}: ADDITIVE 값은 수치여야 합니다")
-    if semantics == DELETE and (value is not None or not path):
-        raise KernelError(f"{effect.id}: DELETE는 하위 경로에 값 None으로만 씁니다")
+    if semantics == DELETE and value is not None:
+        raise KernelError(f"{effect.id}: DELETE 값은 None이어야 합니다")      # 빈 경로 = 저장값을 지워 기본값으로
     if semantics == SET_LIKE and not (isinstance(value, dict) and set(value) <= {"add", "remove"}):
         raise KernelError(f"{effect.id}: SET_LIKE 값은 {{add:[...], remove:[...]}} 이어야 합니다")
     try:
@@ -111,6 +111,14 @@ class View:
 
     def __init__(self, world, registry: Registry, defn):
         self._w, self.registry, self.defn = world, registry, defn
+
+    @property
+    def version_id(self):
+        return (self._w.version or {}).get("version_id")
+
+    def stored_has(self, kind: str, eid, comp: str) -> bool:
+        """기본값이 아닌 저장값이 있는가(빈 경로 DELETE의 '있는 것만 지운다' 판정)."""
+        return self._w.stored(address(kind, eid, comp)) is not _MISSING
 
     def _effective(self, addr):
         v = self._w.stored(addr)

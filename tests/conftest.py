@@ -79,6 +79,28 @@ def _talk_instant(monkeypatch):
 
 
 @pytest.fixture(autouse=True)
+def _kernel_shadow(monkeypatch, request):
+    """리팩터링 K-c 그림자 검사 — 옛 production 투영이 성공할 때마다 이식된 모듈(indaim.rules)로도 투영해
+    결과가 같은지 본다. 차이가 하나라도 나면 그 테스트가 실패한다(운영 경로에는 붙지 않는다)."""
+    import core.world_mutation as _wm
+    from indaim.migrate import ops_v4 as _sh
+    orig, diffs = _wm.project, []
+
+    def shadow(source, batch, registry):
+        res = orig(source, batch, registry)
+        if res.ok and registry is _wm.PRODUCTION_REGISTRY and not batch.is_empty():
+            src = source if isinstance(source, _wm.ProjectedWorld) else _wm.ProjectedWorld.capture(source)
+            d = _sh.shadow_compare(src.to_dict(), batch, res.world.to_dict())
+            if d:
+                diffs.append((batch.batch_id, d[:5]))
+        return res
+    monkeypatch.setattr(_wm, "project", shadow)
+    yield
+    if "no_kernel_shadow" not in request.keywords:
+        assert not diffs, f"새 커널 그림자 불일치 {len(diffs)}건: {diffs[:3]}"
+
+
+@pytest.fixture(autouse=True)
 def _isolated_cwd(tmp_path, monkeypatch):
     """세션/계정/통계 파일이 저장소를 오염시키지 않게 한다.
 

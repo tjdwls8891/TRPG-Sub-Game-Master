@@ -252,8 +252,9 @@ def _cross_layer_ok(w1: Write, w2: Write) -> bool:
 def _set(world: World, view: View, addr, path, value):
     if not path:
         if value is _DELETED:
-            raise KernelError("컴포넌트 전체 삭제는 없습니다")
-        world._store(addr, value)
+            world._drop(addr)
+        else:
+            world._store(addr, value)
         return
     comp = world.stored(addr)
     comp = view.registry.default(view.defn, addr) if comp is _MISSING else comp
@@ -338,7 +339,8 @@ def project(base: World, batch: EffectBatch, registry, defn) -> Projection:
             addr, path = key
             ws = grouped[key]
             value, err = _merge(ws, view.read(addr[0], addr[1], addr[2], path))
-            if value is _DELETED and not view.has(addr[0], addr[1], addr[2], path):
+            if value is _DELETED and not (view.has(addr[0], addr[1], addr[2], path) if path
+                                          else view.stored_has(*addr)):
                 value, err = None, "없는 키를 삭제하려 합니다"
             if err:
                 conflicts.append(Conflict("MERGE_CONFLICT", addr, path, tuple(sorted({w.effect_id for w in ws})),
