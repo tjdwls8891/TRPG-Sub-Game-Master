@@ -56,6 +56,7 @@ REASON_OPERATOR_END = "OPERATOR_END"        # 운영자 !세션종료
 REASON_ENDING = "SCENARIO_ENDING"           # v7.44(E3) 저작 결말 국면 도달 → 자동 종료
 REASON_LEGACY = "LEGACY_DIRECT"             # process_cache_deletion 호환 래퍼
 REASON_REISSUE_FAILED = "REISSUE_FAILED"    # 교체 생성 실패 → 창 종료
+REASON_RETIRED = "LEGACY_RETIRED"           # v8: LEGACY 진행 방식 은퇴 — 재시작 때 남은 LEGACY 세션을 닫는다
 
 # 창 처분
 WINDOW_CONTINUE = "CONTINUE"                # 창 유지(교체)

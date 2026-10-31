@@ -90,18 +90,6 @@ async def test_r2_01_intro_failure_keeps_initialized_and_no_first_round(rig, mon
     assert s.world_lifecycle == WL.LIFECYCLE_INITIALIZED and not PW.session_world_context(s).dynamic
 
 
-async def test_r2_01_normal_legacy_start_unchanged(rig, monkeypatch):
-    r = rig
-    s = setup_session(r, players=TWO)
-    s.gm_active = True
-    cog, calls = _stubs(r, monkeypatch)
-    await play_intro(cog, s, {"id": "harbor", "facts": {"location": "성당"}}, r.bot.get_channel(s.game_ch_id))
-    await _drain()
-    assert calls == {"upload": 1, "intro": 1, "round": 1}
-    assert s.world_timeline["current_location"] == "성당"                # 기존 apply_facts 의미
-    assert s.world_lifecycle is None
-
-
 # ── R2-02 ─────────────────────────────────────────────────────
 
 async def test_r2_02_legacy_end_session_closes_durably_and_deactivates(fresh, cbot, clock, seen):
@@ -182,14 +170,6 @@ async def test_r2_03_dynamic_start_owned_by_world_start_not_legacy_facts(rig, mo
     tl = s.world_timeline
     assert tl["current_location"] == "항구" and "1999" not in str(tl.get("current_date"))
     assert tl["current_date"].startswith("2031-11-03")                    # 정본 시계에서 파생
-
-
-async def test_r2_03_legacy_keeps_apply_facts(rig, monkeypatch):
-    r = rig
-    s = setup_session(r, players=TWO)
-    cog, calls = _stubs(r, monkeypatch)
-    await play_intro(cog, s, CONFLICTING, r.bot.get_channel(s.game_ch_id))
-    assert s.world_timeline["current_location"] == "성당" and s.world_timeline["current_date"] == "1999/01/01"
 
 
 # ── R2-04 ─────────────────────────────────────────────────────

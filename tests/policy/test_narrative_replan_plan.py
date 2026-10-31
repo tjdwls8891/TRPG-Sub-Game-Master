@@ -273,33 +273,6 @@ async def test_nb06_setup_init_needs_no_turn_transaction(
 
 
 # ── N-B07 manual/operator replan preserved ───────────────────────
-async def test_nb07_manual_replan_not_treated_as_automatic(
-        monkeypatch, provider, wired_bot, session_auto_ready):
-    import cogs.gm as gm_mod
-    sess = _free(session_auto_ready)
-    cog = _cog(wired_bot)
-    core.turn_transaction.begin_turn_transaction(sess, "턴 N")
-    _supersede(sess, "attempt")                     # 진행 중(새 시도 활성) 운영자 개입
-
-    def _no_tx_semantics(*a, **k):
-        raise AssertionError("manual 경로가 자동 stale 판정을 호출했습니다")
-
-    monkeypatch.setattr(tp, "superseded_by_newer_attempt", _no_tx_semantics)
-    sent = []
-
-    async def _send(msg=None, **kw):
-        sent.append(msg)
-
-    ctx = SimpleNamespace(channel=SimpleNamespace(id=sess.master_ch_id), send=_send)
-    provider.outcomes = [_resp(PLAN)]
-    await gm_mod.GMCog.replan_narrative.callback(cog, ctx, memo="적에게 합류했다")
-    assert sess.narrative_plan["current_event"]["title"] == "갈림길"
-    assert sess.narrative_plan["plan_version"] == 4
-    assert not any(m and "실패" in m for m in sent), "manual 재계획이 실패로 보고됐습니다"
-    prompt = provider.calls[-1].kwargs["contents"][0].parts[0].text
-    assert "적에게 합류했다" in prompt, "운영자 메모가 계획 프롬프트에 반영되지 않았습니다"
-
-
 # ── N-B08 future prompt sees applied plan ────────────────────────
 async def test_nb08_future_gm_prompt_reads_applied_plan(provider, wired_bot, session_auto_ready):
     import cogs.gm as gm_mod

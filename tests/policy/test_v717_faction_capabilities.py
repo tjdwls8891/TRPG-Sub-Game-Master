@@ -138,12 +138,10 @@ def test_compile_optional_and_strict():
                       ({STAR: ["guild:star", "guild:star"]}, "FACTION_CAPABILITIES_INVALID")):
         errs = [x.code for x in core.definition_compiler.compile_scenario(_raw(mapping=bad), "t").errors]
         assert code in errs, (bad, errs)
-    expected = {"scenario.example": "sha256:eb812596eb87f", "다크판타지": "sha256:c03dbb4221aa6",
-                "무협": "sha256:c646b56b20325", "빈시나리오": "sha256:2422a64278cbc"}
-    for name, rev in expected.items():
+    for name in ("설화재", "청람호", "균열"):                      # 매핑을 저작하지 않은 시나리오에는 키가 없다
         raw = json.loads((ROOT / f"scenarios/{name}.json").read_text(encoding="utf-8"))
         res = core.definition_compiler.compile_scenario(raw, name)
-        assert res.revision.startswith(rev) and "faction_capabilities" not in (res.definition or {})
+        assert "faction_capabilities" not in (res.definition or {})
 
 
 # 6 영도 — 조건부·감시 수용도 기존 grant_faction 정본대로 포함, 가입 실패(thief)는 제외

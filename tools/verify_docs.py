@@ -25,7 +25,6 @@ import core  # noqa: E402
 def collect() -> dict:
     """실제 값을 수집한다. 여기가 유일한 진실 공급원이다."""
     yeongdo = json.loads((ROOT / "scenarios/영도.json").read_text(encoding="utf-8"))
-    quests = json.loads((ROOT / "scenarios/영도.quests.json").read_text(encoding="utf-8"))
 
     py_lines = sum(
         len(f.read_text(encoding="utf-8").splitlines())
@@ -48,7 +47,6 @@ def collect() -> dict:
         "start_frames": len(yeongdo.get("start_frames", [])),
         "profile_steps": len(yeongdo.get("profile_creation", [])),
         "briefings": len(yeongdo.get("briefing_formats", [])),
-        "quests": len(quests.get("quests", [])),
     }
 
 
@@ -66,13 +64,11 @@ PATTERNS = [
     ("CLAUDE.md", r"\| `jobs` \| (\d+) \|", "jobs", "직업"),
     ("CLAUDE.md", r"\| `start_frames` \| (\d+) \|", "start_frames", "시작 틀"),
     ("CLAUDE.md", r"\| `profile_creation` \| (\d+)단계 \|", "profile_steps", "프로필 단계"),
-    ("CLAUDE.md", r"영도\.quests\.json`\) \| (\d+) \|", "quests", "퀘스트"),
     ("DEVLOG.md", r"현재 버전: \*\*v([\d.]+)\*\*", "version", "버전"),
     ("DEVLOG.md", r"`SCHEMA_VERSION` (\d+)", "schema_version", "SCHEMA_VERSION"),
     ("DEVLOG.md", r"장소 (\d+) · NPC", "places", "장소"),
     ("DEVLOG.md", r"NPC (\d+)\(", "npcs", "NPC"),
-    ("DEVLOG.md", r"직업 (\d+) · 퀘스트", "jobs", "직업"),
-    ("DEVLOG.md", r"퀘스트 (\d+)\n", "quests", "퀘스트"),
+    ("DEVLOG.md", r"직업 (\d+)\s*\n", "jobs", "직업"),
     ("DEVLOG.md", r"시작 틀 (\d+) ·", "start_frames", "시작 틀"),
     ("DEVLOG.md", r"프로필 단계 (\d+) ·", "profile_steps", "프로필 단계"),
     ("DEVLOG.md", r"SESSION_FIELDS (\d+) ·", "session_fields", "SESSION_FIELDS"),

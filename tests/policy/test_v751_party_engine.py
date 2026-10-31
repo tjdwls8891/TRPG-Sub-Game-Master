@@ -68,7 +68,7 @@ def test_compile_party_keys_and_errors():
 
 
 def test_existing_scenarios_have_no_party_and_keep_revisions():
-    want = {"영도": "a5898e6e", "설화재": "cd8c62c0", "청람호": "809ff6c2"}
+    want = {"영도": "f58e57e0", "설화재": "cd8c62c0", "청람호": "809ff6c2"}     # v8: 영도는 퀘스트 부속 은퇴로 갱신
     for n, rev in want.items():
         raw = json.loads(pathlib.Path(REPO_ROOT, "scenarios", f"{n}.json").read_text(encoding="utf-8"))
         qp = pathlib.Path(REPO_ROOT, "scenarios", f"{n}.quests.json")

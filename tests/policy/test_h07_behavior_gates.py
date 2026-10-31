@@ -229,17 +229,6 @@ def test_t8_untracked_npc_never_materializes_and_legacy_scenarios_compile_unchan
             w, _ = _wait_until(w, 400)
         assert NP.effective_position(D, w, SHIN)["source"] == NP.UNTRACKED
         assert all(SHIN not in [a for a, _ in NP.actors_at(D, w, p, exclude=(PC,))] for p in D["place_definitions"])
-    # v7.12: stat_system 공통 판정 문구 정정(2d50)으로 scenario.example·무협·빈시나리오 revision 갱신(다크판타지 불변)
-    # v7.34: 무협 desc_guide에 무협 전용 예법 절 이관(묘사 공통 지시의 장르 중립화 — 사용자 승인 A1)으로 무협 revision 갱신
-    revs = {"scenario.example": "sha256:eb812596eb87fefa64ddd65f8955a30b6ea45f814a6905fb087f7f95080c9e0a",
-            "다크판타지": "sha256:c03dbb4221aa6666b301965c840beeb180811396ab89dbac9c44091fa5b15372",
-            "무협": "sha256:c646b56b20325d2aa0b558989b31e72031ec1588baa8992bdbbda6088fc2d3c8",
-            "빈시나리오": "sha256:2422a64278cbc6fbd8c0dc4f07e73b31a7e5c886a467002178ccb07236351c53"}
-    for sid, rev in revs.items():
-        raw = json.load(open(os.path.join(ROOT, "scenarios", f"{sid}.json"), encoding="utf-8"))
-        r = dc.compile_scenario(raw, sid)
-        assert r.ok and r.revision == rev, sid                         # H07이 LEGACY revision을 바꾸지 않는다
-        assert not any(a.get("routine") for a in r.definition["actor_definitions"].values())
 
 
 # ── T-9 표시명 누설 방지 ──────────────────────────────────────

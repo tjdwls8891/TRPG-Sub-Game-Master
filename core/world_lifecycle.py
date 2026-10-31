@@ -86,7 +86,29 @@ def joins_blocked(session) -> bool:
 
     v7.33(①): 초기화 실패 뒤 참가자가 늘면 재시도가 단일 PC 후보에서 빠져 LEGACY로 내려가 선불·인트로가
     진행되는데 턴은 계속 거부됐다 — 실패 표식이 있는 동안에는 참가를 받지 않는다."""
-    return world_bound(session) or is_ending(session) or init_failed(session)
+    if world_bound(session) or is_ending(session) or init_failed(session):
+        return True
+    return len(getattr(session, "players", None) or {}) >= 1       # v8(L3 가): 1인 세션만 — 다인 세션 없음
+
+
+def is_legacy_running(session) -> bool:
+    """v8: 시작된(인트로 이후) LEGACY 세션 — 동적 세계에 묶이지 않았고 종료되지 않았다(은퇴 대상)."""
+    return bool(getattr(session, "is_started", False)) and not world_bound(session) \
+        and getattr(session, "world_lifecycle", None) not in (LIFECYCLE_CLOSING, LIFECYCLE_CLOSED)
+
+
+async def retire_legacy(bot, session) -> dict:
+    """v8(L1 가): LEGACY 세션을 기존 종료 경로(정산·캐시 환급·CLOSED)로 닫고 게임 채널에 알린다. 데이터는 보존한다."""
+    from . import cache_lifecycle as _cl
+    res = await close_session(bot, session, reason=_cl.REASON_RETIRED)
+    ch = bot.get_channel(getattr(session, "game_ch_id", 0)) if res.get("ok") else None
+    if ch is not None:
+        try:
+            await ch.send("⏹️ 이 세션의 진행 방식(레거시)은 지원이 끝나 세션을 닫았습니다. 남은 선불 잉크는 환급됐습니다. "
+                          "GM 스페이스에서 새 세션을 만들어 주십시오.")
+        except Exception:  # noqa: BLE001 — 안내 실패는 종료를 되돌리지 않는다
+            pass
+    return res
 
 
 def init_failed(session) -> bool:

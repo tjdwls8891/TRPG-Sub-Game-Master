@@ -22,7 +22,7 @@ from tests.policy.world_bind import bind_open
 
 pytestmark = pytest.mark.policy
 
-LEGACY_IDS = ("scenario.example", "다크판타지", "무협", "빈시나리오")
+
 
 
 def _strip_h07_optional(raw):
@@ -45,11 +45,10 @@ def test_cutover_targets_yeongdo_dynamic_and_others_legacy():
     D = dc.compile_scenario(_raw(), "영도").definition
     assert set(WL.REQUIRED_CAPABILITIES) <= set(D["scenario_meta"]["validated_capabilities"])
     assert all(f.get("world_start") for f in D["initialization_definitions"]["start_frames"])
-    for sid in LEGACY_IDS:
+    for sid in ("설화재", "청람호", "균열"):                        # v8: 출하 시나리오는 모두 동적 세계 시작점이 있다
         raw = json.load(open(os.path.join(ROOT, "scenarios", f"{sid}.json"), encoding="utf-8"))
         d = dc.compile_scenario(raw, sid).definition
-        frames = (d.get("initialization_definitions") or {}).get("start_frames") or []
-        assert not any(f.get("world_start") for f in frames), sid      # DYNAMIC 시작점 없음 → LEGACY
+        assert all(f.get("world_start") for f in d["initialization_definitions"]["start_frames"]), sid
 
 
 def test_definition_without_h07_optional_keys_stays_valid_at_runtime():

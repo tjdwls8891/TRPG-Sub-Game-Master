@@ -299,17 +299,8 @@ def _scenario(name):
         return json.load(f)
 
 
-def test_d2b_wuxia_placeholder_location_images_removed_without_invention():
-    d = _scenario("무협")
-    assert d["location_images"] == {}                 # 가짜 entry 제거, 대체 키워드 창작 없음
-
-
 def test_d2_retained_authored_content_untouched():
-    d = _scenario("무협")
-    assert "플레이스홀더" in d["image_prompts"]["인물"]["prompt"]        # D2-a 유지
-    assert "플레이스홀더" in d["image_prompts"]["배경"]["prompt"]
-    for name in ("무협", "영도", "다크판타지", "빈시나리오", "scenario.example"):
-        assert _scenario(name)["media_dir"] == "./media"                  # D2-c 유지
+    assert _scenario("영도")["media_dir"] == "./media"                   # D2-c 유지(v8: LEGACY 시나리오 은퇴)
     assert _scenario("영도")["job_guides"]                                # D2-d 유지
 
 

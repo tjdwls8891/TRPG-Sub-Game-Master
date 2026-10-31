@@ -26,7 +26,7 @@ from tests.conftest import REPO_ROOT
 pytestmark = pytest.mark.policy
 
 SCEN_DIR = os.path.join(REPO_ROOT, "scenarios")
-ALL_SCENARIOS = ("영도", "무협", "다크판타지", "빈시나리오", "scenario.example")
+ALL_SCENARIOS = ("영도", "설화재", "청람호", "균열")          # v8: LEGACY 전용 시나리오 은퇴(동적 세계 4종만)
 
 
 def _src(sid):
@@ -95,7 +95,7 @@ import json, sys
 sys.path.insert(0, sys.argv[1])
 from core import definition_compiler as dc, world_ids as wid
 out = {}
-for sid in ("영도", "무협", "다크판타지"):
+for sid in ("영도", "설화재", "청람호"):
     r = dc.compile_sources(dc.load_scenario_sources(sid, sys.argv[2]))
     out[sid] = [r.revision, r.definition["actor_order"][:3],
                 sorted(r.definition["information_definitions"])[:3]]
@@ -120,7 +120,7 @@ def test_revision_and_ids_are_process_and_hashseed_independent():
 
 # ── legacy 호환 (REQ-066) ────────────────────────────────────
 
-FULL_CAPABILITY_SCENARIOS = ("영도",)        # H07: 영도는 최초 full-capability 이행 대상(나머지는 LEGACY 그대로)
+FULL_CAPABILITY_SCENARIOS = ALL_SCENARIOS   # v8: 출하 시나리오는 모두 동적 세계(세계 기반 capability 전부 선언)
 
 
 @pytest.mark.parametrize("sid", ALL_SCENARIOS)
@@ -151,10 +151,9 @@ def kinds_explicit(defn):
     return sum(1 for i in defn["information_definitions"].values() if i["kind"] == "EXPLICIT")
 
 
-def test_yeongdo_wuxia_darkfantasy_compile_report_sizes():
+def test_yeongdo_compile_report_sizes():
     y = dc.compile_sources(_src("영도")).definition
     raw_y = _raw("영도")
-    quests = json.load(open(os.path.join(SCEN_DIR, "영도.quests.json"), encoding="utf-8"))
     assert len(y["actor_definitions"]) == len(raw_y["default_npcs"])
     assert y["place_order"] == list(raw_y["places"])
     # connected에서 구간을 만들지 않는다 — 모든 구간은 저작 movement_edges에서만(H07: 양방향 저작 = fwd+rev)
@@ -163,20 +162,11 @@ def test_yeongdo_wuxia_darkfantasy_compile_report_sizes():
     assert kinds_explicit(y) == len(raw_y["information_definitions"])
     kinds = [i["kind"] for i in y["information_definitions"].values()]
     assert kinds.count("NPC_INLINE_SECRET") == sum(1 for v in raw_y["default_npcs"].values() if v.get("비밀"))
-    assert kinds.count("QUEST_HIDDEN_TRUTH") == sum(
-        1 for q in quests["quests"] if (q.get("hidden") or {}).get("truth"))
+    assert kinds.count("QUEST_HIDDEN_TRUTH") == 0                  # v8: 퀘스트 부속 은퇴
     assert [f["frame_id"] for f in y["initialization_definitions"]["start_frames"]] == \
         [f["id"] for f in raw_y["start_frames"]]
 
-    w = dc.compile_sources(_src("무협"))
-    assert w.ok and len(w.definition["actor_definitions"]) == len(_raw("무협")["default_npcs"])
-    assert w.definition["place_definitions"] == {} and w.definition["scenario_meta"]["has_quest_sidecar"] is False
-
-    k = dc.compile_sources(_src("다크판타지"))
-    assert k.ok and len(k.definition["actor_definitions"]) == len(_raw("다크판타지")["default_npcs"])
-    for res in (w, k):
-        s = dc.summarize(res)
-        assert s["ok"] and s["counts"]["ERROR"] == 0 and s["schema_mode"] == "legacy"
+    assert y["scenario_meta"]["has_quest_sidecar"] is False
 
 
 def test_compile_does_not_mutate_input_or_touch_sources():
@@ -457,17 +447,17 @@ def test_non_canonical_source_is_rejected():
 # ── 세션 정의 스냅샷 (REQ-052 프리미티브) ────────────────────
 
 def test_snapshot_roundtrip_atomic_and_hash_verified():
-    res = dc.compile_sources(_src("다크판타지"))
-    snap = ds.write_snapshot("s1", res, source=_src("다크판타지").provenance)
+    res = dc.compile_sources(_src("설화재"))
+    snap = ds.write_snapshot("s1", res, source=_src("설화재").provenance)
     path = ds.snapshot_path("s1")
     assert path == os.path.join("sessions", "s1", "definition_snapshot.json") and os.path.isfile(path)
     assert not [f for f in os.listdir("sessions/s1") if f.endswith(".tmp")]
-    assert snap.definition_revision == res.revision and snap.scenario_id == "다크판타지"
+    assert snap.definition_revision == res.revision and snap.scenario_id == "설화재"
     assert snap.compiler_version == res.definition["compiler_version"] == dc.COMPILER_VERSION
     back = ds.read_snapshot("s1", expected_revision=res.revision)
     assert back.definition == res.definition
     scen, _ = dc.legacy_scenario_view(back.definition)
-    assert list(scen) == list(_raw("다크판타지"))
+    assert list(scen) == list(_raw("설화재"))
     assert ds.verify_snapshot("s1")["ok"] is True
 
 
@@ -558,7 +548,7 @@ def test_scenario_check_tool_outputs_and_never_writes_sources(tmp_path, capsys):
     before = {f: open(os.path.join(SCEN_DIR, f), "rb").read() for f in os.listdir(SCEN_DIR)}
     assert tool.main(["--all"]) == 0
     out = capsys.readouterr().out
-    for sid in ("영도", "무협", "다크판타지"):
+    for sid in ALL_SCENARIOS:
         assert f"== {sid}" in out
 
     comp = tmp_path / "영도.compiled.json"

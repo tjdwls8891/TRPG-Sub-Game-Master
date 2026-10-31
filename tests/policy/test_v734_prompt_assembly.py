@@ -114,7 +114,6 @@ def test_narration_directive_is_genre_neutral_and_wuxia_rules_moved():
     with open(os.path.join(REPO_ROOT, "prompts.py"), encoding="utf-8") as f:
         src = f.read()
     assert "@대사:레비" not in src and "@대사:강철수" not in src
-    assert "사매·후배의 품" in _raw("무협")["desc_guide"]
 
 
 def test_yeongdo_rulebook_relaxed_and_unused_keys_removed():

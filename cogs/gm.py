@@ -1715,8 +1715,6 @@ class GMCog(commands.Cog):
             "`!자동 개입 [텍스트]` : 다음 PROCEED 완료 시까지 GM 사이드 노트 유지\n"
             "`!자동 턴제한 [N|해제]` : 자동 진행 최대 턴 수 (해제=무제한)\n"
             "`!자동 비용제한 [원|해제]` : 자동 누적 비용 상한 (해제=무제한)\n"
-            "`!자동 서사` : 현재 서사 계획 임베드 출력\n"
-            "`!자동 재계획 [메모]` : 서사 계획 강제 재수립\n"
             "`!자동 원장` : 정보 인지 원장(비공개 정보별 인지 주체) 출력"
         )
 
@@ -1778,8 +1776,7 @@ class GMCog(commands.Cog):
             f"- 자동 누적 비용 한도: {_cap_display(session.gm_cost_cap_krw, is_cost=True)}\n"
             f"{plan_note}\n"
             f"- PROCEED 완료 후 GM이 선제적으로 행동을 물어봅니다.\n"
-            f"- 중단: `!자동 중단`  /  GM에게 메모: `!자동 개입 [텍스트]`\n"
-            f"- 서사 확인: `!자동 서사`  /  강제 재계획: `!자동 재계획`"
+            f"- 중단: `!자동 중단`  /  GM에게 메모: `!자동 개입 [텍스트]`"
         )
 
         # 활성화 직후: 서사 계획 수립 후 첫 라운드 시작 (백그라운드 태스크)
@@ -4571,88 +4568,6 @@ class GMCog(commands.Cog):
     # 지시층위 호출
     # ─────────────────────────────────────────────────────────────
 
-    @auto.command(name="퀘스트")
-    async def auto_quest(self, ctx, action: str = "", *, arg: str = ""):
-        """퀘스트 확인·간섭 (기획 규정 — 마스터 세션에서 명령어로 가능하게).
-
-        !자동 퀘스트            현재 상태와 후보
-        !자동 퀘스트 열기 <id>   특정 퀘스트를 연다
-        !자동 퀘스트 닫기        진행 중인 퀘스트를 중단한다
-        !자동 퀘스트 진전 <케이스> 특정 케이스로 진전시킨다
-        """
-        session = self.bot.active_sessions.get(ctx.channel.id)
-        if not session:
-            await ctx.send("이 채널에는 세션이 없습니다.")
-            return
-        if core.player_world.legacy_narrative_retired(session):
-            # H07-C: 동적 세계 세션은 사건 상태기계가 서사 권위다 — 레거시 퀘스트 수동 개입은 병렬 권위를 만든다
-            await ctx.send("이 세션은 동적 세계 세션입니다. 레거시 퀘스트는 사용하지 않습니다(사건 상태기계가 권위).")
-            return
-
-        state = core.quest.get_state(session)
-        active = state.get("active")
-
-        if not action:
-            lines = ["**[퀘스트 상태]**"]
-            if active:
-                lines.append(f"진행 중: **{active['name']}** (노드 `{active['node']}`)")
-                if active.get("path"):
-                    lines.append(f"> 경로: {' → '.join(active['path'])}")
-                if active.get("slots"):
-                    lines.append(f"> 슬롯: {active['slots']}")
-            else:
-                lines.append("진행 중인 퀘스트가 없습니다.")
-
-            cleared = state.get("cleared") or []
-            if cleared:
-                subs = sum(1 for c in cleared if c.get("line") == "sub")
-                lines.append(f"클리어: 서브 {subs} · 전체 {len(cleared)}")
-
-            cands = core.quest.filter_available(session)
-            if cands:
-                lines.append("\n**[현재 후보]**")
-                for q in cands[:10]:
-                    lines.append(f"· `{q['id']}` {q['name']} ({q['line']})")
-            await ctx.send("\n".join(lines)[:1900])
-            return
-
-        if action == "열기":
-            qid = arg.strip()
-            quest = core.quest._find_quest(session, qid)
-            if not quest:
-                await ctx.send(f"`{qid}` 퀘스트를 찾을 수 없습니다.")
-                return
-            opened = core.quest.start_quest(session, quest)
-            await core.save_session_data(self.bot, session)
-            await ctx.send(f"📜 **{opened['name']}** 을(를) 열었습니다.")
-            return
-
-        if action == "닫기":
-            if not active:
-                await ctx.send("진행 중인 퀘스트가 없습니다.")
-                return
-            name = active["name"]
-            state["active"] = None
-            await core.save_session_data(self.bot, session)
-            await ctx.send(f"⏹ **{name}** 을(를) 중단했습니다.")
-            return
-
-        if action == "진전":
-            if not active:
-                await ctx.send("진행 중인 퀘스트가 없습니다.")
-                return
-            if core.quest.move_to_case(session, arg.strip()):
-                await core.save_session_data(self.bot, session)
-                st = core.quest.get_state(session)
-                cur = st.get("active")
-                node = cur["node"] if cur else "(종료)"
-                await ctx.send(f"▶ `{arg.strip()}` 으로 진전했습니다. 현재 노드 `{node}`")
-            else:
-                await ctx.send(f"`{arg.strip()}` 케이스로 진전할 수 없습니다.")
-            return
-
-        await ctx.send("사용법: `!자동 퀘스트 [열기|닫기|진전] [값]`")
-
     @commands.command(name="되감기")
     async def rewind_cmd(self, ctx, turn: str = None):
         """
@@ -7054,76 +6969,6 @@ class GMCog(commands.Cog):
     # 서사 계획 명령어
     # ─────────────────────────────────────────────────────────────
 
-    @auto.command(name="서사")
-    async def show_narrative_plan(self, ctx):
-        """현재 서사 계획을 마스터 채널에 임베드로 출력."""
-        session = self.bot.active_sessions.get(ctx.channel.id)
-        if not session or ctx.channel.id != session.master_ch_id:
-            return await ctx.send("이 명령어는 마스터 채널에서만 사용할 수 있습니다.")
-
-        if core.player_world.legacy_narrative_retired(session):
-            return await ctx.send("📖 동적 세계 세션은 레거시 서사 계획을 쓰지 않습니다 — 서사는 진행 중인 사건·정본 세계가 주도합니다.")
-        plan = getattr(session, "narrative_plan", {})
-        if not plan:
-            return await ctx.send(
-                "⚠️ 수립된 서사 계획이 없습니다.\n"
-                "`!자동 시작`으로 GM를 활성화하면 초기 계획이 수립됩니다.\n"
-                "또는 `!자동 재계획`으로 직접 수립할 수 있습니다."
-            )
-
-        current = plan.get("current_event", {})
-        next_ev = plan.get("next_event", {})
-        version = plan.get("plan_version", "?")
-        last_turn = plan.get("last_planned_turn", "?")
-
-        embed = discord.Embed(title="📖 현재 서사 계획", color=0x5865F2)
-        embed.set_footer(text=f"v{version}  |  수립 시점: 턴 {last_turn}")
-
-        # 중규모 진행 방향 (mid_plan)
-        mid = plan.get("mid_plan", {})
-        if mid:
-            milestones = mid.get("milestones", [])
-            ms_str = "\n".join([f"  {i+1}. {m}" for i, m in enumerate(milestones)]) if milestones else "(없음)"
-            m_val = (
-                f"**전체 흐름**: {mid.get('overview', '-')}\n"
-                f"**이정표**:\n{ms_str}\n"
-                f"**완료 조건**: {mid.get('end_condition', '-')}"
-            )
-            embed.add_field(
-                name=f"🗺️ 중규모 진행 방향: {mid.get('title', '?')}",
-                value=m_val[:1020],
-                inline=False
-            )
-
-        # 현재 순간 사건
-        c_val = (
-            f"**상황**: {current.get('summary', '-')}\n"
-            f"**마무리 방향**: {current.get('resolution_direction', '-')}\n"
-            f"**진행**: {current.get('progress') or '(초기 상태)'}"
-        )
-        embed.add_field(
-            name=f"📌 현재 순간 사건: {current.get('title', '?')}",
-            value=c_val[:1020],
-            inline=False
-        )
-
-        # 다음 순간 사건
-        n_val = (
-            f"**개요**: {next_ev.get('summary', '-')}\n"
-            f"**시작 조건**: {next_ev.get('trigger', '-')}"
-        )
-        embed.add_field(
-            name=f"⏭️ 다음 순간 사건: {next_ev.get('title', '?')}",
-            value=n_val[:1020],
-            inline=False
-        )
-
-        notes = plan.get("planner_notes", "")
-        if notes:
-            embed.add_field(name="📝 설계 메모", value=notes[:1020], inline=False)
-
-        await ctx.send(embed=embed)
-
     @auto.command(name="원장")
     async def show_info_ledger(self, ctx):
         """현재 정보 인지 원장(비공개 정보별 인지 주체)을 마스터 채널에 출력."""
@@ -7162,22 +7007,6 @@ class GMCog(commands.Cog):
             embed.add_field(name=f"🔒 {item.get('info', '?')[:200]}", value=val[:1020], inline=False)
         embed.set_footer(text=f"총 {len(ledger)}건 기록 (최근 10건 표시)")
         await ctx.send(embed=embed)
-
-    @auto.command(name="재계획")
-    async def replan_narrative(self, ctx, *, memo: str = ""):
-        """
-        서사 계획을 강제로 재수립한다.
-        선택적으로 메모를 추가하면 계획 수립 시 반영된다.
-        예: !자동 재계획 플레이어가 예상과 달리 적에게 합류했다
-        """
-        session = self.bot.active_sessions.get(ctx.channel.id)
-        if not session or ctx.channel.id != session.master_ch_id:
-            return await ctx.send("이 명령어는 마스터 채널에서만 사용할 수 있습니다.")
-
-        await ctx.send("⏳ 서사 계획 재수립을 시작합니다...")
-        success = await self._plan_narrative(session, "manual", context_note=memo.strip())
-        if not success:
-            await ctx.send("⚠️ 서사 계획 재수립에 실패했습니다.")
 
     # ─────────────────────────────────────────────────────────────
     # 서사 계획 내부 함수

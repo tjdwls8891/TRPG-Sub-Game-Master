@@ -138,6 +138,14 @@ class TRPGBot(commands.Bot):
         # [디스크에 저장된 세션 복구 및 캐시 재연동 실행]
         # 봇 재시작으로 인한 데이터 증발을 막기 위해 sessions 폴더의 data.json을 메모리에 재적재.
         await core.restore_sessions_from_disk(self)
+        # v8(L1 가): LEGACY 진행 방식 은퇴 — 남은 LEGACY 세션은 기존 종료 경로(정산·환급)로 닫는다
+        for _s in list(dict.fromkeys(self.active_sessions.values())):
+            if core.world_lifecycle.is_legacy_running(_s):
+                try:
+                    _r = await core.world_lifecycle.retire_legacy(self, _s)
+                    print(f"⏹️ {_s.session_id}: LEGACY 세션 은퇴 종료 ok={_r.get('ok')} ({_r.get('reason', '')})")
+                except Exception as _e:
+                    print(f"⛔ {_s.session_id}: LEGACY 세션 은퇴 종료 실패: {_e}")
         # v7.15: 세션 안 캐릭터 생성 진행(답변·초안·질문 위치)을 이어 그린다 — 낡은 버튼은 무효.
         try:
             n = await core.profile_creation_ui.resume_all(self)

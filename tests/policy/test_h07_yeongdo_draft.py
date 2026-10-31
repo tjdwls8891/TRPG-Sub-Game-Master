@@ -356,17 +356,13 @@ def test_every_legacy_quest_has_a_mapping_and_mapped_templates_exist():
         import events_author as EA
     finally:
         sys.path.pop(0)
-    quests = json.load(open(os.path.join(ROOT, "scenarios", "영도.quests.json"), encoding="utf-8"))["quests"]
-    D, _ = _defn()
-    assert sorted(EA.MAP) == sorted(q["id"] for q in quests)              # 무음 누락 0
+    D, _ = _defn()                                                       # v8: 퀘스트 부속 은퇴 — 이행표만 검사
     for qid, (disp, tids, note) in EA.MAP.items():
         assert disp in ("MIGRATED", "SPLIT", "MERGED", "RETAINED", "RETIRED"), qid
         assert note.strip(), qid
         assert (disp == "RETIRED") == (not tids), qid
         for tid in tids:
             assert tid in D["event_templates"], (qid, tid)
-    review = open(os.path.join(ROOT, "handoff", "H07_FINAL_IMPLEMENTATION_REPORT.md"), encoding="utf-8").read()
-    assert all(f"| {q['id']} |" in review for q in quests)
 
 
 def test_v742_previously_untracked_npcs_follow_authored_routines():
