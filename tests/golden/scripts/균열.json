@@ -1,0 +1,312 @@
+{
+ "scenario": "균열",
+ "frame": "first_day",
+ "pc": {
+  "name": "테스터",
+  "profile": {
+   "이름": "테스터",
+   "성별": "남",
+   "나이": "24",
+   "직업": "강화 계열",
+   "근력": 14,
+   "민첩": 11,
+   "감각": 10,
+   "정신": 10,
+   "스킬": "강철 피부, 폭발 강타"
+  },
+  "bag": {
+   "현금[만원]": 30,
+   "손전등": 1
+  }
+ },
+ "turns": [
+  {
+   "say": "둔산 거리로 간다",
+   "intent": {
+    "place": "둔산 거리"
+   }
+  },
+  {
+   "say": "은하수 길드 사무실로 간다",
+   "intent": {
+    "place": "은하수 길드 사무실"
+   }
+  },
+  {
+   "say": "길드에 가입한다",
+   "intent": {
+    "resolution": "가입"
+   }
+  },
+  {
+   "say": "둔산 거리로 간다",
+   "intent": {
+    "place": "둔산 거리"
+   }
+  },
+  {
+   "say": "공사장 입구로 간다",
+   "intent": {
+    "place": "공사장 입구"
+   }
+  },
+  {
+   "say": "무너진 터널로 간다",
+   "intent": {
+    "place": "무너진 터널"
+   }
+  },
+  {
+   "say": "환기 갱도로 간다",
+   "intent": {
+    "place": "환기 갱도"
+   }
+  },
+  {
+   "say": "굴착기 둥지로 간다",
+   "intent": {
+    "place": "굴착기 둥지"
+   }
+  },
+  {
+   "say": "고블린 우두머리 공격",
+   "seed": 1,
+   "roll": [
+    {
+     "kind": "CONTEST",
+     "char_name": "테스터",
+     "stat": "근력",
+     "difficulty": "보통",
+     "method_mod": 0,
+     "method_basis": "",
+     "status_mod": 0,
+     "status_basis": "",
+     "domain": "근접",
+     "skill": "",
+     "opponent": {
+      "name": "고블린 우두머리",
+      "stat": "근력",
+      "difficulty": "보통",
+      "method_mod": 0,
+      "method_basis": "",
+      "status_mod": 0,
+      "status_basis": "",
+      "domain": "근접"
+     }
+    }
+   ]
+  },
+  {
+   "say": "고블린 우두머리 공격",
+   "seed": 2,
+   "roll": [
+    {
+     "kind": "CONTEST",
+     "char_name": "테스터",
+     "stat": "근력",
+     "difficulty": "보통",
+     "method_mod": 0,
+     "method_basis": "",
+     "status_mod": 0,
+     "status_basis": "",
+     "domain": "근접",
+     "skill": "",
+     "opponent": {
+      "name": "고블린 우두머리",
+      "stat": "근력",
+      "difficulty": "보통",
+      "method_mod": 0,
+      "method_basis": "",
+      "status_mod": 0,
+      "status_basis": "",
+      "domain": "근접"
+     }
+    }
+   ]
+  },
+  {
+   "say": "고블린 우두머리 공격",
+   "seed": 3,
+   "roll": [
+    {
+     "kind": "CONTEST",
+     "char_name": "테스터",
+     "stat": "근력",
+     "difficulty": "보통",
+     "method_mod": 0,
+     "method_basis": "",
+     "status_mod": 0,
+     "status_basis": "",
+     "domain": "근접",
+     "skill": "",
+     "opponent": {
+      "name": "고블린 우두머리",
+      "stat": "근력",
+      "difficulty": "보통",
+      "method_mod": 0,
+      "method_basis": "",
+      "status_mod": 0,
+      "status_basis": "",
+      "domain": "근접"
+     }
+    }
+   ]
+  },
+  {
+   "say": "고블린 우두머리 공격",
+   "seed": 4,
+   "roll": [
+    {
+     "kind": "CONTEST",
+     "char_name": "테스터",
+     "stat": "근력",
+     "difficulty": "보통",
+     "method_mod": 0,
+     "method_basis": "",
+     "status_mod": 0,
+     "status_basis": "",
+     "domain": "근접",
+     "skill": "",
+     "opponent": {
+      "name": "고블린 우두머리",
+      "stat": "근력",
+      "difficulty": "보통",
+      "method_mod": 0,
+      "method_basis": "",
+      "status_mod": 0,
+      "status_basis": "",
+      "domain": "근접"
+     }
+    }
+   ]
+  },
+  {
+   "say": "고블린 우두머리 공격",
+   "seed": 5,
+   "roll": [
+    {
+     "kind": "CONTEST",
+     "char_name": "테스터",
+     "stat": "근력",
+     "difficulty": "보통",
+     "method_mod": 0,
+     "method_basis": "",
+     "status_mod": 0,
+     "status_basis": "",
+     "domain": "근접",
+     "skill": "",
+     "opponent": {
+      "name": "고블린 우두머리",
+      "stat": "근력",
+      "difficulty": "보통",
+      "method_mod": 0,
+      "method_basis": "",
+      "status_mod": 0,
+      "status_basis": "",
+      "domain": "근접"
+     }
+    }
+   ]
+  },
+  {
+   "say": "고블린 우두머리 공격",
+   "seed": 6,
+   "roll": [
+    {
+     "kind": "CONTEST",
+     "char_name": "테스터",
+     "stat": "근력",
+     "difficulty": "보통",
+     "method_mod": 0,
+     "method_basis": "",
+     "status_mod": 0,
+     "status_basis": "",
+     "domain": "근접",
+     "skill": "",
+     "opponent": {
+      "name": "고블린 우두머리",
+      "stat": "근력",
+      "difficulty": "보통",
+      "method_mod": 0,
+      "method_basis": "",
+      "status_mod": 0,
+      "status_basis": "",
+      "domain": "근접"
+     }
+    }
+   ]
+  },
+  {
+   "say": "30분 기다린다",
+   "intent": {
+    "wait": 30
+   }
+  },
+  {
+   "say": "30분 기다린다",
+   "intent": {
+    "wait": 30
+   }
+  },
+  {
+   "say": "환기 갱도로 간다",
+   "intent": {
+    "place": "환기 갱도"
+   }
+  },
+  {
+   "say": "무너진 터널로 간다",
+   "intent": {
+    "place": "무너진 터널"
+   }
+  },
+  {
+   "say": "공사장 입구로 간다",
+   "intent": {
+    "place": "공사장 입구"
+   }
+  },
+  {
+   "say": "둔산 거리로 간다",
+   "intent": {
+    "place": "둔산 거리"
+   }
+  },
+  {
+   "say": "협회 로비로 간다",
+   "intent": {
+    "place": "협회 로비"
+   }
+  },
+  {
+   "say": "등급 심사장로 간다",
+   "intent": {
+    "place": "등급 심사장"
+   }
+  },
+  {
+   "say": "승급 심사를 받는다",
+   "intent": {
+    "resolution": "승급"
+   }
+  },
+  {
+   "say": "1분 기다린다",
+   "intent": {
+    "wait": 1
+   }
+  },
+  {
+   "say": "훈련장로 간다",
+   "intent": {
+    "place": "훈련장"
+   }
+  },
+  {
+   "say": "근력을 단련한다",
+   "intent": {
+    "growth": "능력치:근력"
+   }
+  }
+ ]
+}

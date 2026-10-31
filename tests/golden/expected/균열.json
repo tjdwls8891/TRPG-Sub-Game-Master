@@ -1,0 +1,3937 @@
+[
+ {
+  "say": "둔산 거리로 간다",
+  "view": {
+   "minute": 1,
+   "lifecycle": "OPEN",
+   "pc": {
+    "place": "둔산 거리",
+    "statuses": [],
+    "stages": {},
+    "bag": {
+     "손전등": 1,
+     "현금[만원]": 30
+    },
+    "equipment": {},
+    "profile": {
+     "감각": 10,
+     "근력": 14,
+     "등급": 1,
+     "민첩": 11,
+     "정신": 10
+    }
+   },
+   "companions": [],
+   "actors": {
+    "백소은": {
+     "place": "훈련장"
+    },
+    "차세윤": {
+     "place": "협회 로비"
+    },
+    "도재경": {
+     "place": "협회 로비"
+    },
+    "한유진": {
+     "place": "은하수 길드 사무실"
+    },
+    "주현우": {
+     "place": "마석 매입소",
+     "bag": {
+      "현금[만원]": 500
+     }
+    },
+    "강도형": {
+     "place": "은하수 길드 사무실"
+    },
+    "마준혁": {
+     "place": "마석 매입소"
+    },
+    "노태민": {
+     "place": "중앙시장 헌터 상가"
+    },
+    "오미숙": {
+     "place": "중앙시장 헌터 상가",
+     "bag": {
+      "가죽 경갑": 2,
+      "강철 원형 방패": 1,
+      "헌터용 장검": 1,
+      "회복 물약": 4
+     }
+    },
+    "서아름": {
+     "place": "은하수 길드 사무실",
+     "bag": {
+      "회복 물약": 2
+     }
+    },
+    "윤채린": {
+     "place": "협회 로비"
+    }
+   },
+   "events": {
+    "gy_ch1": [
+     {
+      "phase": "wait",
+      "lifecycle": "ACTIVE"
+     }
+    ],
+    "gy_gate_c": [
+     {
+      "phase": "sealed",
+      "lifecycle": "ACTIVE"
+     }
+    ],
+    "gy_gate_d": [
+     {
+      "phase": "sealed",
+      "lifecycle": "ACTIVE"
+     }
+    ],
+    "gy_gate_e": [
+     {
+      "phase": "sealed",
+      "lifecycle": "ACTIVE"
+     }
+    ],
+    "gy_guild": [
+     {
+      "phase": "open",
+      "lifecycle": "ACTIVE"
+     }
+    ],
+    "gy_hunter": [
+     {
+      "phase": "active",
+      "lifecycle": "ACTIVE"
+     }
+    ]
+   },
+   "floor": [],
+   "access": {},
+   "pc_knows": [],
+   "relations": 0
+  },
+  "out": []
+ },
+ {
+  "say": "은하수 길드 사무실로 간다",
+  "view": {
+   "minute": 8,
+   "lifecycle": "OPEN",
+   "pc": {
+    "place": "은하수 길드 사무실",
+    "statuses": [],
+    "stages": {},
+    "bag": {
+     "손전등": 1,
+     "현금[만원]": 30
+    },
+    "equipment": {},
+    "profile": {
+     "감각": 10,
+     "근력": 14,
+     "등급": 1,
+     "민첩": 11,
+     "정신": 10
+    }
+   },
+   "companions": [],
+   "actors": {
+    "백소은": {
+     "place": "훈련장"
+    },
+    "차세윤": {
+     "place": "협회 로비"
+    },
+    "도재경": {
+     "place": "협회 로비"
+    },
+    "한유진": {
+     "place": "은하수 길드 사무실"
+    },
+    "주현우": {
+     "place": "마석 매입소",
+     "bag": {
+      "현금[만원]": 500
+     }
+    },
+    "강도형": {
+     "place": "은하수 길드 사무실"
+    },
+    "마준혁": {
+     "place": "마석 매입소"
+    },
+    "노태민": {
+     "place": "중앙시장 헌터 상가"
+    },
+    "오미숙": {
+     "place": "중앙시장 헌터 상가",
+     "bag": {
+      "가죽 경갑": 2,
+      "강철 원형 방패": 1,
+      "헌터용 장검": 1,
+      "회복 물약": 4
+     }
+    },
+    "서아름": {
+     "place": "은하수 길드 사무실",
+     "bag": {
+      "회복 물약": 2
+     }
+    },
+    "윤채린": {
+     "place": "협회 로비"
+    }
+   },
+   "events": {
+    "gy_ch1": [
+     {
+      "phase": "wait",
+      "lifecycle": "ACTIVE"
+     }
+    ],
+    "gy_gate_c": [
+     {
+      "phase": "sealed",
+      "lifecycle": "ACTIVE"
+     }
+    ],
+    "gy_gate_d": [
+     {
+      "phase": "sealed",
+      "lifecycle": "ACTIVE"
+     }
+    ],
+    "gy_gate_e": [
+     {
+      "phase": "sealed",
+      "lifecycle": "ACTIVE"
+     }
+    ],
+    "gy_guild": [
+     {
+      "phase": "open",
+      "lifecycle": "ACTIVE"
+     }
+    ],
+    "gy_hunter": [
+     {
+      "phase": "active",
+      "lifecycle": "ACTIVE"
+     }
+    ]
+   },
+   "floor": [],
+   "access": {},
+   "pc_knows": [],
+   "relations": 0
+  },
+  "out": []
+ },
+ {
+  "say": "길드에 가입한다",
+  "view": {
+   "minute": 8,
+   "lifecycle": "OPEN",
+   "pc": {
+    "place": "은하수 길드 사무실",
+    "statuses": [],
+    "stages": {},
+    "bag": {
+     "손전등": 1,
+     "현금[만원]": 30
+    },
+    "equipment": {},
+    "profile": {
+     "감각": 10,
+     "근력": 14,
+     "등급": 1,
+     "민첩": 11,
+     "정신": 10
+    }
+   },
+   "companions": [
+    "서아름",
+    "한유진"
+   ],
+   "actors": {
+    "백소은": {
+     "place": "훈련장"
+    },
+    "차세윤": {
+     "place": "협회 로비"
+    },
+    "도재경": {
+     "place": "협회 로비"
+    },
+    "한유진": {
+     "place": "은하수 길드 사무실"
+    },
+    "주현우": {
+     "place": "마석 매입소",
+     "bag": {
+      "현금[만원]": 500
+     }
+    },
+    "강도형": {
+     "place": "은하수 길드 사무실"
+    },
+    "마준혁": {
+     "place": "마석 매입소"
+    },
+    "노태민": {
+     "place": "중앙시장 헌터 상가"
+    },
+    "오미숙": {
+     "place": "중앙시장 헌터 상가",
+     "bag": {
+      "가죽 경갑": 2,
+      "강철 원형 방패": 1,
+      "헌터용 장검": 1,
+      "회복 물약": 4
+     }
+    },
+    "서아름": {
+     "place": "은하수 길드 사무실",
+     "bag": {
+      "회복 물약": 2
+     }
+    },
+    "윤채린": {
+     "place": "협회 로비"
+    }
+   },
+   "events": {
+    "gy_ch1": [
+     {
+      "phase": "wait",
+      "lifecycle": "ACTIVE"
+     }
+    ],
+    "gy_gate_c": [
+     {
+      "phase": "sealed",
+      "lifecycle": "ACTIVE"
+     }
+    ],
+    "gy_gate_d": [
+     {
+      "phase": "sealed",
+      "lifecycle": "ACTIVE"
+     }
+    ],
+    "gy_gate_e": [
+     {
+      "phase": "sealed",
+      "lifecycle": "ACTIVE"
+     }
+    ],
+    "gy_guild": [
+     {
+      "phase": "joined",
+      "lifecycle": "ACTIVE",
+      "vars": {
+       "resolution": "join"
+      }
+     }
+    ],
+    "gy_hunter": [
+     {
+      "phase": "active",
+      "lifecycle": "ACTIVE"
+     }
+    ]
+   },
+   "floor": [],
+   "access": {},
+   "pc_knows": [],
+   "relations": 0
+  },
+  "out": []
+ },
+ {
+  "say": "둔산 거리로 간다",
+  "view": {
+   "minute": 15,
+   "lifecycle": "OPEN",
+   "pc": {
+    "place": "둔산 거리",
+    "statuses": [],
+    "stages": {},
+    "bag": {
+     "손전등": 1,
+     "현금[만원]": 30
+    },
+    "equipment": {},
+    "profile": {
+     "감각": 10,
+     "근력": 14,
+     "등급": 1,
+     "민첩": 11,
+     "정신": 10
+    }
+   },
+   "companions": [
+    "서아름",
+    "한유진"
+   ],
+   "actors": {
+    "백소은": {
+     "place": "훈련장"
+    },
+    "차세윤": {
+     "place": "협회 로비"
+    },
+    "도재경": {
+     "place": "협회 로비"
+    },
+    "한유진": {
+     "place": "둔산 거리"
+    },
+    "주현우": {
+     "place": "마석 매입소",
+     "bag": {
+      "현금[만원]": 500
+     }
+    },
+    "강도형": {
+     "place": "은하수 길드 사무실"
+    },
+    "마준혁": {
+     "place": "마석 매입소"
+    },
+    "노태민": {
+     "place": "중앙시장 헌터 상가"
+    },
+    "오미숙": {
+     "place": "중앙시장 헌터 상가",
+     "bag": {
+      "가죽 경갑": 2,
+      "강철 원형 방패": 1,
+      "헌터용 장검": 1,
+      "회복 물약": 4
+     }
+    },
+    "서아름": {
+     "place": "둔산 거리",
+     "bag": {
+      "회복 물약": 2
+     }
+    },
+    "윤채린": {
+     "place": "협회 로비"
+    }
+   },
+   "events": {
+    "gy_ch1": [
+     {
+      "phase": "wait",
+      "lifecycle": "ACTIVE"
+     }
+    ],
+    "gy_gate_c": [
+     {
+      "phase": "sealed",
+      "lifecycle": "ACTIVE"
+     }
+    ],
+    "gy_gate_d": [
+     {
+      "phase": "sealed",
+      "lifecycle": "ACTIVE"
+     }
+    ],
+    "gy_gate_e": [
+     {
+      "phase": "sealed",
+      "lifecycle": "ACTIVE"
+     }
+    ],
+    "gy_guild": [
+     {
+      "phase": "joined",
+      "lifecycle": "ACTIVE",
+      "vars": {
+       "resolution": "join"
+      }
+     }
+    ],
+    "gy_hunter": [
+     {
+      "phase": "active",
+      "lifecycle": "ACTIVE"
+     }
+    ]
+   },
+   "floor": [],
+   "access": {},
+   "pc_knows": [],
+   "relations": 0
+  },
+  "out": []
+ },
+ {
+  "say": "공사장 입구로 간다",
+  "view": {
+   "minute": 40,
+   "lifecycle": "OPEN",
+   "pc": {
+    "place": "공사장 입구",
+    "statuses": [],
+    "stages": {},
+    "bag": {
+     "손전등": 1,
+     "현금[만원]": 30
+    },
+    "equipment": {},
+    "profile": {
+     "감각": 10,
+     "근력": 14,
+     "등급": 1,
+     "민첩": 11,
+     "정신": 10
+    }
+   },
+   "companions": [
+    "서아름",
+    "한유진"
+   ],
+   "actors": {
+    "고블린 우두머리": {
+     "place": "굴착기 둥지"
+    },
+    "고블린 척후": {
+     "place": "환기 갱도"
+    },
+    "고블린 투척병": {
+     "place": "자재 창고"
+    },
+    "고블린 전사": {
+     "place": "무너진 터널"
+    },
+    "백소은": {
+     "place": "훈련장"
+    },
+    "차세윤": {
+     "place": "협회 로비"
+    },
+    "도재경": {
+     "place": "협회 로비"
+    },
+    "한유진": {
+     "place": "공사장 입구"
+    },
+    "주현우": {
+     "place": "마석 매입소",
+     "bag": {
+      "현금[만원]": 500
+     }
+    },
+    "강도형": {
+     "place": "은하수 길드 사무실"
+    },
+    "마준혁": {
+     "place": "마석 매입소"
+    },
+    "노태민": {
+     "place": "중앙시장 헌터 상가"
+    },
+    "오미숙": {
+     "place": "중앙시장 헌터 상가",
+     "bag": {
+      "가죽 경갑": 2,
+      "강철 원형 방패": 1,
+      "헌터용 장검": 1,
+      "회복 물약": 4
+     }
+    },
+    "서아름": {
+     "place": "공사장 입구",
+     "bag": {
+      "회복 물약": 2
+     }
+    },
+    "윤채린": {
+     "place": "협회 로비"
+    }
+   },
+   "events": {
+    "gy_ch1": [
+     {
+      "phase": "wait",
+      "lifecycle": "ACTIVE"
+     }
+    ],
+    "gy_gate_c": [
+     {
+      "phase": "sealed",
+      "lifecycle": "ACTIVE"
+     }
+    ],
+    "gy_gate_d": [
+     {
+      "phase": "sealed",
+      "lifecycle": "ACTIVE"
+     }
+    ],
+    "gy_gate_e": [
+     {
+      "phase": "run",
+      "lifecycle": "ACTIVE",
+      "vars": {
+       "layout": "B"
+      }
+     }
+    ],
+    "gy_guild": [
+     {
+      "phase": "joined",
+      "lifecycle": "ACTIVE",
+      "vars": {
+       "resolution": "join"
+      }
+     }
+    ],
+    "gy_hunter": [
+     {
+      "phase": "active",
+      "lifecycle": "ACTIVE"
+     }
+    ]
+   },
+   "floor": [],
+   "access": {},
+   "pc_knows": [],
+   "relations": 0
+  },
+  "out": []
+ },
+ {
+  "say": "무너진 터널로 간다",
+  "view": {
+   "minute": 41,
+   "lifecycle": "OPEN",
+   "pc": {
+    "place": "무너진 터널",
+    "statuses": [],
+    "stages": {},
+    "bag": {
+     "손전등": 1,
+     "현금[만원]": 30
+    },
+    "equipment": {},
+    "profile": {
+     "감각": 10,
+     "근력": 14,
+     "등급": 1,
+     "민첩": 11,
+     "정신": 10
+    }
+   },
+   "companions": [
+    "서아름",
+    "한유진"
+   ],
+   "actors": {
+    "고블린 우두머리": {
+     "place": "굴착기 둥지"
+    },
+    "고블린 척후": {
+     "place": "환기 갱도"
+    },
+    "고블린 투척병": {
+     "place": "자재 창고"
+    },
+    "고블린 전사": {
+     "place": "무너진 터널"
+    },
+    "백소은": {
+     "place": "훈련장"
+    },
+    "차세윤": {
+     "place": "협회 로비"
+    },
+    "도재경": {
+     "place": "협회 로비"
+    },
+    "한유진": {
+     "place": "무너진 터널"
+    },
+    "주현우": {
+     "place": "마석 매입소",
+     "bag": {
+      "현금[만원]": 500
+     }
+    },
+    "강도형": {
+     "place": "은하수 길드 사무실"
+    },
+    "마준혁": {
+     "place": "마석 매입소"
+    },
+    "노태민": {
+     "place": "중앙시장 헌터 상가"
+    },
+    "오미숙": {
+     "place": "중앙시장 헌터 상가",
+     "bag": {
+      "가죽 경갑": 2,
+      "강철 원형 방패": 1,
+      "헌터용 장검": 1,
+      "회복 물약": 4
+     }
+    },
+    "서아름": {
+     "place": "무너진 터널",
+     "bag": {
+      "회복 물약": 2
+     }
+    },
+    "윤채린": {
+     "place": "협회 로비"
+    }
+   },
+   "events": {
+    "gy_ch1": [
+     {
+      "phase": "wait",
+      "lifecycle": "ACTIVE"
+     }
+    ],
+    "gy_gate_c": [
+     {
+      "phase": "sealed",
+      "lifecycle": "ACTIVE"
+     }
+    ],
+    "gy_gate_d": [
+     {
+      "phase": "sealed",
+      "lifecycle": "ACTIVE"
+     }
+    ],
+    "gy_gate_e": [
+     {
+      "phase": "run",
+      "lifecycle": "ACTIVE",
+      "vars": {
+       "layout": "B"
+      }
+     }
+    ],
+    "gy_guild": [
+     {
+      "phase": "joined",
+      "lifecycle": "ACTIVE",
+      "vars": {
+       "resolution": "join"
+      }
+     }
+    ],
+    "gy_hunter": [
+     {
+      "phase": "active",
+      "lifecycle": "ACTIVE"
+     }
+    ]
+   },
+   "floor": [],
+   "access": {},
+   "pc_knows": [],
+   "relations": 0
+  },
+  "out": []
+ },
+ {
+  "say": "환기 갱도로 간다",
+  "view": {
+   "minute": 42,
+   "lifecycle": "OPEN",
+   "pc": {
+    "place": "환기 갱도",
+    "statuses": [],
+    "stages": {},
+    "bag": {
+     "손전등": 1,
+     "현금[만원]": 30
+    },
+    "equipment": {},
+    "profile": {
+     "감각": 10,
+     "근력": 14,
+     "등급": 1,
+     "민첩": 11,
+     "정신": 10
+    }
+   },
+   "companions": [
+    "서아름",
+    "한유진"
+   ],
+   "actors": {
+    "고블린 우두머리": {
+     "place": "굴착기 둥지"
+    },
+    "고블린 척후": {
+     "place": "환기 갱도"
+    },
+    "고블린 투척병": {
+     "place": "자재 창고"
+    },
+    "고블린 전사": {
+     "place": "무너진 터널"
+    },
+    "백소은": {
+     "place": "훈련장"
+    },
+    "차세윤": {
+     "place": "협회 로비"
+    },
+    "도재경": {
+     "place": "협회 로비"
+    },
+    "한유진": {
+     "place": "환기 갱도"
+    },
+    "주현우": {
+     "place": "마석 매입소",
+     "bag": {
+      "현금[만원]": 500
+     }
+    },
+    "강도형": {
+     "place": "은하수 길드 사무실"
+    },
+    "마준혁": {
+     "place": "마석 매입소"
+    },
+    "노태민": {
+     "place": "중앙시장 헌터 상가"
+    },
+    "오미숙": {
+     "place": "중앙시장 헌터 상가",
+     "bag": {
+      "가죽 경갑": 2,
+      "강철 원형 방패": 1,
+      "헌터용 장검": 1,
+      "회복 물약": 4
+     }
+    },
+    "서아름": {
+     "place": "환기 갱도",
+     "bag": {
+      "회복 물약": 2
+     }
+    },
+    "윤채린": {
+     "place": "협회 로비"
+    }
+   },
+   "events": {
+    "gy_ch1": [
+     {
+      "phase": "wait",
+      "lifecycle": "ACTIVE"
+     }
+    ],
+    "gy_gate_c": [
+     {
+      "phase": "sealed",
+      "lifecycle": "ACTIVE"
+     }
+    ],
+    "gy_gate_d": [
+     {
+      "phase": "sealed",
+      "lifecycle": "ACTIVE"
+     }
+    ],
+    "gy_gate_e": [
+     {
+      "phase": "run",
+      "lifecycle": "ACTIVE",
+      "vars": {
+       "layout": "B"
+      }
+     }
+    ],
+    "gy_guild": [
+     {
+      "phase": "joined",
+      "lifecycle": "ACTIVE",
+      "vars": {
+       "resolution": "join"
+      }
+     }
+    ],
+    "gy_hunter": [
+     {
+      "phase": "active",
+      "lifecycle": "ACTIVE"
+     }
+    ]
+   },
+   "floor": [],
+   "access": {},
+   "pc_knows": [],
+   "relations": 0
+  },
+  "out": []
+ },
+ {
+  "say": "굴착기 둥지로 간다",
+  "view": {
+   "minute": 43,
+   "lifecycle": "OPEN",
+   "pc": {
+    "place": "굴착기 둥지",
+    "statuses": [],
+    "stages": {},
+    "bag": {
+     "손전등": 1,
+     "현금[만원]": 30
+    },
+    "equipment": {},
+    "profile": {
+     "감각": 10,
+     "근력": 14,
+     "등급": 1,
+     "민첩": 11,
+     "정신": 10
+    }
+   },
+   "companions": [
+    "서아름",
+    "한유진"
+   ],
+   "actors": {
+    "고블린 우두머리": {
+     "place": "굴착기 둥지"
+    },
+    "고블린 척후": {
+     "place": "환기 갱도"
+    },
+    "고블린 투척병": {
+     "place": "자재 창고"
+    },
+    "고블린 전사": {
+     "place": "무너진 터널"
+    },
+    "백소은": {
+     "place": "훈련장"
+    },
+    "차세윤": {
+     "place": "협회 로비"
+    },
+    "도재경": {
+     "place": "협회 로비"
+    },
+    "한유진": {
+     "place": "굴착기 둥지"
+    },
+    "주현우": {
+     "place": "마석 매입소",
+     "bag": {
+      "현금[만원]": 500
+     }
+    },
+    "강도형": {
+     "place": "은하수 길드 사무실"
+    },
+    "마준혁": {
+     "place": "마석 매입소"
+    },
+    "노태민": {
+     "place": "중앙시장 헌터 상가"
+    },
+    "오미숙": {
+     "place": "중앙시장 헌터 상가",
+     "bag": {
+      "가죽 경갑": 2,
+      "강철 원형 방패": 1,
+      "헌터용 장검": 1,
+      "회복 물약": 4
+     }
+    },
+    "서아름": {
+     "place": "굴착기 둥지",
+     "bag": {
+      "회복 물약": 2
+     }
+    },
+    "윤채린": {
+     "place": "협회 로비"
+    }
+   },
+   "events": {
+    "gy_ch1": [
+     {
+      "phase": "wait",
+      "lifecycle": "ACTIVE"
+     }
+    ],
+    "gy_gate_c": [
+     {
+      "phase": "sealed",
+      "lifecycle": "ACTIVE"
+     }
+    ],
+    "gy_gate_d": [
+     {
+      "phase": "sealed",
+      "lifecycle": "ACTIVE"
+     }
+    ],
+    "gy_gate_e": [
+     {
+      "phase": "run",
+      "lifecycle": "ACTIVE",
+      "vars": {
+       "layout": "B"
+      }
+     }
+    ],
+    "gy_guild": [
+     {
+      "phase": "joined",
+      "lifecycle": "ACTIVE",
+      "vars": {
+       "resolution": "join"
+      }
+     }
+    ],
+    "gy_hunter": [
+     {
+      "phase": "active",
+      "lifecycle": "ACTIVE"
+     }
+    ]
+   },
+   "floor": [],
+   "access": {},
+   "pc_knows": [],
+   "relations": 0
+  },
+  "out": []
+ },
+ {
+  "say": "고블린 우두머리 공격",
+  "view": {
+   "minute": 43,
+   "lifecycle": "OPEN",
+   "pc": {
+    "place": "굴착기 둥지",
+    "statuses": [],
+    "stages": {},
+    "bag": {
+     "손전등": 1,
+     "현금[만원]": 30
+    },
+    "equipment": {},
+    "profile": {
+     "감각": 10,
+     "근력": 14,
+     "등급": 1,
+     "민첩": 11,
+     "정신": 10
+    }
+   },
+   "companions": [
+    "서아름",
+    "한유진"
+   ],
+   "actors": {
+    "고블린 우두머리": {
+     "place": "굴착기 둥지",
+     "statuses": [
+      "부상"
+     ],
+     "stages": {
+      "부상": 1
+     }
+    },
+    "고블린 척후": {
+     "place": "환기 갱도"
+    },
+    "고블린 투척병": {
+     "place": "자재 창고"
+    },
+    "고블린 전사": {
+     "place": "무너진 터널"
+    },
+    "백소은": {
+     "place": "훈련장"
+    },
+    "차세윤": {
+     "place": "협회 로비"
+    },
+    "도재경": {
+     "place": "협회 로비"
+    },
+    "한유진": {
+     "place": "굴착기 둥지"
+    },
+    "주현우": {
+     "place": "마석 매입소",
+     "bag": {
+      "현금[만원]": 500
+     }
+    },
+    "강도형": {
+     "place": "은하수 길드 사무실"
+    },
+    "마준혁": {
+     "place": "마석 매입소"
+    },
+    "노태민": {
+     "place": "중앙시장 헌터 상가"
+    },
+    "오미숙": {
+     "place": "중앙시장 헌터 상가",
+     "bag": {
+      "가죽 경갑": 2,
+      "강철 원형 방패": 1,
+      "헌터용 장검": 1,
+      "회복 물약": 4
+     }
+    },
+    "서아름": {
+     "place": "굴착기 둥지",
+     "bag": {
+      "회복 물약": 2
+     }
+    },
+    "윤채린": {
+     "place": "협회 로비"
+    }
+   },
+   "events": {
+    "gy_ch1": [
+     {
+      "phase": "wait",
+      "lifecycle": "ACTIVE"
+     }
+    ],
+    "gy_gate_c": [
+     {
+      "phase": "sealed",
+      "lifecycle": "ACTIVE"
+     }
+    ],
+    "gy_gate_d": [
+     {
+      "phase": "sealed",
+      "lifecycle": "ACTIVE"
+     }
+    ],
+    "gy_gate_e": [
+     {
+      "phase": "run",
+      "lifecycle": "ACTIVE",
+      "vars": {
+       "layout": "B"
+      }
+     }
+    ],
+    "gy_guild": [
+     {
+      "phase": "joined",
+      "lifecycle": "ACTIVE",
+      "vars": {
+       "resolution": "join"
+      }
+     }
+    ],
+    "gy_hunter": [
+     {
+      "phase": "active",
+      "lifecycle": "ACTIVE"
+     }
+    ]
+   },
+   "floor": [],
+   "access": {},
+   "pc_knows": [],
+   "relations": 0
+  },
+  "out": [
+   "> 🎲 <@555001>, 이 일은 결과를 장담할 수 없습니다. 판정을 하겠습니다.",
+   "> 🎲 [테스터] **근력** 판정 — 2d50 **46** (9+37) / 목표 60 (52+8(능력)=60)  →  **성공 🟢** (여유 +14)",
+   "> 🎲 [고블린 우두머리] 판정 — 2d50 **54** → **성공 🟢**",
+   "> ⚔️ 대결 결과: **테스터 우세**",
+   "> ✅ 뜻한 대로 되었습니다."
+  ]
+ },
+ {
+  "say": "고블린 우두머리 공격",
+  "view": {
+   "minute": 43,
+   "lifecycle": "OPEN",
+   "pc": {
+    "place": "굴착기 둥지",
+    "statuses": [],
+    "stages": {},
+    "bag": {
+     "손전등": 1,
+     "현금[만원]": 30
+    },
+    "equipment": {},
+    "profile": {
+     "감각": 10,
+     "근력": 14,
+     "등급": 1,
+     "민첩": 11,
+     "정신": 10
+    }
+   },
+   "companions": [
+    "서아름",
+    "한유진"
+   ],
+   "actors": {
+    "고블린 우두머리": {
+     "place": "굴착기 둥지",
+     "statuses": [
+      "부상"
+     ],
+     "stages": {
+      "부상": 2
+     }
+    },
+    "고블린 척후": {
+     "place": "환기 갱도"
+    },
+    "고블린 투척병": {
+     "place": "자재 창고"
+    },
+    "고블린 전사": {
+     "place": "무너진 터널"
+    },
+    "백소은": {
+     "place": "훈련장"
+    },
+    "차세윤": {
+     "place": "협회 로비"
+    },
+    "도재경": {
+     "place": "협회 로비"
+    },
+    "한유진": {
+     "place": "굴착기 둥지"
+    },
+    "주현우": {
+     "place": "마석 매입소",
+     "bag": {
+      "현금[만원]": 500
+     }
+    },
+    "강도형": {
+     "place": "은하수 길드 사무실"
+    },
+    "마준혁": {
+     "place": "마석 매입소"
+    },
+    "노태민": {
+     "place": "중앙시장 헌터 상가"
+    },
+    "오미숙": {
+     "place": "중앙시장 헌터 상가",
+     "bag": {
+      "가죽 경갑": 2,
+      "강철 원형 방패": 1,
+      "헌터용 장검": 1,
+      "회복 물약": 4
+     }
+    },
+    "서아름": {
+     "place": "굴착기 둥지",
+     "bag": {
+      "회복 물약": 2
+     }
+    },
+    "윤채린": {
+     "place": "협회 로비"
+    }
+   },
+   "events": {
+    "gy_ch1": [
+     {
+      "phase": "wait",
+      "lifecycle": "ACTIVE"
+     }
+    ],
+    "gy_gate_c": [
+     {
+      "phase": "sealed",
+      "lifecycle": "ACTIVE"
+     }
+    ],
+    "gy_gate_d": [
+     {
+      "phase": "sealed",
+      "lifecycle": "ACTIVE"
+     }
+    ],
+    "gy_gate_e": [
+     {
+      "phase": "run",
+      "lifecycle": "ACTIVE",
+      "vars": {
+       "layout": "B"
+      }
+     }
+    ],
+    "gy_guild": [
+     {
+      "phase": "joined",
+      "lifecycle": "ACTIVE",
+      "vars": {
+       "resolution": "join"
+      }
+     }
+    ],
+    "gy_hunter": [
+     {
+      "phase": "active",
+      "lifecycle": "ACTIVE"
+     }
+    ]
+   },
+   "floor": [],
+   "access": {},
+   "pc_knows": [],
+   "relations": 0
+  },
+  "out": [
+   "> 🎲 <@555001>, 이 일은 결과를 장담할 수 없습니다. 판정을 하겠습니다.",
+   "> 🎲 [테스터] **근력** 판정 — 2d50 **10** (4+6) / 목표 60 (52+8(능력)=60)  →  **성공 🟢** (여유 +50)",
+   "> 🎲 [고블린 우두머리] 판정 — 2d50 **30** → **성공 🟢**",
+   "> ⚔️ 대결 결과: **테스터 우세**",
+   "> ✅ 판정에 성공했습니다."
+  ]
+ },
+ {
+  "say": "고블린 우두머리 공격",
+  "view": {
+   "minute": 43,
+   "lifecycle": "OPEN",
+   "pc": {
+    "place": "굴착기 둥지",
+    "statuses": [],
+    "stages": {},
+    "bag": {
+     "손전등": 1,
+     "현금[만원]": 30
+    },
+    "equipment": {},
+    "profile": {
+     "감각": 10,
+     "근력": 14,
+     "등급": 1,
+     "민첩": 11,
+     "정신": 10
+    }
+   },
+   "companions": [
+    "서아름",
+    "한유진"
+   ],
+   "actors": {
+    "고블린 우두머리": {
+     "place": "굴착기 둥지",
+     "statuses": [
+      "부상"
+     ],
+     "stages": {
+      "부상": 2
+     }
+    },
+    "고블린 척후": {
+     "place": "환기 갱도"
+    },
+    "고블린 투척병": {
+     "place": "자재 창고"
+    },
+    "고블린 전사": {
+     "place": "무너진 터널"
+    },
+    "백소은": {
+     "place": "훈련장"
+    },
+    "차세윤": {
+     "place": "협회 로비"
+    },
+    "도재경": {
+     "place": "협회 로비"
+    },
+    "한유진": {
+     "place": "굴착기 둥지",
+     "statuses": [
+      "부상"
+     ],
+     "stages": {
+      "부상": 1
+     }
+    },
+    "주현우": {
+     "place": "마석 매입소",
+     "bag": {
+      "현금[만원]": 500
+     }
+    },
+    "강도형": {
+     "place": "은하수 길드 사무실"
+    },
+    "마준혁": {
+     "place": "마석 매입소"
+    },
+    "노태민": {
+     "place": "중앙시장 헌터 상가"
+    },
+    "오미숙": {
+     "place": "중앙시장 헌터 상가",
+     "bag": {
+      "가죽 경갑": 2,
+      "강철 원형 방패": 1,
+      "헌터용 장검": 1,
+      "회복 물약": 4
+     }
+    },
+    "서아름": {
+     "place": "굴착기 둥지",
+     "bag": {
+      "회복 물약": 2
+     }
+    },
+    "윤채린": {
+     "place": "협회 로비"
+    }
+   },
+   "events": {
+    "gy_ch1": [
+     {
+      "phase": "wait",
+      "lifecycle": "ACTIVE"
+     }
+    ],
+    "gy_gate_c": [
+     {
+      "phase": "sealed",
+      "lifecycle": "ACTIVE"
+     }
+    ],
+    "gy_gate_d": [
+     {
+      "phase": "sealed",
+      "lifecycle": "ACTIVE"
+     }
+    ],
+    "gy_gate_e": [
+     {
+      "phase": "run",
+      "lifecycle": "ACTIVE",
+      "vars": {
+       "layout": "B"
+      }
+     }
+    ],
+    "gy_guild": [
+     {
+      "phase": "joined",
+      "lifecycle": "ACTIVE",
+      "vars": {
+       "resolution": "join"
+      }
+     }
+    ],
+    "gy_hunter": [
+     {
+      "phase": "active",
+      "lifecycle": "ACTIVE"
+     }
+    ]
+   },
+   "floor": [],
+   "access": {},
+   "pc_knows": [],
+   "relations": 0
+  },
+  "out": [
+   "> 🎲 <@555001>, 이 일은 결과를 장담할 수 없습니다. 판정을 하겠습니다.",
+   "> 🎲 [테스터] **근력** 판정 — 2d50 **54** (16+38) / 목표 60 (52+8(능력)=60)  →  **성공 🟢** (여유 +6)",
+   "> 🎲 [고블린 우두머리] 판정 — 2d50 **44** → **성공 🟢**",
+   "> ⚔️ 대결 결과: **고블린 우두머리 우세**",
+   "> ✅ 뜻한 대로 되었습니다."
+  ]
+ },
+ {
+  "say": "고블린 우두머리 공격",
+  "view": {
+   "minute": 43,
+   "lifecycle": "OPEN",
+   "pc": {
+    "place": "굴착기 둥지",
+    "statuses": [],
+    "stages": {},
+    "bag": {
+     "손전등": 1,
+     "현금[만원]": 30
+    },
+    "equipment": {},
+    "profile": {
+     "감각": 10,
+     "근력": 14,
+     "등급": 1,
+     "민첩": 11,
+     "정신": 10
+    }
+   },
+   "companions": [
+    "서아름",
+    "한유진"
+   ],
+   "actors": {
+    "고블린 우두머리": {
+     "place": "굴착기 둥지",
+     "statuses": [
+      "부상",
+      "빈사"
+     ],
+     "stages": {
+      "부상": 3
+     }
+    },
+    "고블린 척후": {
+     "place": "환기 갱도"
+    },
+    "고블린 투척병": {
+     "place": "자재 창고"
+    },
+    "고블린 전사": {
+     "place": "무너진 터널"
+    },
+    "백소은": {
+     "place": "훈련장"
+    },
+    "차세윤": {
+     "place": "협회 로비"
+    },
+    "도재경": {
+     "place": "협회 로비"
+    },
+    "한유진": {
+     "place": "굴착기 둥지",
+     "statuses": [
+      "부상"
+     ],
+     "stages": {
+      "부상": 1
+     }
+    },
+    "주현우": {
+     "place": "마석 매입소",
+     "bag": {
+      "현금[만원]": 500
+     }
+    },
+    "강도형": {
+     "place": "은하수 길드 사무실"
+    },
+    "마준혁": {
+     "place": "마석 매입소"
+    },
+    "노태민": {
+     "place": "중앙시장 헌터 상가"
+    },
+    "오미숙": {
+     "place": "중앙시장 헌터 상가",
+     "bag": {
+      "가죽 경갑": 2,
+      "강철 원형 방패": 1,
+      "헌터용 장검": 1,
+      "회복 물약": 4
+     }
+    },
+    "서아름": {
+     "place": "굴착기 둥지",
+     "statuses": [
+      "마력 소모"
+     ],
+     "stages": {
+      "마력 소모": 1
+     },
+     "bag": {
+      "회복 물약": 2
+     }
+    },
+    "윤채린": {
+     "place": "협회 로비"
+    }
+   },
+   "events": {
+    "gy_ch1": [
+     {
+      "phase": "wait",
+      "lifecycle": "ACTIVE"
+     }
+    ],
+    "gy_gate_c": [
+     {
+      "phase": "sealed",
+      "lifecycle": "ACTIVE"
+     }
+    ],
+    "gy_gate_d": [
+     {
+      "phase": "sealed",
+      "lifecycle": "ACTIVE"
+     }
+    ],
+    "gy_gate_e": [
+     {
+      "phase": "run",
+      "lifecycle": "ACTIVE",
+      "vars": {
+       "layout": "B"
+      }
+     }
+    ],
+    "gy_guild": [
+     {
+      "phase": "joined",
+      "lifecycle": "ACTIVE",
+      "vars": {
+       "resolution": "join"
+      }
+     }
+    ],
+    "gy_hunter": [
+     {
+      "phase": "active",
+      "lifecycle": "ACTIVE"
+     }
+    ]
+   },
+   "floor": [],
+   "access": {},
+   "pc_knows": [],
+   "relations": 0
+  },
+  "out": [
+   "> 🎲 <@555001>, 운과 실력을 가늠할 때입니다. 판정이 필요합니다.",
+   "> 🎲 [테스터] **근력** 판정 — 2d50 **36** (16+20) / 목표 60 (52+8(능력)=60)  →  **성공 🟢** (여유 +24)",
+   "> 🎲 [고블린 우두머리] 판정 — 2d50 **54** → **성공 🟢**",
+   "> ⚔️ 대결 결과: **테스터 우세**",
+   "> ✅ 뜻한 대로 되었습니다."
+  ]
+ },
+ {
+  "say": "고블린 우두머리 공격",
+  "view": {
+   "minute": 43,
+   "lifecycle": "OPEN",
+   "pc": {
+    "place": "굴착기 둥지",
+    "statuses": [],
+    "stages": {},
+    "bag": {
+     "손전등": 1,
+     "현금[만원]": 30
+    },
+    "equipment": {},
+    "profile": {
+     "감각": 10,
+     "근력": 14,
+     "등급": 1,
+     "민첩": 11,
+     "성장 포인트": 5,
+     "정신": 10
+    }
+   },
+   "companions": [
+    "서아름",
+    "한유진"
+   ],
+   "actors": {
+    "고블린 우두머리": {
+     "place": null,
+     "removed_by": [
+      "사망"
+     ],
+     "statuses": [
+      "부상",
+      "빈사",
+      "사망"
+     ],
+     "stages": {
+      "부상": 3
+     }
+    },
+    "고블린 척후": {
+     "place": "환기 갱도"
+    },
+    "고블린 투척병": {
+     "place": "자재 창고"
+    },
+    "고블린 전사": {
+     "place": "무너진 터널"
+    },
+    "백소은": {
+     "place": "훈련장"
+    },
+    "차세윤": {
+     "place": "협회 로비"
+    },
+    "도재경": {
+     "place": "협회 로비"
+    },
+    "한유진": {
+     "place": "굴착기 둥지",
+     "statuses": [
+      "부상"
+     ],
+     "stages": {
+      "부상": 1
+     }
+    },
+    "주현우": {
+     "place": "마석 매입소",
+     "bag": {
+      "현금[만원]": 500
+     }
+    },
+    "강도형": {
+     "place": "은하수 길드 사무실"
+    },
+    "마준혁": {
+     "place": "마석 매입소"
+    },
+    "노태민": {
+     "place": "중앙시장 헌터 상가"
+    },
+    "오미숙": {
+     "place": "중앙시장 헌터 상가",
+     "bag": {
+      "가죽 경갑": 2,
+      "강철 원형 방패": 1,
+      "헌터용 장검": 1,
+      "회복 물약": 4
+     }
+    },
+    "서아름": {
+     "place": "굴착기 둥지",
+     "statuses": [
+      "마력 소모"
+     ],
+     "stages": {
+      "마력 소모": 1
+     },
+     "bag": {
+      "회복 물약": 2
+     }
+    },
+    "윤채린": {
+     "place": "협회 로비"
+    }
+   },
+   "events": {
+    "gy_ch1": [
+     {
+      "phase": "wait",
+      "lifecycle": "ACTIVE"
+     }
+    ],
+    "gy_gate_c": [
+     {
+      "phase": "sealed",
+      "lifecycle": "ACTIVE"
+     }
+    ],
+    "gy_gate_d": [
+     {
+      "phase": "sealed",
+      "lifecycle": "ACTIVE"
+     }
+    ],
+    "gy_gate_e": [
+     {
+      "phase": "cleared",
+      "lifecycle": "ACTIVE",
+      "vars": {
+       "cleared_once": true,
+       "layout": "B"
+      }
+     }
+    ],
+    "gy_guild": [
+     {
+      "phase": "joined",
+      "lifecycle": "ACTIVE",
+      "vars": {
+       "resolution": "join"
+      }
+     }
+    ],
+    "gy_hunter": [
+     {
+      "phase": "active",
+      "lifecycle": "ACTIVE"
+     }
+    ]
+   },
+   "floor": [
+    [
+     "굴착기 둥지",
+     "E급 마석",
+     3
+    ]
+   ],
+   "access": {},
+   "pc_knows": [],
+   "relations": 0
+  },
+  "out": [
+   "> 🎲 <@555001>, 이 일은 결과를 장담할 수 없습니다. 판정을 하겠습니다.",
+   "> 🎲 [테스터] **근력** 판정 — 2d50 **57** (40+17) / 목표 60 (52+8(능력)=60)  →  **성공 🟢** (여유 +3)",
+   "> 🎲 [고블린 우두머리] 판정 — 2d50 **71** → **실패 🔴**",
+   "> ⚔️ 대결 결과: **테스터 우세**",
+   "> ✅ 판정에 성공했습니다."
+  ]
+ },
+ {
+  "say": "고블린 우두머리 공격",
+  "view": {
+   "minute": 43,
+   "lifecycle": "OPEN",
+   "pc": {
+    "place": "굴착기 둥지",
+    "statuses": [],
+    "stages": {},
+    "bag": {
+     "손전등": 1,
+     "현금[만원]": 30
+    },
+    "equipment": {},
+    "profile": {
+     "감각": 10,
+     "근력": 14,
+     "등급": 1,
+     "민첩": 11,
+     "성장 포인트": 5,
+     "정신": 10
+    }
+   },
+   "companions": [
+    "서아름",
+    "한유진"
+   ],
+   "actors": {
+    "고블린 우두머리": {
+     "place": null,
+     "removed_by": [
+      "사망"
+     ],
+     "statuses": [
+      "부상",
+      "빈사",
+      "사망"
+     ],
+     "stages": {
+      "부상": 3
+     }
+    },
+    "고블린 척후": {
+     "place": "환기 갱도"
+    },
+    "고블린 투척병": {
+     "place": "자재 창고"
+    },
+    "고블린 전사": {
+     "place": "무너진 터널"
+    },
+    "백소은": {
+     "place": "훈련장"
+    },
+    "차세윤": {
+     "place": "협회 로비"
+    },
+    "도재경": {
+     "place": "협회 로비"
+    },
+    "한유진": {
+     "place": "굴착기 둥지",
+     "statuses": [
+      "부상"
+     ],
+     "stages": {
+      "부상": 1
+     }
+    },
+    "주현우": {
+     "place": "마석 매입소",
+     "bag": {
+      "현금[만원]": 500
+     }
+    },
+    "강도형": {
+     "place": "은하수 길드 사무실"
+    },
+    "마준혁": {
+     "place": "마석 매입소"
+    },
+    "노태민": {
+     "place": "중앙시장 헌터 상가"
+    },
+    "오미숙": {
+     "place": "중앙시장 헌터 상가",
+     "bag": {
+      "가죽 경갑": 2,
+      "강철 원형 방패": 1,
+      "헌터용 장검": 1,
+      "회복 물약": 4
+     }
+    },
+    "서아름": {
+     "place": "굴착기 둥지",
+     "statuses": [
+      "마력 소모"
+     ],
+     "stages": {
+      "마력 소모": 1
+     },
+     "bag": {
+      "회복 물약": 2
+     }
+    },
+    "윤채린": {
+     "place": "협회 로비"
+    }
+   },
+   "events": {
+    "gy_ch1": [
+     {
+      "phase": "wait",
+      "lifecycle": "ACTIVE"
+     }
+    ],
+    "gy_gate_c": [
+     {
+      "phase": "sealed",
+      "lifecycle": "ACTIVE"
+     }
+    ],
+    "gy_gate_d": [
+     {
+      "phase": "sealed",
+      "lifecycle": "ACTIVE"
+     }
+    ],
+    "gy_gate_e": [
+     {
+      "phase": "cleared",
+      "lifecycle": "ACTIVE",
+      "vars": {
+       "cleared_once": true,
+       "layout": "B"
+      }
+     }
+    ],
+    "gy_guild": [
+     {
+      "phase": "joined",
+      "lifecycle": "ACTIVE",
+      "vars": {
+       "resolution": "join"
+      }
+     }
+    ],
+    "gy_hunter": [
+     {
+      "phase": "active",
+      "lifecycle": "ACTIVE"
+     }
+    ]
+   },
+   "floor": [
+    [
+     "굴착기 둥지",
+     "E급 마석",
+     3
+    ]
+   ],
+   "access": {},
+   "pc_knows": [],
+   "relations": 0
+  },
+  "out": [
+   "> 🎲 <@555001>, 운과 실력을 가늠할 때입니다. 판정이 필요합니다.",
+   "> 🎲 [테스터] **근력** 판정 — 2d50 **43** (37+6) / 목표 60 (52+8(능력)=60)  →  **성공 🟢** (여유 +17)",
+   "> ✅ 뜻한 대로 되었습니다."
+  ]
+ },
+ {
+  "say": "30분 기다린다",
+  "view": {
+   "minute": 73,
+   "lifecycle": "OPEN",
+   "pc": {
+    "place": "굴착기 둥지",
+    "statuses": [],
+    "stages": {},
+    "bag": {
+     "손전등": 1,
+     "현금[만원]": 30
+    },
+    "equipment": {},
+    "profile": {
+     "감각": 10,
+     "근력": 14,
+     "등급": 1,
+     "민첩": 11,
+     "성장 포인트": 5,
+     "정신": 10
+    }
+   },
+   "companions": [
+    "서아름",
+    "한유진"
+   ],
+   "actors": {
+    "고블린 우두머리": {
+     "place": null,
+     "removed_by": [
+      "사망"
+     ],
+     "statuses": [
+      "부상",
+      "빈사",
+      "사망"
+     ],
+     "stages": {
+      "부상": 3
+     }
+    },
+    "고블린 척후": {
+     "place": "환기 갱도"
+    },
+    "고블린 투척병": {
+     "place": "자재 창고"
+    },
+    "고블린 전사": {
+     "place": "무너진 터널"
+    },
+    "백소은": {
+     "place": "훈련장"
+    },
+    "차세윤": {
+     "place": "협회 로비"
+    },
+    "도재경": {
+     "place": "협회 로비"
+    },
+    "한유진": {
+     "place": "굴착기 둥지",
+     "statuses": [
+      "부상"
+     ],
+     "stages": {
+      "부상": 1
+     }
+    },
+    "주현우": {
+     "place": "마석 매입소",
+     "bag": {
+      "현금[만원]": 500
+     }
+    },
+    "강도형": {
+     "place": "은하수 길드 사무실"
+    },
+    "마준혁": {
+     "place": "마석 매입소"
+    },
+    "노태민": {
+     "place": "중앙시장 헌터 상가"
+    },
+    "오미숙": {
+     "place": "중앙시장 헌터 상가",
+     "bag": {
+      "가죽 경갑": 2,
+      "강철 원형 방패": 1,
+      "헌터용 장검": 1,
+      "회복 물약": 4
+     }
+    },
+    "서아름": {
+     "place": "굴착기 둥지",
+     "bag": {
+      "회복 물약": 2
+     }
+    },
+    "윤채린": {
+     "place": "협회 로비"
+    }
+   },
+   "events": {
+    "gy_ch1": [
+     {
+      "phase": "wait",
+      "lifecycle": "ACTIVE"
+     }
+    ],
+    "gy_gate_c": [
+     {
+      "phase": "sealed",
+      "lifecycle": "ACTIVE"
+     }
+    ],
+    "gy_gate_d": [
+     {
+      "phase": "sealed",
+      "lifecycle": "ACTIVE"
+     }
+    ],
+    "gy_gate_e": [
+     {
+      "phase": "cleared",
+      "lifecycle": "ACTIVE",
+      "vars": {
+       "cleared_once": true,
+       "layout": "B"
+      }
+     }
+    ],
+    "gy_guild": [
+     {
+      "phase": "joined",
+      "lifecycle": "ACTIVE",
+      "vars": {
+       "resolution": "join"
+      }
+     }
+    ],
+    "gy_hunter": [
+     {
+      "phase": "active",
+      "lifecycle": "ACTIVE"
+     }
+    ]
+   },
+   "floor": [
+    [
+     "굴착기 둥지",
+     "E급 마석",
+     3
+    ]
+   ],
+   "access": {},
+   "pc_knows": [],
+   "relations": 0
+  },
+  "out": []
+ },
+ {
+  "say": "30분 기다린다",
+  "view": {
+   "minute": 103,
+   "lifecycle": "OPEN",
+   "pc": {
+    "place": "굴착기 둥지",
+    "statuses": [],
+    "stages": {},
+    "bag": {
+     "손전등": 1,
+     "현금[만원]": 30
+    },
+    "equipment": {},
+    "profile": {
+     "감각": 10,
+     "근력": 14,
+     "등급": 1,
+     "민첩": 11,
+     "성장 포인트": 5,
+     "정신": 10
+    }
+   },
+   "companions": [
+    "서아름",
+    "한유진"
+   ],
+   "actors": {
+    "고블린 우두머리": {
+     "place": null,
+     "removed_by": [
+      "사망"
+     ],
+     "statuses": [
+      "부상",
+      "빈사",
+      "사망"
+     ],
+     "stages": {
+      "부상": 3
+     }
+    },
+    "고블린 척후": {
+     "place": "환기 갱도"
+    },
+    "고블린 투척병": {
+     "place": "자재 창고"
+    },
+    "고블린 전사": {
+     "place": "무너진 터널"
+    },
+    "백소은": {
+     "place": "훈련장"
+    },
+    "차세윤": {
+     "place": "협회 로비"
+    },
+    "도재경": {
+     "place": "협회 로비"
+    },
+    "한유진": {
+     "place": "굴착기 둥지",
+     "statuses": [
+      "부상"
+     ],
+     "stages": {
+      "부상": 1
+     }
+    },
+    "주현우": {
+     "place": "마석 매입소",
+     "bag": {
+      "현금[만원]": 500
+     }
+    },
+    "강도형": {
+     "place": "은하수 길드 사무실"
+    },
+    "마준혁": {
+     "place": "마석 매입소"
+    },
+    "노태민": {
+     "place": "중앙시장 헌터 상가"
+    },
+    "오미숙": {
+     "place": "중앙시장 헌터 상가",
+     "bag": {
+      "가죽 경갑": 2,
+      "강철 원형 방패": 1,
+      "헌터용 장검": 1,
+      "회복 물약": 4
+     }
+    },
+    "서아름": {
+     "place": "굴착기 둥지",
+     "bag": {
+      "회복 물약": 2
+     }
+    },
+    "윤채린": {
+     "place": "협회 로비"
+    }
+   },
+   "events": {
+    "gy_ch1": [
+     {
+      "phase": "wait",
+      "lifecycle": "ACTIVE"
+     }
+    ],
+    "gy_gate_c": [
+     {
+      "phase": "sealed",
+      "lifecycle": "ACTIVE"
+     }
+    ],
+    "gy_gate_d": [
+     {
+      "phase": "sealed",
+      "lifecycle": "ACTIVE"
+     }
+    ],
+    "gy_gate_e": [
+     {
+      "phase": "cleared",
+      "lifecycle": "ACTIVE",
+      "vars": {
+       "cleared_once": true,
+       "layout": "B"
+      }
+     }
+    ],
+    "gy_guild": [
+     {
+      "phase": "joined",
+      "lifecycle": "ACTIVE",
+      "vars": {
+       "resolution": "join"
+      }
+     }
+    ],
+    "gy_hunter": [
+     {
+      "phase": "active",
+      "lifecycle": "ACTIVE"
+     }
+    ]
+   },
+   "floor": [
+    [
+     "굴착기 둥지",
+     "E급 마석",
+     3
+    ]
+   ],
+   "access": {},
+   "pc_knows": [],
+   "relations": 0
+  },
+  "out": []
+ },
+ {
+  "say": "환기 갱도로 간다",
+  "view": {
+   "minute": 104,
+   "lifecycle": "OPEN",
+   "pc": {
+    "place": "환기 갱도",
+    "statuses": [],
+    "stages": {},
+    "bag": {
+     "손전등": 1,
+     "현금[만원]": 30
+    },
+    "equipment": {},
+    "profile": {
+     "감각": 10,
+     "근력": 14,
+     "등급": 1,
+     "민첩": 11,
+     "성장 포인트": 5,
+     "정신": 10
+    }
+   },
+   "companions": [
+    "서아름",
+    "한유진"
+   ],
+   "actors": {
+    "고블린 우두머리": {
+     "place": null,
+     "removed_by": [
+      "사망"
+     ],
+     "statuses": [
+      "부상",
+      "빈사",
+      "사망"
+     ],
+     "stages": {
+      "부상": 3
+     }
+    },
+    "고블린 척후": {
+     "place": "환기 갱도"
+    },
+    "고블린 투척병": {
+     "place": "자재 창고"
+    },
+    "고블린 전사": {
+     "place": "무너진 터널"
+    },
+    "백소은": {
+     "place": "훈련장"
+    },
+    "차세윤": {
+     "place": "협회 로비"
+    },
+    "도재경": {
+     "place": "협회 로비"
+    },
+    "한유진": {
+     "place": "환기 갱도",
+     "statuses": [
+      "부상"
+     ],
+     "stages": {
+      "부상": 1
+     }
+    },
+    "주현우": {
+     "place": "마석 매입소",
+     "bag": {
+      "현금[만원]": 500
+     }
+    },
+    "강도형": {
+     "place": "은하수 길드 사무실"
+    },
+    "마준혁": {
+     "place": "마석 매입소"
+    },
+    "노태민": {
+     "place": "중앙시장 헌터 상가"
+    },
+    "오미숙": {
+     "place": "중앙시장 헌터 상가",
+     "bag": {
+      "가죽 경갑": 2,
+      "강철 원형 방패": 1,
+      "헌터용 장검": 1,
+      "회복 물약": 4
+     }
+    },
+    "서아름": {
+     "place": "환기 갱도",
+     "bag": {
+      "회복 물약": 2
+     }
+    },
+    "윤채린": {
+     "place": "협회 로비"
+    }
+   },
+   "events": {
+    "gy_ch1": [
+     {
+      "phase": "wait",
+      "lifecycle": "ACTIVE"
+     }
+    ],
+    "gy_gate_c": [
+     {
+      "phase": "sealed",
+      "lifecycle": "ACTIVE"
+     }
+    ],
+    "gy_gate_d": [
+     {
+      "phase": "sealed",
+      "lifecycle": "ACTIVE"
+     }
+    ],
+    "gy_gate_e": [
+     {
+      "phase": "cleared",
+      "lifecycle": "ACTIVE",
+      "vars": {
+       "cleared_once": true,
+       "layout": "B"
+      }
+     }
+    ],
+    "gy_guild": [
+     {
+      "phase": "joined",
+      "lifecycle": "ACTIVE",
+      "vars": {
+       "resolution": "join"
+      }
+     }
+    ],
+    "gy_hunter": [
+     {
+      "phase": "active",
+      "lifecycle": "ACTIVE"
+     }
+    ]
+   },
+   "floor": [
+    [
+     "굴착기 둥지",
+     "E급 마석",
+     3
+    ]
+   ],
+   "access": {},
+   "pc_knows": [],
+   "relations": 0
+  },
+  "out": []
+ },
+ {
+  "say": "무너진 터널로 간다",
+  "view": {
+   "minute": 105,
+   "lifecycle": "OPEN",
+   "pc": {
+    "place": "무너진 터널",
+    "statuses": [],
+    "stages": {},
+    "bag": {
+     "손전등": 1,
+     "현금[만원]": 30
+    },
+    "equipment": {},
+    "profile": {
+     "감각": 10,
+     "근력": 14,
+     "등급": 1,
+     "민첩": 11,
+     "성장 포인트": 5,
+     "정신": 10
+    }
+   },
+   "companions": [
+    "서아름",
+    "한유진"
+   ],
+   "actors": {
+    "고블린 우두머리": {
+     "place": null,
+     "removed_by": [
+      "사망"
+     ],
+     "statuses": [
+      "부상",
+      "빈사",
+      "사망"
+     ],
+     "stages": {
+      "부상": 3
+     }
+    },
+    "고블린 척후": {
+     "place": "환기 갱도"
+    },
+    "고블린 투척병": {
+     "place": "자재 창고"
+    },
+    "고블린 전사": {
+     "place": "무너진 터널"
+    },
+    "백소은": {
+     "place": "훈련장"
+    },
+    "차세윤": {
+     "place": "협회 로비"
+    },
+    "도재경": {
+     "place": "협회 로비"
+    },
+    "한유진": {
+     "place": "무너진 터널",
+     "statuses": [
+      "부상"
+     ],
+     "stages": {
+      "부상": 1
+     }
+    },
+    "주현우": {
+     "place": "마석 매입소",
+     "bag": {
+      "현금[만원]": 500
+     }
+    },
+    "강도형": {
+     "place": "은하수 길드 사무실"
+    },
+    "마준혁": {
+     "place": "마석 매입소"
+    },
+    "노태민": {
+     "place": "중앙시장 헌터 상가"
+    },
+    "오미숙": {
+     "place": "중앙시장 헌터 상가",
+     "bag": {
+      "가죽 경갑": 2,
+      "강철 원형 방패": 1,
+      "헌터용 장검": 1,
+      "회복 물약": 4
+     }
+    },
+    "서아름": {
+     "place": "무너진 터널",
+     "bag": {
+      "회복 물약": 2
+     }
+    },
+    "윤채린": {
+     "place": "협회 로비"
+    }
+   },
+   "events": {
+    "gy_ch1": [
+     {
+      "phase": "wait",
+      "lifecycle": "ACTIVE"
+     }
+    ],
+    "gy_gate_c": [
+     {
+      "phase": "sealed",
+      "lifecycle": "ACTIVE"
+     }
+    ],
+    "gy_gate_d": [
+     {
+      "phase": "sealed",
+      "lifecycle": "ACTIVE"
+     }
+    ],
+    "gy_gate_e": [
+     {
+      "phase": "cleared",
+      "lifecycle": "ACTIVE",
+      "vars": {
+       "cleared_once": true,
+       "layout": "B"
+      }
+     }
+    ],
+    "gy_guild": [
+     {
+      "phase": "joined",
+      "lifecycle": "ACTIVE",
+      "vars": {
+       "resolution": "join"
+      }
+     }
+    ],
+    "gy_hunter": [
+     {
+      "phase": "active",
+      "lifecycle": "ACTIVE"
+     }
+    ]
+   },
+   "floor": [
+    [
+     "굴착기 둥지",
+     "E급 마석",
+     3
+    ]
+   ],
+   "access": {},
+   "pc_knows": [],
+   "relations": 0
+  },
+  "out": []
+ },
+ {
+  "say": "공사장 입구로 간다",
+  "view": {
+   "minute": 106,
+   "lifecycle": "OPEN",
+   "pc": {
+    "place": "공사장 입구",
+    "statuses": [],
+    "stages": {},
+    "bag": {
+     "손전등": 1,
+     "현금[만원]": 30
+    },
+    "equipment": {},
+    "profile": {
+     "감각": 10,
+     "근력": 14,
+     "등급": 1,
+     "민첩": 11,
+     "성장 포인트": 5,
+     "정신": 10
+    }
+   },
+   "companions": [
+    "서아름",
+    "한유진"
+   ],
+   "actors": {
+    "고블린 우두머리": {
+     "place": null,
+     "removed_by": [
+      "사망"
+     ],
+     "statuses": [
+      "부상",
+      "빈사",
+      "사망"
+     ],
+     "stages": {
+      "부상": 3
+     }
+    },
+    "고블린 척후": {
+     "place": "환기 갱도"
+    },
+    "고블린 투척병": {
+     "place": "자재 창고"
+    },
+    "고블린 전사": {
+     "place": "무너진 터널"
+    },
+    "백소은": {
+     "place": "훈련장"
+    },
+    "차세윤": {
+     "place": "협회 로비"
+    },
+    "도재경": {
+     "place": "협회 로비"
+    },
+    "한유진": {
+     "place": "공사장 입구",
+     "statuses": [
+      "부상"
+     ],
+     "stages": {
+      "부상": 1
+     }
+    },
+    "주현우": {
+     "place": "마석 매입소",
+     "bag": {
+      "현금[만원]": 500
+     }
+    },
+    "강도형": {
+     "place": "은하수 길드 사무실"
+    },
+    "마준혁": {
+     "place": "마석 매입소"
+    },
+    "노태민": {
+     "place": "중앙시장 헌터 상가"
+    },
+    "오미숙": {
+     "place": "중앙시장 헌터 상가",
+     "bag": {
+      "가죽 경갑": 2,
+      "강철 원형 방패": 1,
+      "헌터용 장검": 1,
+      "회복 물약": 4
+     }
+    },
+    "서아름": {
+     "place": "공사장 입구",
+     "bag": {
+      "회복 물약": 2
+     }
+    },
+    "윤채린": {
+     "place": "협회 로비"
+    }
+   },
+   "events": {
+    "gy_ch1": [
+     {
+      "phase": "wait",
+      "lifecycle": "ACTIVE"
+     }
+    ],
+    "gy_gate_c": [
+     {
+      "phase": "sealed",
+      "lifecycle": "ACTIVE"
+     }
+    ],
+    "gy_gate_d": [
+     {
+      "phase": "sealed",
+      "lifecycle": "ACTIVE"
+     }
+    ],
+    "gy_gate_e": [
+     {
+      "phase": "cleared",
+      "lifecycle": "ACTIVE",
+      "vars": {
+       "cleared_once": true,
+       "layout": "B"
+      }
+     }
+    ],
+    "gy_guild": [
+     {
+      "phase": "joined",
+      "lifecycle": "ACTIVE",
+      "vars": {
+       "resolution": "join"
+      }
+     }
+    ],
+    "gy_hunter": [
+     {
+      "phase": "active",
+      "lifecycle": "ACTIVE"
+     }
+    ]
+   },
+   "floor": [
+    [
+     "굴착기 둥지",
+     "E급 마석",
+     3
+    ]
+   ],
+   "access": {},
+   "pc_knows": [],
+   "relations": 0
+  },
+  "out": []
+ },
+ {
+  "say": "둔산 거리로 간다",
+  "view": {
+   "minute": 131,
+   "lifecycle": "OPEN",
+   "pc": {
+    "place": "둔산 거리",
+    "statuses": [],
+    "stages": {},
+    "bag": {
+     "손전등": 1,
+     "현금[만원]": 30
+    },
+    "equipment": {},
+    "profile": {
+     "감각": 10,
+     "근력": 14,
+     "등급": 1,
+     "민첩": 11,
+     "성장 포인트": 5,
+     "정신": 10
+    }
+   },
+   "companions": [
+    "서아름",
+    "한유진"
+   ],
+   "actors": {
+    "고블린 우두머리": {
+     "place": null,
+     "removed_by": [
+      "사망"
+     ],
+     "statuses": [
+      "부상",
+      "빈사",
+      "사망"
+     ],
+     "stages": {
+      "부상": 3
+     }
+    },
+    "고블린 척후": {
+     "place": "환기 갱도"
+    },
+    "고블린 투척병": {
+     "place": "자재 창고"
+    },
+    "고블린 전사": {
+     "place": "무너진 터널"
+    },
+    "백소은": {
+     "place": "훈련장"
+    },
+    "차세윤": {
+     "place": "협회 로비"
+    },
+    "도재경": {
+     "place": "협회 로비"
+    },
+    "한유진": {
+     "place": "둔산 거리",
+     "statuses": [
+      "부상"
+     ],
+     "stages": {
+      "부상": 1
+     }
+    },
+    "주현우": {
+     "place": "마석 매입소",
+     "bag": {
+      "현금[만원]": 500
+     }
+    },
+    "강도형": {
+     "place": "은하수 길드 사무실"
+    },
+    "마준혁": {
+     "place": "마석 매입소"
+    },
+    "노태민": {
+     "place": "중앙시장 헌터 상가"
+    },
+    "오미숙": {
+     "place": "중앙시장 헌터 상가",
+     "bag": {
+      "가죽 경갑": 2,
+      "강철 원형 방패": 1,
+      "헌터용 장검": 1,
+      "회복 물약": 4
+     }
+    },
+    "서아름": {
+     "place": "둔산 거리",
+     "bag": {
+      "회복 물약": 2
+     }
+    },
+    "윤채린": {
+     "place": "협회 로비"
+    }
+   },
+   "events": {
+    "gy_ch1": [
+     {
+      "phase": "wait",
+      "lifecycle": "ACTIVE"
+     }
+    ],
+    "gy_gate_c": [
+     {
+      "phase": "sealed",
+      "lifecycle": "ACTIVE"
+     }
+    ],
+    "gy_gate_d": [
+     {
+      "phase": "sealed",
+      "lifecycle": "ACTIVE"
+     }
+    ],
+    "gy_gate_e": [
+     {
+      "phase": "sealed",
+      "lifecycle": "ACTIVE",
+      "vars": {
+       "cleared_once": true,
+       "layout": "B"
+      }
+     }
+    ],
+    "gy_guild": [
+     {
+      "phase": "joined",
+      "lifecycle": "ACTIVE",
+      "vars": {
+       "resolution": "join"
+      }
+     }
+    ],
+    "gy_hunter": [
+     {
+      "phase": "active",
+      "lifecycle": "ACTIVE"
+     }
+    ]
+   },
+   "floor": [
+    [
+     "굴착기 둥지",
+     "E급 마석",
+     3
+    ]
+   ],
+   "access": {},
+   "pc_knows": [],
+   "relations": 0
+  },
+  "out": []
+ },
+ {
+  "say": "협회 로비로 간다",
+  "view": {
+   "minute": 132,
+   "lifecycle": "OPEN",
+   "pc": {
+    "place": "협회 로비",
+    "statuses": [],
+    "stages": {},
+    "bag": {
+     "손전등": 1,
+     "현금[만원]": 30
+    },
+    "equipment": {},
+    "profile": {
+     "감각": 10,
+     "근력": 14,
+     "등급": 1,
+     "민첩": 11,
+     "성장 포인트": 5,
+     "정신": 10
+    }
+   },
+   "companions": [
+    "서아름",
+    "한유진"
+   ],
+   "actors": {
+    "고블린 우두머리": {
+     "place": null,
+     "removed_by": [
+      "사망"
+     ],
+     "statuses": [
+      "부상",
+      "빈사",
+      "사망"
+     ],
+     "stages": {
+      "부상": 3
+     }
+    },
+    "고블린 척후": {
+     "place": "환기 갱도"
+    },
+    "고블린 투척병": {
+     "place": "자재 창고"
+    },
+    "고블린 전사": {
+     "place": "무너진 터널"
+    },
+    "백소은": {
+     "place": "훈련장"
+    },
+    "차세윤": {
+     "place": "협회 로비"
+    },
+    "도재경": {
+     "place": "협회 로비"
+    },
+    "한유진": {
+     "place": "협회 로비",
+     "statuses": [
+      "부상"
+     ],
+     "stages": {
+      "부상": 1
+     }
+    },
+    "주현우": {
+     "place": "마석 매입소",
+     "bag": {
+      "현금[만원]": 500
+     }
+    },
+    "강도형": {
+     "place": "은하수 길드 사무실"
+    },
+    "마준혁": {
+     "place": "마석 매입소"
+    },
+    "노태민": {
+     "place": "중앙시장 헌터 상가"
+    },
+    "오미숙": {
+     "place": "중앙시장 헌터 상가",
+     "bag": {
+      "가죽 경갑": 2,
+      "강철 원형 방패": 1,
+      "헌터용 장검": 1,
+      "회복 물약": 4
+     }
+    },
+    "서아름": {
+     "place": "협회 로비",
+     "bag": {
+      "회복 물약": 2
+     }
+    },
+    "윤채린": {
+     "place": "협회 로비"
+    }
+   },
+   "events": {
+    "gy_ch1": [
+     {
+      "phase": "wait",
+      "lifecycle": "ACTIVE"
+     }
+    ],
+    "gy_gate_c": [
+     {
+      "phase": "sealed",
+      "lifecycle": "ACTIVE"
+     }
+    ],
+    "gy_gate_d": [
+     {
+      "phase": "sealed",
+      "lifecycle": "ACTIVE"
+     }
+    ],
+    "gy_gate_e": [
+     {
+      "phase": "sealed",
+      "lifecycle": "ACTIVE",
+      "vars": {
+       "cleared_once": true,
+       "layout": "B"
+      }
+     }
+    ],
+    "gy_guild": [
+     {
+      "phase": "joined",
+      "lifecycle": "ACTIVE",
+      "vars": {
+       "resolution": "join"
+      }
+     }
+    ],
+    "gy_hunter": [
+     {
+      "phase": "active",
+      "lifecycle": "ACTIVE"
+     }
+    ]
+   },
+   "floor": [
+    [
+     "굴착기 둥지",
+     "E급 마석",
+     3
+    ]
+   ],
+   "access": {},
+   "pc_knows": [],
+   "relations": 0
+  },
+  "out": []
+ },
+ {
+  "say": "등급 심사장로 간다",
+  "view": {
+   "minute": 132,
+   "lifecycle": "OPEN",
+   "pc": {
+    "place": "등급 심사장",
+    "statuses": [],
+    "stages": {},
+    "bag": {
+     "손전등": 1,
+     "현금[만원]": 30
+    },
+    "equipment": {},
+    "profile": {
+     "감각": 10,
+     "근력": 14,
+     "등급": 1,
+     "민첩": 11,
+     "성장 포인트": 5,
+     "정신": 10
+    }
+   },
+   "companions": [
+    "서아름",
+    "한유진"
+   ],
+   "actors": {
+    "고블린 우두머리": {
+     "place": null,
+     "removed_by": [
+      "사망"
+     ],
+     "statuses": [
+      "부상",
+      "빈사",
+      "사망"
+     ],
+     "stages": {
+      "부상": 3
+     }
+    },
+    "고블린 척후": {
+     "place": "환기 갱도"
+    },
+    "고블린 투척병": {
+     "place": "자재 창고"
+    },
+    "고블린 전사": {
+     "place": "무너진 터널"
+    },
+    "백소은": {
+     "place": "훈련장"
+    },
+    "차세윤": {
+     "place": "협회 로비"
+    },
+    "도재경": {
+     "place": "협회 로비"
+    },
+    "한유진": {
+     "place": "등급 심사장",
+     "statuses": [
+      "부상"
+     ],
+     "stages": {
+      "부상": 1
+     }
+    },
+    "주현우": {
+     "place": "마석 매입소",
+     "bag": {
+      "현금[만원]": 500
+     }
+    },
+    "강도형": {
+     "place": "은하수 길드 사무실"
+    },
+    "마준혁": {
+     "place": "마석 매입소"
+    },
+    "노태민": {
+     "place": "중앙시장 헌터 상가"
+    },
+    "오미숙": {
+     "place": "중앙시장 헌터 상가",
+     "bag": {
+      "가죽 경갑": 2,
+      "강철 원형 방패": 1,
+      "헌터용 장검": 1,
+      "회복 물약": 4
+     }
+    },
+    "서아름": {
+     "place": "등급 심사장",
+     "bag": {
+      "회복 물약": 2
+     }
+    },
+    "윤채린": {
+     "place": "협회 로비"
+    }
+   },
+   "events": {
+    "gy_ch1": [
+     {
+      "phase": "exam",
+      "lifecycle": "ACTIVE"
+     }
+    ],
+    "gy_gate_c": [
+     {
+      "phase": "sealed",
+      "lifecycle": "ACTIVE"
+     }
+    ],
+    "gy_gate_d": [
+     {
+      "phase": "sealed",
+      "lifecycle": "ACTIVE"
+     }
+    ],
+    "gy_gate_e": [
+     {
+      "phase": "sealed",
+      "lifecycle": "ACTIVE",
+      "vars": {
+       "cleared_once": true,
+       "layout": "B"
+      }
+     }
+    ],
+    "gy_guild": [
+     {
+      "phase": "joined",
+      "lifecycle": "ACTIVE",
+      "vars": {
+       "resolution": "join"
+      }
+     }
+    ],
+    "gy_hunter": [
+     {
+      "phase": "active",
+      "lifecycle": "ACTIVE"
+     }
+    ]
+   },
+   "floor": [
+    [
+     "굴착기 둥지",
+     "E급 마석",
+     3
+    ]
+   ],
+   "access": {},
+   "pc_knows": [],
+   "relations": 0
+  },
+  "out": []
+ },
+ {
+  "say": "승급 심사를 받는다",
+  "view": {
+   "minute": 132,
+   "lifecycle": "OPEN",
+   "pc": {
+    "place": "등급 심사장",
+    "statuses": [],
+    "stages": {},
+    "bag": {
+     "손전등": 1,
+     "현금[만원]": 30
+    },
+    "equipment": {},
+    "profile": {
+     "감각": 10,
+     "근력": 14,
+     "등급": 2,
+     "민첩": 11,
+     "성장 포인트": 5,
+     "정신": 10
+    }
+   },
+   "companions": [
+    "서아름",
+    "한유진"
+   ],
+   "actors": {
+    "고블린 우두머리": {
+     "place": null,
+     "removed_by": [
+      "사망"
+     ],
+     "statuses": [
+      "부상",
+      "빈사",
+      "사망"
+     ],
+     "stages": {
+      "부상": 3
+     }
+    },
+    "고블린 척후": {
+     "place": "환기 갱도"
+    },
+    "고블린 투척병": {
+     "place": "자재 창고"
+    },
+    "고블린 전사": {
+     "place": "무너진 터널"
+    },
+    "백소은": {
+     "place": "훈련장"
+    },
+    "차세윤": {
+     "place": "협회 로비"
+    },
+    "도재경": {
+     "place": "협회 로비"
+    },
+    "한유진": {
+     "place": "등급 심사장",
+     "statuses": [
+      "부상"
+     ],
+     "stages": {
+      "부상": 1
+     }
+    },
+    "주현우": {
+     "place": "마석 매입소",
+     "bag": {
+      "현금[만원]": 500
+     }
+    },
+    "강도형": {
+     "place": "은하수 길드 사무실"
+    },
+    "마준혁": {
+     "place": "마석 매입소"
+    },
+    "노태민": {
+     "place": "중앙시장 헌터 상가"
+    },
+    "오미숙": {
+     "place": "중앙시장 헌터 상가",
+     "bag": {
+      "가죽 경갑": 2,
+      "강철 원형 방패": 1,
+      "헌터용 장검": 1,
+      "회복 물약": 4
+     }
+    },
+    "서아름": {
+     "place": "등급 심사장",
+     "bag": {
+      "회복 물약": 2
+     }
+    },
+    "윤채린": {
+     "place": "협회 로비"
+    }
+   },
+   "events": {
+    "gy_ch1": [
+     {
+      "phase": "passed",
+      "lifecycle": "ACTIVE",
+      "vars": {
+       "resolution": "exam"
+      }
+     }
+    ],
+    "gy_gate_c": [
+     {
+      "phase": "sealed",
+      "lifecycle": "ACTIVE"
+     }
+    ],
+    "gy_gate_d": [
+     {
+      "phase": "sealed",
+      "lifecycle": "ACTIVE"
+     }
+    ],
+    "gy_gate_e": [
+     {
+      "phase": "sealed",
+      "lifecycle": "ACTIVE",
+      "vars": {
+       "cleared_once": true,
+       "layout": "B"
+      }
+     }
+    ],
+    "gy_guild": [
+     {
+      "phase": "joined",
+      "lifecycle": "ACTIVE",
+      "vars": {
+       "resolution": "join"
+      }
+     }
+    ],
+    "gy_hunter": [
+     {
+      "phase": "active",
+      "lifecycle": "ACTIVE"
+     }
+    ]
+   },
+   "floor": [
+    [
+     "굴착기 둥지",
+     "E급 마석",
+     3
+    ]
+   ],
+   "access": {},
+   "pc_knows": [],
+   "relations": 0
+  },
+  "out": [
+   "[카드] 📖 1장 — D급 헌터"
+  ]
+ },
+ {
+  "say": "1분 기다린다",
+  "view": {
+   "minute": 133,
+   "lifecycle": "OPEN",
+   "pc": {
+    "place": "등급 심사장",
+    "statuses": [],
+    "stages": {},
+    "bag": {
+     "손전등": 1,
+     "현금[만원]": 30
+    },
+    "equipment": {},
+    "profile": {
+     "감각": 10,
+     "근력": 14,
+     "등급": 2,
+     "민첩": 11,
+     "성장 포인트": 5,
+     "정신": 10
+    }
+   },
+   "companions": [
+    "서아름",
+    "한유진"
+   ],
+   "actors": {
+    "고블린 우두머리": {
+     "place": null,
+     "removed_by": [
+      "사망"
+     ],
+     "statuses": [
+      "부상",
+      "빈사",
+      "사망"
+     ],
+     "stages": {
+      "부상": 3
+     }
+    },
+    "고블린 척후": {
+     "place": "환기 갱도"
+    },
+    "고블린 투척병": {
+     "place": "자재 창고"
+    },
+    "고블린 전사": {
+     "place": "무너진 터널"
+    },
+    "백소은": {
+     "place": "훈련장"
+    },
+    "차세윤": {
+     "place": "협회 로비"
+    },
+    "도재경": {
+     "place": "협회 로비"
+    },
+    "한유진": {
+     "place": "등급 심사장",
+     "statuses": [
+      "부상"
+     ],
+     "stages": {
+      "부상": 1
+     }
+    },
+    "주현우": {
+     "place": "마석 매입소",
+     "bag": {
+      "현금[만원]": 500
+     }
+    },
+    "강도형": {
+     "place": "은하수 길드 사무실"
+    },
+    "마준혁": {
+     "place": "마석 매입소"
+    },
+    "노태민": {
+     "place": "중앙시장 헌터 상가"
+    },
+    "오미숙": {
+     "place": "중앙시장 헌터 상가",
+     "bag": {
+      "가죽 경갑": 2,
+      "강철 원형 방패": 1,
+      "헌터용 장검": 1,
+      "회복 물약": 4
+     }
+    },
+    "서아름": {
+     "place": "등급 심사장",
+     "bag": {
+      "회복 물약": 2
+     }
+    },
+    "윤채린": {
+     "place": "협회 로비"
+    }
+   },
+   "events": {
+    "gy_ch1": [
+     {
+      "phase": "passed",
+      "lifecycle": "ACTIVE",
+      "vars": {
+       "resolution": "exam"
+      }
+     }
+    ],
+    "gy_ch2": [
+     {
+      "phase": "alert",
+      "lifecycle": "ACTIVE"
+     }
+    ],
+    "gy_gate_c": [
+     {
+      "phase": "sealed",
+      "lifecycle": "ACTIVE"
+     }
+    ],
+    "gy_gate_d": [
+     {
+      "phase": "sealed",
+      "lifecycle": "ACTIVE"
+     }
+    ],
+    "gy_gate_e": [
+     {
+      "phase": "sealed",
+      "lifecycle": "ACTIVE",
+      "vars": {
+       "cleared_once": true,
+       "layout": "B"
+      }
+     }
+    ],
+    "gy_guild": [
+     {
+      "phase": "joined",
+      "lifecycle": "ACTIVE",
+      "vars": {
+       "resolution": "join"
+      }
+     }
+    ],
+    "gy_hunter": [
+     {
+      "phase": "active",
+      "lifecycle": "ACTIVE"
+     }
+    ]
+   },
+   "floor": [
+    [
+     "굴착기 둥지",
+     "E급 마석",
+     3
+    ]
+   ],
+   "access": {},
+   "pc_knows": [],
+   "relations": 0
+  },
+  "out": []
+ },
+ {
+  "say": "훈련장로 간다",
+  "view": {
+   "minute": 134,
+   "lifecycle": "OPEN",
+   "pc": {
+    "place": "훈련장",
+    "statuses": [],
+    "stages": {},
+    "bag": {
+     "손전등": 1,
+     "현금[만원]": 30
+    },
+    "equipment": {},
+    "profile": {
+     "감각": 10,
+     "근력": 14,
+     "등급": 2,
+     "민첩": 11,
+     "성장 포인트": 5,
+     "정신": 10
+    }
+   },
+   "companions": [
+    "서아름",
+    "한유진"
+   ],
+   "actors": {
+    "고블린 우두머리": {
+     "place": null,
+     "removed_by": [
+      "사망"
+     ],
+     "statuses": [
+      "부상",
+      "빈사",
+      "사망"
+     ],
+     "stages": {
+      "부상": 3
+     }
+    },
+    "고블린 척후": {
+     "place": "환기 갱도"
+    },
+    "고블린 투척병": {
+     "place": "자재 창고"
+    },
+    "고블린 전사": {
+     "place": "무너진 터널"
+    },
+    "백소은": {
+     "place": "훈련장"
+    },
+    "차세윤": {
+     "place": "협회 로비"
+    },
+    "도재경": {
+     "place": "협회 로비"
+    },
+    "한유진": {
+     "place": "훈련장",
+     "statuses": [
+      "부상"
+     ],
+     "stages": {
+      "부상": 1
+     }
+    },
+    "주현우": {
+     "place": "마석 매입소",
+     "bag": {
+      "현금[만원]": 500
+     }
+    },
+    "강도형": {
+     "place": "은하수 길드 사무실"
+    },
+    "마준혁": {
+     "place": "마석 매입소"
+    },
+    "노태민": {
+     "place": "중앙시장 헌터 상가"
+    },
+    "오미숙": {
+     "place": "중앙시장 헌터 상가",
+     "bag": {
+      "가죽 경갑": 2,
+      "강철 원형 방패": 1,
+      "헌터용 장검": 1,
+      "회복 물약": 4
+     }
+    },
+    "서아름": {
+     "place": "훈련장",
+     "bag": {
+      "회복 물약": 2
+     }
+    },
+    "윤채린": {
+     "place": "협회 로비"
+    }
+   },
+   "events": {
+    "gy_ch1": [
+     {
+      "phase": "passed",
+      "lifecycle": "ACTIVE",
+      "vars": {
+       "resolution": "exam"
+      }
+     }
+    ],
+    "gy_ch2": [
+     {
+      "phase": "alert",
+      "lifecycle": "ACTIVE"
+     }
+    ],
+    "gy_gate_c": [
+     {
+      "phase": "sealed",
+      "lifecycle": "ACTIVE"
+     }
+    ],
+    "gy_gate_d": [
+     {
+      "phase": "sealed",
+      "lifecycle": "ACTIVE"
+     }
+    ],
+    "gy_gate_e": [
+     {
+      "phase": "sealed",
+      "lifecycle": "ACTIVE",
+      "vars": {
+       "cleared_once": true,
+       "layout": "B"
+      }
+     }
+    ],
+    "gy_guild": [
+     {
+      "phase": "joined",
+      "lifecycle": "ACTIVE",
+      "vars": {
+       "resolution": "join"
+      }
+     }
+    ],
+    "gy_hunter": [
+     {
+      "phase": "active",
+      "lifecycle": "ACTIVE"
+     }
+    ]
+   },
+   "floor": [
+    [
+     "굴착기 둥지",
+     "E급 마석",
+     3
+    ]
+   ],
+   "access": {},
+   "pc_knows": [],
+   "relations": 0
+  },
+  "out": []
+ },
+ {
+  "say": "근력을 단련한다",
+  "view": {
+   "minute": 134,
+   "lifecycle": "OPEN",
+   "pc": {
+    "place": "훈련장",
+    "statuses": [],
+    "stages": {},
+    "bag": {
+     "손전등": 1,
+     "현금[만원]": 30
+    },
+    "equipment": {},
+    "profile": {
+     "감각": 10,
+     "근력": 15,
+     "등급": 2,
+     "민첩": 11,
+     "성장 포인트": 3,
+     "정신": 10
+    }
+   },
+   "companions": [
+    "서아름",
+    "한유진"
+   ],
+   "actors": {
+    "고블린 우두머리": {
+     "place": null,
+     "removed_by": [
+      "사망"
+     ],
+     "statuses": [
+      "부상",
+      "빈사",
+      "사망"
+     ],
+     "stages": {
+      "부상": 3
+     }
+    },
+    "고블린 척후": {
+     "place": "환기 갱도"
+    },
+    "고블린 투척병": {
+     "place": "자재 창고"
+    },
+    "고블린 전사": {
+     "place": "무너진 터널"
+    },
+    "백소은": {
+     "place": "훈련장"
+    },
+    "차세윤": {
+     "place": "협회 로비"
+    },
+    "도재경": {
+     "place": "협회 로비"
+    },
+    "한유진": {
+     "place": "훈련장",
+     "statuses": [
+      "부상"
+     ],
+     "stages": {
+      "부상": 1
+     }
+    },
+    "주현우": {
+     "place": "마석 매입소",
+     "bag": {
+      "현금[만원]": 500
+     }
+    },
+    "강도형": {
+     "place": "은하수 길드 사무실"
+    },
+    "마준혁": {
+     "place": "마석 매입소"
+    },
+    "노태민": {
+     "place": "중앙시장 헌터 상가"
+    },
+    "오미숙": {
+     "place": "중앙시장 헌터 상가",
+     "bag": {
+      "가죽 경갑": 2,
+      "강철 원형 방패": 1,
+      "헌터용 장검": 1,
+      "회복 물약": 4
+     }
+    },
+    "서아름": {
+     "place": "훈련장",
+     "bag": {
+      "회복 물약": 2
+     }
+    },
+    "윤채린": {
+     "place": "협회 로비"
+    }
+   },
+   "events": {
+    "gy_ch1": [
+     {
+      "phase": "passed",
+      "lifecycle": "ACTIVE",
+      "vars": {
+       "resolution": "exam"
+      }
+     }
+    ],
+    "gy_ch2": [
+     {
+      "phase": "alert",
+      "lifecycle": "ACTIVE"
+     }
+    ],
+    "gy_gate_c": [
+     {
+      "phase": "sealed",
+      "lifecycle": "ACTIVE"
+     }
+    ],
+    "gy_gate_d": [
+     {
+      "phase": "sealed",
+      "lifecycle": "ACTIVE"
+     }
+    ],
+    "gy_gate_e": [
+     {
+      "phase": "sealed",
+      "lifecycle": "ACTIVE",
+      "vars": {
+       "cleared_once": true,
+       "layout": "B"
+      }
+     }
+    ],
+    "gy_guild": [
+     {
+      "phase": "joined",
+      "lifecycle": "ACTIVE",
+      "vars": {
+       "resolution": "join"
+      }
+     }
+    ],
+    "gy_hunter": [
+     {
+      "phase": "active",
+      "lifecycle": "ACTIVE"
+     }
+    ]
+   },
+   "floor": [
+    [
+     "굴착기 둥지",
+     "E급 마석",
+     3
+    ]
+   ],
+   "access": {},
+   "pc_knows": [],
+   "relations": 0
+  },
+  "out": []
+ }
+]

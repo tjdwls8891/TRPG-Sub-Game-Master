@@ -1,0 +1,2095 @@
+[
+ {
+  "say": "30분 기다린다",
+  "view": {
+   "minute": 30,
+   "lifecycle": "OPEN",
+   "pc": {
+    "place": "로비",
+    "statuses": [],
+    "stages": {},
+    "bag": {
+     "손전등": 1,
+     "휴대폰": 1
+    },
+    "equipment": {},
+    "profile": {
+     "감각": 11,
+     "근력": 10,
+     "민첩": 12,
+     "정신": 12
+    }
+   },
+   "companions": [],
+   "actors": {
+    "최다현": {
+     "place": "강당"
+    },
+    "한경수": {
+     "place": "원장실"
+    },
+    "정우빈": {
+     "place": "교사 숙소"
+    },
+    "비옷의 남자": {
+     "place": "옛 숙소동",
+     "bag": {
+      "손도끼": 1
+     }
+    },
+    "이서윤": {
+     "place": "의무실"
+    },
+    "문정애": {
+     "place": "주방"
+    },
+    "박태식": {
+     "place": "정비고"
+    }
+   },
+   "events": {
+    "chr_blackout": [
+     {
+      "phase": "dark",
+      "lifecycle": "ACTIVE",
+      "vars": {
+       "done": true
+      }
+     }
+    ],
+    "chr_case_b": [
+     {
+      "phase": "open",
+      "lifecycle": "ACTIVE"
+     }
+    ],
+    "chr_dawn": [
+     {
+      "phase": "night",
+      "lifecycle": "ACTIVE"
+     }
+    ],
+    "chr_escape_boat": [
+     {
+      "phase": "idle",
+      "lifecycle": "ACTIVE"
+     }
+    ],
+    "chr_escape_radio": [
+     {
+      "phase": "idle",
+      "lifecycle": "ACTIVE"
+     }
+    ],
+    "chr_escape_van": [
+     {
+      "phase": "idle",
+      "lifecycle": "ACTIVE"
+     }
+    ],
+    "chr_kill_b1": [
+     {
+      "phase": "stalk",
+      "lifecycle": "ACTIVE"
+     }
+    ],
+    "chr_repel_b": [
+     {
+      "phase": "idle",
+      "lifecycle": "ACTIVE"
+     }
+    ],
+    "chr_truth": [
+     {
+      "phase": "night",
+      "lifecycle": "ACTIVE",
+      "vars": {
+       "case": "B"
+      }
+     }
+    ],
+    "pursuer_chr.npc.killer": [
+     {
+      "phase": "hunt",
+      "lifecycle": "ACTIVE"
+     }
+    ]
+   },
+   "floor": [
+    [
+     "무전실",
+     "무전기",
+     1
+    ],
+    [
+     "보트 창고",
+     "노",
+     2
+    ],
+    [
+     "보트 창고",
+     "보트 열쇠",
+     1
+    ],
+    [
+     "보트 창고",
+     "우비",
+     2
+    ],
+    [
+     "원장실",
+     "승합차 열쇠",
+     1
+    ],
+    [
+     "의무실",
+     "붕대",
+     3
+    ],
+    [
+     "의무실",
+     "소독약",
+     1
+    ],
+    [
+     "의무실",
+     "진통제",
+     2
+    ],
+    [
+     "정비고",
+     "쇠지렛대",
+     1
+    ],
+    [
+     "정비고",
+     "자동차 배터리",
+     1
+    ],
+    [
+     "정비고",
+     "퓨즈",
+     2
+    ],
+    [
+     "정비고",
+     "휘발유통",
+     1
+    ],
+    [
+     "주방",
+     "식칼",
+     2
+    ]
+   ],
+   "access": {},
+   "pc_knows": [],
+   "relations": 0
+  },
+  "out": []
+ },
+ {
+  "say": "30분 기다린다",
+  "view": {
+   "minute": 60,
+   "lifecycle": "OPEN",
+   "pc": {
+    "place": "로비",
+    "statuses": [],
+    "stages": {},
+    "bag": {
+     "손전등": 1,
+     "휴대폰": 1
+    },
+    "equipment": {},
+    "profile": {
+     "감각": 11,
+     "근력": 10,
+     "민첩": 12,
+     "정신": 12
+    }
+   },
+   "companions": [],
+   "actors": {
+    "최다현": {
+     "place": "강당"
+    },
+    "한경수": {
+     "place": "원장실"
+    },
+    "정우빈": {
+     "place": "교사 숙소"
+    },
+    "비옷의 남자": {
+     "place": "호숫가 산책로",
+     "bag": {
+      "손도끼": 1
+     }
+    },
+    "이서윤": {
+     "place": "의무실"
+    },
+    "문정애": {
+     "place": "주방"
+    },
+    "박태식": {
+     "place": "정비고"
+    }
+   },
+   "events": {
+    "chr_blackout": [
+     {
+      "phase": "dark",
+      "lifecycle": "ACTIVE",
+      "vars": {
+       "done": true
+      }
+     }
+    ],
+    "chr_case_b": [
+     {
+      "phase": "open",
+      "lifecycle": "ACTIVE"
+     }
+    ],
+    "chr_dawn": [
+     {
+      "phase": "night",
+      "lifecycle": "ACTIVE"
+     }
+    ],
+    "chr_escape_boat": [
+     {
+      "phase": "idle",
+      "lifecycle": "ACTIVE"
+     }
+    ],
+    "chr_escape_radio": [
+     {
+      "phase": "idle",
+      "lifecycle": "ACTIVE"
+     }
+    ],
+    "chr_escape_van": [
+     {
+      "phase": "idle",
+      "lifecycle": "ACTIVE"
+     }
+    ],
+    "chr_kill_b1": [
+     {
+      "phase": "stalk",
+      "lifecycle": "ACTIVE"
+     }
+    ],
+    "chr_repel_b": [
+     {
+      "phase": "idle",
+      "lifecycle": "ACTIVE"
+     }
+    ],
+    "chr_truth": [
+     {
+      "phase": "night",
+      "lifecycle": "ACTIVE",
+      "vars": {
+       "case": "B"
+      }
+     }
+    ],
+    "pursuer_chr.npc.killer": [
+     {
+      "phase": "hunt",
+      "lifecycle": "ACTIVE",
+      "vars": {
+       "mode": "WANDER",
+       "patrol_i": 2,
+       "target": "호숫가 산책로"
+      }
+     }
+    ]
+   },
+   "floor": [
+    [
+     "무전실",
+     "무전기",
+     1
+    ],
+    [
+     "보트 창고",
+     "노",
+     2
+    ],
+    [
+     "보트 창고",
+     "보트 열쇠",
+     1
+    ],
+    [
+     "보트 창고",
+     "우비",
+     2
+    ],
+    [
+     "원장실",
+     "승합차 열쇠",
+     1
+    ],
+    [
+     "의무실",
+     "붕대",
+     3
+    ],
+    [
+     "의무실",
+     "소독약",
+     1
+    ],
+    [
+     "의무실",
+     "진통제",
+     2
+    ],
+    [
+     "정비고",
+     "쇠지렛대",
+     1
+    ],
+    [
+     "정비고",
+     "자동차 배터리",
+     1
+    ],
+    [
+     "정비고",
+     "퓨즈",
+     2
+    ],
+    [
+     "정비고",
+     "휘발유통",
+     1
+    ],
+    [
+     "주방",
+     "식칼",
+     2
+    ]
+   ],
+   "access": {},
+   "pc_knows": [],
+   "relations": 0
+  },
+  "out": []
+ },
+ {
+  "say": "30분 기다린다",
+  "view": {
+   "minute": 90,
+   "lifecycle": "OPEN",
+   "pc": {
+    "place": "로비",
+    "statuses": [],
+    "stages": {},
+    "bag": {
+     "손전등": 1,
+     "휴대폰": 1
+    },
+    "equipment": {},
+    "profile": {
+     "감각": 11,
+     "근력": 10,
+     "민첩": 12,
+     "정신": 12
+    }
+   },
+   "companions": [],
+   "actors": {
+    "최다현": {
+     "place": "강당"
+    },
+    "한경수": {
+     "place": "원장실"
+    },
+    "정우빈": {
+     "place": "교사 숙소"
+    },
+    "비옷의 남자": {
+     "place": "선착장",
+     "bag": {
+      "손도끼": 1
+     }
+    },
+    "이서윤": {
+     "place": "의무실"
+    },
+    "문정애": {
+     "place": "주방"
+    },
+    "박태식": {
+     "place": "정비고"
+    }
+   },
+   "events": {
+    "chr_blackout": [
+     {
+      "phase": "dark",
+      "lifecycle": "ACTIVE",
+      "vars": {
+       "done": true
+      }
+     }
+    ],
+    "chr_case_b": [
+     {
+      "phase": "open",
+      "lifecycle": "ACTIVE"
+     }
+    ],
+    "chr_dawn": [
+     {
+      "phase": "night",
+      "lifecycle": "ACTIVE"
+     }
+    ],
+    "chr_escape_boat": [
+     {
+      "phase": "idle",
+      "lifecycle": "ACTIVE"
+     }
+    ],
+    "chr_escape_radio": [
+     {
+      "phase": "idle",
+      "lifecycle": "ACTIVE"
+     }
+    ],
+    "chr_escape_van": [
+     {
+      "phase": "idle",
+      "lifecycle": "ACTIVE"
+     }
+    ],
+    "chr_kill_b1": [
+     {
+      "phase": "stalk",
+      "lifecycle": "ACTIVE"
+     }
+    ],
+    "chr_repel_b": [
+     {
+      "phase": "idle",
+      "lifecycle": "ACTIVE"
+     }
+    ],
+    "chr_truth": [
+     {
+      "phase": "night",
+      "lifecycle": "ACTIVE",
+      "vars": {
+       "case": "B"
+      }
+     }
+    ],
+    "pursuer_chr.npc.killer": [
+     {
+      "phase": "hunt",
+      "lifecycle": "ACTIVE",
+      "vars": {
+       "mode": "WANDER",
+       "patrol_i": 3,
+       "target": "선착장"
+      }
+     }
+    ]
+   },
+   "floor": [
+    [
+     "무전실",
+     "무전기",
+     1
+    ],
+    [
+     "보트 창고",
+     "노",
+     2
+    ],
+    [
+     "보트 창고",
+     "보트 열쇠",
+     1
+    ],
+    [
+     "보트 창고",
+     "우비",
+     2
+    ],
+    [
+     "원장실",
+     "승합차 열쇠",
+     1
+    ],
+    [
+     "의무실",
+     "붕대",
+     3
+    ],
+    [
+     "의무실",
+     "소독약",
+     1
+    ],
+    [
+     "의무실",
+     "진통제",
+     2
+    ],
+    [
+     "정비고",
+     "쇠지렛대",
+     1
+    ],
+    [
+     "정비고",
+     "자동차 배터리",
+     1
+    ],
+    [
+     "정비고",
+     "퓨즈",
+     2
+    ],
+    [
+     "정비고",
+     "휘발유통",
+     1
+    ],
+    [
+     "주방",
+     "식칼",
+     2
+    ]
+   ],
+   "access": {},
+   "pc_knows": [],
+   "relations": 0
+  },
+  "out": []
+ },
+ {
+  "say": "30분 기다린다",
+  "view": {
+   "minute": 120,
+   "lifecycle": "OPEN",
+   "pc": {
+    "place": "로비",
+    "statuses": [],
+    "stages": {},
+    "bag": {
+     "손전등": 1,
+     "휴대폰": 1
+    },
+    "equipment": {},
+    "profile": {
+     "감각": 11,
+     "근력": 10,
+     "민첩": 12,
+     "정신": 12
+    }
+   },
+   "companions": [],
+   "actors": {
+    "최다현": {
+     "place": "강당"
+    },
+    "한경수": {
+     "place": "원장실"
+    },
+    "정우빈": {
+     "place": null,
+     "removed_by": [
+      "사망"
+     ],
+     "statuses": [
+      "사망"
+     ]
+    },
+    "비옷의 남자": {
+     "place": "교사 숙소",
+     "bag": {
+      "손도끼": 1
+     }
+    },
+    "이서윤": {
+     "place": "의무실"
+    },
+    "문정애": {
+     "place": "주방"
+    },
+    "박태식": {
+     "place": "정비고"
+    }
+   },
+   "events": {
+    "chr_blackout": [
+     {
+      "phase": "dark",
+      "lifecycle": "ACTIVE",
+      "vars": {
+       "done": true
+      }
+     }
+    ],
+    "chr_case_b": [
+     {
+      "phase": "open",
+      "lifecycle": "ACTIVE"
+     }
+    ],
+    "chr_dawn": [
+     {
+      "phase": "night",
+      "lifecycle": "ACTIVE"
+     }
+    ],
+    "chr_escape_boat": [
+     {
+      "phase": "idle",
+      "lifecycle": "ACTIVE"
+     }
+    ],
+    "chr_escape_radio": [
+     {
+      "phase": "idle",
+      "lifecycle": "ACTIVE"
+     }
+    ],
+    "chr_escape_van": [
+     {
+      "phase": "idle",
+      "lifecycle": "ACTIVE"
+     }
+    ],
+    "chr_kill_b1": [
+     {
+      "phase": "killed",
+      "lifecycle": "ACTIVE",
+      "vars": {
+       "done": true
+      }
+     }
+    ],
+    "chr_kill_b2": [
+     {
+      "phase": "stalk",
+      "lifecycle": "ACTIVE"
+     }
+    ],
+    "chr_repel_b": [
+     {
+      "phase": "idle",
+      "lifecycle": "ACTIVE"
+     }
+    ],
+    "chr_truth": [
+     {
+      "phase": "night",
+      "lifecycle": "ACTIVE",
+      "vars": {
+       "case": "B"
+      }
+     }
+    ],
+    "pursuer_chr.npc.killer": [
+     {
+      "phase": "hunt",
+      "lifecycle": "ACTIVE",
+      "vars": {
+       "mode": "WANDER",
+       "patrol_i": 4,
+       "target": "교사 숙소"
+      }
+     }
+    ]
+   },
+   "floor": [
+    [
+     "무전실",
+     "무전기",
+     1
+    ],
+    [
+     "보트 창고",
+     "노",
+     2
+    ],
+    [
+     "보트 창고",
+     "보트 열쇠",
+     1
+    ],
+    [
+     "보트 창고",
+     "우비",
+     2
+    ],
+    [
+     "원장실",
+     "승합차 열쇠",
+     1
+    ],
+    [
+     "의무실",
+     "붕대",
+     3
+    ],
+    [
+     "의무실",
+     "소독약",
+     1
+    ],
+    [
+     "의무실",
+     "진통제",
+     2
+    ],
+    [
+     "정비고",
+     "쇠지렛대",
+     1
+    ],
+    [
+     "정비고",
+     "자동차 배터리",
+     1
+    ],
+    [
+     "정비고",
+     "퓨즈",
+     2
+    ],
+    [
+     "정비고",
+     "휘발유통",
+     1
+    ],
+    [
+     "주방",
+     "식칼",
+     2
+    ]
+   ],
+   "access": {},
+   "pc_knows": [],
+   "relations": 0
+  },
+  "out": []
+ },
+ {
+  "say": "30분 기다린다",
+  "view": {
+   "minute": 150,
+   "lifecycle": "OPEN",
+   "pc": {
+    "place": "로비",
+    "statuses": [],
+    "stages": {},
+    "bag": {
+     "손전등": 1,
+     "휴대폰": 1
+    },
+    "equipment": {},
+    "profile": {
+     "감각": 11,
+     "근력": 10,
+     "민첩": 12,
+     "정신": 12
+    }
+   },
+   "companions": [],
+   "actors": {
+    "최다현": {
+     "place": "강당"
+    },
+    "한경수": {
+     "place": "원장실"
+    },
+    "정우빈": {
+     "place": null,
+     "removed_by": [
+      "사망"
+     ],
+     "statuses": [
+      "사망"
+     ]
+    },
+    "비옷의 남자": {
+     "place": "강당",
+     "bag": {
+      "손도끼": 1
+     }
+    },
+    "이서윤": {
+     "place": "의무실"
+    },
+    "문정애": {
+     "place": "주방"
+    },
+    "박태식": {
+     "place": "정비고"
+    }
+   },
+   "events": {
+    "chr_blackout": [
+     {
+      "phase": "dark",
+      "lifecycle": "ACTIVE",
+      "vars": {
+       "done": true
+      }
+     }
+    ],
+    "chr_case_b": [
+     {
+      "phase": "open",
+      "lifecycle": "ACTIVE"
+     }
+    ],
+    "chr_dawn": [
+     {
+      "phase": "night",
+      "lifecycle": "ACTIVE"
+     }
+    ],
+    "chr_escape_boat": [
+     {
+      "phase": "idle",
+      "lifecycle": "ACTIVE"
+     }
+    ],
+    "chr_escape_radio": [
+     {
+      "phase": "idle",
+      "lifecycle": "ACTIVE"
+     }
+    ],
+    "chr_escape_van": [
+     {
+      "phase": "idle",
+      "lifecycle": "ACTIVE"
+     }
+    ],
+    "chr_kill_b1": [
+     {
+      "phase": "killed",
+      "lifecycle": "ACTIVE",
+      "vars": {
+       "done": true
+      }
+     }
+    ],
+    "chr_kill_b2": [
+     {
+      "phase": "stalk",
+      "lifecycle": "ACTIVE"
+     }
+    ],
+    "chr_repel_b": [
+     {
+      "phase": "idle",
+      "lifecycle": "ACTIVE"
+     }
+    ],
+    "chr_truth": [
+     {
+      "phase": "night",
+      "lifecycle": "ACTIVE",
+      "vars": {
+       "case": "B"
+      }
+     }
+    ],
+    "pursuer_chr.npc.killer": [
+     {
+      "phase": "hunt",
+      "lifecycle": "ACTIVE",
+      "vars": {
+       "mode": "WANDER",
+       "patrol_i": 5,
+       "target": "강당"
+      }
+     }
+    ]
+   },
+   "floor": [
+    [
+     "무전실",
+     "무전기",
+     1
+    ],
+    [
+     "보트 창고",
+     "노",
+     2
+    ],
+    [
+     "보트 창고",
+     "보트 열쇠",
+     1
+    ],
+    [
+     "보트 창고",
+     "우비",
+     2
+    ],
+    [
+     "원장실",
+     "승합차 열쇠",
+     1
+    ],
+    [
+     "의무실",
+     "붕대",
+     3
+    ],
+    [
+     "의무실",
+     "소독약",
+     1
+    ],
+    [
+     "의무실",
+     "진통제",
+     2
+    ],
+    [
+     "정비고",
+     "쇠지렛대",
+     1
+    ],
+    [
+     "정비고",
+     "자동차 배터리",
+     1
+    ],
+    [
+     "정비고",
+     "퓨즈",
+     2
+    ],
+    [
+     "정비고",
+     "휘발유통",
+     1
+    ],
+    [
+     "주방",
+     "식칼",
+     2
+    ]
+   ],
+   "access": {},
+   "pc_knows": [],
+   "relations": 0
+  },
+  "out": []
+ },
+ {
+  "say": "캠프파이어장로 간다",
+  "view": {
+   "minute": 152,
+   "lifecycle": "OPEN",
+   "pc": {
+    "place": "캠프파이어장",
+    "statuses": [],
+    "stages": {},
+    "bag": {
+     "손전등": 1,
+     "휴대폰": 1
+    },
+    "equipment": {},
+    "profile": {
+     "감각": 11,
+     "근력": 10,
+     "민첩": 12,
+     "정신": 12
+    }
+   },
+   "companions": [],
+   "actors": {
+    "최다현": {
+     "place": "강당"
+    },
+    "한경수": {
+     "place": "원장실"
+    },
+    "정우빈": {
+     "place": null,
+     "removed_by": [
+      "사망"
+     ],
+     "statuses": [
+      "사망"
+     ]
+    },
+    "비옷의 남자": {
+     "place": null,
+     "bag": {
+      "손도끼": 1
+     }
+    },
+    "이서윤": {
+     "place": "의무실"
+    },
+    "문정애": {
+     "place": "주방"
+    },
+    "박태식": {
+     "place": "정비고"
+    }
+   },
+   "events": {
+    "chr_blackout": [
+     {
+      "phase": "dark",
+      "lifecycle": "ACTIVE",
+      "vars": {
+       "done": true
+      }
+     }
+    ],
+    "chr_case_b": [
+     {
+      "phase": "open",
+      "lifecycle": "ACTIVE"
+     }
+    ],
+    "chr_dawn": [
+     {
+      "phase": "night",
+      "lifecycle": "ACTIVE"
+     }
+    ],
+    "chr_escape_boat": [
+     {
+      "phase": "idle",
+      "lifecycle": "ACTIVE"
+     }
+    ],
+    "chr_escape_radio": [
+     {
+      "phase": "idle",
+      "lifecycle": "ACTIVE"
+     }
+    ],
+    "chr_escape_van": [
+     {
+      "phase": "idle",
+      "lifecycle": "ACTIVE"
+     }
+    ],
+    "chr_kill_b1": [
+     {
+      "phase": "killed",
+      "lifecycle": "ACTIVE",
+      "vars": {
+       "done": true
+      }
+     }
+    ],
+    "chr_kill_b2": [
+     {
+      "phase": "stalk",
+      "lifecycle": "ACTIVE"
+     }
+    ],
+    "chr_repel_b": [
+     {
+      "phase": "idle",
+      "lifecycle": "ACTIVE"
+     }
+    ],
+    "chr_truth": [
+     {
+      "phase": "night",
+      "lifecycle": "ACTIVE",
+      "vars": {
+       "case": "B"
+      }
+     }
+    ],
+    "pursuer_chr.npc.killer": [
+     {
+      "phase": "hunt",
+      "lifecycle": "ACTIVE",
+      "vars": {
+       "mode": "WANDER",
+       "patrol_i": 6,
+       "target": "정비고"
+      }
+     }
+    ]
+   },
+   "floor": [
+    [
+     "무전실",
+     "무전기",
+     1
+    ],
+    [
+     "보트 창고",
+     "노",
+     2
+    ],
+    [
+     "보트 창고",
+     "보트 열쇠",
+     1
+    ],
+    [
+     "보트 창고",
+     "우비",
+     2
+    ],
+    [
+     "원장실",
+     "승합차 열쇠",
+     1
+    ],
+    [
+     "의무실",
+     "붕대",
+     3
+    ],
+    [
+     "의무실",
+     "소독약",
+     1
+    ],
+    [
+     "의무실",
+     "진통제",
+     2
+    ],
+    [
+     "정비고",
+     "쇠지렛대",
+     1
+    ],
+    [
+     "정비고",
+     "자동차 배터리",
+     1
+    ],
+    [
+     "정비고",
+     "퓨즈",
+     2
+    ],
+    [
+     "정비고",
+     "휘발유통",
+     1
+    ],
+    [
+     "주방",
+     "식칼",
+     2
+    ]
+   ],
+   "access": {},
+   "pc_knows": [],
+   "relations": 0
+  },
+  "out": []
+ },
+ {
+  "say": "30분 기다린다",
+  "view": {
+   "minute": 182,
+   "lifecycle": "OPEN",
+   "pc": {
+    "place": "캠프파이어장",
+    "statuses": [],
+    "stages": {},
+    "bag": {
+     "손전등": 1,
+     "휴대폰": 1
+    },
+    "equipment": {},
+    "profile": {
+     "감각": 11,
+     "근력": 10,
+     "민첩": 12,
+     "정신": 12
+    }
+   },
+   "companions": [],
+   "actors": {
+    "최다현": {
+     "place": "강당"
+    },
+    "한경수": {
+     "place": "원장실"
+    },
+    "정우빈": {
+     "place": null,
+     "removed_by": [
+      "사망"
+     ],
+     "statuses": [
+      "사망"
+     ]
+    },
+    "비옷의 남자": {
+     "place": "정비고",
+     "bag": {
+      "손도끼": 1
+     }
+    },
+    "이서윤": {
+     "place": "의무실"
+    },
+    "문정애": {
+     "place": "주방"
+    },
+    "박태식": {
+     "place": "정비고"
+    }
+   },
+   "events": {
+    "chr_blackout": [
+     {
+      "phase": "dark",
+      "lifecycle": "ACTIVE",
+      "vars": {
+       "done": true
+      }
+     }
+    ],
+    "chr_case_b": [
+     {
+      "phase": "open",
+      "lifecycle": "ACTIVE"
+     }
+    ],
+    "chr_dawn": [
+     {
+      "phase": "night",
+      "lifecycle": "ACTIVE"
+     }
+    ],
+    "chr_escape_boat": [
+     {
+      "phase": "idle",
+      "lifecycle": "ACTIVE"
+     }
+    ],
+    "chr_escape_radio": [
+     {
+      "phase": "idle",
+      "lifecycle": "ACTIVE"
+     }
+    ],
+    "chr_escape_van": [
+     {
+      "phase": "idle",
+      "lifecycle": "ACTIVE"
+     }
+    ],
+    "chr_kill_b1": [
+     {
+      "phase": "killed",
+      "lifecycle": "ACTIVE",
+      "vars": {
+       "done": true
+      }
+     }
+    ],
+    "chr_kill_b2": [
+     {
+      "phase": "stalk",
+      "lifecycle": "ACTIVE"
+     }
+    ],
+    "chr_repel_b": [
+     {
+      "phase": "idle",
+      "lifecycle": "ACTIVE"
+     }
+    ],
+    "chr_truth": [
+     {
+      "phase": "night",
+      "lifecycle": "ACTIVE",
+      "vars": {
+       "case": "B"
+      }
+     }
+    ],
+    "pursuer_chr.npc.killer": [
+     {
+      "phase": "hunt",
+      "lifecycle": "ACTIVE",
+      "vars": {
+       "mode": "WANDER",
+       "patrol_i": 6,
+       "target": "정비고"
+      }
+     }
+    ]
+   },
+   "floor": [
+    [
+     "무전실",
+     "무전기",
+     1
+    ],
+    [
+     "보트 창고",
+     "노",
+     2
+    ],
+    [
+     "보트 창고",
+     "보트 열쇠",
+     1
+    ],
+    [
+     "보트 창고",
+     "우비",
+     2
+    ],
+    [
+     "원장실",
+     "승합차 열쇠",
+     1
+    ],
+    [
+     "의무실",
+     "붕대",
+     3
+    ],
+    [
+     "의무실",
+     "소독약",
+     1
+    ],
+    [
+     "의무실",
+     "진통제",
+     2
+    ],
+    [
+     "정비고",
+     "쇠지렛대",
+     1
+    ],
+    [
+     "정비고",
+     "자동차 배터리",
+     1
+    ],
+    [
+     "정비고",
+     "퓨즈",
+     2
+    ],
+    [
+     "정비고",
+     "휘발유통",
+     1
+    ],
+    [
+     "주방",
+     "식칼",
+     2
+    ]
+   ],
+   "access": {},
+   "pc_knows": [],
+   "relations": 0
+  },
+  "out": []
+ },
+ {
+  "say": "30분 기다린다",
+  "view": {
+   "minute": 212,
+   "lifecycle": "OPEN",
+   "pc": {
+    "place": "캠프파이어장",
+    "statuses": [],
+    "stages": {},
+    "bag": {
+     "손전등": 1,
+     "휴대폰": 1
+    },
+    "equipment": {},
+    "profile": {
+     "감각": 11,
+     "근력": 10,
+     "민첩": 12,
+     "정신": 12
+    }
+   },
+   "companions": [],
+   "actors": {
+    "최다현": {
+     "place": "강당"
+    },
+    "한경수": {
+     "place": null,
+     "removed_by": [
+      "사망"
+     ],
+     "statuses": [
+      "사망"
+     ]
+    },
+    "정우빈": {
+     "place": null,
+     "removed_by": [
+      "사망"
+     ],
+     "statuses": [
+      "사망"
+     ]
+    },
+    "비옷의 남자": {
+     "place": "원장실",
+     "bag": {
+      "손도끼": 1
+     }
+    },
+    "이서윤": {
+     "place": "의무실"
+    },
+    "문정애": {
+     "place": "주방"
+    },
+    "박태식": {
+     "place": "정비고"
+    }
+   },
+   "events": {
+    "chr_blackout": [
+     {
+      "phase": "dark",
+      "lifecycle": "ACTIVE",
+      "vars": {
+       "done": true
+      }
+     }
+    ],
+    "chr_case_b": [
+     {
+      "phase": "open",
+      "lifecycle": "ACTIVE"
+     }
+    ],
+    "chr_dawn": [
+     {
+      "phase": "night",
+      "lifecycle": "ACTIVE"
+     }
+    ],
+    "chr_escape_boat": [
+     {
+      "phase": "idle",
+      "lifecycle": "ACTIVE"
+     }
+    ],
+    "chr_escape_radio": [
+     {
+      "phase": "idle",
+      "lifecycle": "ACTIVE"
+     }
+    ],
+    "chr_escape_van": [
+     {
+      "phase": "idle",
+      "lifecycle": "ACTIVE"
+     }
+    ],
+    "chr_kill_b1": [
+     {
+      "phase": "killed",
+      "lifecycle": "ACTIVE",
+      "vars": {
+       "done": true
+      }
+     }
+    ],
+    "chr_kill_b2": [
+     {
+      "phase": "killed",
+      "lifecycle": "ACTIVE",
+      "vars": {
+       "done": true
+      }
+     }
+    ],
+    "chr_kill_b3": [
+     {
+      "phase": "stalk",
+      "lifecycle": "ACTIVE"
+     }
+    ],
+    "chr_repel_b": [
+     {
+      "phase": "idle",
+      "lifecycle": "ACTIVE"
+     }
+    ],
+    "chr_truth": [
+     {
+      "phase": "night",
+      "lifecycle": "ACTIVE",
+      "vars": {
+       "case": "B"
+      }
+     }
+    ],
+    "pursuer_chr.npc.killer": [
+     {
+      "phase": "hunt",
+      "lifecycle": "ACTIVE",
+      "vars": {
+       "mode": "WANDER",
+       "patrol_i": 7,
+       "target": "원장실"
+      }
+     }
+    ]
+   },
+   "floor": [
+    [
+     "무전실",
+     "무전기",
+     1
+    ],
+    [
+     "보트 창고",
+     "노",
+     2
+    ],
+    [
+     "보트 창고",
+     "보트 열쇠",
+     1
+    ],
+    [
+     "보트 창고",
+     "우비",
+     2
+    ],
+    [
+     "원장실",
+     "승합차 열쇠",
+     1
+    ],
+    [
+     "의무실",
+     "붕대",
+     3
+    ],
+    [
+     "의무실",
+     "소독약",
+     1
+    ],
+    [
+     "의무실",
+     "진통제",
+     2
+    ],
+    [
+     "정비고",
+     "쇠지렛대",
+     1
+    ],
+    [
+     "정비고",
+     "자동차 배터리",
+     1
+    ],
+    [
+     "정비고",
+     "퓨즈",
+     2
+    ],
+    [
+     "정비고",
+     "휘발유통",
+     1
+    ],
+    [
+     "주방",
+     "식칼",
+     2
+    ]
+   ],
+   "access": {},
+   "pc_knows": [],
+   "relations": 0
+  },
+  "out": []
+ },
+ {
+  "say": "쓰러져 버틴다",
+  "view": {
+   "minute": 213,
+   "lifecycle": "CLOSED",
+   "pc": {
+    "place": "캠프파이어장",
+    "statuses": [
+     "빈사",
+     "사망"
+    ],
+    "stages": {},
+    "bag": {
+     "손전등": 1,
+     "휴대폰": 1
+    },
+    "equipment": {},
+    "profile": {
+     "감각": 11,
+     "근력": 10,
+     "민첩": 12,
+     "정신": 12
+    }
+   },
+   "companions": [],
+   "actors": {
+    "최다현": {
+     "place": "강당"
+    },
+    "한경수": {
+     "place": null,
+     "removed_by": [
+      "사망"
+     ],
+     "statuses": [
+      "사망"
+     ]
+    },
+    "정우빈": {
+     "place": null,
+     "removed_by": [
+      "사망"
+     ],
+     "statuses": [
+      "사망"
+     ]
+    },
+    "비옷의 남자": {
+     "place": "주방",
+     "bag": {
+      "손도끼": 1
+     }
+    },
+    "이서윤": {
+     "place": "의무실"
+    },
+    "문정애": {
+     "place": "주방"
+    },
+    "박태식": {
+     "place": "정비고"
+    }
+   },
+   "events": {
+    "chr_blackout": [
+     {
+      "phase": "dark",
+      "lifecycle": "ACTIVE",
+      "vars": {
+       "done": true
+      }
+     }
+    ],
+    "chr_case_b": [
+     {
+      "phase": "open",
+      "lifecycle": "ACTIVE"
+     }
+    ],
+    "chr_dawn": [
+     {
+      "phase": "night",
+      "lifecycle": "ACTIVE"
+     }
+    ],
+    "chr_escape_boat": [
+     {
+      "phase": "idle",
+      "lifecycle": "ACTIVE"
+     }
+    ],
+    "chr_escape_radio": [
+     {
+      "phase": "idle",
+      "lifecycle": "ACTIVE"
+     }
+    ],
+    "chr_escape_van": [
+     {
+      "phase": "idle",
+      "lifecycle": "ACTIVE"
+     }
+    ],
+    "chr_kill_b1": [
+     {
+      "phase": "killed",
+      "lifecycle": "ACTIVE",
+      "vars": {
+       "done": true
+      }
+     }
+    ],
+    "chr_kill_b2": [
+     {
+      "phase": "killed",
+      "lifecycle": "ACTIVE",
+      "vars": {
+       "done": true
+      }
+     }
+    ],
+    "chr_kill_b3": [
+     {
+      "phase": "stalk",
+      "lifecycle": "ACTIVE"
+     }
+    ],
+    "chr_repel_b": [
+     {
+      "phase": "idle",
+      "lifecycle": "ACTIVE"
+     }
+    ],
+    "chr_truth": [
+     {
+      "phase": "night",
+      "lifecycle": "ACTIVE",
+      "vars": {
+       "case": "B"
+      }
+     }
+    ],
+    "pursuer_chr.npc.killer": [
+     {
+      "phase": "hunt",
+      "lifecycle": "ACTIVE",
+      "vars": {
+       "mode": "WANDER",
+       "patrol_i": 8,
+       "target": "주방"
+      }
+     }
+    ]
+   },
+   "floor": [
+    [
+     "무전실",
+     "무전기",
+     1
+    ],
+    [
+     "보트 창고",
+     "노",
+     2
+    ],
+    [
+     "보트 창고",
+     "보트 열쇠",
+     1
+    ],
+    [
+     "보트 창고",
+     "우비",
+     2
+    ],
+    [
+     "원장실",
+     "승합차 열쇠",
+     1
+    ],
+    [
+     "의무실",
+     "붕대",
+     3
+    ],
+    [
+     "의무실",
+     "소독약",
+     1
+    ],
+    [
+     "의무실",
+     "진통제",
+     2
+    ],
+    [
+     "정비고",
+     "쇠지렛대",
+     1
+    ],
+    [
+     "정비고",
+     "자동차 배터리",
+     1
+    ],
+    [
+     "정비고",
+     "퓨즈",
+     2
+    ],
+    [
+     "정비고",
+     "휘발유통",
+     1
+    ],
+    [
+     "주방",
+     "식칼",
+     2
+    ]
+   ],
+   "access": {},
+   "pc_knows": [],
+   "relations": 0
+  },
+  "out": [
+   "[카드] 🏁 열세 번째 희생자"
+  ]
+ },
+ {
+  "say": "30분 기다린다",
+  "view": {
+   "minute": 213,
+   "lifecycle": "CLOSED",
+   "pc": {
+    "place": "캠프파이어장",
+    "statuses": [
+     "빈사",
+     "사망"
+    ],
+    "stages": {},
+    "bag": {
+     "손전등": 1,
+     "휴대폰": 1
+    },
+    "equipment": {},
+    "profile": {
+     "감각": 11,
+     "근력": 10,
+     "민첩": 12,
+     "정신": 12
+    }
+   },
+   "companions": [],
+   "actors": {
+    "최다현": {
+     "place": "강당"
+    },
+    "한경수": {
+     "place": null,
+     "removed_by": [
+      "사망"
+     ],
+     "statuses": [
+      "사망"
+     ]
+    },
+    "정우빈": {
+     "place": null,
+     "removed_by": [
+      "사망"
+     ],
+     "statuses": [
+      "사망"
+     ]
+    },
+    "비옷의 남자": {
+     "place": "주방",
+     "bag": {
+      "손도끼": 1
+     }
+    },
+    "이서윤": {
+     "place": "의무실"
+    },
+    "문정애": {
+     "place": "주방"
+    },
+    "박태식": {
+     "place": "정비고"
+    }
+   },
+   "events": {
+    "chr_blackout": [
+     {
+      "phase": "dark",
+      "lifecycle": "ACTIVE",
+      "vars": {
+       "done": true
+      }
+     }
+    ],
+    "chr_case_b": [
+     {
+      "phase": "open",
+      "lifecycle": "ACTIVE"
+     }
+    ],
+    "chr_dawn": [
+     {
+      "phase": "night",
+      "lifecycle": "ACTIVE"
+     }
+    ],
+    "chr_escape_boat": [
+     {
+      "phase": "idle",
+      "lifecycle": "ACTIVE"
+     }
+    ],
+    "chr_escape_radio": [
+     {
+      "phase": "idle",
+      "lifecycle": "ACTIVE"
+     }
+    ],
+    "chr_escape_van": [
+     {
+      "phase": "idle",
+      "lifecycle": "ACTIVE"
+     }
+    ],
+    "chr_kill_b1": [
+     {
+      "phase": "killed",
+      "lifecycle": "ACTIVE",
+      "vars": {
+       "done": true
+      }
+     }
+    ],
+    "chr_kill_b2": [
+     {
+      "phase": "killed",
+      "lifecycle": "ACTIVE",
+      "vars": {
+       "done": true
+      }
+     }
+    ],
+    "chr_kill_b3": [
+     {
+      "phase": "stalk",
+      "lifecycle": "ACTIVE"
+     }
+    ],
+    "chr_repel_b": [
+     {
+      "phase": "idle",
+      "lifecycle": "ACTIVE"
+     }
+    ],
+    "chr_truth": [
+     {
+      "phase": "night",
+      "lifecycle": "ACTIVE",
+      "vars": {
+       "case": "B"
+      }
+     }
+    ],
+    "pursuer_chr.npc.killer": [
+     {
+      "phase": "hunt",
+      "lifecycle": "ACTIVE",
+      "vars": {
+       "mode": "WANDER",
+       "patrol_i": 8,
+       "target": "주방"
+      }
+     }
+    ]
+   },
+   "floor": [
+    [
+     "무전실",
+     "무전기",
+     1
+    ],
+    [
+     "보트 창고",
+     "노",
+     2
+    ],
+    [
+     "보트 창고",
+     "보트 열쇠",
+     1
+    ],
+    [
+     "보트 창고",
+     "우비",
+     2
+    ],
+    [
+     "원장실",
+     "승합차 열쇠",
+     1
+    ],
+    [
+     "의무실",
+     "붕대",
+     3
+    ],
+    [
+     "의무실",
+     "소독약",
+     1
+    ],
+    [
+     "의무실",
+     "진통제",
+     2
+    ],
+    [
+     "정비고",
+     "쇠지렛대",
+     1
+    ],
+    [
+     "정비고",
+     "자동차 배터리",
+     1
+    ],
+    [
+     "정비고",
+     "퓨즈",
+     2
+    ],
+    [
+     "정비고",
+     "휘발유통",
+     1
+    ],
+    [
+     "주방",
+     "식칼",
+     2
+    ]
+   ],
+   "access": {},
+   "pc_knows": [],
+   "relations": 0
+  },
+  "out": []
+ }
+]

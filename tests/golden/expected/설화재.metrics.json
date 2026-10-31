@@ -1,0 +1,103 @@
+[
+ {
+  "say": "10분 기다린다",
+  "calls": [
+   "judgment",
+   "logic",
+   "narration",
+   "extraction"
+  ]
+ },
+ {
+  "say": "본관 로비·라운지로 간다",
+  "calls": [
+   "judgment",
+   "logic",
+   "narration",
+   "compression",
+   "extraction",
+   "compression"
+  ]
+ },
+ {
+  "say": "30분 기다린다",
+  "calls": [
+   "judgment",
+   "logic",
+   "narration",
+   "compression",
+   "extraction",
+   "compression"
+  ]
+ },
+ {
+  "say": "식당로 간다",
+  "calls": [
+   "judgment",
+   "logic",
+   "narration",
+   "compression",
+   "extraction",
+   "compression"
+  ]
+ },
+ {
+  "say": "60분 기다린다",
+  "calls": [
+   "judgment",
+   "logic",
+   "compression",
+   "narration",
+   "compression",
+   "extraction"
+  ]
+ },
+ {
+  "say": "본관 로비·라운지로 간다",
+  "calls": [
+   "judgment",
+   "logic",
+   "narration",
+   "compression",
+   "compression",
+   "extraction"
+  ]
+ },
+ {
+  "say": "2층 복도로 간다",
+  "calls": [
+   "judgment",
+   "logic",
+   "narration",
+   "compression",
+   "compression",
+   "extraction"
+  ]
+ },
+ {
+  "say": "202호로 간다",
+  "calls": [
+   "judgment",
+   "logic",
+   "narration",
+   "compression",
+   "extraction",
+   "compression"
+  ]
+ },
+ {
+  "say": "한도윤을 범인으로 체포한다",
+  "calls": [
+   "judgment",
+   "logic",
+   "narration",
+   "compression",
+   "extraction",
+   "compression"
+  ]
+ },
+ {
+  "say": "1분 기다린다",
+  "calls": []
+ }
+]

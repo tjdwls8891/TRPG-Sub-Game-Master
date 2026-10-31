@@ -1,0 +1,986 @@
+[
+ {
+  "say": "10분 기다린다",
+  "view": {
+   "minute": 10,
+   "lifecycle": "OPEN",
+   "pc": {
+    "place": "2층 복도",
+    "statuses": [],
+    "stages": {},
+    "bag": {
+     "수첩": 1
+    },
+    "equipment": {},
+    "profile": {
+     "관찰": 12,
+     "언변": 11,
+     "체력": 10
+    }
+   },
+   "companions": [],
+   "actors": {
+    "한도윤": {
+     "place": "202호"
+    },
+    "강태오": {
+     "place": "본관 로비·라운지"
+    },
+    "김보람": {
+     "place": "2층 복도"
+    },
+    "마정호": {
+     "place": "203호"
+    },
+    "오세린": {
+     "place": "205호"
+    },
+    "윤만석": {
+     "place": "별채"
+    },
+    "윤서진": {
+     "place": "사무실"
+    }
+   },
+   "events": {
+    "sh_case_S2": [
+     {
+      "phase": "open",
+      "lifecycle": "ACTIVE"
+     }
+    ],
+    "sh_common": [
+     {
+      "phase": "open",
+      "lifecycle": "ACTIVE"
+     }
+    ],
+    "sh_herring_hdy": [
+     {
+      "phase": "open",
+      "lifecycle": "ACTIVE"
+     }
+    ],
+    "sh_herring_mjh": [
+     {
+      "phase": "open",
+      "lifecycle": "ACTIVE"
+     }
+    ],
+    "sh_herring_osr": [
+     {
+      "phase": "open",
+      "lifecycle": "ACTIVE"
+     }
+    ],
+    "sh_mjh_alibi": [
+     {
+      "phase": "open",
+      "lifecycle": "ACTIVE"
+     }
+    ],
+    "sh_truth": [
+     {
+      "phase": "investigate",
+      "lifecycle": "ACTIVE",
+      "vars": {
+       "case": "S2",
+       "culprit": "윤서진"
+      }
+     }
+    ]
+   },
+   "floor": [],
+   "access": {},
+   "pc_knows": [],
+   "relations": 0
+  },
+  "out": []
+ },
+ {
+  "say": "본관 로비·라운지로 간다",
+  "view": {
+   "minute": 10,
+   "lifecycle": "OPEN",
+   "pc": {
+    "place": "본관 로비·라운지",
+    "statuses": [],
+    "stages": {},
+    "bag": {
+     "수첩": 1
+    },
+    "equipment": {},
+    "profile": {
+     "관찰": 12,
+     "언변": 11,
+     "체력": 10
+    }
+   },
+   "companions": [],
+   "actors": {
+    "한도윤": {
+     "place": "202호"
+    },
+    "강태오": {
+     "place": "본관 로비·라운지"
+    },
+    "김보람": {
+     "place": "2층 복도"
+    },
+    "마정호": {
+     "place": "203호"
+    },
+    "오세린": {
+     "place": "205호"
+    },
+    "윤만석": {
+     "place": "별채"
+    },
+    "윤서진": {
+     "place": "사무실"
+    }
+   },
+   "events": {
+    "sh_case_S2": [
+     {
+      "phase": "open",
+      "lifecycle": "ACTIVE"
+     }
+    ],
+    "sh_common": [
+     {
+      "phase": "open",
+      "lifecycle": "ACTIVE"
+     }
+    ],
+    "sh_herring_hdy": [
+     {
+      "phase": "open",
+      "lifecycle": "ACTIVE"
+     }
+    ],
+    "sh_herring_mjh": [
+     {
+      "phase": "open",
+      "lifecycle": "ACTIVE"
+     }
+    ],
+    "sh_herring_osr": [
+     {
+      "phase": "open",
+      "lifecycle": "ACTIVE"
+     }
+    ],
+    "sh_mjh_alibi": [
+     {
+      "phase": "open",
+      "lifecycle": "ACTIVE"
+     }
+    ],
+    "sh_truth": [
+     {
+      "phase": "investigate",
+      "lifecycle": "ACTIVE",
+      "vars": {
+       "case": "S2",
+       "culprit": "윤서진"
+      }
+     }
+    ]
+   },
+   "floor": [],
+   "access": {},
+   "pc_knows": [],
+   "relations": 0
+  },
+  "out": []
+ },
+ {
+  "say": "30분 기다린다",
+  "view": {
+   "minute": 40,
+   "lifecycle": "OPEN",
+   "pc": {
+    "place": "본관 로비·라운지",
+    "statuses": [],
+    "stages": {},
+    "bag": {
+     "수첩": 1
+    },
+    "equipment": {},
+    "profile": {
+     "관찰": 12,
+     "언변": 11,
+     "체력": 10
+    }
+   },
+   "companions": [],
+   "actors": {
+    "한도윤": {
+     "place": "202호"
+    },
+    "강태오": {
+     "place": "본관 로비·라운지"
+    },
+    "김보람": {
+     "place": "주방"
+    },
+    "마정호": {
+     "place": "203호"
+    },
+    "오세린": {
+     "place": "205호"
+    },
+    "윤만석": {
+     "place": "별채"
+    },
+    "윤서진": {
+     "place": "사무실"
+    }
+   },
+   "events": {
+    "sh_case_S2": [
+     {
+      "phase": "open",
+      "lifecycle": "ACTIVE"
+     }
+    ],
+    "sh_common": [
+     {
+      "phase": "open",
+      "lifecycle": "ACTIVE"
+     }
+    ],
+    "sh_herring_hdy": [
+     {
+      "phase": "open",
+      "lifecycle": "ACTIVE"
+     }
+    ],
+    "sh_herring_mjh": [
+     {
+      "phase": "open",
+      "lifecycle": "ACTIVE"
+     }
+    ],
+    "sh_herring_osr": [
+     {
+      "phase": "open",
+      "lifecycle": "ACTIVE"
+     }
+    ],
+    "sh_mjh_alibi": [
+     {
+      "phase": "open",
+      "lifecycle": "ACTIVE"
+     }
+    ],
+    "sh_truth": [
+     {
+      "phase": "investigate",
+      "lifecycle": "ACTIVE",
+      "vars": {
+       "case": "S2",
+       "culprit": "윤서진"
+      }
+     }
+    ]
+   },
+   "floor": [],
+   "access": {},
+   "pc_knows": [],
+   "relations": 0
+  },
+  "out": []
+ },
+ {
+  "say": "식당로 간다",
+  "view": {
+   "minute": 40,
+   "lifecycle": "OPEN",
+   "pc": {
+    "place": "식당",
+    "statuses": [],
+    "stages": {},
+    "bag": {
+     "수첩": 1
+    },
+    "equipment": {},
+    "profile": {
+     "관찰": 12,
+     "언변": 11,
+     "체력": 10
+    }
+   },
+   "companions": [],
+   "actors": {
+    "한도윤": {
+     "place": "202호"
+    },
+    "강태오": {
+     "place": "본관 로비·라운지"
+    },
+    "김보람": {
+     "place": "주방"
+    },
+    "마정호": {
+     "place": "203호"
+    },
+    "오세린": {
+     "place": "205호"
+    },
+    "윤만석": {
+     "place": "별채"
+    },
+    "윤서진": {
+     "place": "사무실"
+    }
+   },
+   "events": {
+    "sh_case_S2": [
+     {
+      "phase": "open",
+      "lifecycle": "ACTIVE"
+     }
+    ],
+    "sh_common": [
+     {
+      "phase": "open",
+      "lifecycle": "ACTIVE"
+     }
+    ],
+    "sh_herring_hdy": [
+     {
+      "phase": "open",
+      "lifecycle": "ACTIVE"
+     }
+    ],
+    "sh_herring_mjh": [
+     {
+      "phase": "open",
+      "lifecycle": "ACTIVE"
+     }
+    ],
+    "sh_herring_osr": [
+     {
+      "phase": "open",
+      "lifecycle": "ACTIVE"
+     }
+    ],
+    "sh_mjh_alibi": [
+     {
+      "phase": "open",
+      "lifecycle": "ACTIVE"
+     }
+    ],
+    "sh_truth": [
+     {
+      "phase": "investigate",
+      "lifecycle": "ACTIVE",
+      "vars": {
+       "case": "S2",
+       "culprit": "윤서진"
+      }
+     }
+    ]
+   },
+   "floor": [],
+   "access": {},
+   "pc_knows": [],
+   "relations": 0
+  },
+  "out": []
+ },
+ {
+  "say": "60분 기다린다",
+  "view": {
+   "minute": 100,
+   "lifecycle": "OPEN",
+   "pc": {
+    "place": "식당",
+    "statuses": [],
+    "stages": {},
+    "bag": {
+     "수첩": 1
+    },
+    "equipment": {},
+    "profile": {
+     "관찰": 12,
+     "언변": 11,
+     "체력": 10
+    }
+   },
+   "companions": [],
+   "actors": {
+    "한도윤": {
+     "place": "202호"
+    },
+    "강태오": {
+     "place": "앞마당"
+    },
+    "김보람": {
+     "place": "주방"
+    },
+    "마정호": {
+     "place": "203호"
+    },
+    "오세린": {
+     "place": "앞마당"
+    },
+    "윤만석": {
+     "place": "별채"
+    },
+    "윤서진": {
+     "place": "사무실"
+    }
+   },
+   "events": {
+    "sh_case_S2": [
+     {
+      "phase": "open",
+      "lifecycle": "ACTIVE"
+     }
+    ],
+    "sh_common": [
+     {
+      "phase": "open",
+      "lifecycle": "ACTIVE"
+     }
+    ],
+    "sh_herring_hdy": [
+     {
+      "phase": "open",
+      "lifecycle": "ACTIVE"
+     }
+    ],
+    "sh_herring_mjh": [
+     {
+      "phase": "open",
+      "lifecycle": "ACTIVE"
+     }
+    ],
+    "sh_herring_osr": [
+     {
+      "phase": "open",
+      "lifecycle": "ACTIVE"
+     }
+    ],
+    "sh_mjh_alibi": [
+     {
+      "phase": "open",
+      "lifecycle": "ACTIVE"
+     }
+    ],
+    "sh_truth": [
+     {
+      "phase": "investigate",
+      "lifecycle": "ACTIVE",
+      "vars": {
+       "case": "S2",
+       "culprit": "윤서진"
+      }
+     }
+    ]
+   },
+   "floor": [],
+   "access": {},
+   "pc_knows": [],
+   "relations": 0
+  },
+  "out": []
+ },
+ {
+  "say": "본관 로비·라운지로 간다",
+  "view": {
+   "minute": 100,
+   "lifecycle": "OPEN",
+   "pc": {
+    "place": "본관 로비·라운지",
+    "statuses": [],
+    "stages": {},
+    "bag": {
+     "수첩": 1
+    },
+    "equipment": {},
+    "profile": {
+     "관찰": 12,
+     "언변": 11,
+     "체력": 10
+    }
+   },
+   "companions": [],
+   "actors": {
+    "한도윤": {
+     "place": "202호"
+    },
+    "강태오": {
+     "place": "앞마당"
+    },
+    "김보람": {
+     "place": "주방"
+    },
+    "마정호": {
+     "place": "203호"
+    },
+    "오세린": {
+     "place": "앞마당"
+    },
+    "윤만석": {
+     "place": "별채"
+    },
+    "윤서진": {
+     "place": "사무실"
+    }
+   },
+   "events": {
+    "sh_case_S2": [
+     {
+      "phase": "open",
+      "lifecycle": "ACTIVE"
+     }
+    ],
+    "sh_common": [
+     {
+      "phase": "open",
+      "lifecycle": "ACTIVE"
+     }
+    ],
+    "sh_herring_hdy": [
+     {
+      "phase": "open",
+      "lifecycle": "ACTIVE"
+     }
+    ],
+    "sh_herring_mjh": [
+     {
+      "phase": "open",
+      "lifecycle": "ACTIVE"
+     }
+    ],
+    "sh_herring_osr": [
+     {
+      "phase": "open",
+      "lifecycle": "ACTIVE"
+     }
+    ],
+    "sh_mjh_alibi": [
+     {
+      "phase": "open",
+      "lifecycle": "ACTIVE"
+     }
+    ],
+    "sh_truth": [
+     {
+      "phase": "investigate",
+      "lifecycle": "ACTIVE",
+      "vars": {
+       "case": "S2",
+       "culprit": "윤서진"
+      }
+     }
+    ]
+   },
+   "floor": [],
+   "access": {},
+   "pc_knows": [],
+   "relations": 0
+  },
+  "out": []
+ },
+ {
+  "say": "2층 복도로 간다",
+  "view": {
+   "minute": 100,
+   "lifecycle": "OPEN",
+   "pc": {
+    "place": "2층 복도",
+    "statuses": [],
+    "stages": {},
+    "bag": {
+     "수첩": 1
+    },
+    "equipment": {},
+    "profile": {
+     "관찰": 12,
+     "언변": 11,
+     "체력": 10
+    }
+   },
+   "companions": [],
+   "actors": {
+    "한도윤": {
+     "place": "202호"
+    },
+    "강태오": {
+     "place": "앞마당"
+    },
+    "김보람": {
+     "place": "주방"
+    },
+    "마정호": {
+     "place": "203호"
+    },
+    "오세린": {
+     "place": "앞마당"
+    },
+    "윤만석": {
+     "place": "별채"
+    },
+    "윤서진": {
+     "place": "사무실"
+    }
+   },
+   "events": {
+    "sh_case_S2": [
+     {
+      "phase": "open",
+      "lifecycle": "ACTIVE"
+     }
+    ],
+    "sh_common": [
+     {
+      "phase": "open",
+      "lifecycle": "ACTIVE"
+     }
+    ],
+    "sh_herring_hdy": [
+     {
+      "phase": "open",
+      "lifecycle": "ACTIVE"
+     }
+    ],
+    "sh_herring_mjh": [
+     {
+      "phase": "open",
+      "lifecycle": "ACTIVE"
+     }
+    ],
+    "sh_herring_osr": [
+     {
+      "phase": "open",
+      "lifecycle": "ACTIVE"
+     }
+    ],
+    "sh_mjh_alibi": [
+     {
+      "phase": "open",
+      "lifecycle": "ACTIVE"
+     }
+    ],
+    "sh_truth": [
+     {
+      "phase": "investigate",
+      "lifecycle": "ACTIVE",
+      "vars": {
+       "case": "S2",
+       "culprit": "윤서진"
+      }
+     }
+    ]
+   },
+   "floor": [],
+   "access": {},
+   "pc_knows": [],
+   "relations": 0
+  },
+  "out": []
+ },
+ {
+  "say": "202호로 간다",
+  "view": {
+   "minute": 100,
+   "lifecycle": "OPEN",
+   "pc": {
+    "place": "202호",
+    "statuses": [],
+    "stages": {},
+    "bag": {
+     "수첩": 1
+    },
+    "equipment": {},
+    "profile": {
+     "관찰": 12,
+     "언변": 11,
+     "체력": 10
+    }
+   },
+   "companions": [],
+   "actors": {
+    "한도윤": {
+     "place": "202호"
+    },
+    "강태오": {
+     "place": "앞마당"
+    },
+    "김보람": {
+     "place": "주방"
+    },
+    "마정호": {
+     "place": "203호"
+    },
+    "오세린": {
+     "place": "앞마당"
+    },
+    "윤만석": {
+     "place": "별채"
+    },
+    "윤서진": {
+     "place": "사무실"
+    }
+   },
+   "events": {
+    "sh_case_S2": [
+     {
+      "phase": "open",
+      "lifecycle": "ACTIVE"
+     }
+    ],
+    "sh_common": [
+     {
+      "phase": "open",
+      "lifecycle": "ACTIVE"
+     }
+    ],
+    "sh_herring_hdy": [
+     {
+      "phase": "open",
+      "lifecycle": "ACTIVE"
+     }
+    ],
+    "sh_herring_mjh": [
+     {
+      "phase": "open",
+      "lifecycle": "ACTIVE"
+     }
+    ],
+    "sh_herring_osr": [
+     {
+      "phase": "open",
+      "lifecycle": "ACTIVE"
+     }
+    ],
+    "sh_mjh_alibi": [
+     {
+      "phase": "open",
+      "lifecycle": "ACTIVE"
+     }
+    ],
+    "sh_truth": [
+     {
+      "phase": "investigate",
+      "lifecycle": "ACTIVE",
+      "vars": {
+       "case": "S2",
+       "culprit": "윤서진"
+      }
+     }
+    ]
+   },
+   "floor": [],
+   "access": {},
+   "pc_knows": [],
+   "relations": 0
+  },
+  "out": []
+ },
+ {
+  "say": "한도윤을 범인으로 체포한다",
+  "view": {
+   "minute": 100,
+   "lifecycle": "CLOSED",
+   "pc": {
+    "place": "202호",
+    "statuses": [],
+    "stages": {},
+    "bag": {
+     "수첩": 1
+    },
+    "equipment": {},
+    "profile": {
+     "관찰": 12,
+     "언변": 11,
+     "체력": 10
+    }
+   },
+   "companions": [],
+   "actors": {
+    "한도윤": {
+     "place": "202호"
+    },
+    "강태오": {
+     "place": "앞마당"
+    },
+    "김보람": {
+     "place": "주방"
+    },
+    "마정호": {
+     "place": "203호"
+    },
+    "오세린": {
+     "place": "앞마당"
+    },
+    "윤만석": {
+     "place": "별채"
+    },
+    "윤서진": {
+     "place": "사무실"
+    }
+   },
+   "events": {
+    "sh_case_S2": [
+     {
+      "phase": "open",
+      "lifecycle": "ACTIVE"
+     }
+    ],
+    "sh_common": [
+     {
+      "phase": "open",
+      "lifecycle": "ACTIVE"
+     }
+    ],
+    "sh_herring_hdy": [
+     {
+      "phase": "open",
+      "lifecycle": "ACTIVE"
+     }
+    ],
+    "sh_herring_mjh": [
+     {
+      "phase": "open",
+      "lifecycle": "ACTIVE"
+     }
+    ],
+    "sh_herring_osr": [
+     {
+      "phase": "open",
+      "lifecycle": "ACTIVE"
+     }
+    ],
+    "sh_mjh_alibi": [
+     {
+      "phase": "open",
+      "lifecycle": "ACTIVE"
+     }
+    ],
+    "sh_truth": [
+     {
+      "phase": "wrong",
+      "lifecycle": "RESOLVED",
+      "vars": {
+       "case": "S2",
+       "culprit": "윤서진",
+       "resolution": "arrest:한도윤"
+      }
+     }
+    ]
+   },
+   "floor": [],
+   "access": {},
+   "pc_knows": [],
+   "relations": 0
+  },
+  "out": [
+   "[카드] 🏁 오인 체포"
+  ]
+ },
+ {
+  "say": "1분 기다린다",
+  "view": {
+   "minute": 100,
+   "lifecycle": "CLOSED",
+   "pc": {
+    "place": "202호",
+    "statuses": [],
+    "stages": {},
+    "bag": {
+     "수첩": 1
+    },
+    "equipment": {},
+    "profile": {
+     "관찰": 12,
+     "언변": 11,
+     "체력": 10
+    }
+   },
+   "companions": [],
+   "actors": {
+    "한도윤": {
+     "place": "202호"
+    },
+    "강태오": {
+     "place": "앞마당"
+    },
+    "김보람": {
+     "place": "주방"
+    },
+    "마정호": {
+     "place": "203호"
+    },
+    "오세린": {
+     "place": "앞마당"
+    },
+    "윤만석": {
+     "place": "별채"
+    },
+    "윤서진": {
+     "place": "사무실"
+    }
+   },
+   "events": {
+    "sh_case_S2": [
+     {
+      "phase": "open",
+      "lifecycle": "ACTIVE"
+     }
+    ],
+    "sh_common": [
+     {
+      "phase": "open",
+      "lifecycle": "ACTIVE"
+     }
+    ],
+    "sh_herring_hdy": [
+     {
+      "phase": "open",
+      "lifecycle": "ACTIVE"
+     }
+    ],
+    "sh_herring_mjh": [
+     {
+      "phase": "open",
+      "lifecycle": "ACTIVE"
+     }
+    ],
+    "sh_herring_osr": [
+     {
+      "phase": "open",
+      "lifecycle": "ACTIVE"
+     }
+    ],
+    "sh_mjh_alibi": [
+     {
+      "phase": "open",
+      "lifecycle": "ACTIVE"
+     }
+    ],
+    "sh_truth": [
+     {
+      "phase": "wrong",
+      "lifecycle": "RESOLVED",
+      "vars": {
+       "case": "S2",
+       "culprit": "윤서진",
+       "resolution": "arrest:한도윤"
+      }
+     }
+    ]
+   },
+   "floor": [],
+   "access": {},
+   "pc_knows": [],
+   "relations": 0
+  },
+  "out": []
+ }
+]

@@ -1,0 +1,286 @@
+[
+ {
+  "say": "둔산 거리로 간다",
+  "calls": [
+   "judgment",
+   "logic",
+   "narration",
+   "extraction"
+  ]
+ },
+ {
+  "say": "은하수 길드 사무실로 간다",
+  "calls": [
+   "judgment",
+   "logic",
+   "narration",
+   "compression",
+   "extraction",
+   "compression"
+  ]
+ },
+ {
+  "say": "길드에 가입한다",
+  "calls": [
+   "judgment",
+   "logic",
+   "compression",
+   "narration",
+   "compression",
+   "extraction"
+  ]
+ },
+ {
+  "say": "둔산 거리로 간다",
+  "calls": [
+   "judgment",
+   "logic",
+   "narration",
+   "compression",
+   "compression",
+   "extraction"
+  ]
+ },
+ {
+  "say": "공사장 입구로 간다",
+  "calls": [
+   "judgment",
+   "logic",
+   "narration",
+   "compression",
+   "compression",
+   "extraction"
+  ]
+ },
+ {
+  "say": "무너진 터널로 간다",
+  "calls": [
+   "judgment",
+   "logic",
+   "narration",
+   "compression",
+   "compression",
+   "extraction"
+  ]
+ },
+ {
+  "say": "환기 갱도로 간다",
+  "calls": [
+   "judgment",
+   "logic",
+   "narration",
+   "compression",
+   "compression",
+   "extraction"
+  ]
+ },
+ {
+  "say": "굴착기 둥지로 간다",
+  "calls": [
+   "judgment",
+   "logic",
+   "narration",
+   "compression",
+   "compression",
+   "extraction"
+  ]
+ },
+ {
+  "say": "고블린 우두머리 공격",
+  "calls": [
+   "judgment",
+   "logic",
+   "narration",
+   "compression",
+   "extraction",
+   "compression"
+  ]
+ },
+ {
+  "say": "고블린 우두머리 공격",
+  "calls": [
+   "judgment",
+   "logic",
+   "narration",
+   "compression",
+   "compression",
+   "extraction"
+  ]
+ },
+ {
+  "say": "고블린 우두머리 공격",
+  "calls": [
+   "judgment",
+   "logic",
+   "compression",
+   "narration",
+   "compression",
+   "extraction"
+  ]
+ },
+ {
+  "say": "고블린 우두머리 공격",
+  "calls": [
+   "judgment",
+   "logic",
+   "narration",
+   "compression",
+   "extraction",
+   "compression"
+  ]
+ },
+ {
+  "say": "고블린 우두머리 공격",
+  "calls": [
+   "judgment",
+   "logic",
+   "narration",
+   "compression",
+   "extraction",
+   "compression"
+  ]
+ },
+ {
+  "say": "고블린 우두머리 공격",
+  "calls": [
+   "judgment",
+   "logic",
+   "narration",
+   "compression",
+   "compression",
+   "extraction"
+  ]
+ },
+ {
+  "say": "30분 기다린다",
+  "calls": [
+   "judgment",
+   "logic",
+   "narration",
+   "compression",
+   "compression",
+   "extraction"
+  ]
+ },
+ {
+  "say": "30분 기다린다",
+  "calls": [
+   "judgment",
+   "logic",
+   "narration",
+   "compression",
+   "compression",
+   "extraction"
+  ]
+ },
+ {
+  "say": "환기 갱도로 간다",
+  "calls": [
+   "judgment",
+   "logic",
+   "compression",
+   "narration",
+   "compression",
+   "extraction"
+  ]
+ },
+ {
+  "say": "무너진 터널로 간다",
+  "calls": [
+   "judgment",
+   "logic",
+   "narration",
+   "compression",
+   "extraction",
+   "compression"
+  ]
+ },
+ {
+  "say": "공사장 입구로 간다",
+  "calls": [
+   "judgment",
+   "logic",
+   "compression",
+   "narration",
+   "compression",
+   "extraction"
+  ]
+ },
+ {
+  "say": "둔산 거리로 간다",
+  "calls": [
+   "judgment",
+   "logic",
+   "narration",
+   "compression",
+   "compression",
+   "extraction"
+  ]
+ },
+ {
+  "say": "협회 로비로 간다",
+  "calls": [
+   "judgment",
+   "logic",
+   "narration",
+   "compression",
+   "compression",
+   "extraction"
+  ]
+ },
+ {
+  "say": "등급 심사장로 간다",
+  "calls": [
+   "judgment",
+   "logic",
+   "narration",
+   "compression",
+   "compression",
+   "extraction"
+  ]
+ },
+ {
+  "say": "승급 심사를 받는다",
+  "calls": [
+   "judgment",
+   "logic",
+   "narration",
+   "compression",
+   "extraction",
+   "compression"
+  ]
+ },
+ {
+  "say": "1분 기다린다",
+  "calls": [
+   "judgment",
+   "logic",
+   "narration",
+   "compression",
+   "compression",
+   "extraction"
+  ]
+ },
+ {
+  "say": "훈련장로 간다",
+  "calls": [
+   "judgment",
+   "logic",
+   "compression",
+   "narration",
+   "compression",
+   "extraction"
+  ]
+ },
+ {
+  "say": "근력을 단련한다",
+  "calls": [
+   "judgment",
+   "logic",
+   "compression",
+   "narration",
+   "compression",
+   "extraction"
+  ]
+ }
+]

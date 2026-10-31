@@ -1,0 +1,83 @@
+[
+ {
+  "say": "20분 기다린다",
+  "calls": [
+   "judgment",
+   "logic",
+   "narration",
+   "extraction"
+  ]
+ },
+ {
+  "say": "20분 기다린다",
+  "calls": [
+   "judgment",
+   "logic",
+   "narration",
+   "compression",
+   "extraction",
+   "compression"
+  ]
+ },
+ {
+  "say": "20분 기다린다",
+  "calls": [
+   "judgment",
+   "logic",
+   "narration",
+   "compression",
+   "extraction",
+   "compression"
+  ]
+ },
+ {
+  "say": "봉래동 물류창고로 간다",
+  "calls": [
+   "judgment"
+  ]
+ },
+ {
+  "say": "120분 기다린다",
+  "calls": [
+   "judgment",
+   "logic",
+   "narration",
+   "compression",
+   "compression",
+   "extraction"
+  ]
+ },
+ {
+  "say": "240분 기다린다",
+  "calls": [
+   "judgment",
+   "logic",
+   "narration",
+   "compression",
+   "compression",
+   "extraction"
+  ]
+ },
+ {
+  "say": "청학동 선착장으로 돌아간다",
+  "calls": [
+   "judgment",
+   "logic",
+   "narration",
+   "compression",
+   "extraction",
+   "compression"
+  ]
+ },
+ {
+  "say": "600분 기다린다",
+  "calls": [
+   "judgment",
+   "logic",
+   "narration",
+   "compression",
+   "compression",
+   "extraction"
+  ]
+ }
+]

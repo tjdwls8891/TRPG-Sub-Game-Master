@@ -1,0 +1,103 @@
+[
+ {
+  "say": "30분 기다린다",
+  "calls": [
+   "judgment",
+   "logic",
+   "narration",
+   "extraction"
+  ]
+ },
+ {
+  "say": "30분 기다린다",
+  "calls": [
+   "judgment",
+   "logic",
+   "narration",
+   "compression",
+   "extraction",
+   "compression"
+  ]
+ },
+ {
+  "say": "30분 기다린다",
+  "calls": [
+   "judgment",
+   "logic",
+   "narration",
+   "compression",
+   "compression",
+   "extraction"
+  ]
+ },
+ {
+  "say": "30분 기다린다",
+  "calls": [
+   "judgment",
+   "logic",
+   "narration",
+   "compression",
+   "extraction",
+   "compression"
+  ]
+ },
+ {
+  "say": "30분 기다린다",
+  "calls": [
+   "judgment",
+   "logic",
+   "narration",
+   "compression",
+   "extraction",
+   "compression"
+  ]
+ },
+ {
+  "say": "캠프파이어장로 간다",
+  "calls": [
+   "judgment",
+   "logic",
+   "narration",
+   "compression",
+   "compression",
+   "extraction"
+  ]
+ },
+ {
+  "say": "30분 기다린다",
+  "calls": [
+   "judgment",
+   "logic",
+   "narration",
+   "compression",
+   "extraction",
+   "compression"
+  ]
+ },
+ {
+  "say": "30분 기다린다",
+  "calls": [
+   "judgment",
+   "logic",
+   "compression",
+   "narration",
+   "compression",
+   "extraction"
+  ]
+ },
+ {
+  "say": "쓰러져 버틴다",
+  "calls": [
+   "judgment",
+   "logic",
+   "narration",
+   "compression",
+   "compression",
+   "extraction"
+  ]
+ },
+ {
+  "say": "30분 기다린다",
+  "calls": []
+ }
+]
