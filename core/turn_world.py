@@ -2139,6 +2139,19 @@ def growth_changes(session, prep) -> dict:
     return {"points": pts, "records": recs}
 
 
+def item_grant_changes(session, prep) -> list:
+    """v7.53: 이번 턴 사건이 새로 남긴 물건 지급 기록(GRANT_ITEM) — [{key, quantity, actor|place, box}](정렬).
+    box = 장소 지급의 현장 물건 원천 id(기록 키에서 결정적으로 — 같은 기록은 같은 원천)."""
+    from . import events as _ev
+    proj = getattr(getattr(prep, "world_projection", None), "world", None)
+    if not isinstance(proj, _wm.ProjectedWorld):
+        return []
+    before = _ev.item_grants(getattr(session, "event_instances", None) or {})
+    after = _ev.item_grants(proj.domain("event_instances") or {})
+    return [{**v, "box": "ev." + stable_digest("item.grant.v1", f"{iid}|{k}", length=12)}
+            for (iid, k), v in sorted(after.items()) if (iid, k) not in before]
+
+
 def combat_deaths(definition, session, rolls) -> list:
     """v7.50(E6): 공격 대결로 부상이 마지막 단계를 넘는 NPC — [(ActorId, 역할 dead 상태, 처치 성장 포인트)]
     (계획이 세계에서 뺀다). v7.51(D-P6 가): PC가 이긴 공격 대결로 부상을 입은 적만 PC 처치 — 파티원 처치는 0."""

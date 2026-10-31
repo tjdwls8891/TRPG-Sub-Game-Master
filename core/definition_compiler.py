@@ -1313,6 +1313,7 @@ _STEP_PARAMS = {
     "SET_PC_RECORD": (("field", "value"), ()),
     "JOIN_PARTY": (("actor",), ()),
     "LEAVE_PARTY": (("actor",), ()),
+    "GRANT_ITEM": (("key", "quantity"), ("actor", "place")),
 }
 # H07: EMIT_SIGNAL.exposes — 이 신호가 묘사되면 PC가 알게 될 수 있는 저작 정보(공개 안전 summary 필수).
 #      관찰 매니페스트 후보가 될 뿐, 노출 확정은 확정 묘사의 추출 관찰(info_exposed)만 한다.
@@ -1320,7 +1321,7 @@ _STEP_PARAMS = {
 _EFFECT_STEP_TYPES = ("SET_ACCESS_STATE", "SET_ACTOR_PLACEMENT", "CLEAR_ACTOR_PLACEMENT", "START_MOVEMENT", "CREATE_INFORMATION",
                       "SUPERSEDE_INFORMATION", "ACQUIRE_INFORMATION", "SET_COGNITION_BELIEF",
                       "APPEND_RELATIONSHIP_DELTA", "SET_EVENT_LOCAL", "EMIT_SIGNAL", "SET_ACTOR_STATUS",
-                      "CLEAR_ACTOR_STATUS", "GRANT_GROWTH", "SET_PC_RECORD", "JOIN_PARTY", "LEAVE_PARTY")
+                      "CLEAR_ACTOR_STATUS", "GRANT_GROWTH", "SET_PC_RECORD", "JOIN_PARTY", "LEAVE_PARTY", "GRANT_ITEM")
 
 
 PERSONA_KEYS = ("surface", "core", "stances", "now", "initial_trust")
@@ -1493,6 +1494,17 @@ def _compile_step(st, p, scope, access, edges, created, d, *, nested=False):
             bad("STEP_REF_UNKNOWN", f"growth.records에 선언되지 않은 기록 {st['field']!r}")
         elif not (isinstance(st["value"], int) and not isinstance(st["value"], bool)):
             bad("STEP_PARAMS_INVALID", "value는 정수(등급은 1부터 — growth.records 이름표 순서)")
+    elif t == "GRANT_ITEM":
+        if not (isinstance(st["key"], str) and st["key"].strip()):
+            bad("STEP_PARAMS_INVALID", "key는 물건 이름(문자열)")
+        if not (isinstance(st["quantity"], int) and not isinstance(st["quantity"], bool) and st["quantity"] > 0):
+            bad("STEP_PARAMS_INVALID", "quantity는 양의 정수")
+        if ("actor" in st) == ("place" in st):
+            bad("STEP_PARAMS_INVALID", "actor(받는 인물 — ActorId 또는 $session_pc)와 place(놓을 장소) 중 하나만")
+        elif "place" in st:
+            ref_id(st["place"], "PlaceId", scope.places, "PLACE")
+        elif st["actor"] != _refs.SESSION_PC:
+            ref_id(st["actor"], "ActorId", scope.actors, "ACTOR")
     elif t in ("JOIN_PARTY", "LEAVE_PARTY"):
         if "party" not in (_CAPS or ()):
             bad("STEP_CAPABILITY_REQUIRED", f"{t}에는 party capability 선언이 필요합니다")

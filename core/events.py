@@ -49,7 +49,7 @@ STEP_TYPES = ("SET_ACCESS_STATE", "SET_ACTOR_PLACEMENT", "CLEAR_ACTOR_PLACEMENT"
               "SUPERSEDE_INFORMATION", "ACQUIRE_INFORMATION", "SET_COGNITION_BELIEF",
               "APPEND_RELATIONSHIP_DELTA", "SET_EVENT_LOCAL", "SCHEDULE_WAKEUP", "SCHEDULE_EFFECT",
               "EMIT_SIGNAL", "SET_ACTOR_STATUS", "CLEAR_ACTOR_STATUS", "GRANT_GROWTH", "SET_PC_RECORD",
-              "JOIN_PARTY", "LEAVE_PARTY")
+              "JOIN_PARTY", "LEAVE_PARTY", "GRANT_ITEM")
 # v7.49: SET_ACTOR_STATUS {actor, status} — 사건이 인물에게 상태를 붙인다(저작 사망 등). 정본은 그 사건의 지역 값
 #   `actor_status:<ActorId>` = {status, minute}(되감기 대상 — 새 typed 연산·세션 필드 없음). 세션 상태(session.statuses)
 #   반영은 커밋 상태 판정(status_rules.resolve_turn)이 하고, 역할 dead 상태면 그 인물은 유효 위치를 잃는다
@@ -68,6 +68,10 @@ GROWTH_GRANT_PREFIX, PC_RECORD_PREFIX = "growth_grant:", "pc_record:"
 # v7.51(기능 party): JOIN_PARTY {actor} · LEAVE_PARTY {actor} → 지역 값 `party:<ActorId>` = {in, minute}.
 #   세션 동행(companions) 반영은 커밋이 이번 턴 바뀐 기록만 한다(정본은 사건 기록 — 되감기 대상).
 PARTY_PREFIX = "party:"
+# v7.53: GRANT_ITEM {key, quantity, actor|place} — 사건이 물건을 준다(인물 소지 · 장소에 놓기). 지역 값
+#   `item_grant:<step_id>.<전이 순번>` = {key, quantity, actor|place, minute}. 소지품·현장 물건 반영은 커밋이 이번 턴
+#   새로 생긴 기록만 한다(core.items.apply_event_grants — 정본은 사건 기록, 되감기 대상). actor는 ActorId 또는 $session_pc.
+ITEM_GRANT_PREFIX = "item_grant:"
 
 
 def growth_ledger(event_instances) -> tuple:
@@ -532,6 +536,35 @@ def _s_party(join):
     return fn
 
 
+def _s_grant_item(step, sctx, parents):
+    v = {"key": step["key"], "quantity": int(step["quantity"]), "minute": sctx.now}
+    if step.get("place") is not None:
+        v["place"] = sctx.resolve(step["place"])
+        if not v["place"]:
+            return StepResult(diagnostics=[_diag("STEP_UNBOUND", sctx, step)])
+    else:
+        actor = step["actor"] if step["actor"] == "$session_pc" else sctx.resolve(step["actor"])
+        if not actor:
+            return StepResult(diagnostics=[_diag("STEP_UNBOUND", sctx, step)])
+        v["actor"] = actor
+    key = f"{ITEM_GRANT_PREFIX}{step['step_id']}.{int(sctx.instance.get('transition_ordinal') or 0)}"
+    return StepResult([_mk(sctx, step["step_id"], 0, OP_EVENT_LOCAL_SET,
+                           {"instance_id": sctx.iid, "key": key, "value": v}, parents)])
+
+
+def item_grants(event_instances) -> dict:
+    """{(인스턴스, 지역 키): 지급 기록} — 사건 GRANT_ITEM이 남긴 물건 지급(정렬)."""
+    out = {}
+    for iid in sorted(event_instances or {}):
+        loc = ((event_instances[iid] or {}).get("local_state") or {}) if isinstance(event_instances[iid], dict) else {}
+        for k in sorted(loc):
+            v = loc[k]
+            if k.startswith(ITEM_GRANT_PREFIX) and isinstance(v, dict) and isinstance(v.get("key"), str) \
+                    and isinstance(v.get("quantity"), int) and (v.get("actor") or v.get("place")):
+                out[(iid, k)] = v
+    return out
+
+
 def party_marks(event_instances) -> dict:
     """{ActorId: 파티 소속(bool)} — 사건 JOIN_PARTY·LEAVE_PARTY 기록을 (분, 인스턴스) 순으로 겹쳐 읽은 최신 값."""
     rows = []
@@ -598,7 +631,7 @@ STEP_HANDLERS = {
     "SCHEDULE_WAKEUP": _s_wakeup, "SCHEDULE_EFFECT": _s_effect, "EMIT_SIGNAL": _s_signal,
     "SET_ACTOR_STATUS": _s_actor_status, "CLEAR_ACTOR_STATUS": _s_actor_status_clear,
     "GRANT_GROWTH": _s_grant_growth, "SET_PC_RECORD": _s_pc_record,
-    "JOIN_PARTY": _s_party(True), "LEAVE_PARTY": _s_party(False),
+    "JOIN_PARTY": _s_party(True), "LEAVE_PARTY": _s_party(False), "GRANT_ITEM": _s_grant_item,
 }
 
 

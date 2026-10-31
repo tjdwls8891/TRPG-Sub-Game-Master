@@ -1414,6 +1414,39 @@ def item_block(session, *, pc_name, scene_owner_names=(), scene_place=None, defs
 #  genesis 초기 재고(INITIALIZATION과 같은 strict 저장)
 # ══════════════════════════════════════════════════════════════
 
+def apply_event_grants(session, grants, *, definition=None, pc_name=None) -> list:
+    """v7.53 커밋 — 사건 GRANT_ITEM 지급을 소지품·현장 물건에 더한다. 반환: 보고 행 [{target, item, delta}].
+
+    · actor = ActorId(저작 인물 → 레거시 이름 소지) 또는 $session_pc(PC 이름). place = 현장 물건 원천
+      `ev.<digest>`(origin EVENT — 이후 추출 물건 연산 L키로 집는다). 같은 기록은 한 번만(원천 id = 기록의 box)."""
+    defs = definitions_of(definition)
+    acts = (definition or {}).get("actor_definitions") or {}
+    res = dict(getattr(session, "resources", None) or {})
+    places = copy.deepcopy(getattr(session, "place_items", None) or {})
+    rows = []
+    for g in grants or ():
+        sid, mult = parse_key(g["key"], defs)
+        qty = int(g["quantity"]) * mult
+        if g.get("place"):
+            box = g["box"]
+            if box in places:
+                continue
+            places[box] = {"place": g["place"], "key": sid.key, "quantity": qty, "origin": "EVENT", "by": None,
+                           "tx": None}
+            rows.append({"target": f"@{g['place']}", "item": sid.key, "delta": qty})
+            continue
+        owner = pc_name if g.get("actor") == "$session_pc" else (acts.get(g.get("actor")) or {}).get("legacy_key")
+        if not owner:
+            continue
+        bag = dict(res.get(owner) or {}) if isinstance(res.get(owner), dict) else {}
+        bag[sid.key] = (bag.get(sid.key, 0) if isinstance(bag.get(sid.key, 0), int) else 0) + qty
+        res[owner] = bag
+        rows.append({"target": owner, "item": sid.key, "delta": qty})
+    session.resources = res
+    session.place_items = places
+    return rows
+
+
 def genesis_item_state(definition: dict, session, start_items=(), *, source_prefix: str = "start") -> dict:
     """DYNAMIC genesis의 아이템 초기 상태 — {resources, item_instances}(+ 시작 물건이 있으면 place_items)(세션 불변, 순수).
 

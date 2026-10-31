@@ -4089,6 +4089,17 @@ class GMCog(commands.Cog):
         _gl = core.growth.apply_turn(session, prep)                     # v7.50(E8): 성장 포인트·등급·성장 사용
         if _gl:
             plan.diagnostics["growth"] = list(_gl)
+        _wt = getattr(prep, "world_turn", None)                         # v7.53: 사건이 준 물건(GRANT_ITEM)
+        _grants = core.turn_world.item_grant_changes(session, prep) if _wt is not None else []
+        if _grants:
+            _rows = core.items.apply_event_grants(
+                session, _grants, definition=_wt.ctx.definition,
+                pc_name=getattr(getattr(plan, "item_plan", None), "pc_name", None)
+                or next((p.get("name") for p in (session.players or {}).values() if p.get("name")), None))
+            plan.diagnostics["item_grants"] = list(_rows)
+            plan.entries = list(plan.entries) + [
+                {"domain": "item", "target": r["target"], "op": "delta", "payload": {"item": r["item"], "delta": r["delta"]}}
+                for r in _rows]
         await self._apply_extraction_plan(session, plan, _mch, derived=derived)
 
     async def _retire_legacy_extraction_retry(self, session) -> bool:

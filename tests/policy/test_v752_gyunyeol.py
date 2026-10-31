@@ -135,6 +135,8 @@ def test_gate_round_places_monsters_clear_grants_and_next_round_revives():
     assert NP.effective_place(D, s, boss) is None
     _turn(s)
     assert _phase(s, "gy_gate_e") == "cleared" and _points(s) == 3 + 2           # 처치 3 + 공략 2
+    loot = list(EV.item_grants(s.event_instances).values())                      # v7.53: 보스방에 마석
+    assert [(g["key"], g["quantity"], g["place"]) for g in loot] == [("E급 마석", 3, "굴착기 둥지")]
     _walk(s, *BACK)
     assert _phase(s, "gy_gate_e") == "sealed"
     _go(s, "공사장 입구")                                                          # 새 회차 — 우두머리 되살아남
@@ -144,6 +146,7 @@ def test_gate_round_places_monsters_clear_grants_and_next_round_revives():
     _turn(s, combat_deaths=[(boss, "사망", 3)])
     _turn(s)
     assert _phase(s, "gy_gate_e") == "cleared" and _points(s) == 10              # 회차마다 지급이 쌓인다(v7.52)
+    assert len(EV.item_grants(s.event_instances)) == 2                           # 회차마다 새 전리품
 
 
 def test_higher_gate_needs_rank():
