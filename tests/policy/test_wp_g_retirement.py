@@ -102,7 +102,7 @@ def _ev(eid, sid, krw, usd=None, hint=CL.HINT_PLAYER_CANDIDATE):
 
 def test_g2_no_business_rule_reads_legacy_total_cost():
     """자동 GM 비용 상한은 total_cost − baseline 을 더 이상 계산하지 않는다(AUD-033)."""
-    for rel in ("cogs/gm.py", "core/session_flow.py"):
+    for rel in ("cogs/gm.py", "indaim/app/session_flow.py"):
         src = source_of(rel)
         assert "total_cost - session.gm_cost_baseline" not in src
         assert 'total_cost - getattr(session, "gm_cost_baseline"' not in src
@@ -273,7 +273,7 @@ def test_g2_no_production_caller_of_legacy_tolerant_account_writers():
     from tests.conftest import REPO_ROOT
     pat = re.compile(r"\b(add_ink|deduct_ink|set_balance|register_account)\(")
     offenders = []
-    for base in ("core", "cogs"):
+    for base in ("core", "indaim", "cogs"):
         for dirpath, _dirs, files in os.walk(os.path.join(REPO_ROOT, base)):
             if "__pycache__" in dirpath:
                 continue
@@ -281,7 +281,7 @@ def test_g2_no_production_caller_of_legacy_tolerant_account_writers():
                 if not fn.endswith(".py"):
                     continue
                 rel = os.path.relpath(os.path.join(dirpath, fn), REPO_ROOT).replace("\\", "/")
-                if rel == "core/accounts.py":
+                if rel == "indaim/ledger/accounts.py":
                     continue
                 for ln, line in enumerate(source_of(rel).splitlines(), 1):
                     if pat.search(line) and not line.lstrip().startswith("#"):
@@ -322,13 +322,13 @@ def test_d3_fictional_compression_prepayment_retired():
         assert not hasattr(core, name), name
         assert not hasattr(core.estimate, name), name
     assert "compression_prepaid_krw" not in core.SESSION_FIELDS
-    for rel in ("cogs/gm.py", "cogs/game.py", "core/display.py", "core/ui.py",
-                "core/estimate.py", "core/models.py", "core/io.py"):
+    for rel in ("cogs/gm.py", "cogs/game.py", "indaim/adapters/discord/display.py", "indaim/adapters/discord/ui.py",
+                "indaim/ledger/estimate.py", "indaim/app/models.py", "indaim/app/io.py"):
         src = source_of(rel)
         assert "compression_prepaid_krw" not in src, rel
         assert "compression_prepay(" not in src, rel
     # 플레이어/마스터에게 '압축 선결제·환급·추가' 문구를 내지 않는다
-    for rel in ("cogs/gm.py", "core/display.py", "core/ui.py", "cogs/game.py"):
+    for rel in ("cogs/gm.py", "indaim/adapters/discord/display.py", "indaim/adapters/discord/ui.py", "cogs/game.py"):
         for line in source_of(rel).splitlines():
             if "압축 선결제" in line:
                 assert line.lstrip().startswith("#") or "WP-G" in line, (rel, line)
@@ -358,4 +358,4 @@ def test_aud014_merged_status_effects_preserved():
     assert not {e["name"] for e in common if e.get("requires")} & set(merged)    # v7.48: 기능 상태는 선언한 시나리오만
     assert merged[c0]["apply_condition"] == "시나리오 정의"       # 시나리오가 덮어쓴다
     assert "시나리오전용" in merged
-    assert "get_merged_status_effects" in source_of("core/extraction.py")   # 추출 유효 목록이 병합본을 쓴다
+    assert "get_merged_status_effects" in source_of("indaim/turn/extraction.py")   # 추출 유효 목록이 병합본을 쓴다

@@ -39,7 +39,7 @@ def test_d004_snapshot_is_carried_not_retaken(session_auto_ready):
     body = "\n".join(src.splitlines()[fn.lineno - 1:fn.end_lineno])
     # WP-C: 델타 기록은 READY 이후로 이동했다. WP-D: 그 owner는 CommitCoordinator의
     #   부수효과 없는 적용 단계다(스냅샷 이월 방식 자체는 불변 — AUD-020은 WP-E).
-    csrc = source_of("core/commit_coordinator.py")
+    csrc = source_of("indaim/turn/commit_coordinator.py")
     ctree = ast.parse(csrc)
     cont = next(n for n in ast.walk(ctree)
                 if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))

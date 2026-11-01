@@ -31,9 +31,66 @@ from tests.fakes.genai_fakes import (                             # noqa: E402
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 
+def legacy_rel(name_or_path: str) -> str:
+    """옛 core 모듈 이름('items' · 'items.py' · 'core/items.py') → 실제 저장소 상대 경로(리팩터링 T-5 재배치 뒤 indaim 아래).
+    core/__init__.py는 그대로다. 옛 core 모듈이 아니면 받은 값을 그대로 돌려준다."""
+    from indaim.legacy_map import MAP
+    n = name_or_path.replace("\\", "/")
+    stem = n[len("core/"):] if n.startswith("core/") else n
+    stem = stem[:-3] if stem.endswith(".py") else stem
+    if stem in MAP:
+        return os.path.join(*MAP[stem].split(".")) + ".py"
+    if stem == "__init__" and n in ("__init__", "__init__.py", "core/__init__.py"):
+        return os.path.join("core", "__init__.py")
+    return name_or_path
+
+
 def source_of(relative_path: str) -> str:
-    """저장소의 소스 파일을 읽는다. cwd와 무관하다."""
-    return (pathlib.Path(REPO_ROOT) / relative_path).read_text(encoding="utf-8")
+    """저장소의 소스 파일을 읽는다. cwd와 무관하다. 'core/x.py'는 옮긴 실제 위치를 읽는다(legacy_rel)."""
+    return (pathlib.Path(REPO_ROOT) / legacy_rel(relative_path)).read_text(encoding="utf-8")
+
+
+def internal_imports(node) -> set:
+    """import 문 하나가 가져오는 옛 core 모듈 이름 — 상대 import(`from . import x`·`from .x import y`)와
+    재배치 뒤 절대 import(`from indaim.<패키지> import x`·`from indaim.<패키지>.x import y`)를 같게 읽는다."""
+    import ast as _ast
+    from indaim.legacy_map import MAP
+    where = {v: k for k, v in MAP.items()}
+    if not isinstance(node, _ast.ImportFrom):
+        if isinstance(node, _ast.Import):
+            return {where[a.name] for a in node.names if a.name in where}
+        return set()
+    if node.level == 1:
+        return {node.module.split(".")[0]} if node.module else {a.name for a in node.names}
+    mod = node.module or ""
+    if mod in where:
+        return {where[mod]}
+    if mod.startswith("indaim."):
+        return {where[f"{mod}.{a.name}"] for a in node.names if f"{mod}.{a.name}" in where}
+    return set()
+
+
+# 운영 코드가 아닌 이행 장치 — 옛 연산 이름을 번역표 키로 쓰거나(migrate) 테스트 그림자에서만 옛 엔진을 부르고(bridge),
+#   옛 모듈 이름을 위치 표로만 적는다(legacy_map). '누가 부르는가' 스캔 대상이 아니다.
+TRANSITION_FILES = ("indaim/migrate/", "indaim/bridge/", "indaim/legacy_map.py")
+
+
+def prod_py_files(*bases) -> list:
+    """운영 코드 파일(절대 경로, 정렬). base 'core' = core/__init__.py + indaim 전체(옮긴 옛 core와 새 엔진 — 같은 불변식 대상,
+    이행 장치 TRANSITION_FILES 제외), 그 밖의 base(cogs 등)는 그 디렉터리의 .py 전부(하위 포함)."""
+    out = []
+    for base in bases:
+        roots = [("core", False), ("indaim", True)] if base == "core" else [(base, True)]
+        for d, rec in roots:
+            top = os.path.join(REPO_ROOT, d)
+            if not rec:
+                out += [os.path.join(top, f) for f in sorted(os.listdir(top)) if f.endswith(".py")]
+                continue
+            for dp, dirs, fs in os.walk(top):
+                dirs[:] = sorted(x for x in dirs if x != "__pycache__")
+                out += [os.path.join(dp, f) for f in sorted(fs) if f.endswith(".py")
+                        and not os.path.relpath(os.path.join(dp, f), REPO_ROOT).replace("\\", "/").startswith(TRANSITION_FILES)]
+    return out
 
 
 GAME_CH = 100_001

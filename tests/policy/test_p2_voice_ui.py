@@ -18,7 +18,7 @@ from core import conversational as CV
 from core import master_art as MA
 from core import speaker_card as SC
 from core import voice_profile as VP
-from tests.conftest import PLAYER_UID
+from tests.conftest import PLAYER_UID, legacy_rel
 from tests.fakes.discord_fakes import FakeChannel, FakeInteraction, FakeUser
 from tests.policy.test_v715_character_creation import (  # noqa: F401 — 캐릭터 생성 하네스 재사용
     _prefill_start, labels, pc, pick, press, st, through_talk)
@@ -440,5 +440,5 @@ def test_threshold_env(monkeypatch):
 
 def test_new_modules_make_no_provider_calls():
     for mod in ("voice_profile", "master_art", "conversational"):
-        src = pathlib.Path(MA.ROOT, "core", f"{mod}.py").read_text(encoding="utf-8")
+        src = pathlib.Path(MA.ROOT, legacy_rel(mod)).read_text(encoding="utf-8")
         assert "generate_content" not in src and "genai" not in src

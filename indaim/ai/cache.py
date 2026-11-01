@@ -1,0 +1,756 @@
+# 캐시 관리 — 시나리오 룰북 캐시 빌드, 캐시 상태 동기화, 세션 디스크 복구
+import os
+import json
+import copy
+import asyncio
+import time
+
+from google.genai import types
+from google.genai.errors import APIError
+
+from indaim.app.constants import DEFAULT_MODEL, EXCHANGE_RATE
+from indaim.app.constants import MIN_CACHE_TOKENS
+from indaim.app.constants import CACHE_TTL_SECONDS as MIN_CACHE_TTL
+from indaim.app.models import TRPGSession
+from indaim.app.io import write_log, save_session_data, load_scenario_from_file, SESSION_FIELDS, SESSION_RESET_FIELDS, SCHEMA_VERSION, migrate_session_data, _MISSING
+from indaim.ledger.cost import calculate_upload_cost, calculate_cost, accrue
+from indaim.app.utils import get_merged_status_effects
+
+import prompts  # 지시층위 의사결정 지시문을 캐시에 함께 굽기 위함(방안 ①)
+
+
+def _deserialize_log_entry(item: dict):
+    """
+    {"role": str, "text": str} 딕셔너리 → types.Content 객체로 복원.
+
+    - role 또는 text가 누락된 항목은 None 반환 (restore 시 필터링됨).
+    - SDK 변경이나 잘못된 저장 데이터에도 조용히 실패하도록 예외 처리.
+    """
+    try:
+        role = item.get("role", "user")
+        text = item.get("text", "")
+        if not isinstance(text, str) or not text.strip():
+            return None
+        return types.Content(role=role, parts=[types.Part.from_text(text=text)])
+    except Exception as e:
+        print(f"⚠️ [역직렬화] raw_logs 엔트리 복원 실패 (건너뜀): {e}")
+        return None
+
+
+def get_home_section_ids(session) -> list:
+    """
+    플레이어의 소속(사문)·근거지에 매칭되는 keyword_memory 섹션 id 목록을 반환한다.
+    이 섹션들은 캐시에 직접 편입되고(항상 참조), 온디맨드 트리거에서는 중복 주입되지 않도록 억제된다.
+    매칭은 고재현율을 위해 다음 중 하나면 성립:
+      - id 완전일치 (t == eid)
+      - id가 값에 포함 (eid in t)  — "무당파" ⊂ "무당파 장문인"
+      - 값이 id에 포함 (t in eid)  — "무당" ⊂ "무당파"
+      - 값이 해당 항목 keywords에 존재 (t in kws)
+      - keyword(2자 이상)가 값에 포함 (kw in t)  — "무당" ∈ ["무당",...] ⊂ "무당 이대제자"
+    마지막 규칙이 "무당 이대제자"처럼 id 문자열을 직접 포함하지 않는 소속·근거지를 잡아낸다.
+    """
+    kms = session.scenario_data.get("keyword_memory", [])
+    if not kms:
+        return []
+    targets = set()
+    for p in session.players.values():
+        prof = p.get("profile", {}) or {}
+        for f in ("소속", "근거지"):
+            v = prof.get(f)
+            if v and str(v).strip():
+                targets.add(str(v).strip())
+    if not targets:
+        return []
+    ids = []
+    for e in kms:
+        eid = e.get("id")
+        if not eid:
+            continue
+        kws = set(e.get("keywords", []))
+        for t in targets:
+            if (t == eid or eid in t or t in eid or t in kws
+                    or any(len(kw) >= 2 and kw in t for kw in kws)):
+                ids.append(eid)
+                break
+    return ids
+
+
+# 캐시 최소 유지 시간. 남은 시간이 이보다 짧아도 이 값은 준다.
+MIN_TTL_SECONDS = 600
+
+
+def is_cache_expired(session) -> bool:
+    """캐시가 시간상 만료됐는지.
+
+    cache_name만 보면 만료 뒤에도 열려 있는 것으로 보인다. 실제로는
+    API 호출이 실패해야 알아차리므로, 그 전까지 디스플레이가 잘못된
+    상태를 보여주고 열기 버튼도 잠겨 있다.
+    """
+    if not getattr(session, "cache_name", None):
+        return False
+    created = getattr(session, "cache_created_at", 0.0) or 0.0
+    if not created:
+        return False
+    minutes = int(getattr(session, "open_minutes", 0) or 0)
+    total = minutes * 60 if minutes else MIN_CACHE_TTL
+    return (time.time() - created) >= total
+
+
+def is_session_open(session) -> bool:
+    """세션이 실제로 열려 있는지. 만료된 캐시는 열린 것이 아니다."""
+    return bool(getattr(session, "cache_name", None)) and not is_cache_expired(session)
+
+
+def remaining_ttl(session) -> int:
+    """세션에 남은 캐시 유지 시간(초).
+
+    재발급·복구 시 원래 고른 시간을 이어가야 한다. 매번 6시간을 새로
+    주면 결제한 것보다 오래 유지되어 비용이 어긋난다.
+    """
+    minutes = int(getattr(session, "open_minutes", 0) or 0)
+    total = minutes * 60 if minutes else MIN_CACHE_TTL
+
+    created = getattr(session, "cache_created_at", 0.0) or 0.0
+    if created:
+        elapsed = max(0, int(time.time() - created))
+        return max(MIN_TTL_SECONDS, total - elapsed)
+    return max(MIN_TTL_SECONDS, total)
+
+
+def update_session_cache_state(session: TRPGSession, frozen=None):
+    """
+    캐시 재발급(또는 신규 발급) 완료 직후 호출하여 세션 캐시 연동 상태를 동기화한다.
+
+    1. 세션 생성 NPC 스냅샷(`cached_session_npcs`)을 현재 시점으로 업데이트.
+       → 이후 변경분만 delta로 오버라이드 주입되도록 기준 데이터 고정.
+       → resources/statuses 런타임 값도 함께 저장해 delta 비교가 정확하게 이루어지도록 함.
+    2. 압축 기억(`compressed_memory`)을 캐시로 이동.
+       → `cached_compressed_memory`에 누적 후 `compressed_memory` 초기화.
+       → 이후 프롬프트 `add_memory_block`에는 캐시 재발급 이후 새로 생긴 기억만 주입된다.
+    """
+    from indaim.app import logs as _logs
+    _logs.session_meta(session, "cache")                 # P3 G2: 캐시 발급·재발급(프롬프트 지문 포함)
+    if frozen is not None:
+        # H06-C: 캐시 본문은 고정 원천(FrozenCacheBuildSource)으로 만들었다 — 기준선도 그 원천에서 잡는다.
+        #   생성 중에 새로 쌓인 압축 기억·NPC 변화는 캐시에 없으므로 런타임 쪽에 그대로 남긴다.
+        session.cached_session_npcs = copy.deepcopy(frozen.session_npc_base)
+        old, new = frozen.cached_compressed_memory, frozen.compressed_memory
+        session.cached_compressed_memory = (old + "\n" + new) if (old and new) else (old or new)
+        live = session.compressed_memory or ""
+        session.compressed_memory = live[len(new):].lstrip("\n") if (new and live.startswith(new)) else \
+            ("" if live == new else live)
+        session.cached_worldview_sections = get_home_section_ids(frozen.view)
+        session.cache_history_marker = copy.deepcopy(frozen.history_marker)
+        session.cache_history_stale = False
+        return
+    default_npcs = session.scenario_data.get("default_npcs", {})
+    session.cached_session_npcs = {
+        name: {
+            **dict(data),
+            "resources": dict(session.resources.get(name, {})),
+            "statuses": list(session.statuses.get(name, []))
+        }
+        for name, data in session.npcs.items()
+        if name not in default_npcs
+    }
+
+    old_cached = getattr(session, "cached_compressed_memory", "")
+    new_chunk = session.compressed_memory
+    if old_cached and new_chunk:
+        session.cached_compressed_memory = old_cached + "\n" + new_chunk
+    else:
+        session.cached_compressed_memory = old_cached or new_chunk
+    session.compressed_memory = ""  # 캐시로 이동됨 — 프롬프트에서 중복 주입 방지
+
+    # 이번 캐시에 편입된 연고지(사문·근거지) 섹션 id 기록 → 온디맨드 중복 주입 억제 기준
+    session.cached_worldview_sections = get_home_section_ids(session)
+
+    # WP-E(E-E3): 이 provider 캐시의 이력 출처(현재 정본 표식·gm 턴). 되감기/재생성이
+    #   출처보다 이전 상태로 복원하면 cache_history_stale로 사용이 막힌다.
+    from indaim.turn.turn_history import cache_marker_now
+    session.cache_history_marker = cache_marker_now(session)
+    session.cache_history_stale = False
+
+
+# noinspection PyShadowingNames
+NPC_PART_ALL, NPC_PART_FIXED, NPC_PART_EXTRA = "all", "fixed", "extra"
+# 고정 설정(정체·인상) — 필드 이름에 이 낱말이 들어가면 고정. 나머지 저작 필드·스탯·기본 상태는 추가 설정
+NPC_FIXED_FIELD_WORDS = ("나이", "성별", "소속", "직책", "외모", "기질", "말투", "어조")
+
+
+def _is_fixed_field(name: str) -> bool:
+    return any(w in str(name) for w in NPC_FIXED_FIELD_WORDS)
+
+
+_PERSONA_CORE_LABELS = (("value", "가치"), ("crack", "균열(겉과 어긋나는 면)"), ("fear", "두려움·약점"),
+                        ("ties", "믿고 기대는 것"), ("rivals", "경계·반목"))
+
+
+def persona_lines(persona, part: str) -> list:
+    """v7.39 인물 persona 렌더 — fixed: 첫인상 · extra: 말하는 방식·대사 견본·속 기준 · all(LEGACY): 둘 다 + 기본 '지금'.
+
+    관계 단계별 태도·조건부 '지금'·PC 기억은 동적 세계 장면 블록(turn_world)이 정본 기준으로 고른다."""
+    if not isinstance(persona, dict):
+        return []
+    sur, core = persona.get("surface") or {}, persona.get("core") or {}
+    out = []
+    if part in (NPC_PART_FIXED, NPC_PART_ALL) and sur.get("impression"):
+        out.append(f"  첫인상: {sur['impression']}")
+    if part == NPC_PART_FIXED:
+        return out
+    if sur.get("voice"):
+        out.append(f"  말하는 방식: {sur['voice']}")
+    if sur.get("lines"):
+        out.append("  대사 견본(말투 기준 — 그대로 반복하지 말 것): " + " / ".join(f"「{x}」" for x in sur["lines"]))
+    for k, label in _PERSONA_CORE_LABELS:
+        if core.get(k):
+            out.append(f"  {label}: {core[k]}")
+    if part == NPC_PART_ALL:
+        base = next((r for r in persona.get("now") or () if isinstance(r, dict) and "when" not in r), None)
+        if base:
+            out.append("  지금: " + now_text(base))
+    return out
+
+
+def now_text(row: dict) -> str:
+    bits = [f"목표 — {row['goal']}"]
+    if row.get("worry"):
+        bits.append(f"걱정 — {row['worry']}")
+    if row.get("mood"):
+        bits.append(f"기분 — {row['mood']}")
+    if row.get("body"):
+        bits.append(f"몸 — {row['body']}")
+    return " · ".join(bits)
+
+
+def npc_field_lines(npc_template, npc_data: dict, *, part: str = NPC_PART_ALL, bound: bool = False) -> list:
+    """NPC 사전 한 인물의 렌더 줄(저작 info_fields 순서 → 스탯 → 기본 자원 → 기본 상태).
+
+    part: all(전부) · fixed(정체·인상 — 동적 세계 캐시) · extra(그 밖 — 동적 세계 장면 인물 상세)."""
+    tmpl = npc_template if isinstance(npc_template, dict) else {}
+    take = (lambda fixed: True) if part == NPC_PART_ALL else (lambda fixed: fixed == (part == NPC_PART_FIXED))
+    lines = []
+    for f in tmpl.get("info_fields", []) or []:
+        val = npc_data.get(f, "")
+        if val and take(_is_fixed_field(f)):
+            lines.append(f"  {f}: {val}")
+    lines += persona_lines(npc_data.get("persona"), part)
+    if part == NPC_PART_FIXED:
+        return lines
+    # NOTE: has_stats / has_resources / has_statuses 플래그에 따라 NPC 기본값을 넣는다. 런타임 변경분은
+    #   프롬프트의 [NPC 변경사항 / 런타임 상태] 오버라이드 블록이 담당한다.
+    if tmpl.get("has_stats"):
+        stats = npc_data.get("stats", {})
+        if stats:
+            lines.append(f"  스탯: {', '.join(f'{k}={v}' for k, v in stats.items())}")
+    # v7.17: 정의가 바인딩된(DYNAMIC) 세션은 NPC 소지품을 런타임 정본(장면 인물·물건 블록)으로만 준다 —
+    #   캐시에 굽힌 저작 초기값이 실제 소지보다 앞서지 않게 한다(초기값 반복 주입 금지).
+    if tmpl.get("has_resources") and not bound:
+        resources = npc_data.get("resources", {})
+        if resources:
+            lines.append(f"  기본 자원: {', '.join(f'{k}: {v}' for k, v in resources.items())}")
+    if tmpl.get("has_statuses"):
+        statuses = npc_data.get("statuses", [])
+        if statuses:
+            lines.append(f"  기본 상태: {', '.join(statuses)}")
+    return lines
+
+
+# v7.34(A2 — 사용자 결정 '가'): 동적 세계 세션의 스토리 가이드에서 빼는 자동 진행 절(정본 사건이 대신한다)
+DYNAMIC_STORY_OMIT_WORDS = ("세계 사건", "트리거")
+
+
+def dynamic_story_guide(text: str) -> str:
+    """번호 머리글('N. 제목') 절 가운데 자동 진행 사건·세력 긴장 트리거 절을 빼고 동적 세계 권위 머리말을 붙인다."""
+    import re as _re
+    text = text or ""
+    heads = list(_re.finditer(r"(?m)^[ \t]*\d+\.[ \t]+(.+)$", text))
+    if not heads:
+        kept, dropped = text, []
+    else:
+        parts, dropped = [text[:heads[0].start()]], []
+        for i, m in enumerate(heads):
+            seg = text[m.start():heads[i + 1].start() if i + 1 < len(heads) else len(text)]
+            if any(w in m.group(1) for w in DYNAMIC_STORY_OMIT_WORDS):
+                dropped.append(m.group(1).strip())
+            else:
+                parts.append(seg)
+        kept = "".join(parts)
+    note = ("(동적 세계 세션: 세계 사건의 발생·진행은 정본 사건과 프롬프트의 코드 확정 블록만이 정한다. "
+            "아래 가이드는 장면 연출의 참고이며, 이것을 근거로 사건·충돌이 '일어났다'고 정하지 않는다."
+            + (f" 자동 진행 절({' · '.join(dropped)})은 이 세션에서 제외했다." if dropped else "") + ")\n")
+    return note + kept.strip("\n")
+
+
+async def build_scenario_cache_text(bot, model_id, scenario_data: dict, cache_note: str = "", session_id: str = None, session: "TRPGSession" = None) -> tuple[str, int, str]:
+    """
+    시나리오 데이터를 바탕으로 Context Caching을 위한 '시나리오 핵심 룰북' 텍스트 조립.
+    최소 요구 토큰 수 미달 시 임의의 패딩 추가.
+
+    Args:
+        bot: 메인 봇 인스턴스
+        model_id (str): 토큰 계산에 사용할 모델 식별자
+        scenario_data (dict): 시나리오 데이터 딕셔너리
+        cache_note (str): 캐시에 삽입할 GM 관리 기억사항
+        session_id (str): 세션 아이디
+
+    Returns:
+        tuple[str, int]: 최종 완성된 룰북 텍스트와 해당 텍스트의 총 토큰 수
+    """
+    worldview = scenario_data.get('worldview', '특별한 세계관 정보 없음')
+    story_guide = scenario_data.get('story_guide', '특별한 스토리 가이드 없음')
+    if getattr(session, "definition_revision", None):
+        story_guide = dynamic_story_guide(story_guide)
+    stat_system = scenario_data.get('stat_system', '특별한 스탯 시스템 없음')
+    desc_guide = scenario_data.get('desc_guide', '상황에 맞게 묘사하세요.')
+    status_code_block = scenario_data.get('status_code_block', '상태창 코드블럭 양식 없음')
+    # WP-G(D1): 캐시 노트는 세션 한정 추가 사실 — 룰북 고정 사실·금지사항을 무효화하지 않는다.
+    note_injection = (f"\n[추가 세계관 및 상태 (캐시 노트 — 이번 세션의 추가 사실. "
+                      f"위 룰북의 고정 사실·금지사항과 충돌하면 룰북을 따른다)]\n{cache_note}\n"
+                      if cache_note else "")
+
+    # ── NPC 사전 텍스트 조립 (구조화 필드 지원) ──
+    npc_text = ""
+    default_npcs = scenario_data.get("default_npcs", {})
+    npc_template = scenario_data.get("npc_template", {})
+    npc_info_fields = npc_template.get("info_fields", []) if isinstance(npc_template, dict) else []
+
+    bound = bool(getattr(session, "definition_revision", None))
+    for npc_name, npc_data in default_npcs.items():
+        if not isinstance(npc_data, dict):
+            npc_text += f"\n- {npc_name}: {npc_data}\n"
+            continue
+        if npc_info_fields:
+            # v7.34(사용자 결정 4): 동적 세계 세션은 고정 설정(정체·인상)만 캐시에 굽고, 추가 설정은
+            #   그 인물이 정본상 현재 장면에 있을 때 프롬프트로 준다(core.turn_world.scene_npc_detail_block).
+            field_lines = npc_field_lines(npc_template, npc_data, part=NPC_PART_FIXED if bound else NPC_PART_ALL,
+                                          bound=bound)
+            npc_text += f"\n- {npc_name}:\n" + "\n".join(field_lines) + "\n"
+        else:
+            # 레거시 양식: details 문자열
+            details = npc_data.get("details", "")
+            npc_text += f"\n- {npc_name}:\n{details}\n"
+
+    if not npc_text:
+        npc_text = "등록된 NPC 없음."
+
+    # ── 상태이상 목록 섹션 ──
+    merged_status_effects = get_merged_status_effects(scenario_data)
+    if merged_status_effects:
+        se_lines = []
+        for name, eff in merged_status_effects.items():
+            # v7.34(A3): weight는 v7.12부터 판정에 쓰이지 않는다(상태 영향은 판단층위 status_mod) — 표기하지 않는다
+            se_lines.append(
+                f"- {name}: 적용조건=[{eff.get('apply_condition', '')}] / 제거조건=[{eff.get('remove_condition', '')}]"
+            )
+        status_effects_section = f"""
+[4.5. 사용 가능한 상태이상 목록]
+(이 시나리오의 공식 상태이상 목록이다. 상태 변화를 묘사할 때 이 목록의 이름과 적용·제거 조건을 기준으로 할 것.
+실제 부여·제거는 묘사를 읽은 추출층위와 시스템 검증이 결정한다.)
+""" + "\n".join(se_lines) + "\n"
+    else:
+        status_effects_section = ""
+
+    # ── 금지사항 섹션 ──
+    prohibitions_raw = scenario_data.get("prohibitions", [])
+    if isinstance(prohibitions_raw, list) and prohibitions_raw:
+        prohibitions_text = "\n".join(f"- {item}" for item in prohibitions_raw)
+    elif isinstance(prohibitions_raw, str) and prohibitions_raw.strip():
+        prohibitions_text = prohibitions_raw.strip()
+    else:
+        prohibitions_text = None
+
+    prohibitions_section = ""
+    if prohibitions_text:
+        prohibitions_section = f"""
+[6. GM 절대 금지 사항]
+(아래 요소들은 플레이어나 GM의 요청이 있더라도 예외 없이 준수한다. 이를 위반하는 묘사는 즉시 수정한다.)
+{prohibitions_text}
+"""
+
+    # ── 세션 생성 NPC 섹션 [8] (session 인자 있을 때만 조립) ──
+    session_npc_section = ""
+    if session is not None:
+        default_npcs_set = set(default_npcs.keys())
+        session_npc_lines = []
+        for npc_name, npc_data in session.npcs.items():
+            if npc_name in default_npcs_set:
+                continue
+            if not isinstance(npc_data, dict):
+                session_npc_lines.append(f"\n- {npc_name}: {npc_data}\n")
+                continue
+            if npc_info_fields:
+                field_lines = []
+                for f in npc_info_fields:
+                    val = npc_data.get(f, "")
+                    if val:
+                        field_lines.append(f"  {f}: {val}")
+                # has_stats / has_resources / has_statuses 처리 (default NPC와 동일한 방식)
+                if isinstance(npc_template, dict) and npc_template.get("has_stats"):
+                    stats = npc_data.get("stats", {})
+                    if stats:
+                        field_lines.append(f"  스탯: {', '.join(f'{k}={v}' for k, v in stats.items())}")
+                if isinstance(npc_template, dict) and npc_template.get("has_resources") \
+                        and not getattr(session, "definition_revision", None):   # v7.17: DYNAMIC은 런타임 블록만
+                    # 런타임 자원 값을 반영 (session.resources 우선)
+                    res_val = session.resources.get(npc_name, npc_data.get("resources", {}))
+                    if res_val:
+                        field_lines.append(f"  기본 자원: {', '.join(f'{k}: {v}' for k, v in res_val.items())}")
+                if isinstance(npc_template, dict) and npc_template.get("has_statuses"):
+                    stat_val = session.statuses.get(npc_name, npc_data.get("statuses", []))
+                    if stat_val:
+                        field_lines.append(f"  기본 상태: {', '.join(stat_val)}")
+                session_npc_lines.append(f"\n- {npc_name}:\n" + "\n".join(field_lines) + "\n")
+            else:
+                details = npc_data.get("details", "")
+                session_npc_lines.append(f"\n- {npc_name}:\n{details}\n")
+
+        if session_npc_lines:
+            session_npc_text = "".join(session_npc_lines)
+            session_npc_section = f"""
+[8. 세션 진행 중 추가된 NPC]
+이 목록은 시나리오 외 세션 중 새로 생성된 NPC의 설정 원본이다.
+[3. NPC 사전]과 동일하게, 프롬프트에 [NPC 변경사항 / 런타임 상태] 블록이 제공된 경우
+해당 NPC의 변하는 항목(현재 위치·상태·스탯 등)에 한해 아래 내용 대신 프롬프트 내 정보를 우선 적용할 것
+(인물의 정체성·고정 설정은 아래 내용을 유지).
+{session_npc_text}
+"""
+
+    # ── 세션 기억 압축 섹션 [9] (session 인자 있을 때만 조립) ──
+    memory_section = ""
+    if session is not None:
+        # cached_compressed_memory: 이전 재발급 시점까지의 기억
+        # compressed_memory: 마지막 재발급 이후 새로 누적된 기억
+        old_cached_mem = getattr(session, "cached_compressed_memory", "")
+        new_mem = session.compressed_memory
+        if old_cached_mem and new_mem:
+            full_memory = old_cached_mem + "\n" + new_mem
+        else:
+            full_memory = old_cached_mem or new_mem
+        if full_memory:
+            memory_section = f"""
+[9. 세션 진행 기억 — 과거 턴 압축 요약]
+(아래는 현재 세션에서 발생한 사건의 압축 요약이다. 과거 맥락 파악 및 일관성 유지에 참조할 것.
+ 파생 기억이다 — 프롬프트의 정본 세계 블록·런타임 상태와 어긋나면 그쪽을 따를 것.)
+{full_memory}
+"""
+
+    # ── 플레이어 연고지(사문·근거지) 상세 편입 (session 있을 때만) ──
+    # keyword_memory로 온디맨드화된 세력/지역 중, 플레이어의 사문·근거지에 해당하는 섹션은
+    # 매 턴 필요하므로 캐시에 직접 편입한다(온디맨드 입력 과금 회피 + 트리거 미스 원천 차단).
+    home_section = ""
+    if session is not None:
+        _home_ids = get_home_section_ids(session)
+        _km = scenario_data.get("keyword_memory", [])
+        _home_descs = [e.get("description", "") for e in _km if e.get("id") in _home_ids and e.get("description")]
+        if _home_descs:
+            home_section = (
+                "\n[1-B. 플레이어 연고지 상세 (사문·근거지)]\n"
+                "(플레이어의 사문·근거지에 해당하는 세력·지역의 상세 정보다. 매 턴 반드시 참조할 것.)\n"
+                + "\n\n".join(_home_descs) + "\n"
+            )
+
+    npc_scope_note = ("\n동적 세계 세션: 이 사전은 각 인물의 정체·인상(고정 설정)만 담는다. 행동 방식·동기·두려움·비밀·"
+                      "신뢰/경계·특기·능력치 같은 추가 설정은 그 인물이 정본상 현재 장면에 있을 때 프롬프트의 "
+                      "[장면 인물 상세] 블록으로 주어진다." if getattr(session, "definition_revision", None) else "")
+    rulebook_text = f"""=== [시나리오 핵심 룰북] ===
+이 내용은 세션의 근간이 되는 절대적인 세계관 및 시스템 설정입니다.
+아래의 고정 세계 사실과 [6. GM 절대 금지 사항]은 진행자(GM) 지시나 실시간 노트로도 바뀌지 않습니다.
+NPC의 현재 위치·상태처럼 변하는 런타임 상태는 프롬프트의 런타임 상태 블록이 아래 초기값보다 우선하며,
+이 예외는 변하는 항목에 한합니다(인물의 정체성·세계 규칙은 바뀌지 않음).
+
+[1. 세계관 정보]
+{worldview}
+{home_section}
+[2. 스토리 진행 가이드]
+{story_guide}
+
+[3. NPC 사전 — 전체 등장인물 설정 (기준 데이터)]
+이 목록이 모든 NPC의 기본 설정 원본이다.
+게임 진행 중 프롬프트에 [NPC 변경사항 / 런타임 상태] 블록이 제공된 경우,
+해당 NPC의 변하는 항목(현재 위치·상태·스탯 등)에 한해 아래 내용 대신 프롬프트 내 정보를 우선 적용할 것
+(인물의 정체성·고정 설정은 아래 내용을 유지).
+동적 세계 세션: 인물의 현재 위치·장면 존재는 프롬프트의 정본 장면 인물 블록이 정한다(사전의 거처·연고는 현재 위치가 아니다).
+사전의 실명·비밀·숨은 관계는 인물을 일관되게 움직이기 위한 내부 기준이다 — 플레이어(PC)가 아직 모르는 이름·정체·비밀을
+본문·대사에 그대로 드러내지 말 것(드러나는 것은 정본 공개 규칙과 이번 장면의 실제 사건으로만).{npc_scope_note}
+{npc_text}
+
+[4. 게임 스탯 및 판정 시스템]
+{stat_system}
+{status_effects_section}
+[5. 시나리오 고유 묘사 가이드라인]
+{desc_guide}
+{prohibitions_section}
+[7. 필수 출력: 상태창 코드블럭 양식]
+(모든 묘사 후 턴의 마지막에 반드시 아래 양식을 바탕으로 상태창을 출력할 것.
+ 동적 세계 세션은 날짜·요일·시간대·장소·턴 수 칸을 프롬프트가 정본 값으로 채워 준다 — 그 값을 그대로 쓸 것)
+{status_code_block}
+{session_npc_section}{memory_section}{note_injection}============================
+"""
+
+    # ── 방안 ①: GM 의사결정 지시문을 캐시 본문에 함께 포함 ──
+    # 지시층위 호출 시 이 지시문을 신선 입력(contents)으로 매번 넣지 않고 캐시 읽기 단가로 활용한다.
+    # 이 캐시는 메인 묘사 호출도 공유하므로, 묘사 시에는 이 블록을 무시하도록 명확히 라벨링한다.
+    rulebook_text += (
+        "\n\n=== [GM 의사결정 엔진 전용 지시문] ===\n"
+        "(주의: 아래는 GM의 '판단' 단계 전용 지시문이다. "
+        "일반 묘사(서술) 생성 시에는 이 블록을 완전히 무시하고, 위의 [시나리오 핵심 룰북]과 GM 지시사항만 따를 것.)\n"
+        + prompts.GM_LOGIC_SYSTEM_INSTRUCTION
+        + "\n=== [GM 의사결정 엔진 전용 지시문 끝] ===\n"
+    )
+
+    if session_id:
+        write_log(session_id, "api", f"[캐시 발급용 원본 룰북 (패딩 제외)]\n{rulebook_text}")
+
+    try:
+        response = await asyncio.to_thread(
+            bot.genai_client.models.count_tokens,
+            model=model_id,
+            contents=rulebook_text
+        )
+        base_tokens = response.total_tokens
+        min_cache_tokens = MIN_CACHE_TOKENS
+
+        if base_tokens >= min_cache_tokens:
+            # 패딩 불필요 — 원본과 업로드 텍스트가 동일
+            return rulebook_text, base_tokens, rulebook_text
+
+        # HACK: 제미나이 캐싱의 최소 요구 토큰 수를 강제 충족시키기 위해,
+        # 시스템이 읽지 않도록 지시한 의미 없는 마침표(.) 배열을 덧붙이는 우회 기법 적용.
+        missing_tokens = min_cache_tokens - base_tokens + 500
+        padding_chars = "." * (missing_tokens * 4)
+
+        padded_text = rulebook_text + f"\n\n[System Data Padding Area - DO NOT READ]\n{padding_chars}"
+
+        final_response = await asyncio.to_thread(
+            bot.genai_client.models.count_tokens,
+            model=model_id,
+            contents=padded_text
+        )
+        total_tokens = final_response.total_tokens
+
+        print(f"💡 [시스템] 룰북 조립 완료: 베이스({base_tokens}) + 패딩 -> 총 {total_tokens} 토큰 생성")
+        # rulebook_text: 패딩 제외 원본 (디버그용 저장 대상)
+        return padded_text, total_tokens, rulebook_text
+
+    except Exception as e:
+        print(f"⚠️ 토큰 계산 오류: {e}. 안전을 위해 임의의 대형 패딩을 적용합니다.")
+        return rulebook_text + ("." * 150000), 38000, rulebook_text
+
+
+def _session_from_data(data: dict):
+    """data.json dict → TRPGSession(마이그레이션·필드 복구·런타임 초기화). 시나리오를 읽지 못하면 None.
+
+    재시작 복구와 세션 관리(디스크에서 종료된 세션 읽기)가 같은 규칙을 쓴다. 활성 등록·복구 처분은 하지 않는다.
+    """
+    session_id = data.get("session_id")
+    # ── 스키마 마이그레이션 ──
+    # 필드명이 바뀐 버전은 값을 옮겨 담는다. 이관하지 않으면
+    # 구세션의 GM 진행 상태가 통째로 초기화된다.
+    saved_version = data.get("schema_version", 1)
+    if saved_version < SCHEMA_VERSION:
+        print(f"⚠️ {session_id}: 저장 스키마 v{saved_version} → 현재 v{SCHEMA_VERSION} — 마이그레이션 수행")
+        data = migrate_session_data(data)
+
+    scenario_data = load_scenario_from_file(data["scenario_id"])
+    if not scenario_data:
+        return None
+
+    session = TRPGSession(
+        data["session_id"], data["game_ch_id"], data["master_ch_id"],
+        data["scenario_id"], scenario_data
+    )
+
+    # ── 핵심 필드 복구 ──
+    session.players = data.get("players", {})
+    session.npcs = data.get("npcs", {})
+    session.resources = data.get("resources", {})
+    session.statuses = data.get("statuses", {})
+    session.compressed_memory = data.get("compressed_memory", "")
+    session.cache_name = data.get("cache_name")
+    session.current_turn_logs = data.get("current_turn_logs", [])
+    session.turn_count = data.get("turn_count", 0)
+    session.uncompressed_logs = data.get("uncompressed_logs", [])
+
+    # ── 선택적 필드 — SESSION_FIELDS 레지스트리로 일괄 복구 ──
+    # _MISSING 센티널로 실제 누락(기본값 사용)과 None 저장값을 구분한다.
+    for field, default in SESSION_FIELDS.items():
+        value = data.get(field, _MISSING)
+        if value is _MISSING:
+            setattr(session, field, copy.deepcopy(default))
+        else:
+            setattr(session, field, value)
+
+    # ── 재시작 시 항상 초기화되는 필드 (SESSION_RESET_FIELDS) ──
+    for field, reset_val in SESSION_RESET_FIELDS.items():
+        setattr(session, field, copy.deepcopy(reset_val))
+
+    # ── 런타임 전용 필드 초기화 ──
+    session.is_processing = False
+    session.gm_lock = False
+
+    # ── 후처리: None으로 저장된 cache_model을 DEFAULT_MODEL로 복원 ──
+    # (process_cache_deletion이 cache_model = None으로 저장하는 경우 대비)
+    if not session.cache_model:
+        session.cache_model = DEFAULT_MODEL
+
+    # ── raw_logs 복원 (_deserialize_log_entry로 안전 변환) ──
+    restored_raw_logs = []
+    for item in data.get("raw_logs", []):
+        entry = _deserialize_log_entry(item)
+        if entry is not None:
+            restored_raw_logs.append(entry)
+    session.raw_logs = restored_raw_logs
+    return session
+
+
+def load_session_from_disk(session_id: str):
+    """디스크의 세션 하나를 객체로 읽는다(활성 등록·복구 처분 없음). 없거나 읽을 수 없으면 None.
+
+    정의가 바인딩된 세션은 재시작 복구와 같이 스냅샷 원문을 시나리오로 쓴다.
+    """
+    data_path = f"sessions/{session_id}/data.json"
+    if not os.path.isfile(data_path):
+        return None
+    with open(data_path, "r", encoding="utf-8") as f:
+        data = json.load(f)
+    session = _session_from_data(data)
+    if session is None:
+        return None
+    try:
+        from indaim.ai import cache_source as _src
+        from indaim.app import world_lifecycle as _wlc
+        if _wlc.world_bound(session) and getattr(session, "definition_revision", None):
+            session.scenario_data = _src.bound_scenario_data(session)
+    except Exception as e:  # noqa: BLE001 — 종료·정리 용도: 원본 시나리오로 둔다
+        print(f"⚠️ {session_id}: 바인딩 정의 스냅샷을 읽지 못했습니다: {e}")
+    return session
+
+
+async def restore_sessions_from_disk(bot):
+    """
+    봇 재시작 시 로컬 디스크에 저장된 모든 세션의 JSON 데이터를 읽어와 복구.
+    """
+    if not os.path.exists("sessions"):
+        return
+
+    print("저장된 세션 데이터 복구를 시작합니다...")
+    for session_id in os.listdir("sessions"):
+        data_path = f"sessions/{session_id}/data.json"
+        if os.path.isfile(data_path):
+            try:
+                with open(data_path, "r", encoding="utf-8") as f:
+                    data = json.load(f)
+
+                session = _session_from_data(data)
+                if session is None:
+                    continue
+
+                # ── H06 R2: 종료(CLOSED)된 세션은 활성 게임 표면에 다시 올리지 않는다(저장·감사·재무 기록은 보존) ──
+                if getattr(session, "world_lifecycle", None) == "CLOSING":
+                    # 종료 진행 중 크래시 — 캐시 복구(재생성)보다 먼저 기존 finalizer로 종료를 완성한다
+                    try:
+                        from indaim.app import world_lifecycle as _wlc
+                        _cr0 = await _wlc.recover_closing(bot, session)
+                        print(f"⏹️ {session_id}: 종료 진행 복구 ok={_cr0.get('ok')} ({_cr0.get('reason', '')})")
+                    except Exception as _ce0:
+                        print(f"⛔ {session_id}: 종료 진행 복구 실패(차단 유지): {_ce0}")
+                if getattr(session, "world_lifecycle", None) == "CLOSED":
+                    print(f"⏹️ {session_id}: 종료된 세션 — 활성 등록하지 않습니다.")
+                    continue
+
+                # ── H06: 동적 세계가 바인딩된 세션은 현재 원본 파일이 아니라 정의 스냅샷 원문으로 진행한다 ──
+                #    (원본 drift가 진행 중 세션의 의미·캐시·프롬프트를 바꾸지 못한다). 스냅샷을 읽지 못하면
+                #    그대로 두고 세계 모드가 BLOCKED로 턴을 막는다(조용한 재컴파일·대체 없음).
+                try:
+                    from indaim.ai import cache_source as _src
+                    from indaim.app import world_lifecycle as _wlc
+                    if _wlc.world_bound(session) and getattr(session, "definition_revision", None):
+                        session.scenario_data = _src.bound_scenario_data(session)
+                except Exception as _se:
+                    print(f"⛔ {session_id}: 바인딩 정의 스냅샷을 읽지 못했습니다 — 동적 세계 턴 차단: {_se}")
+
+                # ── WP-D: 커밋 복구 — 게임 진입(active_sessions 등록)·캐시 재발급 저장 전에
+                #    CommitJournal/Settlement/계정 사실과 data.json 커밋 표식을 대조해 처분한다.
+                #    구 런타임 tx/준비 객체는 없다(재시작) — durable 사실만 쓴다.
+                try:
+                    from indaim.turn import commit_coordinator as _cc
+                    _rep = await _cc.recover_session(bot, session, context="restart")
+                    if _rep.status == "RESOLVED":
+                        print(f"🔁 {session_id}: 커밋 복구 {_rep.action} (tx={_rep.transaction_id})")
+                        await _cc.emit_stats_effects(_rep.derived)
+                    elif _rep.blocked:
+                        print(f"⛔ {session_id}: 커밋 복구 {_rep.status} — 새 턴 차단: {_rep.detail}")
+                    # RETRY_PENDING은 런타임 준비가 소실됐다 — exact ID로 종결(청구 0) 후 재선언.
+                    _ab = await _cc.abandon_retry_pending(bot, session)
+                    if _ab != "NONE":
+                        print(f"🔁 {session_id}: 추출 재시도 대기 시도 종결({_ab})")
+                    # WP-E: D 복구·재시도 폐기 이후 선택 이력/이력 조작 의도 정합(모순이면 차단).
+                    from indaim.turn import turn_history as _th
+                    _h = await _th.reconcile(bot, session)
+                    if _h["action"] not in ("CLEAN",):
+                        print(f"🔁 {session_id}: 이력 정합 {_h['action']} ok={_h['ok']}")
+                    if _h["ok"]:
+                        # E-E2: 크래시로 남은 출력 정리 부채 재개(채널 미준비면 부채 유지 →
+                        #   다음 입력 admission에서 재시도)
+                        _d = await _th.drain_cleanup(bot, session)
+                        if _d["done"] or _d["pending"]:
+                            print(f"🧹 {session_id}: 출력 정리 부채 완료 {_d['done']} · 보류 {_d['pending']}")
+                    # H06: 동적 세계 정본 변이 저널(INITIALIZATION/ADMIN_EDIT) 종결 + 바인딩 정의 검증.
+                    #   커밋 복구(PLAYER_TURN) 뒤 — 경쟁 복구 owner 없음. 정본·시계는 바꾸지 않는다.
+                    from indaim.app import world_lifecycle as _wl
+                    _w = _wl.restore(session)
+                    if _w["journal"] or _w["definition"] not in ("OK", "UNBOUND"):
+                        print(f"🌍 {session_id}: 동적 세계 복구 {_w}")
+                    # WP-F: 재시작으로 끊긴 대기 안내(주인 없는 transient)·만료분 정리.
+                    #   채널 미준비면 등록부에 남고 다음 입력 admission 에서 재시도된다.
+                    from indaim.turn import message_lifecycle as _ml
+                    await _ml.sweep(bot, session, prefix=_ml.WAITING_PREFIX)
+                    await _ml.sweep(bot, session, only_expired=True)
+                except Exception as _e:
+                    session.commit_recovery = {"status": "RECOVERY_REQUIRED",
+                                               "stage": "RESTORE_EXCEPTION",
+                                               "error": f"{type(_e).__name__}: {_e}"}
+                    print(f"⛔ {session_id}: 커밋 복구 실행 실패 — 새 턴 차단: {_e}")
+
+                # WP-F(POLICY-CACHE-01): 크래시로 끊긴 시간 해석 청구를 재구성·재개한다(캐시와 별개).
+                try:
+                    from indaim.ledger import interpretation_billing as _ib
+                    await _ib.settle(bot, session)
+                except Exception as _ie:
+                    print(f"⚠️ {session_id}: 시간 해석 청구 재개 실패(다음 해석·열기 시 재시도): {_ie}")
+
+                # 세션 관리: 승인된 제거가 진행 중인 세션은 다시 활성화하지 않는다(캐시 재연결·재생성 없음).
+                #   위 커밋·청구 복구는 그대로 마쳤다. 남은 종료·정산은 `!세션관리` 재개가 단일 경로로 잇는다.
+                try:
+                    from indaim.app import session_removal as _srm
+                    if _srm.read_checkpoint(session_id) is not None:
+                        _srm.hold(bot, session)
+                        print(f"🗑️ {session_id}: 제거 진행 중 — 활성 등록하지 않습니다(`!세션관리`로 재개).")
+                        continue
+                except Exception as _re:
+                    print(f"⚠️ {session_id}: 제거 진행 기록 확인 실패: {_re}")
+
+                # WP-F: 캐시 연동·교체·만료는 캐시 생애주기 서비스가 소유한다 — 중단된 종료/정산을
+                #   먼저 재개하고, 복구 재생성은 생성 성공 뒤에만 사실을 기록한다(사전 accrue 없음).
+                try:
+                    from indaim.ledger import cache_lifecycle as _cl
+                    _cr = await _cl.restore(bot, session)
+                    if _cr.get("action") not in ("NONE", "LINKED"):
+                        print(f"🔄 {session_id}: 캐시 복구 {_cr['action']}")
+                    elif _cr.get("action") == "LINKED":
+                        print(f"✅ {session_id}: 기존 캐시 연동 성공.")
+                except Exception as _ce:
+                    print(f"⚠️ {session_id}: 캐시 생애주기 복구 실패(다음 조작 시 재시도): {_ce}")
+
+                bot.active_sessions[session.game_ch_id] = session
+                bot.active_sessions[session.master_ch_id] = session
+                # 디스플레이 채널 — UI 버튼이 세션을 찾으려면 함께 등록해야 한다.
+                if getattr(session, "display_ch_id", None):
+                    bot.active_sessions[session.display_ch_id] = session
+                print(f"✅ 세션 {session_id} 복구 완료.")
+                from indaim.app import logs as _logs
+                _logs.session_meta(session, "restore")
+
+            except Exception as e:
+                print(f"⚠️ 세션 {session_id} 복구 중 오류: {e}")

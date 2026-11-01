@@ -304,42 +304,42 @@ async def test_p7_estimate_and_actual_share_canonical_pricing(sess, cbot, clock)
 # ── P8 — 정책 소스 스캔 ─────────────────────────────────────────
 
 def _prod_sources():
-    for base in ("core", "cogs"):
-        for p in sorted(pathlib.Path(REPO_ROOT, base).glob("*.py")):
-            yield p.relative_to(REPO_ROOT).as_posix(), p.read_text(encoding="utf-8")
+    from tests.conftest import prod_py_files
+    for p in map(pathlib.Path, prod_py_files("core", "cogs")):
+        yield p.relative_to(REPO_ROOT).as_posix(), p.read_text(encoding="utf-8")
 
 
 def test_p8_policy_source_scan():
     add, interp, refund, prepay, ad_hoc, nope = [], [], [], [], [], []
     for rel, src in _prod_sources():
-        if "KIND_ADDITIONAL_CHARGE" in src and rel != "core/ink_transactions.py":
+        if "KIND_ADDITIONAL_CHARGE" in src and rel != "indaim/ledger/ink_transactions.py":
             add.append(rel)
-        if "KIND_INTERPRETATION_CHARGE" in src and rel != "core/ink_transactions.py":
+        if "KIND_INTERPRETATION_CHARGE" in src and rel != "indaim/ledger/ink_transactions.py":
             interp.append(rel)
-        if "KIND_REFUND" in src and rel != "core/ink_transactions.py":
+        if "KIND_REFUND" in src and rel != "indaim/ledger/ink_transactions.py":
             refund.append(rel)
-        if "KIND_PREPAYMENT" in src and rel != "core/ink_transactions.py":
+        if "KIND_PREPAYMENT" in src and rel != "indaim/ledger/ink_transactions.py":
             prepay.append(rel)
         if ("add_ink(" in src or "deduct_ink(" in src) and rel in (
-                "cogs/session.py", "core/display.py", "core/cache_lifecycle.py", "cogs/presence.py"):
+                "cogs/session.py", "indaim/adapters/discord/display.py", "indaim/ledger/cache_lifecycle.py", "cogs/presence.py"):
             ad_hoc.append(rel)
         if "NO_PLAYER_EFFECT" in src:
             nope.append(rel)
     assert add == []                                  # ADDITIONAL_CHARGE production callers: 0
-    assert interp == ["core/interpretation_billing.py"]       # 캐시 창과 분리된 단일 owner
-    assert refund == ["core/cache_lifecycle.py"]
-    assert prepay == ["core/cache_lifecycle.py"]
+    assert interp == ["indaim/ledger/interpretation_billing.py"]       # 캐시 창과 분리된 단일 owner
+    assert refund == ["indaim/ledger/cache_lifecycle.py"]
+    assert prepay == ["indaim/ledger/cache_lifecycle.py"]
     assert ad_hoc == [] and nope == []
     # 운영자 종료 경로는 환급 정산 처분을 쓴다
     sysrc = pathlib.Path(REPO_ROOT, "cogs/system.py").read_text(encoding="utf-8")
     # H06-G: !세션종료는 안전 지점 + 생애주기 종료 서비스(close_session)를 거치고, 그 서비스가 환급 처분을 쓴다
     assert sysrc.count("disposition=core.cache_lifecycle.WINDOW_SETTLE_REFUND") == 1      # !캐시 삭제
     assert "core.world_lifecycle.close_session(" in sysrc and "REASON_OPERATOR_END" in sysrc
-    wl = pathlib.Path(REPO_ROOT, "core/world_lifecycle.py").read_text(encoding="utf-8")
+    wl = pathlib.Path(REPO_ROOT, "indaim/app/world_lifecycle.py").read_text(encoding="utf-8")
     assert wl.count("disposition=_cl.WINDOW_SETTLE_REFUND") == 1
     # 예상·실제가 같은 canonical 헬퍼를 쓴다(별도 공식 금지)
-    lc = pathlib.Path(REPO_ROOT, "core/cache_lifecycle.py").read_text(encoding="utf-8")
-    est = pathlib.Path(REPO_ROOT, "core/estimate.py").read_text(encoding="utf-8")
+    lc = pathlib.Path(REPO_ROOT, "indaim/ledger/cache_lifecycle.py").read_text(encoding="utf-8")
+    est = pathlib.Path(REPO_ROOT, "indaim/ledger/estimate.py").read_text(encoding="utf-8")
     assert "cache_window_estimate_usd" in lc and "cache_window_responsibility_usd" in lc
     assert "cache_window_estimate_usd" in est and "cache_usd_to_ink" in est
     assert "calculate_upload_cost" not in lc
@@ -624,10 +624,10 @@ def test_p8b_interpretation_path_uses_strict_fact_before_billing():
     assert "_cl_op.record_fact_strict(" in body and "_cl_op.record(" not in body
     assert body.index("record_fact_strict(") < body.index("record_interpretation(") \
         < body.index("interpretation_billing.settle(")
-    ib = pathlib.Path(REPO_ROOT, "core/interpretation_billing.py").read_text(encoding="utf-8")
+    ib = pathlib.Path(REPO_ROOT, "indaim/ledger/interpretation_billing.py").read_text(encoding="utf-8")
     assert "list_cost_events_strict(" in ib and ".list_cost_events(" not in ib
     # tolerant record() 의미는 그대로(다른 호출자 영향 없음)
-    cl = pathlib.Path(REPO_ROOT, "core/cost_ledger.py").read_text(encoding="utf-8")
+    cl = pathlib.Path(REPO_ROOT, "indaim/ledger/cost_ledger.py").read_text(encoding="utf-8")
     k = cl.index("    def record(self")
     assert "record_cost_event(event)" in cl[k:cl.index("    def record_fact_strict(self")]
 

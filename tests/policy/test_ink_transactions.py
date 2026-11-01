@@ -358,9 +358,9 @@ async def test_63_concurrent_duplicate_charges_once(tmp_path):
 
 def test_64_existing_lock_is_only_account_mutation_domain():
     # 계정 뮤테이션 락은 여전히 accounts._lock_for 하나뿐이다.
-    assert source_of("core/accounts.py").count("asyncio.Lock()") == 1
+    assert source_of("indaim/ledger/accounts.py").count("asyncio.Lock()") == 1
     # ink_transactions 는 경쟁하는 계정 락 도메인을 도입하지 않는다.
-    assert "asyncio.Lock()" not in source_of("core/ink_transactions.py")
+    assert "asyncio.Lock()" not in source_of("indaim/ledger/ink_transactions.py")
 
 
 # ══════════════════════════════════════════════════════════════

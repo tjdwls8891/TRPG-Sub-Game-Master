@@ -37,7 +37,8 @@ def collect() -> dict:
         "schema_version": core.SCHEMA_VERSION,
         "session_fields": len(core.SESSION_FIELDS),
         "tracked_paths": len(core.TRACKED_PATHS),
-        "core_modules": len(list((ROOT / "core").glob("*.py"))),
+        # 리팩터링 T-5: 옛 core 모듈은 indaim 아래로 옮겼다 — 옛 모듈 집합(core/__init__ + 위치 표)을 센다
+        "core_modules": 1 + len(__import__("indaim.legacy_map", fromlist=["MAP"]).MAP),
         "cog_modules": len([f for f in (ROOT / "cogs").glob("*.py")
                             if not f.name.startswith("__")]),
         "total_lines": py_lines,

@@ -320,7 +320,7 @@ async def test_20_composes_with_strict_save(tmp_path, wired_bot, session_auto_re
 
 
 def test_21_no_production_turn_orchestration_caller():
-    """WP-D: 저널 오케스트레이션 호출자는 권위 owner(core/commit_coordinator.py) 단 하나.
+    """WP-D: 저널 오케스트레이션 호출자는 권위 owner(indaim/turn/commit_coordinator.py) 단 하나.
 
     (WP-JOURNAL-01 시점 '호출자 0' 특성화 → WP-D CHANGE LIST 5로 의도적 전환)
     cogs/ 등 다른 프로덕션 모듈은 저널을 직접 쓰지 않는다(이중 권위 금지).
@@ -333,7 +333,7 @@ def test_21_no_production_turn_orchestration_caller():
                      "commit_journal.append", "commit_journal.classify")
 
     offenders = []
-    for base in ("core", "cogs"):
+    for base in ("core", "indaim", "cogs"):
         root = os.path.join(REPO_ROOT, base)
         for dirpath, _dirs, files in os.walk(root):
             if "__pycache__" in dirpath:
@@ -342,14 +342,14 @@ def test_21_no_production_turn_orchestration_caller():
                 if not fn.endswith(".py"):
                     continue
                 rel = os.path.relpath(os.path.join(dirpath, fn), REPO_ROOT)
-                if rel.replace("\\", "/") == "core/commit_journal.py":
+                if rel.replace("\\", "/") == "indaim/turn/commit_journal.py":
                     continue  # 정의 파일 자체는 제외
                 text = source_of(rel)
                 for pat in call_patterns:
                     if pat in text:
                         offenders.append((rel.replace("\\", "/"), pat))
     owners = {rel for rel, _ in offenders}
-    assert owners == {"core/commit_coordinator.py"}, f"저널 호출 owner: {offenders}"
+    assert owners == {"indaim/turn/commit_coordinator.py"}, f"저널 호출 owner: {offenders}"
 
 
 def test_22_journal_module_does_not_touch_legacy_billing():
@@ -360,7 +360,7 @@ def test_22_journal_module_does_not_touch_legacy_billing():
     따라서 원시 문자열이 아니라 실제 import 문/청구 호출 패턴만 금지한다.
     """
     from tests.conftest import source_of
-    src = source_of("core/commit_journal.py")
+    src = source_of("indaim/turn/commit_journal.py")
 
     # (a) 실제 import 문에 청구/계정/정산/원장/비용 모듈이 없어야 한다.
     import_lines = [ln.strip() for ln in src.splitlines()

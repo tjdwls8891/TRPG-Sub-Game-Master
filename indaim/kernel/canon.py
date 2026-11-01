@@ -1,4 +1,4 @@
-"""정규 직렬화와 결정적 digest. 옛 `core.world_ids`와 바이트 단위로 같은 결과를 낸다(id 연속성)."""
+"""정규 직렬화와 결정적 digest. 옛 엔진의 정규 직렬화·digest와 바이트 단위로 같은 결과를 낸다(id 연속성)."""
 import hashlib
 import json
 

@@ -396,7 +396,7 @@ def test_E05_read_yields_info_ids_only_no_belief():
 
 
 def test_E06_npc_runtime_stock_wins_over_cache_seed():
-    src = (ROOT / "core/cache.py").read_text(encoding="utf-8")
+    src = (ROOT / "indaim/ai/cache.py").read_text(encoding="utf-8")
     assert 'and not getattr(session, "definition_revision", None)' in src      # 바인딩 세션은 캐시 초기 소지 생략
     s = S({"P": {}, "N": {"빵": 0}})
     blk = IT.item_block(s, pc_name="P", scene_owner_names=["N"])
@@ -518,7 +518,7 @@ def test_F07_prompt_extraction_rule_and_director_block():
 
 
 def test_F08_no_new_provider_callsite_for_items():
-    src = (ROOT / "core/items.py").read_text(encoding="utf-8")
+    src = (ROOT / "indaim/rules/items/items.py").read_text(encoding="utf-8")
     assert "generate_content" not in src and "genai" not in src
 
 

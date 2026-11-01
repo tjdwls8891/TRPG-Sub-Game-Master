@@ -248,15 +248,26 @@ def test_kernel_imports_stdlib_only():
     assert bad == []
 
 
+# 옮긴 옛 모듈(indaim.legacy_map)이 원래부터 갖고 있던 바깥 의존 — 정확히 이것뿐이어야 한다(늘지 않게 고정).
+#   prompts(시스템 지시문)는 프롬프트 블록 이식 때, cogs.session은 어댑터 분리 때 사라진다.
+LEGACY_EXTERNAL_IMPORTS = {
+    ("indaim/ai/cache.py", "prompts"), ("indaim/app/logs.py", "prompts"), ("indaim/app/profile_ai.py", "prompts"),
+    ("indaim/app/utils.py", "prompts"), ("indaim/narrative/prompt.py", "prompts"),
+    ("indaim/rules/knowledge/initial_knowledge.py", "prompts"), ("indaim/app/session_flow.py", "cogs.session"),
+}
+
+
 def test_indaim_does_not_import_old_engine():
-    """새 엔진(indaim)은 옛 core·cogs를 import하지 않는다 — 옛 쪽이 새 모듈을 부르는 방향만 허용(교체 중 단일 구현).
-    예외는 이행 다리 indaim/bridge 하나(옛 엔진을 커널 세계 위에서 돌리는 연결 — T-6 정본 전환에서 사라진다)."""
-    bad = []
+    """indaim은 옛 core·cogs·main·prompts를 import하지 않는다. 예외 둘:
+    · 이행 다리 indaim/bridge(옛 엔진을 커널 세계 위에서 돌리는 연결 — T-6 정본 전환에서 사라진다)
+    · 옮긴 옛 모듈의 기존 바깥 의존(LEGACY_EXTERNAL_IMPORTS — 정확히 이 목록)"""
+    found = set()
     for f in sorted((ROOT / "indaim").rglob("*.py")):
-        if f.relative_to(ROOT).parts[:2] == ("indaim", "bridge"):
+        rel = f.relative_to(ROOT).as_posix()
+        if rel.startswith("indaim/bridge/"):
             continue
         for node in ast.walk(ast.parse(f.read_text(encoding="utf-8"))):
             mods = [a.name for a in node.names] if isinstance(node, ast.Import) else \
                 [node.module or ""] if isinstance(node, ast.ImportFrom) and not node.level else []
-            bad += [f"{f.relative_to(ROOT)}:{m}" for m in mods if m.split(".")[0] in ("core", "cogs", "main", "prompts")]
-    assert bad == []
+            found |= {(rel, m) for m in mods if m.split(".")[0] in ("core", "cogs", "main", "prompts")}
+    assert found == LEGACY_EXTERNAL_IMPORTS

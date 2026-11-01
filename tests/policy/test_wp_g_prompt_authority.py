@@ -36,7 +36,7 @@ def test_x5_x6_no_legacy_resource_status_tags_taught_anywhere():
     text = _all_prompt_text()
     assert not LEGACY_TAG.search(text), LEGACY_TAG.search(text)
     assert "자/태" not in text and "태: 태그" not in text and "자원 태그" not in text
-    for rel in ("core/cache.py", "cogs/gm.py", "core/prompt.py"):
+    for rel in ("indaim/ai/cache.py", "cogs/gm.py", "indaim/narrative/prompt.py"):
         src = source_of(rel)
         assert "태: 태그" not in src, rel
         assert not LEGACY_TAG.search(src), rel
@@ -60,7 +60,7 @@ def test_image_position_tag_rule_is_preserved():
 def test_resource_status_authority_is_extraction_with_validation():
     g = prompts.GM_LOGIC_SYSTEM_INSTRUCTION
     assert "추출층위가 읽고 시스템이 검증해 적용한다" in g
-    cache_src = source_of("core/cache.py")
+    cache_src = source_of("indaim/ai/cache.py")
     assert "실제 부여·제거는 묘사를 읽은 추출층위와 시스템 검증이 결정한다" in cache_src
 
 
@@ -91,7 +91,7 @@ def test_narration_layer_kind_based_authority_not_linear_chain():
 
 
 def test_cache_rulebook_no_gm_override_of_fixed_facts():
-    src = source_of("core/cache.py")
+    src = source_of("indaim/ai/cache.py")
     assert "진행자(GM)의 특별한 지시가 없는 한" not in src
     assert "진행자(GM) 지시나 실시간 노트로도 바뀌지 않습니다" in src
     assert "플레이어나 GM의 요청이 있더라도 예외 없이 준수한다" in src        # [6] 유지
@@ -147,4 +147,4 @@ def test_runtime_context_labels_match_policy(session_auto_ready):
     narr = core.PromptBuilder.build_prompt(s, "지시-마커")
     assert "룰북 고정 사실·금지사항·런타임 상태와 충돌하는 부분은 적용하지 않음" in narr
     assert "사실·금지사항·묘사 가이드를 지키는 범위 안에서" in narr
-    assert "변하는 항목(현재 위치·상태·스탯 등)에 한해" in source_of("core/prompt.py")
+    assert "변하는 항목(현재 위치·상태·스탯 등)에 한해" in source_of("indaim/narrative/prompt.py")

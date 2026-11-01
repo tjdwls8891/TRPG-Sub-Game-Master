@@ -16,17 +16,14 @@ import os
 import pytest
 
 from tests.characterize.h06_scope import H06_FILES
-from tests.conftest import REPO_ROOT, source_of
+from tests.conftest import REPO_ROOT, source_of, legacy_rel, prod_py_files
 
 pytestmark = pytest.mark.characterize
 
 
 def _prod():
     out = [os.path.join(REPO_ROOT, "main.py")]
-    for base in ("core", "cogs"):
-        for fn in sorted(os.listdir(os.path.join(REPO_ROOT, base))):
-            if fn.endswith(".py"):
-                out.append(os.path.join(REPO_ROOT, base, fn))
+    out += prod_py_files("core", "cogs")
     return out
 
 
@@ -48,12 +45,12 @@ def test_dynamic_eligibility_has_single_gate_and_known_callers():
     callers = set()
     for p in _prod():
         rel = os.path.relpath(p, REPO_ROOT)
-        if rel == os.path.join("core", "player_world.py"):
+        if rel == legacy_rel("player_world"):
             continue
         if "session_world_context(" in open(p, encoding="utf-8").read():
             callers.add(rel)
-    assert callers == {os.path.join("cogs", "gm.py"), os.path.join("core", "turn_world.py"),
-                       os.path.join("core", "world_lifecycle.py")}, callers
+    assert callers == {os.path.join("cogs", "gm.py"), legacy_rel("turn_world"),
+                       legacy_rel("world_lifecycle")}, callers
 
 
 def test_bound_session_skips_source_reload_on_manual_reissue():
@@ -70,7 +67,7 @@ def test_prompts_untouched_by_h06_runtime():
 
 
 def test_lifecycle_single_writer_and_closed_sessions_not_reactivated():
-    """R2: 세션 생애주기(INITIALIZED/OPEN/CLOSED·실패 표식) writer는 core/world_lifecycle.py 하나.
+    """R2: 세션 생애주기(INITIALIZED/OPEN/CLOSED·실패 표식) writer는 indaim/app/world_lifecycle.py 하나.
     재시작은 CLOSED 세션을 활성 등록하지 않는다."""
     writers = set()
     for p in _prod():
@@ -80,6 +77,6 @@ def test_lifecycle_single_writer_and_closed_sessions_not_reactivated():
                     if isinstance(t, ast.Attribute) and t.attr == "world_lifecycle" and not (
                             isinstance(t.value, ast.Name) and t.value.id == "self"):
                         writers.add(os.path.relpath(p, REPO_ROOT))
-    assert writers == {os.path.join("core", "world_lifecycle.py")}, writers
-    src = source_of("core/cache.py")
+    assert writers == {legacy_rel("world_lifecycle")}, writers
+    src = source_of("indaim/ai/cache.py")
     assert src.index('"CLOSED"') < src.index("bot.active_sessions[session.game_ch_id] = session")

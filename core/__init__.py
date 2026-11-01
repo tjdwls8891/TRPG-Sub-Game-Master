@@ -1,3 +1,29 @@
+# 리팩터링 T-5: 구현은 indaim 아래로 옮겼다. `core.X`는 옮긴 모듈과 같은 객체를 돌려주는 별칭이다
+#   (import·monkeypatch·문자열 경로가 모두 같은 모듈을 가리킨다). 위치 표는 indaim.legacy_map.MAP.
+import importlib as _importlib
+import importlib.abc as _iabc
+import importlib.util as _iutil
+import sys as _sys
+
+from indaim.legacy_map import MAP as _MAP
+
+
+class _AliasFinder(_iabc.MetaPathFinder, _iabc.Loader):
+    def find_spec(self, fullname, path, target=None):
+        if fullname.startswith("core.") and fullname[5:] in _MAP:
+            return _iutil.spec_from_loader(fullname, self)
+        return None
+
+    def create_module(self, spec):
+        return _importlib.import_module(_MAP[spec.name[5:]])
+
+    def exec_module(self, module):
+        pass
+
+
+if not any(isinstance(f, _AliasFinder) for f in _sys.meta_path):
+    _sys.meta_path.insert(0, _AliasFinder())
+
 # core 패키지 — 하위 모듈의 모든 심볼을 re-export하여 기존 `import core` 참조를 유지
 #
 # 분리된 서브모듈:

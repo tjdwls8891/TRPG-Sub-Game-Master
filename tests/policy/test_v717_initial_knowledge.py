@@ -507,7 +507,7 @@ async def test_T20_X13_operator_cost_separate_no_ink(rig, monkeypatch):
 
 
 def test_T20_provider_callsite_count_unchanged():
-    src = (ROOT / "core/initial_knowledge.py").read_text(encoding="utf-8")
+    src = (ROOT / "indaim/rules/knowledge/initial_knowledge.py").read_text(encoding="utf-8")
     assert "generate_content" not in src and "profile_ai._call(" in src
 
 
@@ -544,7 +544,7 @@ async def test_T21_X15_genre_fixtures_same_contract(rig, ai):
     assert (await WL.initialize_world(r.bot, s, {"id": "harbor"})).outcome == WL.INIT_OK
     cog = pc_cog(s)
     assert cog["mystery.rumor"]["acquisitions"][0]["route"] == "RUMOR" and "mystery.truth" not in cog
-    src = (ROOT / "core/initial_knowledge.py").read_text(encoding="utf-8")
+    src = (ROOT / "indaim/rules/knowledge/initial_knowledge.py").read_text(encoding="utf-8")
     assert "영도" not in src and "감염" not in src                                        # 영도 하드코딩 없음
 
 

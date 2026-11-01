@@ -41,7 +41,7 @@ async def test_usage_report_only_in_master_channel_or_dm(wired_bot, session_auto
 # ── 효과음 호출 인자 ───────────────────────────────────────
 
 def test_play_dice_sfx_calls_pass_bot_and_guild():
-    for path in ("cogs/gm.py", "cogs/character.py", "core/ui.py"):
+    for path in ("cogs/gm.py", "cogs/character.py", "indaim/adapters/discord/ui.py"):
         tree = ast.parse((REPO / path).read_text(encoding="utf-8"))
         for node in ast.walk(tree):
             if isinstance(node, ast.Call) and getattr(node.func, "attr", getattr(node.func, "id", "")) == "play_dice_sfx":
@@ -146,7 +146,7 @@ async def test_profile_create_counts_profiles_created():
 # ── D1 충전 안내 → 운영자 문의 ─────────────────────────────
 
 def test_no_charge_guidance_in_player_texts():
-    for path in ("core/terms.py", "core/gm_space.py", "core/display.py", "core/tts_preset.py"):
+    for path in ("indaim/ledger/terms.py", "indaim/app/gm_space.py", "indaim/adapters/discord/display.py", "indaim/adapters/discord/tts_preset.py"):
         src = (REPO / path).read_text(encoding="utf-8")
         body = "\n".join(l for l in src.splitlines() if not l.strip().startswith("#"))
         assert "충전" not in body, path

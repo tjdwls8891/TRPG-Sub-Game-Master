@@ -21,17 +21,18 @@ import os
 import pytest
 
 from tests.characterize.h04_scope import H04_DOMAIN_MODULES, H04_DOMAIN_FILES, expected_production_ops
-from tests.conftest import REPO_ROOT
+from tests.conftest import REPO_ROOT, legacy_rel, prod_py_files, internal_imports
 
 pytestmark = pytest.mark.characterize
 
 
+def _engine_file(p) -> bool:
+    return p.startswith(os.path.join(REPO_ROOT, "core")) or p.startswith(os.path.join(REPO_ROOT, "indaim"))
+
+
 def _files():
     out = [os.path.join(REPO_ROOT, "main.py"), os.path.join(REPO_ROOT, "prompts.py")]
-    for base in ("core", "cogs"):
-        for fn in sorted(os.listdir(os.path.join(REPO_ROOT, base))):
-            if fn.endswith(".py"):
-                out.append(os.path.join(REPO_ROOT, base, fn))
+    out += prod_py_files("core", "cogs")
     return out
 
 
@@ -67,7 +68,7 @@ def test_h04_modules_have_no_player_or_cogs_caller():
     hits = []
     for p in _files():
         base = os.path.basename(p)
-        if p.startswith(os.path.join(REPO_ROOT, "core")) and base in allowed:
+        if _engine_file(p) and base in allowed:
             continue
         tree = _tree(p)
         hits += [(_rel(p), m) for m in H04_DOMAIN_MODULES if _imports(tree, m)]
@@ -84,7 +85,7 @@ def test_no_production_producer_of_h04_operations_or_progression():
               | set(H05_FILES) | {"world_lifecycle.py"})                # H06: INITIALIZATION producer
     hits = []
     for p in _files():
-        if p.startswith(os.path.join(REPO_ROOT, "core")) and os.path.basename(p) in domain:
+        if _engine_file(p) and os.path.basename(p) in domain:
             continue
         for node in ast.walk(_tree(p)):
             if isinstance(node, ast.Constant) and isinstance(node.value, str) and node.value in h04_ops:
@@ -103,14 +104,14 @@ def test_h04_modules_have_no_provider_eval_or_generic_writer():
     banned_calls = {"eval", "exec", "compile", "__import__", "setattr", "call_with_retry", "generate_content",
                     "save_session_data", "save_session_data_strict", "accrue", "hash"}
     for m in H04_DOMAIN_MODULES:
-        for node in ast.walk(_tree(os.path.join(REPO_ROOT, "core", f"{m}.py"))):
+        for node in ast.walk(_tree(os.path.join(REPO_ROOT, legacy_rel(m)))):
             if isinstance(node, ast.Import):
                 assert not {a.name.split(".")[0] for a in node.names} & banned_mod, m
             elif isinstance(node, ast.ImportFrom):
                 if node.level == 0 and node.module:
                     assert node.module.split(".")[0] not in banned_mod, (m, node.module)
-                if node.level == 1:
-                    names = {node.module} if node.module else {a.name for a in node.names}
+                names = internal_imports(node)
+                if names:
                     assert not names & banned_core, (m, names)
             elif isinstance(node, ast.Call):
                 name = getattr(node.func, "id", None) or (node.func.attr if isinstance(node.func, ast.Attribute)
@@ -127,13 +128,13 @@ def test_production_registry_has_no_generic_path_writer():
 
 def test_legacy_quest_and_narrative_plan_authority_untouched():
     """퀘스트·narrative_plan·info_ledger 경로는 H04 모듈을 읽지 않고, H04 모듈도 그것을 읽지 않는다."""
-    for rel in ("core/quest.py", "core/quest_filter.py", "cogs/gm.py", "cogs/game.py", "core/extraction.py",
-                "core/prompt.py", "core/cache.py"):
+    for rel in ("indaim/scenario/quest.py", "indaim/scenario/quest_filter.py", "cogs/gm.py", "cogs/game.py", "indaim/turn/extraction.py",
+                "indaim/narrative/prompt.py", "indaim/ai/cache.py"):
         tree = _tree(os.path.join(REPO_ROOT, rel))
         for m in H04_DOMAIN_MODULES:
             assert not _imports(tree, m), (rel, m)
     legacy = {"info_ledger", "known_secrets", "secret_known", "narrative_plan", "quest_state", "active_quest"}
     for m in H04_DOMAIN_MODULES:
-        for node in ast.walk(_tree(os.path.join(REPO_ROOT, "core", f"{m}.py"))):
+        for node in ast.walk(_tree(os.path.join(REPO_ROOT, legacy_rel(m)))):
             if isinstance(node, ast.Attribute):
                 assert node.attr not in legacy, (m, node.attr)

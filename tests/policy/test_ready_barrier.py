@@ -852,14 +852,14 @@ async def test_tc26_ready_is_not_committed_and_no_wp_d_callers(rig):
     # WP-D: READY 자체는 여전히 COMMITTED가 아니다. 권위 호출(저널·Settlement·
     #   InkTransaction·strict 저장)은 CommitCoordinator 한 곳에만 있고, 흐름 모듈은
     #   그 owner를 통해서만 커밋한다(이중 권위 금지).
-    for f in ("cogs/gm.py", "cogs/game.py", "core/turn_preparation.py"):
+    for f in ("cogs/gm.py", "cogs/game.py", "indaim/turn/turn_preparation.py"):
         src = source_of(f)
         for forbidden in ("core.commit_journal", "CommitJournal(", ".append_phase(",
                           "build_turn_settlement(", "core.settlement",
                           "core.ink_transactions", "apply_ink_transaction(",
                           "save_session_data_strict("):
             assert forbidden not in src, f"{f}: 커밋 owner 밖의 권위 호출 {forbidden}"
-    tp_src = source_of("core/turn_preparation.py")
+    tp_src = source_of("indaim/turn/turn_preparation.py")
     assert "TurnStatus.COMMITTED" not in tp_src
     assert "core.commit_coordinator.CommitCoordinator(" in source_of("cogs/gm.py")
 

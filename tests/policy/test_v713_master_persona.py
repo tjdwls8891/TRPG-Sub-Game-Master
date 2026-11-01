@@ -45,7 +45,8 @@ def test_asset_shape_and_slots():
 def test_every_key_used_in_code_exists_in_asset():
     events = _events()
     used = set()
-    for path in list((REPO / "core").glob("*.py")) + list((REPO / "cogs").glob("*.py")):
+    from tests.conftest import prod_py_files
+    for path in map(pathlib.Path, prod_py_files("core", "cogs")):
         src = path.read_text(encoding="utf-8")
         used |= set(re.findall(r"""(?:master\.|_master\.|\b)(?:say|line|lead)\(\s*["']([a-z_]+\.[a-z_.]+)["']""", src))
     used |= {f"intro.topic_{k}" for k in core.intro.FULL_ORDER}
@@ -56,13 +57,13 @@ def test_every_key_used_in_code_exists_in_asset():
 
 
 def test_no_provider_or_network_call_in_master_module():
-    src = (REPO / "core" / "master.py").read_text(encoding="utf-8")
+    src = (REPO / "indaim/narrative/master.py").read_text(encoding="utf-8")
     for bad in ("genai", "generate_content", "requests", "urllib", "aiohttp", "http"):
         assert bad not in src, bad
 
 
 def test_gm_home_untouched():
-    src = (REPO / "core" / "gm_space.py").read_text(encoding="utf-8")
+    src = (REPO / "indaim/app/gm_space.py").read_text(encoding="utf-8")
     body = src[src.index("async def refresh_home"):]
     body = body[:body.index("\nasync def ", 10) if "\nasync def " in body[10:] else len(body)]
     assert "master" not in body                                              # GM 홈 게시물은 그대로(A-01)
@@ -133,7 +134,7 @@ def test_failed_turn_notice_does_not_point_to_missing_declaration():
 
 
 def test_close_failure_does_not_expose_exception_text():
-    src = (REPO / "core" / "display.py").read_text(encoding="utf-8")
+    src = (REPO / "indaim/adapters/discord/display.py").read_text(encoding="utf-8")
     assert "다시 시도해 주십시오. ({e})" not in src
 
 

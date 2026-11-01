@@ -231,7 +231,7 @@ async def test_d_display_and_session_close_do_not_reconvert(rig, monkeypatch):
     if emb is not None:
         cost_field = [f.value for f in emb.fields if f.name == "비용"][0]
         assert f"직전 턴 {st.charge_ink_per_user}잉크" in cost_field
-    disp = source_of("core/display.py")
+    disp = source_of("indaim/adapters/discord/display.py")
     assert "cost_to_ink(last" not in disp
     # 세션 종료: ink_spent를 total_cost로 재환산해 더하지 않는다
     calls = []
@@ -247,14 +247,14 @@ async def test_d_display_and_session_close_do_not_reconvert(rig, monkeypatch):
         pass
     await asyncio.sleep(0)
     assert calls and all("ink_spent" not in c for c in calls)
-    assert "cost_to_ink(getattr(session, \"total_cost\"" not in source_of("core/ui.py")
+    assert "cost_to_ink(getattr(session, \"total_cost\"" not in source_of("indaim/adapters/discord/ui.py")
 
 
 async def test_d_no_independent_cost_to_ink_on_commit_path():
     gm = source_of("cogs/gm.py")
     assert "cost_to_ink" not in gm.split("async def _commit_ready_turn")[1].split(
         "async def _cleanup_uncommitted_output")[0]
-    cc = source_of("core/commit_coordinator.py")
+    cc = source_of("indaim/turn/commit_coordinator.py")
     assert "cost_to_ink" not in cc
     assert "total_cost" not in cc.replace("total_cost 차분", "")
 

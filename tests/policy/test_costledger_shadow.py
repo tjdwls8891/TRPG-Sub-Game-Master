@@ -284,7 +284,7 @@ def test_cache_create_paths_emit_no_cost_event():
     없으므로 CostEvent 를 발행하지 않는다(DEFERRED). 운영 소스에 캐시 생성
     operation_id 로 record 하는 곳이 없어야 한다.
     """
-    for rel in ("cogs/session.py", "cogs/game.py", "cogs/system.py", "core/cache.py"):
+    for rel in ("cogs/session.py", "cogs/game.py", "cogs/system.py", "indaim/ai/cache.py"):
         src = source_of(rel)
         assert "OP_CACHE_CREATE" not in src, f"{rel} 이 CACHE_CREATE 이벤트를 발행"
         assert "OP_CACHE_RECOVERY_CREATE" not in src, f"{rel} 이 RECOVERY_CREATE 발행"
@@ -391,7 +391,7 @@ async def test_missing_ledger_is_noop():
 
 @pytest.mark.parametrize("rel", [
     "cogs/gm.py", "cogs/game.py", "cogs/media.py",
-    "core/tts.py", "core/profile_ai.py", "core/utils.py",
+    "indaim/adapters/discord/tts.py", "indaim/app/profile_ai.py", "indaim/app/utils.py",
 ])
 def test_every_call_with_retry_site_is_observed(rel):
     """WP-02 exit criterion #2: 모든 실제 provider call_with_retry 경계에
@@ -417,7 +417,7 @@ def test_narration_has_direct_attempt_instrumentation():
 
 def test_resilience_observer_is_additive():
     """call_with_retry 의 관측 인자는 순수 가산(기본 None)이어야 한다."""
-    src = source_of("core/resilience.py")
+    src = source_of("indaim/ai/resilience.py")
     assert "on_attempt_result=None" in src
     assert "operation_id=None" in src
 

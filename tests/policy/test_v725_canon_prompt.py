@@ -88,7 +88,7 @@ def test_A06_section8_triggers_on_any_canon_block_not_only_plan():
         assert head in sec
     assert "인트로·진행 없는 턴도 같다" in sec and "상태창의 날짜·요일·시간대·장소·턴 수는 코드가" in sec
     for head in ("[현재 작중 시각 — 정본]", "[현재 장소 — 정본]"):            # 블록 제목이 실제 생성 문자열과 같다
-        assert head in (ROOT / "core/turn_world.py").read_text(encoding="utf-8")
+        assert head in (ROOT / "indaim/turn/turn_world.py").read_text(encoding="utf-8")
 
 
 async def test_A04_narrate_without_plan_gets_canon_scene_people(drig):
@@ -292,9 +292,9 @@ def test_F01_F04_compression_uses_canon_record_and_dynamic_hint_has_no_quest_or_
 
 
 def test_F06_memory_headers_are_derived_not_absolute():
-    assert "절대 참조용" not in (ROOT / "core/prompt.py").read_text(encoding="utf-8").replace(
+    assert "절대 참조용" not in (ROOT / "indaim/narrative/prompt.py").read_text(encoding="utf-8").replace(
         "'절대 참조용' 격상 금지", "")
-    assert "파생 기억이다" in (ROOT / "core/cache.py").read_text(encoding="utf-8")
+    assert "파생 기억이다" in (ROOT / "indaim/ai/cache.py").read_text(encoding="utf-8")
 
 
 # ══════════════════════════════════════════════════════════════
@@ -305,11 +305,11 @@ CUT_PATTERNS = {
     "cogs/gm.py": ("instr[:200]", "c[:130]", "ai_out[:400]", "full_text[:500]", "_mem[:800]",
                    "(text or '')[:200]", "(recent_text or '')[:1500]", "worldview[:600]", "story_guide[:1200]",
                    "memory_str[:1000]", "v[:20]", "_projs[:30]", "list(prev.items())[:10]"),
-    "core/turn_preparation.py": ('(text or "")[:120]',),
-    "core/turn_history.py": ('or "")[:120]',),
-    "core/profile_ai.py": ("text[:CONTEXT_LIMIT]", "(value or '')[:500]", "list(val.values())[:5]"),
-    "core/master.py": ("v[:60]",),
-    "core/turn_world.py": ("deltas[-3:]",),
+    "indaim/turn/turn_preparation.py": ('(text or "")[:120]',),
+    "indaim/turn/turn_history.py": ('or "")[:120]',),
+    "indaim/app/profile_ai.py": ("text[:CONTEXT_LIMIT]", "(value or '')[:500]", "list(val.values())[:5]"),
+    "indaim/narrative/master.py": ("v[:60]",),
+    "indaim/turn/turn_world.py": ("deltas[-3:]",),
 }
 
 

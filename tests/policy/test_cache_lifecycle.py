@@ -456,10 +456,10 @@ def _calls(path):
 
 def test_kf14_no_lifecycle_bypassing_provider_cache_calls():
     offenders = {}
-    for base in ("core", "cogs"):
-        for p in sorted(pathlib.Path(REPO_ROOT, base).glob("*.py")):
+    from tests.conftest import prod_py_files
+    for p in map(pathlib.Path, prod_py_files("core", "cogs")):
             rel = p.relative_to(REPO_ROOT).as_posix()
-            if rel == "core/cache_lifecycle.py":
+            if rel == "indaim/ledger/cache_lifecycle.py":
                 continue
             c = _calls(rel)
             if c:
@@ -470,14 +470,14 @@ def test_kf14_no_lifecycle_bypassing_provider_cache_calls():
         for p in pathlib.Path(REPO_ROOT, base).glob("*.py"):
             assert "process_cache_deletion(" not in p.read_text(encoding="utf-8"), p
     # 캐시 오픈/닫기 경로에 ad hoc 잔액 쓰기가 없다.
-    for rel in ("cogs/session.py", "core/display.py", "core/cache_lifecycle.py"):
+    for rel in ("cogs/session.py", "indaim/adapters/discord/display.py", "indaim/ledger/cache_lifecycle.py"):
         src = pathlib.Path(REPO_ROOT, rel).read_text(encoding="utf-8")
         assert "deduct_ink(" not in src and "add_ink(" not in src, rel
 
 
 def test_storage_helper_units_are_explicit():
     # PF-11: 캐시 생애주기는 단위가 이름에 드러난 헬퍼만 쓴다.
-    src = pathlib.Path(REPO_ROOT, "core/cache_lifecycle.py").read_text(encoding="utf-8")
+    src = pathlib.Path(REPO_ROOT, "indaim/ledger/cache_lifecycle.py").read_text(encoding="utf-8")
     assert "calculate_storage_cost(" not in src and "calculate_storage_cost_usd(" not in src
     h1 = core.cost.cache_storage_cost_usd(core.DEFAULT_MODEL, tokens=TOKENS, seconds=3600)
     assert h1 == pytest.approx(core.calculate_storage_cost_usd(core.DEFAULT_MODEL, TOKENS, 1.0))

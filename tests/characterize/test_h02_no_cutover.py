@@ -22,7 +22,7 @@ import pytest
 
 from core import world_mutation as WM
 from core import world_state as WS
-from tests.conftest import REPO_ROOT, source_of
+from tests.conftest import REPO_ROOT, source_of, legacy_rel, prod_py_files, internal_imports
 
 pytestmark = pytest.mark.characterize
 
@@ -36,10 +36,7 @@ H03_DOMAIN_MODULES = H03_DOMAIN_MODULES + H04_DOMAIN_FILES
 
 def _production_files():
     out = [os.path.join(REPO_ROOT, "main.py")]
-    for base in ("core", "cogs"):
-        for fn in sorted(os.listdir(os.path.join(REPO_ROOT, base))):
-            if fn.endswith(".py"):
-                out.append(os.path.join(REPO_ROOT, base, fn))
+    out += prod_py_files("core", "cogs")
     return out
 
 
@@ -65,8 +62,8 @@ def _references(path, module: str) -> bool:
 def test_canonical_mutation_callers_are_h06_initialization_and_admin_only():
     """H06: production 호출자 = world_lifecycle(INITIALIZATION)·admin_world_edit(ADMIN_EDIT)뿐. PLAYER_TURN 없음."""
     from tests.characterize.h06_scope import CANONICAL_MUTATION_CALLERS
-    allowed = {os.path.join("core", "canonical_mutation.py"), os.path.join("core", "__init__.py")}
-    allowed |= {os.path.join("core", f) for f in CANONICAL_MUTATION_CALLERS}
+    allowed = {legacy_rel("canonical_mutation"), legacy_rel("__init__")}
+    allowed |= {legacy_rel(f) for f in CANONICAL_MUTATION_CALLERS}
     hits = [_rel(p) for p in _production_files()
             if _rel(p) not in allowed and _references(p, "canonical_mutation")]
     assert hits == [], hits
@@ -82,7 +79,7 @@ def test_world_mutation_users_are_the_commit_owners_only():
     from tests.characterize.h05_scope import H05_FILES
     # H05: 플레이어 세계 계획·관찰(순수)이 typed 연산·투영을 만든다 — 정본 적용은 여전히 커밋 owner뿐.
     # H06: 초기 세계 계획(world_lifecycle)·관리자 편집(admin_world_edit)이 typed 묶음을 만든다(적용은 coordinator).
-    allowed = {os.path.join("core", f) for f in (
+    allowed = {legacy_rel(f) for f in (
         "world_mutation.py", "canonical_mutation.py", "turn_preparation.py",
         "commit_coordinator.py", "__init__.py", "world_lifecycle.py", "admin_world_edit.py")
         + H03_DOMAIN_MODULES + H05_FILES}
@@ -92,7 +89,7 @@ def test_world_mutation_users_are_the_commit_owners_only():
 
 
 def test_world_version_direct_writers():
-    allowed = {os.path.join("core", f) for f in (
+    allowed = {legacy_rel(f) for f in (
         "commit_coordinator.py", "canonical_mutation.py", "world_state.py")}
     writers = []
     for p in _production_files():
@@ -113,7 +110,7 @@ def test_production_registry_holds_only_h03_typed_handlers():
     assert set(WM.PRODUCTION_REGISTRY.op_types()) == expected
     # 등록은 world_mutation의 단일 등록 함수만 한다(도메인 모듈 register(registry) 위임)
     for p in _production_files():
-        if _rel(p) == os.path.join("core", "world_mutation.py"):
+        if _rel(p) == legacy_rel("world_mutation"):
             continue
         assert "PRODUCTION_REGISTRY.register" not in open(p, encoding="utf-8").read(), _rel(p)
 
@@ -132,8 +129,8 @@ def test_new_modules_have_no_provider_or_discord_or_finance():
             elif isinstance(node, ast.ImportFrom):
                 if node.level == 0 and node.module:
                     assert node.module.split(".")[0] not in banned_mod, (m, node.module)
-                if node.level == 1:
-                    names = {node.module} if node.module else {a.name for a in node.names}
+                names = internal_imports(node)
+                if names:
                     assert not names & banned_core, (m, names)
             elif isinstance(node, ast.Call):
                 name = getattr(node.func, "attr", None) or getattr(node.func, "id", None)

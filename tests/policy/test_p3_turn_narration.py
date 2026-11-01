@@ -239,6 +239,6 @@ def test_commit_only_takes_confirmed_reveals(card_session, monkeypatch):
 def test_E1_no_continuation_callers():
     import pathlib
     root = pathlib.Path(core.__file__).resolve().parents[1]
-    for rel in ("cogs/gm.py", "cogs/game.py", "core/turn_world.py"):
+    for rel in ("cogs/gm.py", "cogs/game.py", "indaim/turn/turn_world.py"):
         src = (root / rel).read_text(encoding="utf-8")
         assert "_generate_continuation" not in src and "ForegroundContinuationPlan" not in src

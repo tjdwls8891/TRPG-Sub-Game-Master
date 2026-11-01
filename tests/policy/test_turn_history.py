@@ -542,7 +542,7 @@ async def test_e_crash_after_replacement_commit_before_history_select(rig, injec
 async def test_e_rerender_command_and_display_entrypoints_use_history_authority():
     from tests.conftest import source_of
     game = source_of("cogs/game.py")
-    disp = source_of("core/display.py")
+    disp = source_of("indaim/adapters/discord/display.py")
     assert "rerender_latest" in game and "RerenderConfirmView" in disp
     assert "rewind_to" not in source_of("cogs/gm.py")
     assert not hasattr(core, "rewind_to")

@@ -46,7 +46,7 @@ def _owners(rel: str, func_name: str) -> set:
 def _production_owners(func_name: str) -> dict:
     from tests.conftest import REPO_ROOT
     found = {}
-    for base in ("cogs", "core"):
+    for base in ("cogs", "core", "indaim"):
         for dp, _d, fs in os.walk(os.path.join(REPO_ROOT, base)):
             if "__pycache__" in dp:
                 continue

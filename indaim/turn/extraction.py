@@ -1,0 +1,708 @@
+# 추출층위 — 묘사 출력물에서 세계 상태·수치를 추출하고 임계값과 대조해 적용
+#
+# [설계 원칙 — 판단을 수치로 하기]
+#   추출층위에는 '적용 기준'을 알려주지 않는다. 범위별 가이드만 제시하고,
+#   임계값 비교와 실제 상태 적용은 이 모듈(코드)이 담당한다.
+#   이분적 판단(부여할까 말까)을 모델에 위임하지 않고 기준을 확실히 하기 위함이다.
+#
+# [캐시 미사용]
+#   추출은 출력물에서 값을 읽어내는 작업이므로 세계관 룰북 참조가 불필요하다.
+#   따라서 세션 캐시를 읽지 않는다(비용 절감).
+
+# ========== [공통 추출 타겟] ==========
+# 시나리오별 타겟은 scenario_data["extraction_targets"]로 추가 병합된다.
+COMMON_EXTRACTION_TARGETS = [
+    "날짜 및 시간",
+    "위치",
+    "아이템 변화",
+    "상태이상 평가 수치",
+    "퀘스트 진행도 평가",
+    "만난 NPC 목록",
+    "턴의 상황",
+]
+
+# v7.25(F10): 동적 세계 추출이 묻지 않는 레거시 필드·항목(정본 세계·사건 상태기계·정보 인지가 소유)
+DYNAMIC_RETIRED_FIELDS = ("datetime", "location", "quest_progress", "secret_awareness")
+DYNAMIC_RETIRED_TARGETS = ("날짜 및 시간", "위치", "퀘스트 진행도 평가")
+
+# ========== [응답 스키마] ==========
+# 모든 수치 필드는 0~100 정수. 모델은 이 값이 어떻게 쓰이는지 알지 못한다.
+EXTRACTION_RESPONSE_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "datetime": {
+            "type": "object",
+            "description": "이번 묘사 시점의 작중 날짜·시간대.",
+            "properties": {
+                "date": {"type": "string", "description": "작중 날짜. 확인 불가면 '미확인'."},
+                "time_of_day": {"type": "string", "description": "시간대(새벽·아침·낮·저녁·밤 등). 확인 불가면 '미확인'."},
+            },
+            "required": ["date", "time_of_day"],
+        },
+        "location": {
+            "type": "object",
+            "description": "이번 묘사 종료 시점의 PC 소재지.",
+            "properties": {
+                "name": {"type": "string", "description": "위치명. 확인 불가면 '미확인'."},
+                "faction_context": {
+                    "type": "string",
+                    "description": "이 위치를 관할·점유하는 세력이나 지역 규칙. 확인 불가면 '미확인'.",
+                },
+            },
+            "required": ["name", "faction_context"],
+        },
+        "item_changes": {
+            "type": "array",
+            "description": "이번 묘사에서 확인된 소지품 증감만. 변화가 없으면 빈 배열.",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "target": {"type": "string", "description": "소지 주체(캐릭터명)"},
+                    "item": {"type": "string", "description": "품목명"},
+                    "delta": {"type": "integer", "description": "증감 수량. 획득은 양수, 소모·상실은 음수."},
+                },
+                "required": ["target", "item", "delta"],
+            },
+        },
+        "status_scores": {
+            "type": "array",
+            "description": (
+                "이번 묘사에서 징후가 관찰된 상태를 0~100으로 평가한다. "
+                "0-30 징후 없음 / 31-70 조짐 있음 / 71-100 명백함. "
+                "징후가 전혀 없으면 빈 배열."
+            ),
+            "items": {
+                "type": "object",
+                "properties": {
+                    "target": {"type": "string", "description": "대상 캐릭터명"},
+                    "status": {"type": "string", "description": "상태 이름(부상·중독·탈진 등)"},
+                    "score": {"type": "integer", "description": "0~100. 묘사에 드러난 정도만으로 평가."},
+                },
+                "required": ["target", "status", "score"],
+            },
+        },
+        "quest_progress": {
+            "type": "object",
+            "description": "현재 서사 목표 대비 이번 묘사의 진행·이탈 정도.",
+            "properties": {
+                "advance": {
+                    "type": "integer",
+                    "description": "목표 방향으로 나아간 정도 0~100. 0-30 정체 / 31-70 진전 / 71-100 결정적 진전.",
+                },
+                "deviation": {
+                    "type": "integer",
+                    "description": "목표에서 벗어난 정도 0~100. 0-30 궤도 내 / 31-70 방향 차이 / 71-100 이탈.",
+                },
+            },
+            "required": ["advance", "deviation"],
+        },
+        "npcs_met": {
+            "type": "array",
+            "description": "이번 묘사에 등장하거나 PC와 접촉한 NPC 이름. 없으면 빈 배열.",
+            "items": {"type": "string"},
+        },
+        "companions": {
+            "type": "object",
+            "description": "동행 상태 변화. 변화가 없으면 빈 배열 둘.",
+            "properties": {
+                "joined": {
+                    "type": "array", "items": {"type": "string"},
+                    "description": "이번 턴에 동행을 시작한 인물. 함께 가기로 하거나 따라나선 경우."
+                },
+                "left": {
+                    "type": "array", "items": {"type": "string"},
+                    "description": "이번 턴에 동행이 끝난 인물. 헤어지거나 남거나 죽은 경우."
+                }
+            },
+            "required": ["joined", "left"]
+        },
+        "secret_awareness": {
+            "type": "integer",
+            "description": (
+                "플레이어가 숨겨진 사실을 알아차린 정도 0~100. "
+                "0-30 전혀 모름 / 31-70 의심하거나 단서를 접함 / 71-100 명확히 인지. "
+                "숨겨진 사실이 제시되지 않았으면 0."
+            )
+        },
+        "situation": {
+            "type": "object",
+            "description": "이번 묘사가 만들어낸 장면의 성격.",
+            "properties": {
+                "tag": {
+                    "type": "string",
+                    "description": "장면 성격을 한 단어로(전투·추적·잠입·대화·이동·휴식·의식 등).",
+                },
+                "tension": {
+                    "type": "integer",
+                    "description": "긴장도 0~100. 0-30 평온 / 31-70 경계 / 71-100 위기.",
+                },
+            },
+            "required": ["tag", "tension"],
+        },
+    },
+    "required": [
+        "datetime", "location", "item_changes", "status_scores",
+        "quest_progress", "npcs_met", "situation", "secret_awareness",
+        "companions",
+    ],
+}
+
+# ========== [임계값] ==========
+# 시나리오 JSON의 extraction_thresholds로 항목별 오버라이드 가능.
+# NOTE: 실제 적용(apply_extraction)은 4.5.0에서 연결된다. 4.4.0은 추출·보관까지만 수행.
+THRESHOLDS = {
+    "status_apply": 71,      # 이상이면 상태 부여
+    "status_clear": 30,      # 이하이면 기존 상태 해제
+    "quest_advance": 71,     # 이상이면 케이스 진전
+    "quest_deviated": 71,    # 이상이면 재계획 트리거
+    "tension_high": 71,      # 이상이면 긴장 국면 (BGM 전환 판단에 사용)
+    "secret_reveal": 71,     # 이상이면 이면정보를 인지한 것으로 처리
+}
+
+
+def get_thresholds(session) -> dict:
+    """시나리오 오버라이드를 반영한 임계값을 반환한다."""
+    merged = dict(THRESHOLDS)
+    try:
+        override = (session.scenario_data or {}).get("extraction_thresholds") or {}
+        for k, v in override.items():
+            if k in merged and isinstance(v, int):
+                merged[k] = v
+    except Exception:
+        pass
+    return merged
+
+
+def build_extraction_targets(session) -> list:
+    """공통 타겟과 시나리오별 타겟을 병합해 반환한다.
+
+    시나리오 JSON의 extraction_targets는 문자열 배열로, 공통 7종 뒤에 덧붙는다.
+    중복은 제거하며 공통 타겟의 순서는 보존한다.
+    """
+    targets = list(COMMON_EXTRACTION_TARGETS)
+    try:
+        extra = (session.scenario_data or {}).get("extraction_targets") or []
+        for t in extra:
+            if isinstance(t, str) and t not in targets:
+                targets.append(t)
+    except Exception:
+        pass
+    return targets
+
+
+def parse_extraction(raw: str) -> dict | None:
+    """추출 응답 텍스트를 파싱·검증한다. 실패 시 None.
+
+    response_schema로 구조가 강제되지만, 코드블럭 래핑이나 부분 누락에
+    대비해 방어적으로 처리한다.
+    """
+    import json
+    import re
+
+    if not raw:
+        return None
+    try:
+        data = json.loads(raw)
+    except json.JSONDecodeError:
+        cleaned = re.sub(r"^```(?:json)?\s*|\s*```$", "", raw.strip(), flags=re.MULTILINE)
+        try:
+            data = json.loads(cleaned)
+        except Exception:
+            return None
+
+    if not isinstance(data, dict):
+        return None
+
+    # 누락 필드를 기본값으로 채워 하류 코드가 KeyError를 겪지 않게 한다.
+    data.setdefault("datetime", {"date": "미확인", "time_of_day": "미확인"})
+    data.setdefault("location", {"name": "미확인", "faction_context": "미확인"})
+    data.setdefault("item_changes", [])
+    data.setdefault("status_scores", [])
+    data.setdefault("quest_progress", {"advance": 0, "deviation": 0})
+    data.setdefault("npcs_met", [])
+    data.setdefault("situation", {"tag": "미확인", "tension": 0})
+    data.setdefault("secret_awareness", 0)
+    comp = data.get("companions")
+    if not isinstance(comp, dict):
+        comp = {}
+    comp.setdefault("joined", [])
+    comp.setdefault("left", [])
+    data["companions"] = comp
+    return data
+
+
+def to_world_timeline(result: dict, existing: dict | None = None) -> dict:
+    """추출 결과에서 세계 타임라인 필드를 갱신해 반환한다.
+
+    NOTE: 기존 _update_world_timeline(별도 API 호출)을 흡수한 경로다.
+          호출을 하나 줄이면서 동일한 필드를 유지한다.
+    """
+    tl = dict(existing or {})
+    dt = result.get("datetime") or {}
+    loc = result.get("location") or {}
+
+    def _keep(new, old):
+        """'미확인'은 기존 값을 덮어쓰지 않는다. 기존 값도 없으면 '미확인'."""
+        if not new or new == "미확인":
+            return old if old else "미확인"
+        return new
+
+    tl["current_date"] = _keep(dt.get("date"), tl.get("current_date"))
+    tl["time_of_day"] = _keep(dt.get("time_of_day"), tl.get("time_of_day"))
+    tl["current_location"] = _keep(loc.get("name"), tl.get("current_location"))
+    tl["faction_context"] = _keep(loc.get("faction_context"), tl.get("faction_context"))
+    return tl
+
+
+def _valid_char_set(session) -> set:
+    valid = set()
+    try:
+        valid |= {p.get("name") for p in (session.players or {}).values() if p.get("name")}
+        valid |= set((session.npcs or {}).keys())
+    except Exception:
+        pass
+    return valid
+
+
+def _valid_status_set(session):
+    try:
+        from indaim.app.utils import get_merged_status_effects
+        eff = get_merged_status_effects(session.scenario_data or {})
+        if isinstance(eff, dict):
+            return set(eff.keys())
+        if isinstance(eff, list):
+            return {e.get("name") for e in eff if isinstance(e, dict) and e.get("name")}
+    except Exception:
+        pass
+    return None
+
+
+def normalize_status_item_effects(session, result: dict) -> dict:
+    """status_scores/item_changes를 검증·임계비교해 accepted DTO로 정규화한다.
+
+    **순수 함수** — 세션을 변경하지 않는다. 등록 캐릭터·병합 상태이상으로 걸러내고,
+    임계값으로 부여/해제를 판정하며, 동치 후보(같은 (target,status,결정) / 같은
+    (target,item,delta))는 하나로 접는다. 버려진 후보는 dropped에 기록한다.
+
+    Returns:
+        {"status_apply":[{target,status,score}], "status_clear":[...],
+         "item_deltas":[{target,item,delta}], "npcs":[...], "dropped":[...]}
+    """
+    th = get_thresholds(session)
+    valid = _valid_char_set(session)
+    valid_status = _valid_status_set(session)
+
+    status_apply, status_clear, item_deltas, dropped = [], [], [], []
+    seen_status, seen_item = set(), set()
+
+    for entry in (result.get("status_scores") or []):
+        if not isinstance(entry, dict):
+            continue
+        target, status = entry.get("target"), entry.get("status")
+        try:
+            score = int(entry.get("score", 0))
+        except (TypeError, ValueError):
+            continue
+        if not target or not status:
+            continue
+        if valid and target not in valid:
+            dropped.append(f"{target};{status}(무효 캐릭터)")
+            continue
+        if valid_status is not None and status not in valid_status:
+            dropped.append(f"{target};{status}(무효 상태)")
+            continue
+        if score >= th["status_apply"]:
+            key = (target, status, "apply")
+            if key not in seen_status:
+                seen_status.add(key)
+                status_apply.append({"target": target, "status": status, "score": score})
+        elif score <= th["status_clear"]:
+            key = (target, status, "clear")
+            if key not in seen_status:
+                seen_status.add(key)
+                status_clear.append({"target": target, "status": status, "score": score})
+        # 중립 점수(임계 사이)는 상태 변화 없음 — 후보에서 제외.
+
+    for entry in (result.get("item_changes") or []):
+        if not isinstance(entry, dict):
+            continue
+        target = entry.get("target")
+        name = (entry.get("item") or "").strip()
+        if not name or (valid and target not in valid):
+            if name:
+                dropped.append(f"{target};{name}(무효 캐릭터)")
+            continue
+        try:
+            delta = int(entry.get("delta", 0))
+        except (TypeError, ValueError):
+            continue
+        if delta == 0:
+            continue
+        key = (target, name, delta)          # 동치 아이템 후보 dedup
+        if key in seen_item:
+            continue
+        seen_item.add(key)
+        item_deltas.append({"target": target, "item": name, "delta": delta})
+
+    npcs = []
+    seen_npc = set()
+    for n in (result.get("npcs_met") or []):
+        if isinstance(n, str) and n and n not in seen_npc:
+            seen_npc.add(n)
+            npcs.append(n)
+
+    return {"status_apply": status_apply, "status_clear": status_clear,
+            "item_deltas": item_deltas, "npcs": npcs, "dropped": dropped}
+
+
+def apply_normalized_status_item(session, eff: dict) -> dict:
+    """정규화된 상태·소지품 효과를 canonical에 적용한다(raw result 미참조).
+
+    입력은 normalize_status_item_effects의 accepted DTO뿐이다. 여기서 다시 파싱·
+    검증하지 않으며, 버려진 후보는 이 함수에 도달할 수 없다.
+    """
+    applied, cleared, items = [], [], []
+
+    for e in (eff.get("status_apply") or []):
+        current = session.statuses.setdefault(e["target"], [])
+        if e["status"] not in current:
+            current.append(e["status"])
+            applied.append(f'{e["target"]};{e["status"]}({e.get("score")})')
+    for e in (eff.get("status_clear") or []):
+        current = session.statuses.setdefault(e["target"], [])
+        if e["status"] in current:
+            current.remove(e["status"])
+            cleared.append(f'{e["target"]};{e["status"]}({e.get("score")})')
+
+    resources = dict(getattr(session, "resources", {}) or {})
+    for e in (eff.get("item_deltas") or []):
+        bag = dict(resources.get(e["target"]) or {})
+        before = int(bag.get(e["item"], 0) or 0)
+        after = max(0, before + int(e["delta"]))
+        if after == 0:
+            bag.pop(e["item"], None)
+        else:
+            bag[e["item"]] = after
+        resources[e["target"]] = bag
+        items.append({"target": e["target"], "item": e["item"],
+                      "delta": after - before, "after": after})
+    if items:
+        session.resources = resources
+
+    return {"applied": applied, "cleared": cleared,
+            "npcs": list(eff.get("npcs") or []), "items": items}
+
+
+def normalize_location(session, result: dict, prev_tl: dict) -> dict:
+    """세계 타임라인·장소 이동을 정규화한다(순수 — 세션 미변경).
+
+    to_world_timeline로 새 타임라인을 만들고, 장소를 해상도(resolve)해 이동 여부와
+    이동 소요(travel_hops)까지 계산해 new_tl에 담는다. mark_visited/동행 해제 같은
+    변이는 하지 않는다(적용부가 정규화된 이름으로 수행).
+
+    Returns:
+        {"new_tl": {...}, "before": str|None, "after": str|None, "moved": bool}
+    """
+    new_tl = to_world_timeline(result, prev_tl or {})
+    before = after = None
+    moved = False
+    try:
+        from indaim.rules.space import places as _places
+        pl = _places.load_places(getattr(session, "scenario_data", {}) or {})
+        if pl:
+            before = _places.resolve(pl, (prev_tl or {}).get("current_location") or "")
+            after = _places.resolve(pl, new_tl.get("current_location") or "")
+            if after:
+                new_tl["current_location"] = after
+                if before and before != after:
+                    moved = True
+                    hops = _places.hops_between(session, before, after)
+                    if hops:
+                        new_tl["travel_hops"] = hops
+    except Exception as e:
+        print(f"[장소] 정규화 실패: {e}")
+    return {"new_tl": new_tl, "before": before, "after": after, "moved": moved}
+
+
+def normalize_companions(session, result: dict) -> dict:
+    """companions/npcs_met를 정규화한다(순수). join&leave 모순 이름은 양쪽에서 제외.
+
+    Returns:
+        {"joined":[...], "left":[...], "npcs_met":[...], "conflicts":[...]}
+    """
+    comp = result.get("companions") or {}
+    joined = [n for n in (comp.get("joined") or []) if isinstance(n, str) and n]
+    left = [n for n in (comp.get("left") or []) if isinstance(n, str) and n]
+    npcs_met = [n for n in (result.get("npcs_met") or []) if isinstance(n, str) and n]
+
+    # dedup
+    joined = list(dict.fromkeys(joined))
+    left = list(dict.fromkeys(left))
+    npcs_met = list(dict.fromkeys(npcs_met))
+
+    # 모순: 같은 이름이 합류·이탈 동시 → 애매한 last-write-wins 금지, 양쪽에서 제외.
+    conflicts = sorted(set(joined) & set(left))
+    if conflicts:
+        cset = set(conflicts)
+        joined = [n for n in joined if n not in cset]
+        left = [n for n in left if n not in cset]
+    return {"joined": joined, "left": left, "npcs_met": npcs_met,
+            "conflicts": conflicts}
+
+
+def apply_normalized_companions(session, norm: dict) -> dict:
+    """정규화된 동행 효과를 적용한다(raw result 미참조)."""
+    current = list(getattr(session, "companions", []) or [])
+    met = list(getattr(session, "met_npcs", []) or [])
+
+    for name in (norm.get("npcs_met") or []):
+        if name not in met:
+            met.append(name)
+
+    joined = []
+    for name in (norm.get("joined") or []):
+        if name not in current:
+            current.append(name)
+            joined.append(name)
+            if name not in met:
+                met.append(name)
+    left = []
+    for name in (norm.get("left") or []):
+        if name in current:
+            current.remove(name)
+            left.append(name)
+
+    session.companions = current
+    session.met_npcs = met
+    return {"joined": joined, "left": left}
+
+
+def apply_extraction(session, result: dict) -> dict:
+    """추출 수치를 임계값과 대조해 세션 상태에 적용한다.
+
+    [설계 원칙]
+    추출층위는 0~100 수치만 보고하고 그 값이 어떤 결과를 낳는지 모른다.
+    임계값 비교와 실제 적용은 이 함수(코드)가 전담한다.
+
+    적용 대상:
+      - 상태이상 부여/해제 (status_scores vs status_apply / status_clear)
+      - 만난 NPC 기록 (npcs_met)
+      - 소지품 증감 (item_changes)
+        기획 규정에 따라 지시층위의 자원 수정 권한을 걷고 추출층위로 옮겼다.
+        묘사에 실제로 드러난 것을 읽는 쪽이 정확하다.
+
+    적용 제외:
+      - 퀘스트 진행·이탈은 서사 계층에서 소비한다(설계문서 3).
+
+    Returns:
+        {"applied": [...], "cleared": [...], "npcs": [...], "items": [...]}
+    """
+    # WP-B: 검증·정규화(순수)와 적용(변이)을 분리했다. 이 함수는 둘을 이어 붙인
+    #   하위호환 래퍼다. 계획-권위 경로는 normalize_status_item_effects의 DTO를
+    #   직접 apply_normalized_status_item으로 넘긴다(raw result 재해석 없음).
+    return apply_normalized_status_item(
+        session, normalize_status_item_effects(session, result))
+
+
+def apply_companions(session, data: dict) -> dict:
+    """동행 상태를 갱신한다.
+
+    만난 인물(met_npcs)과 동행 중인 인물(companions)을 분리 관리한다.
+    스쳐 지나간 사람과 함께 움직이는 사람은 다르며, 퀘스트 인물 필터가
+    이를 구분하지 못하면 부정확해진다.
+
+    동행은 명시적으로 끝나기 전까지 유지된다.
+
+    Returns:
+        {"joined": [...], "left": [...]}
+    """
+    # WP-B: 하위호환 래퍼 — 정규화(모순 이름 제외 포함) 후 적용.
+    return apply_normalized_companions(session, normalize_companions(session, data))
+
+
+def release_resident_companions(session, new_location: str) -> list:
+    """장소를 옮기면 그곳 상주 NPC는 동행에서 자동 해제한다.
+
+    차봉순이 병참 창고를 떠나 저지대까지 따라올 리 없다.
+    상주가 아닌 인물은 계속 동행할 수 있다.
+    """
+    from indaim.rules.space.places import load_places
+
+    current = list(getattr(session, "companions", []) or [])
+    if not current:
+        return []
+    places = load_places(getattr(session, "scenario_data", {}) or {})
+    if not places:
+        return []
+
+    resident = {}
+    for pname, node in places.items():
+        if not isinstance(node, dict):
+            continue
+        for entry in (node.get("npcs") or []):
+            if isinstance(entry, dict) and entry.get("frequency") == "상주":
+                resident[entry.get("name")] = pname
+
+    released = []
+    for name in list(current):
+        home = resident.get(name)
+        if home and home != new_location:
+            current.remove(name)
+            released.append(name)
+    session.companions = current
+    return released
+
+
+def build_extraction_limits(session) -> str:
+    """추출층위에 유효 목록을 알린다.
+
+    코드가 걸러내기는 하지만 목록 없이는 매번 없는 상태이상을 만들고
+    인물이 아닌 것을 npcs_met에 넣는다. 헛일을 반복시키지 않는다.
+    """
+    sd = getattr(session, "scenario_data", {}) or {}
+    blocks = []
+
+    # 상태이상 — 이름과 부여 조건을 함께 준다.
+    # 공통 상태이상(data/common_status_effects.json)도 병합해야 한다.
+    # 시나리오 것만 주면 공통 상태를 모델이 쓸 수 없고, 써도 코드가 걸러낸다.
+    try:
+        from indaim.app.utils import get_merged_status_effects
+        eff = get_merged_status_effects(sd)
+    except Exception:
+        eff = sd.get("status_effects")
+    rows = []
+    if isinstance(eff, dict):
+        rows = [dict(v or {}, name=k) for k, v in eff.items()]
+    elif isinstance(eff, list):
+        rows = [e for e in eff if isinstance(e, dict) and e.get("name")]
+    deep = {e["name"] for e in rows if e.get("deep") is True}
+    if rows:
+        # v7.38(D5): 해제 조건도 함께 준다(해제 판단의 근거) — 부여 조건만 주던 v7.37까지는 해소를 읽을 근거가 없었다
+        # v7.41: 심화 상태(deep)는 코드가 시간으로 정한다 — 점수를 넣지 않게 표시한다
+        lines = []
+        _acts = {"down": "한 단계↓(1단계면 해제)", "treat": "한 단계↓(마지막은 시간)", "ease": "증상 잠시 완화"}
+        for e in rows:
+            n, c, r = e["name"], e.get("apply_condition", ""), e.get("remove_condition", "")
+            tag = " (코드 판정 — 점수를 넣지 말 것)" if n in deep else ""
+            # v7.47(S1·S4): 단계 이름(status_scores.stage 번호 순서)·처치 효과(코드가 물건 사용으로 적용)
+            st = e.get("stages") if isinstance(e.get("stages"), list) else []
+            extra = (f" / 단계=[{' → '.join(f'{i}.{x}' for i, x in enumerate(st, 1))}]" if st else "") \
+                + (" / 처치(코드)=[" + ", ".join(f"{k} {_acts.get(v, v)}" for k, v in (e.get("care") or {}).items()) + "]"
+                   if e.get("care") else "") \
+                + (" / 추출로 낮추거나 풀지 않음(처치·시간)" if e.get("lower_by") == "care" and n not in deep else "")
+            lines.append((f"- {n}{tag}: 부여=[{c}]" + (f" / 해제=[{r}]" if r else "") if c else f"- {n}{tag}") + extra)
+        blocks.append("\n[이 시나리오의 상태이상 — 이 목록에 없는 이름은 쓰지 말 것]\n"
+                      + "\n".join(lines)
+                      + ("\n· 단계가 있는 상태는 status_scores의 stage에 단계 번호(응답에 stage가 있을 때). 입은 것·쓴 물건의 효과는 "
+                         "근거일 뿐 자동이 아니다 — 환경의 세기와 함께 본다(예: 패딩을 입어도 젖은 몸으로 밤바다 바람을 맞으면 "
+                         "추위가 붙는다)." if any(e.get("stages") for e in rows) else ""))
+        removal = {e["name"]: e.get("remove_condition", "") for e in rows}
+        now = (getattr(session, "world_clock", None) or {}).get("minute_index")
+        clocks = getattr(session, "status_clock", None) or {}
+        from indaim.rules.vitals.status_rules import label as _label
+        merged_d = {e["name"]: e for e in rows}
+        cur = []
+        for who, st in (getattr(session, "statuses", None) or {}).items():
+            for x in st or ():
+                at = ((clocks.get(who) or {}).get("applied") or {}).get(x)
+                since = f"({int(now) - int(at)}분째)" if now is not None and at is not None else ""
+                shown = _label(merged_d, x, clocks.get(who) or {}, now)
+                if x in deep:
+                    cur.append(f"- {who}: {shown}{since} — 코드 판정(점수 불필요)")
+                else:
+                    cur.append(f"- {who}: {shown}{since} — 해제=[{removal.get(x, '')}]")
+        if cur:
+            # v7.41(사용자 결정): 붙어 있는 상태는 매 턴 빠짐없이 다시 판단시킨다
+            blocks.append("[지금 붙어 있는 상태 — 코드 판정 표시가 없는 것은 하나도 빠짐없이 이번 턴 status_scores에 넣는다]\n"
+                          "· 해제 조건이나 그 상태를 덜어 줄 수단(무엇이든)이 이번 묘사에 들어왔으면 0~30(해소) — "
+                          "증상이 조금 남았다는 이유로 유지하지 말 것.\n"
+                          "· 그대로면 31~70(유지). 더 나빠졌다고 새로 높일 필요는 없다.\n"
+                          "· 단계가 있는 상태는 stage에 지금 단계 번호를 적는다(나빠졌으면 올리고, 나아졌으면 내린다 — "
+                          "'추출로 낮추지 않음' 상태는 처치·시간이 내린다).\n"
+                          + "\n".join(cur))
+
+    # 인물 — 고정 NPC와 이미 등장한 비정규 NPC.
+    known = list((sd.get("default_npcs") or {}).keys())
+    try:
+        from indaim.narrative.irregular_npc import get_registry
+        known += [n for n in get_registry(session).keys() if n not in known]
+    except Exception:
+        pass
+    # 플레이어도 인물이지만 npcs_met 대상이 아니다.
+    if known:
+        blocks.append("\n[이 세계의 인물 — npcs_met에는 이 목록의 이름만 쓸 것]\n"
+                      + " · ".join(known))
+
+    return "\n".join(blocks) + "\n" if blocks else ""
+
+
+def summarize_for_report(result: dict) -> str:
+    """마스터 채널 보고용 요약을 만든다.
+
+    추출 스키마의 전 항목을 다룬다. 일부만 보고하면 무엇이 왜 바뀌었는지
+    추적할 수 없다. 값이 없는 항목은 줄을 차지하지 않는다.
+    """
+    dtb = result.get("datetime") or {}
+    loc = (result.get("location") or {}).get("name", "미확인")
+    sit = result.get("situation") or {}
+    qp = result.get("quest_progress") or {}
+
+    # 날짜가 잡혔으면 시간대와 함께 보여준다.
+    when = dtb.get("time_of_day", "미확인")
+    if dtb.get("date"):
+        when = f"{dtb['date']} {when}"
+
+    head = [
+        f"위치 {loc}",
+        f"시각 {when}",
+        f"장면 {sit.get('tag', '미확인')}(긴장 {sit.get('tension', 0)})",
+        f"진행 {qp.get('advance', 0)} / 이탈 {qp.get('deviation', 0)}",
+    ]
+    lines = [" · ".join(head)]
+
+    npcs = result.get("npcs_met") or []
+    if npcs:
+        lines.append(f"> 등장 NPC: {', '.join(npcs[:8])}")
+
+    comp = result.get("companions") or {}
+    moves = []
+    if comp.get("joined"):
+        moves.append(f"합류 {', '.join(comp['joined'])}")
+    if comp.get("left"):
+        moves.append(f"이탈 {', '.join(comp['left'])}")
+    if moves:
+        lines.append(f"> 동행: {' · '.join(moves)}")
+
+    items = result.get("item_changes") or []
+    if items:
+        shown = []
+        for it in items[:6]:
+            if not isinstance(it, dict):
+                continue
+            name = it.get("item") or "?"
+            delta = it.get("delta", 0)
+            sign = "+" if isinstance(delta, int) and delta > 0 else ""
+            who = it.get("target") or ""
+            shown.append(f"{who + ' ' if who else ''}{name} {sign}{delta}")
+        if shown:
+            lines.append(f"> 소지품: {', '.join(shown)}")
+
+    scores = result.get("status_scores") or []
+    seen = []
+    for sc in scores:
+        if not isinstance(sc, dict):
+            continue
+        val = sc.get("score", 0)
+        # 조짐 이상만 싣는다. 0점까지 나열하면 읽히지 않는다.
+        if isinstance(val, int) and val >= 31:
+            who = sc.get("target") or ""
+            seen.append(f"{who + ' ' if who else ''}{sc.get('status', '?')} {val}")
+    if seen:
+        lines.append(f"> 상태 징후: {', '.join(seen)}")
+
+    aware = result.get("secret_awareness", 0)
+    if isinstance(aware, int) and aware >= 31:
+        label = "명확히 인지" if aware >= 71 else "단서를 접함"
+        lines.append(f"> 이면정보 인지 {aware} ({label})")
+
+    return "\n".join(lines)

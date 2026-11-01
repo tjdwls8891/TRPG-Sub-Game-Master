@@ -1081,7 +1081,7 @@ class SystemCog(commands.Cog):
         # 변경된 파일 목록 — 재시작이 필요한지 판단 근거로 제공
         _, changed = _run(["git", "diff", "--name-only", f"{before}..{after}"])
         needs_restart = any(
-            f.startswith(("core/", "prompts.py", "main.py"))
+            f.startswith(("core/", "indaim/", "prompts.py", "main.py"))     # 리팩터링 T-5: 엔진 본체는 indaim/
             for f in changed.splitlines()
         )
 

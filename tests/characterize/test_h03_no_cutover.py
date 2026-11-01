@@ -17,7 +17,7 @@ import pytest
 
 from core import spatial as SP
 from core import world_schedule as SC
-from tests.conftest import REPO_ROOT
+from tests.conftest import REPO_ROOT, legacy_rel, prod_py_files, internal_imports
 
 pytestmark = pytest.mark.characterize
 
@@ -27,12 +27,13 @@ PRODUCER_NAMES = {"traversal_ops", "placement_at", "plan_actual_traversal", "pla
                   "seed_knowledge"} | {n for n in dir(SC) + dir(SP) if n.startswith("OP_")}
 
 
+def _engine_file(p) -> bool:
+    return p.startswith(os.path.join(REPO_ROOT, "core")) or p.startswith(os.path.join(REPO_ROOT, "indaim"))
+
+
 def _production_files():
     out = [os.path.join(REPO_ROOT, "main.py"), os.path.join(REPO_ROOT, "prompts.py")]
-    for base in ("core", "cogs"):
-        for fn in sorted(os.listdir(os.path.join(REPO_ROOT, base))):
-            if fn.endswith(".py"):
-                out.append(os.path.join(REPO_ROOT, base, fn))
+    out += prod_py_files("core", "cogs")
     return out
 
 
@@ -82,7 +83,7 @@ def test_h03_modules_are_used_only_by_allowed_core_modules():
         for m in H03_MODULES:
             if os.path.basename(p) in (f"{m}.py", "__init__.py"):
                 continue
-            if _imports_module(tree, m) and not (rel.startswith("core") and os.path.basename(p) in allowed[m]):
+            if _imports_module(tree, m) and not (_engine_file(os.path.join(REPO_ROOT, rel)) and os.path.basename(p) in allowed[m]):
                 hits.append((rel, m))
     assert hits == [], hits
 
@@ -95,7 +96,7 @@ def test_no_production_producer_of_h03_operations():
               | set(H05_FILES) | {"world_lifecycle.py"})          # H06: INITIALIZATION producer
     hits = []
     for p in _production_files():
-        if p.startswith(os.path.join(REPO_ROOT, "core")) and os.path.basename(p) in domain:
+        if _engine_file(p) and os.path.basename(p) in domain:
             continue
         for node in ast.walk(_tree(p)):
             if isinstance(node, ast.Constant) and isinstance(node.value, str) and node.value in OP_TYPES:
@@ -111,7 +112,7 @@ def test_legacy_place_and_time_paths_do_not_read_new_domains():
     """legacy 이동(places.py BFS)·시간(timeline.py)·자동 GM 경로는 새 도메인을 읽지 않는다."""
     new_fields = ("world_clock", "world_schedule", "spatial_state", "spatial_knowledge",
                   "access_control_state")
-    for rel in ("core/places.py", "core/timeline.py", "cogs/gm.py", "cogs/game.py", "core/extraction.py"):
+    for rel in ("indaim/rules/space/places.py", "indaim/rules/time/timeline.py", "cogs/gm.py", "cogs/game.py", "indaim/turn/extraction.py"):
         tree = _tree(os.path.join(REPO_ROOT, rel))
         for m in H03_MODULES:
             assert not _imports_module(tree, m), (rel, m)
@@ -128,14 +129,14 @@ def test_h03_modules_have_no_provider_discord_finance_or_prompt():
     banned_calls = {"call_with_retry", "accrue", "generate_content", "record_cost_event_strict",
                     "save_session_data", "save_session_data_strict"}
     for m in H03_MODULES:
-        for node in ast.walk(_tree(os.path.join(REPO_ROOT, "core", f"{m}.py"))):
+        for node in ast.walk(_tree(os.path.join(REPO_ROOT, legacy_rel(m)))):
             if isinstance(node, ast.Import):
                 assert not {a.name.split(".")[0] for a in node.names} & banned_mod, m
             elif isinstance(node, ast.ImportFrom):
                 if node.level == 0 and node.module:
                     assert node.module.split(".")[0] not in banned_mod, (m, node.module)
-                if node.level == 1:
-                    names = {node.module} if node.module else {a.name for a in node.names}
+                names = internal_imports(node)
+                if names:
                     assert not names & banned_core, (m, names)
             elif isinstance(node, ast.Call):
                 name = getattr(node.func, "attr", None) or getattr(node.func, "id", None)

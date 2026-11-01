@@ -143,7 +143,7 @@ def test_28_tolerant_load_retains_fallback(tmp_path):
 
 def test_29_legacy_billing_callers_unchanged_and_no_strict_cutover():
     # (a) 레거시 금전 뮤테이터는 여전히 tolerant _write_account 를 쓴다.
-    src = source_of("core/accounts.py")
+    src = source_of("indaim/ledger/accounts.py")
     for fn in ("register_account", "add_ink", "set_balance", "deduct_ink"):
         assert f"def {fn}" in src
     assert "_write_account(acc)" in src            # tolerant 경로 유지
@@ -154,7 +154,7 @@ def test_29_legacy_billing_callers_unchanged_and_no_strict_cutover():
                    "record_cost_event_strict", "list_cost_events_strict",
                    "get_cost_events_by_ids_strict")
     offenders = []
-    for base in ("core", "cogs"):
+    for base in ("core", "indaim", "cogs"):
         for dirpath, _dirs, files in os.walk(os.path.join(REPO_ROOT, base)):
             if "__pycache__" in dirpath:
                 continue
@@ -166,20 +166,20 @@ def test_29_legacy_billing_callers_unchanged_and_no_strict_cutover():
                 # settlement 빌더는 strict exact-ID 리더를 '설계상' 소비한다(핸드오프
                 # §8/§40). 이는 라이브 청구 cutover 가 아니며 cogs/ 호출자는 0 이다
                 # (별도 caller-scan 테스트가 이를 직접 증명한다).
-                if rel in ("core/accounts.py", "core/cost_ledger.py",
-                           "core/settlement.py", "core/ink_transactions.py",
+                if rel in ("indaim/ledger/accounts.py", "indaim/ledger/cost_ledger.py",
+                           "indaim/ledger/settlement.py", "indaim/ledger/ink_transactions.py",
                            # WP-D 권위 owner — foundation을 조합만 하며 strict 프리미티브는
                            # 원장 부재 봇용 _NullLedger 인터페이스 정의뿐이다.
-                           "core/commit_coordinator.py",
+                           "indaim/turn/commit_coordinator.py",
                            # WP-F 인가 캐시 생애주기 재무 owner — 결정적 키 CostEvent를
                            # strict append 로 기록한다(턴 Settlement 경로가 아님).
-                           "core/cache_lifecycle.py",
+                           "indaim/ledger/cache_lifecycle.py",
                            # WP-F RE-GATE 3 인가 시간 해석 청구 owner — 청구 복구 근거를
                            # strict(fail-closed)로 읽는다.
-                           "core/interpretation_billing.py",
+                           "indaim/ledger/interpretation_billing.py",
                            # WP-G 인가 레거시 회계 소비자 전환 — 제공자 비용 조회(운영 예산 상한·
                            # 사용량 표시)를 CostLedger strict 로 읽는다(쓰기 없음, fail-closed).
-                           "core/cost.py",
+                           "indaim/ledger/cost.py",
                            # WP-G 인가 운영자 도구(!잉크 조회) — 손상 계정을 빈 계정으로 보이지 않게
                            # strict 로 읽는다(쓰기는 accounts.py 의 strict 운영자 함수 경유).
                            "cogs/system.py"):
@@ -197,4 +197,4 @@ def test_30_per_user_locking_not_weakened():
     assert l1 is l2 and isinstance(l1, asyncio.Lock)      # 유저당 안정적 단일 락
     assert accounts._lock_for("u2") is not l1
     # 두 번째 락 시스템을 도입하지 않았다: Lock 생성지점은 _lock_for 하나뿐.
-    assert source_of("core/accounts.py").count("asyncio.Lock()") == 1
+    assert source_of("indaim/ledger/accounts.py").count("asyncio.Lock()") == 1

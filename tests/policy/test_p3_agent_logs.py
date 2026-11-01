@@ -34,9 +34,9 @@ def _rows(name, sid=SID):
 def test_every_domain_kind_in_source_is_registered_and_documented():
     pat = re.compile(r"(?:logs\.domain|_log_history|_log_ink)\(\s*\"([a-z_.]+)\"")
     found = set()
-    for d in ("core", "cogs"):
-        for f in (ROOT / d).glob("*.py"):
-            found |= set(pat.findall(f.read_text(encoding="utf-8")))
+    from tests.conftest import prod_py_files
+    for f in map(pathlib.Path, prod_py_files("core", "cogs")):
+        found |= set(pat.findall(f.read_text(encoding="utf-8")))
     assert found and found <= set(L.DOMAIN_KINDS), sorted(found - set(L.DOMAIN_KINDS))
     doc = (ROOT / "docs" / "LOG_SCHEMA.md").read_text(encoding="utf-8")
     assert all(f"`{k}`" in doc for k in L.DOMAIN_KINDS), [k for k in L.DOMAIN_KINDS if f"`{k}`" not in doc]

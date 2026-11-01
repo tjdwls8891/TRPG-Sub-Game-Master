@@ -309,5 +309,5 @@ def test_P4_no_member_inference_from_items_faction_or_persona():
                                 "phase_entered_at": 1}}
     caps = core.player_world.pc_capabilities(s, "555001", D)
     assert "member:guild" not in caps                                              # 소지품 이름·소속·서술로 추론 없음
-    for f in ("core/player_world.py", "core/items.py"):
+    for f in ("indaim/turn/player_world.py", "indaim/rules/items/items.py"):
         assert "member:" not in (ROOT / f).read_text(encoding="utf-8")              # 하드코딩 없음

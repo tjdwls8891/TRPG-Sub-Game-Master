@@ -109,7 +109,7 @@ def test_conditional_sections(session_auto_ready):
 
 
 def test_engine_has_no_scenario_specific_strings():
-    src = (REPO / "core" / "display_board.py").read_text(encoding="utf-8")
+    src = (REPO / "indaim/adapters/discord/display_board.py").read_text(encoding="utf-8")
     for word in ("영도", "YEONGDO", "감지해변", "김이서"):
         assert word not in src
 

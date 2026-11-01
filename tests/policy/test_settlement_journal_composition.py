@@ -173,7 +173,7 @@ def test_s8_legacy_finish_proceed_billing_remains():
     assert "ink = core.cost_to_ink(turn_cost)" not in gm
     assert "deduct_ink" not in gm
     assert "total_cost\", 0.0) - cost_before" not in gm
-    cc = source_of("core/commit_coordinator.py")
+    cc = source_of("indaim/turn/commit_coordinator.py")
     assert "_st.build_turn_settlement(" in cc and "_ink.execute_settlement_charges(" in cc
 
 

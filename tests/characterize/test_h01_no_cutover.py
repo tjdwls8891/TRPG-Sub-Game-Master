@@ -23,33 +23,30 @@ import os
 import pytest
 
 import core
-from tests.conftest import REPO_ROOT, source_of
+from tests.conftest import REPO_ROOT, source_of, legacy_rel, prod_py_files
 
 pytestmark = pytest.mark.characterize
 
 H01_MODULES = ("world_ids", "definition_compiler", "definition_snapshot")
-ALLOWED = {os.path.join("core", f"{m}.py") for m in H01_MODULES} | {os.path.join("core", "__init__.py")}
+ALLOWED = {legacy_rel(m) for m in H01_MODULES} | {legacy_rel("__init__")}
 
 
 def _production_files():
     out = [os.path.join(REPO_ROOT, "main.py")]
-    for base in ("core", "cogs"):
-        for fn in sorted(os.listdir(os.path.join(REPO_ROOT, base))):
-            if fn.endswith(".py"):
-                out.append(os.path.join(REPO_ROOT, base, fn))
+    out += prod_py_files("core", "cogs")
     return out
 
 
 # H02: world_ids를 재사용해도 되는 정본 기반 모듈(정의 컴파일러·스냅샷은 여전히 금지)
 # H04: 행위자·정보·사건 도메인 모듈도 안정 digest(ActorId·InfoId·EventInstanceId)를 재사용한다.
 from tests.characterize.h04_scope import H04_DOMAIN_MODULES  # noqa: E402
-WORLD_IDS_REUSERS = {os.path.join("core", f"{m}.py")
+WORLD_IDS_REUSERS = {legacy_rel(m)
                      for m in ("world_state", "world_mutation", "canonical_mutation") + H04_DOMAIN_MODULES
                      + ("player_world", "turn_world", "pursuit")}   # v7.48 추적자(사건 지역 상태 도메인)
 # H05: 바인딩된 정의의 읽기 전용 소비자(쓰기·바인딩 없음 — 아래 writer 테스트가 계속 고정)
 # H06: 생애주기 owner(world_lifecycle — 컴파일·스냅샷 쓰기·바인딩)와 캐시 원천(cache_source — 스냅샷 읽기)
-DEFINITION_READERS = {os.path.join("core", "player_world.py"), os.path.join("core", "cache_source.py")}
-DEFINITION_BINDER = os.path.join("core", "world_lifecycle.py")
+DEFINITION_READERS = {legacy_rel("player_world"), legacy_rel("cache_source")}
+DEFINITION_BINDER = legacy_rel("world_lifecycle")
 WORLD_IDS_REUSERS = WORLD_IDS_REUSERS | {DEFINITION_BINDER}
 
 
@@ -92,7 +89,7 @@ def test_h01_modules_are_pure_no_provider_discord_or_session_save():
 
 def test_compiler_does_no_file_writes():
     """컴파일러는 읽기 전용이다 — 쓰기 모드 open이 없다(쓰기는 snapshot 모듈·도구만)."""
-    tree = ast.parse(source_of("core/definition_compiler.py"))
+    tree = ast.parse(source_of("indaim/scenario/definition_compiler.py"))
     for node in ast.walk(tree):
         if isinstance(node, ast.Call) and getattr(node.func, "id", None) == "open":
             modes = [a.value for a in node.args[1:2] if isinstance(a, ast.Constant)]
@@ -109,7 +106,7 @@ def test_definition_revision_single_writer_is_lifecycle_binder():
     writers = []
     for path in _production_files():
         rel = os.path.relpath(path, REPO_ROOT)
-        if rel == os.path.join("core", "world_state.py"):
+        if rel == legacy_rel("world_state"):
             continue                    # 기본값(None) 초기화·마이그레이션만
         for node in ast.walk(ast.parse(open(path, encoding="utf-8").read())):
             if isinstance(node, ast.Assign):
@@ -122,7 +119,7 @@ def test_definition_revision_single_writer_is_lifecycle_binder():
     # 스냅샷 쓰기 API는 생애주기 owner만 부른다
     for path in _production_files():
         rel = os.path.relpath(path, REPO_ROOT)
-        if rel in (DEFINITION_BINDER, os.path.join("core", "definition_snapshot.py")):
+        if rel in (DEFINITION_BINDER, legacy_rel("definition_snapshot")):
             continue
         called = {getattr(n.func, "attr", None) for n in ast.walk(ast.parse(open(path, encoding="utf-8").read()))
                   if isinstance(n, ast.Call)}
@@ -131,7 +128,7 @@ def test_definition_revision_single_writer_is_lifecycle_binder():
 
 def test_h05_definition_reader_is_read_only_and_gated_on_binding():
     """H05 player_world는 스냅샷 쓰기 API를 부르지 않고, 바인딩 없는 세션은 LEGACY다."""
-    tree = ast.parse(source_of("core/player_world.py"))
+    tree = ast.parse(source_of("indaim/turn/player_world.py"))
     called = {getattr(n.func, "attr", None) for n in ast.walk(tree) if isinstance(n, ast.Call)}
     assert not called & {"write_snapshot", "build_envelope", "_write_json_durable"}
     assert "compile_scenario" not in called            # H06: 스냅샷만 읽는다(재컴파일 대체 없음)

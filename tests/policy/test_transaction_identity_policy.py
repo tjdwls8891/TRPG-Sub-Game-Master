@@ -16,7 +16,7 @@ pytestmark = pytest.mark.policy
 
 turn_transaction = pytest.importorskip(
     "core.turn_transaction",
-    reason="WP-01이 core/turn_transaction.py를 만들기 전까지 skip")
+    reason="WP-01이 indaim/turn/turn_transaction.py를 만들기 전까지 skip")
 
 
 def test_tid001_first_automatic_logical_turn(session_auto_ready):

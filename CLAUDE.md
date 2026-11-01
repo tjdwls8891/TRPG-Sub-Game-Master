@@ -52,7 +52,7 @@ python main.py
 !리로드 [모듈]    # cogs/ 하위만 핫스왑 가능
 ```
 
-`core/`와 `main.py`는 핫스왑이 불가하다.
+`core/`·`indaim/`과 `main.py`는 핫스왑이 불가하다(리팩터링 T-5: 엔진 본체는 `indaim/` — `!배포`도 이 경로 변경을 재시작 대상으로 본다).
 
 서버 경로(`systemctl cat trpg-bot`): 저장소 `/home/ubuntu/trpgbot`, 파이썬 `/home/ubuntu/trpgbot/venv/bin/python`(서비스 이름은 `trpg-bot`).
 
@@ -145,6 +145,7 @@ python main.py
 ### core/ — 106개 서브모듈
 
 `core/__init__.py`가 전 심볼을 re-export하므로 외부에서는 `core.XYZ`로 접근한다.
+리팩터링 T-5(진행 중): 아래 모듈의 실제 파일은 `indaim/` 아래로 옮겼다(위치 표 `indaim/legacy_map.py`). `core.X`는 옮긴 모듈과 **같은 객체**를 돌려주는 별칭이라 import·monkeypatch·`!리로드` 밖의 동작은 그대로다. 아래 표의 '모듈' 이름은 옛 이름이다.
 
 #### 턴·커밋·재무 권위 (WP-02~G)
 
