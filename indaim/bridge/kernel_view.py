@@ -22,3 +22,19 @@ class KernelProjectedWorld(_wm.ProjectedWorld):
         w.__class__ = KernelProjectedWorld
         w.definition_revision = self.definition_revision
         return w
+
+
+def project_ops(base: KernelProjectedWorld, ops) -> KernelProjectedWorld:
+    """커널 세계 보기 위에 옛 연산을 투영한 보기(계획 투영과 같은 production 등록부)."""
+    b = _wm.WorldMutationBatch(batch_id="bridge.project", outer_origin="PLAYER_TURN", source_world_version_id=None,
+                               definition_revision=base.definition_revision)
+    for op in ops:
+        b.add(op)
+    b.freeze()
+    res = _wm.project(base, b, _wm.PRODUCTION_REGISTRY)
+    if not res.ok:
+        raise _wm.WorldProjectionConflict(res.conflicts)
+    w = res.world
+    w.__class__ = KernelProjectedWorld
+    w.definition_revision = base.definition_revision
+    return w

@@ -169,7 +169,7 @@ def _ported_view(world, reg) -> dict:
     return out
 
 
-STATS = {"compared": 0, "effects": 0, "vitals_turns": 0, "vitals_effects": 0, "items_turns": 0, "items_effects": 0, "growth_calls": 0, "growth_effects": 0, "party_calls": 0, "party_effects": 0, "plans": 0, "plan_ops": 0}
+STATS = {"compared": 0, "effects": 0, "vitals_turns": 0, "vitals_effects": 0, "items_turns": 0, "items_effects": 0, "growth_calls": 0, "growth_effects": 0, "party_calls": 0, "party_effects": 0, "plans": 0, "plan_ops": 0, "observations": 0, "observation_ops": 0}
 
 
 def shadow_compare(source_domains: dict, old_batch, result_domains: dict) -> list:
@@ -347,6 +347,25 @@ def compare_plans(old, new) -> list:
     out = []
     for f in ("status", "reason", "start_minute", "end_minute", "code_owned_minutes", "scene_place", "outcome",
               "signals", "ties", "route_options", "resolved_choice", "transit", "item_payments", "observer"):
+        a, b = getattr(old, f, None), getattr(new, f, None)
+        if a != b:
+            out.append(f"{f}: 옛 {a!r} ≠ 새 {b!r}"[:400])
+    ao = [o.to_dict() for o in old.ops or ()]
+    bo = [o.to_dict() for o in new.ops or ()]
+    if ao != bo:
+        i = next((k for k, (x, y) in enumerate(zip(ao, bo)) if x != y), min(len(ao), len(bo)))
+        out.append(f"ops 다름(옛 {len(ao)} · 새 {len(bo)}) 첫 차이 #{i}: "
+                   f"{(ao[i] if i < len(ao) else None)!r} ≠ {(bo[i] if i < len(bo) else None)!r}"[:600])
+    return out
+
+
+def compare_observations(old, new) -> list:
+    """T-5 그림자 — 같은 추출로 옛 세계/커널 세계 보기에서 처리한 관찰 결과가 같은가."""
+    STATS["observations"] += 1
+    STATS["observation_ops"] += len(old.ops or ())
+    out = []
+    for f in ("status", "signals", "pending", "represented", "exposures", "extra_minutes", "conflict", "item_gains",
+              "diagnostics"):
         a, b = getattr(old, f, None), getattr(new, f, None)
         if a != b:
             out.append(f"{f}: 옛 {a!r} ≠ 새 {b!r}"[:400])

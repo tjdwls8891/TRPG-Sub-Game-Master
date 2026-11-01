@@ -223,6 +223,31 @@ def _kernel_shadow(monkeypatch, request):
             diffs.append(("plan", d[:5]))
         return out
     monkeypatch.setattr(_pwm, "plan_player_turn", plan_turn)
+    # T-5: 관찰 처리(추출 → 보충 연산)도 커널 세계 보기 위의 같은 계획으로 돌려 대조한다
+    import dataclasses as _dc
+    import core.turn_world as _twm
+    from indaim.bridge.kernel_view import project_ops
+    orig_obs = _twm.process_observation
+
+    def observe(ctx, base_world, plan, manifest, raw, **kw):
+        out = orig_obs(ctx, base_world, plan, manifest, raw, **kw)
+        if "no_kernel_shadow" in request.keywords or isinstance(base_world, _wm.ProjectedWorld) or plan is None \
+                or plan.status != _pwm.PLAN_PLANNED or plan.projected_world is None:
+            return out
+        try:
+            conv = _v4.convert({f: getattr(base_world, f, None) for f in _v4.FIELDS
+                                if getattr(base_world, f, None) is not None}, game_keys=set())
+            kv = KernelProjectedWorld(conv, definition_revision=getattr(base_world, "definition_revision", None))
+            twin_plan = _dc.replace(plan, projected_world=project_ops(kv, plan.ops))
+            twin = orig_obs(ctx, kv, twin_plan, manifest, _copy.deepcopy(raw), **kw)
+            d = _sh.compare_observations(out, twin)
+        except Exception as e:  # noqa: BLE001
+            import traceback
+            d = [f"그림자 검사 예외 {type(e).__name__}: {e} {traceback.format_exc()[-700:]}"]
+        if d:
+            diffs.append(("observe", d[:5]))
+        return out
+    monkeypatch.setattr(_twm, "process_observation", observe)
     monkeypatch.setattr(_tpm, "apply_staged_growth", staged)
     yield
     if "no_kernel_shadow" not in request.keywords:
