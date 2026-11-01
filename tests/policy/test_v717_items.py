@@ -334,7 +334,8 @@ def test_D07_disassemble_authored_parts_no_duplication():
 def test_D08_item_tool_only_via_existing_method_mod():
     # v7.46(사용자 결정 7 혼합형): 착용·손에 든 물건만 코드 장비 보정 E, 그 밖의 도구 쓰임은 여전히 M 한 곳.
     #   판정 수식 모듈은 순수 — 아이템 정본(resources)을 읽지 않고 E 값만 받는다.
-    src = (ROOT / "core/judgment.py").read_text(encoding="utf-8")
+    #   리팩터링 T-3: 구현은 indaim/rules/checks/logic.py(core.judgment는 다시 내보내기만 한다)
+    src = (ROOT / "indaim/rules/checks/logic.py").read_text(encoding="utf-8")
     assert "import" not in src.replace("import random", "") and "resources" not in src
 
 

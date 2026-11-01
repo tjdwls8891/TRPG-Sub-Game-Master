@@ -107,7 +107,26 @@ def _kernel_shadow(monkeypatch, request):
     from indaim.rules.vitals import logic as _vl
     orig_apply, orig_decide = _gm.GMCog._apply_prepared_extraction, _vl.decide_turn
     orig_grants, orig_plan = _it.apply_event_grants, _it.apply_plan
+    import core.growth as _gr
+    import core.turn_preparation as _tpm
+    orig_turn_inputs, orig_staged = _gr.turn_inputs, _tpm.apply_staged_growth
     seen = {}
+
+    def turn_inputs(session, prep):
+        r = orig_turn_inputs(session, prep)
+        seen.setdefault("growth", []).append(_copy.deepcopy(r))
+        return r
+
+    def staged(session, prep):
+        if "no_kernel_shadow" in request.keywords:
+            return orig_staged(session, prep)
+        pre = _copy.deepcopy({f: getattr(session, f, None) for f in _v4.FIELDS})
+        inp = {"events": _copy.deepcopy(prep.growth_events), "fail_counts": _copy.deepcopy(prep.growth_fail_counts)}
+        out = orig_staged(session, prep)
+        if out:
+            _check("growth", _sh.shadow_growth, pre, {"sd": session.scenario_data or {}, "staged": inp},
+                   {f: getattr(session, f, None) for f in _v4.FIELDS}, tx=str(prep.transaction_id))
+        return out
 
     def decide(merged, **kw):
         seen.setdefault("vitals", []).append({"merged": merged, **_copy.deepcopy(kw)})
@@ -164,11 +183,16 @@ def _kernel_shadow(monkeypatch, request):
             _check("items", _sh.shadow_items, pre, {**g, "plan": (seen.get("plan") or [None])[0]}, post, tx=tx)
         else:
             diffs.append(("items", [f"물건 적용 호출이 여러 번 {[(k, len(v)) for k, v in seen.items()]}"]))
+        if len(seen.get("growth", ())) == 1 and seen["growth"][0] is not None:
+            _check("growth", _sh.shadow_growth, pre, {"sd": session.scenario_data or {}, "turn": seen["growth"][0]},
+                   post, tx=tx)
         return out
     monkeypatch.setattr(_vl, "decide_turn", decide)
     monkeypatch.setattr(_it, "apply_event_grants", grants)
     monkeypatch.setattr(_it, "apply_plan", plan)
     monkeypatch.setattr(_gm.GMCog, "_apply_prepared_extraction", apply)
+    monkeypatch.setattr(_gr, "turn_inputs", turn_inputs)
+    monkeypatch.setattr(_tpm, "apply_staged_growth", staged)
     yield
     if "no_kernel_shadow" not in request.keywords:
         assert not diffs, f"새 커널 그림자 불일치 {len(diffs)}건: {diffs[:3]}"

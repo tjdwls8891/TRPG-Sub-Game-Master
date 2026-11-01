@@ -11,10 +11,10 @@ from indaim.rules.relations.components import target_of
 from . import v4
 
 # 옛 typed 연산의 번역으로 비교하는 컴포넌트(투영 그림자). vitals 등 확정 훅 모듈은 커밋 단위 그림자로 따로 비교한다.
-_HOOK_FEATURES = ("vitals", "items")
+_HOOK_FEATURES = ("vitals", "items", "growth")
 PORTED = tuple((c.entity, c.name) for f in FEATURES for c in f.COMPONENTS
                if f.__name__.rsplit(".", 1)[-1] not in _HOOK_FEATURES)
-_PLACEHOLDERS = (("actor", ("party", "stats")), ("info", ("runtime", "status")),
+_PLACEHOLDERS = (("actor", ("party",)), ("info", ("runtime", "status")),
                  ("event", ("core", "vars", "history")),
                  (WORLD, ("pending_signals", "info_series", "group_mind", "group_bond", "unresolved")))
 
@@ -159,7 +159,7 @@ def _ported_view(world, reg) -> dict:
     return out
 
 
-STATS = {"compared": 0, "effects": 0, "vitals_turns": 0, "vitals_effects": 0, "items_turns": 0, "items_effects": 0}
+STATS = {"compared": 0, "effects": 0, "vitals_turns": 0, "vitals_effects": 0, "items_turns": 0, "items_effects": 0, "growth_calls": 0, "growth_effects": 0}
 
 
 def shadow_compare(source_domains: dict, old_batch, result_domains: dict) -> list:
@@ -264,3 +264,35 @@ def shadow_items(pre_fields: dict, inputs: dict, post_fields: dict, *, tx: str) 
     want = view_of(v4.convert(_fields(post_fields), game_keys=set()).world)
     got = view_of(res.world)
     return [f"{k}: 옛 {want.get(k)!r} ≠ 새 {got.get(k)!r}" for k in sorted(set(want) | set(got)) if want.get(k) != got.get(k)]
+
+
+def shadow_growth(pre_fields: dict, inputs: dict, post_fields: dict, *, tx: str) -> list:
+    """T-3 그림자 — growth 확정 훅 ↔ 변환된 결과 세계의 actor.stats(PC 게임 수치·실패 누적)."""
+    from indaim.kernel import View
+    from indaim.rules import growth
+    reg = registry()
+    gk = growth.game_keys(inputs["sd"])
+    pre = v4.convert(_fields(pre_fields), game_keys=gk)
+    names, _canon, _amb = v4._names(_fields(pre_fields))
+    pc_uid = next(iter(pre_fields.get("players") or {}), None)
+    pc_actor = next((a for a, r in (pre_fields.get("actor_registry") or {}).items()
+                     if r.get("kind") == "PC" and str(r.get("source_key")) == str(pc_uid)), None)
+    if pc_actor is None:
+        return []                                   # PC 등록이 없는 시험 세션 — 비교 대상 없음
+    effs = growth.settle(View(pre.world, reg, None), {**inputs, "names": names, "pc_uid": pc_uid, "pc_actor": pc_actor},
+                         effect_prefix=tx)
+    STATS["growth_calls"] += 1
+    STATS["growth_effects"] += len(effs)
+    b = EffectBatch(batch_id=f"shadow.growth.{tx}", origin="PLAYER_TURN", base_version_id=None, definition_revision=None)
+    b.extend(effs)
+    b.freeze()
+    res = project(pre.world, b, reg, None)
+    if not res.ok:
+        return [f"새 커널 충돌: {[c.message for c in res.conflicts]}"]
+
+    def stats(world):
+        w = compact(world, reg, None).to_dict()
+        return {a: c["stats"] for a, c in (w.get("entities", {}).get("actor") or {}).items() if "stats" in c}
+    want = stats(v4.convert(_fields(post_fields), game_keys=gk).world)
+    got = stats(res.world)
+    return [f"{a}: 옛 {want.get(a)!r} ≠ 새 {got.get(a)!r}" for a in sorted(set(want) | set(got)) if want.get(a) != got.get(a)]

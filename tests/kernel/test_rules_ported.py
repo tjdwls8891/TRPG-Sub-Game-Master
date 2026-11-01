@@ -71,3 +71,33 @@ def test_every_old_typed_op_is_translated():
     """옛 production 연산 28종이 모두 새 효과로 번역된다(새 옛-연산이 그림자 비교를 조용히 건너뛰지 않게)."""
     from core import world_mutation as W
     assert set(ops_v4.TRANSLATE) == set(W.PRODUCTION_REGISTRY.op_types())
+
+
+def test_growth_settle_applies_staged_roll_growth_and_fail_counts():
+    """판정 실패 누적 성장(굴림 때 정한 결과)이 PC 프로필·실패 누적으로 반영된다 — 옛 apply_staged_growth와 같은 결과."""
+    import copy
+
+    from core import turn_preparation as TP
+    from indaim.migrate import v4
+
+    fields = {f: [] if f in v4.NAME_LISTS or f == "world_pending_signals" else {} for f in v4.FIELDS}
+    fields.update({"world_version": None,
+                   "actor_registry": {"pc_7": {"kind": "PC", "display_name": "갑", "source_kind": "PLAYER",
+                                               "source_key": "7", "aliases": []}},
+                   "players": {"7": {"name": "갑", "profile": {"이름": "갑", "근력": 12, "민첩": 10}}},
+                   "stat_fail_counts": {"갑:근력": 2}})
+    sd = {"ability_stats": ["근력", "민첩"]}
+
+    class Prep:
+        growth_events = [("7", "근력", 13)]
+        growth_fail_counts = {"갑:근력": 0, "갑:민첩": 1}
+        growth_players = None
+        transaction_id = "t"
+    sess = type("S", (), {**copy.deepcopy(fields), "scenario_data": sd})()
+    TP.apply_staged_growth(sess, Prep())
+    want = {f: getattr(sess, f) for f in v4.FIELDS}
+    d = ops_v4.shadow_growth(fields, {"sd": sd, "staged": {"events": [("7", "근력", 13)],
+                                                            "fail_counts": {"갑:근력": 0, "갑:민첩": 1}}},
+                             want, tx="t")
+    assert d == []
+    assert want["players"]["7"]["profile"]["근력"] == 13 and want["stat_fail_counts"] == {"갑:근력": 0, "갑:민첩": 1}
