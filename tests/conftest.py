@@ -110,7 +110,13 @@ def _kernel_shadow(monkeypatch, request):
     import core.growth as _gr
     import core.turn_preparation as _tpm
     orig_turn_inputs, orig_staged = _gr.turn_inputs, _tpm.apply_staged_growth
+    import core as _core
+    orig_comp = _core.apply_normalized_companions
     seen = {}
+
+    def companions(session, norm):
+        seen.setdefault("party", []).append(_copy.deepcopy(norm))
+        return orig_comp(session, norm)
 
     def turn_inputs(session, prep):
         r = orig_turn_inputs(session, prep)
@@ -183,6 +189,8 @@ def _kernel_shadow(monkeypatch, request):
             _check("items", _sh.shadow_items, pre, {**g, "plan": (seen.get("plan") or [None])[0]}, post, tx=tx)
         else:
             diffs.append(("items", [f"물건 적용 호출이 여러 번 {[(k, len(v)) for k, v in seen.items()]}"]))
+        if getattr(prep, "world_turn", None) is not None and len(seen.get("party", ())) == 1:
+            _check("party", _sh.shadow_party, pre, seen["party"][0], post, tx=tx)
         if len(seen.get("growth", ())) == 1 and seen["growth"][0] is not None:
             _check("growth", _sh.shadow_growth, pre, {"sd": session.scenario_data or {}, "turn": seen["growth"][0]},
                    post, tx=tx)
@@ -192,6 +200,7 @@ def _kernel_shadow(monkeypatch, request):
     monkeypatch.setattr(_it, "apply_plan", plan)
     monkeypatch.setattr(_gm.GMCog, "_apply_prepared_extraction", apply)
     monkeypatch.setattr(_gr, "turn_inputs", turn_inputs)
+    monkeypatch.setattr(_core, "apply_normalized_companions", companions)
     monkeypatch.setattr(_tpm, "apply_staged_growth", staged)
     yield
     if "no_kernel_shadow" not in request.keywords:

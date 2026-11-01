@@ -11,10 +11,10 @@ from indaim.rules.relations.components import target_of
 from . import v4
 
 # 옛 typed 연산의 번역으로 비교하는 컴포넌트(투영 그림자). vitals 등 확정 훅 모듈은 커밋 단위 그림자로 따로 비교한다.
-_HOOK_FEATURES = ("vitals", "items", "growth")
+_HOOK_FEATURES = ("vitals", "items", "growth", "party")
 PORTED = tuple((c.entity, c.name) for f in FEATURES for c in f.COMPONENTS
                if f.__name__.rsplit(".", 1)[-1] not in _HOOK_FEATURES)
-_PLACEHOLDERS = (("actor", ("party",)), ("info", ("runtime", "status")),
+_PLACEHOLDERS = ( ("info", ("runtime", "status")),
                  ("event", ("core", "vars", "history")),
                  (WORLD, ("pending_signals", "info_series", "group_mind", "group_bond", "unresolved")))
 
@@ -159,7 +159,7 @@ def _ported_view(world, reg) -> dict:
     return out
 
 
-STATS = {"compared": 0, "effects": 0, "vitals_turns": 0, "vitals_effects": 0, "items_turns": 0, "items_effects": 0, "growth_calls": 0, "growth_effects": 0}
+STATS = {"compared": 0, "effects": 0, "vitals_turns": 0, "vitals_effects": 0, "items_turns": 0, "items_effects": 0, "growth_calls": 0, "growth_effects": 0, "party_calls": 0, "party_effects": 0}
 
 
 def shadow_compare(source_domains: dict, old_batch, result_domains: dict) -> list:
@@ -222,6 +222,8 @@ def _with_names(pre: dict, post: dict) -> tuple:
         for f in ("resources", "equipment", "statuses", "status_clock"):
             owners |= set((d.get(f) or {}))
         owners |= {r.get("owner") for r in (d.get("item_instances") or {}).values() if isinstance(r, dict) and r.get("owner")}
+        for f in v4.NAME_LISTS:
+            owners |= set(d.get(f) or ())
     extra = {"x." + hashlib.sha256(n.encode("utf-8")).hexdigest()[:16]:
              {"kind": "NPC", "display_name": n, "source_kind": "SESSION_NPC", "source_key": n, "aliases": []}
              for n in sorted(owners) if isinstance(n, str) and n and n not in to_aid}
@@ -295,4 +297,34 @@ def shadow_growth(pre_fields: dict, inputs: dict, post_fields: dict, *, tx: str)
         return {a: c["stats"] for a, c in (w.get("entities", {}).get("actor") or {}).items() if "stats" in c}
     want = stats(v4.convert(_fields(post_fields), game_keys=gk).world)
     got = stats(res.world)
+    return [f"{a}: 옛 {want.get(a)!r} ≠ 새 {got.get(a)!r}" for a in sorted(set(want) | set(got)) if want.get(a) != got.get(a)]
+
+
+def shadow_party(pre_fields: dict, inputs: dict, post_fields: dict, *, tx: str) -> list:
+    """T-4 그림자 — party 확정 훅 ↔ 변환된 커밋 후 세계의 동행 순번·만남 순번."""
+    from indaim.kernel import View
+    from indaim.rules import party
+    reg = registry()
+    pre_fields, post_fields = _with_names(pre_fields, post_fields)
+    pre = v4.convert(_fields(pre_fields), game_keys=set())
+    names, _canon, _amb = v4._names(_fields(pre_fields))
+    effs = party.settle(View(pre.world, reg, None), {**inputs, "names": names}, effect_prefix=tx)
+    STATS["party_calls"] += 1
+    STATS["party_effects"] += len(effs)
+    b = EffectBatch(batch_id=f"shadow.party.{tx}", origin="PLAYER_TURN", base_version_id=None, definition_revision=None)
+    b.extend(effs)
+    b.freeze()
+    res = project(pre.world, b, reg, None)
+    if not res.ok:
+        return [f"새 커널 충돌: {[c.message for c in res.conflicts]}"]
+
+    def rows(world):
+        w = compact(world, reg, None).to_dict()
+        out = {}
+        for a, c in (w.get("entities", {}).get("actor") or {}).items():
+            r = {"companion": (c.get("party") or {}).get("companion"), "met": (c.get("bond") or {}).get("met")}
+            if r["companion"] is not None or r["met"] is not None:
+                out[a] = r
+        return out
+    want, got = rows(v4.convert(_fields(post_fields), game_keys=set()).world), rows(res.world)
     return [f"{a}: 옛 {want.get(a)!r} ≠ 새 {got.get(a)!r}" for a in sorted(set(want) | set(got)) if want.get(a) != got.get(a)]

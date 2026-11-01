@@ -60,5 +60,13 @@ def _append(view, e):
             write(e, pre + ("deltas",), APPEND_DEDUPE, d)]
 
 
-COMPONENTS = (Component("bond", "actor", "rules.relations", {"append": _append}),
+def _set_met(view, e):
+    """만난 순번(동행·만남 확정이 낸다 — rules.party)."""
+    n = keys(e, ("order",))["order"]
+    if not isinstance(n, int) or isinstance(n, bool) or n < 0:
+        reject(e, "order는 0 이상의 정수")
+    return [write(e, ("met",), SINGLE_VALUE, n)]
+
+
+COMPONENTS = (Component("bond", "actor", "rules.relations", {"append": _append, "set_met": _set_met}),
               Component("group_bond", WORLD, "rules.relations", {"append": _append}))

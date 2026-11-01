@@ -3,13 +3,13 @@
 이식된 모듈(정본 효과 연산): time(시계·예약) · space(위치·보류·장면·접근·공간 지식) · actors(등록)
 · knowledge(정보·계보·계열·인지) · relations(관계 delta) · events(인스턴스·변수·결단·기록)
 · vitals(상태·상태 시계 — 확정 훅) · items(소지·착용·고유 물건·현장 물건·특성 — 확정 훅) · growth(PC 게임 수치·실패 누적 — 확정 훅)
-· checks(판정 수식 — 순수 함수, 컴포넌트 없음).
+· party(동행 순번·만남 — 확정 훅) · checks(판정 수식 — 순수 함수, 컴포넌트 없음).
 """
 from indaim.kernel import Registry
 
-from . import actors, events, growth, items, knowledge, relations, space, time, vitals
+from . import actors, events, growth, items, knowledge, party, relations, space, time, vitals
 
-FEATURES = (time, space, actors, knowledge, relations, events, vitals, items, growth)
+FEATURES = (time, space, actors, knowledge, relations, events, vitals, items, growth, party)
 
 
 def register_all(registry: Registry) -> Registry:
