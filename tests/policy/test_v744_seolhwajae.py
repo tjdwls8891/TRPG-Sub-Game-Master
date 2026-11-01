@@ -17,13 +17,13 @@ from core import events as EV
 from core import player_world as PW
 from core import turn_world as TW
 from core import variant_check as VC
-from tests.conftest import REPO_ROOT
+from tests.conftest import REPO_ROOT, source_of
 from tests.policy.test_h04b_events_progression import K
 from tests.policy.test_h05a_intent_planning import PC, make_session, manifest, plan
 
 pytestmark = pytest.mark.policy
 
-RAW = json.loads(pathlib.Path(REPO_ROOT, "scenarios", "설화재.json").read_text(encoding="utf-8"))
+RAW = json.loads(source_of("scenarios/설화재.json"))
 CASES = {f"{k}{n}": who for k, who in (("S", "윤서진"), ("D", "한도윤"), ("M", "마정호"), ("O", "오세린"))
          for n in range(1, 5)}                                              # v7.45.3: 진범 4 × 수법 4 = 16
 AID = {n: d["actor_id"] for n, d in RAW["default_npcs"].items()}

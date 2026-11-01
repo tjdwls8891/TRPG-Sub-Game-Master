@@ -3,6 +3,7 @@
 새 이벤트·메시지·AI 호출 없이 기존 플레이어 대상 고정 안내만 대사 데이터로 바꾼다.
 """
 from __future__ import annotations
+from tests.conftest import source_of
 
 import json
 import pathlib
@@ -28,13 +29,13 @@ def first_variant(monkeypatch):
 
 
 def _events():
-    return json.loads((REPO / "assets" / "master_dialogues_v1.json").read_text(encoding="utf-8"))["events"]
+    return json.loads(source_of("assets/master_dialogues_v1.json"))["events"]
 
 
 # ── 자산 · 참조 키 ───────────────────────────────────────────
 
 def test_asset_shape_and_slots():
-    data = json.loads((REPO / "assets" / "master_dialogues_v1.json").read_text(encoding="utf-8"))
+    data = json.loads(source_of("assets/master_dialogues_v1.json"))
     slots = set(data["reserved_placeholders"])
     for key, ev in data["events"].items():
         vs = ev["variants"]
@@ -57,13 +58,13 @@ def test_every_key_used_in_code_exists_in_asset():
 
 
 def test_no_provider_or_network_call_in_master_module():
-    src = (REPO / "indaim/narrative/master.py").read_text(encoding="utf-8")
+    src = source_of("indaim/narrative/master.py")
     for bad in ("genai", "generate_content", "requests", "urllib", "aiohttp", "http"):
         assert bad not in src, bad
 
 
 def test_gm_home_untouched():
-    src = (REPO / "indaim/adapters/discord/gm_space.py").read_text(encoding="utf-8")
+    src = source_of("indaim/adapters/discord/gm_space.py")
     body = src[src.index("async def refresh_home"):]
     body = body[:body.index("\nasync def ", 10) if "\nasync def " in body[10:] else len(body)]
     assert "master" not in body                                              # GM 홈 게시물은 그대로(A-01)
@@ -134,7 +135,7 @@ def test_failed_turn_notice_does_not_point_to_missing_declaration():
 
 
 def test_close_failure_does_not_expose_exception_text():
-    src = (REPO / "indaim/adapters/discord/display.py").read_text(encoding="utf-8")
+    src = source_of("indaim/adapters/discord/display.py")
     assert "다시 시도해 주십시오. ({e})" not in src
 
 

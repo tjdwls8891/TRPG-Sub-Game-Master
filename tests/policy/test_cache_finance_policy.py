@@ -19,7 +19,7 @@ from core import accounts
 from core import cache_lifecycle as CLC
 from core import cost_ledger as CL
 from core import ink_transactions as IT
-from tests.conftest import MASTER_CH, PLAYER_UID, REPO_ROOT
+from tests.conftest import MASTER_CH, PLAYER_UID, REPO_ROOT, source_of
 from tests.fakes.discord_fakes import FakeInteraction, FakeMessage, FakeUser
 from tests.fakes.genai_fakes import FakeGenAIResponse, FakeUsageMetadata
 from tests.policy.test_cache_lifecycle import (TOKENS, Clock, _bal, _events, _ink_rows,
@@ -331,21 +331,21 @@ def test_p8_policy_source_scan():
     assert prepay == ["indaim/ledger/cache_lifecycle.py"]
     assert ad_hoc == [] and nope == []
     # 운영자 종료 경로는 환급 정산 처분을 쓴다
-    sysrc = pathlib.Path(REPO_ROOT, "cogs/system.py").read_text(encoding="utf-8")
+    sysrc = source_of("cogs/system.py")
     # H06-G: !세션종료는 안전 지점 + 생애주기 종료 서비스(close_session)를 거치고, 그 서비스가 환급 처분을 쓴다
     assert sysrc.count("disposition=core.cache_lifecycle.WINDOW_SETTLE_REFUND") == 1      # !캐시 삭제
     assert "core.world_lifecycle.close_session(" in sysrc and "REASON_OPERATOR_END" in sysrc
-    wl = pathlib.Path(REPO_ROOT, "indaim/app/world_lifecycle.py").read_text(encoding="utf-8")
+    wl = source_of("indaim/app/world_lifecycle.py")
     assert wl.count("disposition=_cl.WINDOW_SETTLE_REFUND") == 1
     # 예상·실제가 같은 canonical 헬퍼를 쓴다(별도 공식 금지)
-    lc = pathlib.Path(REPO_ROOT, "indaim/ledger/cache_lifecycle.py").read_text(encoding="utf-8")
-    est = pathlib.Path(REPO_ROOT, "indaim/ledger/estimate.py").read_text(encoding="utf-8")
+    lc = source_of("indaim/ledger/cache_lifecycle.py")
+    est = source_of("indaim/ledger/estimate.py")
     assert "cache_window_estimate_usd" in lc and "cache_window_responsibility_usd" in lc
     assert "cache_window_estimate_usd" in est and "cache_usd_to_ink" in est
     assert "calculate_upload_cost" not in lc
     assert "interpret" not in lc.replace("interpretation_billing", "")  # 캐시 창은 해석을 모른다
     # OpenConfirmView 는 더 이상 업로드 전에 해석 누적값을 지우지 않는다
-    gm = pathlib.Path(REPO_ROOT, "cogs/gm.py").read_text(encoding="utf-8")
+    gm = source_of("cogs/gm.py")
     i = gm.index("class OpenConfirmView")
     j = gm.index("class InfinityPlanView")
     assert "interpret_cost_krw = 0" not in gm[i:j]
@@ -617,17 +617,17 @@ async def test_p17b_corrupted_ledger_reconcile_fails_closed(sess, cbot, clock, p
 
 
 def test_p8b_interpretation_path_uses_strict_fact_before_billing():
-    gm = pathlib.Path(REPO_ROOT, "cogs/gm.py").read_text(encoding="utf-8")
+    gm = source_of("cogs/gm.py")
     i = gm.index("async def interpret_cache_time")
     j = gm.index("async def _generate_npc_detail")
     body = gm[i:j]
     assert "_cl_op.record_fact_strict(" in body and "_cl_op.record(" not in body
     assert body.index("record_fact_strict(") < body.index("record_interpretation(") \
         < body.index("interpretation_billing.settle(")
-    ib = pathlib.Path(REPO_ROOT, "indaim/ledger/interpretation_billing.py").read_text(encoding="utf-8")
+    ib = source_of("indaim/ledger/interpretation_billing.py")
     assert "list_cost_events_strict(" in ib and ".list_cost_events(" not in ib
     # tolerant record() 의미는 그대로(다른 호출자 영향 없음)
-    cl = pathlib.Path(REPO_ROOT, "indaim/ledger/cost_ledger.py").read_text(encoding="utf-8")
+    cl = source_of("indaim/ledger/cost_ledger.py")
     k = cl.index("    def record(self")
     assert "record_cost_event(event)" in cl[k:cl.index("    def record_fact_strict(self")]
 

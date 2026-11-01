@@ -45,8 +45,23 @@ def legacy_rel(name_or_path: str) -> str:
     return name_or_path
 
 
+# GM cog 구현 = cogs/gm.py(명령어·리스너) + 본문 그대로 옮긴 믹스인·화면·상수(리팩터링 T-5).
+#   'cogs/gm.py'를 읽는 소스 스캔은 이 전체를 하나의 GM 구현으로 본다.
+GM_PARTS = ("cogs/gm.py", "indaim/adapters/discord/gm_config.py", "indaim/adapters/discord/gm_views.py",
+            "indaim/adapters/discord/turn_steps.py", "indaim/adapters/discord/turn_flow.py")
+
+
+def logical_rel(relative_path: str) -> str:
+    """GM 구현 조각(GM_PARTS) 경로는 'cogs/gm.py'로 읽는다 — 호출자·소유자 스캔의 파일 이름 정규화."""
+    rel = relative_path.replace("\\", "/")
+    return "cogs/gm.py" if rel in GM_PARTS else rel
+
+
 def source_of(relative_path: str) -> str:
-    """저장소의 소스 파일을 읽는다. cwd와 무관하다. 'core/x.py'는 옮긴 실제 위치를 읽는다(legacy_rel)."""
+    """저장소의 소스 파일을 읽는다. cwd와 무관하다. 'core/x.py'는 옮긴 실제 위치를 읽는다(legacy_rel),
+    'cogs/gm.py'는 GM 구현 전체(GM_PARTS)를 이어 붙여 읽는다."""
+    if relative_path.replace("\\", "/") == "cogs/gm.py":
+        return "\n".join((pathlib.Path(REPO_ROOT) / p).read_text(encoding="utf-8") for p in GM_PARTS)
     return (pathlib.Path(REPO_ROOT) / legacy_rel(relative_path)).read_text(encoding="utf-8")
 
 

@@ -24,13 +24,13 @@ from core import world_clock as WC
 from core import world_mutation as WM
 from core import world_progression as WPG
 from core import world_state as WS
-from tests.conftest import PLAYER_UID, REPO_ROOT
+from tests.conftest import PLAYER_UID, REPO_ROOT, source_of
 from tests.policy.test_h05a_intent_planning import PC, make_session
 from tests.policy.test_ready_barrier import rig  # noqa: F401
 
 pytestmark = pytest.mark.policy
 
-RAW = json.loads(pathlib.Path(REPO_ROOT, "scenarios", "청람호.json").read_text(encoding="utf-8"))
+RAW = json.loads(source_of("scenarios/청람호.json"))
 AID = {n: d["actor_id"] for n, d in RAW["default_npcs"].items()}
 NAME = {v: k for k, v in AID.items()}
 KILLER = "chr.npc.killer"
@@ -102,7 +102,7 @@ def test_scenario_compiles_with_declared_survival_features():
         assert len(finds) >= 4 and any(f.get("object") for f in finds)
         assert D["event_templates"][f"chr_repel_{c}"]["phases"]["ready"]["resolution_options"]
     assert {"빈사", "사망", "숨음"} <= set(core.get_merged_status_effects(RAW))
-    assert json.loads(pathlib.Path(REPO_ROOT, "data", "scenario_catalog.json").read_text(encoding="utf-8"))["청람호"]
+    assert json.loads(source_of("data/scenario_catalog.json"))["청람호"]
 
 
 def test_each_session_fixes_one_case_and_all_three_occur():

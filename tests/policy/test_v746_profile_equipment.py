@@ -4,6 +4,7 @@
 사용자 결정: 스킬 범위 저작(A) · 스탯 구간마다 고를 수 · 착용은 혼합형(입거나 든 물건만 코드 E, 그 밖 도구는 M).
 """
 from __future__ import annotations
+from tests.conftest import source_of
 
 import copy
 import json
@@ -21,7 +22,7 @@ from core import status_rules as SR
 
 pytestmark = pytest.mark.policy
 ROOT = pathlib.Path(__file__).resolve().parents[2]
-YD = json.loads((ROOT / "scenarios" / "영도.json").read_text(encoding="utf-8"))
+YD = json.loads(source_of("scenarios/영도.json"))
 DEFS = {"쇠파이프": {"wear": {"slots": ["오른손", "왼손"], "tags": ["근접무기"]}},
         "우비": {"wear": {"slots": ["겉옷"], "tags": ["방수"]}}}
 
@@ -351,7 +352,7 @@ def test_tool_items_count_as_tool_capability_and_scenario_follow_ups():
     assert "항생제[알]" not in YD["starting_item_choices"]["직업"]["간호사"]           # C6
     assert "해열제" in YD["intake_groups"]["medical"]
     assert "5(해당 분야에 매우 취약함)에서 최대 15" not in YD["stat_system"]           # C3
-    SH = json.loads((ROOT / "scenarios" / "설화재.json").read_text(encoding="utf-8"))   # B4
+    SH = json.loads(source_of("scenarios/설화재.json"))   # B4
     assert PG.skill_note(SH, "현장 감식") and any((s.get("args") or {}).get("wear_items") for s in SH["profile_creation"])
     assert IT.equip_mod(IT.key_tags("손전등", IT.definitions_of(D)), "관찰") == 3      # 설화재 스탯으로 장비 보정
 

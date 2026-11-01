@@ -6,6 +6,7 @@
 인물 행동 유형(default_npcs[*].behavior) · 연결 지점 정리.
 """
 from __future__ import annotations
+from tests.conftest import source_of
 
 import copy
 import json
@@ -88,8 +89,8 @@ def test_dying_block_counts_down():
 
 def test_survival_statuses_follow_declared_capabilities():
     """R1: 공용 상태 requires — 기능을 선언한 시나리오에만(D-2 가: 영도 mortality 선언, 설화재 미선언)."""
-    SH = json.loads((ROOT / "scenarios" / "설화재.json").read_text(encoding="utf-8"))
-    YD = json.loads((ROOT / "scenarios" / "영도.json").read_text(encoding="utf-8"))
+    SH = json.loads(source_of("scenarios/설화재.json"))
+    YD = json.loads(source_of("scenarios/영도.json"))
     survival = {"빈사", "사망", "숨음"}
     assert survival & set(core.get_merged_status_effects(SH)) == set() and "status_common_exclude" not in SH
     assert {"빈사", "사망"} <= set(core.get_merged_status_effects(YD)) and "숨음" not in core.get_merged_status_effects(YD)

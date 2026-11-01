@@ -2,6 +2,7 @@
 """묘사↔정본 정합 — 장소 고정(NONE·LOCAL)·목적지 되묻기·묘사 세계 블록·장면 인물 독립 블록,
 세션 닫힘 중 선언 보관·다시 열기 후 이어서 진행·자동 GM 발언 단일 기록."""
 from __future__ import annotations
+from tests.conftest import source_of
 
 from types import SimpleNamespace
 
@@ -94,6 +95,6 @@ async def test_game_cog_does_not_duplicate_turn_log_when_auto_gm_active(drig):
 def test_reopen_view_is_wired_to_resume_held_declaration():
     import inspect
     import cogs.gm as gm
-    assert "on_reopen=self.resume_held_declaration" in inspect.getsource(gm.GMCog)
+    assert "on_reopen=self.resume_held_declaration" in source_of("cogs/gm.py")
     src = inspect.getsource(gm.OpenConfirmView.confirm)
     assert src.index("upload_cache") < src.index("self.on_reopen(self.session)")

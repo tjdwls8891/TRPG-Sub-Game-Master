@@ -6,6 +6,7 @@ S5 물건 상태(젖음·오염) 효과 차단 · S6 맞물림(허기·탈수 �
 Q1 '염증' 신설 · Q2 진통·해열 = 일시 완화 · Q3 입은 옷 젖음은 PC 젖음 단계에서 파생 · 3.1 참고 묶음 이름 일치 폐지.
 """
 from __future__ import annotations
+from tests.conftest import source_of
 
 import copy
 import json
@@ -20,7 +21,7 @@ from core import status_rules as SR
 
 pytestmark = pytest.mark.policy
 ROOT = pathlib.Path(__file__).resolve().parents[2]
-YD = json.loads((ROOT / "scenarios" / "영도.json").read_text(encoding="utf-8"))
+YD = json.loads(source_of("scenarios/영도.json"))
 M = core.get_merged_status_effects({})
 
 

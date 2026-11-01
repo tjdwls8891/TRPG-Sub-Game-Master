@@ -10,7 +10,7 @@ import pytest
 import core
 from core import cache_lifecycle as CLC
 from core import world_lifecycle as WL
-from tests.conftest import REPO_ROOT
+from tests.conftest import REPO_ROOT, source_of
 from tests.policy.test_h06a_lifecycle import _cog, play_intro, setup_session
 from tests.policy.test_ready_barrier import rig  # noqa: F401
 
@@ -20,7 +20,7 @@ pytestmark = pytest.mark.policy
 def test_only_dynamic_scenarios_are_shipped():
     names = sorted(p.stem for p in pathlib.Path(REPO_ROOT, "scenarios").glob("*.json"))
     assert names == sorted(["영도", "설화재", "청람호", "균열"])
-    cat = json.loads(pathlib.Path(REPO_ROOT, "data", "scenario_catalog.json").read_text(encoding="utf-8"))
+    cat = json.loads(source_of("data/scenario_catalog.json"))
     assert sorted(k for k in cat if not k.startswith("_")) == names
 
 

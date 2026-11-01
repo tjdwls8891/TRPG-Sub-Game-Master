@@ -1,5 +1,6 @@
 """v7.10 디스플레이 상태판 SVG — 데이터 출처·조립·전송(이미지 대체·Embed 대체 경로)·버튼 갱신."""
 from __future__ import annotations
+from tests.conftest import source_of
 
 import pathlib
 import xml.etree.ElementTree as ET
@@ -109,7 +110,7 @@ def test_conditional_sections(session_auto_ready):
 
 
 def test_engine_has_no_scenario_specific_strings():
-    src = (REPO / "indaim/adapters/discord/display_board.py").read_text(encoding="utf-8")
+    src = source_of("indaim/adapters/discord/display_board.py")
     for word in ("영도", "YEONGDO", "감지해변", "김이서"):
         assert word not in src
 

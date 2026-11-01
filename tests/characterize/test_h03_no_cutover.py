@@ -17,7 +17,7 @@ import pytest
 
 from core import spatial as SP
 from core import world_schedule as SC
-from tests.conftest import REPO_ROOT, legacy_rel, prod_py_files, internal_imports
+from tests.conftest import REPO_ROOT, legacy_rel, prod_py_files, internal_imports, source_of
 
 pytestmark = pytest.mark.characterize
 
@@ -113,7 +113,7 @@ def test_legacy_place_and_time_paths_do_not_read_new_domains():
     new_fields = ("world_clock", "world_schedule", "spatial_state", "spatial_knowledge",
                   "access_control_state")
     for rel in ("indaim/rules/space/places.py", "indaim/rules/time/timeline.py", "cogs/gm.py", "cogs/game.py", "indaim/turn/extraction.py"):
-        tree = _tree(os.path.join(REPO_ROOT, rel))
+        tree = ast.parse(source_of(rel))
         for m in H03_MODULES:
             assert not _imports_module(tree, m), (rel, m)
         for node in ast.walk(tree):

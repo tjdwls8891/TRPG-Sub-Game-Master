@@ -20,7 +20,7 @@ from core import accounts
 from core import cache_lifecycle as CLC
 from core import cost_ledger as CL
 from core import ink_transactions as IT
-from tests.conftest import PLAYER_UID, REPO_ROOT
+from tests.conftest import PLAYER_UID, REPO_ROOT, source_of
 from tests.policy.test_ready_barrier import rig  # noqa: F401 — 픽스처 재사용
 
 pytestmark = pytest.mark.policy
@@ -445,7 +445,7 @@ async def test_expiry_path_reaches_finalizer_and_allows_reopen(fresh, cbot, cloc
 # ── K-F14 직접 provider 호출/재무 우회 스캔 ────────────────
 
 def _calls(path):
-    tree = ast.parse(pathlib.Path(REPO_ROOT, path).read_text(encoding="utf-8"))
+    tree = ast.parse(source_of(path))
     out = []
     for node in ast.walk(tree):
         if isinstance(node, ast.Attribute) and node.attr in ("create", "delete", "get") \
@@ -471,13 +471,13 @@ def test_kf14_no_lifecycle_bypassing_provider_cache_calls():
             assert "process_cache_deletion(" not in p.read_text(encoding="utf-8"), p
     # 캐시 오픈/닫기 경로에 ad hoc 잔액 쓰기가 없다.
     for rel in ("cogs/session.py", "indaim/adapters/discord/display.py", "indaim/ledger/cache_lifecycle.py"):
-        src = pathlib.Path(REPO_ROOT, rel).read_text(encoding="utf-8")
+        src = source_of(rel)
         assert "deduct_ink(" not in src and "add_ink(" not in src, rel
 
 
 def test_storage_helper_units_are_explicit():
     # PF-11: 캐시 생애주기는 단위가 이름에 드러난 헬퍼만 쓴다.
-    src = pathlib.Path(REPO_ROOT, "indaim/ledger/cache_lifecycle.py").read_text(encoding="utf-8")
+    src = source_of("indaim/ledger/cache_lifecycle.py")
     assert "calculate_storage_cost(" not in src and "calculate_storage_cost_usd(" not in src
     h1 = core.cost.cache_storage_cost_usd(core.DEFAULT_MODEL, tokens=TOKENS, seconds=3600)
     assert h1 == pytest.approx(core.calculate_storage_cost_usd(core.DEFAULT_MODEL, TOKENS, 1.0))

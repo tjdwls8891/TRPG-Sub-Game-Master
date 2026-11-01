@@ -1,4 +1,5 @@
 """`!명령어` 안내가 실제 등록 명령어와 어긋나지 않는다(누락 방지)."""
+from tests.conftest import source_of
 import pathlib
 import re
 
@@ -6,7 +7,7 @@ ROOT = pathlib.Path(__file__).resolve().parents[2]
 
 
 def _help_body():
-    s = (ROOT / "cogs" / "system.py").read_text(encoding="utf-8")
+    s = source_of("cogs/system.py")
     return s[s.index("async def show_commands"):s.index('@commands.command(name="채널정리")')]
 
 

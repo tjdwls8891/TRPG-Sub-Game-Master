@@ -17,6 +17,7 @@ from core import turn_world as TW
 from tests.policy.test_h05bc_turn_wiring import (  # noqa: F401 — DYNAMIC 턴 하네스 재사용
     _arm_alert, _expose, drig, judgment, rig, turn)
 from tests.policy.test_ready_barrier import _json
+from tests.conftest import source_of
 from tests.policy.test_svg_speaker_card import (  # noqa: F401 — 카드 하네스 재사용
     AID, DEFINITION, _deliver, _known, _narr, card_session)
 
@@ -240,5 +241,5 @@ def test_E1_no_continuation_callers():
     import pathlib
     root = pathlib.Path(core.__file__).resolve().parents[1]
     for rel in ("cogs/gm.py", "cogs/game.py", "indaim/turn/turn_world.py"):
-        src = (root / rel).read_text(encoding="utf-8")
+        src = source_of(rel)
         assert "_generate_continuation" not in src and "ForegroundContinuationPlan" not in src

@@ -251,12 +251,20 @@ def test_kernel_imports_stdlib_only():
 # 옮긴 옛 모듈(indaim.legacy_map)이 원래부터 갖고 있던 바깥 의존 — 정확히 이것뿐이어야 한다(늘지 않게 고정).
 #   cogs.session은 어댑터 분리 때 사라진다.
 LEGACY_EXTERNAL_IMPORTS = {("indaim/adapters/discord/session_flow.py", "cogs.session")}
+# cogs/gm.py에서 본문 그대로 옮긴 GM cog 조각 — 옛 core 공개 이름 공간을 그대로 쓴다(테스트가 core 수준 이름을
+#   바꿔 끼우므로). T-6 정본 전환에서 턴 서비스 호출로 바뀌며 사라진다. 정확히 이 목록.
+GM_COG_FACADE_IMPORTS = {
+    ("indaim/adapters/discord/gm_config.py", "core"), ("indaim/adapters/discord/gm_views.py", "core"),
+    ("indaim/adapters/discord/gm_views.py", "core.display"), ("indaim/adapters/discord/turn_flow.py", "core"),
+    ("indaim/adapters/discord/turn_steps.py", "core"),
+}
 
 
 def test_indaim_does_not_import_old_engine():
     """indaim은 옛 core·cogs·main·prompts를 import하지 않는다. 예외 둘:
     · 이행 다리 indaim/bridge(옛 엔진을 커널 세계 위에서 돌리는 연결 — T-6 정본 전환에서 사라진다)
-    · 옮긴 옛 모듈의 기존 바깥 의존(LEGACY_EXTERNAL_IMPORTS — 정확히 이 목록)"""
+    · 옮긴 옛 모듈의 기존 바깥 의존(LEGACY_EXTERNAL_IMPORTS — 정확히 이 목록)
+    · cogs/gm.py에서 옮긴 GM cog 조각의 core 공개 이름 공간(GM_COG_FACADE_IMPORTS — 정확히 이 목록)"""
     found = set()
     for f in sorted((ROOT / "indaim").rglob("*.py")):
         rel = f.relative_to(ROOT).as_posix()
@@ -266,7 +274,7 @@ def test_indaim_does_not_import_old_engine():
             mods = [a.name for a in node.names] if isinstance(node, ast.Import) else \
                 [node.module or ""] if isinstance(node, ast.ImportFrom) and not node.level else []
             found |= {(rel, m) for m in mods if m.split(".")[0] in ("core", "cogs", "main", "prompts")}
-    assert found == LEGACY_EXTERNAL_IMPORTS
+    assert found == LEGACY_EXTERNAL_IMPORTS | GM_COG_FACADE_IMPORTS
 
 
 # 어댑터 경계 — 디스코드를 아는 것은 indaim/adapters(그리고 cogs)뿐이다. 옮긴 옛 모듈에 남은 결합은 정확히 이 목록

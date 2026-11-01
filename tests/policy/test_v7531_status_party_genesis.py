@@ -16,7 +16,7 @@ import core
 from core import party as PA
 from core import player_world as PW
 from core import world_lifecycle as WL
-from tests.conftest import REPO_ROOT
+from tests.conftest import REPO_ROOT, source_of
 from tests.policy.test_h05bc_turn_wiring import H05Provider, _json, drig, extraction, turn  # noqa: F401
 from tests.policy.test_ready_barrier import rig  # noqa: F401
 
@@ -38,7 +38,7 @@ def _judge(*, wait=None, place=None):
 
 
 async def _boot(r, name="균열"):
-    raw = json.loads(pathlib.Path(REPO_ROOT, "scenarios", f"{name}.json").read_text(encoding="utf-8"))
+    raw = json.loads(source_of(f"scenarios/{name}.json"))
     s = r.sess
     s.scenario_id, s.scenario_data = name, raw
     uid = next(iter(s.players))

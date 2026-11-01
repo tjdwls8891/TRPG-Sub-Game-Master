@@ -17,7 +17,7 @@ from core import initial_knowledge as IK
 from core import items as IT
 from core import turn_transaction as tt
 from core import world_lifecycle as WL
-from tests.conftest import PLAYER_UID
+from tests.conftest import PLAYER_UID, source_of
 from tests.policy.test_h05bc_turn_wiring import PC, drig, extraction, judgment, turn  # noqa: F401
 from tests.policy.test_ready_barrier import rig  # noqa: F401
 from tests.policy.test_v717_initial_knowledge import (INFOS, Ch, ai, deliver, ik_raw, pc_cog,  # noqa: F401
@@ -75,7 +75,7 @@ async def test_P1_new_candidate_judged_after_access_and_frame_and_delivery(rig, 
 
 
 async def test_P1_yeongdo_profile_one_call_start_zero_calls(rig, ai):
-    raw = json.loads((ROOT / "scenarios/영도.json").read_text(encoding="utf-8"))
+    raw = json.loads(source_of("scenarios/영도.json"))
     r = rig
     from tests.policy.test_h06a_lifecycle import setup_session
     s = setup_session(r, raw)
@@ -106,7 +106,7 @@ def test_P2_current_facts_bound_to_last_commit():
     s.world_version = {"version_id": "wv_a", "cause_id": "t1"}                     # 되감기로 둘 다 복원
     assert IT.current_facts(s)["paid"] == ["빵"]
     assert IT.current_facts(SimpleNamespace(item_facts={}, world_version=None)) == {"used": [], "paid": []}
-    src = (ROOT / "cogs/gm.py").read_text(encoding="utf-8")
+    src = source_of("cogs/gm.py")
     assert "item_facts=core.items.current_facts(session)" in src and src.count("item_facts=core.items.current_facts(") == 1
 
 
@@ -310,4 +310,4 @@ def test_P4_no_member_inference_from_items_faction_or_persona():
     caps = core.player_world.pc_capabilities(s, "555001", D)
     assert "member:guild" not in caps                                              # 소지품 이름·소속·서술로 추론 없음
     for f in ("indaim/turn/player_world.py", "indaim/rules/items/items.py"):
-        assert "member:" not in (ROOT / f).read_text(encoding="utf-8")              # 하드코딩 없음
+        assert "member:" not in source_of(f)              # 하드코딩 없음

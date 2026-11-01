@@ -4,6 +4,7 @@ A 진행 화면 = 시간 제한 없음 + 재시작 시 같은 메시지에 다�
 B 확인창 = 만료 유지, C 보조 화면 = 만료 시 잠금(ExpiringView), 받을 화면이 없는 버튼 = 안내(ui_expiry).
 """
 from __future__ import annotations
+from tests.conftest import source_of
 
 import pathlib
 import re
@@ -144,7 +145,7 @@ async def test_initial_knowledge_resumed_view_continues_from_saved_state(monkeyp
 
 
 def test_main_resumes_prompts_once_per_process():
-    src = (ROOT / "main.py").read_text(encoding="utf-8")
+    src = source_of("main.py")
     assert "core.session_flow.resume_all(self)" in src and "_prompts_resumed" in src
 
 

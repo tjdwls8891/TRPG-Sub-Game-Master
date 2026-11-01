@@ -22,7 +22,7 @@ from core import initial_knowledge as IK
 from core import items as IT
 from core import world_lifecycle as WL
 from core import world_state as WS
-from tests.conftest import PLAYER_UID
+from tests.conftest import PLAYER_UID, source_of
 from tests.fakes.discord_fakes import FakeChannel, FakeInteraction, FakeUser
 from tests.fakes.genai_fakes import FakeGenAIResponse
 from tests.policy.test_h06a_lifecycle import START, dyn_raw, journal_inits, setup_session, _cog
@@ -507,7 +507,7 @@ async def test_T20_X13_operator_cost_separate_no_ink(rig, monkeypatch):
 
 
 def test_T20_provider_callsite_count_unchanged():
-    src = (ROOT / "indaim/rules/knowledge/initial_knowledge.py").read_text(encoding="utf-8")
+    src = source_of("indaim/rules/knowledge/initial_knowledge.py")
     assert "generate_content" not in src and "profile_ai._call(" in src
 
 
@@ -544,12 +544,12 @@ async def test_T21_X15_genre_fixtures_same_contract(rig, ai):
     assert (await WL.initialize_world(r.bot, s, {"id": "harbor"})).outcome == WL.INIT_OK
     cog = pc_cog(s)
     assert cog["mystery.rumor"]["acquisitions"][0]["route"] == "RUMOR" and "mystery.truth" not in cog
-    src = (ROOT / "indaim/rules/knowledge/initial_knowledge.py").read_text(encoding="utf-8")
+    src = source_of("indaim/rules/knowledge/initial_knowledge.py")
     assert "영도" not in src and "감염" not in src                                        # 영도 하드코딩 없음
 
 
 def test_T22_X16_yeongdo_only_two_sourced_required_infos():
-    raw = json.loads((ROOT / "scenarios/영도.json").read_text(encoding="utf-8"))
+    raw = json.loads(source_of("scenarios/영도.json"))
     res = core.definition_compiler.compile_scenario(raw, "영도")
     assert res.ok
     infos = res.definition["information_definitions"]

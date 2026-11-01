@@ -9,7 +9,7 @@ import pytest
 
 import core
 from core import session_flow as SF
-from tests.conftest import DISPLAY_CH, MASTER_CH, PLAYER_UID
+from tests.conftest import DISPLAY_CH, MASTER_CH, PLAYER_UID, source_of
 from tests.fakes.discord_fakes import FakeInteraction, FakeUser
 
 pytestmark = pytest.mark.policy
@@ -42,7 +42,7 @@ async def test_usage_report_only_in_master_channel_or_dm(wired_bot, session_auto
 
 def test_play_dice_sfx_calls_pass_bot_and_guild():
     for path in ("cogs/gm.py", "cogs/character.py", "indaim/adapters/discord/ui.py"):
-        tree = ast.parse((REPO / path).read_text(encoding="utf-8"))
+        tree = ast.parse(source_of(path))
         for node in ast.walk(tree):
             if isinstance(node, ast.Call) and getattr(node.func, "attr", getattr(node.func, "id", "")) == "play_dice_sfx":
                 assert len(node.args) >= 2, f"{path}:{node.lineno}"
@@ -147,7 +147,7 @@ async def test_profile_create_counts_profiles_created():
 
 def test_no_charge_guidance_in_player_texts():
     for path in ("indaim/adapters/discord/terms.py", "indaim/adapters/discord/gm_space.py", "indaim/adapters/discord/display.py", "indaim/adapters/discord/tts_preset.py"):
-        src = (REPO / path).read_text(encoding="utf-8")
+        src = source_of(path)
         body = "\n".join(l for l in src.splitlines() if not l.strip().startswith("#"))
         assert "충전" not in body, path
     assert "운영자에게 문의" in core.terms.TERMS_TEXT
@@ -207,7 +207,7 @@ async def test_runtime_tts_cost_context_claimed_into_turn(session_auto_ready, mo
 
 
 def test_auto_turn_dubbing_not_excluded_by_gm_prefix():
-    src = (REPO / "cogs" / "game.py").read_text(encoding="utf-8")
+    src = source_of("cogs/game.py")
     assert "_dub_turn = (not cost_log_prefix) or preparation is not None" in src
 
 

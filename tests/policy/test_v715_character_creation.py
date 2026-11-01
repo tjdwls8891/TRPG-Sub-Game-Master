@@ -19,7 +19,7 @@ import core
 import prompts
 from core import profile_creation_ui as PCU
 from core import profile_gen as PG
-from tests.conftest import GAME_CH, PLAYER_UID
+from tests.conftest import GAME_CH, PLAYER_UID, source_of
 from tests.fakes.discord_fakes import FakeChannel, FakeInteraction, FakeMessage, FakeUser
 
 pytestmark = pytest.mark.policy
@@ -391,7 +391,7 @@ async def test_merge_never_truncates(monkeypatch, session_factory):
 
 async def test_t11_shared_master_lines_and_step_override(pc, monkeypatch):
     monkeypatch.setattr(core.master.random, "choice", lambda seq: seq[0])
-    ev = json.loads((REPO / "assets" / "master_dialogues_v1.json").read_text(encoding="utf-8"))["events"]
+    ev = json.loads(source_of("assets/master_dialogues_v1.json"))["events"]
     for k in ("profile.mode_choice", "profile.guide_question", "profile.draft_review", "profile.edit_prompt",
               "profile.final_review", "profile.resume", "profile.merged"):
         assert len(ev[k]["variants"]) >= 2, k
@@ -612,7 +612,7 @@ async def test_t17_approved_persona_preserved_without_knowledge_feature(pc):
 # ── T18 영도 저작 가이드 ─────────────────────────────────────
 
 async def test_t18_yeongdo_guides_authored_and_followed_in_order(fake_bot, session_factory, monkeypatch):
-    sd = json.loads((REPO / "scenarios" / "영도.json").read_text(encoding="utf-8"))
+    sd = json.loads(source_of("scenarios/영도.json"))
     assert PG.validate_steps(sd) == []
     steps = {s["field"]: s for s in sd["profile_creation"]}
     assert [f for f in steps if PG.is_long_form(steps[f])] == ["외형", "배경", "복장"]

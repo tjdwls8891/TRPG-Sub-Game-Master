@@ -18,7 +18,7 @@ from core import events as EV
 from core import party as PA
 from core import spatial as SP
 from core import turn_world as TW
-from tests.conftest import REPO_ROOT
+from tests.conftest import REPO_ROOT, source_of
 from tests.policy.test_h04a_actor_info import KANG, PARK
 from tests.policy.test_h04b_events_progression import ev_raw
 from tests.policy.test_h05a_intent_planning import PC, make_session
@@ -70,7 +70,7 @@ def test_compile_party_keys_and_errors():
 def test_existing_scenarios_have_no_party_and_keep_revisions():
     want = {"영도": "f58e57e0", "설화재": "cd8c62c0", "청람호": "809ff6c2"}     # v8: 영도는 퀘스트 부속 은퇴로 갱신
     for n, rev in want.items():
-        raw = json.loads(pathlib.Path(REPO_ROOT, "scenarios", f"{n}.json").read_text(encoding="utf-8"))
+        raw = json.loads(source_of(f"scenarios/{n}.json"))
         qp = pathlib.Path(REPO_ROOT, "scenarios", f"{n}.quests.json")
         res = dc.compile_scenario(raw, n, json.loads(qp.read_text(encoding="utf-8")) if qp.exists() else None)
         assert res.revision.split(":")[1].startswith(rev) and "party" not in res.definition

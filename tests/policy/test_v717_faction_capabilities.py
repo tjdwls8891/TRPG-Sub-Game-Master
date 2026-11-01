@@ -4,6 +4,7 @@
 합성 정의는 임의 표시명·임의 capability 이름을 쓴다(장르·영도 특례 없음). provider·Discord 대역.
 """
 from __future__ import annotations
+from tests.conftest import source_of
 
 import copy
 import json
@@ -139,14 +140,14 @@ def test_compile_optional_and_strict():
         errs = [x.code for x in core.definition_compiler.compile_scenario(_raw(mapping=bad), "t").errors]
         assert code in errs, (bad, errs)
     for name in ("설화재", "청람호", "균열"):                      # 매핑을 저작하지 않은 시나리오에는 키가 없다
-        raw = json.loads((ROOT / f"scenarios/{name}.json").read_text(encoding="utf-8"))
+        raw = json.loads(source_of(f"scenarios/{name}.json"))
         res = core.definition_compiler.compile_scenario(raw, name)
         assert "faction_capabilities" not in (res.definition or {})
 
 
 # 6 영도 — 조건부·감시 수용도 기존 grant_faction 정본대로 포함, 가입 실패(thief)는 제외
 def test_yeongdo_mapping_and_conditional_admissions():
-    raw = json.loads((ROOT / "scenarios/영도.json").read_text(encoding="utf-8"))
+    raw = json.loads(source_of("scenarios/영도.json"))
     D = core.definition_compiler.compile_scenario(raw, "영도").definition
     assert D["faction_capabilities"] == {"남항 중공업 연대": ["member:namhang"], "조도 방위 사령부": ["member:jodo"],
                                          "해련 자치 마을": ["member:haeryeon"]}
@@ -197,11 +198,11 @@ async def test_join_commit_then_rewind_removes_capability(drig):
 # 10 데이터·호출 영향 없음 · 범용(코드 하드코딩 없음)
 def test_no_new_fields_calls_or_hardcoding():
     assert len(core.SESSION_FIELDS) == 110          # P1 world_pending_signals · P2 master_gender · v7.28 resumable_prompts · v7.38 status_clock · v7.46 equipment·item_traits
-    src = (ROOT / "indaim/turn/player_world.py").read_text(encoding="utf-8")
+    src = source_of("indaim/turn/player_world.py")
     for s in ("member:", "남항", "해련", "조도", "중리"):
         assert s not in src
     assert "generate_content" not in src
-    gm = (ROOT / "cogs/gm.py").read_text(encoding="utf-8")
+    gm = source_of("cogs/gm.py")
     assert gm.count("pc_access_capabilities(") == 2
 
 
@@ -254,7 +255,7 @@ def test_without_mapping_item_named_token_keeps_legacy_meaning():
 
 
 def test_yeongdo_member_named_item_is_not_membership():
-    raw = json.loads((ROOT / "scenarios/영도.json").read_text(encoding="utf-8"))
+    raw = json.loads(source_of("scenarios/영도.json"))
     D = core.definition_compiler.compile_scenario(raw, "영도").definition
     sess = type("S", (), {})()
     sess.players = {PLAYER_UID: {"name": "주인공"}}

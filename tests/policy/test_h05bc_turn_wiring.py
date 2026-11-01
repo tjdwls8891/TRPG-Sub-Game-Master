@@ -19,7 +19,7 @@ from core import turn_transaction as tt
 from core import turn_world as TW
 from core import world_clock as WC
 from core import world_state as WS
-from tests.conftest import PLAYER_UID
+from tests.conftest import PLAYER_UID, source_of
 from tests.fakes.genai_fakes import FakeGenAIResponse
 from tests.policy.test_h04a_actor_info import KANG
 from tests.policy.test_h04b_events_progression import K, eq, ev_raw
@@ -647,7 +647,7 @@ async def test_display_reads_canonical_until_commit(drig, monkeypatch):
 def test_automatic_turn_production_wiring_exists():
     import inspect
     import cogs.gm as gm
-    src = inspect.getsource(gm.GMCog)
+    src = source_of("cogs/gm.py")
     for needle in ("core.player_world.plan_player_turn", "core.turn_world.process_observation",
                    "core.action_intent.extend_judgment_schema", "core.turn_preparation.stage_world_ops",
                    "core.turn_world.narration_overlay", "core.turn_world.resolve_plan_tie",

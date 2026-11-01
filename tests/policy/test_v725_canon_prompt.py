@@ -16,7 +16,7 @@ import prompts
 from core import spatial as SP
 from core import turn_world as TW
 from core import world_lifecycle as WL
-from tests.conftest import PLAYER_UID
+from tests.conftest import PLAYER_UID, source_of
 from tests.fakes.genai_fakes import FakeGenAIResponse
 from tests.policy.test_h05bc_turn_wiring import (PC, drig, extraction, judgment, turn,  # noqa: F401
                                                  world_of)
@@ -88,7 +88,7 @@ def test_A06_section8_triggers_on_any_canon_block_not_only_plan():
         assert head in sec
     assert "인트로·진행 없는 턴도 같다" in sec and "상태창의 날짜·요일·시간대·장소·턴 수는 코드가" in sec
     for head in ("[현재 작중 시각 — 정본]", "[현재 장소 — 정본]"):            # 블록 제목이 실제 생성 문자열과 같다
-        assert head in (ROOT / "indaim/turn/turn_world.py").read_text(encoding="utf-8")
+        assert head in source_of("indaim/turn/turn_world.py")
 
 
 async def test_A04_narrate_without_plan_gets_canon_scene_people(drig):
@@ -228,7 +228,7 @@ def test_D02_D03_promoted_session_npc_registers_once_at_scene(drig):
 
 
 def test_D04_dynamic_promotion_does_not_rename_to_model_true_name():
-    src = (ROOT / "cogs/gm.py").read_text(encoding="utf-8")
+    src = source_of("cogs/gm.py")
     body = src[src.index("async def _apply_npc_promotion"):src.index("async def _resolve_irregular_npcs")]
     assert "final_name != name and not core.player_world.legacy_narrative_retired(session)" in body
 
@@ -281,7 +281,7 @@ def test_F01_F04_compression_uses_canon_record_and_dynamic_hint_has_no_quest_or_
     r = drig
     r.make()
     s = r.sess
-    src = (ROOT / "indaim" / "content" / "prompts.py").read_text(encoding="utf-8")
+    src = source_of("indaim/content/prompts.py")
     assert "[정본 기록 #N턴 | …] 줄이 있으면 반드시 그 값을" in src
     s.memory_plan = "high"
     s.world_timeline = {"current_location": "시장", "current_location_display": "소란한 골목"}
@@ -292,9 +292,9 @@ def test_F01_F04_compression_uses_canon_record_and_dynamic_hint_has_no_quest_or_
 
 
 def test_F06_memory_headers_are_derived_not_absolute():
-    assert "절대 참조용" not in (ROOT / "indaim/narrative/prompt.py").read_text(encoding="utf-8").replace(
+    assert "절대 참조용" not in source_of("indaim/narrative/prompt.py").replace(
         "'절대 참조용' 격상 금지", "")
-    assert "파생 기억이다" in (ROOT / "indaim/ai/cache.py").read_text(encoding="utf-8")
+    assert "파생 기억이다" in source_of("indaim/ai/cache.py")
 
 
 # ══════════════════════════════════════════════════════════════
@@ -315,7 +315,7 @@ CUT_PATTERNS = {
 
 @pytest.mark.parametrize("path", sorted(CUT_PATTERNS))
 def test_G01_G03_known_prompt_char_cuts_are_gone(path):
-    src = (ROOT / path).read_text(encoding="utf-8")
+    src = source_of(path)
     for pat in CUT_PATTERNS[path]:
         assert pat not in src, (path, pat)
 

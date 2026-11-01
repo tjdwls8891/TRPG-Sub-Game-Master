@@ -2,6 +2,7 @@
 """P3 에이전트 판독용 로그 — kind 등록부·순서(b·seq)·조인 키(op_id)·D1 전역 축약·session.meta·
 turn.summary·history.selection·턴 흐름 구조 이벤트·!세션이력 manifest/README·줄 경계 분할·열람 도구."""
 from __future__ import annotations
+from tests.conftest import source_of
 
 import io
 import json
@@ -38,7 +39,7 @@ def test_every_domain_kind_in_source_is_registered_and_documented():
     for f in map(pathlib.Path, prod_py_files("core", "cogs")):
         found |= set(pat.findall(f.read_text(encoding="utf-8")))
     assert found and found <= set(L.DOMAIN_KINDS), sorted(found - set(L.DOMAIN_KINDS))
-    doc = (ROOT / "docs" / "LOG_SCHEMA.md").read_text(encoding="utf-8")
+    doc = source_of("docs/LOG_SCHEMA.md")
     assert all(f"`{k}`" in doc for k in L.DOMAIN_KINDS), [k for k in L.DOMAIN_KINDS if f"`{k}`" not in doc]
     assert f"log_schema {L.LOG_SCHEMA_VERSION}" in doc
 

@@ -44,7 +44,7 @@ def _owners(rel: str, func_name: str) -> set:
 
 
 def _production_owners(func_name: str) -> dict:
-    from tests.conftest import REPO_ROOT
+    from tests.conftest import REPO_ROOT, logical_rel
     found = {}
     for base in ("cogs", "core", "indaim"):
         for dp, _d, fs in os.walk(os.path.join(REPO_ROOT, base)):
@@ -55,7 +55,7 @@ def _production_owners(func_name: str) -> dict:
                     rel = os.path.relpath(os.path.join(dp, f), REPO_ROOT).replace("\\", "/")
                     owners = _owners(rel, func_name)
                     if owners:
-                        found[rel] = owners
+                        found.setdefault(logical_rel(rel), set()).update(owners)
     return found
 
 

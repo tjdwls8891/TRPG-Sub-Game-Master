@@ -16,7 +16,7 @@ import os
 import pytest
 
 from tests.characterize.h06_scope import H06_FILES
-from tests.conftest import REPO_ROOT, source_of, legacy_rel, prod_py_files
+from tests.conftest import REPO_ROOT, source_of, legacy_rel, prod_py_files, logical_rel
 
 pytestmark = pytest.mark.characterize
 
@@ -48,7 +48,7 @@ def test_dynamic_eligibility_has_single_gate_and_known_callers():
         if rel == legacy_rel("player_world"):
             continue
         if "session_world_context(" in open(p, encoding="utf-8").read():
-            callers.add(rel)
+            callers.add(os.path.normpath(logical_rel(rel)))
     assert callers == {os.path.join("cogs", "gm.py"), legacy_rel("turn_world"),
                        legacy_rel("world_lifecycle")}, callers
 

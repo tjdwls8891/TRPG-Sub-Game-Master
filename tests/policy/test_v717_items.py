@@ -4,6 +4,7 @@
 순수 서비스(core.items) 단위 + DYNAMIC 자동 턴 통합(추출 world_observation.item_ops → READY → CommitCoordinator).
 """
 from __future__ import annotations
+from tests.conftest import source_of
 
 import copy
 import json
@@ -335,7 +336,7 @@ def test_D08_item_tool_only_via_existing_method_mod():
     # v7.46(사용자 결정 7 혼합형): 착용·손에 든 물건만 코드 장비 보정 E, 그 밖의 도구 쓰임은 여전히 M 한 곳.
     #   판정 수식 모듈은 순수 — 아이템 정본(resources)을 읽지 않고 E 값만 받는다.
     #   리팩터링 T-3: 구현은 indaim/rules/checks/logic.py(core.judgment는 다시 내보내기만 한다)
-    src = (ROOT / "indaim/rules/checks/logic.py").read_text(encoding="utf-8")
+    src = source_of("indaim/rules/checks/logic.py")
     assert "import" not in src.replace("import random", "") and "resources" not in src
 
 
@@ -396,7 +397,7 @@ def test_E05_read_yields_info_ids_only_no_belief():
 
 
 def test_E06_npc_runtime_stock_wins_over_cache_seed():
-    src = (ROOT / "indaim/ai/cache.py").read_text(encoding="utf-8")
+    src = source_of("indaim/ai/cache.py")
     assert 'and not getattr(session, "definition_revision", None)' in src      # 바인딩 세션은 캐시 초기 소지 생략
     s = S({"P": {}, "N": {"빵": 0}})
     blk = IT.item_block(s, pc_name="P", scene_owner_names=["N"])
@@ -505,7 +506,7 @@ def test_F05_unauthored_scenarios_revision_unchanged():
 async def test_F06_legacy_item_changes_path_unchanged(rig):
     s = rig.sess
     assert not core.player_world.session_world_context(s).dynamic
-    src = (ROOT / "cogs/gm.py").read_text(encoding="utf-8")
+    src = source_of("cogs/gm.py")
     # 아이템 계획은 DYNAMIC 관찰 처리(_process_world_observation)에서만 만들어진다
     body = src[src.index("def _process_world_observation"):src.index("def _implied_discovery_take")]
     assert "_build_item_plan" in body and src.count("._build_item_plan(session") == 1
@@ -518,7 +519,7 @@ def test_F07_prompt_extraction_rule_and_director_block():
 
 
 def test_F08_no_new_provider_callsite_for_items():
-    src = (ROOT / "indaim/rules/items/items.py").read_text(encoding="utf-8")
+    src = source_of("indaim/rules/items/items.py")
     assert "generate_content" not in src and "genai" not in src
 
 
