@@ -400,7 +400,7 @@ def _abandon_if_untouched(bot, sid, cp, s) -> None:
 async def _step_stats(bot, cp) -> None:
     """기존 종료와 같은 통계·보드 반영 — 이 승인 작업에서 한 번만(체크포인트 단계)."""
     from indaim.ledger import stats as _stats
-    from indaim.app.gm_space import refresh_boards
+    from indaim.adapters.discord.gm_space import refresh_boards
     started = float(cp.get("started_at") or 0.0)
     seconds = max(0.0, time.time() - started) if started else 0.0
     try:

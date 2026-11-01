@@ -242,7 +242,7 @@ class GMHomeView(discord.ui.View):
     async def register(self, interaction, _b):
         if accounts.is_registered(interaction.user.id):
             if accounts.needs_terms_reagreement(interaction.user.id):
-                from indaim.ledger.terms import start_registration
+                from indaim.adapters.discord.terms import start_registration
 
                 sent = await start_registration(self.bot, interaction.user, reagree=True)
                 await interaction.response.send_message(
@@ -256,7 +256,7 @@ class GMHomeView(discord.ui.View):
                 await interaction.response.send_message(
                     master.say("account.already_registered", "이미 등록된 계정입니다."), ephemeral=True)
             return
-        from indaim.ledger.terms import start_registration
+        from indaim.adapters.discord.terms import start_registration
 
         sent = await start_registration(self.bot, interaction.user)
         await interaction.response.send_message(
@@ -415,7 +415,7 @@ async def _begin_flow(bot, interaction, kind: str):
         content="⏳ " + master.say("session.creation_in_progress", "채널을 만드는 중…"), view=None)
 
     from indaim.app.io import get_available_scenarios
-    from indaim.app import session_flow
+    from indaim.adapters.discord import session_flow
     from indaim.app import creation
 
     scenarios = get_available_scenarios()

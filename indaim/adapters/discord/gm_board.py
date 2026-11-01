@@ -58,7 +58,7 @@ def ending_text(st: dict) -> str:
 def hall_data(member_ids: list, names: dict, guild_name: str = "") -> dict:
     """명예의 전당 — 등록자만, 플레이 턴 순위(build_hall_embed와 같은 규칙)."""
     from indaim.ledger import stats as stats_mod
-    from indaim.app.gm_space import BOARD_LIMIT
+    from indaim.adapters.discord.gm_space import BOARD_LIMIT
     rows = stats_mod.leaderboard(member_ids, key="turns", only_registered=True, limit=BOARD_LIMIT)
     return {"kind": "hall", "title": "명예의 전당", "latin": "HALL OF FAME",
             "basis": guild_name or "기준", "subtitle": "플레이 턴 순위",
@@ -71,7 +71,7 @@ def board_data(member_ids: list, names: dict, *, world: bool = False) -> dict:
     """서버보드/월드보드 — 기본은 턴만, 서버보드는 명전 등록·월드보드는 공개 선택 시 세션·NPC까지
     (build_board_embed와 같은 규칙)."""
     from indaim.ledger import stats as stats_mod
-    from indaim.app.gm_space import BOARD_LIMIT
+    from indaim.adapters.discord.gm_space import BOARD_LIMIT
     rows = stats_mod.leaderboard(member_ids, key="turns", limit=BOARD_LIMIT)
     out = []
     for i, r in enumerate(rows, 1):

@@ -172,7 +172,7 @@ def style_for(kind: str):
 
 def paragraph_voice(session, paragraph: str) -> tuple:
     """(voice, style, spoken_text, kind) — 대사 문단은 화자 NPC 목소리, 그 밖은 마스터 내레이션 목소리."""
-    from indaim.narrative.dialogue import parse_dialogue_paragraph
+    from indaim.adapters.discord.dialogue import parse_dialogue_paragraph
     from indaim.adapters.discord.tts import clean_text_for_tts
     d = parse_dialogue_paragraph(paragraph)
     if d:

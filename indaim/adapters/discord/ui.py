@@ -46,7 +46,7 @@ def _cleanup_session_memory(bot, channel_id: int):
         # 매 턴 갱신하면 API 호출이 낭비되므로 여기서만 수행한다.
         try:
             import asyncio as _a
-            from indaim.app.gm_space import refresh_boards as _rb
+            from indaim.adapters.discord.gm_space import refresh_boards as _rb
             guild = getattr(getattr(bot.get_channel(channel_id), "guild", None), "id", None)
             g = bot.get_guild(guild) if guild else None
             if g:

@@ -146,7 +146,7 @@ async def test_profile_create_counts_profiles_created():
 # ── D1 충전 안내 → 운영자 문의 ─────────────────────────────
 
 def test_no_charge_guidance_in_player_texts():
-    for path in ("indaim/ledger/terms.py", "indaim/app/gm_space.py", "indaim/adapters/discord/display.py", "indaim/adapters/discord/tts_preset.py"):
+    for path in ("indaim/adapters/discord/terms.py", "indaim/adapters/discord/gm_space.py", "indaim/adapters/discord/display.py", "indaim/adapters/discord/tts_preset.py"):
         src = (REPO / path).read_text(encoding="utf-8")
         body = "\n".join(l for l in src.splitlines() if not l.strip().startswith("#"))
         assert "충전" not in body, path

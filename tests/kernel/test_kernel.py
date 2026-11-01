@@ -250,7 +250,7 @@ def test_kernel_imports_stdlib_only():
 
 # 옮긴 옛 모듈(indaim.legacy_map)이 원래부터 갖고 있던 바깥 의존 — 정확히 이것뿐이어야 한다(늘지 않게 고정).
 #   cogs.session은 어댑터 분리 때 사라진다.
-LEGACY_EXTERNAL_IMPORTS = {("indaim/app/session_flow.py", "cogs.session")}
+LEGACY_EXTERNAL_IMPORTS = {("indaim/adapters/discord/session_flow.py", "cogs.session")}
 
 
 def test_indaim_does_not_import_old_engine():
@@ -267,3 +267,33 @@ def test_indaim_does_not_import_old_engine():
                 [node.module or ""] if isinstance(node, ast.ImportFrom) and not node.level else []
             found |= {(rel, m) for m in mods if m.split(".")[0] in ("core", "cogs", "main", "prompts")}
     assert found == LEGACY_EXTERNAL_IMPORTS
+
+
+# 어댑터 경계 — 디스코드를 아는 것은 indaim/adapters(그리고 cogs)뿐이다. 옮긴 옛 모듈에 남은 결합은 정확히 이 목록
+#   (늘지 않게 고정 — 턴 서비스·어댑터 분리가 진행되며 줄어든다).
+LEGACY_ADAPTER_COUPLING = {
+    ("indaim/ai/cache.py", "indaim.adapters.discord"), ("indaim/app/world_lifecycle.py", "indaim.adapters.discord"),
+    ("indaim/ledger/cost.py", "discord"), ("indaim/ledger/estimate.py", "indaim.adapters.discord.media_control"),
+    ("indaim/narrative/voice_profile.py", "indaim.adapters.discord.dialogue"),
+    ("indaim/narrative/voice_profile.py", "indaim.adapters.discord.tts"),
+    ("indaim/rules/knowledge/initial_knowledge.py", "discord"),
+    ("indaim/rules/knowledge/initial_knowledge.py", "indaim.adapters.discord"),
+    ("indaim/turn/turn_history.py", "discord"), ("indaim/turn/turn_world.py", "indaim.adapters.discord"),
+}
+
+
+def test_engine_layers_do_not_know_discord():
+    found = set()
+    for f in sorted((ROOT / "indaim").rglob("*.py")):
+        rel = f.relative_to(ROOT).as_posix()
+        if rel.startswith(("indaim/adapters/", "indaim/bridge/")):
+            continue
+        for node in ast.walk(ast.parse(f.read_text(encoding="utf-8"))):
+            mods = [a.name for a in node.names] if isinstance(node, ast.Import) else \
+                [node.module or ""] if isinstance(node, ast.ImportFrom) and not node.level else []
+            for m in mods:
+                if m.split(".")[0] == "discord":
+                    found.add((rel, "discord"))
+                elif m.startswith("indaim.adapters"):
+                    found.add((rel, m))
+    assert found == LEGACY_ADAPTER_COUPLING

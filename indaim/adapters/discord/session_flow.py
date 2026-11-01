@@ -29,7 +29,7 @@ import json
 
 import discord
 
-from indaim.narrative import conversational as _conv
+from indaim.adapters.discord import conversational as _conv
 from indaim.app import creation
 from indaim.narrative import intro as intro_mod
 from indaim.narrative import master as _master
@@ -38,7 +38,7 @@ from indaim.narrative import voice_profile as _voice
 from indaim.narrative import memory_plan
 from indaim.app import profiles as profile_store
 from indaim.ledger import stats
-from indaim.narrative import talk as _talk
+from indaim.adapters.discord import talk as _talk
 from indaim.app.io import get_available_scenarios, load_scenario_from_file
 
 # 소개 단계에서 보여줄 항목 (기획 규정 — TRPG 개념·특성·진행·과금·예시·디스플레이)
@@ -698,7 +698,7 @@ class ScenarioView(_Step):
 def scenario_genre(sid: str) -> str | None:
     """v7.45.2: 시나리오 선택 화면 표시용 대략적 장르 — data/scenario_catalog.json(세계 정의 밖, revision 무관)."""
     import os
-    path = os.path.join(str(pathlib.Path(__file__).resolve().parents[2]), "data", "scenario_catalog.json")
+    path = os.path.join(str(pathlib.Path(__file__).resolve().parents[3]), "data", "scenario_catalog.json")
     try:
         with open(path, encoding="utf-8") as f:
             g = ((json.load(f) or {}).get(sid) or {}).get("genre")
@@ -1025,7 +1025,7 @@ async def on_open_time_done(bot, session, channel, *, quoted_tokens=None):
     if defer_cache:
         session.open_quoted_tokens = quoted_tokens
     if cog and not defer_cache:
-        from indaim.turn import message_lifecycle as _ml
+        from indaim.adapters.discord import message_lifecycle as _ml
         ok = await cog.upload_cache(session, notify=_ml.transient_notifier(bot, session, channel, ttl=60),
                                     quoted_tokens=quoted_tokens, report_failure=False)
         if not ok:

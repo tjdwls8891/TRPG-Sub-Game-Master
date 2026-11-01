@@ -102,7 +102,7 @@ def _ev(eid, sid, krw, usd=None, hint=CL.HINT_PLAYER_CANDIDATE):
 
 def test_g2_no_business_rule_reads_legacy_total_cost():
     """자동 GM 비용 상한은 total_cost − baseline 을 더 이상 계산하지 않는다(AUD-033)."""
-    for rel in ("cogs/gm.py", "indaim/app/session_flow.py"):
+    for rel in ("cogs/gm.py", "indaim/adapters/discord/session_flow.py"):
         src = source_of(rel)
         assert "total_cost - session.gm_cost_baseline" not in src
         assert 'total_cost - getattr(session, "gm_cost_baseline"' not in src

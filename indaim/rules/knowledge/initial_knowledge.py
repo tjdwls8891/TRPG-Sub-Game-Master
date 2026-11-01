@@ -400,9 +400,9 @@ async def present(bot, session, uid, phase, channel, on_delivered=None, later=No
 
     전달 증명 = 마지막 박자(영수증 줄 포함)를 실제로 그린 메시지 id. 그때 DELIVERED(strict)로 바꾸고 on_delivered를
     부른다. 재시작 등으로 도중에 끊기면 상태는 PRESENTING → 기존 영수증 조회(마지막 박자 nonce)로만 해소된다."""
-    from indaim.narrative import conversational as _conv
-    from indaim.app import session_flow as _sf
-    from indaim.narrative import talk as _talk
+    from indaim.adapters.discord import conversational as _conv
+    from indaim.adapters.discord import session_flow as _sf
+    from indaim.adapters.discord import talk as _talk
     rec = record(session, uid, phase)
     rec["state"] = PRESENTING
     rec["pages"] = [rec.get("rendered_text") or ""]          # 영수증 = 마지막 박자 한 장

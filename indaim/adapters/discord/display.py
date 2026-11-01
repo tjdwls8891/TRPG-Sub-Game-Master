@@ -19,7 +19,7 @@ import discord
 
 from indaim.narrative import master
 from indaim.adapters.discord import media_control
-from indaim.turn.message_lifecycle import (LifecyclePromptView, PROMPT_CANCEL, PROMPT_CONFIRM,
+from indaim.adapters.discord.message_lifecycle import (LifecyclePromptView, PROMPT_CANCEL, PROMPT_CONFIRM,
                                 bind_interaction_prompt)
 from indaim.ledger.ink import format_ink, cost_to_ink
 from indaim.rules.time.timeline import format_timeline
@@ -306,7 +306,7 @@ class DisplayView(discord.ui.View):
     async def master_gender(self, interaction, _b):
         """P2 Q6: 세션 개설자만 진행자 성별 표현을 바꾼다 — 이후 출력(이미지·목소리·내레이션)부터, 소급 없음."""
         session = self.bot.active_sessions.get(interaction.channel.id)
-        from indaim.app.session_flow import flow_owner
+        from indaim.adapters.discord.session_flow import flow_owner
         from indaim.narrative.voice_profile import GENDER_LABEL, master_gender
         owner = flow_owner(session)
         if str(interaction.user.id) != owner and not await self.bot.is_owner(interaction.user):
@@ -421,7 +421,7 @@ class DisplayView(discord.ui.View):
         session._open_input_ch_id = None              # 재오픈 답변은 디스플레이 채널(v7.21.4: 첫 생성만 게임 채널)
         # WP-F: INTERACTION_PROMPT — 이전 질문이 남아 있으면 supersede 로 정리하고, 답변 처리
         #   (gm._handle_open_time_input)가 이 질문을 종결 정리한다.
-        from indaim.turn import message_lifecycle as _ml
+        from indaim.adapters.discord import message_lifecycle as _ml
         await _ml.clear(self.bot, session, _ml.KEY_DISPLAY_OPEN_PROMPT)
         await interaction.response.send_message(
             f"⏱️ **{master.say('cache.time_question', '세션을 얼마나 유지하시겠습니까?')}**\n"
@@ -740,7 +740,7 @@ async def refresh(bot, session, *, reason: str = "") -> bool:
     표시는 정본 세션에서 언제든 다시 그릴 수 있으므로 다음 갱신이 복구한다. Discord 실패는
     정본 상태를 바꾸지 않는다.
     """
-    from indaim.turn.message_lifecycle import is_inaccessible
+    from indaim.adapters.discord.message_lifecycle import is_inaccessible
     ch_id = getattr(session, "display_ch_id", None)
     if not ch_id:
         return False

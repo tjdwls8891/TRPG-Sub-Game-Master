@@ -26,13 +26,13 @@ import time
 
 import discord
 
-from indaim.narrative import conversational as _conv
+from indaim.adapters.discord import conversational as _conv
 from indaim.narrative import master
 from indaim.adapters.discord import master_art as _master_art
 from indaim.app import profile_gen
 from indaim.app import profile_runner as runner
 from indaim.app import profiles as profile_store
-from indaim.narrative import talk as _talk
+from indaim.adapters.discord import talk as _talk
 
 # 선택지가 이보다 많으면 셀렉트 메뉴를 쓴다.
 SELECT_THRESHOLD = 5
@@ -1603,7 +1603,7 @@ async def _advance_flow(state, channel):
     if not getattr(state.session, "creation_state", None):
         return
     try:
-        from indaim.app import session_flow
+        from indaim.adapters.discord import session_flow
         await session_flow.on_profile_done(state.bot, state.session, channel)
     except Exception as e:
         print(f"[세션플로우] 프로필 완료 처리 실패: {e}")
@@ -1723,7 +1723,7 @@ async def _resume_after_profile(bot, session) -> bool:
     st = getattr(session, "creation_state", None)
     if not (isinstance(st, dict) and st.get("step") == "profile" and (st.get("data") or {}).get("profile") == "완료"):
         return False
-    from indaim.app import session_flow
+    from indaim.adapters.discord import session_flow
     uid = session_flow._owner(session)
     if not uid or uid in (getattr(session, PROGRESS_FIELD, None) or {}) \
             or not ((getattr(session, "players", None) or {}).get(uid) or {}).get("profile"):

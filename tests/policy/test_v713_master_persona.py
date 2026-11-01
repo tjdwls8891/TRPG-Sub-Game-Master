@@ -63,7 +63,7 @@ def test_no_provider_or_network_call_in_master_module():
 
 
 def test_gm_home_untouched():
-    src = (REPO / "indaim/app/gm_space.py").read_text(encoding="utf-8")
+    src = (REPO / "indaim/adapters/discord/gm_space.py").read_text(encoding="utf-8")
     body = src[src.index("async def refresh_home"):]
     body = body[:body.index("\nasync def ", 10) if "\nasync def " in body[10:] else len(body)]
     assert "master" not in body                                              # GM 홈 게시물은 그대로(A-01)

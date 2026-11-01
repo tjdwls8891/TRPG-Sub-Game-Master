@@ -139,7 +139,7 @@ class WaitingStatus:
             return cls(None, layer)
         self = cls(msg, layer)
         if session is not None:
-            from indaim.turn import message_lifecycle as _ml
+            from indaim.adapters.discord import message_lifecycle as _ml
             self._session = session
             self._key = f"{_ml.WAITING_PREFIX}{layer}"
             _ml.register(session, self._key, msg)
@@ -170,10 +170,10 @@ class WaitingStatus:
                 await self.message.delete()
                 gone = True
             except Exception as e:
-                from indaim.turn.message_lifecycle import is_gone
+                from indaim.adapters.discord.message_lifecycle import is_gone
                 gone = is_gone(e)
             if gone and self._session is not None:
-                from indaim.turn import message_lifecycle as _ml
+                from indaim.adapters.discord import message_lifecycle as _ml
                 _ml._unregister(self._session, self._key, [self.message.id])
             self.message = None
 

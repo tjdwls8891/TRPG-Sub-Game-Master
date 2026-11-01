@@ -314,7 +314,7 @@ def test_mf11b_player_notices_route_through_lifecycle_source_scan():
     assert gm.count("KEY_TURN_NOTICE") >= 7
     presence = source_of("cogs/presence.py")
     assert "game_ch.send(" not in presence
-    assert source_of("indaim/narrative/dialogue.py").count("_ml.register(") == 1
+    assert source_of("indaim/adapters/discord/dialogue.py").count("_ml.register(") == 1
 
 
 # ── M-F09/M-F10 실제 변이 알림: ROLL 성장 ───────────────────

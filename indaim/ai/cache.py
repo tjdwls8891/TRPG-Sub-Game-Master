@@ -704,7 +704,7 @@ async def restore_sessions_from_disk(bot):
                         print(f"🌍 {session_id}: 동적 세계 복구 {_w}")
                     # WP-F: 재시작으로 끊긴 대기 안내(주인 없는 transient)·만료분 정리.
                     #   채널 미준비면 등록부에 남고 다음 입력 admission 에서 재시도된다.
-                    from indaim.turn import message_lifecycle as _ml
+                    from indaim.adapters.discord import message_lifecycle as _ml
                     await _ml.sweep(bot, session, prefix=_ml.WAITING_PREFIX)
                     await _ml.sweep(bot, session, only_expired=True)
                 except Exception as _e:
@@ -723,7 +723,7 @@ async def restore_sessions_from_disk(bot):
                 # 세션 관리: 승인된 제거가 진행 중인 세션은 다시 활성화하지 않는다(캐시 재연결·재생성 없음).
                 #   위 커밋·청구 복구는 그대로 마쳤다. 남은 종료·정산은 `!세션관리` 재개가 단일 경로로 잇는다.
                 try:
-                    from indaim.app import session_removal as _srm
+                    from indaim.adapters.discord import session_removal as _srm
                     if _srm.read_checkpoint(session_id) is not None:
                         _srm.hold(bot, session)
                         print(f"🗑️ {session_id}: 제거 진행 중 — 활성 등록하지 않습니다(`!세션관리`로 재개).")
