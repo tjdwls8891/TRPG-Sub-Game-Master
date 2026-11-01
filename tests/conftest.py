@@ -99,32 +99,75 @@ def _kernel_shadow(monkeypatch, request):
                 diffs.append((batch.batch_id, d[:5]))
         return res
     monkeypatch.setattr(_wm, "project", shadow)
-    # T-1: 커밋의 추출 적용(상태 확정)마다 vitals 확정 훅을 같은 재료로 돌려 결과 상태를 대조한다
+    # T-1·T-2: 커밋의 추출 적용마다 확정 훅(vitals·items)을 같은 재료로 돌려 결과를 대조한다
     import copy as _copy
     import cogs.gm as _gm
+    import core.items as _it
     from indaim.migrate import v4 as _v4
     from indaim.rules.vitals import logic as _vl
-    orig_apply, orig_decide, seen = _gm.GMCog._apply_prepared_extraction, _vl.decide_turn, []
+    orig_apply, orig_decide = _gm.GMCog._apply_prepared_extraction, _vl.decide_turn
+    orig_grants, orig_plan = _it.apply_event_grants, _it.apply_plan
+    seen = {}
 
     def decide(merged, **kw):
-        seen.append({"merged": merged, **_copy.deepcopy(kw)})
+        seen.setdefault("vitals", []).append({"merged": merged, **_copy.deepcopy(kw)})
         return orig_decide(merged, **kw)
 
+    def grants(session, rows, *, definition=None, pc_name=None):
+        seen.setdefault("grants", []).append({"grants": _copy.deepcopy(rows), "definition": definition, "pc_name": pc_name})
+        return orig_grants(session, rows, definition=definition, pc_name=pc_name)
+
+    def plan(session, p):
+        row = {"ops": _copy.deepcopy(p.ops), "defs": _copy.deepcopy(p.defs), "pc_name": p.pc_name,
+               "scene_place": p.scene_place, "tx": p.transaction_id, "recipes": _copy.deepcopy(p.recipes)}
+        if inside[0] or "no_kernel_shadow" in request.keywords:
+            seen.setdefault("plan", []).append(row)
+            return orig_plan(session, p)
+        # 커밋 밖(물건 단위 테스트의 직접 호출) — 그 자리에서 대조
+        pre = _copy.deepcopy({f: getattr(session, f, None) for f in _v4.FIELDS})
+        out = orig_plan(session, p)
+        _check("items", _sh.shadow_items, _defaults(pre), {"plan": row},
+               _defaults({f: getattr(session, f, None) for f in _v4.FIELDS}), tx=str(p.transaction_id))
+        return out
+
+    def _defaults(d):
+        return {k: v for k, v in d.items() if v is not None}
+    inside = [False]
+
+    def _check(kind, fn, *args, **kw):
+        try:
+            d = fn(*args, **kw)
+        except Exception as e:  # noqa: BLE001
+            import traceback
+            d = [f"그림자 검사 예외 {type(e).__name__}: {e} {traceback.format_exc()[-700:]}"]
+        if d:
+            diffs.append((kind, d[:5]))
+
     async def apply(self, session, prep, *a, **kw):
+        if "no_kernel_shadow" in request.keywords:
+            return await orig_apply(self, session, prep, *a, **kw)
         pre = _copy.deepcopy({f: getattr(session, f, None) for f in _v4.FIELDS})
         seen.clear()
-        out = await orig_apply(self, session, prep, *a, **kw)
-        if len(seen) == 1:
-            try:
-                d = _sh.shadow_vitals(pre, seen[0], {f: getattr(session, f, None) for f in _v4.FIELDS},
-                                      tx=str(getattr(prep, "transaction_id", "tx")))
-            except Exception as e:  # noqa: BLE001
-                import traceback
-                d = [f"그림자 검사 예외 {type(e).__name__}: {e} {traceback.format_exc()[-600:]}"]
-            if d:
-                diffs.append(("vitals", d[:5]))
+        inside[0] = True
+        try:
+            out = await orig_apply(self, session, prep, *a, **kw)
+        finally:
+            inside[0] = False
+        post = {f: getattr(session, f, None) for f in _v4.FIELDS}
+        tx = str(getattr(prep, "transaction_id", "tx"))
+        if len(seen.get("vitals", ())) == 1:
+            _check("vitals", _sh.shadow_vitals, pre, seen["vitals"][0], post, tx=tx)
+        if getattr(prep, "world_turn", None) is None:
+            pass                        # 은퇴한 LEGACY 경로(추출 item_changes 직접 반영)는 새 엔진 대상이 아니다(T-6 제거)
+        elif len(seen.get("grants", ())) <= 1 and len(seen.get("plan", ())) <= 1:
+            g = (seen.get("grants") or [{}])[0]
+            _check("items", _sh.shadow_items, pre, {**g, "plan": (seen.get("plan") or [None])[0]}, post, tx=tx)
+        else:
+            diffs.append(("items", [f"물건 적용 호출이 여러 번 {[(k, len(v)) for k, v in seen.items()]}"]))
         return out
     monkeypatch.setattr(_vl, "decide_turn", decide)
+    monkeypatch.setattr(_it, "apply_event_grants", grants)
+    monkeypatch.setattr(_it, "apply_plan", plan)
     monkeypatch.setattr(_gm.GMCog, "_apply_prepared_extraction", apply)
     yield
     if "no_kernel_shadow" not in request.keywords:

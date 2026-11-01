@@ -289,6 +289,7 @@ async def test_empty_batch_player_turn_advances_world_version_and_freezes_plan(r
     assert _prepared_md(s, tx2)["source_world_version"] == v1
 
 
+@pytest.mark.no_kernel_shadow       # 시험 레지스트리가 정본에 시험 값(probe)을 쓴다 — 실제 세션 형태가 아니라 변환 대상이 아니다
 async def test_non_empty_typed_batch_applies_inside_commit_and_rewinds(rig, inject):
     r = rig
     s = r.sess

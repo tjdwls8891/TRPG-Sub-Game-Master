@@ -116,6 +116,10 @@ class View:
     def version_id(self):
         return (self._w.version or {}).get("version_id")
 
+    def ids(self, kind: str, comp: str) -> tuple:
+        """그 컴포넌트가 저장된(기본값이 아닌) 엔티티 id — 정의에만 있는 엔티티는 포함하지 않는다."""
+        return tuple(i for i in self._w.entity_ids(kind) if self._w.stored((kind, i, comp)) is not _MISSING)
+
     def stored_has(self, kind: str, eid, comp: str) -> bool:
         """기본값이 아닌 저장값이 있는가(빈 경로 DELETE의 '있는 것만 지운다' 판정)."""
         return self._w.stored(address(kind, eid, comp)) is not _MISSING

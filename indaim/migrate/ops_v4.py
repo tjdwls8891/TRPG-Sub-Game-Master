@@ -11,13 +11,12 @@ from indaim.rules.relations.components import target_of
 from . import v4
 
 # 옛 typed 연산의 번역으로 비교하는 컴포넌트(투영 그림자). vitals 등 확정 훅 모듈은 커밋 단위 그림자로 따로 비교한다.
-_HOOK_FEATURES = ("vitals",)
+_HOOK_FEATURES = ("vitals", "items")
 PORTED = tuple((c.entity, c.name) for f in FEATURES for c in f.COMPONENTS
                if f.__name__.rsplit(".", 1)[-1] not in _HOOK_FEATURES)
-_PLACEHOLDERS = (("actor", ("bag", "party", "stats")),
-                 ("item", ("state",)), ("place", ("floor",)), ("info", ("runtime", "status")),
+_PLACEHOLDERS = (("actor", ("party", "stats")), ("info", ("runtime", "status")),
                  ("event", ("core", "vars", "history")),
-                 (WORLD, ("pending_signals", "item_lore", "info_series", "group_mind", "group_bond", "unresolved")))
+                 (WORLD, ("pending_signals", "info_series", "group_mind", "group_bond", "unresolved")))
 
 
 def registry() -> Registry:
@@ -160,7 +159,7 @@ def _ported_view(world, reg) -> dict:
     return out
 
 
-STATS = {"compared": 0, "effects": 0, "vitals_turns": 0, "vitals_effects": 0}
+STATS = {"compared": 0, "effects": 0, "vitals_turns": 0, "vitals_effects": 0, "items_turns": 0, "items_effects": 0}
 
 
 def shadow_compare(source_domains: dict, old_batch, result_domains: dict) -> list:
@@ -210,3 +209,58 @@ def shadow_vitals(pre_fields: dict, inputs: dict, post_fields: dict, *, tx: str)
     want = {a: v for a, v in vit(v4.convert(_fields(post_fields), game_keys=set()).world).items() if v}
     got = {a: v for a, v in vit(res.world).items() if v}
     return [f"{a}: 옛 {want.get(a)!r} ≠ 새 {got.get(a)!r}" for a in sorted(set(want) | set(got)) if want.get(a) != got.get(a)]
+
+
+def _with_names(pre: dict, post: dict) -> tuple:
+    """(그림자 전용) 등록부로 풀리지 않는 소유자 이름에 임시 행위자 항목을 더한다 — 등록부 없는 시험 세션도 비교되게.
+    같은 이름은 턴 전후 같은 임시 id다."""
+    import hashlib
+    pre, post = dict(pre), dict(post)
+    to_aid, _c, _a = v4._names(_fields(pre))
+    owners = set()
+    for d in (pre, post):
+        for f in ("resources", "equipment", "statuses", "status_clock"):
+            owners |= set((d.get(f) or {}))
+        owners |= {r.get("owner") for r in (d.get("item_instances") or {}).values() if isinstance(r, dict) and r.get("owner")}
+    extra = {"x." + hashlib.sha256(n.encode("utf-8")).hexdigest()[:16]:
+             {"kind": "NPC", "display_name": n, "source_kind": "SESSION_NPC", "source_key": n, "aliases": []}
+             for n in sorted(owners) if isinstance(n, str) and n and n not in to_aid}
+    for d in (pre, post):
+        d["actor_registry"] = {**(d.get("actor_registry") or {}), **extra}
+    return pre, post
+
+
+def shadow_items(pre_fields: dict, inputs: dict, post_fields: dict, *, tx: str) -> list:
+    """T-2 그림자 — items 확정 훅 ↔ 변환된 커밋 후 세계의 물건 컴포넌트(bag·item.state·place.floor·item_lore)."""
+    from indaim.kernel import View
+    from indaim.rules import items
+    reg = registry()
+    pre_fields, post_fields = _with_names(pre_fields, post_fields)
+    pre = v4.convert(_fields(pre_fields), game_keys=set())
+    names, _canon, _amb = v4._names(_fields(pre_fields))
+    effs = items.settle(View(pre.world, reg, None), {**inputs, "names": names}, effect_prefix=tx)
+    STATS["items_turns"] += 1
+    STATS["items_effects"] += len(effs)
+    b = EffectBatch(batch_id=f"shadow.items.{tx}", origin="PLAYER_TURN", base_version_id=None, definition_revision=None)
+    b.extend(effs)
+    b.freeze()
+    res = project(pre.world, b, reg, None)
+    if not res.ok:
+        return [f"새 커널 충돌: {[c.message for c in res.conflicts]}"]
+    comps = (("actor", "bag"), ("item", "state"), ("place", "floor"), (WORLD, "item_lore"))
+
+    def view_of(world):
+        w = compact(world, reg, None).to_dict()
+        out = {}
+        for kind, comp in comps:
+            if kind == WORLD:
+                if comp in w.get("world", {}):
+                    out[(kind, "", comp)] = w["world"][comp]
+                continue
+            for eid, cs in (w.get("entities", {}).get(kind) or {}).items():
+                if comp in cs:
+                    out[(kind, eid, comp)] = cs[comp]
+        return out
+    want = view_of(v4.convert(_fields(post_fields), game_keys=set()).world)
+    got = view_of(res.world)
+    return [f"{k}: 옛 {want.get(k)!r} ≠ 새 {got.get(k)!r}" for k in sorted(set(want) | set(got)) if want.get(k) != got.get(k)]
