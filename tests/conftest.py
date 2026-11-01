@@ -201,6 +201,28 @@ def _kernel_shadow(monkeypatch, request):
     monkeypatch.setattr(_gm.GMCog, "_apply_prepared_extraction", apply)
     monkeypatch.setattr(_gr, "turn_inputs", turn_inputs)
     monkeypatch.setattr(_core, "apply_normalized_companions", companions)
+    # T-5: 플레이어 턴 계획을 커널 세계 보기(KernelProjectedWorld)로도 세워 같은 계획이 나오는지 본다
+    import core.player_world as _pwm
+    from indaim.bridge.kernel_view import KernelProjectedWorld
+    orig_plan_turn = _pwm.plan_player_turn
+
+    def plan_turn(ctx, world, intent, **kw):
+        out = orig_plan_turn(ctx, world, intent, **kw)
+        if "no_kernel_shadow" in request.keywords or isinstance(world, _wm.ProjectedWorld):
+            return out
+        try:
+            conv = _v4.convert({f: getattr(world, f, None) for f in _v4.FIELDS
+                                if getattr(world, f, None) is not None}, game_keys=set())
+            twin = orig_plan_turn(ctx, KernelProjectedWorld(conv, definition_revision=getattr(world, "definition_revision", None)),
+                                  intent, **kw)
+            d = _sh.compare_plans(out, twin)
+        except Exception as e:  # noqa: BLE001
+            import traceback
+            d = [f"그림자 검사 예외 {type(e).__name__}: {e} {traceback.format_exc()[-700:]}"]
+        if d:
+            diffs.append(("plan", d[:5]))
+        return out
+    monkeypatch.setattr(_pwm, "plan_player_turn", plan_turn)
     monkeypatch.setattr(_tpm, "apply_staged_growth", staged)
     yield
     if "no_kernel_shadow" not in request.keywords:

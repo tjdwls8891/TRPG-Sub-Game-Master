@@ -2,8 +2,8 @@
 
 · 키는 모두 ID로 바꾼다. 이름 → ActorId는 행위자 등록부(PC = 플레이어 이름, NPC = source_key·표시명·별칭)로만
   해석하고 추정하지 않는다 — 풀리지 않거나 모호한 이름은 `world.unresolved`에 원문 그대로 보관하고 issue로 알린다.
-· 사건 지역 값의 엔진 장부 키(인물 상태·해제·파티·성장 지급·PC 기록·물건 지급)는 이미 다른 필드에 반영된 사본이라
-  버린다. 단 사건이 붙인 인물 상태(제거 판정의 근거)는 `actor.vitals.by_event`로 옮긴다.
+· 사건 지역 값의 엔진 장부 키 중 파티·성장 지급·PC 기록·물건 지급은 커밋이 이미 반영한 사본이라 버린다.
+  사건이 붙이고 푼 인물 상태 기록(제거 판정의 근거)은 사건 인스턴스별로 `actor.vitals.event_marks`에 옮긴다.
 · 그 밖의 값은 잃지 않는다 — `revert(convert(x))`가 장부 키를 뺀 x와 같아야 한다(골든 왕복 테스트).
 · 정의 기본값 기반 압축(인지·공간 지식 시드)은 해당 기능 모듈 이식 때 기본값 함수와 함께 들어온다(K-d).
 """
@@ -13,6 +13,8 @@ from dataclasses import dataclass, field
 from indaim.kernel import World
 
 LEDGER_PREFIXES = ("actor_status:", "actor_status_clear:", "party:", "growth_grant:", "pc_record:", "item_grant:")
+MARK_PREFIXES = {"actor_status:": "set", "actor_status_clear:": "clear"}       # → actor.vitals.event_marks[iid]
+TRANSIENT_PREFIXES = ("party:", "growth_grant:", "pc_record:", "item_grant:")  # 커밋이 반영한 사본 — 버린다
 NAME_FIELDS = ("statuses", "status_clock", "resources", "equipment")      # {이름: 값}
 NAME_LISTS = ("companions", "met_npcs")                                  # [이름]
 FIELDS = ("world_version", "world_clock", "actor_registry", "spatial_state", "spatial_knowledge",
@@ -136,9 +138,13 @@ def convert(old: dict, *, game_keys) -> Converted:
         rest = {k: copy.deepcopy(v) for k, v in p.items() if k != "profile"}
         profile[str(uid)] = {**rest, "narrative": {k: v for k, v in prof.items() if k not in game},
                              "order": list(prof)}
-    # ── 사건이 붙인 인물 상태(제거 판정 근거) ──
-    for aid, ms in _status_marks(old.get("event_instances") or {}).items():
-        ents["actor"].setdefault(aid, {}).setdefault("vitals", {})["by_event"] = ms
+    # ── 사건이 붙인·푼 인물 상태 기록(제거 판정 근거) — 사건 인스턴스별로 인물에 옮긴다(장부의 덮어쓰기 의미 그대로) ──
+    for iid, inst in (old.get("event_instances") or {}).items():
+        for k, v in (inst.get("local_state") or {}).items():
+            for pre, side in MARK_PREFIXES.items():
+                if k.startswith(pre):
+                    (ents["actor"].setdefault(k[len(pre):], {}).setdefault("vitals", {})
+                     .setdefault("event_marks", {}).setdefault(iid, {}))[side] = v
     # ── 물건·장소 ──
     for iid, r in (old.get("item_instances") or {}).items():
         r = dict(r)
@@ -177,37 +183,12 @@ def convert(old: dict, *, game_keys) -> Converted:
     return Converted(world, profile, issues)
 
 
-def _status_marks(instances) -> dict:
-    """옛 events.actor_status_marks와 같은 규칙(사건이 붙이고 아직 풀지 않은 인물 상태 {ActorId: {상태: 분}})."""
-    rows = []
-    for iid in sorted(instances):
-        loc = (instances[iid] or {}).get("local_state") or {}
-        for k in sorted(loc):
-            v = loc[k]
-            if not isinstance(v, dict):
-                continue
-            m = v.get("minute") if isinstance(v.get("minute"), int) else 0
-            if k.startswith("actor_status:") and isinstance(v.get("status"), str):
-                rows.append((m, iid, 0, k[len("actor_status:"):], v["status"]))
-            elif k.startswith("actor_status_clear:"):
-                rows.append((m, iid, 1, k[len("actor_status_clear:"):], v.get("status")))
-    out = {}
-    for _m, _i, clear, aid, st in sorted(rows, key=lambda r: (r[0], r[1], r[2])):
-        if clear:
-            if st is None:
-                out.pop(aid, None)
-            else:
-                (out.get(aid) or {}).pop(st, None)
-        else:
-            out.setdefault(aid, {}).setdefault(st, _m)
-    return {a: ms for a, ms in out.items() if ms}
-
-
 def strip_ledger(old: dict) -> dict:
-    """비교 기준 — 옛 필드에서 버리기로 한 장부 키만 뺀 사본."""
+    """비교 기준 — 옛 필드에서 버리기로 한 장부 키(커밋이 반영한 사본)만 뺀 사본."""
     old = copy.deepcopy(old)
     for inst in (old.get("event_instances") or {}).values():
-        inst["local_state"] = {k: v for k, v in (inst.get("local_state") or {}).items() if not k.startswith(LEDGER_PREFIXES)}
+        inst["local_state"] = {k: v for k, v in (inst.get("local_state") or {}).items()
+                               if not k.startswith(TRANSIENT_PREFIXES)}
     return old
 
 
@@ -290,9 +271,15 @@ def revert(conv: Converted) -> dict:
     if wl.get("info_series"):
         info["series"] = wl["info_series"]
     out["information_state"] = info
+    marks = {}
+    for aid, c in actors.items():
+        for iid, rec in ((c.get("vitals") or {}).get("event_marks") or {}).items():
+            for pre, side in MARK_PREFIXES.items():
+                if side in rec:
+                    marks.setdefault(iid, {})[pre + aid] = rec[side]
     for iid, c in (ents.get("event") or {}).items():
         inst = dict(c["core"])
-        inst["local_state"] = c.get("vars", {})
+        inst["local_state"] = {**c.get("vars", {}), **marks.get(iid, {})}
         inst["history"] = c.get("history", [])
         out["event_instances"][iid] = inst
     return out

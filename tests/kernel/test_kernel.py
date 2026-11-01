@@ -249,9 +249,12 @@ def test_kernel_imports_stdlib_only():
 
 
 def test_indaim_does_not_import_old_engine():
-    """새 엔진(indaim)은 옛 core·cogs를 import하지 않는다 — 옛 쪽이 새 모듈을 부르는 방향만 허용(교체 중 단일 구현)."""
+    """새 엔진(indaim)은 옛 core·cogs를 import하지 않는다 — 옛 쪽이 새 모듈을 부르는 방향만 허용(교체 중 단일 구현).
+    예외는 이행 다리 indaim/bridge 하나(옛 엔진을 커널 세계 위에서 돌리는 연결 — T-6 정본 전환에서 사라진다)."""
     bad = []
     for f in sorted((ROOT / "indaim").rglob("*.py")):
+        if f.relative_to(ROOT).parts[:2] == ("indaim", "bridge"):
+            continue
         for node in ast.walk(ast.parse(f.read_text(encoding="utf-8"))):
             mods = [a.name for a in node.names] if isinstance(node, ast.Import) else \
                 [node.module or ""] if isinstance(node, ast.ImportFrom) and not node.level else []

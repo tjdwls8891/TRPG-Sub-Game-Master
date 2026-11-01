@@ -1,8 +1,9 @@
-"""생체 상태 — actor.vitals {statuses: [상태], clock: 상태 시계, by_event: {상태: 분}}.
+"""생체 상태 — actor.vitals {statuses: [상태], clock: 상태 시계, event_marks: {사건 인스턴스: {set?, clear?}}}.
 
   statuses  붙은 상태(저작 순서가 아니라 붙은 순서 — 옛 session.statuses 의미 그대로, 빈 목록도 기록)
   clock     {applied, cleared, intake, stage, cared, eased, latent} (옛 status_clock 항목)
-  by_event  사건이 붙이고 아직 풀지 않은 상태(제거 판정 근거 — 사건 진행 이식 때 효과가 된다)
+  event_marks  사건 단계 SET_ACTOR_STATUS·CLEAR_ACTOR_STATUS 기록(인스턴스별 — 같은 인스턴스의 다음 기록이 덮어쓴다).
+               제거(역할 dead) 판정의 근거다. 옛 엔진 보기에서는 사건 지역 값 장부 키로 되살린다
 확정(settle): 판정 로직(logic.decide_turn) → 부여/해제 반영 → 바뀐 인물마다 효과.
 """
 from indaim.kernel import WORLD, Component, make_effect
@@ -23,7 +24,17 @@ def _set(field):
     return op
 
 
-COMPONENTS = (Component("vitals", "actor", "rules.vitals", {"set_statuses": _set("statuses"), "set_clock": _set("clock")}),)
+def _mark(view, e):
+    a = keys(e, ("instance_id", "side", "value"))
+    if a["side"] not in ("set", "clear") or not isinstance(a["instance_id"], str) or not a["instance_id"]:
+        reject(e, "사건 표식은 instance_id·side(set|clear)·value")
+    if not isinstance(a["value"], dict):
+        reject(e, "사건 표식 값은 객체")
+    return [write(e, ("event_marks", a["instance_id"], a["side"]), SINGLE_VALUE, a["value"])]
+
+
+COMPONENTS = (Component("vitals", "actor", "rules.vitals", {"set_statuses": _set("statuses"), "set_clock": _set("clock"),
+                                                            "mark": _mark}),)
 
 
 def settle(view, inp: dict, *, effect_prefix: str) -> list:

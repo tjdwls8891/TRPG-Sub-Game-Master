@@ -58,8 +58,9 @@ UNKNOWN_REVISION = object()                 # ProjectedWorld는 정의 정체성
 
 
 def world_definition_revision(world):
-    """세션의 definition_revision(비가역 정체성). ProjectedWorld면 UNKNOWN_REVISION."""
-    if world is None or isinstance(world, _wm.ProjectedWorld) or not hasattr(world, "definition_revision"):
+    """세션의 definition_revision(비가역 정체성). ProjectedWorld면 UNKNOWN_REVISION — 단 세션 정체성을 함께 든
+    커널 세계 보기(리팩터링 T-5 indaim.bridge.KernelProjectedWorld)는 그 값을 쓴다."""
+    if world is None or not hasattr(world, "definition_revision"):
         return UNKNOWN_REVISION
     return getattr(world, "definition_revision", None)
 

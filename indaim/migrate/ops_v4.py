@@ -63,6 +63,7 @@ def _event_create(p, _op=None):
     inst = dict(p.get("instance") or {}) if isinstance(p.get("instance"), dict) else {}
     if isinstance(inst.get("local_state"), dict):
         inst["local_state"] = {k: v for k, v in inst["local_state"].items() if not k.startswith(v4.LEDGER_PREFIXES)}
+        # (생성 시 장부 키는 없다 — 있으면 버려진다. 표식은 EVENT_LOCAL_SET으로만 생긴다)
     iid = inst.get("instance_id")
     return [("event", iid, c, op, {"instance": inst}) for c, op in (("core", "create"), ("vars", "init"), ("history", "init"))]
 
@@ -73,8 +74,14 @@ def _event_op(comp, op):
 
 
 def _event_local(p, op):
-    if isinstance(p.get("key"), str) and p["key"].startswith(v4.LEDGER_PREFIXES):
-        return []                         # 엔진 장부 — 주인 모듈(vitals·party·growth·items) 이식 때 그 효과가 된다
+    key = p.get("key")
+    if isinstance(key, str):
+        for pre, side in v4.MARK_PREFIXES.items():          # 사건이 붙이고 푼 인물 상태 → 그 인물의 표식
+            if key.startswith(pre):
+                return [("actor", key[len(pre):], "vitals", "mark",
+                         {"instance_id": p.get("instance_id"), "side": side, "value": p.get("value")})]
+        if key.startswith(v4.TRANSIENT_PREFIXES):
+            return []                     # 커밋 확정 훅(party·growth·items)이 같은 턴에 반영하는 사본 — 정본에 남기지 않는다
     name = "resolve" if op.source_kind == "PLAYER_RESOLUTION" else "set"
     return [("event", p.get("instance_id"), "vars", name, {k: v for k, v in p.items() if k != "instance_id"})]
 
@@ -148,6 +155,9 @@ def _fields(domains: dict) -> dict:
 def _ported_view(world, reg) -> dict:
     w = compact(world, reg, None).to_dict()
     out = {}
+    for eid, comps in (w.get("entities", {}).get("actor") or {}).items():     # 번역되는 vitals 부분 = 사건 표식
+        if (comps.get("vitals") or {}).get("event_marks"):
+            out[("actor", eid, "vitals.event_marks")] = comps["vitals"]["event_marks"]
     for kind, comp in PORTED:
         if kind == WORLD:
             if comp in w.get("world", {}):
@@ -159,7 +169,7 @@ def _ported_view(world, reg) -> dict:
     return out
 
 
-STATS = {"compared": 0, "effects": 0, "vitals_turns": 0, "vitals_effects": 0, "items_turns": 0, "items_effects": 0, "growth_calls": 0, "growth_effects": 0, "party_calls": 0, "party_effects": 0}
+STATS = {"compared": 0, "effects": 0, "vitals_turns": 0, "vitals_effects": 0, "items_turns": 0, "items_effects": 0, "growth_calls": 0, "growth_effects": 0, "party_calls": 0, "party_effects": 0, "plans": 0, "plan_ops": 0}
 
 
 def shadow_compare(source_domains: dict, old_batch, result_domains: dict) -> list:
@@ -204,7 +214,7 @@ def shadow_vitals(pre_fields: dict, inputs: dict, post_fields: dict, *, tx: str)
 
     def vit(world):
         w = compact(world, reg, None).to_dict()
-        return {aid: {k: v for k, v in c["vitals"].items() if k != "by_event"}
+        return {aid: {k: v for k, v in c["vitals"].items() if k != "event_marks"}
                 for aid, c in (w.get("entities", {}).get("actor") or {}).items() if "vitals" in c}
     want = {a: v for a, v in vit(v4.convert(_fields(post_fields), game_keys=set()).world).items() if v}
     got = {a: v for a, v in vit(res.world).items() if v}
@@ -328,3 +338,22 @@ def shadow_party(pre_fields: dict, inputs: dict, post_fields: dict, *, tx: str) 
         return out
     want, got = rows(v4.convert(_fields(post_fields), game_keys=set()).world), rows(res.world)
     return [f"{a}: 옛 {want.get(a)!r} ≠ 새 {got.get(a)!r}" for a in sorted(set(want) | set(got)) if want.get(a) != got.get(a)]
+
+
+def compare_plans(old, new) -> list:
+    """T-5 그림자 — 같은 의도로 옛 세계/커널 세계 보기에서 세운 플레이어 턴 계획이 같은가(연산·결과·신호·선후)."""
+    STATS["plans"] += 1
+    STATS["plan_ops"] += len(old.ops or ())
+    out = []
+    for f in ("status", "reason", "start_minute", "end_minute", "code_owned_minutes", "scene_place", "outcome",
+              "signals", "ties", "route_options", "resolved_choice", "transit", "item_payments", "observer"):
+        a, b = getattr(old, f, None), getattr(new, f, None)
+        if a != b:
+            out.append(f"{f}: 옛 {a!r} ≠ 새 {b!r}"[:400])
+    ao = [o.to_dict() for o in old.ops or ()]
+    bo = [o.to_dict() for o in new.ops or ()]
+    if ao != bo:
+        i = next((k for k, (x, y) in enumerate(zip(ao, bo)) if x != y), min(len(ao), len(bo)))
+        out.append(f"ops 다름(옛 {len(ao)} · 새 {len(bo)}) 첫 차이 #{i}: "
+                   f"{(ao[i] if i < len(ao) else None)!r} ≠ {(bo[i] if i < len(bo) else None)!r}"[:600])
+    return out

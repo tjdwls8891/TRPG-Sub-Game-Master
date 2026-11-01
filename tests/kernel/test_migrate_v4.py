@@ -34,11 +34,8 @@ def check(s):
     old = old_fields(s)
     conv = v4.convert(old, game_keys=game_keys(s.scenario_data))
     assert conv.issues == []
-    assert v4.revert(conv) == v4.strip_ledger(old)
-    marks = EV.actor_status_marks(s.event_instances)
-    got = {aid: c["vitals"]["by_event"] for aid, c in conv.world.to_dict()["entities"].get("actor", {}).items()
-           if "by_event" in c.get("vitals", {})}
-    assert got == marks
+    assert v4.revert(conv) == v4.strip_ledger(old)          # 사건 인물 상태 표식은 인물로 옮겨졌다가 그대로 되살아난다
+    assert EV.actor_status_marks(v4.revert(conv)["event_instances"]) == EV.actor_status_marks(s.event_instances)
     return conv
 
 
