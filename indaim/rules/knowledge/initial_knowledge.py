@@ -275,7 +275,7 @@ async def _strict_save(bot, session) -> bool:
 
 
 async def _call_ai(bot, session, prompt: str):
-    from prompts import INITIAL_KNOWLEDGE_RESPONSE_SCHEMA, INITIAL_KNOWLEDGE_SYSTEM_INSTRUCTION
+    from indaim.content.prompts import INITIAL_KNOWLEDGE_RESPONSE_SCHEMA, INITIAL_KNOWLEDGE_SYSTEM_INSTRUCTION
     from indaim.ledger import cost_ledger
     from indaim.app import profile_ai
     return await profile_ai._call(bot, INITIAL_KNOWLEDGE_SYSTEM_INSTRUCTION, INITIAL_KNOWLEDGE_RESPONSE_SCHEMA,

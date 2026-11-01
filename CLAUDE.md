@@ -116,7 +116,7 @@ python main.py
 | 파일 | 역할 |
 |---|---|
 | `main.py` | `TRPGBot`, `active_sessions`, cog 자동 로드, 세션 복구, 초대 링크 생성, GM 홈 갱신 |
-| `prompts.py` (1,870줄) | 시스템 지시문 + 응답 스키마 11종. 권위 서술은 WP-G D1(아래 '프롬프트 권위') |
+| `prompts.py` (1,870줄) | 시스템 지시문 + 응답 스키마 11종. 권위 서술은 WP-G D1(아래 '프롬프트 권위'). 리팩터링 T-5: 실제 파일은 `indaim/content/prompts.py`(내용 불변), 루트 `prompts.py`는 같은 객체 별칭 |
 | `scenarios/*.json` | 시나리오 데이터. 퀘스트는 `{이름}.quests.json`으로 분리 |
 | `media/{시나리오명}/` | 인물 이미지·BGM. **폴더명은 시나리오 id와 같아야 한다** |
 | `assets/master_dialogues_v1.json` | 마스터(진행자) 사전 저작 대사 데이터(키 126·변주 252, v7.21.5 진중한 태도·플레이 순서 기준 개정) — 문구 교정은 이 파일만 고친다. 마스터 원화는 `assets/master/`(v7.21.2) |

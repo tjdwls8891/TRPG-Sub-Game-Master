@@ -111,7 +111,7 @@ def test_narration_directive_is_genre_neutral_and_wuxia_rules_moved():
     narr = core.PromptBuilder.build_prompt(s, "지시")
     for w in ("문파", "사매", "정파", "검 두 자루", "레비", "강철수"):
         assert w not in narr, w
-    with open(os.path.join(REPO_ROOT, "prompts.py"), encoding="utf-8") as f:
+    with open(os.path.join(REPO_ROOT, "indaim", "content", "prompts.py"), encoding="utf-8") as f:
         src = f.read()
     assert "@대사:레비" not in src and "@대사:강철수" not in src
 

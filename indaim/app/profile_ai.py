@@ -137,7 +137,7 @@ async def validate(bot, session, *, field: str, value: str,
         {"verdict": "ok"|"warn"|"reject", "reason": str}
         대안 제시(suggestion)는 없다 — 세계관 충돌은 사유 안내 후 재입력(v7.15).
     """
-    from prompts import (PROFILE_VALIDATE_RESPONSE_SCHEMA,
+    from indaim.content.prompts import (PROFILE_VALIDATE_RESPONSE_SCHEMA,
                          PROFILE_VALIDATE_SYSTEM_INSTRUCTION)
 
     sd = scenario_data if scenario_data is not None else getattr(
@@ -171,7 +171,7 @@ async def merge(bot, session, *, field: str, values: list,
     Returns:
         {"merged": str, "dropped": [str], "fallback": bool, "too_long": bool}
     """
-    from prompts import (PROFILE_MERGE_RESPONSE_SCHEMA,
+    from indaim.content.prompts import (PROFILE_MERGE_RESPONSE_SCHEMA,
                          PROFILE_MERGE_SYSTEM_INSTRUCTION)
     from indaim.app.profile_gen import merge_inputs
 
@@ -207,7 +207,7 @@ async def outfit(bot, session, *, text: str, carried=()) -> list:
 
     v7.47(3.1): carried(효과가 아직 정해지지 않은 시작 물건 종류)가 있으면 같은 호출에서 그 특성도 정한다 —
     [{kind, slots, tags, use}]로 함께 돌려준다(목록에 있는 종류만). 실패하면 빈 목록 — 착용·특성 없이 진행한다."""
-    from prompts import PROFILE_OUTFIT_RESPONSE_SCHEMA, PROFILE_OUTFIT_SYSTEM_INSTRUCTION
+    from indaim.content.prompts import PROFILE_OUTFIT_RESPONSE_SCHEMA, PROFILE_OUTFIT_SYSTEM_INSTRUCTION
     from indaim.rules.items.items import effect_vocab, free_tags, free_use, guide_text, reference_text, tags_at, use_guide_text
 
     carried = [str(k) for k in dict.fromkeys(carried or ()) if str(k).strip()]

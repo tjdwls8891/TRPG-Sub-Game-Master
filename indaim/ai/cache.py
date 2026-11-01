@@ -16,7 +16,7 @@ from indaim.app.io import write_log, save_session_data, load_scenario_from_file,
 from indaim.ledger.cost import calculate_upload_cost, calculate_cost, accrue
 from indaim.app.utils import get_merged_status_effects
 
-import prompts  # 지시층위 의사결정 지시문을 캐시에 함께 굽기 위함(방안 ①)
+from indaim.content import prompts  # 지시층위 의사결정 지시문을 캐시에 함께 굽기 위함(방안 ①)
 
 
 def _deserialize_log_entry(item: dict):

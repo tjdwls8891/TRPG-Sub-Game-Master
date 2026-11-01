@@ -291,7 +291,7 @@ def code_revision() -> dict:
         except Exception:  # noqa: BLE001
             pass
         try:
-            import prompts as _p
+            from indaim.content import prompts as _p
             h = hashlib.sha1()
             for name in sorted(n for n in dir(_p) if n.isupper()):
                 v = getattr(_p, name)

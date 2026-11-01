@@ -9,7 +9,7 @@ from google.genai import types
 from indaim.app.constants import DEFAULT_MODEL, LOGIC_MODEL, TRPG_SAFETY_SETTINGS
 from indaim.app.models import TRPGSession
 from indaim.app.io import write_log
-from prompts import build_pc_appearance_prompt, build_npc_profile_prompt
+from indaim.content.prompts import build_pc_appearance_prompt, build_npc_profile_prompt
 
 
 def scenario_capabilities(scenario_data) -> frozenset:

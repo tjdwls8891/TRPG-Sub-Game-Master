@@ -281,7 +281,7 @@ def test_F01_F04_compression_uses_canon_record_and_dynamic_hint_has_no_quest_or_
     r = drig
     r.make()
     s = r.sess
-    src = (ROOT / "prompts.py").read_text(encoding="utf-8")
+    src = (ROOT / "indaim" / "content" / "prompts.py").read_text(encoding="utf-8")
     assert "[정본 기록 #N턴 | …] 줄이 있으면 반드시 그 값을" in src
     s.memory_plan = "high"
     s.world_timeline = {"current_location": "시장", "current_location_display": "소란한 골목"}

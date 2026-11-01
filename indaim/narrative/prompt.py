@@ -1,7 +1,7 @@
 # 프롬프트 빌더 — 턴 진행용 LLM 프롬프트 조립 및 기억 압축 프롬프트 생성
 from indaim.rules.items.items import prompt_profile
 from indaim.app.models import TRPGSession
-from prompts import build_compression_prompt_text
+from indaim.content.prompts import build_compression_prompt_text
 
 
 # ========== [프롬프트 빌더(Prompt Builder)] ==========

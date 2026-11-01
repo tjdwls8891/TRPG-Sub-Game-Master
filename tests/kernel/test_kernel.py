@@ -249,12 +249,8 @@ def test_kernel_imports_stdlib_only():
 
 
 # 옮긴 옛 모듈(indaim.legacy_map)이 원래부터 갖고 있던 바깥 의존 — 정확히 이것뿐이어야 한다(늘지 않게 고정).
-#   prompts(시스템 지시문)는 프롬프트 블록 이식 때, cogs.session은 어댑터 분리 때 사라진다.
-LEGACY_EXTERNAL_IMPORTS = {
-    ("indaim/ai/cache.py", "prompts"), ("indaim/app/logs.py", "prompts"), ("indaim/app/profile_ai.py", "prompts"),
-    ("indaim/app/utils.py", "prompts"), ("indaim/narrative/prompt.py", "prompts"),
-    ("indaim/rules/knowledge/initial_knowledge.py", "prompts"), ("indaim/app/session_flow.py", "cogs.session"),
-}
+#   cogs.session은 어댑터 분리 때 사라진다.
+LEGACY_EXTERNAL_IMPORTS = {("indaim/app/session_flow.py", "cogs.session")}
 
 
 def test_indaim_does_not_import_old_engine():
