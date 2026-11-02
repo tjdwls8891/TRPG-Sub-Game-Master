@@ -1,0 +1,8 @@
+"""자동 턴 한 시도의 흐름 결과 표식(adapters/discord/gm_config.py에서 옮김 — 값 동일)."""
+
+_OUTCOME_READY = "READY"
+_OUTCOME_NO_NARRATION = "NO_NARRATION"
+_OUTCOME_DELIVERY_FAILED = "DELIVERY_FAILED"
+_OUTCOME_EXTRACTION_FAILED = "EXTRACTION_FAILED"
+_OUTCOME_NOT_READY = "NOT_READY"
+_OUTCOME_SUPERSEDED = "SUPERSEDED"      # 더 새로운 시도가 현재 — 이 시도는 흐름을 소유하지 않음

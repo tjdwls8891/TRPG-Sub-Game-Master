@@ -48,7 +48,7 @@ def legacy_rel(name_or_path: str) -> str:
 # GM cog 구현 = cogs/gm.py(명령어·리스너) + 본문 그대로 옮긴 믹스인·화면·상수(리팩터링 T-5).
 #   'cogs/gm.py'를 읽는 소스 스캔은 이 전체를 하나의 GM 구현으로 본다.
 GM_PARTS = ("cogs/gm.py", "indaim/adapters/discord/gm_config.py", "indaim/adapters/discord/gm_views.py",
-            "indaim/adapters/discord/turn_steps.py", "indaim/adapters/discord/turn_flow.py")
+            "indaim/adapters/discord/turn_steps.py", "indaim/adapters/discord/turn_flow.py", "indaim/turn/world_steps.py")
 
 
 def logical_rel(relative_path: str) -> str:

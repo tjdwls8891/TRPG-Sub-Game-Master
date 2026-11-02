@@ -652,7 +652,8 @@ def test_automatic_turn_production_wiring_exists():
                    "core.action_intent.extend_judgment_schema", "core.turn_preparation.stage_world_ops",
                    "core.turn_world.narration_overlay", "core.turn_world.resolve_plan_tie",
                    "core.turn_world.pending_delivery_block"):
-        assert needle in src, needle
+        mod, fn = needle[len("core."):].split(".")          # T-5: 옮긴 세계 단계는 실제 모듈 별칭(_mod.fn)으로 부른다
+        assert needle in src or f"_{mod}.{fn}" in src, needle
     assert "_generate_continuation" not in src and "TURN_FOREGROUND_CONTINUATION" not in src   # P1: 후속 묘사 은퇴
     # H02~H04 도메인 엔진은 cogs에서 직접 부르지 않는다(H05 모듈 경유)
     for banned in ("project_world_progression", "plan_known_routes", "plan_actual_traversal"):

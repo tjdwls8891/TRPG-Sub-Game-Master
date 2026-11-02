@@ -22,10 +22,7 @@ WORLD_REACTION_AUTHORITY_BLOCK = (
     "현재 장면 인물 정본에 근거가 있을 때만 사실로 지시한다. 근거가 없으면 확정하지 말고 PC가 실제로 지각한 것만 쓴다.\n"
     "· 판정·관찰로 이미 확인된 결론(직전 장면)을 새 근거 없이 뒤집지 말 것.\n"
 )
-_OUTCOME_READY = "READY"
-_OUTCOME_NO_NARRATION = "NO_NARRATION"
-_OUTCOME_DELIVERY_FAILED = "DELIVERY_FAILED"
-_OUTCOME_EXTRACTION_FAILED = "EXTRACTION_FAILED"
-_OUTCOME_NOT_READY = "NOT_READY"
-_OUTCOME_SUPERSEDED = "SUPERSEDED"      # 더 새로운 시도가 현재 — 이 시도는 흐름을 소유하지 않음
 _RETRY_MODE_PREPARATION = core.commit_coordinator.RETRY_MODE_PREPARATION
+from indaim.turn.outcomes import (  # noqa: F401,E402 — 결과 표식(같은 이름 유지)
+    _OUTCOME_DELIVERY_FAILED, _OUTCOME_EXTRACTION_FAILED, _OUTCOME_NOT_READY, _OUTCOME_NO_NARRATION,
+    _OUTCOME_READY, _OUTCOME_SUPERSEDED)

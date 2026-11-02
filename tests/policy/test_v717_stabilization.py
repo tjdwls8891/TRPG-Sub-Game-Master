@@ -107,7 +107,9 @@ def test_P2_current_facts_bound_to_last_commit():
     assert IT.current_facts(s)["paid"] == ["빵"]
     assert IT.current_facts(SimpleNamespace(item_facts={}, world_version=None)) == {"used": [], "paid": []}
     src = source_of("cogs/gm.py")
-    assert "item_facts=core.items.current_facts(session)" in src and src.count("item_facts=core.items.current_facts(") == 1
+    calls = src.count("item_facts=core.items.current_facts(") + src.count("item_facts=_items.current_facts(")
+    assert ("item_facts=core.items.current_facts(session)" in src or "item_facts=_items.current_facts(session)" in src) \
+        and calls == 1
 
 
 async def test_P2_use_evaluated_same_turn_then_not_refired_and_rewind_consistent(drig):
