@@ -16,6 +16,7 @@
 from __future__ import annotations
 
 import copy
+import hashlib
 import json
 import pathlib
 import random
@@ -94,6 +95,7 @@ class Simulator:
         r.prov.routes["extraction"] = [extraction(step["extraction"]) if step.get("extraction") is not None
                                        else extraction({})]
         sent0, calls0 = len(r.gch.sent), len(r.prov.calls)
+        log0 = len(getattr(r.prov, "raw", None) or [])
         random.seed(int(step.get("seed", 0)))
         await turn(r, step.get("say", "선언"))
         if step.get("roll"):
@@ -105,6 +107,7 @@ class Simulator:
             await r.gm._continue_with_roll_results(s, view.player_message, view.prior_roll_results + results,
                                                    transaction_id=view.transaction_id)
         calls = r.prov.calls[calls0:]
+        raw = [call_digest(k) for k in (getattr(r.prov, "raw", None) or [])[log0:]]
         out = [] if "narration" in calls or step.get("roll") else ["[질문] " + str(getattr(m, "content", ""))[:120]
                                                                     for m in r.gch.sent[sent0:][-1:]]
         for m in r.gch.sent[sent0:]:
@@ -112,11 +115,41 @@ class Simulator:
             for line in str(m.content or "").splitlines():
                 if KEEP_LINE.match(line.strip()):
                     out.append(line.strip())
-        return {"view": semantic_view(s), "out": out, "calls": calls}
+        return {"view": semantic_view(s), "out": out, "calls": calls, "raw": raw}
 
     async def run(self, script):
         await self.boot(script)
         return [{"say": st.get("say", ""), **(await self.step(st))} for st in script["turns"]]
+
+
+def _h(x) -> str:
+    return hashlib.sha256(x.encode("utf-8")).hexdigest()[:16]
+
+
+def _plain(v):
+    """provider 요청 값을 결정적 문자열로(SDK 객체·사전·목록)."""
+    if v is None or isinstance(v, (str, int, float, bool)):
+        return v
+    if isinstance(v, dict):
+        return {str(k): _plain(x) for k, x in sorted(v.items(), key=lambda kv: str(kv[0]))}
+    if isinstance(v, (list, tuple)):
+        return [_plain(x) for x in v]
+    dump = getattr(v, "model_dump", None)
+    if callable(dump):
+        return _plain(dump(exclude_none=True))
+    return repr(v)
+
+
+def call_digest(kwargs) -> dict:
+    """provider 호출 한 건의 원문 지문 — 모델·내용·시스템 지시·스키마·설정 나머지(T-5 게이트: 호출 원문 동일)."""
+    cfg = _plain(kwargs.get("config")) or {}
+    sysi = cfg.pop("system_instruction", None) if isinstance(cfg, dict) else None
+    schema = cfg.pop("response_schema", None) if isinstance(cfg, dict) else None
+    return {"model": kwargs.get("model"),
+            "contents": _h(json.dumps(_plain(kwargs.get("contents")), ensure_ascii=False, sort_keys=True)),
+            "system": _h(json.dumps(sysi, ensure_ascii=False, sort_keys=True)),
+            "schema": _h(json.dumps(schema, ensure_ascii=False, sort_keys=True)),
+            "config": _h(json.dumps(cfg, ensure_ascii=False, sort_keys=True))}
 
 
 def semantic_view(s) -> dict:

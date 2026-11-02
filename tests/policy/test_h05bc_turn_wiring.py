@@ -38,7 +38,7 @@ class H05Provider:
     """판단·지시·시뮬·묘사·후속 묘사·추출을 설정/본문으로 구분해 라우팅."""
 
     def __init__(self):
-        self.routes, self.calls, self.prompts = {}, [], {}
+        self.routes, self.calls, self.prompts, self.raw = {}, [], {}, []
 
     @staticmethod
     def _text(kwargs):
@@ -74,6 +74,7 @@ class H05Provider:
     def generate_content(self, **kwargs):
         kind = self.kind_of(kwargs)
         self.calls.append(kind)
+        self.raw.append(kwargs)
         self.prompts.setdefault(kind, []).append((self._text(kwargs), kwargs.get("config")))
         route = self.routes.get(kind)
         if callable(route):

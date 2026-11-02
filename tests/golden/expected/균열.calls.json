@@ -1,0 +1,1210 @@
+[
+ {
+  "say": "둔산 거리로 간다",
+  "calls": [
+   {
+    "model": "gemini-3-flash-preview",
+    "contents": "b88a2f2f57185c5f",
+    "system": "bfb5588ac4f57ea8",
+    "schema": "3f57aebb272646df",
+    "config": "5c100d2d699e9ca5"
+   },
+   {
+    "model": "gemini-3-flash-preview",
+    "contents": "7750e273a95c7df9",
+    "system": "74234e98afe7498f",
+    "schema": "74234e98afe7498f",
+    "config": "64df5b6982a95541"
+   },
+   {
+    "model": "gemini-3-flash-preview",
+    "contents": "a3d073476ad881da",
+    "system": "74234e98afe7498f",
+    "schema": "1652fe027519e8cc",
+    "config": "74008de835766fd7"
+   },
+   {
+    "model": "gemini-3-flash-preview",
+    "contents": "ca46452088ad0f88",
+    "system": "646d34a215a5450d",
+    "schema": "b2c7e2727a89e16f",
+    "config": "ccf616e41d08021f"
+   }
+  ]
+ },
+ {
+  "say": "은하수 길드 사무실로 간다",
+  "calls": [
+   {
+    "model": "gemini-3-flash-preview",
+    "contents": "e577f1e964789abe",
+    "system": "bfb5588ac4f57ea8",
+    "schema": "b1e43ed264c38804",
+    "config": "5c100d2d699e9ca5"
+   },
+   {
+    "model": "gemini-3-flash-preview",
+    "contents": "be6888e4da845390",
+    "system": "74234e98afe7498f",
+    "schema": "74234e98afe7498f",
+    "config": "64df5b6982a95541"
+   },
+   {
+    "model": "gemini-3-flash-preview",
+    "contents": "8c9295da24ffeb4e",
+    "system": "74234e98afe7498f",
+    "schema": "1652fe027519e8cc",
+    "config": "74008de835766fd7"
+   },
+   {
+    "model": "gemini-3-flash-preview",
+    "contents": "dd48d7e1dfd30d49",
+    "system": "646d34a215a5450d",
+    "schema": "381ee2f3e46a1033",
+    "config": "ccf616e41d08021f"
+   },
+   {
+    "model": "gemini-3-flash-preview",
+    "contents": "74ab1dde8d146253",
+    "system": "74234e98afe7498f",
+    "schema": "74234e98afe7498f",
+    "config": "db4e843b391701dc"
+   },
+   {
+    "model": "gemini-3-flash-preview",
+    "contents": "74ab1dde8d146253",
+    "system": "74234e98afe7498f",
+    "schema": "74234e98afe7498f",
+    "config": "db4e843b391701dc"
+   }
+  ]
+ },
+ {
+  "say": "길드에 가입한다",
+  "calls": [
+   {
+    "model": "gemini-3-flash-preview",
+    "contents": "6e8cc55437600ee2",
+    "system": "bfb5588ac4f57ea8",
+    "schema": "b1e43ed264c38804",
+    "config": "5c100d2d699e9ca5"
+   },
+   {
+    "model": "gemini-3-flash-preview",
+    "contents": "c1f455c7a2cfe94f",
+    "system": "74234e98afe7498f",
+    "schema": "74234e98afe7498f",
+    "config": "64df5b6982a95541"
+   },
+   {
+    "model": "gemini-3-flash-preview",
+    "contents": "6262190dc7b21dbb",
+    "system": "74234e98afe7498f",
+    "schema": "1652fe027519e8cc",
+    "config": "74008de835766fd7"
+   },
+   {
+    "model": "gemini-3-flash-preview",
+    "contents": "1bcf407ee25a1f7f",
+    "system": "646d34a215a5450d",
+    "schema": "db237f99e07cd4eb",
+    "config": "ccf616e41d08021f"
+   },
+   {
+    "model": "gemini-3-flash-preview",
+    "contents": "ba8e53a9835527bf",
+    "system": "74234e98afe7498f",
+    "schema": "74234e98afe7498f",
+    "config": "db4e843b391701dc"
+   },
+   {
+    "model": "gemini-3-flash-preview",
+    "contents": "ba8e53a9835527bf",
+    "system": "74234e98afe7498f",
+    "schema": "74234e98afe7498f",
+    "config": "db4e843b391701dc"
+   }
+  ]
+ },
+ {
+  "say": "둔산 거리로 간다",
+  "calls": [
+   {
+    "model": "gemini-3-flash-preview",
+    "contents": "be0abde8e5b3c5fc",
+    "system": "bfb5588ac4f57ea8",
+    "schema": "63337c9b9c3d6259",
+    "config": "5c100d2d699e9ca5"
+   },
+   {
+    "model": "gemini-3-flash-preview",
+    "contents": "a30d07ea30fc70f6",
+    "system": "74234e98afe7498f",
+    "schema": "74234e98afe7498f",
+    "config": "64df5b6982a95541"
+   },
+   {
+    "model": "gemini-3-flash-preview",
+    "contents": "2cf5ef4f32a0aa65",
+    "system": "74234e98afe7498f",
+    "schema": "1652fe027519e8cc",
+    "config": "74008de835766fd7"
+   },
+   {
+    "model": "gemini-3-flash-preview",
+    "contents": "50e58961117f0f97",
+    "system": "646d34a215a5450d",
+    "schema": "cd304e1894c9bcdb",
+    "config": "ccf616e41d08021f"
+   },
+   {
+    "model": "gemini-3-flash-preview",
+    "contents": "8e78eb1a1dfe0c0b",
+    "system": "74234e98afe7498f",
+    "schema": "74234e98afe7498f",
+    "config": "db4e843b391701dc"
+   },
+   {
+    "model": "gemini-3-flash-preview",
+    "contents": "8e78eb1a1dfe0c0b",
+    "system": "74234e98afe7498f",
+    "schema": "74234e98afe7498f",
+    "config": "db4e843b391701dc"
+   }
+  ]
+ },
+ {
+  "say": "공사장 입구로 간다",
+  "calls": [
+   {
+    "model": "gemini-3-flash-preview",
+    "contents": "42d17d07d676dbff",
+    "system": "bfb5588ac4f57ea8",
+    "schema": "f63cd9967aff2468",
+    "config": "5c100d2d699e9ca5"
+   },
+   {
+    "model": "gemini-3-flash-preview",
+    "contents": "599efee5b6a09e42",
+    "system": "74234e98afe7498f",
+    "schema": "74234e98afe7498f",
+    "config": "64df5b6982a95541"
+   },
+   {
+    "model": "gemini-3-flash-preview",
+    "contents": "204dbc027babbba4",
+    "system": "74234e98afe7498f",
+    "schema": "1652fe027519e8cc",
+    "config": "74008de835766fd7"
+   },
+   {
+    "model": "gemini-3-flash-preview",
+    "contents": "e6ccfc1485fe55ea",
+    "system": "646d34a215a5450d",
+    "schema": "381ee2f3e46a1033",
+    "config": "ccf616e41d08021f"
+   },
+   {
+    "model": "gemini-3-flash-preview",
+    "contents": "e24da3ce3184946c",
+    "system": "74234e98afe7498f",
+    "schema": "74234e98afe7498f",
+    "config": "db4e843b391701dc"
+   },
+   {
+    "model": "gemini-3-flash-preview",
+    "contents": "e24da3ce3184946c",
+    "system": "74234e98afe7498f",
+    "schema": "74234e98afe7498f",
+    "config": "db4e843b391701dc"
+   }
+  ]
+ },
+ {
+  "say": "무너진 터널로 간다",
+  "calls": [
+   {
+    "model": "gemini-3-flash-preview",
+    "contents": "a722a0caa438a00b",
+    "system": "bfb5588ac4f57ea8",
+    "schema": "0151301604c59291",
+    "config": "5c100d2d699e9ca5"
+   },
+   {
+    "model": "gemini-3-flash-preview",
+    "contents": "e849b8212ba1925e",
+    "system": "74234e98afe7498f",
+    "schema": "74234e98afe7498f",
+    "config": "64df5b6982a95541"
+   },
+   {
+    "model": "gemini-3-flash-preview",
+    "contents": "6796537f34c280a4",
+    "system": "74234e98afe7498f",
+    "schema": "1652fe027519e8cc",
+    "config": "74008de835766fd7"
+   },
+   {
+    "model": "gemini-3-flash-preview",
+    "contents": "c2b2870856f677c1",
+    "system": "646d34a215a5450d",
+    "schema": "004dc1e521418d73",
+    "config": "ccf616e41d08021f"
+   },
+   {
+    "model": "gemini-3-flash-preview",
+    "contents": "ef1f0458218f1fcc",
+    "system": "74234e98afe7498f",
+    "schema": "74234e98afe7498f",
+    "config": "db4e843b391701dc"
+   },
+   {
+    "model": "gemini-3-flash-preview",
+    "contents": "ef1f0458218f1fcc",
+    "system": "74234e98afe7498f",
+    "schema": "74234e98afe7498f",
+    "config": "db4e843b391701dc"
+   }
+  ]
+ },
+ {
+  "say": "환기 갱도로 간다",
+  "calls": [
+   {
+    "model": "gemini-3-flash-preview",
+    "contents": "4ff432d8c61bae65",
+    "system": "bfb5588ac4f57ea8",
+    "schema": "0151301604c59291",
+    "config": "5c100d2d699e9ca5"
+   },
+   {
+    "model": "gemini-3-flash-preview",
+    "contents": "a7dbc1f563929796",
+    "system": "74234e98afe7498f",
+    "schema": "74234e98afe7498f",
+    "config": "64df5b6982a95541"
+   },
+   {
+    "model": "gemini-3-flash-preview",
+    "contents": "5b9c94edebb90542",
+    "system": "74234e98afe7498f",
+    "schema": "1652fe027519e8cc",
+    "config": "74008de835766fd7"
+   },
+   {
+    "model": "gemini-3-flash-preview",
+    "contents": "3ba9d7de0b8fc674",
+    "system": "646d34a215a5450d",
+    "schema": "545ceaad2c3cf2b3",
+    "config": "ccf616e41d08021f"
+   },
+   {
+    "model": "gemini-3-flash-preview",
+    "contents": "ccc257111acdc99a",
+    "system": "74234e98afe7498f",
+    "schema": "74234e98afe7498f",
+    "config": "db4e843b391701dc"
+   },
+   {
+    "model": "gemini-3-flash-preview",
+    "contents": "ccc257111acdc99a",
+    "system": "74234e98afe7498f",
+    "schema": "74234e98afe7498f",
+    "config": "db4e843b391701dc"
+   }
+  ]
+ },
+ {
+  "say": "굴착기 둥지로 간다",
+  "calls": [
+   {
+    "model": "gemini-3-flash-preview",
+    "contents": "231715c062a0f754",
+    "system": "bfb5588ac4f57ea8",
+    "schema": "0151301604c59291",
+    "config": "5c100d2d699e9ca5"
+   },
+   {
+    "model": "gemini-3-flash-preview",
+    "contents": "26e7f534f8f5af46",
+    "system": "74234e98afe7498f",
+    "schema": "74234e98afe7498f",
+    "config": "64df5b6982a95541"
+   },
+   {
+    "model": "gemini-3-flash-preview",
+    "contents": "e8fc2b4d45dda96c",
+    "system": "74234e98afe7498f",
+    "schema": "1652fe027519e8cc",
+    "config": "74008de835766fd7"
+   },
+   {
+    "model": "gemini-3-flash-preview",
+    "contents": "20e3793ff67d62a3",
+    "system": "646d34a215a5450d",
+    "schema": "004dc1e521418d73",
+    "config": "ccf616e41d08021f"
+   },
+   {
+    "model": "gemini-3-flash-preview",
+    "contents": "99b5f0e379e4627b",
+    "system": "74234e98afe7498f",
+    "schema": "74234e98afe7498f",
+    "config": "db4e843b391701dc"
+   },
+   {
+    "model": "gemini-3-flash-preview",
+    "contents": "99b5f0e379e4627b",
+    "system": "74234e98afe7498f",
+    "schema": "74234e98afe7498f",
+    "config": "db4e843b391701dc"
+   }
+  ]
+ },
+ {
+  "say": "고블린 우두머리 공격",
+  "calls": [
+   {
+    "model": "gemini-3-flash-preview",
+    "contents": "fb3008360a2593c9",
+    "system": "bfb5588ac4f57ea8",
+    "schema": "0151301604c59291",
+    "config": "5c100d2d699e9ca5"
+   },
+   {
+    "model": "gemini-3-flash-preview",
+    "contents": "8aa2c7937c069dc9",
+    "system": "74234e98afe7498f",
+    "schema": "74234e98afe7498f",
+    "config": "64df5b6982a95541"
+   },
+   {
+    "model": "gemini-3-flash-preview",
+    "contents": "95b280205b011427",
+    "system": "74234e98afe7498f",
+    "schema": "1652fe027519e8cc",
+    "config": "74008de835766fd7"
+   },
+   {
+    "model": "gemini-3-flash-preview",
+    "contents": "dc013a42b1efa003",
+    "system": "646d34a215a5450d",
+    "schema": "004dc1e521418d73",
+    "config": "ccf616e41d08021f"
+   },
+   {
+    "model": "gemini-3-flash-preview",
+    "contents": "e3374eeac77b654c",
+    "system": "74234e98afe7498f",
+    "schema": "74234e98afe7498f",
+    "config": "db4e843b391701dc"
+   },
+   {
+    "model": "gemini-3-flash-preview",
+    "contents": "e3374eeac77b654c",
+    "system": "74234e98afe7498f",
+    "schema": "74234e98afe7498f",
+    "config": "db4e843b391701dc"
+   }
+  ]
+ },
+ {
+  "say": "고블린 우두머리 공격",
+  "calls": [
+   {
+    "model": "gemini-3-flash-preview",
+    "contents": "28e095b9e4b2324a",
+    "system": "bfb5588ac4f57ea8",
+    "schema": "0151301604c59291",
+    "config": "5c100d2d699e9ca5"
+   },
+   {
+    "model": "gemini-3-flash-preview",
+    "contents": "efe5f770f780186e",
+    "system": "74234e98afe7498f",
+    "schema": "74234e98afe7498f",
+    "config": "64df5b6982a95541"
+   },
+   {
+    "model": "gemini-3-flash-preview",
+    "contents": "744b60351a042e7f",
+    "system": "74234e98afe7498f",
+    "schema": "1652fe027519e8cc",
+    "config": "74008de835766fd7"
+   },
+   {
+    "model": "gemini-3-flash-preview",
+    "contents": "0d3c90d305073fbf",
+    "system": "646d34a215a5450d",
+    "schema": "004dc1e521418d73",
+    "config": "ccf616e41d08021f"
+   },
+   {
+    "model": "gemini-3-flash-preview",
+    "contents": "72f79ecdadad93bf",
+    "system": "74234e98afe7498f",
+    "schema": "74234e98afe7498f",
+    "config": "db4e843b391701dc"
+   },
+   {
+    "model": "gemini-3-flash-preview",
+    "contents": "72f79ecdadad93bf",
+    "system": "74234e98afe7498f",
+    "schema": "74234e98afe7498f",
+    "config": "db4e843b391701dc"
+   }
+  ]
+ },
+ {
+  "say": "고블린 우두머리 공격",
+  "calls": [
+   {
+    "model": "gemini-3-flash-preview",
+    "contents": "1321debd5c035439",
+    "system": "bfb5588ac4f57ea8",
+    "schema": "0151301604c59291",
+    "config": "5c100d2d699e9ca5"
+   },
+   {
+    "model": "gemini-3-flash-preview",
+    "contents": "067240c0f135bbf0",
+    "system": "74234e98afe7498f",
+    "schema": "74234e98afe7498f",
+    "config": "64df5b6982a95541"
+   },
+   {
+    "model": "gemini-3-flash-preview",
+    "contents": "4dea819e16bbddaa",
+    "system": "74234e98afe7498f",
+    "schema": "1652fe027519e8cc",
+    "config": "74008de835766fd7"
+   },
+   {
+    "model": "gemini-3-flash-preview",
+    "contents": "57ab8e9b308c7fa8",
+    "system": "646d34a215a5450d",
+    "schema": "004dc1e521418d73",
+    "config": "ccf616e41d08021f"
+   },
+   {
+    "model": "gemini-3-flash-preview",
+    "contents": "c71051f0df0a4c23",
+    "system": "74234e98afe7498f",
+    "schema": "74234e98afe7498f",
+    "config": "db4e843b391701dc"
+   },
+   {
+    "model": "gemini-3-flash-preview",
+    "contents": "c71051f0df0a4c23",
+    "system": "74234e98afe7498f",
+    "schema": "74234e98afe7498f",
+    "config": "db4e843b391701dc"
+   }
+  ]
+ },
+ {
+  "say": "고블린 우두머리 공격",
+  "calls": [
+   {
+    "model": "gemini-3-flash-preview",
+    "contents": "1e4b74645993a4ed",
+    "system": "bfb5588ac4f57ea8",
+    "schema": "0151301604c59291",
+    "config": "5c100d2d699e9ca5"
+   },
+   {
+    "model": "gemini-3-flash-preview",
+    "contents": "e48eac816c1ab2b5",
+    "system": "74234e98afe7498f",
+    "schema": "74234e98afe7498f",
+    "config": "64df5b6982a95541"
+   },
+   {
+    "model": "gemini-3-flash-preview",
+    "contents": "85c00fab26dbd44b",
+    "system": "74234e98afe7498f",
+    "schema": "1652fe027519e8cc",
+    "config": "74008de835766fd7"
+   },
+   {
+    "model": "gemini-3-flash-preview",
+    "contents": "979c108eadd813a4",
+    "system": "646d34a215a5450d",
+    "schema": "004dc1e521418d73",
+    "config": "ccf616e41d08021f"
+   },
+   {
+    "model": "gemini-3-flash-preview",
+    "contents": "61234593c22ac0c1",
+    "system": "74234e98afe7498f",
+    "schema": "74234e98afe7498f",
+    "config": "db4e843b391701dc"
+   },
+   {
+    "model": "gemini-3-flash-preview",
+    "contents": "61234593c22ac0c1",
+    "system": "74234e98afe7498f",
+    "schema": "74234e98afe7498f",
+    "config": "db4e843b391701dc"
+   }
+  ]
+ },
+ {
+  "say": "고블린 우두머리 공격",
+  "calls": [
+   {
+    "model": "gemini-3-flash-preview",
+    "contents": "c027181883505840",
+    "system": "bfb5588ac4f57ea8",
+    "schema": "63337c9b9c3d6259",
+    "config": "5c100d2d699e9ca5"
+   },
+   {
+    "model": "gemini-3-flash-preview",
+    "contents": "999713190098a89b",
+    "system": "74234e98afe7498f",
+    "schema": "74234e98afe7498f",
+    "config": "64df5b6982a95541"
+   },
+   {
+    "model": "gemini-3-flash-preview",
+    "contents": "6245390df42cf86e",
+    "system": "74234e98afe7498f",
+    "schema": "1652fe027519e8cc",
+    "config": "74008de835766fd7"
+   },
+   {
+    "model": "gemini-3-flash-preview",
+    "contents": "57940893984e84a7",
+    "system": "646d34a215a5450d",
+    "schema": "004dc1e521418d73",
+    "config": "ccf616e41d08021f"
+   },
+   {
+    "model": "gemini-3-flash-preview",
+    "contents": "3546d0c54b265098",
+    "system": "74234e98afe7498f",
+    "schema": "74234e98afe7498f",
+    "config": "db4e843b391701dc"
+   },
+   {
+    "model": "gemini-3-flash-preview",
+    "contents": "3546d0c54b265098",
+    "system": "74234e98afe7498f",
+    "schema": "74234e98afe7498f",
+    "config": "db4e843b391701dc"
+   }
+  ]
+ },
+ {
+  "say": "고블린 우두머리 공격",
+  "calls": [
+   {
+    "model": "gemini-3-flash-preview",
+    "contents": "00efa4ba93c2d942",
+    "system": "bfb5588ac4f57ea8",
+    "schema": "aab6c72aeb2621c8",
+    "config": "5c100d2d699e9ca5"
+   },
+   {
+    "model": "gemini-3-flash-preview",
+    "contents": "7ce5bda067a3f4a2",
+    "system": "74234e98afe7498f",
+    "schema": "74234e98afe7498f",
+    "config": "64df5b6982a95541"
+   },
+   {
+    "model": "gemini-3-flash-preview",
+    "contents": "624aeb53d37a9acc",
+    "system": "74234e98afe7498f",
+    "schema": "1652fe027519e8cc",
+    "config": "74008de835766fd7"
+   },
+   {
+    "model": "gemini-3-flash-preview",
+    "contents": "87bad51a13e9140b",
+    "system": "646d34a215a5450d",
+    "schema": "004dc1e521418d73",
+    "config": "ccf616e41d08021f"
+   },
+   {
+    "model": "gemini-3-flash-preview",
+    "contents": "9cc9c9a277ed8acd",
+    "system": "74234e98afe7498f",
+    "schema": "74234e98afe7498f",
+    "config": "db4e843b391701dc"
+   },
+   {
+    "model": "gemini-3-flash-preview",
+    "contents": "9cc9c9a277ed8acd",
+    "system": "74234e98afe7498f",
+    "schema": "74234e98afe7498f",
+    "config": "db4e843b391701dc"
+   }
+  ]
+ },
+ {
+  "say": "30분 기다린다",
+  "calls": [
+   {
+    "model": "gemini-3-flash-preview",
+    "contents": "742341324ba98bb9",
+    "system": "bfb5588ac4f57ea8",
+    "schema": "aab6c72aeb2621c8",
+    "config": "5c100d2d699e9ca5"
+   },
+   {
+    "model": "gemini-3-flash-preview",
+    "contents": "9a3553479fa1046c",
+    "system": "74234e98afe7498f",
+    "schema": "74234e98afe7498f",
+    "config": "64df5b6982a95541"
+   },
+   {
+    "model": "gemini-3-flash-preview",
+    "contents": "6483f889edfd4f54",
+    "system": "74234e98afe7498f",
+    "schema": "1652fe027519e8cc",
+    "config": "74008de835766fd7"
+   },
+   {
+    "model": "gemini-3-flash-preview",
+    "contents": "954f647e2a960f09",
+    "system": "646d34a215a5450d",
+    "schema": "004dc1e521418d73",
+    "config": "ccf616e41d08021f"
+   },
+   {
+    "model": "gemini-3-flash-preview",
+    "contents": "3e1bcb8a53de3d05",
+    "system": "74234e98afe7498f",
+    "schema": "74234e98afe7498f",
+    "config": "db4e843b391701dc"
+   },
+   {
+    "model": "gemini-3-flash-preview",
+    "contents": "3e1bcb8a53de3d05",
+    "system": "74234e98afe7498f",
+    "schema": "74234e98afe7498f",
+    "config": "db4e843b391701dc"
+   }
+  ]
+ },
+ {
+  "say": "30분 기다린다",
+  "calls": [
+   {
+    "model": "gemini-3-flash-preview",
+    "contents": "4ee10c5c99bcd71d",
+    "system": "bfb5588ac4f57ea8",
+    "schema": "aab6c72aeb2621c8",
+    "config": "5c100d2d699e9ca5"
+   },
+   {
+    "model": "gemini-3-flash-preview",
+    "contents": "a81b68644a8900c6",
+    "system": "74234e98afe7498f",
+    "schema": "74234e98afe7498f",
+    "config": "64df5b6982a95541"
+   },
+   {
+    "model": "gemini-3-flash-preview",
+    "contents": "1b337b8210265bf2",
+    "system": "74234e98afe7498f",
+    "schema": "1652fe027519e8cc",
+    "config": "74008de835766fd7"
+   },
+   {
+    "model": "gemini-3-flash-preview",
+    "contents": "817e96bbb488e887",
+    "system": "646d34a215a5450d",
+    "schema": "004dc1e521418d73",
+    "config": "ccf616e41d08021f"
+   },
+   {
+    "model": "gemini-3-flash-preview",
+    "contents": "5f04f9c33ad2e79e",
+    "system": "74234e98afe7498f",
+    "schema": "74234e98afe7498f",
+    "config": "db4e843b391701dc"
+   },
+   {
+    "model": "gemini-3-flash-preview",
+    "contents": "5f04f9c33ad2e79e",
+    "system": "74234e98afe7498f",
+    "schema": "74234e98afe7498f",
+    "config": "db4e843b391701dc"
+   }
+  ]
+ },
+ {
+  "say": "환기 갱도로 간다",
+  "calls": [
+   {
+    "model": "gemini-3-flash-preview",
+    "contents": "7bcb475c05f2d5e6",
+    "system": "bfb5588ac4f57ea8",
+    "schema": "0151301604c59291",
+    "config": "5c100d2d699e9ca5"
+   },
+   {
+    "model": "gemini-3-flash-preview",
+    "contents": "e5b8ca2564f9110a",
+    "system": "74234e98afe7498f",
+    "schema": "74234e98afe7498f",
+    "config": "64df5b6982a95541"
+   },
+   {
+    "model": "gemini-3-flash-preview",
+    "contents": "143020bc578ecfba",
+    "system": "74234e98afe7498f",
+    "schema": "1652fe027519e8cc",
+    "config": "74008de835766fd7"
+   },
+   {
+    "model": "gemini-3-flash-preview",
+    "contents": "4032e1673e920ee1",
+    "system": "646d34a215a5450d",
+    "schema": "004dc1e521418d73",
+    "config": "ccf616e41d08021f"
+   },
+   {
+    "model": "gemini-3-flash-preview",
+    "contents": "10fd7ff35192f277",
+    "system": "74234e98afe7498f",
+    "schema": "74234e98afe7498f",
+    "config": "db4e843b391701dc"
+   },
+   {
+    "model": "gemini-3-flash-preview",
+    "contents": "10fd7ff35192f277",
+    "system": "74234e98afe7498f",
+    "schema": "74234e98afe7498f",
+    "config": "db4e843b391701dc"
+   }
+  ]
+ },
+ {
+  "say": "무너진 터널로 간다",
+  "calls": [
+   {
+    "model": "gemini-3-flash-preview",
+    "contents": "f9e0d76e960d0063",
+    "system": "bfb5588ac4f57ea8",
+    "schema": "0151301604c59291",
+    "config": "5c100d2d699e9ca5"
+   },
+   {
+    "model": "gemini-3-flash-preview",
+    "contents": "9f0d92bbafad9726",
+    "system": "74234e98afe7498f",
+    "schema": "74234e98afe7498f",
+    "config": "64df5b6982a95541"
+   },
+   {
+    "model": "gemini-3-flash-preview",
+    "contents": "26ae4fdd69c8d7b1",
+    "system": "74234e98afe7498f",
+    "schema": "1652fe027519e8cc",
+    "config": "74008de835766fd7"
+   },
+   {
+    "model": "gemini-3-flash-preview",
+    "contents": "608da526c2270127",
+    "system": "646d34a215a5450d",
+    "schema": "004dc1e521418d73",
+    "config": "ccf616e41d08021f"
+   },
+   {
+    "model": "gemini-3-flash-preview",
+    "contents": "cd1a68fa393c4bec",
+    "system": "74234e98afe7498f",
+    "schema": "74234e98afe7498f",
+    "config": "db4e843b391701dc"
+   },
+   {
+    "model": "gemini-3-flash-preview",
+    "contents": "cd1a68fa393c4bec",
+    "system": "74234e98afe7498f",
+    "schema": "74234e98afe7498f",
+    "config": "db4e843b391701dc"
+   }
+  ]
+ },
+ {
+  "say": "공사장 입구로 간다",
+  "calls": [
+   {
+    "model": "gemini-3-flash-preview",
+    "contents": "b7ab7ddd3fc544d9",
+    "system": "bfb5588ac4f57ea8",
+    "schema": "f63cd9967aff2468",
+    "config": "5c100d2d699e9ca5"
+   },
+   {
+    "model": "gemini-3-flash-preview",
+    "contents": "bcaec69a3ad245a7",
+    "system": "74234e98afe7498f",
+    "schema": "74234e98afe7498f",
+    "config": "64df5b6982a95541"
+   },
+   {
+    "model": "gemini-3-flash-preview",
+    "contents": "c6cc6c24032031b8",
+    "system": "74234e98afe7498f",
+    "schema": "1652fe027519e8cc",
+    "config": "74008de835766fd7"
+   },
+   {
+    "model": "gemini-3-flash-preview",
+    "contents": "9eb59ee16eeb98b5",
+    "system": "646d34a215a5450d",
+    "schema": "545ceaad2c3cf2b3",
+    "config": "ccf616e41d08021f"
+   },
+   {
+    "model": "gemini-3-flash-preview",
+    "contents": "3bd5e3ea688f6fc7",
+    "system": "74234e98afe7498f",
+    "schema": "74234e98afe7498f",
+    "config": "db4e843b391701dc"
+   },
+   {
+    "model": "gemini-3-flash-preview",
+    "contents": "3bd5e3ea688f6fc7",
+    "system": "74234e98afe7498f",
+    "schema": "74234e98afe7498f",
+    "config": "db4e843b391701dc"
+   }
+  ]
+ },
+ {
+  "say": "둔산 거리로 간다",
+  "calls": [
+   {
+    "model": "gemini-3-flash-preview",
+    "contents": "3f22ef4054abe3b2",
+    "system": "bfb5588ac4f57ea8",
+    "schema": "63337c9b9c3d6259",
+    "config": "5c100d2d699e9ca5"
+   },
+   {
+    "model": "gemini-3-flash-preview",
+    "contents": "64c4a58a838f0ddc",
+    "system": "74234e98afe7498f",
+    "schema": "74234e98afe7498f",
+    "config": "64df5b6982a95541"
+   },
+   {
+    "model": "gemini-3-flash-preview",
+    "contents": "2e0c25bd998c4aa7",
+    "system": "74234e98afe7498f",
+    "schema": "1652fe027519e8cc",
+    "config": "74008de835766fd7"
+   },
+   {
+    "model": "gemini-3-flash-preview",
+    "contents": "65c3aec2bd44ad39",
+    "system": "646d34a215a5450d",
+    "schema": "004dc1e521418d73",
+    "config": "ccf616e41d08021f"
+   },
+   {
+    "model": "gemini-3-flash-preview",
+    "contents": "90b5a5e921a32eaf",
+    "system": "74234e98afe7498f",
+    "schema": "74234e98afe7498f",
+    "config": "db4e843b391701dc"
+   },
+   {
+    "model": "gemini-3-flash-preview",
+    "contents": "90b5a5e921a32eaf",
+    "system": "74234e98afe7498f",
+    "schema": "74234e98afe7498f",
+    "config": "db4e843b391701dc"
+   }
+  ]
+ },
+ {
+  "say": "협회 로비로 간다",
+  "calls": [
+   {
+    "model": "gemini-3-flash-preview",
+    "contents": "3e8330bf8a26ae1b",
+    "system": "bfb5588ac4f57ea8",
+    "schema": "b19d125ae157bede",
+    "config": "5c100d2d699e9ca5"
+   },
+   {
+    "model": "gemini-3-flash-preview",
+    "contents": "18a2455ea5227bb7",
+    "system": "74234e98afe7498f",
+    "schema": "74234e98afe7498f",
+    "config": "64df5b6982a95541"
+   },
+   {
+    "model": "gemini-3-flash-preview",
+    "contents": "9814f3cab1c836dc",
+    "system": "74234e98afe7498f",
+    "schema": "1652fe027519e8cc",
+    "config": "74008de835766fd7"
+   },
+   {
+    "model": "gemini-3-flash-preview",
+    "contents": "ccc46823eaf9e3e0",
+    "system": "646d34a215a5450d",
+    "schema": "381ee2f3e46a1033",
+    "config": "ccf616e41d08021f"
+   },
+   {
+    "model": "gemini-3-flash-preview",
+    "contents": "2fe076cccb91a69b",
+    "system": "74234e98afe7498f",
+    "schema": "74234e98afe7498f",
+    "config": "db4e843b391701dc"
+   },
+   {
+    "model": "gemini-3-flash-preview",
+    "contents": "2fe076cccb91a69b",
+    "system": "74234e98afe7498f",
+    "schema": "74234e98afe7498f",
+    "config": "db4e843b391701dc"
+   }
+  ]
+ },
+ {
+  "say": "등급 심사장로 간다",
+  "calls": [
+   {
+    "model": "gemini-3-flash-preview",
+    "contents": "2c0c9878142efb8f",
+    "system": "bfb5588ac4f57ea8",
+    "schema": "63337c9b9c3d6259",
+    "config": "5c100d2d699e9ca5"
+   },
+   {
+    "model": "gemini-3-flash-preview",
+    "contents": "0a30599ce7097ddc",
+    "system": "74234e98afe7498f",
+    "schema": "74234e98afe7498f",
+    "config": "64df5b6982a95541"
+   },
+   {
+    "model": "gemini-3-flash-preview",
+    "contents": "addb38f8e04d104a",
+    "system": "74234e98afe7498f",
+    "schema": "1652fe027519e8cc",
+    "config": "74008de835766fd7"
+   },
+   {
+    "model": "gemini-3-flash-preview",
+    "contents": "443a547f8179fe77",
+    "system": "646d34a215a5450d",
+    "schema": "b2c7e2727a89e16f",
+    "config": "ccf616e41d08021f"
+   },
+   {
+    "model": "gemini-3-flash-preview",
+    "contents": "0d41ea5f990b3ae8",
+    "system": "74234e98afe7498f",
+    "schema": "74234e98afe7498f",
+    "config": "db4e843b391701dc"
+   },
+   {
+    "model": "gemini-3-flash-preview",
+    "contents": "0d41ea5f990b3ae8",
+    "system": "74234e98afe7498f",
+    "schema": "74234e98afe7498f",
+    "config": "db4e843b391701dc"
+   }
+  ]
+ },
+ {
+  "say": "승급 심사를 받는다",
+  "calls": [
+   {
+    "model": "gemini-3-flash-preview",
+    "contents": "bf5038f6bc95533e",
+    "system": "bfb5588ac4f57ea8",
+    "schema": "63337c9b9c3d6259",
+    "config": "5c100d2d699e9ca5"
+   },
+   {
+    "model": "gemini-3-flash-preview",
+    "contents": "31c34a5ba5ef24aa",
+    "system": "74234e98afe7498f",
+    "schema": "74234e98afe7498f",
+    "config": "64df5b6982a95541"
+   },
+   {
+    "model": "gemini-3-flash-preview",
+    "contents": "9c476cba96c96dfe",
+    "system": "74234e98afe7498f",
+    "schema": "1652fe027519e8cc",
+    "config": "74008de835766fd7"
+   },
+   {
+    "model": "gemini-3-flash-preview",
+    "contents": "06184e735577a1a5",
+    "system": "646d34a215a5450d",
+    "schema": "db237f99e07cd4eb",
+    "config": "ccf616e41d08021f"
+   },
+   {
+    "model": "gemini-3-flash-preview",
+    "contents": "5107fa335b7f429f",
+    "system": "74234e98afe7498f",
+    "schema": "74234e98afe7498f",
+    "config": "db4e843b391701dc"
+   },
+   {
+    "model": "gemini-3-flash-preview",
+    "contents": "5107fa335b7f429f",
+    "system": "74234e98afe7498f",
+    "schema": "74234e98afe7498f",
+    "config": "db4e843b391701dc"
+   }
+  ]
+ },
+ {
+  "say": "1분 기다린다",
+  "calls": [
+   {
+    "model": "gemini-3-flash-preview",
+    "contents": "f656fedad00f2866",
+    "system": "bfb5588ac4f57ea8",
+    "schema": "63337c9b9c3d6259",
+    "config": "5c100d2d699e9ca5"
+   },
+   {
+    "model": "gemini-3-flash-preview",
+    "contents": "d7bf4f2ad22cd490",
+    "system": "74234e98afe7498f",
+    "schema": "74234e98afe7498f",
+    "config": "64df5b6982a95541"
+   },
+   {
+    "model": "gemini-3-flash-preview",
+    "contents": "bd0a47ce0b076938",
+    "system": "74234e98afe7498f",
+    "schema": "1652fe027519e8cc",
+    "config": "74008de835766fd7"
+   },
+   {
+    "model": "gemini-3-flash-preview",
+    "contents": "d4a4499a6f2ed2ba",
+    "system": "646d34a215a5450d",
+    "schema": "cd304e1894c9bcdb",
+    "config": "ccf616e41d08021f"
+   },
+   {
+    "model": "gemini-3-flash-preview",
+    "contents": "d6321d6e7553579f",
+    "system": "74234e98afe7498f",
+    "schema": "74234e98afe7498f",
+    "config": "db4e843b391701dc"
+   },
+   {
+    "model": "gemini-3-flash-preview",
+    "contents": "d6321d6e7553579f",
+    "system": "74234e98afe7498f",
+    "schema": "74234e98afe7498f",
+    "config": "db4e843b391701dc"
+   }
+  ]
+ },
+ {
+  "say": "훈련장로 간다",
+  "calls": [
+   {
+    "model": "gemini-3-flash-preview",
+    "contents": "07dbca2d2b2907cb",
+    "system": "bfb5588ac4f57ea8",
+    "schema": "0151301604c59291",
+    "config": "5c100d2d699e9ca5"
+   },
+   {
+    "model": "gemini-3-flash-preview",
+    "contents": "97bcf2540414dcd7",
+    "system": "74234e98afe7498f",
+    "schema": "74234e98afe7498f",
+    "config": "64df5b6982a95541"
+   },
+   {
+    "model": "gemini-3-flash-preview",
+    "contents": "ae687c424000ba56",
+    "system": "74234e98afe7498f",
+    "schema": "1652fe027519e8cc",
+    "config": "74008de835766fd7"
+   },
+   {
+    "model": "gemini-3-flash-preview",
+    "contents": "c99af95f7b033f07",
+    "system": "646d34a215a5450d",
+    "schema": "cd304e1894c9bcdb",
+    "config": "ccf616e41d08021f"
+   },
+   {
+    "model": "gemini-3-flash-preview",
+    "contents": "19fbb1706e720db8",
+    "system": "74234e98afe7498f",
+    "schema": "74234e98afe7498f",
+    "config": "db4e843b391701dc"
+   },
+   {
+    "model": "gemini-3-flash-preview",
+    "contents": "19fbb1706e720db8",
+    "system": "74234e98afe7498f",
+    "schema": "74234e98afe7498f",
+    "config": "db4e843b391701dc"
+   }
+  ]
+ },
+ {
+  "say": "근력을 단련한다",
+  "calls": [
+   {
+    "model": "gemini-3-flash-preview",
+    "contents": "e2f2cea18c06d98b",
+    "system": "bfb5588ac4f57ea8",
+    "schema": "0151301604c59291",
+    "config": "5c100d2d699e9ca5"
+   },
+   {
+    "model": "gemini-3-flash-preview",
+    "contents": "67dd8031d91b3a8a",
+    "system": "74234e98afe7498f",
+    "schema": "74234e98afe7498f",
+    "config": "64df5b6982a95541"
+   },
+   {
+    "model": "gemini-3-flash-preview",
+    "contents": "f4cf7c45cf3d74d6",
+    "system": "74234e98afe7498f",
+    "schema": "1652fe027519e8cc",
+    "config": "74008de835766fd7"
+   },
+   {
+    "model": "gemini-3-flash-preview",
+    "contents": "6954bce76366659e",
+    "system": "646d34a215a5450d",
+    "schema": "d955e118ce412ed6",
+    "config": "ccf616e41d08021f"
+   },
+   {
+    "model": "gemini-3-flash-preview",
+    "contents": "7391b55a549a0d38",
+    "system": "74234e98afe7498f",
+    "schema": "74234e98afe7498f",
+    "config": "db4e843b391701dc"
+   },
+   {
+    "model": "gemini-3-flash-preview",
+    "contents": "7391b55a549a0d38",
+    "system": "74234e98afe7498f",
+    "schema": "74234e98afe7498f",
+    "config": "db4e843b391701dc"
+   }
+  ]
+ }
+]
