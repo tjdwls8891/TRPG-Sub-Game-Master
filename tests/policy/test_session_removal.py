@@ -19,7 +19,7 @@ from core import io as cio
 from core import session_removal as SR
 from core import turn_transaction as tt
 from core import world_lifecycle as WL
-from tests.conftest import PLAYER_UID
+from tests.conftest import PLAYER_UID, read_session_disk
 from tests.fakes.bot_fakes import FakeBot
 from tests.policy.test_cache_lifecycle import _ink_rows, cbot, clock, fresh  # noqa: F401
 
@@ -193,7 +193,7 @@ async def test_close_only_locks_game_channel_and_keeps_data(fresh, cbot, clock):
     assert rep["done"]
     game = chans[s.game_ch_id]
     assert game.perms == [{"send_messages": False}] and not game.deleted
-    disk = json.load(open(f"sessions/{s.session_id}/data.json", encoding="utf-8"))
+    disk = read_session_disk(s.session_id)
     assert disk["world_lifecycle"] == WL.LIFECYCLE_CLOSED and len(_refunds()) == 1
 
 

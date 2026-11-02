@@ -32,7 +32,7 @@ from core import turn_preparation as TP
 from core import turn_transaction as tt
 from core import world_mutation as WM
 from core import world_state as WS
-from tests.conftest import PLAYER_UID, REPO_ROOT
+from tests.conftest import PLAYER_UID, REPO_ROOT, read_session_disk
 from tests.fakes.bot_fakes import FakeBot
 from tests.policy.test_ready_barrier import rig, _run_turn  # noqa: F401
 from tests.policy.test_authoritative_commit import _disk, _fund, _phases
@@ -411,7 +411,7 @@ async def test_recovery_rejects_world_version_mismatch(rig, inject):
     tx = await _run_turn(r)
     inject.undo()
     path = f"sessions/{r.sess.session_id}/data.json"
-    data = json.load(open(path, encoding="utf-8"))
+    data = read_session_disk(r.sess.session_id)            # v5 세계 → 옛 필드(같은 의미로 다시 써도 읽힌다)
     data["world_version"] = None                           # 영속 world_version이 대상과 어긋남(손상)
     json.dump(data, open(path, "w", encoding="utf-8"), ensure_ascii=False)
     bot2, s2 = await _restart(r)
@@ -451,7 +451,7 @@ async def test_old_commit_plan_v1_prepared_recovers(rig, inject):
         f.write("".join(json.dumps(e, ensure_ascii=False) + "\n" for e in lines))
     # 구 프로세스가 쓴 data.json: v3 · H02 필드 없음 · v1 대상 표식
     dpath = f"sessions/{sid}/data.json"
-    data = json.load(open(dpath, encoding="utf-8"))
+    data = read_session_disk(sid)                         # 구 프로세스 형식 = 옛 필드(v3)
     for k in WS.ALL_WORLD_FIELDS:
         data.pop(k, None)
     data["schema_version"] = 3
@@ -495,7 +495,7 @@ async def test_canonical_mutation_initialization_and_admin_edit():
     assert res.outcome == CM.OUTCOME_COMMITTED, res
     assert s.world_version["cause_kind"] == "INITIALIZATION" and s.world_version["ordinal"] == 1
     assert s.information_state == {"probe": 480}
-    assert json.load(open("sessions/cm-1/data.json", encoding="utf-8"))["world_version"] == s.world_version
+    assert read_session_disk("cm-1")["world_version"] == s.world_version
     assert [e["phase"] for e in CM.read_journal("cm-1")] == ["PREPARED", "PERSISTED", "COMMITTED"]
     # ADMIN no-op: 같은 값 → mutation·version 없음
     v1 = s.world_version

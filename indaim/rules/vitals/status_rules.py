@@ -351,6 +351,13 @@ def resolve_turn(session, prep) -> list:
     if not pc_name:
         return []
     consumed, used = _turn_groups(getattr(plan, "item_plan", None), groups_of(sd))
+    from indaim.turn import settle_capture as _sc
+    _sc.note("vitals", {"merged": merged, "pc_name": pc_name, "statuses": session.statuses or {},
+                        "clocks": getattr(session, "status_clock", None) or {}, "facts": facts,
+                        "apply_in": plan.status_apply, "clear_in": plan.status_clear, "consumed": consumed, "used": used,
+                        "status_scores": (getattr(plan, "result", None) or {}).get("status_scores") or [],
+                        "places": sd.get("places") or {}, "place_groups": place_groups_of(sd),
+                        "seed": f"{getattr(session, 'narrative_seed', '') or ''}"})
     td = _vl.decide_turn(
         merged, pc_name=pc_name, statuses=session.statuses or {}, clocks=getattr(session, "status_clock", None) or {},
         facts=facts, apply_in=plan.status_apply, clear_in=plan.status_clear, consumed=consumed, used=used,

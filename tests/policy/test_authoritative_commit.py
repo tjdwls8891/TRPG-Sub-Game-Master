@@ -45,8 +45,8 @@ def _store(s):
 
 
 def _disk(s):
-    with open(f"sessions/{s.session_id}/data.json", encoding="utf-8") as f:
-        return json.load(f)
+    from tests.conftest import read_session_disk
+    return read_session_disk(s.session_id)
 
 
 async def _fund(uid, amount):
@@ -363,7 +363,8 @@ async def test_d_commit_owned_fields_cover_every_commit_write(rig, monkeypatch):
     orig = CC.CommitCoordinator._apply_in_memory
 
     async def _spy(self, session, *a, **k):
-        before.update(json.loads(json.dumps(core.io._serialize_session(session), default=str)))
+        from indaim.app import world_codec as _wc       # T-6: 직렬화는 v5(세계 = 커널) — 옛 필드로 되읽어 비교
+        before.update(json.loads(json.dumps(_wc.decode(core.io._serialize_session(session)), default=str)))
         return await orig(self, session, *a, **k)
     monkeypatch.setattr(CC.CommitCoordinator, "_apply_in_memory", _spy)
     await _run_turn(r)

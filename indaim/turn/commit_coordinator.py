@@ -45,6 +45,8 @@ from indaim.turn import turn_preparation as TP
 from indaim.turn import turn_transaction as TT
 from indaim.turn import turn_history as _th
 from indaim.turn import world_mutation as _wm
+from indaim.turn import kernel_commit as _kc
+from indaim.turn import settle_capture as _sc
 from indaim.turn import world_state as _ws
 
 # 추출 재시도 컨텍스트 표식(cogs/gm.py와 공유) — 이 표식이 있으면 같은 tx 준비 owner로 재개.
@@ -664,13 +666,26 @@ class CommitCoordinator:
         """
         # WP-E: 턴 이전 가역 정본(재생성의 복원 기준) — 적용 직전, 같은 임계구역.
         hist_pre = _th.capture_reversible(session)
-        TP.apply_staged_narration_log(session, prep.staged_log)
-        TP.apply_staged_growth(session, prep)
-        await apply_effects(session, prep, derived)
+        # T-6: 동적 세계 턴의 정본 세계는 커널 커밋이 정한다 — 턴 전 세계 + (세계 연산 + 확정 훅) 한 묶음 투영.
+        #   아래 옛 반영 경로는 확정 재료를 계산하는 판정 단계(settle_capture가 재료를 받는다)이고, 그 필드 결과는
+        #   커널 결과로 교체된다(파생 알림·보고가 읽는 같은 턴 값은 그대로).
+        kernel_turn = getattr(prep, "world_turn", None) is not None and plan.plan_version >= 2
+        kernel_pre = _kc.capture(session) if kernel_turn else None
+        with _sc.capturing() as rec:
+            TP.apply_staged_narration_log(session, prep.staged_log)
+            TP.apply_staged_growth(session, prep)
+            await apply_effects(session, prep, derived)
         # H02-B: 세계 변이 투영 반영 + world_version 전진 — 같은 롤백 스냅샷·strict 저장 경계 안.
         #   영속 전 실패 → 스냅샷이 이전 world_version·도메인을 복원. 영속 후 → 대상 version이 정본.
         if plan.plan_version >= 2:
-            _wm.apply_projection(session, prep.world_projection, prep.world_projection_source)
+            if kernel_turn:
+                from indaim.rules import growth as _grw
+                batch = prep.world_mutation_batch
+                _kc.materialize(session, _kc.commit_fields(
+                    kernel_pre, _kc.inputs_of(rec, prep, session), batch.operations if batch is not None else (),
+                    tx=str(prep.transaction_id), game_keys=_grw.game_keys(session.scenario_data or {})))
+            else:
+                _wm.apply_projection(session, prep.world_projection, prep.world_projection_source)
             session.world_version = copy.deepcopy(plan.target_world_version)
         session.gm_clarify_count = 0
         session.gm_narrate_count = 0

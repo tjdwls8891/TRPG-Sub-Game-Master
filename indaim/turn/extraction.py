@@ -452,6 +452,8 @@ def normalize_companions(session, result: dict) -> dict:
 
 def apply_normalized_companions(session, norm: dict) -> dict:
     """정규화된 동행 효과를 적용한다(raw result 미참조)."""
+    from indaim.turn import settle_capture as _sc
+    _sc.note("party", norm)
     current = list(getattr(session, "companions", []) or [])
     met = list(getattr(session, "met_npcs", []) or [])
 

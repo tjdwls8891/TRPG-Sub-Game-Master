@@ -277,6 +277,8 @@ def apply_turn(session, prep) -> list:
     player = (session.players or {}).get(uid) if uid else None
     if not isinstance(player, dict) or not isinstance(player.get("profile"), dict):
         return []
+    from indaim.turn import settle_capture as _sc
+    _sc.note("growth_turn", inp)
     new, lines = _gl.apply_profile(session.scenario_data or {}, player["profile"], inp["changes"], inp["choice"],
                                    inp["scene_place"])
     player["profile"].clear()

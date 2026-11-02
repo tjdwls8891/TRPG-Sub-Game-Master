@@ -72,8 +72,12 @@ def convert(old: dict, *, game_keys) -> Converted:
     if old.get("world_pending_signals"):
         wl["pending_signals"] = old["world_pending_signals"]
     sp = old.get("spatial_state") or {}
-    if set(sp) - {"placements", "scene_place", "placement_holds"}:
-        raise ValueError(f"spatial_state 알 수 없는 키 {sorted(set(sp) - {'placements', 'scene_place', 'placement_holds'})}")
+    _extra = {k: sp[k] for k in set(sp) - {"placements", "scene_place", "placement_holds"}}
+    if _extra:                                   # 모르는 키 — 잃지 않고 원문 보관(추정 변환 없음)
+        issues.append(f"spatial_state: 알 수 없는 키 {sorted(_extra)}(원문 보관)")
+    _extra.update({k: sp[k] for k in ("placements", "placement_holds") if k in sp and not sp[k]})   # 빈 자리도 그대로
+    if _extra:
+        unresolved["spatial_state_extra"] = _extra
     if "scene_place" in sp:
         wl["scene"] = {"place": sp["scene_place"]}
     for aid, v in (sp.get("placements") or {}).items():
@@ -137,7 +141,7 @@ def convert(old: dict, *, game_keys) -> Converted:
             ents["actor"].setdefault(aid, {}).setdefault("stats", {})["profile"] = game
         rest = {k: copy.deepcopy(v) for k, v in p.items() if k != "profile"}
         profile[str(uid)] = {**rest, "narrative": {k: v for k, v in prof.items() if k not in game},
-                             "order": list(prof)}
+                             "order": list(prof), **({} if "profile" in p else {"no_profile": True})}
     # ── 사건이 붙인·푼 인물 상태 기록(제거 판정 근거) — 사건 인스턴스별로 인물에 옮긴다(장부의 덮어쓰기 의미 그대로) ──
     for iid, inst in (old.get("event_instances") or {}).items():
         for k, v in (inst.get("local_state") or {}).items():
@@ -162,8 +166,12 @@ def convert(old: dict, *, game_keys) -> Converted:
         unresolved["place_items"] = ents["place"].pop("")["floor"]
     # ── 정보 ──
     info = old.get("information_state") or {}
-    if set(info) - {"runtime_definitions", "status", "series"}:
-        raise ValueError("information_state 알 수 없는 키")
+    _extra = {k: info[k] for k in set(info) - {"runtime_definitions", "status", "series"}}
+    if _extra:
+        issues.append(f"information_state: 알 수 없는 키 {sorted(_extra)}(원문 보관)")
+    _extra.update({k: info[k] for k in ("runtime_definitions", "status", "series") if k in info and not info[k]})
+    if _extra:
+        unresolved["information_state_extra"] = _extra
     for part in ("runtime_definitions", "status"):
         for iid, v in (info.get(part) or {}).items():
             put("info", iid, "runtime" if part == "runtime_definitions" else "status", v)
@@ -183,6 +191,23 @@ def convert(old: dict, *, game_keys) -> Converted:
     return Converted(world, profile, issues)
 
 
+def key_orders(old: dict) -> dict:
+    """사전 필드의 최상위 키 순서(표시·프롬프트 순서의 근거 — 커널 세계는 삽입 순서를 갖지 않는다)."""
+    return {f: list(v) for f, v in old.items() if f in FIELDS and isinstance(v, dict) and v}
+
+
+def apply_key_orders(fields: dict, orders: dict) -> dict:
+    """역변환 결과의 사전 필드 키를 순서 기록대로(기록에 없는 새 키는 뒤에, 역변환 순서로) 다시 늘어놓는다."""
+    out = dict(fields)
+    for f, order in (orders or {}).items():
+        v = out.get(f)
+        if not isinstance(v, dict):
+            continue
+        rank = {k: i for i, k in enumerate(order)}
+        out[f] = {k: v[k] for k in sorted(v, key=lambda k: (0, rank[k]) if k in rank else (1, 0))}
+    return out
+
+
 def strip_ledger(old: dict) -> dict:
     """비교 기준 — 옛 필드에서 버리기로 한 장부 키(커밋이 반영한 사본)만 뺀 사본."""
     old = copy.deepcopy(old)
@@ -198,7 +223,8 @@ def revert(conv: Converted) -> dict:
     ents, wl = d.get("entities") or {}, d.get("world") or {}
     actors = ents.get("actor") or {}
     reg = {aid: c["reg"] for aid, c in actors.items() if "reg" in c}
-    players_shell = {uid: {k: v for k, v in p.items() if k not in ("narrative", "order")} for uid, p in conv.profile.items()}
+    players_shell = {uid: {k: v for k, v in p.items() if k not in ("narrative", "order", "no_profile")}
+                     for uid, p in conv.profile.items()}
     _to, canon, _amb = _names({"actor_registry": reg, "players": players_shell})
     un = wl.get("unresolved") or {}
     out = {f: {} for f in FIELDS}
@@ -245,13 +271,16 @@ def revert(conv: Converted) -> dict:
         rows = lists[f] + [tuple(x) for x in un.get(f) or ()]
         out[f] = [n for _i, n in sorted(rows)]
     out["stat_fail_counts"].update(un.get("stat_fail_counts") or {})
+    sp.update(un.get("spatial_state_extra") or {})
     out["spatial_state"] = sp
     for uid, p in conv.profile.items():
         aid = next((a for a, r in reg.items() if r.get("kind") == "PC" and str(r.get("source_key")) == uid), None)
         game = ((actors.get(aid) or {}).get("stats") or {}).get("profile") or {}
         merged = {**p["narrative"], **game}
-        prof = {k: merged[k] for k in p["order"] if k in merged}
-        out["players"][uid] = {**{k: v for k, v in p.items() if k not in ("narrative", "order")}, "profile": prof}
+        order = list(p["order"]) + [k for k in game if k not in p["order"]]    # 커밋이 새로 만든 게임 수치 키(첫 성장 포인트 등)
+        prof = {k: merged[k] for k in order if k in merged}
+        out["players"][uid] = {**{k: v for k, v in p.items() if k not in ("narrative", "order", "no_profile")},
+                               **({} if p.get("no_profile") and not prof else {"profile": prof})}
     for iid, c in (ents.get("item") or {}).items():
         r = dict(c["state"])
         if r.get("owner"):
@@ -270,6 +299,7 @@ def revert(conv: Converted) -> dict:
             info.setdefault("status", {})[iid] = c["status"]
     if wl.get("info_series"):
         info["series"] = wl["info_series"]
+    info.update(un.get("information_state_extra") or {})
     out["information_state"] = info
     marks = {}
     for aid, c in actors.items():
@@ -280,6 +310,7 @@ def revert(conv: Converted) -> dict:
     for iid, c in (ents.get("event") or {}).items():
         inst = dict(c["core"])
         inst["local_state"] = {**c.get("vars", {}), **marks.get(iid, {})}
-        inst["history"] = c.get("history", [])
+        if "history" in c:
+            inst["history"] = c["history"]
         out["event_instances"][iid] = inst
     return out

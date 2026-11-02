@@ -60,3 +60,22 @@ def test_unresolved_names_kept_verbatim():
     conv = v4.convert(old, game_keys=set())
     assert any("모호한" in i for i in conv.issues) and any("풀리지 않는" in i for i in conv.issues)
     assert v4.revert(conv) == v4.strip_ledger(old)
+
+
+def test_revert_keeps_game_keys_added_after_conversion():
+    """커널 커밋이 프로필에 새 게임 수치 키를 더하면(첫 성장 포인트 등) 역변환이 그 키를 잃지 않는다(T-6 발견)."""
+    from indaim.kernel import EffectBatch, View, make_effect, project
+    from indaim.migrate import ops_v4, v4
+    old = {"players": {"u1": {"name": "가", "profile": {"근력": 12, "외형": "키 큼"}}},
+           "actor_registry": {"pc.1": {"kind": "PC", "display_name": "가", "source_kind": "PLAYER", "source_key": "u1",
+                                       "aliases": []}}}
+    conv = v4.convert(old, game_keys={"근력", "성장 포인트"})
+    reg = ops_v4.registry()
+    b = EffectBatch(batch_id="b", origin="PLAYER_TURN", base_version_id=None, definition_revision=None)
+    b.add(make_effect("e", "actor", "pc.1", "stats", "set_profile", {"value": {"근력": 12, "성장 포인트": 5}},
+                      cause="SETTLE", by="t"))
+    b.freeze()
+    res = project(conv.world, b, reg, None)
+    out = v4.revert(v4.Converted(world=res.world, profile=conv.profile))
+    assert out["players"]["u1"]["profile"] == {"근력": 12, "외형": "키 큼", "성장 포인트": 5}
+    assert View(res.world, reg, None).read("actor", "pc.1", "stats")["profile"]["성장 포인트"] == 5

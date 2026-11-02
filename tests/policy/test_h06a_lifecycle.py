@@ -23,7 +23,7 @@ from core import player_world as PW
 from core import spatial as SP
 from core import world_lifecycle as WL
 from core import world_state as WS
-from tests.conftest import PLAYER_UID
+from tests.conftest import PLAYER_UID, read_session_disk
 from tests.policy.test_commit_recovery import _restart
 from tests.policy.test_h04b_events_progression import eq, ev_raw
 from tests.policy.test_ready_barrier import rig  # noqa: F401
@@ -132,7 +132,7 @@ async def test_single_pc_full_capability_creates_one_snapshot_and_one_genesis(ri
     assert WL.blocked_reason(s)
     assert WL.mark_open(s) and PW.session_world_context(s).dynamic
     # 저장본에도 바인딩·생애주기가 함께 있다(같은 strict 저장)
-    data = json.load(open(f"sessions/{s.session_id}/data.json", encoding="utf-8"))
+    data = read_session_disk(s.session_id)
     assert data["definition_revision"] == s.definition_revision and data["world_lifecycle"] == WL.LIFECYCLE_INITIALIZED
 
 

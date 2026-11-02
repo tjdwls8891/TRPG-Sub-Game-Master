@@ -88,6 +88,14 @@ def source_of(relative_path: str) -> str:
     return (pathlib.Path(REPO_ROOT) / legacy_rel(relative_path)).read_text(encoding="utf-8")
 
 
+def read_session_disk(session_id) -> dict:
+    """저장된 세션 data.json을 옛 필드 사전으로 읽는다(v5 세계 → 역변환, T-6) — 디스크 정본 확인용."""
+    import json as _json
+    from indaim.app import world_codec as _wc
+    with open(f"sessions/{session_id}/data.json", encoding="utf-8") as f:
+        return _wc.decode(_json.load(f))
+
+
 def internal_imports(node) -> set:
     """import 문 하나가 가져오는 옛 core 모듈 이름 — 상대 import(`from . import x`·`from .x import y`)와
     재배치 뒤 절대 import(`from indaim.<패키지> import x`·`from indaim.<패키지>.x import y`)를 같게 읽는다."""
@@ -359,38 +367,7 @@ def _kernel_shadow(monkeypatch, request):
         return out
     monkeypatch.setattr(_twm, "process_observation", observe)
     monkeypatch.setattr(_tpm, "apply_staged_growth", staged)
-    # T-5: 턴 그림자 — 커밋 한 번 전체(세계 연산 + 확정 훅)를 한 묶음 커널 투영으로 재현해 모든 컴포넌트를 대조한다
-    import core.commit_coordinator as _ccm
-    orig_aim = _ccm.CommitCoordinator._apply_in_memory
-
-    async def apply_in_memory(self, session, prep, plan, *a, **kw):
-        if "no_kernel_shadow" in request.keywords or getattr(prep, "world_turn", None) is None:
-            return await orig_aim(self, session, prep, plan, *a, **kw)
-        pre = _copy.deepcopy({f: getattr(session, f, None) for f in _v4.FIELDS})
-        tseen.clear()
-        out = await orig_aim(self, session, prep, plan, *a, **kw)
-        post = {f: getattr(session, f, None) for f in _v4.FIELDS}
-        many = [k for k, v in tseen.items() if len(v) > 1]
-        if many:
-            diffs.append(("turn", [f"한 커밋에 같은 훅 입력이 여러 번 {many}"]))
-            return out
-        one = {k: v[0] for k, v in tseen.items()}
-        inputs = {"vitals": one.get("vitals"), "party": one.get("party"),
-                  "items": ({**(one.get("grants") or {}), "plan": one.get("plan")}
-                            if ("grants" in one or "plan" in one) else None)}
-        if one.get("growth_staged") or one.get("growth_turn"):
-            inputs["growth"] = {"sd": session.scenario_data or {}, "staged": one.get("growth_staged"),
-                                "turn": one.get("growth_turn")}
-        _res = getattr(prep.world_turn, "result", None)
-        inputs["events"] = {"pending": ([dict(r) for r in _res.pending]
-                                        if _res is not None and _res.status == _twm.TW_READY else None)}
-        batch = getattr(prep, "world_mutation_batch", None)
-        ops = batch.operations if (batch is not None and plan.plan_version >= 2) else ()
-        from indaim.rules import growth as _grw
-        _check("turn", _sh.shadow_turn, _defaults(pre), inputs, _defaults(post),
-               tx=str(prep.transaction_id), ops=ops, game_keys=_grw.game_keys(session.scenario_data or {}))
-        return out
-    monkeypatch.setattr(_ccm.CommitCoordinator, "_apply_in_memory", apply_in_memory)
+    # (T-6: 턴 그림자는 은퇴 — 운영 커밋이 곧 커널 커밋이다(indaim/turn/kernel_commit.py))
     yield
     if "no_kernel_shadow" not in request.keywords:
         assert not diffs, f"새 커널 그림자 불일치 {len(diffs)}건: {diffs[:3]}"

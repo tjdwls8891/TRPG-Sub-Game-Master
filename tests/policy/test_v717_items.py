@@ -4,7 +4,7 @@
 순수 서비스(core.items) 단위 + DYNAMIC 자동 턴 통합(추출 world_observation.item_ops → READY → CommitCoordinator).
 """
 from __future__ import annotations
-from tests.conftest import source_of
+from tests.conftest import source_of, read_session_disk
 
 import copy
 import json
@@ -480,7 +480,7 @@ async def test_F04_session_fields_roundtrip_defaults(rig):
     s.place_items = {"d": {"place": "광장", "key": "돌", "quantity": 1}}
     s.initial_knowledge_progress = {"version": 1, "players": {"1": {"PROFILE": {"state": "SKIPPED"}}}}
     await core.io.save_session_data_strict(rig.bot, s)
-    data = json.loads(pathlib.Path(f"sessions/{s.session_id}/data.json").read_text(encoding="utf-8"))
+    data = read_session_disk(s.session_id)
     for f in ("resources", "item_instances", "place_items", "initial_knowledge_progress"):
         assert data[f] == getattr(s, f)
     # 옛 저장 파일(필드 없음)은 기본값으로 — 서로 지우지 않는다

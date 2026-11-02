@@ -22,7 +22,7 @@ from core import initial_knowledge as IK
 from core import items as IT
 from core import world_lifecycle as WL
 from core import world_state as WS
-from tests.conftest import PLAYER_UID, source_of
+from tests.conftest import PLAYER_UID, source_of, read_session_disk
 from tests.fakes.discord_fakes import FakeChannel, FakeInteraction, FakeUser
 from tests.fakes.genai_fakes import FakeGenAIResponse
 from tests.policy.test_h06a_lifecycle import START, dyn_raw, journal_inits, setup_session, _cog
@@ -306,7 +306,7 @@ async def test_T13_T14_X06_genesis_single_commit_idempotent(rig, ai):
     assert all(cog[i]["belief"] is None for i in acq)                                  # T12 믿음 불변
     assert len(journal_inits(s)) == 1                                                    # 같은 INITIALIZATION 한 번
     assert s.resources["테스터"] == {"항생제[알]": 2, "붕대": 1}                          # 시작 재고 1회 정규화
-    data = json.loads(pathlib.Path(f"sessions/{s.session_id}/data.json").read_text(encoding="utf-8"))
+    data = read_session_disk(s.session_id)
     assert data["initial_knowledge_progress"]["players"][PLAYER_UID]["PROFILE"]["state"] == IK.COMMITTED
     assert data["cognition_state"] == json.loads(json.dumps(s.cognition_state))         # 같은 strict 저장
     before = (copy.deepcopy(s.cognition_state), copy.deepcopy(s.resources))

@@ -64,8 +64,9 @@ def test_h04_modules_have_no_player_or_cogs_caller():
     # H06: 초기 세계 계획(world_lifecycle)이 시작 시점 전수 검사·wakeup을 만든다(INITIALIZATION owner)
     # SVG 화자 카드: 커밋된 PC 인지(cognition)·화자 ActorId 해석(actors)을 읽기만 한다(연산 생성 없음 —
     #   얼굴 식별 획득 연산은 turn_world.process_observation이 만든다)
+    # T-6: 커널 커밋(kernel_commit)이 플레이어 턴 정본 결과를 정한다 — 사건 모듈의 확정 훅(전달 대기 신호)을 부른다
     allowed = (set(H04_DOMAIN_FILES) | {"__init__.py", "world_mutation.py", "definition_compiler.py"}
-               | set(H05_FILES) | {"world_lifecycle.py", "speaker_card.py"})
+               | set(H05_FILES) | {"world_lifecycle.py", "speaker_card.py", "kernel_commit.py"})
     hits = []
     for p in _files():
         base = os.path.basename(p)

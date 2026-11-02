@@ -17,7 +17,7 @@ from core import commit_coordinator as CC
 from core import message_lifecycle as ML
 from core import turn_history as TH
 from core import turn_transaction as tt
-from tests.conftest import PLAYER_UID
+from tests.conftest import PLAYER_UID, read_session_disk
 from tests.fakes.discord_fakes import FakeInteraction, FakeMessage, FakeUser
 from tests.policy.test_ready_barrier import rig  # noqa: F401 — 픽스처 재사용
 from tests.policy.test_turn_history import _commit, _hv
@@ -62,7 +62,7 @@ async def test_mf02_missing_display_recreated_and_id_persisted(wired_bot, sessio
     await old.delete()
     assert await core.display.refresh(wired_bot, s)
     assert s.display_msg_id != old.id and len(_live(display_channel)) == 1
-    data = json.load(open(f"sessions/{s.session_id}/data.json", encoding="utf-8"))
+    data = read_session_disk(s.session_id)
     assert data["display_msg_id"] == s.display_msg_id
 
 

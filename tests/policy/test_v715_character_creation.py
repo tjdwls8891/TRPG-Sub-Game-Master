@@ -19,7 +19,7 @@ import core
 import prompts
 from core import profile_creation_ui as PCU
 from core import profile_gen as PG
-from tests.conftest import GAME_CH, PLAYER_UID, source_of
+from tests.conftest import GAME_CH, PLAYER_UID, source_of, read_session_disk
 from tests.fakes.discord_fakes import FakeChannel, FakeInteraction, FakeMessage, FakeUser
 
 pytestmark = pytest.mark.policy
@@ -489,7 +489,7 @@ async def test_t13_corrupt_loaded_type_blocks_until_reentered(pc, monkeypatch):
 
 def _reload(r):
     """data.json에서 새 세션 객체를 복원한다(재시작 시 SESSION_FIELDS 일괄 복구와 같은 방식)."""
-    data = json.loads(pathlib.Path(f"sessions/{r.sess.session_id}/data.json").read_text(encoding="utf-8"))
+    data = read_session_disk(r.sess.session_id)
     s2 = core.TRPGSession(r.sess.session_id, r.sess.game_ch_id, r.sess.master_ch_id, "테스트",
                           data.get("scenario_data") or r.sess.scenario_data)
     for k in ("players", "npcs", "resources", "statuses", "current_turn_logs"):   # cache.py 핵심 필드 복구

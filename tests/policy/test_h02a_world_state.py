@@ -25,7 +25,7 @@ from core import io as IO
 from core import turn_history as TH
 from core import turn_preparation as TP
 from core import world_state as WS
-from tests.conftest import PLAYER_UID
+from tests.conftest import PLAYER_UID, read_session_disk
 from tests.policy.test_ready_barrier import rig  # noqa: F401 — 픽스처 재사용
 from tests.policy.test_authoritative_commit import _fund
 from tests.policy.test_commit_recovery import _restart
@@ -39,8 +39,8 @@ IDENTITY = ("definition_revision", "narrative_seed")
 
 # ── 레지스트리 · 생성자 ─────────────────────────────────────
 
-def test_schema_version_is_4_and_registry_is_single_source():
-    assert IO.SCHEMA_VERSION == 4
+def test_schema_version_is_5_and_registry_is_single_source():
+    assert IO.SCHEMA_VERSION == 5          # T-6: v5 = 세계 필드를 커널 세계로 저장(app/world_codec)
     assert len(GAMEPLAY) == 11 and set(GAMEPLAY) == {
         "world_version", "world_clock", "actor_registry", "spatial_state", "spatial_knowledge",
         "access_control_state", "event_instances", "world_schedule", "information_state",
@@ -80,7 +80,7 @@ def test_partition_reversible_vs_identity_vs_operational():
 def test_v3_payload_migrates_to_safe_defaults_idempotently():
     data = {"schema_version": 3, "session_id": "abc", "players": {}}
     out = IO.migrate_session_data(copy.deepcopy(data))
-    assert out["schema_version"] == 4
+    assert out["schema_version"] == 5
     for f in GAMEPLAY:
         assert out[f] == WS.GAMEPLAY_WORLD_FIELDS[f]
     assert out["definition_revision"] is None
@@ -90,10 +90,10 @@ def test_v3_payload_migrates_to_safe_defaults_idempotently():
     # 이미 있는 시드는 절대 바꾸지 않는다
     kept = {"schema_version": 3, "session_id": "abc", "narrative_seed": "seed_custom"}
     assert IO.migrate_session_data(kept)["narrative_seed"] == "seed_custom"
-    # v2(auto_gm_*) 저장분도 한 번에 v4까지
+    # v2(auto_gm_*) 저장분도 한 번에 현행(v5)까지
     v2 = {"schema_version": 2, "session_id": "old", "auto_gm_active": True}
     m = IO.migrate_session_data(v2)
-    assert m["gm_active"] is True and m["world_version"] is None and m["schema_version"] == 4
+    assert m["gm_active"] is True and m["world_version"] is None and m["schema_version"] == 5
 
 
 def test_seed_is_hash_independent_derivation():
@@ -109,8 +109,9 @@ async def test_legacy_v3_data_json_restores_with_defaults_and_stable_seed(rig):
     await _fund(PLAYER_UID, 100)
     await _commit(r, "숲길")
     path = f"sessions/{s.session_id}/data.json"
-    data = json.load(open(path, encoding="utf-8"))
-    assert data["schema_version"] == 4 and data["narrative_seed"] == s.narrative_seed
+    raw = json.load(open(path, encoding="utf-8"))
+    assert raw["schema_version"] == 5 and "world" in raw and raw["narrative_seed"] == s.narrative_seed
+    data = read_session_disk(s.session_id)                 # 옛 필드 형식으로 v3 저장분을 모사한다
     # v3 저장분 모사: H02 필드 제거
     for f in WS.ALL_WORLD_FIELDS:
         data.pop(f, None)
@@ -125,7 +126,7 @@ async def test_legacy_v3_data_json_restores_with_defaults_and_stable_seed(rig):
     # 재저장·재시작해도 같은 시드
     await IO.save_session_data_strict(bot2, s2)
     saved = json.load(open(path, encoding="utf-8"))
-    assert saved["schema_version"] == 4 and saved["narrative_seed"] == s.narrative_seed
+    assert saved["schema_version"] == 5 and saved["narrative_seed"] == s.narrative_seed
     r.sess = s2
     _, s3 = await _restart(r)
     assert s3.narrative_seed == s.narrative_seed

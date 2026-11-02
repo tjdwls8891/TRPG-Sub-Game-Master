@@ -15,7 +15,7 @@ import core
 from core import cache_lifecycle as CLC
 from core import turn_transaction as tt
 from core import world_lifecycle as WL
-from tests.conftest import PLAYER_UID
+from tests.conftest import PLAYER_UID, read_session_disk
 from tests.fakes.bot_fakes import FakeBot
 from tests.policy.test_cache_lifecycle import _ink_rows, cbot, clock, fresh  # noqa: F401
 from tests.policy.test_h06c_cache_source import _bind, seen  # noqa: F401
@@ -24,7 +24,7 @@ pytestmark = pytest.mark.policy
 
 
 def _disk(s):
-    return json.load(open(f"sessions/{s.session_id}/data.json", encoding="utf-8"))
+    return read_session_disk(s.session_id)
 
 
 def _refunds():

@@ -17,7 +17,7 @@ from core import initial_knowledge as IK
 from core import items as IT
 from core import turn_transaction as tt
 from core import world_lifecycle as WL
-from tests.conftest import PLAYER_UID, source_of
+from tests.conftest import PLAYER_UID, source_of, read_session_disk
 from tests.policy.test_h05bc_turn_wiring import PC, drig, extraction, judgment, turn  # noqa: F401
 from tests.policy.test_ready_barrier import rig  # noqa: F401
 from tests.policy.test_v717_initial_knowledge import (INFOS, Ch, ai, deliver, ik_raw, pc_cog,  # noqa: F401
@@ -191,7 +191,7 @@ async def _complete_like_save_button(r, s):
 
 
 def _disk(s):
-    return json.loads(pathlib.Path(f"sessions/{s.session_id}/data.json").read_text(encoding="utf-8"))
+    return read_session_disk(s.session_id)
 
 
 @pytest.fixture

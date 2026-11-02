@@ -17,7 +17,7 @@ from core import spatial as SP
 from core import turn_transaction as tt
 from core import world_lifecycle as WL
 from core import world_state as WS
-from tests.conftest import GAME_CH, PLAYER_UID
+from tests.conftest import GAME_CH, PLAYER_UID, read_session_disk
 from tests.fakes.bot_fakes import FakeBot
 from tests.policy.test_cache_lifecycle import _ink_rows, cbot, clock, fresh  # noqa: F401
 from tests.policy.test_commit_recovery import _restart
@@ -32,7 +32,7 @@ TWO = {PLAYER_UID: {"name": "가"}, "777": {"name": "나"}}
 
 
 def _disk(s):
-    return json.load(open(f"sessions/{s.session_id}/data.json", encoding="utf-8"))
+    return read_session_disk(s.session_id)
 
 
 def _stubs(r, monkeypatch, *, intro_ok=True):

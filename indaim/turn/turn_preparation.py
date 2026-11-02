@@ -1557,6 +1557,8 @@ def apply_staged_growth(session, prep) -> bool:
     """스테이징된 ROLL 성장(profile +N, stat_fail_counts)을 정본에 적용(READY 이후)."""
     if prep.growth_fail_counts is None and not prep.growth_events:
         return False
+    from indaim.turn import settle_capture as _sc
+    _sc.note("growth_staged", {"events": prep.growth_events, "fail_counts": prep.growth_fail_counts})
     for uid, stat, new_value in prep.growth_events:
         player = (getattr(session, "players", {}) or {}).get(uid)
         profile = player.get("profile") if isinstance(player, dict) else None

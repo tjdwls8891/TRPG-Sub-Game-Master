@@ -544,6 +544,17 @@ def _session_from_data(data: dict):
     재시작 복구와 세션 관리(디스크에서 종료된 세션 읽기)가 같은 규칙을 쓴다. 활성 등록·복구 처분은 하지 않는다.
     """
     session_id = data.get("session_id")
+    # ── T-6: v5 세계(커널) → 세션 세계 필드(작업 사본). v4는 아래 마이그레이션 뒤 시험 변환(실패면 열지 않음) ──
+    from indaim.app import world_codec as _wc
+    try:
+        if "world" in data:
+            data = _wc.decode(data)
+        elif int(data.get("schema_version", 1) or 1) < 5:
+            _wc.preserve_v4(session_id)                      # 원본 data.json → data.v4.json(한 번)
+            _wc.encode(migrate_session_data(copy.deepcopy(data)), load_scenario_from_file(data.get("scenario_id")))
+    except _wc.WorldCodecError as e:
+        print(f"⛔ {session_id}: 세계를 v5로 변환할 수 없어 이 세션을 열지 않습니다(원본 보존) — 운영자 확인 필요: {e}")
+        return None
     # ── 스키마 마이그레이션 ──
     # 필드명이 바뀐 버전은 값을 옮겨 담는다. 이관하지 않으면
     # 구세션의 GM 진행 상태가 통째로 초기화된다.

@@ -53,6 +53,7 @@ from indaim.turn import turn_history as _turn_history
 from indaim.turn import turn_preparation as _turn_preparation
 from indaim.turn import turn_transaction as _turn_transaction
 from indaim.turn import turn_world as _turn_world
+from indaim.turn import settle_capture as _settle_capture
 
 
 class TurnService:
@@ -1452,10 +1453,10 @@ class TurnService:
         _wt = getattr(prep, "world_turn", None)                         # v7.53: 사건이 준 물건(GRANT_ITEM)
         _grants = _turn_world.item_grant_changes(session, prep) if _wt is not None else []
         if _grants:
-            _rows = _items.apply_event_grants(
-                session, _grants, definition=_wt.ctx.definition,
-                pc_name=getattr(getattr(plan, "item_plan", None), "pc_name", None)
-                or next((p.get("name") for p in (session.players or {}).values() if p.get("name")), None))
+            _gpc = getattr(getattr(plan, "item_plan", None), "pc_name", None) \
+                or next((p.get("name") for p in (session.players or {}).values() if p.get("name")), None)
+            _settle_capture.note("grants", {"grants": _grants, "definition": _wt.ctx.definition, "pc_name": _gpc})
+            _rows = _items.apply_event_grants(session, _grants, definition=_wt.ctx.definition, pc_name=_gpc)
             plan.diagnostics["item_grants"] = list(_rows)
             plan.entries = list(plan.entries) + [
                 {"domain": "item", "target": r["target"], "op": "delta", "payload": {"item": r["item"], "delta": r["delta"]}}

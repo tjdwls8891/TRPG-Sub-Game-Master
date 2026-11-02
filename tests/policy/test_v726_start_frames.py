@@ -6,6 +6,7 @@
   걸어서(TRANSIT) 떠나며, 목적지에서 PC가 곁에 없을 때만 정본 배치를 풀어 평상시 일과로 돌아간다.
 """
 from __future__ import annotations
+from tests.conftest import read_session_disk
 
 import copy
 import json
@@ -79,7 +80,7 @@ async def test_initialize_world_saves_start_items_with_genesis(rig):
     assert s.place_items == {"start.harbor.0": {"place": "항구", "key": "작은 배", "quantity": 1,
                                                 "origin": "START_FRAME", "by": None, "tx": None}}
     assert s.resources["강지수"]["양초"] == 1
-    data = json.load(open(f"sessions/{s.session_id}/data.json", encoding="utf-8"))
+    data = read_session_disk(s.session_id)
     assert data["place_items"] == s.place_items                      # genesis와 같은 strict 저장
     assert s.world_initialization["start_choices"]["items"] == items
 

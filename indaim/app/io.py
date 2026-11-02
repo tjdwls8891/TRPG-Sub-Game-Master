@@ -51,7 +51,8 @@ def save_authorized_users(data: dict):
 # SCHEMA_VERSION 3 — auto_gm_* 13필드를 gm_*로 이관 (5.0.0)
 # SCHEMA_VERSION 4 — H02 동적 세계 정본 11필드 + definition_revision·narrative_seed 신설 (7.0.0)
 # 필드명이 바뀌었으므로 구버전 저장 파일은 migrate_session_data로 변환해야 한다.
-SCHEMA_VERSION = 4
+# SCHEMA_VERSION 5 — 세계 필드(23)를 커널 세계(world·world_profile)로 저장 (9.0.0, 리팩터링 T-6 — app/world_codec.py)
+SCHEMA_VERSION = 5
 
 # 구버전 → 현행 필드명 매핑. 로드 시 자동 변환된다.
 FIELD_MIGRATIONS = {
@@ -395,7 +396,9 @@ def _serialize_session(session) -> dict:
     for field, default in SESSION_FIELDS.items():
         data[field] = getattr(session, field, default)
 
-    return data
+    # T-6: 세계 필드는 커널 세계로(v5) — 왕복이 어긋나면 저장하지 않는다(WorldCodecError)
+    from indaim.app import world_codec as _wc
+    return _wc.encode(data, getattr(session, "scenario_data", None))
 
 
 # 세션 관리: 게임 데이터 삭제가 시작된 세션 id(프로세스 수명). 늦게 끝난 비동기 작업의 저장이
@@ -432,6 +435,9 @@ def _atomic_write_session(session, data: dict) -> None:
         with open(tmp_path, "w", encoding="utf-8") as f:
             json.dump(data, f, ensure_ascii=False, indent=4)
         os.replace(tmp_path, final_path)
+        if "world" in data:                                     # T-6: 버전별 세계 보관(K2 가)
+            from indaim.app import world_codec as _wc
+            _wc.archive(session.session_id, data["world"])
     except Exception:
         # 실패로 남은 자신의 tmp 를 제거(캐노니컬 final 은 건드리지 않는다).
         try:
@@ -526,7 +532,7 @@ async def write_session_strict_locked(session) -> None:
         # tolerant 와 동일하게 실패 시 tmp 를 정리하되, 삼키지 않고 명확히 전파.
         _sweep_leftover_tmp(session.session_id)
         raise SessionPersistenceError(
-            f"세션 저장 실패: {session.session_id}"
+            f"세션 저장 실패: {session.session_id}: {type(e).__name__}: {e}"
         ) from e
 
 

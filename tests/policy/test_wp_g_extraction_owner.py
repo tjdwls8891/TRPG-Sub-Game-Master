@@ -112,8 +112,8 @@ def _rig(wired_bot, session):
 
 
 def _disk(session):
-    with open(os.path.join("sessions", session.session_id, "data.json"), encoding="utf-8") as f:
-        return json.load(f)
+    from tests.conftest import read_session_disk
+    return read_session_disk(session.session_id)
 
 
 def _spies(cog, mp):

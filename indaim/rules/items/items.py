@@ -768,6 +768,9 @@ def build_plan(session, manifest: ItemManifest, raw_ops, *, defs=None, recipes=N
 
 def apply_plan(session, plan: ItemPlan) -> list:
     """커밋 경로 — 같은 연산을 정본에 다시 검증·적용한다(불일치면 예외 — 커밋 owner로 전파). 보고 행 반환."""
+    from indaim.turn import settle_capture as _sc
+    _sc.note("plan", {"ops": plan.ops, "defs": plan.defs, "pc_name": plan.pc_name, "scene_place": plan.scene_place,
+                      "tx": plan.transaction_id, "recipes": plan.recipes})
     sim = run_ops(session, plan.ops, defs=plan.defs, pc_name=plan.pc_name, scene_place=plan.scene_place,
                   transaction_id=plan.transaction_id, recipes=plan.recipes)
     res = dict(getattr(session, "resources", None) or {})
