@@ -96,10 +96,11 @@ def test_growth_settle_applies_staged_roll_growth_and_fail_counts():
     sess = type("S", (), {**copy.deepcopy(fields), "scenario_data": sd})()
     TP.apply_staged_growth(sess, Prep())
     want = {f: getattr(sess, f) for f in v4.FIELDS}
-    d = ops_v4.shadow_growth(fields, {"sd": sd, "staged": {"events": [("7", "근력", 13)],
-                                                            "fail_counts": {"갑:근력": 0, "갑:민첩": 1}}},
-                             want, tx="t")
-    assert d == []
+    from indaim.turn import kernel_commit as KC
+    got = KC.commit_fields(fields, {"growth": {"sd": sd, "staged": {"events": [("7", "근력", 13)],
+                                                                      "fail_counts": {"갑:근력": 0, "갑:민첩": 1}}}},
+                           (), tx="t", game_keys={"근력", "민첩"})
+    assert got["players"] == want["players"] and got["stat_fail_counts"] == want["stat_fail_counts"]
     assert want["players"]["7"]["profile"]["근력"] == 13 and want["stat_fail_counts"] == {"갑:근력": 0, "갑:민첩": 1}
 
 

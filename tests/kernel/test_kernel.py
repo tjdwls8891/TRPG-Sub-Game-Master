@@ -260,15 +260,12 @@ GM_COG_FACADE_IMPORTS = {
 
 
 def test_indaim_does_not_import_old_engine():
-    """indaim은 옛 core·cogs·main·prompts를 import하지 않는다. 예외 둘:
-    · 이행 다리 indaim/bridge(옛 엔진을 커널 세계 위에서 돌리는 연결 — T-6 정본 전환에서 사라진다)
+    """indaim은 옛 core·cogs·main·prompts를 import하지 않는다. 예외 둘(T-6에서 이행 다리 indaim/bridge는 은퇴):
     · 옮긴 옛 모듈의 기존 바깥 의존(LEGACY_EXTERNAL_IMPORTS — 정확히 이 목록)
     · cogs/gm.py에서 옮긴 GM cog 조각의 core 공개 이름 공간(GM_COG_FACADE_IMPORTS — 정확히 이 목록)"""
     found = set()
     for f in sorted((ROOT / "indaim").rglob("*.py")):
         rel = f.relative_to(ROOT).as_posix()
-        if rel.startswith("indaim/bridge/"):
-            continue
         for node in ast.walk(ast.parse(f.read_text(encoding="utf-8"))):
             mods = [a.name for a in node.names] if isinstance(node, ast.Import) else \
                 [node.module or ""] if isinstance(node, ast.ImportFrom) and not node.level else []
@@ -293,7 +290,7 @@ def test_engine_layers_do_not_know_discord():
     found = set()
     for f in sorted((ROOT / "indaim").rglob("*.py")):
         rel = f.relative_to(ROOT).as_posix()
-        if rel.startswith(("indaim/adapters/", "indaim/bridge/")):
+        if rel.startswith("indaim/adapters/"):
             continue
         for node in ast.walk(ast.parse(f.read_text(encoding="utf-8"))):
             mods = [a.name for a in node.names] if isinstance(node, ast.Import) else \
