@@ -132,7 +132,7 @@ python main.py
 
 | 파일 | 줄 | 명령어 |
 |---|---|---|
-| `gm.py` | 444 | `!자동` 그룹(시작·중단·상태·개입·원장·턴제한·비용제한), `!되감기` — 턴 진행은 엔진 믹스인(T-5: `indaim/turn/service.py`·`flow_steps.py`·`world_steps.py`·`config.py` — 본문 그대로 이동, 디스코드·core import 없음, 어댑터 쪽 이름은 포트 `self.rt`(`indaim/adapters/discord/runtime.py` `PORT_NAMES`)로) + 화면 `indaim/adapters/discord/gm_views.py` · `!리로드 gm`은 명령어 층만 다시 읽는다 |
+| `gm.py` | 444 | `!자동` 그룹(시작·중단·상태·개입·원장·턴제한·비용제한), `!되감기` — 턴 진행은 엔진 믹스인(T-5: `indaim/turn/service.py`·`flow_steps.py`·`world_steps.py`·`config.py` — 본문 그대로 이동, 디스코드·core import 없음, 어댑터 쪽 이름은 포트 `self.rt`(`indaim/adapters/discord/runtime.py` `PORT_NAMES` — 엔진은 디스코드 객체를 만들지 않는다), 입력 진입점 `TurnService.submit`) + 화면 `indaim/adapters/discord/gm_views.py` · `!리로드 gm`은 명령어 층만 다시 읽는다 |
 | `game.py` | 1,566 | `!재생성` `!출력물` `!주사위` `!기억압축` `!노트` `!캐시노트` `!더빙테스트` (WP-G: 수동 `!진행`·`!수정` 은퇴) |
 | `character.py` | 1,253 | `!참가` `!설정` `!증감` `!외형` `!프로필` `!엔피씨` `!능력치` `!설정생성` `!캐릭터가져오기` |
 | `system.py` | 1,004 | `!명령어` `!배포` `!재시작` `!지급` **`!잉크`** **`!사용량`** `!스페이스` `!캐시` `!리로드` `!세션종료` `!채널정리` `!tts생성` `!세션이력` |

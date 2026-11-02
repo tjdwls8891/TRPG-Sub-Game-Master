@@ -255,13 +255,18 @@ class TurnService:
                 "▶️ " + _master_mod.say("cache.reopen_held", "보관된 선언으로 이어서 진행합니다.")
                 + f"\n> {held['content']}",
                 key=self.rt.message_lifecycle.KEY_TURN_NOTICE)
-        shim = SimpleNamespace(content=held["content"], channel=game_ch,
-                               author=SimpleNamespace(display_name=held["char"]))
-        if getattr(session, "gm_waiting_for", None) == held["char"]:
-            await self._handle_waiting_response(session, shim, held["char"])
-        else:
-            await self._handle_player_message(session, shim)
+        await self.submit(session, held["content"], speaker=held["char"], reply_channel=game_ch,
+                          waiting_for=held["char"] if getattr(session, "gm_waiting_for", None) == held["char"] else None)
         return True
+
+    async def submit(self, session, text: str, *, speaker: str, reply_channel=None, waiting_for: str | None = None):
+        """턴 입력 하나 — 플레이어 선언(어댑터가 채팅에서 뽑은 원문·화자·답할 채널). 리팩터링 T-5: 턴 서비스의 진입점.
+
+        waiting_for = 진행자가 그 PC의 답을 기다리는 중이면 그 PC 이름(라운드 응답), 아니면 자발 발언."""
+        decl = SimpleNamespace(content=text, channel=reply_channel, author=SimpleNamespace(display_name=speaker))
+        if waiting_for:
+            return await self._handle_waiting_response(session, decl, waiting_for)
+        return await self._handle_player_message(session, decl)
 
     async def _handle_player_message(self, session, message):
         """
@@ -1136,7 +1141,7 @@ class TurnService:
         for end in endings:
             if game_ch:
                 try:
-                    await game_ch.send(embed=self.rt.discord.Embed(title=f"📖 {end['title']}",
+                    await game_ch.send(embed=self.rt.embed(title=f"📖 {end['title']}",
                                                            description="한 장이 끝났습니다. 이야기는 이어집니다.",
                                                            color=0x2b2d31))
                 except Exception as e:
@@ -1170,10 +1175,10 @@ class TurnService:
                 _desc = "이야기가 끝났습니다. 채널을 잠급니다."
                 if end.get("status"):            # v7.48(E2) 상태 결말(사망 등)은 묘사가 맺지 못했을 수 있다 — 맺음말을 카드에
                     _desc = f"{end.get('epilogue', '')}\n\n{_desc}"
-                await game_ch.send(embed=self.rt.discord.Embed(title=f"🏁 {end['title']}",
+                await game_ch.send(embed=self.rt.embed(title=f"🏁 {end['title']}",
                                                        description=_desc,
                                                        color=0x2b2d31))
-                await game_ch.set_permissions(game_ch.guild.default_role, send_messages=False)
+                await self.rt.lock_channel(game_ch)
             except Exception as e:
                 print(f"[결말] 결말 카드·채널 잠금 실패: {e}")
         try:
@@ -4274,7 +4279,7 @@ class TurnService:
         trigger_label = trigger_label_map.get(trigger_reason, "계획 갱신")
 
         if master_ch or derived is not None:
-            embed = self.rt.discord.Embed(
+            embed = self.rt.embed(
                 title=f"📖 서사 계획 갱신 — {trigger_label}",
                 color=0x5865F2,
             )

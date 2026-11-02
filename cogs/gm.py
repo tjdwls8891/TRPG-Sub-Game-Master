@@ -338,10 +338,12 @@ class GMCog(TurnService, TurnSteps, WorldSteps, TurnPorts, commands.Cog):
             if char_name != waiting_for:
                 # 다른 플레이어 발언 무시
                 return
-            asyncio.create_task(self._handle_waiting_response(session, message, char_name))
+            asyncio.create_task(self.submit(session, message.content, speaker=char_name,
+                                            reply_channel=message.channel, waiting_for=char_name))
         else:
             # 대기 상태 없음 → 기존 자발 발언 즉각 처리 (하위 호환)
-            asyncio.create_task(self._handle_player_message(session, message))
+            asyncio.create_task(self.submit(session, message.content, speaker=message.author.display_name,
+                                            reply_channel=message.channel))
 
     @commands.command(name="되감기")
     async def rewind_cmd(self, ctx, turn: str = None):

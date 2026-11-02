@@ -61,7 +61,7 @@ def _legacy_spelling(text: str) -> str:
         old = where.get(f"{pkg}.{leaf}")
         if old:
             text = _re.sub(r"(?<![\w.])" + _re.escape(alias) + r"\.", f"core.{old}.", text)
-    text = text.replace("self.rt.discord.", "discord.")
+    text = text.replace("self.rt.discord.", "discord.").replace("self.rt.embed(", "discord.Embed(")
     text = _re.sub(r"self\.rt\.(\w+View)\(", r"\1(", text)
     return text.replace("self.rt.", "core.")
 

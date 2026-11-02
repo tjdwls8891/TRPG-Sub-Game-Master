@@ -1,6 +1,6 @@
 """턴 엔진(indaim/turn) → 디스코드 어댑터 포트(리팩터링 T-5).
 
-엔진은 디스코드·core를 import하지 않는다. 엔진이 쓰는 어댑터 쪽 이름(디스코드 모듈·화면 클래스·송출/스트리밍·
+엔진은 디스코드·core를 import하지 않는다. 엔진이 쓰는 어댑터 쪽 이름(카드·채널 잠금·화면 클래스·송출/스트리밍·
 디스플레이·화자 카드·대기 안내)과 테스트가 core 수준에서 바꿔 끼우는 이름(저장·provider 재시도·판정 처리 등)은
 여기서 **호출 시점에** 해석한다 — core 수준 교체가 그대로 엔진에 닿는다. 이름 목록은 정확히 PORT_NAMES뿐이다
 (T-6 정본 전환에서 엔진 쪽 실제 구현·이벤트로 바뀌며 줄어든다).
@@ -19,7 +19,8 @@ CORE_NAMES = frozenset({
     "save_session_data", "select_bgm", "send_streamed", "session_flow", "speaker_card", "stream_text_to_channel",
     "write_log",
 })
-PORT_NAMES = VIEW_NAMES | CORE_NAMES | {"discord"}
+ADAPTER_NAMES = frozenset({"embed", "lock_channel"})
+PORT_NAMES = VIEW_NAMES | CORE_NAMES | ADAPTER_NAMES
 
 
 class Runtime:
@@ -27,10 +28,18 @@ class Runtime:
 
     __slots__ = ()
 
+    @staticmethod
+    def embed(**kw):
+        """카드(디스코드 Embed) — 엔진은 제목·본문·색만 넘긴다."""
+        import discord
+        return discord.Embed(**kw)
+
+    @staticmethod
+    async def lock_channel(channel):
+        """게임 채널 잠금(결말 뒤) — 모두에게 쓰기 금지."""
+        await channel.set_permissions(channel.guild.default_role, send_messages=False)
+
     def __getattr__(self, name):
-        if name == "discord":
-            import discord
-            return discord
         if name in VIEW_NAMES:
             from indaim.adapters.discord import gm_views
             return getattr(gm_views, name)
