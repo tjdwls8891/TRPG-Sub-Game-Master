@@ -1,12 +1,11 @@
-"""자동 GM 설정 상수 — 모델·재시도·반복 한도·결과 표식·고정 블록(cogs/gm.py에서 옮김)."""
-import core
+"""자동 GM 설정 상수 — 모델·재시도·반복 한도·결과 표식·고정 블록(adapters/discord/gm_config.py에서 옮김 — 값 동일)."""
 import os
 
-
-
-JUDGMENT_MODEL = core.DEFAULT_MODEL
+from indaim.ai import cache as _cache
+from indaim.turn import commit_coordinator as _commit_coordinator
+JUDGMENT_MODEL = _cache.DEFAULT_MODEL
 JUDGMENT_MAX_RETRIES = 2
-EXTRACTION_MODEL = core.DEFAULT_MODEL
+EXTRACTION_MODEL = _cache.DEFAULT_MODEL
 EXTRACTION_MAX_RETRIES = 2
 EXTRACTION_THINKING_BUDGET = int(os.getenv("EXTRACTION_THINKING_BUDGET", "512"))
 GM_LOGIC_MAX_RETRIES = 2
@@ -22,7 +21,7 @@ WORLD_REACTION_AUTHORITY_BLOCK = (
     "현재 장면 인물 정본에 근거가 있을 때만 사실로 지시한다. 근거가 없으면 확정하지 말고 PC가 실제로 지각한 것만 쓴다.\n"
     "· 판정·관찰로 이미 확인된 결론(직전 장면)을 새 근거 없이 뒤집지 말 것.\n"
 )
-_RETRY_MODE_PREPARATION = core.commit_coordinator.RETRY_MODE_PREPARATION
+_RETRY_MODE_PREPARATION = _commit_coordinator.RETRY_MODE_PREPARATION
 from indaim.turn.outcomes import (  # noqa: F401,E402 — 결과 표식(같은 이름 유지)
     _OUTCOME_DELIVERY_FAILED, _OUTCOME_EXTRACTION_FAILED, _OUTCOME_NOT_READY, _OUTCOME_NO_NARRATION,
     _OUTCOME_READY, _OUTCOME_SUPERSEDED)

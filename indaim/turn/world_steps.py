@@ -31,7 +31,7 @@ class WorldSteps:
         wt = getattr(tx, "world_turn", None)
         if wt is not None and _action_intent.is_definition_stale(wt.ctx.definition_revision, session):
             # R2: 정의 revision이 바뀌었다 — 옛 매니페스트·계획·경로 선택을 같은 시도 재진입에서도 재사용하지 않는다
-            _io.write_log(session.session_id, "api",
+            self.rt.write_log(session.session_id, "api",
                            f"[H05 정의 변경] 옛 WorldTurn 폐기 rev={wt.ctx.definition_revision} "
                            f"→ {getattr(session, 'definition_revision', None)}")
             tx.world_turn = wt = None
@@ -122,7 +122,7 @@ class WorldSteps:
                 intent, movement=_action_intent.MovementIntent(
                     _action_intent.MOVE_WANDER, pick[1] if pick else None, pick[0] if pick else None),
                 exit_choices=(), unresolved=tuple(u for u in intent.unresolved if u not in move_open))
-            _io.write_log(session.session_id, "api", f"[v7.22 출구 선택] pool={len(pool)} pick={pick}")
+            self.rt.write_log(session.session_id, "api", f"[v7.22 출구 선택] pool={len(pool)} pick={pick}")
         if not any(f in ("destination", "exit") for f, _c in intent.unresolved):
             wt.pending_move = None
 
@@ -146,7 +146,7 @@ class WorldSteps:
             item_facts=_items.current_facts(session),           # v7.17: 직전 커밋 턴의 사실만
             stats=_player_world.pc_stats(session, ctx.uid_of.get(ctx.lead_pc)),       # H07: 스탯 조건
             statuses=_player_world.pc_statuses(session, ctx.uid_of.get(ctx.lead_pc)),  # v7.48(E1): 상태 조건
-            pursuit=_pursuit.context(ctx.definition, _utils.get_merged_status_effects(session.scenario_data or {}),
+            pursuit=_pursuit.context(ctx.definition, self.rt.get_merged_status_effects(session.scenario_data or {}),
                                          session.statuses, self._pc_name(session, ctx)),   # v7.48(E3): 추적자
             combat_deaths=_turn_world.combat_deaths(                                    # v7.50(E6): 전투 쓰러짐
                 ctx.definition, session, (self._tx_judgment(session, transaction_id) or {}).get("roll_records") or ()),
@@ -159,7 +159,7 @@ class WorldSteps:
             wt.plan = self._plan_world(session, wt, transaction_id)
             wt.replan = lambda orders, _s=session, _w=wt, _t=transaction_id: self._plan_world(
                 _s, _w, _t, resolved_tie_orders=orders)
-            _io.write_log(session.session_id, "api",
+            self.rt.write_log(session.session_id, "api",
                            f"[H05 계획] status={wt.plan.status} reason={wt.plan.reason} "
                            f"outcome={json.dumps(wt.plan.outcome, ensure_ascii=False, default=str)[:600]}")
         return wt.plan
@@ -205,7 +205,7 @@ class WorldSteps:
             # P1(D2): 묘사 전에 같은 분 선후를 정한다 — 지시층위 선택(허용 키) 우선, 무효·미선택은 코드 결정
             plan, rec = _turn_world.resolve_plan_tie(plan, wt.replan, wt.tie_choice, wt.ctx.definition, wt.ctx)
             wt.plan = plan
-            _io.write_log(session.session_id, "api",
+            self.rt.write_log(session.session_id, "api",
                            f"[P1 선후] {json.dumps(rec, ensure_ascii=False)} → status={plan.status}")
         prep.world_turn = wt
         if plan.projected_world is not None:
@@ -248,7 +248,7 @@ class WorldSteps:
         if _implied:
             _raw = {**(_raw if isinstance(_raw, dict) else {}),
                     "discovery_taken": list((_raw or {}).get("discovery_taken") or []) + [_implied]}
-            _io.write_log(session.session_id, "api", f"[v7.14 발견 수거 키 복구] {_implied}")
+            self.rt.write_log(session.session_id, "api", f"[v7.14 발견 수거 키 복구] {_implied}")
             # 복구된 수거는 그 PC +1(item_changes) 한 건이 설명한다 — 같은 물리 수거를 두 번 세지 않는다
             _row = _man.discovery_of(_implied)
             _pc = self._pc_name(session, ctx)
@@ -271,7 +271,7 @@ class WorldSteps:
             discovery=wt.discovery, read_info_ids=item_plan.read_info_ids,
             pending=_turn_world.pending_signals(session), item_facts=item_plan.facts)
         wt.result = res
-        _io.write_log(session.session_id, "api",
+        self.rt.write_log(session.session_id, "api",
                        f"[H05 관찰] status={res.status} exposures={list(res.exposures)} "
                        f"extra={res.extra_minutes} pending={len(res.pending)} "
                        f"diag={json.dumps(res.diagnostics, ensure_ascii=False, default=str)[:600]}")

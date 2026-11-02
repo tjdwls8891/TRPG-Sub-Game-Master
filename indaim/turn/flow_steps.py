@@ -1,16 +1,24 @@
-"""자동 턴 진행 단계 중 디스코드·provider를 직접 쓰지 않는 것(세계 계획·관찰·추출 준비·커밋 효과 등) — GMCog 믹스인.
+"""자동 턴 진행 단계 — 라운드·더빙·대기 해제·준비 합류·커밋·되감기·재서술·서사 계획(GMCog 믹스인).
 
-cogs/gm.py에서 본문 그대로 옮겼다(core 공개 이름 공간 사용). 턴 서비스(indaim/turn)로 하나씩 옮길 후보다."""
+리팩터링 T-5: adapters/discord/turn_steps.py에서 본문 그대로 옮겼다(포트 self.rt — turn/service.py와 같다)."""
 from __future__ import annotations
 
 import re
 import json
 import copy
 import dataclasses
-import core
-
 from indaim.turn.brief import _clean_proceed_instruction
-from indaim.adapters.discord.gm_config import _OUTCOME_DELIVERY_FAILED, _OUTCOME_EXTRACTION_FAILED, _OUTCOME_NOT_READY, _OUTCOME_NO_NARRATION, _OUTCOME_READY, _OUTCOME_SUPERSEDED
+from indaim.turn.config import _OUTCOME_DELIVERY_FAILED, _OUTCOME_EXTRACTION_FAILED, _OUTCOME_NOT_READY, _OUTCOME_NO_NARRATION, _OUTCOME_READY, _OUTCOME_SUPERSEDED
+from indaim.app import constants as _constants
+from indaim.app import logs as _logs
+from indaim.narrative import irregular_npc as _irregular_npc
+from indaim.narrative import voice_profile as _voice_profile
+from indaim.rules.items import items as _items
+from indaim.turn import commit_coordinator as _commit_coordinator
+from indaim.turn import turn_history as _turn_history
+from indaim.turn import turn_preparation as _turn_preparation
+from indaim.turn import turn_transaction as _turn_transaction
+from indaim.turn import turn_world as _turn_world
 
 
 class TurnSteps:
@@ -40,17 +48,17 @@ class TurnSteps:
         이 턴 트랜잭션의 비용 멤버로 claim해 같은 Settlement로 정산한다(판단층위 ASK 비용과 같은 귀속).
         트랜잭션이 없는 안내(라운드 차례 안내 등)는 정산 귀속이 없어 더빙하지 않는다.
         """
-        on, live, _r = core.media_control.tts_status(session)
+        on, live, _r = self.rt.media_control.tts_status(session)
         if not (on and live) or not lines or transaction_id is None:
             return
         game_cog = self.bot.get_cog("GameCog")
         if game_cog is None or not hasattr(game_cog, "_synthesize_and_enqueue"):
             return
-        VP = core.voice_profile
+        VP = _voice_profile
         items = []
         for t in lines:
             if kind == "master":
-                txt = core.clean_text_for_tts(t)
+                txt = self.rt.clean_text_for_tts(t)
                 if txt:
                     items.append((VP.master_voice(session), VP.style_for(VP.KIND_MASTER), txt))
             else:
@@ -65,10 +73,10 @@ class TurnSteps:
             print(f"[TTS] 진행자 안내 더빙 실패(진행 유지): {type(e).__name__}: {e}")
             return
         if dub.get("cost", 0) > 0:
-            core.accrue(session, dub["cost"], dub.get("usd"))
+            self.rt.accrue(session, dub["cost"], dub.get("usd"))
             session.turn_cost_log = list(getattr(session, "turn_cost_log", None) or []) + [{
                 "label": f"TTS {'진행자 안내' if kind == 'master' else 'NARRATE'}({dub['enqueued']}/{dub['total']})",
-                "cost": dub["cost"], "in": dub["in"], "cached": 0, "out": dub["out"], "model": core.TTS_MODEL}]
+                "cost": dub["cost"], "in": dub["in"], "cached": 0, "out": dub["out"], "model": _constants.TTS_MODEL}]
 
 
 
@@ -81,14 +89,6 @@ class TurnSteps:
 
 
 
-    @staticmethod
-    def _revealed_identity_ids(session, prep, actor_ids, kind) -> tuple:
-        """P3 G3: 식별 후보 중 본문에서 실제 공개가 확인된 InfoId만 정본 인지로 — 이미 아는 것은 그대로(멱등)."""
-        if not core.speaker_card.card_world(session):
-            return ()
-        ids = core.speaker_card.identity_info_ids(core.speaker_card.config_of(session.scenario_data), actor_ids, kind)
-        shown = set(getattr(prep, "identity_reveals", None) or {})
-        return tuple(i for i in ids if i in shown)
 
     async def _release_turn_processing(self, session, prep) -> None:
         """자동 턴이 보유한 처리 잠금·채팅 잠금을 배리어/continuation 이후 해제한다."""
@@ -110,7 +110,7 @@ class TurnSteps:
         try:
             self._process_world_observation(session, prep, plan, master_ch)
             return None
-        except core.items.ItemContractError as e:
+        except _items.ItemContractError as e:
             return str(e)
 
     async def _join_after_exception(self, session, prep) -> str:
@@ -123,16 +123,16 @@ class TurnSteps:
             prep.close_cost_membership()
         except Exception as e:
             prep.violations.append(f"cost_close:{e}")
-        if not prep.matches(core.turn_transaction.get_active_transaction(session)):
+        if not prep.matches(_turn_transaction.get_active_transaction(session)):
             return _OUTCOME_SUPERSEDED
         return _OUTCOME_NOT_READY if prep.narration is not None else _OUTCOME_NO_NARRATION
 
     async def _join_and_ready(self, session, prep) -> str:
         """모든 준비 작업을 합류시키고 배리어 결과를 판정한다(S6/S7)."""
-        TP = core.turn_preparation
+        TP = _turn_preparation
         await prep.join()
         prep.seal()
-        if not prep.matches(core.turn_transaction.get_active_transaction(session)):
+        if not prep.matches(_turn_transaction.get_active_transaction(session)):
             # 더 새로운 시도가 현재 — 결과는 어떤 배리어도 만족하지 못하며 흐름을 소유하지 않는다.
             try:
                 prep.close_cost_membership()
@@ -165,7 +165,7 @@ class TurnSteps:
                           f"cost_events={len(proof.frozen_cost_event_ids)} "
                           f"canonical_unchanged={proof.canonical_unchanged}")
                     return _OUTCOME_READY
-                core.logs.event("turn", "READY 불가", level="WARN", session=session,
+                _logs.event("turn", "READY 불가", level="WARN", session=session,
                                 data={"code": "READY_REJECTED", "tx": prep.transaction_id, "reasons": list(reasons or ())})
                 prep.failure_stage = "READY_PREDICATE"
                 outcome = _OUTCOME_NOT_READY
@@ -179,7 +179,7 @@ class TurnSteps:
 
     async def _commit_ready_turn(self, session, prep, *, state_before=None):
         """READY_TO_COMMIT 시도를 단일 커밋 owner(CommitCoordinator)로 넘긴다."""
-        coord = core.commit_coordinator.CommitCoordinator(self.bot)
+        coord = _commit_coordinator.CommitCoordinator(self.bot)
         try:
             return await coord.commit_ready_turn(
                 session, prep, apply_effects=self._apply_commit_effects,
@@ -190,8 +190,8 @@ class TurnSteps:
             session.commit_recovery = {"transaction_id": prep.transaction_id,
                                        "status": "PENDING", "stage": "COORDINATOR_EXCEPTION",
                                        "error": f"{type(e).__name__}: {e}"}
-            return core.commit_coordinator.CommitResult(
-                core.commit_coordinator.CommitOutcome.RECOVERY_PENDING,
+            return _commit_coordinator.CommitResult(
+                _commit_coordinator.CommitOutcome.RECOVERY_PENDING,
                 reason="COORDINATOR_EXCEPTION", error=str(e))
 
     async def _apply_commit_effects(self, session, prep, derived) -> None:
@@ -205,14 +205,14 @@ class TurnSteps:
         # WP-D(D-D1): 이 경로의 정본 변이 예외는 삼키지 않는다 — CommitCoordinator까지
         #   전파되어 롤백 스냅샷이 전체 precommit 상태를 복원한다(영속 전 실패). 파생 출력
         #   (Discord/통계)은 derived 기술자일 뿐이며 COMMITTED 이후에만 방출·실패한다.
-        TP = core.turn_preparation
+        TP = _turn_preparation
         # WP-F: 커밋된 ROLL 성장의 확정 알림(CANONICAL_GAME_EVENT) — 성장은 코디네이터가
         #   이미 정본에 적용했다. derived 로만 쌓여 durable COMMITTED 이후 송출 의도와 함께 나간다.
         # P1(#1): 본문 전달 대기 — 관찰 처리 결과(이번 본문이 전하지 못한 신호 · 지난 대기 중 미전달분)로 교체.
         #   세계 연산과 같은 커밋 단위(롤백 스냅샷·strict 저장 안). 동적 세계 턴만 쓴다.
         _wt = getattr(prep, "world_turn", None)
         _res = getattr(_wt, "result", None) if _wt is not None else None
-        if _res is not None and _res.status == core.turn_world.TW_READY:
+        if _res is not None and _res.status == _turn_world.TW_READY:
             session.world_pending_signals = [dict(r) for r in _res.pending]
         if derived is not None:
             for _line in list(getattr(prep, "growth_notices", None) or []):
@@ -260,21 +260,21 @@ class TurnSteps:
     async def history_rewind(self, session, target: int) -> dict:
         """모든 되감기 입구(!되감기·디스플레이·rewind:one)의 단일 어댑터."""
         async with self._lock_for(session):
-            core.turn_history.try_flush(session)        # E-E2 보전 매핑 먼저 인덱스로
-            result = await core.turn_history.rewind(self.bot, session, target)
+            _turn_history.try_flush(session)        # E-E2 보전 매핑 먼저 인덱스로
+            result = await _turn_history.rewind(self.bot, session, target)
             if not result.get("ok"):
                 return result
             # E-E2: REWIND 이벤트에 실린 durable 정리 부채를 실행(실패 시 부채 유지·재시도)
             result["removed_messages"] = await self._drain_history_cleanup(session)
         try:
-            await core.refresh_display(self.bot, session, reason="rewind")
+            await self.rt.refresh_display(self.bot, session, reason="rewind")
         except Exception as e:
             print(f"[디스플레이] 되감기 갱신 실패: {e}")
         return result
 
     async def _fail_rerender_before_narration(self, session, tid, master_ch) -> None:
         """묘사 이전 실패 — 교체 시도를 FAILED_SYSTEM(청구 0)으로 종결하고 이전 선택 유지."""
-        TP = core.turn_preparation
+        TP = _turn_preparation
         prep = TP.get_preparation(session, tid)
         if prep is not None:
             try:
@@ -284,13 +284,13 @@ class TurnSteps:
             except Exception as e:
                 prep.violations.append(f"cost_close:{e}")
             prep.phase = TP.PREP_FAILED
-        core.turn_transaction.finalize(
-            session, tid, core.turn_transaction.TurnStatus.FAILED_SYSTEM,
+        _turn_transaction.finalize(
+            session, tid, _turn_transaction.TurnStatus.FAILED_SYSTEM,
             failure_stage="RERENDER_INSTRUCTION",
-            failure_code=core.turn_transaction.FailureCode.INSTRUCTION_PROVIDER_FAILURE)
+            failure_code=_turn_transaction.FailureCode.INSTRUCTION_PROVIDER_FAILURE)
         if prep is not None:
             await self._settle_failed_turn(session, prep, master_ch)
-        if core.turn_history.rerender_op_for(session.session_id, tid):
+        if _turn_history.rerender_op_for(session.session_id, tid):
             await self._abort_rerender(session, master_ch)
 
     def _round_eligible(self, session) -> bool:
@@ -300,7 +300,7 @@ class TurnSteps:
         cap = getattr(session, "gm_turn_cap", None)
         if cap is not None and session.gm_turns_done >= cap:
             return False
-        if core.auto_cost_cap_reached(self.bot, session):   # WP-G: CostLedger 기준 운영 예산
+        if self.rt.auto_cost_cap_reached(self.bot, session):   # WP-G: CostLedger 기준 운영 예산
             return False
         return True
 
@@ -334,7 +334,7 @@ class TurnSteps:
         # WP-C(B-C2): 강제 PROCEED 결정의 지시효과(quest_choice/intended_case/info_access)도
         #   기존 단일 owner로 스테이징한다(유실 금지). 정본 적용은 READY 이후에만.
         if transaction_id is not None:
-            core.turn_preparation.stage_instruction_effects(
+            _turn_preparation.stage_instruction_effects(
                 session, {**decision, "action": "PROCEED"}, transaction_id=transaction_id)
         return _clean_proceed_instruction(decision.get("proceed_instruction") or fallback)
 
@@ -345,8 +345,8 @@ class TurnSteps:
         생성)를 정본 변경 없이 투영 등록부에서 계산한다. 자식은 부모(배정) 작업이
         끝나기 전에 등록되므로 배리어 합류가 누락하지 않는다.
         """
-        TP = core.turn_preparation
-        IRR = core.irregular_npc
+        TP = _turn_preparation
+        IRR = _irregular_npc
         turn = plan.registrations[0]["turn"] if plan.registrations else (
             prep.staged_log["turn_no"] if isinstance(prep.staged_log, dict)
             else getattr(session, "turn_count", 0))
@@ -395,8 +395,8 @@ class TurnSteps:
             attempt=prep.attempt, preparation=prep)
         if candidate is None:
             return None
-        if (not prep.matches(core.turn_transaction.get_active_transaction(session))
-                or core.turn_preparation.superseded_by_newer_attempt(
+        if (not prep.matches(_turn_transaction.get_active_transaction(session))
+                or _turn_preparation.superseded_by_newer_attempt(
                     session, logical_turn=prep.logical_turn, attempt=prep.attempt)):
             candidate.rejected_stale = True
             print(f"[서사설계/{session.session_id}] stale 재계획 준비 폐기")
@@ -454,7 +454,7 @@ class TurnSteps:
                                        derived=None) -> bool:
         """정규화 재계획 후보를 stale/멱등 검사 후 호환 적용한다(단일 적용 규칙)."""
         # stale guard(§26/§38): 이 재계획을 일으킨 시도보다 더 새로운 시도가 활성이면 폐기.
-        if core.turn_preparation.superseded_by_newer_attempt(
+        if _turn_preparation.superseded_by_newer_attempt(
                 session, logical_turn=logical_turn, attempt=attempt):
             candidate.rejected_stale = True
             print(f"[서사설계/{session.session_id}] stale 재계획 폐기 — 더 새로운 논리 시도 활성 "
@@ -463,7 +463,7 @@ class TurnSteps:
 
         # 멱등 guard: 같은 (원인 시도, 사유, 모드) 재계획은 canonical에 한 번만 적용.
         #   검사와 기록 사이에 await가 없으므로 중복 태스크가 동시에 도착해도 한 번만 통과.
-        key = core.turn_preparation.narrative_replan_key(candidate)
+        key = _turn_preparation.narrative_replan_key(candidate)
         applied_keys = getattr(session, "_narrative_replan_applied", None)
         if applied_keys is None:
             applied_keys = session._narrative_replan_applied = []

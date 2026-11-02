@@ -254,9 +254,8 @@ LEGACY_EXTERNAL_IMPORTS = {("indaim/adapters/discord/session_flow.py", "cogs.ses
 # cogs/gm.py에서 본문 그대로 옮긴 GM cog 조각 — 옛 core 공개 이름 공간을 그대로 쓴다(테스트가 core 수준 이름을
 #   바꿔 끼우므로). T-6 정본 전환에서 턴 서비스 호출로 바뀌며 사라진다. 정확히 이 목록.
 GM_COG_FACADE_IMPORTS = {
-    ("indaim/adapters/discord/gm_config.py", "core"), ("indaim/adapters/discord/gm_views.py", "core"),
-    ("indaim/adapters/discord/gm_views.py", "core.display"), ("indaim/adapters/discord/turn_flow.py", "core"),
-    ("indaim/adapters/discord/turn_steps.py", "core"),
+    ("indaim/adapters/discord/gm_views.py", "core"), ("indaim/adapters/discord/gm_views.py", "core.display"),
+    ("indaim/adapters/discord/runtime.py", "core"),
 }
 
 
@@ -305,3 +304,14 @@ def test_engine_layers_do_not_know_discord():
                 elif m.startswith("indaim.adapters"):
                     found.add((rel, m))
     assert found == LEGACY_ADAPTER_COUPLING
+
+
+def test_turn_engine_reaches_adapter_only_through_port():
+    """턴 엔진(indaim/turn)이 어댑터에 닿는 길은 포트 self.rt 하나이고, 쓰는 이름 = 포트 이름 목록(정확히 같음 —
+    늘면 목록을 고쳐야 하고, 쓰지 않는 이름은 남기지 않는다). T-6에서 엔진 쪽 구현·이벤트로 바뀌며 줄어든다."""
+    import re as _re
+    from indaim.adapters.discord.runtime import PORT_NAMES
+    used = set()
+    for f in sorted((ROOT / "indaim" / "turn").rglob("*.py")):
+        used |= set(_re.findall(r"self\.rt\.([A-Za-z_]\w*)", f.read_text(encoding="utf-8")))
+    assert used == set(PORT_NAMES)

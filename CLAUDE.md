@@ -132,7 +132,7 @@ python main.py
 
 | 파일 | 줄 | 명령어 |
 |---|---|---|
-| `gm.py` | 444 | `!자동` 그룹(시작·중단·상태·개입·원장·턴제한·비용제한), `!되감기` — 턴 진행은 믹스인(T-5: `indaim/adapters/discord/turn_flow.py`·`turn_steps.py`·`gm_views.py`·`gm_config.py` 본문 그대로 이동 + 세계 단계(디스코드 무관) `indaim/turn/world_steps.py` · `!리로드 gm`은 명령어 층만 다시 읽는다) |
+| `gm.py` | 444 | `!자동` 그룹(시작·중단·상태·개입·원장·턴제한·비용제한), `!되감기` — 턴 진행은 엔진 믹스인(T-5: `indaim/turn/service.py`·`flow_steps.py`·`world_steps.py`·`config.py` — 본문 그대로 이동, 디스코드·core import 없음, 어댑터 쪽 이름은 포트 `self.rt`(`indaim/adapters/discord/runtime.py` `PORT_NAMES`)로) + 화면 `indaim/adapters/discord/gm_views.py` · `!리로드 gm`은 명령어 층만 다시 읽는다 |
 | `game.py` | 1,566 | `!재생성` `!출력물` `!주사위` `!기억압축` `!노트` `!캐시노트` `!더빙테스트` (WP-G: 수동 `!진행`·`!수정` 은퇴) |
 | `character.py` | 1,253 | `!참가` `!설정` `!증감` `!외형` `!프로필` `!엔피씨` `!능력치` `!설정생성` `!캐릭터가져오기` |
 | `system.py` | 1,004 | `!명령어` `!배포` `!재시작` `!지급` **`!잉크`** **`!사용량`** `!스페이스` `!캐시` `!리로드` `!세션종료` `!채널정리` `!tts생성` `!세션이력` |
@@ -675,8 +675,8 @@ python3 -c "
 import ast, pathlib, re
 SKIP = {'_execute_proceed', '_call_gm_logic', '_resolve_irregular_npcs',
         '_next', '_begin_flow'}   # 다른 cog·뷰의 메서드를 정상 호출
-GM = ['cogs/gm.py'] + [f'indaim/adapters/discord/{n}.py' for n in
-      ('gm_config', 'gm_views', 'turn_steps', 'turn_flow')] + ['indaim/turn/world_steps.py']   # GMCog 믹스인 조각 = 한 구현(T-5)
+GM = ['cogs/gm.py', 'indaim/adapters/discord/gm_views.py', 'indaim/adapters/discord/runtime.py'] + [
+      f'indaim/turn/{n}.py' for n in ('service', 'flow_steps', 'world_steps', 'config', 'outcomes')]   # GMCog 믹스인 조각 = 한 구현(T-5)
 gm_src = '\n'.join(pathlib.Path(p).read_text(encoding='utf-8') for p in GM)
 bad = 0
 for f in sorted(pathlib.Path('.').rglob('*.py')):

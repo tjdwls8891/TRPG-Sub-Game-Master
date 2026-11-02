@@ -45,10 +45,25 @@ def legacy_rel(name_or_path: str) -> str:
     return name_or_path
 
 
-# GM cog 구현 = cogs/gm.py(명령어·리스너) + 본문 그대로 옮긴 믹스인·화면·상수(리팩터링 T-5).
-#   'cogs/gm.py'를 읽는 소스 스캔은 이 전체를 하나의 GM 구현으로 본다.
-GM_PARTS = ("cogs/gm.py", "indaim/adapters/discord/gm_config.py", "indaim/adapters/discord/gm_views.py",
-            "indaim/adapters/discord/turn_steps.py", "indaim/adapters/discord/turn_flow.py", "indaim/turn/world_steps.py")
+# GM cog 구현 = cogs/gm.py(명령어·리스너) + 본문 그대로 옮긴 믹스인·화면·설정(리팩터링 T-5).
+#   'cogs/gm.py'를 읽는 소스 스캔은 이 전체를 하나의 GM 구현으로 본다. 엔진으로 옮긴 조각은 core 대신
+#   어댑터 포트(self.rt.X)·정의 모듈 별칭(_mod.X)으로 같은 대상을 부르므로, 스캔용으로 옛 표기(core.X)로 되돌려 읽는다.
+GM_PARTS = ("cogs/gm.py", "indaim/adapters/discord/gm_views.py", "indaim/adapters/discord/runtime.py",
+            "indaim/turn/config.py", "indaim/turn/outcomes.py", "indaim/turn/service.py",
+            "indaim/turn/flow_steps.py", "indaim/turn/world_steps.py")
+
+
+def _legacy_spelling(text: str) -> str:
+    import re as _re
+    from indaim.legacy_map import MAP
+    where = {v: k for k, v in MAP.items()}
+    for pkg, leaf, alias in _re.findall(r"^from (indaim[\w.]*) import (\w+) as (_\w+)$", text, _re.M):
+        old = where.get(f"{pkg}.{leaf}")
+        if old:
+            text = _re.sub(r"(?<![\w.])" + _re.escape(alias) + r"\.", f"core.{old}.", text)
+    text = text.replace("self.rt.discord.", "discord.")
+    text = _re.sub(r"self\.rt\.(\w+View)\(", r"\1(", text)
+    return text.replace("self.rt.", "core.")
 
 
 def logical_rel(relative_path: str) -> str:
@@ -59,9 +74,9 @@ def logical_rel(relative_path: str) -> str:
 
 def source_of(relative_path: str) -> str:
     """저장소의 소스 파일을 읽는다. cwd와 무관하다. 'core/x.py'는 옮긴 실제 위치를 읽는다(legacy_rel),
-    'cogs/gm.py'는 GM 구현 전체(GM_PARTS)를 이어 붙여 읽는다."""
+    'cogs/gm.py'는 GM 구현 전체(GM_PARTS)를 이어 붙여 옛 표기로 읽는다."""
     if relative_path.replace("\\", "/") == "cogs/gm.py":
-        return "\n".join((pathlib.Path(REPO_ROOT) / p).read_text(encoding="utf-8") for p in GM_PARTS)
+        return "\n".join(_legacy_spelling((pathlib.Path(REPO_ROOT) / p).read_text(encoding="utf-8")) for p in GM_PARTS)
     return (pathlib.Path(REPO_ROOT) / legacy_rel(relative_path)).read_text(encoding="utf-8")
 
 

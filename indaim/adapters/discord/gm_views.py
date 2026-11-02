@@ -5,11 +5,8 @@ import asyncio
 import discord
 import core
 
-from indaim.adapters.discord.gm_config import _RETRY_MODE_PREPARATION
-
-
-class ExtractionProviderFailure(RuntimeError):
-    """v7.29: 추출 provider 호출·파싱이 결과를 내지 못함(재시도 소진·stale) — 응답 처리 실패와 구별한다."""
+from indaim.turn.config import _RETRY_MODE_PREPARATION
+from indaim.turn.outcomes import ExtractionProviderFailure, _set_roll_open  # noqa: F401 — 같은 이름 유지
 
 
 # ========== [GM 주사위 버튼 View] ==========
@@ -400,13 +397,6 @@ class ExtractionRetryView(discord.ui.View):
             await interaction.followup.send(
                 "⚠️ 이전 버전의 정리 요청을 폐기하는 저장에 실패했습니다. 차단은 유지되며 "
                 "게임 상태는 바뀌지 않았습니다. 잠시 후 다시 눌러 주십시오.", ephemeral=True)
-
-
-def _set_roll_open(session, transaction_id, value: bool) -> None:
-    """v7.33(F4): 판정 화면 열림 표식 — 같은 시도일 때만(낡은 화면이 새 시도를 건드리지 않음)."""
-    tx = core.turn_transaction.get_active_transaction(session)
-    if tx is not None and transaction_id is not None and tx.transaction_id == transaction_id:
-        tx.roll_open = value
 
 
 class RollContinueView(discord.ui.View):

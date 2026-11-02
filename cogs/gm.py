@@ -44,15 +44,16 @@ from prompts import (
 )
 from indaim.adapters.discord.gm_views import (  # noqa: F401 — 리팩터링 T-5: 옮긴 화면(같은 이름 유지)
     ExtractionProviderFailure, ExtractionRetryView, GMRollView, InfinityPlanButton, InfinityPlanView, OpenConfirmView, RerenderConfirmView, RewindConfirmView, RewindView, RollContinueView, _rerender_and_report, _set_roll_open)
-from indaim.adapters.discord.gm_config import (  # noqa: F401
+from indaim.turn.config import (  # noqa: F401
     COST_LOG_PREFIX, EXTRACTION_MAX_RETRIES, EXTRACTION_MODEL, EXTRACTION_THINKING_BUDGET, GATE_UNVERIFIABLE_NOTICE, GM_LOGIC_MAX_RETRIES, JUDGMENT_MAX_RETRIES, JUDGMENT_MODEL, MAX_ITERATIONS_PER_MESSAGE, WORLD_REACTION_AUTHORITY_BLOCK, _OUTCOME_DELIVERY_FAILED, _OUTCOME_EXTRACTION_FAILED, _OUTCOME_NOT_READY, _OUTCOME_NO_NARRATION, _OUTCOME_READY, _OUTCOME_SUPERSEDED, _RETRY_MODE_PREPARATION)
-from indaim.adapters.discord.turn_flow import TurnFlow
-from indaim.adapters.discord.turn_steps import TurnSteps
+from indaim.adapters.discord.runtime import TurnPorts
+from indaim.turn.flow_steps import TurnSteps
+from indaim.turn.service import TurnService
 from indaim.turn.world_steps import WorldSteps
 
 
 # ========== [GM Cog] ==========
-class GMCog(TurnFlow, TurnSteps, WorldSteps, commands.Cog):
+class GMCog(TurnService, TurnSteps, WorldSteps, TurnPorts, commands.Cog):
     """
     게임 채널의 플레이어 발언을 받아 AI가 GM 역할을 자동 수행하는 옵트인 모드.
 
