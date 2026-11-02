@@ -4,10 +4,12 @@
                   phase_entered_at, transition_ordinal, occurrence_ordinal}
   event.vars     저작 변수 + "resolution"(플레이어 명시 결단만, 번복 없음)
   event.history  [전이 기록] (보존 정책 K4는 사건 진행 이식 때)
+  world.pending_signals  [{signal_id, instance_id, cue, at_minute, scene_place, source_tx, exposes}] — 본문이 아직 전하지
+                 못한 관찰 신호(다음 커밋된 본문 '그사이'에 1회 · v7.21.1). 확정(settle)이 관찰 결과로 통째 교체한다.
 옛 사건 지역 값의 엔진 장부 키(인물 상태·파티·성장·물건 지급)는 vars가 아니다 — 각 주인 모듈의 효과가 된다.
 """
-from indaim.kernel import Component
-from indaim.kernel.components import APPEND_DEDUPE, SINGLE_VALUE, write
+from indaim.kernel import WORLD, Component, make_effect
+from indaim.kernel.components import APPEND_DEDUPE, DELETE, SINGLE_VALUE, write
 
 from .._common import keys, reject
 
@@ -128,8 +130,30 @@ def _append(view, e):
     return [write(e, (), APPEND_DEDUPE, a["entry"])]
 
 
+def _set_pending(view, e):
+    v = keys(e, ("value",))["value"]
+    if not isinstance(v, list) or not all(isinstance(r, dict) for r in v):
+        reject(e, "value는 객체 목록")
+    if not v:                                        # 빈 대기 = 컴포넌트 없음(옛 빈 목록과 같은 의미)
+        return [write(e, (), DELETE, None)] if view.stored_has(*e.address) else []
+    return [write(e, (), SINGLE_VALUE, v)]
+
+
 COMPONENTS = (
     Component("core", "event", "rules.events", {"create": _create, "transition": _transition, "lifecycle": _lifecycle}),
     Component("vars", "event", "rules.events", {"init": _vars_init, "set": _set, "resolve": _resolve}),
     Component("history", "event", "rules.events", {"init": _history_init, "append": _append}, default=[]),
+    Component("pending_signals", WORLD, "rules.events", {"set": _set_pending}),
 )
+
+
+def settle(view, inp: dict, *, effect_prefix: str) -> list:
+    """inp: pending = 관찰 처리 결과가 남긴 전달 대기 신호 목록(관찰이 READY일 때만 — 그 밖은 None: 대기 유지)."""
+    new = inp.get("pending")
+    if new is None:
+        return []
+    new = [dict(r) for r in new]
+    if new == (view.read(WORLD, "", "pending_signals") or []):
+        return []
+    return [make_effect(f"{effect_prefix}.events.pending", WORLD, "", "pending_signals", "set", {"value": new},
+                        cause="SETTLE", by="rules.events")]

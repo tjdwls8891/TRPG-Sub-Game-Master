@@ -376,3 +376,56 @@ def compare_observations(old, new) -> list:
         out.append(f"ops 다름(옛 {len(ao)} · 새 {len(bo)}) 첫 차이 #{i}: "
                    f"{(ao[i] if i < len(ao) else None)!r} ≠ {(bo[i] if i < len(bo) else None)!r}"[:600])
     return out
+
+
+def shadow_turn(pre_fields: dict, inputs: dict, post_fields: dict, *, tx: str, ops, game_keys) -> list:
+    """T-5 턴 그림자 — 커밋 한 번 전체: 변환된 턴 전 세계 위에 (세계 연산 번역 + 확정 훅 vitals·items·growth·party 효과)를
+    한 묶음으로 투영한 결과 ↔ 변환된 커밋 후 세계 — 모든 컴포넌트(정본 전환 T-6의 전제). 비면 일치."""
+    from indaim.kernel import View
+    from indaim.rules import growth, items, party, vitals
+    from indaim.rules.events import components as events
+    reg = registry()
+    pre_fields, post_fields = _with_names(pre_fields, post_fields)
+    pre = v4.convert(_fields(pre_fields), game_keys=game_keys)
+    names = v4._names(_fields(pre_fields))[0]
+    view = View(pre.world, reg, None)
+    effs = translate(ops or ())
+    if inputs.get("vitals") is not None:
+        effs += vitals.settle(view, {**inputs["vitals"], "names": names}, effect_prefix=f"{tx}.v")
+    if inputs.get("items") is not None:
+        effs += items.settle(view, {**inputs["items"], "names": names}, effect_prefix=f"{tx}.i")
+    if inputs.get("party") is not None:
+        effs += party.settle(view, {**inputs["party"], "names": names}, effect_prefix=f"{tx}.p")
+    if inputs.get("events") is not None:
+        effs += events.settle(view, inputs["events"], effect_prefix=f"{tx}.e")
+    g = inputs.get("growth")
+    if g:
+        pc_uid = next(iter(pre_fields.get("players") or {}), None)
+        pc_actor = next((a for a, r in (pre_fields.get("actor_registry") or {}).items()
+                         if r.get("kind") == "PC" and str(r.get("source_key")) == str(pc_uid)), None)
+        if pc_actor is not None:
+            effs += growth.settle(view, {**g, "names": names, "pc_uid": pc_uid, "pc_actor": pc_actor},
+                                  effect_prefix=f"{tx}.g")
+    STATS["turns"] = STATS.get("turns", 0) + 1
+    STATS["turn_effects"] = STATS.get("turn_effects", 0) + len(effs)
+    b = EffectBatch(batch_id=f"shadow.turn.{tx}", origin="PLAYER_TURN", base_version_id=None, definition_revision=None)
+    try:
+        b.extend(effs)
+        b.freeze()
+        res = project(pre.world, b, reg, None)
+    except KernelError as e:
+        return [f"번역·투영 오류: {e}"]
+    if not res.ok:
+        return [f"새 커널 충돌: {[c.message for c in res.conflicts]}"]
+
+    def flat(world):
+        w = compact(world, reg, None).to_dict()
+        out = {("world", "", c): v for c, v in (w.get("world") or {}).items()}
+        for kind, ents in (w.get("entities") or {}).items():
+            for eid, comps in ents.items():
+                for c, v in comps.items():
+                    out[(kind, eid, c)] = v
+        return out
+    want, got = flat(v4.convert(_fields(post_fields), game_keys=game_keys).world), flat(res.world)
+    return [f"{k}: 옛 {want.get(k)!r} ≠ 새 {got.get(k)!r}"[:400] for k in sorted(set(want) | set(got), key=str)
+            if want.get(k) != got.get(k)]

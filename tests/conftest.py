@@ -201,13 +201,17 @@ def _kernel_shadow(monkeypatch, request):
     orig_comp = _core.apply_normalized_companions
     seen = {}
 
+    tseen = {}
+
     def companions(session, norm):
         seen.setdefault("party", []).append(_copy.deepcopy(norm))
+        tseen.setdefault("party", []).append(_copy.deepcopy(norm))
         return orig_comp(session, norm)
 
     def turn_inputs(session, prep):
         r = orig_turn_inputs(session, prep)
         seen.setdefault("growth", []).append(_copy.deepcopy(r))
+        tseen.setdefault("growth_turn", []).append(_copy.deepcopy(r))
         return r
 
     def staged(session, prep):
@@ -215,6 +219,7 @@ def _kernel_shadow(monkeypatch, request):
             return orig_staged(session, prep)
         pre = _copy.deepcopy({f: getattr(session, f, None) for f in _v4.FIELDS})
         inp = {"events": _copy.deepcopy(prep.growth_events), "fail_counts": _copy.deepcopy(prep.growth_fail_counts)}
+        tseen.setdefault("growth_staged", []).append(_copy.deepcopy(inp))
         out = orig_staged(session, prep)
         if out:
             _check("growth", _sh.shadow_growth, pre, {"sd": session.scenario_data or {}, "staged": inp},
@@ -222,11 +227,15 @@ def _kernel_shadow(monkeypatch, request):
         return out
 
     def decide(merged, **kw):
+        if shadowing[0]:
+            return orig_decide(merged, **kw)
         seen.setdefault("vitals", []).append({"merged": merged, **_copy.deepcopy(kw)})
+        tseen.setdefault("vitals", []).append({"merged": _copy.deepcopy(merged), **_copy.deepcopy(kw)})
         return orig_decide(merged, **kw)
 
     def grants(session, rows, *, definition=None, pc_name=None):
         seen.setdefault("grants", []).append({"grants": _copy.deepcopy(rows), "definition": definition, "pc_name": pc_name})
+        tseen.setdefault("grants", []).append({"grants": _copy.deepcopy(rows), "definition": definition, "pc_name": pc_name})
         return orig_grants(session, rows, definition=definition, pc_name=pc_name)
 
     def plan(session, p):
@@ -234,6 +243,7 @@ def _kernel_shadow(monkeypatch, request):
                "scene_place": p.scene_place, "tx": p.transaction_id, "recipes": _copy.deepcopy(p.recipes)}
         if inside[0] or "no_kernel_shadow" in request.keywords:
             seen.setdefault("plan", []).append(row)
+            tseen.setdefault("plan", []).append(row)
             return orig_plan(session, p)
         # 커밋 밖(물건 단위 테스트의 직접 호출) — 그 자리에서 대조
         pre = _copy.deepcopy({f: getattr(session, f, None) for f in _v4.FIELDS})
@@ -246,12 +256,17 @@ def _kernel_shadow(monkeypatch, request):
         return {k: v for k, v in d.items() if v is not None}
     inside = [False]
 
+    shadowing = [False]
+
     def _check(kind, fn, *args, **kw):
+        shadowing[0] = True
         try:
             d = fn(*args, **kw)
         except Exception as e:  # noqa: BLE001
             import traceback
             d = [f"그림자 검사 예외 {type(e).__name__}: {e} {traceback.format_exc()[-700:]}"]
+        finally:
+            shadowing[0] = False
         if d:
             diffs.append((kind, d[:5]))
 
@@ -336,6 +351,38 @@ def _kernel_shadow(monkeypatch, request):
         return out
     monkeypatch.setattr(_twm, "process_observation", observe)
     monkeypatch.setattr(_tpm, "apply_staged_growth", staged)
+    # T-5: 턴 그림자 — 커밋 한 번 전체(세계 연산 + 확정 훅)를 한 묶음 커널 투영으로 재현해 모든 컴포넌트를 대조한다
+    import core.commit_coordinator as _ccm
+    orig_aim = _ccm.CommitCoordinator._apply_in_memory
+
+    async def apply_in_memory(self, session, prep, plan, *a, **kw):
+        if "no_kernel_shadow" in request.keywords or getattr(prep, "world_turn", None) is None:
+            return await orig_aim(self, session, prep, plan, *a, **kw)
+        pre = _copy.deepcopy({f: getattr(session, f, None) for f in _v4.FIELDS})
+        tseen.clear()
+        out = await orig_aim(self, session, prep, plan, *a, **kw)
+        post = {f: getattr(session, f, None) for f in _v4.FIELDS}
+        many = [k for k, v in tseen.items() if len(v) > 1]
+        if many:
+            diffs.append(("turn", [f"한 커밋에 같은 훅 입력이 여러 번 {many}"]))
+            return out
+        one = {k: v[0] for k, v in tseen.items()}
+        inputs = {"vitals": one.get("vitals"), "party": one.get("party"),
+                  "items": ({**(one.get("grants") or {}), "plan": one.get("plan")}
+                            if ("grants" in one or "plan" in one) else None)}
+        if one.get("growth_staged") or one.get("growth_turn"):
+            inputs["growth"] = {"sd": session.scenario_data or {}, "staged": one.get("growth_staged"),
+                                "turn": one.get("growth_turn")}
+        _res = getattr(prep.world_turn, "result", None)
+        inputs["events"] = {"pending": ([dict(r) for r in _res.pending]
+                                        if _res is not None and _res.status == _twm.TW_READY else None)}
+        batch = getattr(prep, "world_mutation_batch", None)
+        ops = batch.operations if (batch is not None and plan.plan_version >= 2) else ()
+        from indaim.rules import growth as _grw
+        _check("turn", _sh.shadow_turn, _defaults(pre), inputs, _defaults(post),
+               tx=str(prep.transaction_id), ops=ops, game_keys=_grw.game_keys(session.scenario_data or {}))
+        return out
+    monkeypatch.setattr(_ccm.CommitCoordinator, "_apply_in_memory", apply_in_memory)
     yield
     if "no_kernel_shadow" not in request.keywords:
         assert not diffs, f"새 커널 그림자 불일치 {len(diffs)}건: {diffs[:3]}"

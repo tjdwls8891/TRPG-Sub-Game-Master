@@ -101,3 +101,18 @@ def test_growth_settle_applies_staged_roll_growth_and_fail_counts():
                              want, tx="t")
     assert d == []
     assert want["players"]["7"]["profile"]["근력"] == 13 and want["stat_fail_counts"] == {"갑:근력": 0, "갑:민첩": 1}
+
+
+def test_pending_signals_replace_and_clear():
+    """events 소유 world.pending_signals — 통째 교체, 빈 목록 = 컴포넌트 없음(옛 빈 목록), 객체 목록만."""
+    from indaim.rules.events import components as EVC
+    sig = [{"signal_id": "s", "instance_id": "e1", "cue": "소리", "at_minute": T0, "scene_place": "p", "exposes": []}]
+    w = run([(K.WORLD, "", "pending_signals", "set", {"value": sig})]).world
+    view = K.View(w, REG, None)
+    assert view.read(K.WORLD, "", "pending_signals") == sig
+    assert EVC.settle(view, {"pending": sig}, effect_prefix="t") == []          # 같으면 효과 없음
+    assert EVC.settle(view, {"pending": None}, effect_prefix="t") == []         # 관찰 READY 아님 = 대기 유지
+    w2 = run([(K.WORLD, "", "pending_signals", "set", {"value": []})], w).world
+    assert not K.View(w2, REG, None).stored_has(K.WORLD, "", "pending_signals")
+    assert run([(K.WORLD, "", "pending_signals", "set", {"value": []})]).ok   # 없는 것을 비우기 = no-op
+    assert not run([(K.WORLD, "", "pending_signals", "set", {"value": ["x"]})]).ok
