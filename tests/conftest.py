@@ -66,6 +66,12 @@ def _legacy_spelling(text: str) -> str:
     return text.replace("self.rt.", "core.")
 
 
+def prompts_source() -> str:
+    """층위별로 나눈 프롬프트 패키지(indaim/content/prompts/)의 원문 전체(T-5) — 예전 prompts.py 원문 스캔용."""
+    pkg = pathlib.Path(REPO_ROOT) / "indaim" / "content" / "prompts"
+    return "\n".join(p.read_text(encoding="utf-8") for p in sorted(pkg.glob("*.py")))
+
+
 def logical_rel(relative_path: str) -> str:
     """GM 구현 조각(GM_PARTS) 경로는 'cogs/gm.py'로 읽는다 — 호출자·소유자 스캔의 파일 이름 정규화."""
     rel = relative_path.replace("\\", "/")
@@ -77,6 +83,8 @@ def source_of(relative_path: str) -> str:
     'cogs/gm.py'는 GM 구현 전체(GM_PARTS)를 이어 붙여 옛 표기로 읽는다."""
     if relative_path.replace("\\", "/") == "cogs/gm.py":
         return "\n".join(_legacy_spelling((pathlib.Path(REPO_ROOT) / p).read_text(encoding="utf-8")) for p in GM_PARTS)
+    if relative_path.replace("\\", "/") in ("prompts.py", "indaim/content/prompts.py"):
+        return prompts_source()
     return (pathlib.Path(REPO_ROOT) / legacy_rel(relative_path)).read_text(encoding="utf-8")
 
 

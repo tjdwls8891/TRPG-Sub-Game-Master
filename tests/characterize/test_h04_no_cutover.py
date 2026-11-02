@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import ast
 import os
+import pathlib
 
 import pytest
 
@@ -31,7 +32,7 @@ def _engine_file(p) -> bool:
 
 
 def _files():
-    out = [os.path.join(REPO_ROOT, "main.py"), os.path.join(REPO_ROOT, "prompts.py"), os.path.join(REPO_ROOT, "indaim", "content", "prompts.py")]
+    out = [os.path.join(REPO_ROOT, "main.py"), os.path.join(REPO_ROOT, "prompts.py"), *sorted(str(x) for x in pathlib.Path(REPO_ROOT, "indaim", "content", "prompts").glob("*.py"))]
     out += prod_py_files("core", "cogs")
     return out
 

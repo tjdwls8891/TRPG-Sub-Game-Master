@@ -14,7 +14,7 @@ import core
 from core import cache as CA
 from core import prompt_census as PC
 from core import world_lifecycle as WL
-from tests.conftest import PLAYER_UID, REPO_ROOT
+from tests.conftest import PLAYER_UID, REPO_ROOT, prompts_source
 from tests.fakes.genai_fakes import FakeGenAIResponse
 from tests.policy.test_h05bc_turn_wiring import H05Provider, _fund, _json, _usage, extraction
 from tests.policy.test_ready_barrier import rig  # noqa: F401
@@ -111,8 +111,7 @@ def test_narration_directive_is_genre_neutral_and_wuxia_rules_moved():
     narr = core.PromptBuilder.build_prompt(s, "지시")
     for w in ("문파", "사매", "정파", "검 두 자루", "레비", "강철수"):
         assert w not in narr, w
-    with open(os.path.join(REPO_ROOT, "indaim", "content", "prompts.py"), encoding="utf-8") as f:
-        src = f.read()
+    src = prompts_source()
     assert "@대사:레비" not in src and "@대사:강철수" not in src
 
 
