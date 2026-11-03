@@ -798,13 +798,13 @@ class SessionCog(commands.Cog):
         except Exception:
             pass
 
-        # 인트로가 끝나면 자동 GM이 서사 계획을 세우고 첫 라운드를 연다.
+        # 인트로가 끝나면 자동 GM이 첫 라운드를 연다.
         # 이것이 없으면 세션은 열렸는데 GM이 아무것도 묻지 않는다.
         if getattr(session, "gm_active", False):
             gm_cog = self.bot.get_cog("GMCog")
             if gm_cog:
                 import asyncio
-                asyncio.create_task(gm_cog._init_narrative_and_start(session))
+                asyncio.create_task(gm_cog._start_round(session))
             else:
                 print("[인트로] GMCog를 찾지 못해 라운드를 시작하지 못했습니다")
 

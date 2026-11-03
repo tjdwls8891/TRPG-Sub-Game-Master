@@ -75,12 +75,6 @@ class TRPGSession:
         # 가장 최근 캐시 업로드 시점의 룰북 원본 텍스트 (패딩 제외). !캐시 출력 디버그용.
         self.cache_text = ""
 
-        # ========== [GM 서사 계획] ==========
-        # NOTE: GM 전용. 사건(event) 단위의 서사 계획을 저장한다.
-        # 구조: {"current_event": {...}, "next_event": {...}, "plan_version": int, "last_planned_turn": int}
-        # !자동 시작 시 수립, PROCEED 완료 후 completed/deviated 평가 시 재수립.
-        self.narrative_plan = {}
-
         # ========== [세계 물리 타임라인 (방안 B)] ==========
         # NOTE: GM 전용. PROCEED 완료 후 AI 출력에서 추출하여 갱신되는 세계 상태.
         # 세력 배치·지역 규칙 등 고차원 개연성 판단의 기준 데이터로 활용.
@@ -129,15 +123,7 @@ class TRPGSession:
         self.last_compressed_turn = 0
         # 누적 압축 횟수 — 로우 플랜의 저비용 모델 전환 판정에 사용
         self.compression_count = 0
-        # 도달한 엔딩 결과. 플랜 선택 전까지 유지된다.
-        self.pending_ending = ""
-        # 메인라인 해금 알림 여부 — 중복 알림 방지
-        self.main_unlocked_notified = False
-        # 인피니티 세션 플랜 — 메인 클리어 후 선택. 빈 값이면 미선택.
-        self.infinity_plan = ""
-        # 퀘스트 진행 상태 — {active, cleared, known_secrets, occurrences}
-        self.quest_state = {}
-        # 플레이어 소속 세력 — 퀘스트 필터에 사용
+        # 플레이어 소속 세력 — 사건 결과 파생 호환 뷰(표시용)
         self.player_faction = ""
         # 프로필 생성 AI 호출 누적 비용(원). 무료 제공이므로 차감하지 않고
         # 운영 파악용으로만 집계한다.
@@ -172,8 +158,6 @@ class TRPGSession:
         self.master_gender = "male"     # P2: 진행자 성별 표현(male|female)
         # 기억 압축 방식 — normal(기본) | high | low | ultra
         self.memory_plan = "normal"
-        # 서사설계 유형 — quest(기본) | free(풀자유). 퀘스트 시스템 도입 시 사용
-        self.narrative_mode = "quest"
         # 세션 종류 — solo(기본) | multi | master.
         # 마스터 채널은 모든 세션에 생성되므로 채널 유무로는 구분할 수 없다.
         self.session_kind = "solo"
@@ -236,7 +220,6 @@ class TRPGSession:
         self.extraction_pending = False
         self.extraction_retry_ctx = {}   # 재시도용 묘사 텍스트 등
         self.last_extraction = {}        # 최근 추출 결과 (디스플레이·BGM 판단 입력)
-        self.info_ledger = []                  # 정보 인지 원장: 비공개·플롯 정보별 {info, known_by, suspected_by, origin, leaks} 누적 (지시층위가 갱신)
         self.cache_model = None                # 현재 활성 캐시에 사용된 모델 ID (캐시 생성 후 설정)
 
         # ========== [멀티플레이어 자동진행 상태 (#22)] ==========

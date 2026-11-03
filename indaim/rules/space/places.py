@@ -342,66 +342,6 @@ def build_place_block(session, *, static_npcs=None) -> str:
     return "\n".join(lines) + "\n"
 
 
-def build_move_hint(session, goal_text: str) -> str:
-    """ASK용 이동 안내 재료.
-
-    판단층위는 캐시를 읽지 않아 세계관을 모른다. 코드가 경로를 계산해
-    사용자 프롬프트에 직접 넣어야 한다.
-
-    Returns:
-        안내가 필요 없으면 빈 문자열.
-    """
-    places = load_places(getattr(session, "scenario_data", {}) or {})
-    if not places:
-        return ""
-    if static_npcs is None:
-        static_npcs = not getattr(session, "world_static_npcs_suppressed", False)
-
-    tl = getattr(session, "world_timeline", {}) or {}
-    cur = resolve(places, tl.get("current_location") or "")
-    if not cur:
-        return ""
-
-    goal = resolve(places, goal_text) if goal_text else None
-
-    # 목적지 불명 — 갈 수 있는 곳을 제시하며 방향을 묻게 한다.
-    if not goal:
-        near = reachable_from(places, cur)
-        if not near:
-            return ""
-        near = [n for n in near if is_visible_from(places, n, cur)]
-        items = []
-        for n in near[:8]:
-            mark = "" if is_visited(session, n) else "(미방문)"
-            items.append(f"{format_name(places, n, cur)}{mark}")
-        return (
-            "\n[이동 안내 — 목적지 불명]\n"
-            f"현재 위치: {cur}\n"
-            f"갈 수 있는 곳: {', '.join(items)}\n"
-            "어느 쪽으로 갈지 묻되, 특정 방향을 권하지 말 것.\n"
-        )
-
-    if can_move(places, cur, goal):
-        return ""   # 한 턴에 갈 수 있다 — 안내 불필요
-
-    path = route(places, cur, goal)
-    if not path:
-        return (
-            "\n[이동 안내 — 경로 없음]\n"
-            f"현재 위치: {cur} / 선언된 목적지: {goal}\n"
-            "그곳으로 가는 길을 알지 못한다는 점을 알리고 되물을 것.\n"
-        )
-
-    return (
-        "\n[이동 안내 — 한 턴에 갈 수 없는 거리]\n"
-        f"현재 위치: {cur}\n"
-        f"선언된 목적지: {goal}\n"
-        f"경로: {' → '.join(path)}\n"
-        "위 경로를 자연스러운 설명으로 바꿔 전하고, 출발할지 물을 것.\n"
-        "거리와 소요는 경로의 길이에 맞춰 맥락에 어울리게 표현한다.\n"
-    )
-
-
 def hops_between(session, start: str, goal: str) -> int:
     """경로 길이. 시간 경과 산출에 쓴다."""
     places = load_places(getattr(session, "scenario_data", {}) or {})

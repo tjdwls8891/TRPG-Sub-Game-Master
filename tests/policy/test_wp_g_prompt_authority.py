@@ -74,7 +74,7 @@ def test_x1_x2_x3_instruction_layer_note_limits():
     assert "노트는 시나리오의 고정 세계 사실과 시나리오 금지사항을 무효화하지 못합니다" in g
     assert "자동으로 덮어쓰지 마십시오" in g
     # 서사 운영 원칙보다는 여전히 우선(기존 의도 보존)
-    assert "서사 계획이 새로운 사건을 요구하더라도 노트가 금지하면 노트가 이깁니다" in g
+    assert "사건 지침이 새로운 전개를 보여 주더라도 노트가 금지하면 노트가 이깁니다" in g
 
 
 def test_narration_layer_kind_based_authority_not_linear_chain():

@@ -63,11 +63,11 @@ PENDING_MESSAGES_FILE = "history_pending_messages.json"
 #   total_cost / total_usd / total_ink_spent / last_turn_cost / last_turn_ink,
 #   캐시·압축 회계, last_compressed_turn/compression_count(기존 규정: 되감기로 재압축 금지).
 REVERSIBLE_FIELDS = (
-    "quest_state", "info_ledger", "resources", "statuses", "world_timeline",
+    "resources", "statuses", "world_timeline",
     "visited_places", "companions", "met_npcs", "irregular_npcs", "npcs",
-    "narrative_plan", "pending_ending", "last_extraction", "players",
+    "last_extraction", "players",
     "stat_fail_counts", "turn_count", "gm_turns_done", "last_recorded_turn",
-    "gm_proceed_history", "player_faction", "main_unlocked_notified",
+    "gm_proceed_history", "player_faction",
     "pending_bgm", "last_bgm_situation", "start_day_number", "commit_marker",
     "raw_logs", "uncompressed_logs", "compressed_memory", "current_turn_logs",
     "gm_side_note", "gm_clarify_count", "gm_narrate_count",

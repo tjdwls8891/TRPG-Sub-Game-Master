@@ -66,12 +66,8 @@ def _ink_rows(uid):
 def _story(data: dict) -> dict:
     """data.json의 커밋 소유(정본 이야기) 필드만. 운영 집계(total_cost 등)는 사전 READY
     tolerant 저장이 정당하게 바꾸므로 비교에서 제외한다."""
-    import types
     out = {k: data.get(k) for k in CC.COMMIT_OWNED_FIELDS
            if not k.startswith("_") and k in data}
-    # quest_state는 리더(get_state)가 빈 dict를 기본 형태로 지연 정규화한다(의미 변화 아님).
-    out["quest_state"] = core.quest.clone_state(
-        types.SimpleNamespace(quest_state=copy.deepcopy(data.get("quest_state") or {})))
     return out
 
 

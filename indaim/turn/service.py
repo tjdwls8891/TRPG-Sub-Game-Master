@@ -16,7 +16,7 @@ from google.genai import types
 from indaim.turn.declaration import _parse_gate, _gate_blocks, _gate_rolls_discovery, _gate_notice, _discovery_outcome, _declaration_block
 from indaim.turn.roll_sides import _roll_domains, _judge_plan, _pc_skills, _party_round
 from indaim.turn.brief import MAX_CLARIFY_PER_MESSAGE, MAX_NARRATE_PER_MESSAGE, _build_judgment_user_prompt, _build_logic_user_prompt, _sys_text, _clean_proceed_instruction, _interp_note
-from indaim.content.prompts import CACHE_TIME_RESPONSE_SCHEMA, CACHE_TIME_SYSTEM_INSTRUCTION, EXTRACTION_SYSTEM_INSTRUCTION, NPC_DETAIL_RESPONSE_SCHEMA, NPC_DETAIL_SYSTEM_INSTRUCTION, IRREGULAR_NPC_RESPONSE_SCHEMA, IRREGULAR_NPC_SYSTEM_INSTRUCTION, JUDGMENT_RESPONSE_SCHEMA, JUDGMENT_SYSTEM_INSTRUCTION, GM_LOGIC_RESPONSE_SCHEMA, GM_LOGIC_SYSTEM_INSTRUCTION, NARRATIVE_PLAN_SCHEMA, NARRATIVE_PLANNER_SYSTEM_INSTRUCTION, build_narrate_prompt, NARRATIVE_DIRECTION_SCHEMA, NARRATIVE_SIMULATOR_SYSTEM_INSTRUCTION
+from indaim.content.prompts import CACHE_TIME_RESPONSE_SCHEMA, CACHE_TIME_SYSTEM_INSTRUCTION, EXTRACTION_SYSTEM_INSTRUCTION, NPC_DETAIL_RESPONSE_SCHEMA, NPC_DETAIL_SYSTEM_INSTRUCTION, IRREGULAR_NPC_RESPONSE_SCHEMA, IRREGULAR_NPC_SYSTEM_INSTRUCTION, JUDGMENT_RESPONSE_SCHEMA, JUDGMENT_SYSTEM_INSTRUCTION, GM_LOGIC_RESPONSE_SCHEMA, GM_LOGIC_SYSTEM_INSTRUCTION, build_narrate_prompt, DECLARATION_GATE_RULES, DECLARATION_GATE_SCHEMA
 from indaim.turn.outcomes import ExtractionProviderFailure
 from indaim.turn.outcomes import _set_roll_open
 from indaim.turn.config import COST_LOG_PREFIX, EXTRACTION_MAX_RETRIES, EXTRACTION_MODEL, EXTRACTION_THINKING_BUDGET, GATE_UNVERIFIABLE_NOTICE, JUDGMENT_MAX_RETRIES, JUDGMENT_MODEL, MAX_ITERATIONS_PER_MESSAGE, WORLD_REACTION_AUTHORITY_BLOCK, _OUTCOME_DELIVERY_FAILED, _OUTCOME_EXTRACTION_FAILED, _OUTCOME_NO_NARRATION, _OUTCOME_READY, _OUTCOME_SUPERSEDED
@@ -44,7 +44,6 @@ from indaim.rules.items import items as _items
 from indaim.rules.space import places as _places
 from indaim.rules.time import timeline as _timeline
 from indaim.rules.vitals import status_rules as _status_rules
-from indaim.scenario import quest as _quest
 from indaim.turn import action_intent as _action_intent
 from indaim.turn import commit_coordinator as _commit_coordinator
 from indaim.turn import extraction as _extraction
@@ -617,10 +616,9 @@ class TurnService:
 
     async def _call_declaration_gate(self, session, player_message, judgment, gate_in, master_ch,
                                      *, transaction_id) -> dict | None:
-        """v7.23 축소 선언 검증(캐시 룰북) — 기존 시뮬레이터의 선언 게이트 규칙·스키마만 재사용한다.\n\n        서사 방향·공리·개연성 등급은 묻지도 받지도 않는다. 응답은 열거값·원문 대상명뿐(정본 사실 아님)."""
+        """v7.23 축소 선언 검증(캐시 룰북) — 선언 게이트 규칙·스키마(content/prompts/declaration)만 쓴다.\n\n        서사 방향·공리·개연성 등급은 묻지도 받지도 않는다. 응답은 열거값·원문 대상명뿐(정본 사실 아님)."""
         cache_name = getattr(session, "cache_name", None)
-        rules = NARRATIVE_SIMULATOR_SYSTEM_INSTRUCTION[
-            NARRATIVE_SIMULATOR_SYSTEM_INSTRUCTION.index("[선언 게이트 규칙 — declaration_gate]"):]
+        rules = DECLARATION_GATE_RULES
         instruction = ("당신은 선언 검증기다. 시나리오 캐시의 룰북·세계관만 근거로, 아래 규칙에 따라 이번 플레이어 선언의 "
                        "declaration_gate 하나만 판정한다. 서사 방향·사건 전개를 제안하지 않는다.\n\n" + rules)
         recent = []
@@ -645,7 +643,7 @@ class TurnService:
             + ("\n".join(f"· {f['target']} — 당시 선언: {f['declaration']}" for f in failed) if failed else "(없음)")
             + "\n\n[지시사항]\n이번 플레이어 선언을 [선언 게이트 규칙]에 따라 declaration_gate로 판정하십시오.")
         schema = {"type": "object",
-                  "properties": {"declaration_gate": NARRATIVE_DIRECTION_SCHEMA["properties"]["declaration_gate"]},
+                  "properties": {"declaration_gate": DECLARATION_GATE_SCHEMA},
                   "required": ["declaration_gate"]}
         try:
             contents = [
@@ -740,9 +738,6 @@ class TurnService:
             "extraction", TP.TASK_EXTRACTION,
             coro=self._prepare_extraction(session, prep, narr.text, _mch),
             required_success=True, may_spawn_required_child_work=True)
-        if prep.event_assessment is not None:
-            await self._update_narrative_progress(
-                session, prep.event_assessment, master_ch, preparation=prep)
 
     async def _prepare_extraction(self, session, prep, text, master_ch):
         """추출 준비 작업(result-only). 비정규 NPC 준비(승격 자식 포함) 완료 후 시작한다.
@@ -781,9 +776,6 @@ class TurnService:
                 second = self._observe_or_item_rejection(session, prep, plan, master_ch)
                 if second is not None:
                     await self._drop_item_ops_and_observe(session, prep, plan, master_ch, first, second)
-        # B-C3: 이번 턴 계획의 quest_progress로 수치 재계획을 판정 — 자식 작업 등록은
-        #   이 추출 작업이 terminal이 되기 전에 끝나므로 배리어 합류가 누락하지 않는다.
-        await self._evaluate_numeric_replan(session, prep, plan, master_ch)
         return plan
 
     async def _drop_item_ops_and_observe(self, session, prep, plan, master_ch, first, second) -> None:
@@ -802,49 +794,6 @@ class TurnService:
             except Exception:
                 pass
         self._process_world_observation(session, prep, plan, master_ch)
-
-    async def _evaluate_numeric_replan(self, session, prep, plan, master_ch) -> str | None:
-        """WP-C(B-C3) — 이번 트랜잭션 추출 계획의 수치로 자동 재계획을 트리거한다.
-
-        · 권위: plan.quest_progress(advance/deviation). 정본 last_extraction(직전 턴)은 보지 않는다.
-        · precedence/dedupe: event_assessment가 completed/deviated면 이미 사건 트리거가
-          등록됐으므로 생략(턴당 1건). event_assessment=None(강제 PROCEED)이면 기존과 같이
-          재계획 판정 자체를 하지 않는다. narrative_replan이 이미 등록돼 있어도 생략.
-        · 결과 후보는 스테이징되고 READY 이후에만 적용된다.
-        """
-        ea = prep.event_assessment
-        if ea is None or ea in ("completed", "deviated"):
-            return None
-        if "narrative_replan" in prep.tasks:
-            return None
-        if not getattr(session, "narrative_plan", None):
-            return None
-        qp = getattr(plan, "quest_progress", None) or {}
-        try:
-            advance = int(qp.get("advance", 0))
-            deviation = int(qp.get("deviation", 0))
-        except (TypeError, ValueError, AttributeError):
-            return None
-        th = _extraction.get_thresholds(session)
-        if deviation >= th["quest_deviated"]:
-            reason, full, note = "deviated", True, f"추출 이탈 수치 {deviation}"
-            msg = (f"📖 **[서사 계획]** 이탈 수치 {deviation} (임계 {th['quest_deviated']}) "
-                   f"→ 중규모 계획 포함 전체 재수립합니다.")
-        elif advance >= th["quest_advance"]:
-            reason, full, note = "completed", False, f"추출 진행 수치 {advance}"
-            msg = (f"📖 **[서사 계획]** 진행 수치 {advance} (임계 {th['quest_advance']}) "
-                   f"→ 순간 계획을 재수립합니다.")
-        else:
-            return None
-        prep.narrative_marker = True            # last_planned_turn 마커(스테이징)
-        prep.register_task(
-            "narrative_replan", _turn_preparation.TASK_NARRATIVE_REPLAN,
-            coro=self._prepare_auto_replan(
-                session, prep, reason, full_replan=full, context_note=note),
-            parent="extraction")
-        if master_ch:
-            await master_ch.send(msg)
-        return reason
 
     async def _handle_preparation_failure(self, session, prep, outcome, master_ch) -> bool:
         """사전 READY 실패 처리 — 정본 전진·성공 턴 청구 없음(S10).
@@ -1344,8 +1293,6 @@ class TurnService:
                     await self._fail_rerender_before_narration(session, tid, master_ch)
                     return False, "지시층위 호출 실패 — 기존 턴 유지"
                 decision = {**(j.get("judgment") or {}), **decision, "action": "PROCEED"}
-                _turn_preparation.stage_instruction_effects(
-                    session, decision, transaction_id=tid)
                 instruction = _clean_proceed_instruction(decision.get("proceed_instruction") or "") \
                     or "현재 상황에서 자연스럽게 다음 묘사를 이어가십시오."
                 await self._finish_proceed_and_continue(
@@ -1580,12 +1527,7 @@ class TurnService:
         except Exception as e:
             print(f"[메시지 수명주기] 턴 안내 정리 실패(등록부 유지·재시도): {e}")
 
-        # ── 방안 6 → 지시층위 순차 주입 ──
-        # 세계관 캐시가 유효하면 먼저 서사 방향성을 시뮬레이션하고, 그 결과(sim_result)를
-        # 지시층위 첫 결정에 실제로 주입한다.
-        # (과거 gather 병렬 실행은 첫 결정이 sim_result를 보지 못해 시뮬레이션 비용만
-        #  낭비되는 구조였다 — 순차 주입으로 교정.)
-        sim_result: dict | None = None
+        # T-6: LEGACY 서사 방향 시뮬레이션 은퇴 — 캐시 사용 가능 여부는 동적 세계 선언 검증(cache_ok)만 쓴다.
         cache_name  = getattr(session, "cache_name",  None)
         cache_model = getattr(session, "cache_model", None)
         # WP-E(E-E3): 이력 출처가 선택 이력보다 새로운 캐시는 읽지 않는다.
@@ -1664,20 +1606,7 @@ class TurnService:
         gate_in = self._gate_inputs(session, transaction_id)
         dynamic = gate_in["dynamic"]
         try:
-            # v7.23: DYNAMIC은 매 발화 개연성 시뮬레이션(서사 방향)을 부르지 않는다 — LEGACY만 기존 그대로.
-            if do_simulation and not dynamic:
-                if game_ch:
-                    async with game_ch.typing():
-                        sim_result = await self._simulate_narrative_directions(
-                            session, player_message, master_ch,
-                            transaction_id=transaction_id, gate_inputs=gate_in)
-                else:
-                    sim_result = await self._simulate_narrative_directions(
-                        session, player_message, master_ch,
-                        transaction_id=transaction_id, gate_inputs=gate_in)
-            gate = _parse_gate((sim_result or {}).get("declaration_gate"), player_message,
-                               dynamic=gate_in["dynamic"], place=gate_in["place"],
-                               place_name=gate_in["place_name"], rows=gate_in["rows"])
+            gate = None                    # 선언 게이트는 동적 세계 조건부 선언 검증만 낸다(아래, v7.23)
 
             # v7.23: 대기 중인 코드 경로 질문에 번호만 답했으면 그 질문의 선택지 스냅샷으로 바로 고른다(판단 재호출 없음).
             if dynamic:
@@ -1764,17 +1693,16 @@ class TurnService:
             # ASK와 ROLL은 판단층위가 내용물(bridge_message·rolls)까지 생성하므로
             # 지시층위를 호출하지 않는다 → 캐시 읽기 절감.
             if action in ("NARRATE", "PROCEED"):
-                current_sim = sim_result if iteration == 0 else None
                 if game_ch:
                     async with game_ch.typing():
                         decision = await self._call_gm_logic(
                             session, player_message, roll_results, master_ch,
-                            sim_result=current_sim, action=action,
+                            action=action,
                             transaction_id=transaction_id)
                 else:
                     decision = await self._call_gm_logic(
                         session, player_message, roll_results, master_ch,
-                        sim_result=current_sim, action=action,
+                        action=action,
                         transaction_id=transaction_id)
                 if not decision:
                     await m_send("⚠️ 지시층위 호출 실패. 이번 발언을 스킵합니다.")
@@ -1787,12 +1715,6 @@ class TurnService:
                 # 판단층위 산출물과 병합 — 이후 분기는 기존 구조를 그대로 사용한다.
                 decision = {**judgment, **decision, "action": action}
 
-                # WP-B: 지시효과(quest choice/intended_case/info_access)를
-                #   canonical 변경 없이 트랜잭션에 스테이징한다(단일 owner 통합).
-                #   묘사가 성립한 뒤 _finish_proceed_and_continue가 단일 호환 적용
-                #   경계에서만 canonical에 반영한다. 여기서는 아무 상태도 안 바뀐다.
-                _turn_preparation.stage_instruction_effects(
-                    session, decision, transaction_id=transaction_id)
             else:
                 decision = dict(judgment)
 
@@ -1812,7 +1734,7 @@ class TurnService:
                         f"⚙️ **[GM]** ASK 한도({MAX_CLARIFY_PER_MESSAGE}회) 초과 → 강제 PROCEED로 전환합니다."
                     )
                     forced_instr = await self._forced_proceed_instruction(
-                        session, player_message, roll_results, master_ch, sim_result,
+                        session, player_message, roll_results, master_ch,
                         transaction_id=transaction_id)
                     await self._finish_proceed_and_continue(
                         session, forced_instr, master_ch,
@@ -1843,7 +1765,7 @@ class TurnService:
                         f"⚙️ **[GM]** NARRATE 한도({MAX_NARRATE_PER_MESSAGE}회) 초과 → 강제 PROCEED로 전환합니다."
                     )
                     forced_instr = await self._forced_proceed_instruction(
-                        session, player_message, roll_results, master_ch, sim_result,
+                        session, player_message, roll_results, master_ch,
                         transaction_id=transaction_id)
                     await self._finish_proceed_and_continue(
                         session, forced_instr, master_ch,
@@ -1873,7 +1795,7 @@ class TurnService:
                         "⚠️ GM이 ROLL을 선언했으나 굴림 항목이 비어 있어 PROCEED로 폴백합니다."
                     )
                     fallback_instr = await self._forced_proceed_instruction(
-                        session, player_message, roll_results, master_ch, sim_result,
+                        session, player_message, roll_results, master_ch,
                         transaction_id=transaction_id)
                     await self._finish_proceed_and_continue(
                         session, fallback_instr, master_ch,
@@ -2134,8 +2056,7 @@ class TurnService:
         return decision
 
     async def _call_gm_logic(self, session, player_message: str, roll_results: list,
-                              master_ch, sim_result: dict | None = None,
-                              action: str = "PROCEED",
+                              master_ch, action: str = "PROCEED",
                               *, transaction_id: str | None = None) -> dict | None:
         """
         지시층위 모델 호출. DEFAULT_MODEL 사용.
@@ -2150,9 +2071,6 @@ class TurnService:
 
         캐시가 없거나 모델 불일치 시(폴백): 캐시에 지시문이 없으므로
         GenerateContentConfig.system_instruction=GM_LOGIC_SYSTEM_INSTRUCTION 방식으로 전달한다.
-
-        Args:
-            sim_result: 방안 6 서사 설계자 결과 (첫 번째 호출에만 주입, 이후 None)
         """
         # WP-01: 현재 트랜잭션이면 INSTRUCTING으로 표기(수동/인트로 경로는 no-op).
         _turn_transaction.mark_transaction_status(
@@ -2164,10 +2082,7 @@ class TurnService:
             self._ensure_world_plan(session, _wt, transaction_id)
         # P3(G1): NARRATE는 세계를 커밋하지 않는다 — 계획·투영·필수 서사·전달 대기 없이 정본 기준 뷰로 지시한다.
         _wv = dataclasses.replace(_wt, plan=None) if (_wt is not None and _narrate) else _wt
-        if _wt is not None:
-            sim_result = None             # v7.23: DYNAMIC 지시는 서사 방향 시뮬레이션을 받지 않는다(강제 진행 경로 포함)
-        user_prompt = _build_logic_user_prompt(session, player_message, roll_results,
-                                                sim_result=sim_result, world_turn=_wv, action=action)
+        user_prompt = _build_logic_user_prompt(session, player_message, roll_results, world_turn=_wv, action=action)
         _tie_schema = None
         if _wv is not None and _narrate:
             user_prompt += _turn_world.narrate_hold_block(_wv, session)
@@ -2208,36 +2123,9 @@ class TurnService:
 
         try:
             # ── 상황별 스키마 조립 ──
-            # 퀘스트를 고를 수 없는 상황(진행 중)에서는 quest_choice 필드를
-            # 스키마에서 아예 뺀다. 필드가 없으면 모델이 값을 낼 수 없으므로
-            # 잘못된 선택이 구조적으로 불가능해진다.
-            logic_schema = GM_LOGIC_RESPONSE_SCHEMA
-            _retired = _player_world.legacy_narrative_retired(session)
-            if _retired:
-                # H07-C: 동적 세계 세션 — 레거시 퀘스트 선택·info_access(정보 원장) 필드를 스키마에서 뺀다
-                #        (prompts.py 원본 스키마 불변, 런타임 사본만). 값을 낼 수 없으니 병렬 권위가 생길 수 없다.
-                logic_schema = dict(GM_LOGIC_RESPONSE_SCHEMA)
-                #   v7.25(F12): 레거시 서사 계획 신호 event_assessment도 뺀다(동적 세계에는 소비할 계획이 없다)
-                _gone = ("quest_choice", "quest_case", "info_access", "event_assessment")
-                logic_schema["properties"] = {k: v for k, v in logic_schema["properties"].items() if k not in _gone}
-                logic_schema["required"] = [k for k in logic_schema["required"] if k not in _gone]
-            try:
-                q_schema = None if _retired else _quest.choice_schema(session)
-                c_schema = None if _retired else _quest.case_schema(session)
-                if q_schema or c_schema:
-                    logic_schema = dict(GM_LOGIC_RESPONSE_SCHEMA)
-                    logic_schema["properties"] = dict(logic_schema["properties"])
-                    logic_schema["required"] = list(logic_schema["required"])
-                    if q_schema:
-                        logic_schema["properties"]["quest_choice"] = q_schema
-                        logic_schema["required"].append("quest_choice")
-                    if c_schema:
-                        # 활성 퀘스트가 있을 때만. 지시층위는 방향만 제시하고
-                        # 진전 여부는 추출 수치가 정한다.
-                        logic_schema["properties"]["quest_case"] = c_schema
-                        logic_schema["required"].append("quest_case")
-            except Exception as e:
-                print(f"[퀘스트] 스키마 조립 실패: {e}")
+            logic_schema = dict(GM_LOGIC_RESPONSE_SCHEMA)
+            logic_schema["properties"] = dict(logic_schema["properties"])
+            logic_schema["required"] = list(logic_schema["required"])
             if _id_manifests:
                 logic_schema = dict(logic_schema)
                 logic_schema["properties"] = dict(logic_schema["properties"])
@@ -2384,11 +2272,6 @@ class TurnService:
             except Exception as e:  # noqa: BLE001
                 print(f"[카드] 미리 그리기 실패(무시): {e}")
 
-        # WP-B: 지시층위 효과(quest_case/quest_choice/info_access)는 여기서 직접
-        #       canonical에 적용하지 않는다. 호출부 루프가 이 decision을 스테이징
-        #       (canonical 미변경)하고, 묘사가 성립한 뒤 단일 호환 적용 경계에서만
-        #       반영한다. AUD-024(묘사 실패 시 지시효과 누출) 차단 +
-        #       AUD-005(중복 quest 적용 경로) 단일 owner 통합.
         return decision
 
     async def _execute_rolls(self, session, rolls: list, game_ch,
@@ -2711,10 +2594,6 @@ class TurnService:
 
                 action = decision.get("action", "PROCEED").upper()
                 reasoning = decision.get("reasoning", "")
-                # WP-C(B-C2): 굴림 후 지시층위 결정의 지시효과를 기존 단일 owner로 스테이징한다
-                #   (유실 금지). 정본 적용은 READY 이후 legacy continuation에서만.
-                _turn_preparation.stage_instruction_effects(
-                    session, {**decision, "action": action}, transaction_id=transaction_id)
                 action_labels = {
                     "ASK":     "🟡 ASK (명확화 요청)",
                     "ROLL":    "🎲 ROLL (주사위 판정)",
@@ -3024,14 +2903,12 @@ class TurnService:
         # PROCEED 완료 후 AI 출력(이력용). v7.25(CUT): 지시층위 이력에 다시 들어가므로 문자 수로 자르지 않는다.
         ai_summary = full_text
 
-        # 이력 누적(최근 5개) · [방안 2] narrative_plan.current_event.progress 갱신
-        #   — WP-C: 둘 다 턴 소유 서사 상태이므로 스테이징하고 READY 이후 적용한다.
+        # 이력 누적(최근 5개) — WP-C: 턴 소유 서사 상태이므로 스테이징하고 READY 이후 적용한다.
         preparation.proceed_history_entry = {
             "instruction": instruction,
             "context": context_snapshot,
             "ai_summary": ai_summary,
         }
-        preparation.narrative_progress = ai_summary
         return result
 
     async def _handle_open_time_input(self, session, message):
@@ -3334,13 +3211,8 @@ class TurnService:
 
         _irregular_npc.mark_detailed(session, name)
         promoted = _irregular_npc.promote(session, name, details)
-        if promoted and final_name != name and not _player_world.legacy_narrative_retired(session):
-            # v7.25(F06): 동적 세계는 개명하지 않는다 — 키 = 플레이어가 본 이름(정본 ActorRegistry 표시 이름과 같다).
-            #   모델이 지은 본명은 PC가 알게 된 사실이 아니다.
-            # 고유명이 확정되면 키를 교체한다.
-            npcs = dict(session.npcs)
-            npcs[final_name] = npcs.pop(name)
-            session.npcs = npcs
+        # v7.25(F06)·T-6: 개명하지 않는다 — 키 = 플레이어가 본 이름(정본 ActorRegistry 표시 이름과 같다).
+        #   모델이 지은 본명은 PC가 알게 된 사실이 아니다.
 
         if master_ch or derived is not None:
             age_txt = ""
@@ -3594,12 +3466,6 @@ class TurnService:
             try:
                 if _places.mark_visited(session, plan.location_after):
                     print(f"[장소] 첫 방문: {plan.location_after}")
-                if plan.location_moved and not _player_world.legacy_narrative_retired(session):
-                    # H07-C: 정적 상주(places[*].npcs) 기반 동행 해제는 LEGACY만 — 연고는 현재 위치가 아니다
-                    gone = _extraction.release_resident_companions(session, plan.location_after)
-                    if gone:
-                        await _master(
-                            f"👋 **[동행]** {', '.join(gone)}이(가) 자리에 남았습니다.")
             except Exception as e:
                 if derived is not None:
                     raise   # WP-D(D-D1): 권위 커밋의 정본 변이 실패는 삼키지 않고 커밋 owner로 전파
@@ -3635,60 +3501,13 @@ class TurnService:
             # v7.17 DYNAMIC: 검증된 아이템 계획을 같은 커밋에서 다시 검증·적용(불일치는 커밋 owner로 전파 — 부분 적용 없음)
             applied["items"] = _items.apply_plan(session, _ip)
 
-        # ── 퀘스트 진전 / 이면정보 / 메인 해금 / 엔딩 (좁은 정규화 입력만) ──
+        # ── 소속(사건 결과 파생 호환 뷰) — 레거시 퀘스트 진전·이면정보·메인 해금·엔딩은 은퇴(T-6) ──
         moved = None
-        if _player_world.legacy_narrative_retired(session):
-            # H07-C: 동적 세계 세션 — 레거시 퀘스트 진전·이면 인지·메인 해금·엔딩은 은퇴(사건 상태기계가 권위).
-            #        소속은 사건 결과에서 파생한 읽기 전용 호환 뷰(world_player_faction)만 반영한다.
-            if getattr(plan, "world_player_faction", None):
-                if session.player_faction != plan.world_player_faction:
-                    await _game(_master_mod.lead("turn.faction_notice",
-                                                 f"🏛️ **{plan.world_player_faction}**의 일원이 되었습니다."))
-                session.player_faction = plan.world_player_faction
-        if not _player_world.legacy_narrative_retired(session):
-            try:
-                if _quest.check_secret_awareness(
-                        session, {"secret_awareness": plan.secret_awareness}):
-                    print(f"[GM/{session.session_id}] 이면정보 인지됨")
-                    await _master("🔓 **[퀘스트]** 플레이어가 숨겨진 사실을 알아챘습니다.")
-
-                try:
-                    mains = _quest.check_main_unlock(session)
-                    if mains and not getattr(session, "main_unlocked_notified", False):
-                        session.main_unlocked_notified = True
-                        await _master(
-                            f"🗝️ **[퀘스트]** 메인라인 조건 충족 — "
-                            f"{', '.join(q['name'] for q in mains)}")
-                except Exception as e:
-                    if derived is not None:
-                        raise   # WP-D(D-D1): 권위 커밋의 정본 변이 실패는 삼키지 않고 커밋 owner로 전파
-                    print(f"[퀘스트] 메인 해금 확인 실패: {e}")
-
-                moved = _quest.advance_quest(
-                    session, {"quest_progress": plan.quest_progress})
-                if moved and moved.get("moved"):
-                    outcome = moved.get("outcome")
-                    print(f"[GM/{session.session_id}] 퀘스트 진전 → {moved['node']}"
-                          + (f" (완료: {outcome})" if outcome else ""))
-                    if outcome:
-                        await _master(f"📜 **[퀘스트]** 완료 — {outcome}")
-                    if moved.get("granted"):
-                        g = moved["granted"]
-                        if g.get("faction"):
-                            print(f"[GM/{session.session_id}] 소속 획득: {g['faction']}")
-                            await _game(_master_mod.lead("turn.faction_notice",
-                                                         f"🏛️ **{g['faction']}**의 일원이 되었습니다."))
-                    if _quest.is_ending(outcome):
-                        session.pending_ending = outcome
-                        await _game(
-                            f"🎬 **세션 엔딩에 도달했습니다.**\n"
-                            f"> 결말: {outcome}\n\n"
-                            + _quest.format_plans(),
-                            view_factory=lambda: self.rt.InfinityPlanView(self.bot, session))
-            except Exception as e:
-                if derived is not None:
-                    raise   # WP-D(D-D1): 권위 커밋의 정본 변이 실패는 삼키지 않고 커밋 owner로 전파
-                print(f"[퀘스트] 진전 실패(진행에는 영향 없음): {e}")
+        if getattr(plan, "world_player_faction", None):
+            if session.player_faction != plan.world_player_faction:
+                await _game(_master_mod.lead("turn.faction_notice",
+                                             f"🏛️ **{plan.world_player_faction}**의 일원이 되었습니다."))
+            session.player_faction = plan.world_player_faction
         if applied["applied"] or applied["cleared"]:
             print(f"[GM/{session.session_id}] 상태 적용: "
                   f"부여={applied['applied']} 해제={applied['cleared']}")
@@ -3786,12 +3605,7 @@ class TurnService:
                 "(비준비 추출 → 정본 직접 적용 경로는 WP-G에서 은퇴)")
         view = session
         if preparation is not None:
-            _pend = _turn_preparation.pending_for(session)
-            _qproj = (_pend.projected_quest_state
-                      if _pend is not None and _pend.projected_quest_state is not None
-                      else copy.deepcopy(getattr(session, "quest_state", None)))
             view = _turn_preparation.PreparationView(session, overrides={
-                "quest_state": _qproj,
                 "irregular_npcs": _turn_preparation.projected_irregular_registry(
                     session, preparation),
                 "npcs": _turn_preparation.projected_npcs(session, preparation),
@@ -3804,23 +3618,7 @@ class TurnService:
             f"날짜={prev_tl.get('current_date', '미확인')}"
         ) if prev_tl else "(없음)"
 
-        # 이면정보 인지 판정을 위해 '인지 조건'만 주입한다.
-        # 이면정보 본문(truth)은 넣지 않는다 — 추출층위가 알면 판정이 오염된다.
-        secret_block = ""
-        try:
-            # H07-C: 동적 세계 세션의 이면정보 인지는 정보 노출(관찰 매니페스트)만 — 레거시 인지 조건 없음
-            st = {} if _player_world.legacy_narrative_retired(session) else _quest.get_state(view)
-            active = st.get("active")
-            if active and not active.get("secret_known"):
-                q = _quest._find_quest(view, active["id"])
-                conds = ((q or {}).get("hidden") or {}).get("reveal_conditions") or []
-                if conds:
-                    secret_block = (
-                        "\n[숨겨진 사실의 인지 조건 — 아래에 해당하는 정황이 묘사에 있었는지 평가]\n"
-                        + "\n".join(f"- {c}" for c in conds) + "\n"
-                    )
-        except Exception as e:
-            print(f"[추출] 인지 조건 주입 실패: {e}")
+        secret_block = ""          # 레거시 이면정보 인지 조건 은퇴(T-6) — 정보 노출은 관찰 매니페스트가 맡는다
 
         # 유효 목록을 주입한다. 코드가 걸러내기는 하지만, 목록을 주지 않으면
         # 매번 없는 상태이상을 만들고 인물 아닌 것을 npcs_met에 넣는다.
@@ -4013,556 +3811,3 @@ class TurnService:
             preparation.identity_reveals = _rev
         return plan
 
-    async def _simulate_narrative_directions(self, session, player_message: str,
-                                              master_ch,
-                                              *, transaction_id: str | None = None,
-                                              gate_inputs: dict | None = None) -> dict | None:
-        """
-        지시층위 호출 전 세계관 캐시를 활용하여 고차원 서사 방향성을 사전 시뮬레이션.
-
-        [목적]
-        단순 사건 추론(소리가 났으니 몬스터가 온다)이 아닌, 시나리오 세계관의 세력 배치·
-        지역 규칙·물리 법칙에 근거한 구조적 개연성 판단 결과를 지시층위에 제공한다.
-
-        [활성화 조건]
-        - 세션 캐시 유효 (없으면 세계관 문맥 없어 고차원 판단 불가)
-        - 캐시 모델이 DEFAULT_MODEL과 일치
-
-        Returns:
-            dict | None: {"world_state_analysis": str, "directions": [...]} 또는 None
-        """
-        cache_name = getattr(session, "cache_name", None)
-        if not _turn_history.cache_usable(session):     # WP-E(E-E3)
-            return None
-
-        # 최근 로그 (턴 개수 4개 유지, 각 턴은 온전 원문)
-        recent_lines = []
-        for content in session.raw_logs[-4:]:
-            try:
-                text = content.parts[0].text
-                role = content.role.upper()
-                recent_lines.append(f"[{role}]\n{text}")
-            except Exception:
-                continue
-        recent_str = "\n\n".join(recent_lines) if recent_lines else "(없음)"
-
-        # 세계 물리 타임라인 요약 (있으면)
-        tl = getattr(session, "world_timeline", {})
-        tl_note = ""
-        if tl:
-            tl_note = (
-                f"\n[현재 세계 상태]\n"
-                f"위치: {tl.get('current_location', '미확인')}\n"
-                f"시간대: {tl.get('time_of_day', '미확인')}\n"
-                f"세력: {tl.get('faction_context', '미확인')}\n"
-            )
-
-        # v7.14 선언 게이트 입력 — PC 지식 범위(이 장소의 유효 발견·찾지 못한 이전 탐색)만
-        gate_note = ""
-        gi = gate_inputs or {}
-        if gi.get("dynamic") and gi.get("place"):
-            rows = gi.get("rows") or []
-            failed = gi.get("failed") or []
-            gate_note = (
-                "\n[이 장소에서 PC가 이미 발견한 것]\n"
-                + (_turn_world.discovery_rows_text(rows) if rows else "(없음)")
-                + "\n[이 장소에서 찾지 못한 이전 탐색 — 실패는 부재가 아니다]\n"
-                + ("\n".join(f"· {f['target']} — 당시 선언: {f['declaration']}" for f in failed) if failed else "(없음)")
-                + "\n")
-        elif not gi.get("dynamic"):
-            gate_note = "\n[세션 형식] 이 세션은 주변 발견을 영속하지 않는다 — 발견 제안은 일반 행동(ORDINARY)으로 분류한다.\n"
-
-        user_prompt = (
-            f"[현재 턴]: {session.turn_count + 1}\n"
-            f"{tl_note}"
-            f"\n[최근 게임 로그]\n{recent_str}\n\n"
-            f"[이번 턴 플레이어 행동]\n{player_message}\n"
-            f"{gate_note}\n"
-            "[지시사항]\n"
-            "위 상황에서 다음에 일어날 수 있는 서사 방향성 2~3개를 세계관 논리에 근거하여 평가하십시오.\n"
-            "반드시 시나리오 캐시의 세력 정보·지역 규칙·세계관 설정을 인용하여 판단하십시오.\n"
-            "이번 플레이어 선언을 [선언 게이트 규칙]에 따라 declaration_gate로 판정하십시오."
-        )
-
-        try:
-            sim_contents = [
-                types.Content(role="user",
-                              parts=[types.Part.from_text(text=NARRATIVE_SIMULATOR_SYSTEM_INSTRUCTION)]),
-                types.Content(role="model",
-                              parts=[types.Part.from_text(
-                                  text="이해했습니다. 세계관 논리에 근거하여 서사 방향성을 분석하겠습니다.")]),
-                types.Content(role="user",
-                              parts=[types.Part.from_text(text=user_prompt)]),
-            ]
-            config = types.GenerateContentConfig(
-                http_options=_resilience.provider_http_options("instruction"),  # WP-C B-C4
-                cached_content=cache_name,
-                temperature=0.3,
-                response_mime_type="application/json",
-                response_schema=NARRATIVE_DIRECTION_SCHEMA,
-                safety_settings=_constants.TRPG_SAFETY_SETTINGS,
-            )
-            # 재시도·타임아웃 보호. 층위 호출은 모두 이 관문을 통과한다.
-            _cl_op = _cost_ledger.begin_operation(
-                self.bot, _cost_ledger.OP_TURN_SIMULATION, session=session,
-                model=_cache.DEFAULT_MODEL, actor_kind=_cost_ledger.ACTOR_PLAYER,
-                billing_hint=_cost_ledger.HINT_PLAYER_CANDIDATE)
-            # WP-C: 자동 턴 비용 멤버 claim(transaction_id=None인 수동 호출은 no-op).
-            _turn_preparation.claim_cost_operation(session, transaction_id, _cl_op)
-            _ok, response = await self.rt.call_with_retry(
-                lambda: asyncio.to_thread(
-                    self.bot.genai_client.models.generate_content,
-                    model=_cache.DEFAULT_MODEL,
-                    contents=sim_contents,
-                    config=config,
-                ),
-                layer="instruction", session_id=session.session_id,
-                on_attempt_result=_cl_op.on_attempt, operation_id=_cl_op.operation_id,
-            )
-            if not _ok:
-                raise RuntimeError("AI 호출 실패")
-        except Exception as e:
-            print(f"[GM] 서사 설계 호출 실패: {e}")
-            return None
-
-        # 비용 정산
-        try:
-            meta = response.usage_metadata
-            in_tokens, out_tokens, cached_tokens, thought_tokens = _cost.extract_token_usage(meta)
-            breakdown     = _cost.calculate_text_gen_cost_breakdown(
-                _cache.DEFAULT_MODEL, input_tokens=in_tokens, output_tokens=out_tokens,
-                cached_read_tokens=cached_tokens)
-            cost = breakdown["total_krw"]
-            self.rt.accrue(session, cost, breakdown["total_usd"])
-            _cl_op.record(
-                input_tokens=in_tokens, cached_input_tokens=cached_tokens,
-                output_tokens=out_tokens, thought_tokens=thought_tokens,
-                cost_usd=breakdown["total_usd"], cost_krw=cost,
-                usage_source=_cost_ledger.SOURCE_PROVIDER_METADATA)
-            _io.write_cost_log(session.session_id, f"{COST_LOG_PREFIX}서사 방향성 시뮬레이션",
-                                 in_tokens, cached_tokens, out_tokens, cost, session.total_cost)
-            _estimate.update_stats(session, "simulation", out_tokens, thought_tokens)
-            if not hasattr(session, "turn_cost_log"):
-                session.turn_cost_log = []
-            # 라벨을 '서사 설계자'라 두면 _plan_narrative와 혼동된다.
-            # 이것은 지시층위 직전에 세계관 개연성을 미리 훑는 별개 호출이다.
-            session.turn_cost_log.append({"label": "개연성 시뮬레이션", "cost": cost,
-                                          "in": in_tokens, "cached": cached_tokens, "out": out_tokens})
-            print(
-                f"[GM/{session.session_id}] 시뮬레이션 비용: "
-                f"In={in_tokens:,} Cached={cached_tokens:,} Out={out_tokens:,} "
-                f"→ {_cost.format_cost(cost)}"
-            )
-        except Exception as e:
-            print(f"[GM] 시뮬레이션 비용 정산 실패: {e}")
-
-        raw_text = response.text or ""
-        try:
-            sim_data = json.loads(raw_text)
-        except json.JSONDecodeError:
-            cleaned = re.sub(r"^```(?:json)?\s*|\s*```$", "", raw_text.strip(), flags=re.MULTILINE)
-            try:
-                sim_data = json.loads(cleaned)
-            except Exception as e:
-                _logs.event("turn", "개연성 시뮬레이션 JSON 파싱 실패", level="WARN", session=session, exc=e,
-                                data={"code": "SIMULATION_JSON"})
-                return None
-
-        # 결과를 마스터에 알린다. 비용이 드는 호출인데 무엇을 얻었는지
-        # 보이지 않으면 켜둘 가치가 있는지 판단할 수 없다.
-        if master_ch:
-            try:
-                dirs = sim_data.get("directions") or []
-                lines = [f"🔮 **[개연성 시뮬레이션]** 방향 {len(dirs)}건"]
-                contact = sim_data.get("action_world_contact")
-                if contact:
-                    lines.append(f"> 접점: {str(contact)[:150]}")
-                for d in dirs[:3]:
-                    if not isinstance(d, dict):
-                        continue
-                    lines.append(
-                        f"> `{d.get('plausibility', '?')}` "
-                        f"{str(d.get('label') or d.get('direction', ''))[:70]}")
-                await master_ch.send("\n".join(lines)[:1900])
-            except Exception as e:
-                print(f"[GM] 시뮬레이션 보고 실패(무시): {e}")
-
-        return sim_data
-
-    async def _update_narrative_progress(self, session, event_assessment: str, master_ch,
-                                         *, preparation=None):
-        """
-        PROCEED 확정 묘사 직후(READY 이전) 호출. 서사 재계획 트리거를 판정한다.
-
-        [재계획 판정 — 수치 기반]
-        기존의 '3턴 주기 강제 재계획'은 삭제되었다. 서사 상태와 무관하게
-        주기만으로 재계획을 돌리면 불필요한 호출이 누적되기 때문이다.
-        대신 추출층위가 산출한 quest_progress 수치를 임계값과 대조해 판정한다.
-            deviation >= quest_deviated  → 전체 재수립 (mid_plan 포함)
-            advance   >= quest_advance   → 순간 계획만 재수립
-        지시층위의 event_assessment는 보조 신호로 유지한다(수치가 없을 때의 폴백).
-
-        WP-C: 트리거된 자동 재계획은 이 턴의 필수 준비 작업(다음 GM 프롬프트가 계획에
-        의존)으로 등록되어 READY 전에 합류한다. 후보·last_planned_turn 마커는 준비 객체에
-        스테이징되고 READY 이후에만 정본 narrative_plan에 적용된다.
-        수치(advance/deviation) 판정은 이번 트랜잭션의 추출 계획(ExtractionMutationPlan.
-        quest_progress)이 권위다 — _prepare_extraction이 계획 생성 직후
-        _evaluate_numeric_replan으로 자식 준비 작업을 등록한다(B-C3).
-        """
-        plan = getattr(session, "narrative_plan", {})
-        if not plan or preparation is None:
-            return
-
-        trigger = None      # (reason, full_replan, context_note)
-        # completed/deviated → 즉시 재계획
-        if event_assessment == "completed":
-            # 순간 계획만 재수립 — mid_plan 유지
-            if master_ch:
-                await master_ch.send(
-                    f"📖 **[서사 계획]** 순간 사건 완료 감지\n"
-                    f"> 중규모 계획을 유지하며 다음 순간 계획을 수립합니다..."
-                )
-            trigger = ("completed", False, "")
-        elif event_assessment == "deviated":
-            # mid_plan 포함 전부 재수립
-            if master_ch:
-                await master_ch.send(
-                    f"📖 **[서사 계획]** 경로 이탈 감지\n"
-                    f"> 중규모 계획 포함 전체 재수립합니다..."
-                )
-            trigger = ("deviated", True, "")
-        elif event_assessment == "resolving" and master_ch:
-            await master_ch.send(
-                f"📖 **[서사 계획]** 현재 순간 사건이 마무리 단계에 진입했습니다 (resolving)."
-            )
-
-        # ── 수치 기반 재계획 판정(설계문서 3)은 WP-C(B-C3)부터 이번 턴 추출 계획이
-        #    나온 뒤 _evaluate_numeric_replan이 수행한다(직전 턴 last_extraction 사용 금지).
-        #    precedence: event_assessment(completed/deviated) 트리거가 있으면 수치 판정은
-        #    생략한다(턴당 재계획 1건 — 기존 중복 회피 규칙 유지).
-        if trigger is not None:
-            reason, full, note = trigger
-            preparation.register_task(
-                "narrative_replan", _turn_preparation.TASK_NARRATIVE_REPLAN,
-                coro=self._prepare_auto_replan(
-                    session, preparation, reason, full_replan=full, context_note=note))
-
-    async def _apply_narrative_plan(self, session, candidate, *, derived=None) -> bool:
-        """LegacyCompatibilityApplier(서사 계획 교체) — 정규화 후보만 canonical에 적용한다.
-
-        raw provider payload는 입력되지 않는다(candidate.normalized만 소비).
-        코드 소유 metadata(plan_version, last_planned_turn)는 여기서 코드가 부여한다.
-        기존 영속 의미(save_session_data)를 유지하며 authoritative commit(WP-D)으로
-        옮기지 않는다.
-        """
-        master_ch = self.bot.get_channel(session.master_ch_id)
-        trigger_reason = candidate.trigger_reason
-
-        # ── 버전·타임스탬프 기록(코드 소유) ──
-        plan = copy.deepcopy(candidate.normalized)
-        plan["plan_version"]      = (session.narrative_plan or {}).get("plan_version", 0) + 1
-        plan["last_planned_turn"] = session.turn_count
-        session.narrative_plan    = plan
-        if derived is None:
-            # setup/수동 경로 — 기존 영속 의미 유지. (WP-D 권위 커밋은 strict 저장이 영속한다)
-            await self.rt.save_session_data(self.bot, session)
-        candidate.applied = True
-
-        # ── 마스터 채널 보고 (embed) ──
-        current = plan.get("current_event", {})
-        next_ev = plan.get("next_event", {})
-        trigger_label_map = {
-            "init":      "초기 계획 수립",
-            "completed": "사건 완료 → 순간 계획 갱신",
-            "deviated":  "이탈 감지 → 전체 재수립",
-            "manual":    "수동 재계획",
-        }
-        trigger_label = trigger_label_map.get(trigger_reason, "계획 갱신")
-
-        if master_ch or derived is not None:
-            embed = self.rt.embed(
-                title=f"📖 서사 계획 갱신 — {trigger_label}",
-                color=0x5865F2,
-            )
-            embed.set_footer(text=f"v{plan['plan_version']}  |  턴 {session.turn_count}")
-
-            mid = plan.get("mid_plan", {})
-            if mid:
-                milestones = mid.get("milestones", [])
-                ms_str = "\n".join([f"  {i+1}. {m}" for i, m in enumerate(milestones)]) if milestones else "(없음)"
-                m_val = (
-                    f"**전체 흐름**: {mid.get('overview', '-')}\n"
-                    f"**이정표**:\n{ms_str}\n"
-                    f"**완료 조건**: {mid.get('end_condition', '-')}"
-                )
-                embed.add_field(
-                    name=f"🗺️ 중규모 진행 방향: {mid.get('title', '?')}",
-                    value=m_val[:1020],
-                    inline=False,
-                )
-
-            c_val = (
-                f"**상황**: {current.get('summary', '-')}\n"
-                f"**마무리 방향**: {current.get('resolution_direction', '-')}"
-            )
-            embed.add_field(
-                name=f"📌 현재 순간 사건: {current.get('title', '?')}",
-                value=c_val[:1020],
-                inline=False,
-            )
-
-            n_val = (
-                f"**개요**: {next_ev.get('summary', '-')}\n"
-                f"**시작 조건**: {next_ev.get('trigger', '-')}"
-            )
-            embed.add_field(
-                name=f"⏭️ 다음 순간 사건: {next_ev.get('title', '?')}",
-                value=n_val[:1020],
-                inline=False,
-            )
-
-            planner_notes = plan.get("planner_notes", "")
-            if planner_notes:
-                embed.add_field(name="📝 설계 메모", value=planner_notes[:1020], inline=False)
-
-            if derived is not None:
-                derived.master(embed=embed)     # WP-D: COMMITTED 이후 방출
-            else:
-                await master_ch.send(embed=embed)
-
-        self.rt.write_log(session.session_id, "api",
-                       f"[서사 계획 결과 ({trigger_label})]\n{json.dumps(plan, ensure_ascii=False, indent=2)}")
-        return True
-
-    async def _generate_narrative_plan_candidate(self, session, trigger_reason: str,
-                                                 *, context_note: str = "",
-                                                 full_replan: bool = True,
-                                                 transaction_id=None, logical_turn=None,
-                                                 attempt=None, preparation=None):
-        """
-        LOGIC_MODEL을 호출해 서사 계획 **후보**를 만든다 — result-only producer.
-
-        WP-C: preparation이 주어지면(자동 턴 READY 이전) 프롬프트는 기존 흐름과 같은
-        입력 의미를 투영으로 읽는다 — 이번 턴 스테이징 로그를 포함한 최근 raw_logs와
-        스테이징된 진행 턴 번호. 정본은 읽기만 한다.
-
-        session.narrative_plan을 변경하지 않는다. provider 호출·재시도·비용 관측/정산
-        (CostLedger operation, accrue, turn_cost_log)은 기존 의미 그대로 수행하고,
-        raw JSON은 _turn_preparation.build_narrative_plan으로 구조 검증·정규화된
-        NarrativePlanMutationPlan으로만 반환한다.
-
-        Args:
-            trigger_reason: "init" | "completed" | "deviated" | "manual"
-            full_replan: True이면 mid_plan 포함 전부 재수립, False이면 순간 계획만 갱신.
-            transaction_id/logical_turn/attempt: 자동 경로의 원인 시도 정체성(후보에 부착).
-
-        Returns:
-            NarrativePlanMutationPlan | None (퀘스트 모드·호출 실패·파싱 실패·구조 불량)
-        """
-        master_ch = self.bot.get_channel(session.master_ch_id)
-
-        # 퀘스트 모드에서는 서사설계자가 주도하지 않는다(기획 규정).
-        # 퀘스트 시스템이 서사 가이드를 대신하므로, 계획까지 세우면
-        # 두 서사가 겹쳐 지시층위가 어느 쪽을 따를지 모호해진다.
-        # 서사설계자는 풀자유 세션과 인피니티 플랜에서 쓴다.
-        if _player_world.legacy_narrative_retired(session):
-            # v7.25(F12): 동적 세계 — 서사 권위는 사건 상태기계·정본이다. 레거시 서사설계자를 부르지 않는다(바인딩 전 free 모드 잔존 포함)
-            print(f"[서사설계] 동적 세계 — 레거시 계획 수립 없음")
-            return None
-        if getattr(session, "narrative_mode", "quest") != "free":
-            print(f"[서사설계] 퀘스트 모드 — 계획 수립 생략")
-            return None
-
-        # ── 시나리오 정보 ──
-        story_guide = session.scenario_data.get("story_guide", "")
-        worldview   = session.scenario_data.get("worldview", "")
-
-        # ── 최근 게임 로그 (턴 개수 6개 유지, 각 턴은 온전 원문) ──
-        recent_log_lines = []
-        _raw_src = list(session.raw_logs)
-        _turn_no = session.turn_count
-        if preparation is not None and isinstance(preparation.staged_log, dict) \
-                and not preparation.staged_log.get("applied"):
-            _raw_src = (_raw_src + list(preparation.staged_log["raw_entries"]))[-20:]
-            _turn_no = preparation.staged_log["turn_no"]
-        for content in _raw_src[-6:]:
-            try:
-                text    = content.parts[0].text
-                role    = content.role.upper()
-                recent_log_lines.append(f"[{role}]\n{text}")
-            except Exception:
-                continue
-        recent_logs_str = "\n\n".join(recent_log_lines) if recent_log_lines else "(로그 없음)"
-
-        # ── PC 상태 요약 ──
-        pc_lines = []
-        for uid, p in session.players.items():
-            name    = p.get("name", "?")
-            res     = session.resources.get(name, {})
-            sta     = session.statuses.get(name, [])
-            res_str = ", ".join([f"{k}:{v}" for k, v in res.items()]) or "없음"
-            sta_str = ", ".join(sta) or "없음"
-            pc_lines.append(f"  - {name}: 자원={res_str}, 상태={sta_str}")
-        pc_info = "\n".join(pc_lines) or "(PC 없음)"
-
-        # ── 압축 기억 ──
-        memory_str = (
-            session.compressed_memory
-            or getattr(session, "cached_compressed_memory", "")
-            or "(없음)"
-        )
-
-        # ── 기존 계획 처리 ──
-        existing_plan = session.narrative_plan or {}
-        existing_plan_block = ""
-
-        if not full_replan and existing_plan:
-            # completed 재계획: mid_plan 유지, 순간 계획만 갱신
-            mid = existing_plan.get("mid_plan", {})
-            nxt = existing_plan.get("next_event", {})
-            if mid:
-                ms_str = " → ".join(mid.get("milestones", []))
-                existing_plan_block = (
-                    "\n[유지할 중규모 진행 계획 — 이 내용을 mid_plan으로 그대로 출력하십시오]\n"
-                    f"title: {mid.get('title', '')}\n"
-                    f"overview: {mid.get('overview', '')}\n"
-                    f"milestones: {ms_str}\n"
-                    f"end_condition: {mid.get('end_condition', '')}\n"
-                    "\n위 중규모 계획에서 다음으로 도달해야 할 milestone을 목표로 삼아 "
-                    "새 current_event와 next_event를 수립하십시오.\n"
-                )
-            if nxt:
-                existing_plan_block += (
-                    f"\n[이전 next_event — current_event 승격 참고용]\n"
-                    f"제목: {nxt.get('title', '')} / 개요: {nxt.get('summary', '')}\n"
-                    f"(이 사건이 새 current_event의 출발점이 됩니다)\n"
-                )
-            trigger_context = "직전 순간 사건이 완료되었습니다. 중규모 계획을 유지하며 다음 순간 계획으로 전환하세요."
-        else:
-            # 전체 재계획 (init/deviated/manual)
-            if existing_plan and trigger_reason != "init":
-                cur = existing_plan.get("current_event", {})
-                existing_plan_block = (
-                    "\n[이전 계획 (참고용 — 폐기 후 재수립)]\n"
-                    f"이전 현재 사건: {cur.get('title', '?')} — {cur.get('summary', '')}\n"
-                    f"마무리 방향: {cur.get('resolution_direction', '')}\n"
-                )
-            trigger_context_map = {
-                "init":     "GM가 활성화되었습니다. 현재 상황을 분석하여 2단계 서사 계획(mid_plan + 순간 계획)을 수립하세요.",
-                "deviated": "플레이어의 선택으로 서사 방향이 예상 범위를 벗어났습니다. mid_plan 포함 계획 전체를 재수립하세요.",
-                "manual":   "GM이 수동으로 재계획을 요청했습니다. 현재 상황을 재평가하여 계획 전체를 갱신하세요.",
-            }
-            trigger_context = trigger_context_map.get(trigger_reason, f"재계획 요청 ({trigger_reason})")
-
-        context_note_block = f"\n[GM 추가 메모 (계획에 반영하세요)]\n{context_note}\n" if context_note else ""
-
-        user_prompt = (
-            f"[서사 계획 수립 요청]\n"
-            f"트리거: {trigger_context}\n\n"
-            f"[시나리오 기반 정보]\n"
-            f"세계관: {worldview if worldview else '(없음)'}\n"
-            f"스토리 가이드: {story_guide if story_guide else '(없음)'}\n\n"
-            f"[현재 게임 상황]\n"
-            f"진행 턴: {_turn_no}\n"
-            f"PC 상태:\n{pc_info}\n"
-            f"압축 기억:\n{memory_str}\n\n"
-            f"[최근 게임 로그]\n{recent_logs_str}\n"
-            f"{existing_plan_block}"
-            f"{context_note_block}\n"
-            "[출력 지시]\n"
-            "위 정보를 바탕으로 GM이 활용할 서사 계획을 JSON 스키마에 맞게 수립하십시오."
-        )
-
-
-        try:
-            config = types.GenerateContentConfig(
-                http_options=_resilience.provider_http_options("instruction"),  # WP-C B-C4
-                system_instruction=NARRATIVE_PLANNER_SYSTEM_INSTRUCTION,
-                temperature=0.5,
-                response_mime_type="application/json",
-                response_schema=NARRATIVE_PLAN_SCHEMA,
-                safety_settings=_constants.TRPG_SAFETY_SETTINGS,
-            )
-            _cl_op = _cost_ledger.begin_operation(
-                self.bot, _cost_ledger.OP_TURN_NARRATIVE_PLANNING, session=session,
-                model=_constants.LOGIC_MODEL, actor_kind=_cost_ledger.ACTOR_PLAYER,
-                billing_hint=_cost_ledger.HINT_PLAYER_CANDIDATE)
-            if preparation is not None:
-                preparation.claim_cost_operation(_cl_op)
-            _ok, response = await self.rt.call_with_retry(
-                lambda: asyncio.to_thread(
-                    self.bot.genai_client.models.generate_content,
-                    model=_constants.LOGIC_MODEL,
-                    contents=[types.Content(role="user", parts=[types.Part.from_text(text=user_prompt)])],
-                    config=config,
-                ),
-                layer="instruction", session_id=session.session_id,
-                on_attempt_result=_cl_op.on_attempt, operation_id=_cl_op.operation_id,
-            )
-            if not _ok:
-                raise RuntimeError("AI 호출 실패")
-        except Exception as e:
-            print(f"[GM] 서사 계획 호출 실패: {type(e).__name__} - {e}")
-            if master_ch:
-                await master_ch.send(f"⚠️ 서사 계획 수립 실패: {type(e).__name__}")
-            return None
-
-        # ── 비용 정산 ──
-        try:
-            meta         = response.usage_metadata
-            in_tokens, out_tokens, cached_tokens, thought_tokens = _cost.extract_token_usage(meta)
-            breakdown    = _cost.calculate_text_gen_cost_breakdown(
-                _constants.LOGIC_MODEL,
-                input_tokens=in_tokens,
-                output_tokens=out_tokens,
-                cached_read_tokens=cached_tokens,
-            )
-            cost = breakdown["total_krw"]
-            self.rt.accrue(session, cost, breakdown["total_usd"])
-            _cl_op.record(
-                input_tokens=in_tokens, cached_input_tokens=cached_tokens,
-                output_tokens=out_tokens, thought_tokens=thought_tokens,
-                cost_usd=breakdown["total_usd"], cost_krw=cost,
-                usage_source=_cost_ledger.SOURCE_PROVIDER_METADATA)
-            _io.write_cost_log(
-                session.session_id,
-                f"{COST_LOG_PREFIX}서사 계획 수립",
-                in_tokens, cached_tokens, out_tokens, cost, session.total_cost
-            )
-            print(
-                f"[GM/{session.session_id}] 서사 계획 비용: "
-                f"In={in_tokens:,} Out={out_tokens:,} → {_cost.format_cost(cost)}"
-            )
-            # 턴 진행 배치 로그에 누적 (PROCEED 직전 플러시)
-            if not hasattr(session, "turn_cost_log"):
-                session.turn_cost_log = []
-            session.turn_cost_log.append({"label": "서사 설계자(계획)", "cost": cost,
-                                          "in": in_tokens, "cached": cached_tokens, "out": out_tokens})
-        except Exception as e:
-            print(f"[GM] 서사 계획 비용 정산 실패: {e}")
-
-        # ── JSON 파싱 ──
-        raw_text = response.text or ""
-        try:
-            plan = json.loads(raw_text)
-        except json.JSONDecodeError:
-            cleaned = re.sub(r"^```(?:json)?\s*|\s*```$", "", raw_text.strip(), flags=re.MULTILINE)
-            try:
-                plan = json.loads(cleaned)
-            except Exception as e:
-                _logs.event("turn", "서사 계획 JSON 파싱 실패", level="WARN", session=session, exc=e,
-                                data={"code": "PLAN_JSON", "raw": raw_text})
-                if master_ch:
-                    await master_ch.send("⚠️ 서사 계획 JSON 파싱 실패. 기존 계획을 유지합니다.")
-                return None
-
-        # ── 구조 검증·정규화 → 후보(result-only; canonical 미변경) ──
-        candidate = _turn_preparation.build_narrative_plan(
-            plan, trigger_reason=trigger_reason, full_replan=full_replan,
-            transaction_id=transaction_id, logical_turn=logical_turn, attempt=attempt)
-        if candidate.normalized is None:
-            print(f"[GM] 서사 계획 구조 불량: {candidate.rejected}")
-            if master_ch:
-                await master_ch.send("⚠️ 서사 계획 구조가 올바르지 않습니다. 기존 계획을 유지합니다.")
-            return None
-        return candidate

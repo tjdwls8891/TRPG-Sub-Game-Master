@@ -126,10 +126,6 @@ def drig(rig, monkeypatch):
         "extraction": [extraction({})], "judgment": judgment("시장")})
     r.bot.genai_client.models._provider = prov
     r.prov = prov
-
-    async def _nosim(*a, **k):
-        return None
-    monkeypatch.setattr(r.gm, "_simulate_narrative_directions", _nosim)
     r.make = lambda **kw: make_dynamic(r.sess, **kw)
     return r
 

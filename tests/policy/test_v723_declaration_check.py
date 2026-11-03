@@ -32,15 +32,7 @@ ROUTES = ("e_hm#fwd", "e_mc#fwd", "e_hh#fwd", "e_hc#fwd")
 def crig(drig, monkeypatch):
     """DYNAMIC rig + 실제 시뮬레이션 메서드 + 캐시 유효(옛 조건이면 매 발화 시뮬레이션이 돌았을 상태)."""
     r = drig
-    monkeypatch.setattr(r.gm, "_simulate_narrative_directions",
-                        gm_mod.GMCog._simulate_narrative_directions.__get__(r.gm))
-    r.sim_calls = []
-    real = r.gm._simulate_narrative_directions
-
-    async def spy(*a, **k):
-        r.sim_calls.append(a[1] if len(a) > 1 else None)
-        return await real(*a, **k)
-    monkeypatch.setattr(r.gm, "_simulate_narrative_directions", spy)
+    r.sim_calls = []                       # T-6: 서사 방향 시뮬레이션 은퇴 — 부를 메서드 자체가 없다(늘 0회)
     r.make(edges=ROUTES)
     r.sess.cache_name, r.sess.cache_model = "cachedContents/test", core.DEFAULT_MODEL
     r.prov.routes["simulation"] = [sim()]
@@ -83,30 +75,6 @@ async def test_G01_E01_dynamic_ordinary_turn_runs_no_simulation(crig):
     assert "TURN_SIMULATION" not in ops and "TURN_DECLARATION_CHECK" not in ops
     lp = r.prov.prompts["logic"][-1][0]
     assert "[서사 방향성 시뮬레이션" not in lp and "[세계 반응 권위 — 동적 세계]" in lp      # G18·G25
-
-
-async def test_G02_E11_legacy_keeps_simulation_and_its_instruction_block(drig, monkeypatch):
-    r = drig                                                              # make() 없음 = LEGACY 세션
-    monkeypatch.setattr(r.gm, "_simulate_narrative_directions",
-                        gm_mod.GMCog._simulate_narrative_directions.__get__(r.gm))
-    r.sim_calls = []
-    real = r.gm._simulate_narrative_directions
-
-    async def spy(*a, **k):
-        r.sim_calls.append(a[1] if len(a) > 1 else None)
-        return await real(*a, **k)
-    monkeypatch.setattr(r.gm, "_simulate_narrative_directions", spy)
-    r.sess.cache_name, r.sess.cache_model = r.sess.cache_name or "cachedContents/test", core.DEFAULT_MODEL
-    r.prov.routes["simulation"] = [sim()]
-    r.prov.routes["judgment"] = [jdg()]
-    await turn(r, "주변을 둘러본다")
-    assert len(r.sim_calls) == 1 and _direction_calls(r) == 1 and _gate_calls(r) == 0
-    lp = r.prov.prompts["logic"][-1][0]
-    assert "[서사 방향성 시뮬레이션" in lp and "[세계 반응 권위" not in lp
-    jp = r.prov.prompts["judgment"][-1][0]
-    assert "[선언 검증 — 동적 세계" not in jp and "[이번 턴 대화" not in jp
-    ops = {c.get("operation_id", "").split(":")[0] for c in _domain(r, "cost.event")}
-    assert "TURN_SIMULATION" in ops
 
 
 # ══════════════════════════════════════════════════════════════

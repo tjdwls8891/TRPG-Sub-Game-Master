@@ -25,8 +25,6 @@ TRACKED_PATHS = [
     "resources",
     "statuses",
     "world_timeline",
-    "info_ledger",
-    "quest_state",
     "visited_places",
     "companions",
     "met_npcs",
@@ -39,7 +37,6 @@ TRACKED_PATHS = [
     "gm_turns_done",
     "compressed_memory",
     "last_extraction",
-    "narrative_plan",
     # 비정규 NPC 등록부 — 되감으면 그 턴에 등장한 인물의 이미지·목소리
     # 배정도 함께 되돌려야 한다. 남겨두면 사라진 인물이 등록된 채 남는다.
     "irregular_npcs",

@@ -23,7 +23,6 @@ LATIN_SUFFIX = " / DISPLAY"
 LATIN_KEY = "display_latin"     # 선택 시나리오 키(있으면 자동 로마자 표기보다 우선)
 
 PLAN_LABEL = {"normal": "노멀", "high": "하이", "low": "로우", "ultra": "울트라"}
-MODE_LABEL = {"quest": "퀘스트", "free": "풀자유"}
 KIND_LABEL = {"master": "마스터", "multi": "멀티", "solo": "솔로"}
 STATE_OPEN, STATE_EXPIRED, STATE_CLOSED = "open", "expired", "closed"
 STATE_TEXT = {STATE_OPEN: "오픈", STATE_EXPIRED: "만료", STATE_CLOSED: "클로즈"}
@@ -136,17 +135,10 @@ def board_data(session) -> dict:
         })
     ex = getattr(session, "last_extraction", {}) or {}
     sit = ex.get("situation") or {}
-    qp = ex.get("quest_progress") or {}
     npcs = ex.get("npcs_met") or []
-    narrative = [("장면", str(sit.get("tag", "(미확인)"))), ("긴장", str(sit.get("tension", 0))),
-                 ("진행", str(qp.get("advance", 0))), ("이탈", str(qp.get("deviation", 0)))]
+    narrative = [("장면", str(sit.get("tag", "(미확인)"))), ("긴장", str(sit.get("tension", 0)))]
     if npcs:
         narrative.append(("등장 NPC", ", ".join(str(n) for n in npcs[:6])))
-    try:
-        from indaim.scenario.quest import summary as quest_summary
-        narrative.append(("퀘스트", quest_summary(session).replace("**", "")))
-    except Exception:
-        pass
     return {
         "title": str(getattr(session, "scenario_id", None) or "(시나리오 미정)"),
         "latin": latin_name(session),
@@ -167,8 +159,7 @@ def board_data(session) -> dict:
         "players": players,
         "narrative": narrative,
         "memory": [("기억 방식", PLAN_LABEL.get(getattr(session, "memory_plan", "normal"), "노멀")),
-                   ("압축", f"{len(getattr(session, 'compressed_memory', '') or '')}자"),
-                   ("서사설계", MODE_LABEL.get(getattr(session, "narrative_mode", "quest"), "퀘스트"))],
+                   ("압축", f"{len(getattr(session, 'compressed_memory', '') or '')}자")],
         "warning": bool(getattr(session, "extraction_pending", False)),
     }
 

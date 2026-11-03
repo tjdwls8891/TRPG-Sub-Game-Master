@@ -467,10 +467,7 @@ class SystemCog(commands.Cog):
         if action == "재발급":
             await ctx.send("⏳ 수동 캐시 재발급을 시작합니다...")
 
-            # 퀘스트 데이터 캐시도 함께 비운다. 이것이 없으면 퀘스트 JSON을
-            # 고쳐도 봇을 재시작하기 전까지 반영되지 않는다.
             try:
-                core.quest.clear_cache()
                 if core.world_lifecycle.world_bound(session):
                     # H06: 동적 세계 세션은 바인딩된 정의를 유지한다 — 원본 재로드·기본 NPC 재전개 없음
                     #   (재발급은 캐시 최적화이지 정의 migration이 아니다).

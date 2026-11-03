@@ -22,24 +22,7 @@ pytestmark = pytest.mark.policy
 def test_retirement_predicate_is_binding_based():
     s, _ = make_session()
     assert PW.legacy_narrative_retired(s)
-    assert not PW.legacy_narrative_retired(core.TRPGSession("legacy", 1, 2, "x", {}))
-
-
-def test_instruction_effects_are_not_staged_for_dynamic_sessions():
-    s, _ = make_session()
-    s.info_ledger = []
-    decision = {"quest_choice": {"id": "anything", "reason": "x"}, "quest_case": "c1",
-                "info_access": {"new_leaks": [{"info": "비밀", "known_by": ["누군가"], "how": "엿들음"}]}}
-    p = TP.stage_instruction_effects(s, decision)
-    assert p.projected_quest_state is None and p.info_ledger is None
-    assert p.diagnostics.get("legacy_narrative") == "RETIRED"
-
-
-def test_prompt_builder_drops_legacy_quest_block_for_dynamic():
-    s, _ = make_session()
-    b = core.prompt.PromptBuilder(s, "지시")
-    b.add_quest_block()
-    assert "퀘스트" not in b.manifest
+    assert PW.legacy_narrative_retired(core.TRPGSession("legacy", 1, 2, "x", {}))   # T-6: 레거시 서사 기능 삭제 — 모든 세션
 
 
 def test_faction_compat_view_derives_from_event_results():

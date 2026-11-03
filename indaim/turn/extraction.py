@@ -22,7 +22,7 @@ COMMON_EXTRACTION_TARGETS = [
 ]
 
 # v7.25(F10): 동적 세계 추출이 묻지 않는 레거시 필드·항목(정본 세계·사건 상태기계·정보 인지가 소유)
-DYNAMIC_RETIRED_FIELDS = ("datetime", "location", "quest_progress", "secret_awareness")
+DYNAMIC_RETIRED_FIELDS = ("datetime", "location")      # T-6: 퀘스트 진행·이면정보 인지는 스키마에서 삭제
 DYNAMIC_RETIRED_TARGETS = ("날짜 및 시간", "위치", "퀘스트 진행도 평가")
 
 # ========== [응답 스키마] ==========
@@ -81,21 +81,6 @@ EXTRACTION_RESPONSE_SCHEMA = {
                 "required": ["target", "status", "score"],
             },
         },
-        "quest_progress": {
-            "type": "object",
-            "description": "현재 서사 목표 대비 이번 묘사의 진행·이탈 정도.",
-            "properties": {
-                "advance": {
-                    "type": "integer",
-                    "description": "목표 방향으로 나아간 정도 0~100. 0-30 정체 / 31-70 진전 / 71-100 결정적 진전.",
-                },
-                "deviation": {
-                    "type": "integer",
-                    "description": "목표에서 벗어난 정도 0~100. 0-30 궤도 내 / 31-70 방향 차이 / 71-100 이탈.",
-                },
-            },
-            "required": ["advance", "deviation"],
-        },
         "npcs_met": {
             "type": "array",
             "description": "이번 묘사에 등장하거나 PC와 접촉한 NPC 이름. 없으면 빈 배열.",
@@ -116,14 +101,6 @@ EXTRACTION_RESPONSE_SCHEMA = {
             },
             "required": ["joined", "left"]
         },
-        "secret_awareness": {
-            "type": "integer",
-            "description": (
-                "플레이어가 숨겨진 사실을 알아차린 정도 0~100. "
-                "0-30 전혀 모름 / 31-70 의심하거나 단서를 접함 / 71-100 명확히 인지. "
-                "숨겨진 사실이 제시되지 않았으면 0."
-            )
-        },
         "situation": {
             "type": "object",
             "description": "이번 묘사가 만들어낸 장면의 성격.",
@@ -142,7 +119,7 @@ EXTRACTION_RESPONSE_SCHEMA = {
     },
     "required": [
         "datetime", "location", "item_changes", "status_scores",
-        "quest_progress", "npcs_met", "situation", "secret_awareness",
+        "npcs_met", "situation",
         "companions",
     ],
 }
@@ -218,10 +195,8 @@ def parse_extraction(raw: str) -> dict | None:
     data.setdefault("location", {"name": "미확인", "faction_context": "미확인"})
     data.setdefault("item_changes", [])
     data.setdefault("status_scores", [])
-    data.setdefault("quest_progress", {"advance": 0, "deviation": 0})
     data.setdefault("npcs_met", [])
     data.setdefault("situation", {"tag": "미확인", "tension": 0})
-    data.setdefault("secret_awareness", 0)
     comp = data.get("companions")
     if not isinstance(comp, dict):
         comp = {}
@@ -647,7 +622,6 @@ def summarize_for_report(result: dict) -> str:
     dtb = result.get("datetime") or {}
     loc = (result.get("location") or {}).get("name", "미확인")
     sit = result.get("situation") or {}
-    qp = result.get("quest_progress") or {}
 
     # 날짜가 잡혔으면 시간대와 함께 보여준다.
     when = dtb.get("time_of_day", "미확인")
@@ -658,7 +632,6 @@ def summarize_for_report(result: dict) -> str:
         f"위치 {loc}",
         f"시각 {when}",
         f"장면 {sit.get('tag', '미확인')}(긴장 {sit.get('tension', 0)})",
-        f"진행 {qp.get('advance', 0)} / 이탈 {qp.get('deviation', 0)}",
     ]
     lines = [" · ".join(head)]
 
@@ -701,10 +674,5 @@ def summarize_for_report(result: dict) -> str:
             seen.append(f"{who + ' ' if who else ''}{sc.get('status', '?')} {val}")
     if seen:
         lines.append(f"> 상태 징후: {', '.join(seen)}")
-
-    aware = result.get("secret_awareness", 0)
-    if isinstance(aware, int) and aware >= 31:
-        label = "명확히 인지" if aware >= 71 else "단서를 접함"
-        lines.append(f"> 이면정보 인지 {aware} ({label})")
 
     return "\n".join(lines)

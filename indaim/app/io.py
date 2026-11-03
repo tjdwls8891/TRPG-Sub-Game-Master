@@ -128,15 +128,10 @@ SESSION_FIELDS: dict = {
     "cached_session_npcs": {},
     "cached_compressed_memory": "",
     "cached_worldview_sections": [],  # 캐시에 편입된 연고지(사문·근거지) keyword_memory 섹션 id — 온디맨드 중복 주입 억제용
-    "narrative_plan": {},
     "world_timeline": {},
     "start_frame": {},
     "last_compressed_turn": 0,
     "compression_count": 0,
-    "pending_ending": "",
-    "main_unlocked_notified": False,
-    "infinity_plan": "",
-    "quest_state": {},
     "player_faction": "",
     "profile_ai_cost_krw": 0.0,
     "creation_state": {},
@@ -153,7 +148,6 @@ SESSION_FIELDS: dict = {
     "tts_voice": "",            # 레거시(v7.17 이전 목소리 선택 — P2부터 쓰지 않음, 호환 유지)
     "master_gender": "male",    # P2: 진행자 성별 표현(male|female) — 개설자 선택·변경, 이미지·마스터 목소리
     "memory_plan": "normal",
-    "narrative_mode": "quest",
     "session_kind": "solo",
     "irregular_npcs": {},
     "voice_ch_id": None,
@@ -186,7 +180,6 @@ SESSION_FIELDS: dict = {
     "extraction_pending": False,
     "extraction_retry_ctx": {},
     "last_extraction": {},
-    "info_ledger": [],  # 정보 인지 원장 (비공개 정보별 인지 주체 — 지시층위가 누적 갱신)
     # TTS 음성 더빙 (실험)
     "tts_enabled": False,
     # GM 설정

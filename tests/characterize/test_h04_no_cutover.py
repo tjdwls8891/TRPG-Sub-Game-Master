@@ -130,7 +130,7 @@ def test_production_registry_has_no_generic_path_writer():
 
 def test_legacy_quest_and_narrative_plan_authority_untouched():
     """퀘스트·narrative_plan·info_ledger 경로는 H04 모듈을 읽지 않고, H04 모듈도 그것을 읽지 않는다."""
-    for rel in ("indaim/scenario/quest.py", "indaim/scenario/quest_filter.py", "cogs/gm.py", "cogs/game.py", "indaim/turn/extraction.py",
+    for rel in ("cogs/gm.py", "cogs/game.py", "indaim/turn/extraction.py",
                 "indaim/narrative/prompt.py", "indaim/ai/cache.py"):
         tree = ast.parse(source_of(rel))
         for m in H04_DOMAIN_MODULES:

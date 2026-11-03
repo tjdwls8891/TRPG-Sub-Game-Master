@@ -284,63 +284,6 @@ class OpenConfirmView(core.message_lifecycle.LifecyclePromptView):
         self.stop()
 
 
-class InfinityPlanView(discord.ui.View):
-    """
-    인피니티 세션 플랜 선택.
-
-    기획 규정 — 메인 클리어 후 이어갈지 닫을지 묻고, 이어간다면
-    플랜을 고르게 한다. 각 플랜의 비용 안내가 필수다.
-    """
-
-    def __init__(self, bot, session):
-        super().__init__(timeout=1800)
-        self.bot = bot
-        self.session = session
-        for key, plan in core.quest.INFINITY_PLANS.items():
-            self.add_item(InfinityPlanButton(key, plan["label"]))
-
-    @discord.ui.button(label="🚪 세션 닫기", style=discord.ButtonStyle.danger, row=2)
-    async def close(self, interaction, _b):
-        for c in self.children:
-            c.disabled = True
-        await interaction.response.edit_message(view=self)
-        await interaction.followup.send(
-            "세션을 여기서 마칩니다. 수고하셨습니다.")
-        self.session.gm_active = False
-        await core.save_session_data(self.bot, self.session)
-        self.stop()
-
-
-class InfinityPlanButton(discord.ui.Button):
-    def __init__(self, key: str, label: str):
-        super().__init__(label=label, style=discord.ButtonStyle.primary, row=0
-                         if key in ("sub_only", "with_main") else 1)
-        self.plan_key = key
-
-    async def callback(self, interaction: discord.Interaction):
-        view = self.view
-        plan = core.quest.apply_infinity_plan(view.session, self.plan_key)
-        if not plan:
-            await interaction.response.send_message("플랜 적용에 실패했습니다.", ephemeral=True)
-            return
-        view.session.pending_ending = ""
-        for c in view.children:
-            c.disabled = True
-        await interaction.response.edit_message(view=view)
-        await interaction.followup.send(
-            f"▶️ **인피니티 세션 — {plan['label']}**\n"
-            f"> {plan['desc']}\n"
-            f"> 비용: {plan['cost']}\n\n"
-            f"이야기가 이어집니다."
-        )
-        await core.save_session_data(view.bot, view.session)
-        try:
-            await core.refresh_display(view.bot, view.session, reason="infinity")
-        except Exception:
-            pass
-        view.stop()
-
-
 class ExtractionRetryView(discord.ui.View):
     """
     추출층위 재시도 버튼 — persistent view.

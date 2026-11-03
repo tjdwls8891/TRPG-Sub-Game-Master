@@ -347,7 +347,7 @@ def test_p8_policy_source_scan():
     # OpenConfirmView 는 더 이상 업로드 전에 해석 누적값을 지우지 않는다
     gm = source_of("cogs/gm.py")
     i = gm.index("class OpenConfirmView")
-    j = gm.index("class InfinityPlanView")
+    j = gm.index("\nclass ", i + 1)
     assert "interpret_cost_krw = 0" not in gm[i:j]
 
 

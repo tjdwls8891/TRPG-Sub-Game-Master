@@ -145,13 +145,6 @@ def test_session_writes_go_to_tmp(session_auto_ready, tmp_path):
     assert os.path.isdir(tmp_path / "sessions" / session_auto_ready.session_id)
 
 
-def test_quest_fixture_shape(session_with_quest):
-    import core
-    state = core.quest.get_state(session_with_quest)
-    assert state["active"]["id"] == "q_test"
-    assert state["active"]["node"] == "root"
-
-
 def test_resource_fixture_shape(session_with_resource_status):
     assert session_with_resource_status.resources["테스터"]["물통"] == 2
 

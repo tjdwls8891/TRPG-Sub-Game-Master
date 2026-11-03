@@ -68,8 +68,6 @@ MAP = {
     'prompt': 'indaim.narrative.prompt',
     'prompt_census': 'indaim.ledger.prompt_census',
     'pursuit': 'indaim.rules.pursuit.pursuit',
-    'quest': 'indaim.scenario.quest',
-    'quest_filter': 'indaim.scenario.quest_filter',
     'relationships': 'indaim.rules.relations.relationships',
     'resilience': 'indaim.ai.resilience',
     'rewind': 'indaim.turn.rewind',

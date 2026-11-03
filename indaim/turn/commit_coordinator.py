@@ -332,19 +332,17 @@ def capture_rollback_snapshot(session, prep) -> dict:
             fields[f] = list(v)            # Content 객체는 변이되지 않는다(목록만 바뀜)
         else:
             fields[f] = copy.deepcopy(v)
-    pending = TP.pending_for(session)
     prep_state = {
         "staged_applied": (prep.staged_log.get("applied")
                            if isinstance(prep.staged_log, dict) else None),
         "plans": {nm: getattr(getattr(prep, nm), "applied", False)
-                  for nm in ("extraction_plan", "irregular_plan", "replan_candidate")
+                  for nm in ("extraction_plan", "irregular_plan")
                   if getattr(prep, nm, None) is not None},
-        "pending_applied": getattr(pending, "applied", None) if pending is not None else None,
         "growth": (copy.deepcopy(prep.growth_events),
                    copy.deepcopy(prep.growth_fail_counts),
                    copy.deepcopy(prep.growth_players)),
     }
-    return {"fields": fields, "prep": prep_state, "pending": pending}
+    return {"fields": fields, "prep": prep_state}
 
 
 def restore_rollback_snapshot(session, prep, snap) -> None:
@@ -368,8 +366,6 @@ def restore_rollback_snapshot(session, prep, snap) -> None:
         obj = getattr(prep, nm, None)
         if obj is not None:
             obj.applied = flag
-    if snap["pending"] is not None and ps["pending_applied"] is not None:
-        snap["pending"].applied = ps["pending_applied"]
     prep.growth_events, prep.growth_fail_counts, prep.growth_players = ps["growth"]
 
 

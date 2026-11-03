@@ -61,13 +61,8 @@ _SITES = {
     # 추출 적용 내부 try/except 경계 — 필드 A를 바꾼 뒤 예외
     "extraction_companions": ("apply_normalized_companions",
                               lambda s: s.companions.append("유령동행")),
-    "extraction_quest": ("quest.advance_quest",
-                         lambda s: s.quest_state.update({"오염": True})),
     "extraction_bgm": ("select_bgm",
                        lambda s: setattr(s, "last_bgm_situation", ("오염", 9))),
-    # 지시효과 적용(이전 _apply_commit_effects의 try/except 경계)
-    "instruction_effects": ("turn_preparation.apply_instruction_effects",
-                            lambda s: s.info_ledger.append({"info": "오염"})),
 }
 
 
@@ -122,22 +117,6 @@ async def test_dd1_irregular_helper_boundary_propagates_only_in_commit_mode(rig,
     plan.applied = False
     await r.gm._apply_irregular_npc_plan(s, plan, "행인이 지나간다", None,
                                          staged_promotions={})       # 수동: 삼킴(기존 동작)
-
-
-async def test_dd1_replan_apply_exception_propagates(rig, inject):
-    r = rig
-    s = r.sess
-    prep = types.SimpleNamespace(
-        irregular_plan=None, proceed_history_entry=None, narrative_progress=None,
-        narrative_marker=False, replan_candidate=object(), logical_turn=1, attempt=1,
-        extraction_plan=None, transaction_id="x")
-
-    async def _bad(session, cand, **k):
-        session.narrative_plan = {"오염": True}
-        raise _Boom("재계획 적용 실패(테스트)")
-    inject.setattr(r.gm, "_commit_replan_candidate", _bad)
-    with pytest.raises(_Boom):
-        await r.gm._apply_commit_effects(s, prep, CC.DerivedEffects())
 
 
 def test_dd1_commit_path_has_no_swallowing_boundary():

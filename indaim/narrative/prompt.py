@@ -22,12 +22,9 @@ class PromptBuilder:
           resources / statuses는 플레이어(add_player_block)에만 적용된다.
     """
 
-    def __init__(self, session: TRPGSession, gm_instruction: str,
-                 *, quest_projection=None):
+    def __init__(self, session: TRPGSession, gm_instruction: str):
         self.session = session
         self.gm_instruction = gm_instruction
-        # WP-B: 스테이징된 quest 효과를 반영한 읽기 전용 투영(없으면 None → canonical).
-        self.quest_projection = quest_projection
         self.blocks = ["[현재 게임 상태]\n"]
         # 입력에 실제 주입된 온디맨드 정보 목록 (비용 보고용). 각 add_* 블록이 실제 주입 시 append.
         self.manifest = []
@@ -248,25 +245,6 @@ class PromptBuilder:
             print(f"[장소] 블록 생성 실패: {e}")
         return self
 
-    def add_quest_block(self):
-        """퀘스트 블록 — 온디맨드 주입.
-
-        NOTE: 폐지된 키워드북이 쓰던 슬롯을 퀘스트가 대체한다.
-              활성 퀘스트가 있으면 그것만, 없으면 후보 목록이 실린다.
-        """
-        try:
-            from indaim.turn import player_world as _pw
-            if _pw.legacy_narrative_retired(self.session):
-                return self                         # H07-C: 동적 세계 세션은 레거시 퀘스트를 서사 권위로 싣지 않는다
-            from indaim.scenario.quest import build_quest_block
-            block = build_quest_block(self.session, quest_state=self.quest_projection)
-            if block:
-                self.blocks.append(block)
-                self.manifest.append("퀘스트")
-        except Exception as e:
-            print(f"[퀘스트] 블록 생성 실패: {e}")
-        return self
-
     def add_rule_enforcement_block(self):
         block = ("[최종 지시] 캐시된 [시나리오 핵심 룰북]의 사실·금지사항·묘사 가이드를 지키는 범위 안에서 "
                  "위 GM의 지시사항을 최우선으로 반영하여 상황을 묘사하세요.\n")
@@ -312,17 +290,14 @@ class PromptBuilder:
         return "".join(self.blocks)
 
     @classmethod
-    def build_prompt(cls, session, gm_instruction: str, *, quest_projection=None) -> str:
+    def build_prompt(cls, session, gm_instruction: str) -> str:
         """
         내부 블록 조립을 순차적으로 실행하여 완성된 문자열을 즉시 반환하는 파사드(Facade) 메서드.
 
         조립 과정에서 실제 주입된 온디맨드 정보 목록을 `session.last_proceed_manifest`에 기록한다
         (비용 보고 임베드용, 비영속 임시값).
-
-        WP-B: quest_projection이 주어지면 퀘스트 블록을 그 투영(스테이징 반영, canonical
-        미변경) 기준으로 만든다. None이면 canonical get_state로 조립한다.
         """
-        builder = (cls(session, gm_instruction, quest_projection=quest_projection)
+        builder = (cls(session, gm_instruction)
                    .add_memory_block()
                    .add_note_block()
                    .add_player_block()
@@ -330,7 +305,6 @@ class PromptBuilder:
                    .add_recent_action_block()
                    .add_gm_instruction_block()
                    .add_place_block()
-                   .add_quest_block()
                    .add_rule_enforcement_block())
         session.last_proceed_manifest = list(builder.manifest)
         return builder.build()

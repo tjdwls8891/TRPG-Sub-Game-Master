@@ -15,7 +15,6 @@ from indaim.rules.items import items as _items
 from indaim.rules.pursuit import pursuit as _pursuit
 from indaim.rules.space import places as _places
 from indaim.rules.vitals import status_rules as _status_rules
-from indaim.scenario import quest as _quest
 from indaim.turn import player_world as _player_world
 from indaim.turn import turn_preparation as _turn_preparation
 from indaim.turn import turn_world as _turn_world
@@ -222,13 +221,6 @@ def _jb_movement(c):
             _pb = ""
         if _pb:
             lines.append(_pb)
-    else:
-        try:
-            hint = _places.build_move_hint(session, player_message)
-            if hint:
-                lines.append(hint)
-        except Exception as e:
-            print(f"[장소] 이동 안내 생성 실패: {e}")
     return {}
 
 
@@ -363,44 +355,6 @@ def _lb_resources(c):
         res_str = "(아래 [물건 — 정본 소지] 블록 참조)"      # v7.34(B3): 동적 세계는 같은 사실을 두 번 싣지 않는다
     sta_str = ", ".join(sta) or "(없음)"
     return {"res_str": res_str, "sta_str": sta_str}
-
-
-def _lb_narrative(c):
-    session = c.session
-
-    # 서사 계획 블록 (2단계: mid_plan + 순간 계획)
-    narrative_plan = getattr(session, "narrative_plan", {})
-    # v7.25(F12): 동적 세계는 레거시 서사 계획을 지시층위에 싣지 않는다(바인딩 전 잔존 계획 포함)
-    if narrative_plan and not _player_world.legacy_narrative_retired(session):
-        current = narrative_plan.get("current_event", {})
-        next_ev = narrative_plan.get("next_event", {})
-        mid     = narrative_plan.get("mid_plan", {})
-
-        if mid:
-            milestones = mid.get("milestones", [])
-            ms_str = " → ".join(milestones) if milestones else "(없음)"
-            mid_block = (
-                f"■ 중규모 진행 방향: {mid.get('title', '?')}\n"
-                f"  · 전체 흐름: {mid.get('overview', '')}\n"
-                f"  · 이정표 순서: {ms_str}\n"
-                f"  · 완료 조건: {mid.get('end_condition', '')}\n"
-            )
-        else:
-            mid_block = ""
-
-        narrative_block = (
-            "\n[현재 서사 계획 — proceed_instruction 및 event_assessment 결정 시 반드시 참고]\n"
-            + mid_block +
-            f"■ 현재 순간 사건: {current.get('title', '?')}\n"
-            f"  · 상황: {current.get('summary', '')}\n"
-            f"  · 마무리 방향: {current.get('resolution_direction', '')}\n"
-            f"■ 다음 순간 사건 (참고용): {next_ev.get('title', '?')}\n"
-            f"  · 개요: {next_ev.get('summary', '')}\n"
-            f"  · 시작 조건: {next_ev.get('trigger', '')}\n"
-        )
-    else:
-        narrative_block = ""
-    return {"narrative_block": narrative_block}
 
 
 def _lb_rolls(c):
@@ -589,94 +543,6 @@ def _lb_world_state(c):
     return {"world_tl_block": world_tl_block}
 
 
-def _lb_info_ledger(c):
-    session = c.session
-
-    # 정보 인지 원장 블록 (지속형): 비공개·플롯 정보별 '누가 아는가'의 확립된 기록.
-    # 지시층위가 info_access 필드로 갱신하며, 적·NPC가 도달 경로 없는 정보로 행동하지 않도록 하는 진실 기준.
-    # H07-C: 동적 세계 세션은 레거시 info_ledger를 진실 기준으로 싣지 않는다(정보·인지가 권위).
-    info_ledger = [] if _player_world.legacy_narrative_retired(session) else (
-        getattr(session, "info_ledger", []) or [])
-    if info_ledger:
-        led_lines = []
-        for item in info_ledger[-8:]:  # 최근 8건만 주입(스코핑)
-            info = item.get("info", "?")
-            known = ", ".join(item.get("known_by", [])) or "(없음)"
-            susp = ", ".join(item.get("suspected_by", [])) or "(없음)"
-            origin = item.get("origin", "")
-            leaks = item.get("leaks", [])
-            led_lines.append(f"  ■ {info}")
-            led_lines.append(f"     · 확지: {known}")
-            led_lines.append(f"     · 추정: {susp}")
-            if origin:
-                led_lines.append(f"     · 출처: {origin}")
-            if leaks:
-                led_lines.append(f"     · 유출: " + " / ".join(leaks[-3:]))
-        info_ledger_block = (
-            "\n[정보 인지 원장 — 확립된 정보 접근 상태 (이 기록에 근거해 NPC·적의 앎/모름을 판정)]\n"
-            "여기 '확지'로 적히지 않은 인물·세력이 그 비밀을 아는 것처럼 매복·간파·행동하게 만들지 말 것.\n"
-            "새 유출은 근거(how)와 함께 info_access.new_leaks에 기록하면 원장에 누적된다.\n"
-            + "\n".join(led_lines) + "\n"
-        )
-    else:
-        info_ledger_block = ""
-    return {"info_ledger": info_ledger, "info_ledger_block": info_ledger_block}
-
-
-def _lb_simulation(c):
-    sim_result = c.sim_result
-
-    # 서사 방향성 시뮬레이션 블록 (방안 6 — 개선 1~5 적용)
-    if sim_result:
-        contact   = sim_result.get("action_world_contact", "")
-        axioms    = sim_result.get("world_axioms", [])
-        dirs      = sim_result.get("directions", [])
-        if dirs:
-            # 공리 목록 포맷
-            axiom_lines = "\n".join(f"    · {a}" for a in axioms) if axioms else "    (없음)"
-
-            # 방향성 포맷 (개선 1 반증 결과 + 개선 4 5단계 등급 + 개선 3 변별성 레이블 포함)
-            plaus_label = {
-                "high":      "🟢 high",
-                "probable":  "🔵 probable",
-                "possible":  "🟡 possible",
-                "low":       "🟠 low",
-                "impossible":"⛔ impossible",
-            }
-            dir_lines = []
-            for d in dirs:
-                p     = d.get("plausibility", "?")
-                label = plaus_label.get(p, p)
-                fc    = d.get("falsification_check", "")
-                basis = d.get("world_basis", "")
-                const = d.get("narrative_constraint", "")
-                elem  = d.get("primary_world_element", "")
-                block = (
-                    f"  [{label}] {d.get('title', '?')} (근거요소: {elem})\n"
-                    f"    내용: {d.get('description', '')}\n"
-                    f"    반증: {fc}\n"
-                    f"    근거: {basis}\n"
-                )
-                if const:
-                    block += f"    제약: {const}\n"
-                dir_lines.append(block)
-
-            sim_block = (
-                "\n[서사 방향성 시뮬레이션 — 세계관 구조 기반 개연성 사전 분석]\n"
-                f"■ 행동 접촉점: {contact}\n"
-                f"■ 세계 진실 공리:\n{axiom_lines}\n"
-                "■ 방향성 분석:\n"
-                + "\n".join(dir_lines)
-                + "※ impossible 방향은 세계관상 구조적 발생 불가.\n"
-                  "지시층위는 이 분석을 proceed_instruction·event_assessment 결정에 반드시 반영할 것.\n"
-            )
-        else:
-            sim_block = ""
-    else:
-        sim_block = ""
-    return {"sim_block": sim_block}
-
-
 def _lb_multi_pc(c):
     session = c.session
 
@@ -737,7 +603,7 @@ def _lb_place(c):
     try:
         # H07: DYNAMIC은 정본 장소·구간·PC 지식 기반 블록(레거시 connected 홉·연고 인물 은퇴, 표시명 규칙)
         _pb = (_turn_world.dynamic_place_block(world_turn.ctx, world_turn.plan, session)
-               if world_turn is not None else _places.build_place_block(session))
+               if world_turn is not None else "")      # T-6: 레거시 장소 그래프 안내 은퇴
         if _pb:
             place_block = "\n" + _pb
             manifest.append("장소 정보")
@@ -793,48 +659,16 @@ def _lb_place(c):
     return {"manifest": manifest, "place_block": place_block}
 
 
-def _lb_quest(c):
-    manifest = c.manifest
-    session = c.session
-
-    # 퀘스트 — 후보 목록을 여기서 제시해야 quest_choice로 고를 수 있다.
-    # build_quest_block이 session._quest_offered를 채우고, 코드가 그것으로
-    # 모델의 선택을 검증한다. 이 호출이 없으면 후보가 비어 아무것도 열리지 않는다.
-    quest_block = ""
-    try:
-        _qb = "" if _player_world.legacy_narrative_retired(session) else _quest.build_quest_block(
-            session,
-            quest_state=_turn_preparation.projected_quest_state(session))   # H07-C: 동적 세계는 사건 지침이 대신
-        if _qb:
-            quest_block = "\n" + _qb
-            manifest.append("퀘스트")
-    except Exception as e:
-        print(f"[지시층위] 퀘스트 블록 실패: {e}")
-    return {"quest_block": quest_block}
-
-
 def _lb_manifest(c):
-    info_ledger = c.info_ledger
-    info_ledger_block = c.info_ledger_block
     km_block = c.km_block
     manifest = c.manifest
     memory_block = c.memory_block
-    narrative_block = c.narrative_block
     proceed_history = c.proceed_history
     proceed_history_block = c.proceed_history_block
     session = c.session
-    sim_block = c.sim_block
-    sim_result = c.sim_result
     world_tl_block = c.world_tl_block
     if world_tl_block:
         manifest.append("세계 타임라인")
-    if info_ledger_block:
-        manifest.append(f"정보 원장 {len(info_ledger)}건")
-    if narrative_block:
-        manifest.append("서사 계획")
-    if sim_block:
-        _ndirs = len(sim_result.get("directions", [])) if sim_result else 0
-        manifest.append(f"서사 시뮬 {_ndirs}방향")
     if proceed_history_block:
         manifest.append(f"PROCEED 이력 {len(proceed_history)}건")
     if memory_block:
@@ -849,25 +683,21 @@ def _lb_render(c):
     clarify_count = c.clarify_count
     current_turn_block = c.current_turn_block
     gm_note_block = c.gm_note_block
-    info_ledger_block = c.info_ledger_block
     km_block = c.km_block
     location_images_block = c.location_images_block
     memory_block = c.memory_block
     multi_info = c.multi_info
     narrate_count = c.narrate_count
-    narrative_block = c.narrative_block
     note_block = c.note_block
     pc_profile_summary = c.pc_profile_summary
     place_block = c.place_block
     player_message = c.player_message
     proceed_history_block = c.proceed_history_block
     prohibitions_block = c.prohibitions_block
-    quest_block = c.quest_block
     recent_logs_str = c.recent_logs_str
     res_str = c.res_str
     roll_block = c.roll_block
     session = c.session
-    sim_block = c.sim_block
     sta_str = c.sta_str
     stat_desc_line = c.stat_desc_line
     target_char = c.target_char
@@ -881,10 +711,10 @@ def _lb_render(c):
 [PC 상태]: {sta_str}{gm_note_block}
 [직전 ASK 횟수 / 한도]: {clarify_count} / {MAX_CLARIFY_PER_MESSAGE}
 [직전 NARRATE 횟수 / 한도]: {narrate_count} / {MAX_NARRATE_PER_MESSAGE}
-{multi_info}{note_block}{world_tl_block}{info_ledger_block}{memory_block}{km_block}{place_block}{quest_block}
+{multi_info}{note_block}{world_tl_block}{memory_block}{km_block}{place_block}
 [최근 5턴 컨텍스트 (온전 원문)]
 {recent_logs_str}
-{current_turn_block}{proceed_history_block}{narrative_block}{sim_block}{location_images_block}{valid_status_block}
+{current_turn_block}{proceed_history_block}{location_images_block}{valid_status_block}
 {roll_block}
 {prohibitions_block}
 [플레이어 신규 발언]
@@ -893,12 +723,12 @@ def _lb_render(c):
 위 컨텍스트를 분석하여, 맨 앞 [확정된 진행 유형]에 필요한 지시문을 JSON 스키마에 맞춰 작성하십시오(진행 유형은 바꾸지 않습니다)."""
 
 
-# 지시층위 블록 — 순서대로 조각을 계산하고(장소·퀘스트 블록은 manifest에 실제 주입 목록을 쌓는다), _lb_render가 틀에 넣는다
-LOGIC_BLOCKS = (_lb_header, _lb_recent, _lb_profile, _lb_stat_desc, _lb_resources, _lb_narrative, _lb_rolls, _lb_side_note, _lb_gm_note, _lb_proceed_history, _lb_this_turn, _lb_location_images, _lb_statuses, _lb_memory, _lb_world_state, _lb_info_ledger, _lb_simulation, _lb_multi_pc, _lb_keyword, _lb_prohibitions, _lb_place, _lb_quest, _lb_manifest,)
+# 지시층위 블록 — 순서대로 조각을 계산하고(장소 블록은 manifest에 실제 주입 목록을 쌓는다), _lb_render가 틀에 넣는다
+LOGIC_BLOCKS = (_lb_header, _lb_recent, _lb_profile, _lb_stat_desc, _lb_resources, _lb_rolls, _lb_side_note, _lb_gm_note, _lb_proceed_history, _lb_this_turn, _lb_location_images, _lb_statuses, _lb_memory, _lb_world_state, _lb_multi_pc, _lb_keyword, _lb_prohibitions, _lb_place, _lb_manifest,)
 
 
 def _build_logic_user_prompt(session, player_message: str, roll_results: list,
-                              sim_result: dict | None = None, world_turn=None, action: str | None = None) -> str:
+                              world_turn=None, action: str | None = None) -> str:
     """
     지시층위 호출용 사용자 프롬프트 조립.
 
@@ -906,9 +736,8 @@ def _build_logic_user_prompt(session, player_message: str, roll_results: list,
         session: TRPGSession
         player_message (str): 플레이어 신규 발언 (멀티플레이어 시 종합 텍스트)
         roll_results (list[str]): 직전 ROLL 결과 문자열 목록 (재호출 시 누적)
-        sim_result (dict | None): 방안 6 서사 설계자 결과. None이면 블록 생략.
     """
-    c = SimpleNamespace(session=session, player_message=player_message, roll_results=roll_results, sim_result=sim_result, world_turn=world_turn, action=action)
+    c = SimpleNamespace(session=session, player_message=player_message, roll_results=roll_results, world_turn=world_turn, action=action)
     for _blk in LOGIC_BLOCKS:
         vars(c).update(_blk(c))
     return _lb_render(c)

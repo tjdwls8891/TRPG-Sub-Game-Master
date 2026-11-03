@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import core
 
-VIEW_NAMES = frozenset({"ExtractionRetryView", "GMRollView", "InfinityPlanView", "OpenConfirmView", "RollContinueView"})
+VIEW_NAMES = frozenset({"ExtractionRetryView", "GMRollView", "OpenConfirmView", "RollContinueView"})
 CORE_NAMES = frozenset({
     "WaitingStatus", "accrue", "apply_normalized_companions", "auto_cost_cap_reached", "call_with_retry",
     "capture_state", "clean_text_for_tts", "clear_messages", "estimate_turn", "format_dialogue_block",

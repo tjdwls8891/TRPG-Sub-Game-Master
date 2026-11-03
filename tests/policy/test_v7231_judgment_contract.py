@@ -68,22 +68,8 @@ async def test_I08_ordinary_and_answer_turns_do_not_rejudge(crig):
     assert r.prov.calls.count("judgment") == 1 and "simulation" not in r.prov.calls
 
 
-async def test_I11_legacy_packet_keeps_gate_first_and_plain_schema(drig, monkeypatch):
-    import cogs.gm as gm_mod
-    r = drig                                                                         # LEGACY: 게이트가 판단 앞
-    monkeypatch.setattr(r.gm, "_simulate_narrative_directions",
-                        gm_mod.GMCog._simulate_narrative_directions.__get__(r.gm))
-    import core
-    r.sess.cache_name, r.sess.cache_model = r.sess.cache_name or "cachedContents/test", core.DEFAULT_MODEL
-    r.prov.routes["simulation"] = [sim()]
-    r.prov.routes["judgment"] = [jdg()]
-    await turn(r, "주변을 둘러본다")
-    text, si, schema = _jpacket(r)
-    assert "[선언 게이트 — 코드 확정(공개 범주)]" in text                              # 검증 후 판단(같은 시스템 지시)
-    assert "assertion_claim" not in (schema.get("properties") or {})
-
-
-def test_instruction_system_scopes_simulation_threat_clause_to_legacy():
+def test_instruction_threat_clause_grounds_on_canon_only():
     gi = prompts.GM_LOGIC_SYSTEM_INSTRUCTION
-    i = gi.index("[서사 방향성 시뮬레이션](레거시 세션에만 있다)")
-    assert "동적 세계 세션에는 시뮬레이션이 없다" in gi[i:i + 200]
+    assert "서사 방향성 시뮬레이션" not in gi                     # T-6: 시뮬레이션 은퇴
+    i = gi.index("해당 위협의 접근·전조가 정본([진행 중인 사건]·[현재 장면 인물]·[세계 진행] 신호)에 이미 있는 경우")
+    assert "근거가 되지 않는다" in gi[i:i + 200]

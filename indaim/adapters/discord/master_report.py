@@ -526,13 +526,11 @@ def delta_sections(session, record, prep=None) -> tuple:
     if pre.get("world_pending_signals") != post.get("world_pending_signals"):
         secs.append(("📨 전달 대기 신호", [f"{len(pre.get('world_pending_signals') or [])} → "
                                           f"{len(post.get('world_pending_signals') or [])}건"]))
-    if pre.get("quest_state") != post.get("quest_state"):
-        secs.append(("🗺️ 퀘스트(LEGACY)", [_j(_diff(pre.get("quest_state"), post.get("quest_state")))]))
 
     covered = {"world_clock", "world_timeline", "spatial_state", "actor_registry", "visited_places", "spatial_knowledge",
                "companions", "met_npcs", "relationship_state", "event_instances", "world_schedule", "cognition_state",
                "information_state", "resources", "place_items", "item_instances", "access_control_state", "statuses",
-               "world_pending_signals", "quest_state"}
+               "world_pending_signals"}
     other = sorted(k for k in set(pre) | set(post) if k not in covered and k not in _NOISE and pre.get(k) != post.get(k))
     if other:
         secs.append(("… 기타 변경 필드", [", ".join(other)]))

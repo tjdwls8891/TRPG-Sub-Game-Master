@@ -60,7 +60,6 @@ class RoutingProvider:
             gm.EXTRACTION_SYSTEM_INSTRUCTION: "extraction",
             gm.IRREGULAR_NPC_SYSTEM_INSTRUCTION: "irregular",
             gm.NPC_DETAIL_SYSTEM_INSTRUCTION: "npc_detail",
-            gm.NARRATIVE_PLANNER_SYSTEM_INSTRUCTION: "planner",
         }
         for k, v in by_sys.items():
             if sysi == k:
@@ -195,13 +194,12 @@ def _diff(a, b):
 def _canon(session):
     """리뷰된 커밋 소유 도메인의 값 스냅샷(비교용)."""
     import copy
-    keys = ("quest_state", "info_ledger", "resources", "statuses", "world_timeline",
+    keys = ("resources", "statuses", "world_timeline",
             "visited_places", "companions", "met_npcs", "irregular_npcs", "npcs",
-            "narrative_plan", "pending_ending", "last_extraction", "players",
+            "last_extraction", "players",
             "stat_fail_counts", "turn_count", "gm_turns_done", "last_recorded_turn",
             "gm_proceed_history")
     out = {k: copy.deepcopy(getattr(session, k, None)) for k in keys}
-    out["quest_state"] = core.quest.clone_state(session)   # 리더 지연 정규화 무시
     out["raw_logs_len"] = len(session.raw_logs)
     out["uncompressed_len"] = len(session.uncompressed_logs)
     return out
@@ -328,7 +326,7 @@ async def test_tc04_slow_stream_fast_extraction_waits_delivery(rig):
 async def test_tc05_canonical_unchanged_at_ready_and_applied_after(rig, monkeypatch):
     """T-C05/06/07/10 — READY 전이 순간 커밋 소유 도메인은 턴 시작 값 그대로다.
 
-    지시효과(info_ledger)·추출(상태이상·위치·동행·만난 NPC)·로그·카운터 모두
+    추출(상태이상·위치·동행·만난 NPC)·로그·카운터 모두
     READY 이후 legacy continuation에서만 반영된다.
     """
     r = rig
@@ -336,9 +334,6 @@ async def test_tc05_canonical_unchanged_at_ready_and_applied_after(rig, monkeypa
     s.statuses = {"테스터": []}
     s.resources = {"테스터": {"물통": 2}}
     tx = tt.get_or_begin_turn_transaction(s, "숲길로 간다")
-    tp.stage_instruction_effects(
-        s, {"info_access": {"new_secrets": [{"info": "숲의 비밀", "known_by": ["테스터"]}]}},
-        transaction_id=tx.transaction_id)
     r.prov.routes["extraction"] = [_json({
         "status_scores": [{"target": "테스터", "status": "탈진", "score": 95}],
         "location": {"name": "숲길"},
@@ -357,7 +352,6 @@ async def test_tc05_canonical_unchanged_at_ready_and_applied_after(rig, monkeypa
     # READY 이후 legacy continuation 결과(현행 성공 의미 보존, T-C10).
     assert s.turn_count == start["turn_count"] + 1
     assert s.gm_turns_done == 1 and len(s.raw_logs) == start["raw_logs_len"] + 2
-    assert any(i.get("info") == "숲의 비밀" for i in s.info_ledger)
     assert s.world_timeline.get("current_location") == "숲길"
     assert tx.status == tt.TurnStatus.COMMITTED            # WP-01 legacy finalize
     assert tt.get_active_transaction(s) is None
@@ -430,7 +424,8 @@ async def test_tc08_irregular_npc_and_nested_promotion_staged(rig):
     assert prep.tasks["npc_promotion:떠돌이 상인"].parent == "irregular_npc"
     # READY 이후 적용
     assert "낡은 사내" in s.irregular_npcs
-    assert "장돌뱅이 박씨" in s.npcs and "떠돌이 상인" not in s.irregular_npcs
+    # T-6: 승격은 개명하지 않는다(v7.25 F06 — 키 = 플레이어가 본 이름. 레거시 개명은 은퇴)
+    assert "떠돌이 상인" in s.npcs and "장돌뱅이 박씨" not in s.npcs and "떠돌이 상인" not in s.irregular_npcs
     ops = {e["operation"] for e in _events(r, tx) if e["event_id"] in prep.frozen_cost_event_ids}
     assert {"TURN_IRREGULAR_NPC", "TURN_NPC_PROFILE", "TURN_NARRATION",
             "TURN_EXTRACTION"} <= ops
@@ -439,41 +434,6 @@ async def test_tc08_irregular_npc_and_nested_promotion_staged(rig):
 # ══════════════════════════════════════════════════════════════
 # T-C09 / F-C10 — 자동 재계획 스테이징
 # ══════════════════════════════════════════════════════════════
-
-async def test_tc09_auto_replan_joined_and_applied_after_ready(rig):
-    """T-C09/F-C10 — 트리거된 재계획은 READY 전 합류, 정본 교체는 READY 이후."""
-    r = rig
-    s = r.sess
-    s.narrative_mode = "free"
-    s.narrative_plan = {"current_event": {"title": "이전"}, "next_event": {},
-                        "mid_plan": {}, "plan_version": 3, "last_planned_turn": 2}
-    r.prov.routes["planner"] = [_json({
-        "mid_plan": {"title": "m", "overview": "o", "milestones": ["a"], "end_condition": "e"},
-        "current_event": {"title": "새 사건", "summary": "s", "resolution_direction": "r",
-                          "progress": ""},
-        "next_event": {"title": "n", "summary": "s", "trigger": "t"}})]
-    captured = {}
-
-    def _planner(kwargs):
-        captured["prompt"] = kwargs["contents"][0].parts[0].text
-        return r.prov.routes["planner_resp"][0]
-    r.prov.routes["planner_resp"] = r.prov.routes["planner"]
-    r.prov.routes["planner"] = _planner
-    start = _canon(s)
-    tx = await _run_turn(r, event_assessment="completed")
-
-    assert r.rec["ready_snapshots"][0]["canon"]["narrative_plan"] == start["narrative_plan"]
-    assert tx.preparation.tasks["narrative_replan"].state == tp.TASK_SUCCEEDED
-    assert s.narrative_plan["current_event"]["title"] == "새 사건"
-    assert s.narrative_plan["plan_version"] == 4
-    assert s.narrative_plan["last_planned_turn"] == s.turn_count
-    # 입력 의미 보존: 계획 프롬프트가 이번 턴 묘사와 진행 턴 N을 본다.
-    assert "숲길로 조용히 걸어간다." in captured["prompt"]
-    assert f"진행 턴: {start['turn_count'] + 1}" in captured["prompt"]
-    ops = {e["operation"] for e in _events(r, tx)
-           if e["event_id"] in tx.preparation.frozen_cost_event_ids}
-    assert "TURN_NARRATIVE_PLANNING" in ops
-
 
 # ══════════════════════════════════════════════════════════════
 # T-C11 / T-C27 — 추출 provider 재시도는 같은 트랜잭션
@@ -927,11 +887,7 @@ def _capture_ready_reasons(monkeypatch):
 
 @pytest.mark.parametrize("tamper,domain", [
     (lambda s: s.resources.setdefault("테스터", {}).update({"물통": 99}), "resources"),
-    (lambda s: setattr(s, "quest_state", {"active": {"id": "q_x", "name": "외부", "node": "root"},
-                                          "cleared": [], "known_secrets": [],
-                                          "occurrences": {}}), "quest_state"),
-    (lambda s: setattr(s, "narrative_plan", {"current_event": {"title": "외부 변조"}}),
-     "narrative_plan"),
+    (lambda s: s.statuses.setdefault("테스터", {}).update({"출혈": 1}), "statuses"),
 ])
 async def test_bc1_canonical_change_during_preparation_blocks_ready(
         rig, monkeypatch, tamper, domain):
@@ -963,177 +919,6 @@ async def test_bc1_normal_path_canonical_unchanged_and_ready(rig):
     proof = tx.preparation.ready_proof
     assert proof is not None and proof.canonical_unchanged is True
     assert proof.changed_domains == () and "ready" in r.ev["order"]
-
-
-# ── B-C2 — post-ROLL / forced-PROCEED 지시효과 스테이징 ─────────
-
-def _quest_rig(r, monkeypatch):
-    from tests.defects.test_instruction_side_effects import QUEST_NEW, _install_quest
-    s = r.sess
-    s.quest_state = {"active": None, "cleared": [], "known_secrets": [], "occurrences": {}}
-    s._quest_offered = ["q_new"]
-    _install_quest(monkeypatch, s.scenario_id, QUEST_NEW)
-    return s
-
-
-def _secret(name):
-    return {"new_secrets": [{"info": name, "known_by": ["테스터"]}]}
-
-
-async def test_bc2_post_roll_decision_staged_composed_and_applied_once(rig, monkeypatch):
-    """B-C2 — 굴림 후 지시 결정의 효과가 스테이징(이전 스테이징과 합성)되고
-    READY 전 정본 불변, READY 후 정확히 한 번 적용된다."""
-    r = rig
-    s = _quest_rig(r, monkeypatch)
-    tx = tt.get_or_begin_turn_transaction(s, "문을 부순다")
-    # 같은 tx의 이전 결정(NARRATE 반복 등) — 퀘스트 선택 + 비밀 A
-    tp.stage_instruction_effects(
-        s, {"quest_choice": {"id": "q_new", "reason": "앞선 결정"}, "info_access": _secret("비밀 A")},
-        transaction_id=tx.transaction_id)
-
-    async def _logic(session, *a, **k):
-        return {"action": "PROCEED", "proceed_instruction": "문이 부서진다",
-                "reasoning": "r", "info_access": _secret("비밀 B")}
-    monkeypatch.setattr(r.gm, "_call_gm_logic", _logic)
-    applied = []
-    orig_apply = tp.apply_instruction_effects
-
-    def _apply(session, pending):
-        res = orig_apply(session, pending)
-        applied.append(res["applied"])
-        return res
-    monkeypatch.setattr(tp, "apply_instruction_effects", _apply)
-
-    await r.gm._continue_with_roll_results(s, "문을 부순다", ["- 굴림"],
-                                           transaction_id=tx.transaction_id)
-
-    snap = r.rec["ready_snapshots"][0]["canon"]
-    assert snap["info_ledger"] == [] and snap["quest_state"]["active"] is None
-    infos = {i["info"] for i in s.info_ledger}
-    assert {"비밀 A", "비밀 B"} <= infos, "합성 중 앞선 효과가 유실되었습니다"
-    assert s.quest_state["active"]["id"] == "q_new", "앞선 퀘스트 선택이 덮어쓰기로 유실되었습니다"
-    assert applied == [True], "지시효과가 정확히 한 번 적용되지 않았습니다"
-    assert tx.instruction_result.applied is True
-
-
-async def test_bc2_forced_proceed_decision_staged_and_applied_after_ready(rig, monkeypatch):
-    r = rig
-    s = _quest_rig(r, monkeypatch)
-    tx = tt.get_or_begin_turn_transaction(s, "선언")
-
-    async def _logic(session, *a, **k):
-        return {"action": "PROCEED", "proceed_instruction": "강제 진행",
-                "quest_choice": {"id": "q_new", "reason": "강제"},
-                "info_access": _secret("강제 비밀")}
-    monkeypatch.setattr(r.gm, "_call_gm_logic", _logic)
-    instr = await r.gm._forced_proceed_instruction(
-        s, "선언", [], r.master, transaction_id=tx.transaction_id)
-    assert tx.instruction_result is not None and tx.instruction_result.info_ledger
-    assert s.info_ledger == [] and s.quest_state["active"] is None
-    await r.gm._finish_proceed_and_continue(s, instr, r.master,
-                                            transaction_id=tx.transaction_id)
-    snap = r.rec["ready_snapshots"][0]["canon"]
-    assert snap["info_ledger"] == []
-    assert any(i["info"] == "강제 비밀" for i in s.info_ledger)
-    assert s.quest_state["active"]["id"] == "q_new"
-
-
-async def test_bc2_staged_decision_discarded_on_pre_ready_failure(rig, monkeypatch):
-    r = rig
-    s = _quest_rig(r, monkeypatch)
-    tx = tt.get_or_begin_turn_transaction(s, "선언")
-
-    async def _logic(session, *a, **k):
-        return {"action": "PROCEED", "proceed_instruction": "진행",
-                "quest_choice": {"id": "q_new", "reason": "r"}, "info_access": _secret("X")}
-    monkeypatch.setattr(r.gm, "_call_gm_logic", _logic)
-    r.prov.routes["narration"] = [RuntimeError("생성 실패")]
-    await r.gm._continue_with_roll_results(s, "선언", ["- 굴림"],
-                                           transaction_id=tx.transaction_id)
-    assert tx.status == tt.TurnStatus.FAILED_SYSTEM
-    assert s.info_ledger == [] and s.quest_state["active"] is None
-    assert tx.instruction_result.applied is False
-
-
-def test_bc2_composition_rule_unit(session_with_quest, monkeypatch):
-    """합성 규칙 고정: 후행 결정이 무변경이면 앞선 quest/info/안내가 유지된다."""
-    from tests.defects.test_instruction_side_effects import QUEST_NEW, _install_quest
-    s = session_with_quest
-    s.quest_state["active"] = None
-    s._quest_offered = ["q_new"]
-    _install_quest(monkeypatch, s.scenario_id, QUEST_NEW)
-    tx = tt.begin_turn_transaction(s, "d")
-    p1 = tp.stage_instruction_effects(
-        s, {"quest_choice": {"id": "q_new", "reason": "1"}, "info_access": _secret("A")},
-        transaction_id=tx.transaction_id)
-    p2 = tp.stage_instruction_effects(s, {"info_access": _secret("B")},
-                                      transaction_id=tx.transaction_id)
-    assert tx.instruction_result is p2 and p1 is not p2
-    assert p2.projected_quest_state["active"]["id"] == "q_new"
-    assert p2.quest_action == "start" and p2.quest_active_name
-    assert [i["info"] for i in p2.info_ledger] == ["A", "B"]
-    assert s.quest_state["active"] is None and s.info_ledger == []
-
-
-# ── B-C3 — 수치 재계획은 이번 턴 추출 계획이 권위 ─────────────
-
-def _free_plan(s):
-    s.narrative_mode = "free"
-    s.narrative_plan = {"current_event": {"title": "이전"}, "next_event": {},
-                        "mid_plan": {}, "plan_version": 3, "last_planned_turn": 2}
-
-
-def _planner_ok(r):
-    r.prov.routes["planner"] = [_json({
-        "mid_plan": {"title": "m", "overview": "o", "milestones": ["a"], "end_condition": "e"},
-        "current_event": {"title": "수치 재계획", "summary": "s", "resolution_direction": "r",
-                          "progress": ""},
-        "next_event": {"title": "n", "summary": "s", "trigger": "t"}})]
-
-
-async def test_bc3_current_plan_value_is_trigger_authority(rig):
-    """직전 last_extraction은 낮고 이번 계획이 임계 이상 → 같은 턴 재계획(1턴 지연 없음)."""
-    r = rig
-    s = r.sess
-    _free_plan(s)
-    _planner_ok(r)
-    s.last_extraction = {"quest_progress": {"advance": 0, "deviation": 0}}
-    r.prov.routes["extraction"] = [_json({"quest_progress": {"advance": 90, "deviation": 0}})]
-    tx = await _run_turn(r, event_assessment="ongoing")
-    prep = tx.preparation
-    assert prep.tasks["narrative_replan"].parent == "extraction"
-    assert r.rec["ready_snapshots"][0]["canon"]["narrative_plan"]["current_event"]["title"] == "이전"
-    assert s.narrative_plan["current_event"]["title"] == "수치 재계획"
-    assert s.narrative_plan["last_planned_turn"] == s.turn_count
-    ops = [e["operation"] for e in _events(r, tx) if e["event_id"] in prep.frozen_cost_event_ids]
-    assert "TURN_NARRATIVE_PLANNING" in ops
-
-
-async def test_bc3_stale_prior_extraction_does_not_trigger(rig):
-    """직전 last_extraction이 임계 이상이어도 이번 계획이 낮으면 재계획하지 않는다."""
-    r = rig
-    s = r.sess
-    _free_plan(s)
-    _planner_ok(r)
-    s.last_extraction = {"quest_progress": {"advance": 95, "deviation": 95}}
-    r.prov.routes["extraction"] = [_json({"quest_progress": {"advance": 0, "deviation": 0}})]
-    tx = await _run_turn(r, event_assessment="ongoing")
-    assert "narrative_replan" not in tx.preparation.tasks
-    assert r.prov.started.get("planner") is None
-    assert s.narrative_plan["current_event"]["title"] == "이전"
-
-
-async def test_bc3_event_assessment_precedence_dedupes(rig):
-    """event_assessment(completed) 트리거가 있으면 수치 판정은 생략 — 턴당 재계획 1건."""
-    r = rig
-    s = r.sess
-    _free_plan(s)
-    _planner_ok(r)
-    r.prov.routes["extraction"] = [_json({"quest_progress": {"advance": 99, "deviation": 99}})]
-    tx = await _run_turn(r, event_assessment="completed")
-    assert r.prov.started.get("planner") == 1
-    assert tx.preparation.tasks["narrative_replan"].parent is None   # 사건 트리거 소유
-    assert tx.preparation.narrative_marker is False
 
 
 # ── B-C4 — 래퍼 타임아웃 뒤에도 실제 provider 호출은 종료까지 추적 ─────
@@ -1222,7 +1007,7 @@ def test_bc4_automatic_configs_carry_network_timeout():
     """liveness 상한 — 자동 경로 provider 설정은 per-request 네트워크 타임아웃을 싣는다."""
     from tests.conftest import source_of
     src = source_of("cogs/gm.py")
-    assert src.count("http_options=core.resilience.provider_http_options(") >= 10
+    assert src.count("http_options=core.resilience.provider_http_options(") >= 9   # T-6: 시뮬레이션·서사 설계자 은퇴
     opt = core.resilience.provider_http_options("extraction")
     assert opt.timeout == int((core.resilience.get_timeout("extraction")
                                + core.resilience.NETWORK_TIMEOUT_GRACE) * 1000)
@@ -1410,7 +1195,6 @@ def _mutate_raw_in_place(s):
 
 @pytest.mark.parametrize("tamper,reason", [
     (lambda s: setattr(s, "player_faction", "외부 세력"), "player_faction"),
-    (lambda s: setattr(s, "main_unlocked_notified", True), "main_unlocked_notified"),
     (lambda s: setattr(s, "pending_bgm", "tense.mp3"), "pending_bgm"),
     (lambda s: setattr(s, "last_bgm_situation", "전투"), "last_bgm_situation"),
     (lambda s: setattr(s, "start_day_number", 42), "start_day_number"),

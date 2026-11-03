@@ -230,7 +230,7 @@ def test_D02_D03_promoted_session_npc_registers_once_at_scene(drig):
 def test_D04_dynamic_promotion_does_not_rename_to_model_true_name():
     src = source_of("cogs/gm.py")
     body = src[src.index("async def _apply_npc_promotion"):src.index("async def _resolve_irregular_npcs")]
-    assert "final_name != name and not core.player_world.legacy_narrative_retired(session)" in body
+    assert "final_name != name" not in body and "rename" not in body.lower()   # T-6: 개명 분기 자체가 은퇴
 
 
 # ══════════════════════════════════════════════════════════════

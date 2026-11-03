@@ -142,9 +142,9 @@ def session_world_context(session, world=None, *, intro: bool = False) -> WorldC
 def legacy_narrative_retired(session) -> bool:
     """H07-C: 동적 세계에 바인딩된 세션(정의 revision 바인딩 또는 세계 생애주기 초기화 — DYNAMIC·BLOCKED)에서는
     레거시 서사 권위(퀘스트 선택·진행·intended_case·info_ledger·hidden/known_secrets·정적 상주 동행 해제)를 은퇴한다.
-    권위는 사건 상태기계 + 정보/인지 + 정본 세계다. 바인딩이 없는 LEGACY 세션(4개 시나리오·현 운영)은 그대로다."""
-    from indaim.app import world_lifecycle as _lc
-    return bool(getattr(session, "definition_revision", None)) or bool(_lc.world_bound(session))
+    권위는 사건 상태기계 + 정보/인지 + 정본 세계다. T-6(v9): LEGACY 진행 방식 은퇴(v8.0)에 이어 레거시 서사 기능
+    자체를 지웠다 — 모든 세션에서 참이다(호환 호출자를 위해 남긴다)."""
+    return True
 
 
 def pc_statuses(session, uid) -> dict:

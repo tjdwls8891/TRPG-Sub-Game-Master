@@ -73,8 +73,6 @@ def droll(**kw):
 def grig(drig, monkeypatch):
     """DYNAMIC rig + 실제 조건부 선언 검증 경로(게이트 응답은 'simulation' 라우트 — 같은 게이트 스키마)."""
     r = drig
-    monkeypatch.setattr(r.gm, "_simulate_narrative_directions",
-                        gm_mod.GMCog._simulate_narrative_directions.__get__(r.gm))
     r.make()
     r.sess.cache_name, r.sess.cache_model = r.sess.cache_name or "cachedContents/test", core.DEFAULT_MODEL
     r.prov.routes["simulation"] = [sim()]
@@ -118,7 +116,7 @@ def test_c_narration_rule_no_longer_accepts_preclaimed_result():
     assert "문이 열린 물리적 결과" not in prompts.SYSTEM_INSTRUCTION
     assert "선언은 시도입니다" in prompts.SYSTEM_INSTRUCTION
     assert "[선언 처리 — 코드 확정]" in prompts.GM_LOGIC_SYSTEM_INSTRUCTION
-    assert "declaration_gate" in prompts.NARRATIVE_DIRECTION_SCHEMA["required"]
+    assert prompts.DECLARATION_GATE_SCHEMA["required"]   # T-6: 선언 게이트 스키마는 선언 검증 전용
 
 
 async def test_a_safe_attempt_continues_but_result_not_confirmed(grig):
@@ -380,24 +378,6 @@ async def test_o_cache_unusable_discovery_is_unverifiable_not_failed(drig, j):
 # ══════════════════════════════════════════════════════════════
 # 회귀 (p)(q)(r)
 # ══════════════════════════════════════════════════════════════
-
-async def test_p_legacy_never_persists_discovery_but_still_blocks(drig, monkeypatch):
-    r = drig
-    monkeypatch.setattr(r.gm, "_simulate_narrative_directions",
-                        gm_mod.GMCog._simulate_narrative_directions.__get__(r.gm))
-    r.sess.definition_revision = None                                     # LEGACY
-    r.prov.routes["simulation"] = [sim("AMBIENT_PROPOSAL", "ROLL", target="노끈", kind="OBJECT")]
-    r.prov.routes["judgment"] = [_json({"player_intent": "x", "situation_read": "x", "action": "PROCEED",
-                                        "reasoning": "x", "bridge_message": "", "rolls": [],
-                                        "ambient_proposal": True})]
-    tx = await turn(r, "노끈을 찾아본다")
-    assert tx.status == tt.TurnStatus.COMMITTED and tx.judgment_result["gate"]["classification"] == "ORDINARY"
-    assert not (r.sess.information_state or {}).get("runtime_definitions")
-    assert "[이 장소에서 PC가 이미 발견한 것]" not in r.prov.prompts["simulation"][0][0]
-    r.prov.routes["simulation"] = [sim("IMPROPER_ASSERTION", "BLOCK", "CANNOT_CONFIRM")]
-    tx2 = await turn(r, "경비가 문을 열어 주었다")
-    assert tx2.status == tt.TurnStatus.WAITING_FOR_PLAYER
-
 
 async def test_q_ordinary_turn_and_ordinary_roll_unchanged(grig, monkeypatch):
     r = grig

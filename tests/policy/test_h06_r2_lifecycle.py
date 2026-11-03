@@ -52,7 +52,7 @@ def _stubs(r, monkeypatch, *, intro_ok=True):
         calls["round"] += 1
     monkeypatch.setattr(cog, "upload_cache", _upload)
     monkeypatch.setattr(r.bot.get_cog("GameCog"), "_execute_proceed", _intro)
-    monkeypatch.setattr(r.bot.get_cog("GMCog"), "_init_narrative_and_start", _round)
+    monkeypatch.setattr(r.bot.get_cog("GMCog"), "_start_round", _round)
     return cog, calls
 
 

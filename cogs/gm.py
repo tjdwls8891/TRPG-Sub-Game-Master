@@ -33,17 +33,13 @@ from prompts import (
     JUDGMENT_SYSTEM_INSTRUCTION,
     GM_LOGIC_RESPONSE_SCHEMA,
     GM_LOGIC_SYSTEM_INSTRUCTION,
-    NARRATIVE_PLAN_SCHEMA,
-    NARRATIVE_PLANNER_SYSTEM_INSTRUCTION,
     build_narrate_prompt,
-    # 방안 B — 세계 물리 타임라인
-    # 방안 E — PROCEED 자기 검증
-    # 방안 6 — 2단계 사고 서사 방향성 시뮬레이터
-    NARRATIVE_DIRECTION_SCHEMA,
-    NARRATIVE_SIMULATOR_SYSTEM_INSTRUCTION,
+    # v7.23 조건부 선언 검증(동적 세계)
+    DECLARATION_GATE_RULES,
+    DECLARATION_GATE_SCHEMA,
 )
 from indaim.adapters.discord.gm_views import (  # noqa: F401 — 리팩터링 T-5: 옮긴 화면(같은 이름 유지)
-    ExtractionProviderFailure, ExtractionRetryView, GMRollView, InfinityPlanButton, InfinityPlanView, OpenConfirmView, RerenderConfirmView, RewindConfirmView, RewindView, RollContinueView, _rerender_and_report, _set_roll_open)
+    ExtractionProviderFailure, ExtractionRetryView, GMRollView, OpenConfirmView, RerenderConfirmView, RewindConfirmView, RewindView, RollContinueView, _rerender_and_report, _set_roll_open)
 from indaim.turn.config import (  # noqa: F401
     COST_LOG_PREFIX, EXTRACTION_MAX_RETRIES, EXTRACTION_MODEL, EXTRACTION_THINKING_BUDGET, GATE_UNVERIFIABLE_NOTICE, GM_LOGIC_MAX_RETRIES, JUDGMENT_MAX_RETRIES, JUDGMENT_MODEL, MAX_ITERATIONS_PER_MESSAGE, WORLD_REACTION_AUTHORITY_BLOCK, _OUTCOME_DELIVERY_FAILED, _OUTCOME_EXTRACTION_FAILED, _OUTCOME_NOT_READY, _OUTCOME_NO_NARRATION, _OUTCOME_READY, _OUTCOME_SUPERSEDED, _RETRY_MODE_PREPARATION)
 from indaim.adapters.discord.runtime import TurnPorts
@@ -136,14 +132,7 @@ class GMCog(TurnService, TurnSteps, WorldSteps, TurnPorts, commands.Cog):
         session.gm_proceed_history = []
         await core.save_session_data(self.bot, session)
 
-        has_existing_plan = bool(session.narrative_plan)
-        plan_note = (
-            "- 서사: 동적 세계 사건·정본이 주도 (레거시 서사 계획 없음)"
-            if core.player_world.legacy_narrative_retired(session) else
-            f"- 서사 계획: 기존 계획 유지 (v{session.narrative_plan.get('plan_version', '?')})"
-            if has_existing_plan else
-            "- 서사 계획: 수립 중... (백그라운드에서 진행)"
-        )
+        plan_note = "- 서사: 동적 세계 사건·정본이 주도"
         await ctx.send(
             f"🤖 **[GM 활성화]**\n"
             f"- 대상 PC: **{', '.join(target_chars)}**\n"
@@ -154,8 +143,8 @@ class GMCog(TurnService, TurnSteps, WorldSteps, TurnPorts, commands.Cog):
             f"- 중단: `!자동 중단`  /  GM에게 메모: `!자동 개입 [텍스트]`"
         )
 
-        # 활성화 직후: 서사 계획 수립 후 첫 라운드 시작 (백그라운드 태스크)
-        asyncio.create_task(self._init_narrative_and_start(session))
+        # 활성화 직후: 첫 라운드 시작 (백그라운드 태스크)
+        asyncio.create_task(self._start_round(session))
 
     @auto.command(name="중단")
     async def auto_stop(self, ctx):
@@ -399,38 +388,11 @@ class GMCog(TurnService, TurnSteps, WorldSteps, TurnPorts, commands.Cog):
         if not session or ctx.channel.id != session.master_ch_id:
             return await ctx.send("이 명령어는 마스터 채널에서만 사용할 수 있습니다.")
 
-        if core.player_world.legacy_narrative_retired(session):
-            # v7.35(S1): 동적 세계는 레거시 원장 대신 지금 정본이 추적하는 요소를 요약한다
-            for e in core.master_report.pack("📂 정본 추적 요소", core.master_report.COLOR_DELTA,
-                                             core.master_report.tracked_sections(session),
-                                             description="비밀 원문은 턴 보고의 [🔒 비밀 원문] 버튼"):
-                await ctx.send(embed=e)
-            return
-        ledger = getattr(session, "info_ledger", []) or []
-        if not ledger:
-            return await ctx.send(
-                "📂 정보 인지 원장이 비어 있습니다.\n"
-                "GM이 비공개·플롯 관련 정보를 감지하면 이 원장에 '누가 아는가'가 누적됩니다."
-            )
-
-        embed = discord.Embed(
-            title="📂 정보 인지 원장",
-            description="비공개·플롯 정보별로 '누가 아는가'가 기록됩니다. GM은 이 기록에 근거해 NPC·적의 앎/모름을 판정합니다.",
-            color=0x9B59B6,
-        )
-        for item in ledger[-10:]:
-            known = ", ".join(item.get("known_by", [])) or "(없음)"
-            susp = ", ".join(item.get("suspected_by", [])) or "(없음)"
-            leaks = item.get("leaks", [])
-            val = f"**확지**: {known}\n**추정**: {susp}"
-            if item.get("origin"):
-                val += f"\n**출처**: {item['origin']}"
-            if leaks:
-                val += "\n**유출**: " + " / ".join(leaks[-3:])
-            embed.add_field(name=f"🔒 {item.get('info', '?')[:200]}", value=val[:1020], inline=False)
-        embed.set_footer(text=f"총 {len(ledger)}건 기록 (최근 10건 표시)")
-        await ctx.send(embed=embed)
-
+        # v7.35(S1)·T-6: 레거시 정보 원장은 은퇴 — 지금 정본이 추적하는 요소를 요약한다
+        for e in core.master_report.pack("📂 정본 추적 요소", core.master_report.COLOR_DELTA,
+                                         core.master_report.tracked_sections(session),
+                                         description="비밀 원문은 턴 보고의 [🔒 비밀 원문] 버튼"):
+            await ctx.send(embed=e)
 
 async def setup(bot):
     """디스코드 봇이 이 파일을 로드할 때 호출되는 필수 설정 함수."""

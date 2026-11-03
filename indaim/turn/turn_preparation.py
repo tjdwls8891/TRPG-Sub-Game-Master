@@ -5,10 +5,9 @@
     자동 턴의 AI-파생 효과는 먼저 트랜잭션 스코프의 스테이징 데이터로 표현되고,
     묘사(narration)가 성립한 뒤에야 **단일 호환 적용 경계**에서 canonical에 반영된다.
 
-이 모듈이 담당하는 것(WP-B):
-    · 지시층위 효과 스테이징 — quest choice(단일 owner로 통합)·intended_case·info_ledger.
-    · quest_state 투영(projection) — 스테이징 상태를 canonical 변경 없이 읽기 전용으로 제공.
-    · 단일 호환 적용부(compatibility applier) — idempotent, 묘사 성공 후에만 적용.
+이 모듈이 담당하는 것(WP-B~C):
+    · 추출·비정규 인물·승격 결과의 스테이징(변이 계획 데이터) · 동시 준비 작업·READY 배리어.
+    · (T-6: 레거시 지시효과 — 퀘스트 선택·intended_case·info_ledger·서사 계획 — 는 은퇴했다)
 
 이 모듈이 하지 않는 것(상위 WP 소관):
     · 권위적 commit / READY_TO_COMMIT / CommitJournal·Settlement·InkTransaction 배선(WP-C/D).
@@ -26,316 +25,13 @@ import copy
 import re
 from dataclasses import dataclass, field
 
-from indaim.scenario import quest as _quest
 from indaim.turn import turn_transaction as _tx
 from indaim.turn import world_state as _world_state
 from indaim.rules.items import items as _items_fields
 
 
-# quest_state 투영 뷰·복제는 core.quest가 소유한다(순환 임포트 회피):
-#   _quest.projection_view(session, quest_state), _quest.clone_state(session).
 
 
-# ── info_ledger 순수 병합 ────────────────────────────────────────
-_MAX_LEDGER_ITEMS = 12
-
-
-def _merge_info_ledger(ledger: list, info_access: dict, turn: int) -> list:
-    """info_access(new_secrets/new_leaks) 델타를 ledger 복제본에 병합해 반환한다.
-
-    cogs.gm.GMCog._update_info_ledger의 병합 규약을 canonical 변경 없이 재현한다.
-    입력 ledger는 이미 복제본이어야 한다(이 함수는 받은 리스트를 제자리 변경한다).
-    """
-    if not isinstance(info_access, dict):
-        return ledger
-
-    def _norm(s):
-        return re.sub(r"\s+", "", (s or "")).lower()
-
-    def _find(info):
-        ni = _norm(info)
-        if not ni:
-            return None
-        for it in ledger:
-            ei = _norm(it.get("info", ""))
-            if ei and (ni == ei or ni in ei or ei in ni):
-                return it
-        return None
-
-    for sec in (info_access.get("new_secrets") or []):
-        if not isinstance(sec, dict):
-            continue
-        info = (sec.get("info") or "").strip()
-        if not info or _find(info):
-            continue
-        ledger.append({
-            "info": info,
-            "known_by": list(dict.fromkeys(sec.get("known_by") or [])),
-            "suspected_by": list(dict.fromkeys(sec.get("suspected_by") or [])),
-            "origin": (sec.get("origin") or "").strip(),
-            "leaks": [],
-            "turn_added": turn,
-        })
-
-    for lk in (info_access.get("new_leaks") or []):
-        if not isinstance(lk, dict):
-            continue
-        info = (lk.get("info") or "").strip()
-        to = (lk.get("to") or "").strip()
-        how = (lk.get("how") or "").strip()
-        if not info or not to:
-            continue
-        item = _find(info)
-        if item is None:
-            if not how:
-                continue
-            item = {"info": info, "known_by": [], "suspected_by": [],
-                    "origin": "", "leaks": [], "turn_added": turn}
-            ledger.append(item)
-        if to not in item["known_by"]:
-            item["known_by"].append(to)
-        if to in item.get("suspected_by", []):
-            item["suspected_by"] = [x for x in item["suspected_by"] if x != to]
-        item.setdefault("leaks", []).append(
-            f"턴{turn}: {to} — {how}" if how else f"턴{turn}: {to}")
-
-    if len(ledger) > _MAX_LEDGER_ITEMS:
-        del ledger[:len(ledger) - _MAX_LEDGER_ITEMS]
-    return ledger
-
-
-# ── 스테이징 데이터 ──────────────────────────────────────────────
-@dataclass
-class PendingInstructionEffects:
-    """지시층위 결정에서 파생된, 아직 canonical에 반영되지 않은 스테이징 효과.
-
-    검사·테스트 가능한 데이터만 담는다(임의 콜백 금지).
-
-    필드:
-        projected_quest_state: 이 지시효과가 반영된 quest_state 복제본.
-            투영(narration/logic 프롬프트 읽기)과 적용의 공통 근거다. None이면 미변경.
-        quest_action / quest_reason / quest_active_name: 적용 시 안내 메시지·진단용.
-        info_ledger: 병합된 info_ledger 복제본. None이면 미변경.
-        narrative_progress: 묘사 산출 요약에서 파생된 진행도 문자열. None이면 미변경.
-        applied: 호환 적용부가 canonical에 반영했는지(중복 적용 방지).
-    """
-    transaction_id: str | None = None
-    logical_turn: int | None = None
-    attempt: int | None = None
-
-    projected_quest_state: dict | None = None
-    quest_action: str = "none"          # start | switch | keep | ignored | none
-    quest_reason: str = ""
-    quest_active_name: str = ""
-
-    info_ledger: list | None = None
-    narrative_progress: str | None = None
-
-    applied: bool = False
-    diagnostics: dict = field(default_factory=dict)
-
-    def has_state_effect(self) -> bool:
-        """canonical에 반영할 게임 상태 효과가 있는지(진단·메시지 제외)."""
-        return (self.projected_quest_state is not None
-                or self.info_ledger is not None
-                or self.narrative_progress is not None)
-
-
-def _stage_quest(session, decision, pending: PendingInstructionEffects,
-                 base_state=None) -> None:
-    """quest choice(통합 단일 owner) + intended_case를 quest_state 복제본에 계산한다.
-
-    기존 두 경로를 통합한다:
-      · core.quest.apply_choice — ctx(active/none/switch) 기반 start/switch/keep/ignored.
-      · cogs.gm._apply_quest_choice — narrative_mode 가드 + 시나리오 random 선정.
-    canonical quest_state는 건드리지 않고 복제본 위 투영 뷰에서 기존 함수를 재사용한다.
-    """
-    # WP-C(B-C2): 같은 tx의 이전 스테이징 투영이 있으면 그 위에 순차 합성한다
-    #   (덮어쓰기로 앞선 결정의 효과를 잃지 않는다 — 결정을 순서대로 적용한 결과와 등가).
-    proj = copy.deepcopy(base_state) if base_state is not None else _quest.clone_state(session)
-    view = _quest.projection_view(session, proj)
-
-    changed = base_state is not None
-
-    # 풀자유(free) 세션은 서사설계자가 주도한다 — quest 선택 스테이징 안 함.
-    if getattr(session, "narrative_mode", "quest") == "quest":
-        choice = decision.get("quest_choice")
-
-        # 시나리오가 quest_select=random이고 진행 중 퀘스트가 없으면 코드가 무작위 선정.
-        mode = (getattr(session, "scenario_data", {}) or {}).get("quest_select") or "logic"
-        if mode == "random" and not proj.get("active"):
-            offered = _quest.offered_ids(view)
-            if offered:
-                import random as _r
-                choice = {"id": _r.choice(offered), "reason": "무작위 선정"}
-
-        if choice:
-            res = _quest.apply_choice(view, choice)
-            pending.quest_action = res.get("action", "none")
-            pending.quest_reason = res.get("reason", "")
-            if res.get("applied"):
-                changed = True
-                active = (view.quest_state.get("active") or {})
-                pending.quest_active_name = active.get("name", "")
-
-    # 지시층위가 지정한 진전 방향(intended_case) — 진전 자체는 추출 수치가 결정.
-    if decision.get("quest_case"):
-        key = _quest.set_intended_case(view, decision["quest_case"])
-        if key is not None:
-            changed = True
-        pending.diagnostics["intended_case"] = key
-
-    if changed:
-        pending.projected_quest_state = view.quest_state
-
-
-def _stage_info_ledger(session, decision, pending: PendingInstructionEffects,
-                       base_ledger=None) -> None:
-    """info_access 델타를 info_ledger 복제본에 병합해 스테이징한다.
-
-    WP-C(B-C2): base_ledger(같은 tx의 이전 스테이징)가 있으면 그 위에 합성한다.
-    """
-    if base_ledger is not None:
-        pending.info_ledger = copy.deepcopy(base_ledger)
-    ia = decision.get("info_access") or {}
-    if not isinstance(ia, dict) or not ia:
-        return
-    base = base_ledger if base_ledger is not None else getattr(session, "info_ledger", None)
-    if not isinstance(base, list):
-        base = []
-    ledger = copy.deepcopy(base)
-    turn = int(getattr(session, "turn_count", 0) or 0) + 1
-    merged = _merge_info_ledger(ledger, ia, turn)
-    # 실제 변화가 있을 때만 스테이징(불필요한 적용/저장 방지).
-    if merged != base:
-        pending.info_ledger = merged
-
-
-def stage_instruction_effects(session, decision, *, transaction_id=None) -> PendingInstructionEffects:
-    """지시층위 decision을 canonical 변경 없이 스테이징한다(단일 진입점).
-
-    quest choice/intended_case/info_ledger를 복제본 위에서 계산해 반환한다.
-    이 함수 호출만으로는 어떤 canonical 게임 상태도 바뀌지 않는다.
-    """
-    active = _tx.get_active_transaction(session)
-    pending = PendingInstructionEffects(
-        transaction_id=transaction_id,
-        logical_turn=getattr(active, "logical_turn", None),
-        attempt=getattr(active, "attempt", None),
-    )
-    # WP-C(B-C2) 합성 규칙: 같은 활성 시도에 아직 적용되지 않은 이전 스테이징이 있으면
-    #   그 투영(quest_state/info_ledger)을 기준으로 이번 결정을 순차 합성한다.
-    #   · quest: 이전 투영 위에서 apply_choice/intended_case(후행 결정이 우선, 무변경이면 유지)
-    #   · info_ledger: 이전 병합본 위에 이번 델타 병합
-    #   · 안내 메시지(quest_action/reason/name): 이번 결정이 적용되면 이번 것, 아니면 이전 것
-    prev = getattr(active, "instruction_result", None) if active is not None else None
-    if not (isinstance(prev, PendingInstructionEffects) and not prev.applied
-            and (prev.logical_turn, prev.attempt) == (pending.logical_turn, pending.attempt)):
-        prev = None
-    from indaim.turn import player_world as _pw
-    if _pw.legacy_narrative_retired(session):
-        # H07-C: 동적 세계 세션 — 퀘스트 선택·intended_case·info_ledger 스테이징 없음(사건·인지가 권위)
-        pending.diagnostics["legacy_narrative"] = "RETIRED"
-    else:
-        try:
-            _stage_quest(session, decision or {}, pending,
-                         base_state=(prev.projected_quest_state if prev is not None else None))
-        except Exception as e:  # 스테이징 실패는 canonical을 오염시키지 않는다.
-            pending.diagnostics["quest_error"] = str(e)
-        try:
-            _stage_info_ledger(session, decision or {}, pending,
-                               base_ledger=(prev.info_ledger if prev is not None else None))
-        except Exception as e:
-            pending.diagnostics["info_error"] = str(e)
-    if prev is not None:
-        if (pending.quest_action not in ("start", "switch")
-                and prev.quest_action in ("start", "switch")):
-            pending.quest_action = prev.quest_action
-            pending.quest_reason = prev.quest_reason
-            pending.quest_active_name = prev.quest_active_name
-        if pending.narrative_progress is None:
-            pending.narrative_progress = prev.narrative_progress
-        pending.diagnostics = {**prev.diagnostics, **pending.diagnostics,
-                               "composed_with_previous": True}
-    # 활성 트랜잭션에 최신 스테이징 상태를 얹는다(소유권 조기 고정용 슬롯).
-    # 같은 논리 턴의 후속 프롬프트(투영)와 묘사 성공 후 적용이 이 값을 읽는다.
-    if active is not None:
-        active.instruction_result = pending
-    return pending
-
-
-def pending_for(session) -> "PendingInstructionEffects | None":
-    """세션의 활성 트랜잭션에 스테이징된 지시효과(없으면 None)."""
-    tx = _tx.get_active_transaction(session)
-    p = getattr(tx, "instruction_result", None) if tx is not None else None
-    return p if isinstance(p, PendingInstructionEffects) else None
-
-
-def projected_quest_state(session):
-    """활성 트랜잭션의 스테이징을 반영한 quest_state 투영(없으면 canonical)."""
-    return project_quest_state(session, pending_for(session))
-
-
-def project_quest_state(session, pending: PendingInstructionEffects | None):
-    """narration/logic 프롬프트가 읽을 quest_state 투영(읽기 전용)을 반환한다.
-
-    스테이징된 quest 효과가 있으면 그 투영본을, 없으면 canonical get_state 결과를
-    돌려준다. 어느 경우에도 canonical은 변경하지 않는다.
-    """
-    if pending is not None and pending.projected_quest_state is not None:
-        return pending.projected_quest_state
-    return _quest.get_state(session)
-
-
-# ── 단일 호환 적용 경계 ──────────────────────────────────────────
-def apply_instruction_effects(session, pending: PendingInstructionEffects | None) -> dict:
-    """스테이징된 지시층위 효과를 canonical에 반영한다(단일 owner, idempotent).
-
-    묘사가 성립한 뒤에만 호출한다. 같은 pending을 두 번 적용해도 이중 반영되지
-    않는다(applied 마커). 안내 메시지는 이 함수가 아니라 호출부가 반환값으로 낸다.
-
-    Returns:
-        {"applied": bool, "quest_action": str, "quest_active_name": str,
-         "info_changed": bool, "narrative_progress": bool}
-    """
-    result = {"applied": False, "quest_action": "none", "quest_reason": "",
-              "quest_active_name": "", "info_changed": False,
-              "narrative_progress": False}
-    if pending is None or pending.applied or not pending.has_state_effect():
-        if pending is not None:
-            pending.applied = True
-        return result
-
-    if pending.projected_quest_state is not None:
-        session.quest_state = pending.projected_quest_state
-        result["quest_action"] = pending.quest_action
-        result["quest_reason"] = pending.quest_reason
-        result["quest_active_name"] = pending.quest_active_name
-
-    if pending.info_ledger is not None:
-        session.info_ledger = pending.info_ledger
-        result["info_changed"] = True
-
-    if pending.narrative_progress is not None:
-        apply_narrative_progress(session, pending.narrative_progress)
-        result["narrative_progress"] = True
-
-    pending.applied = True
-    result["applied"] = True
-    return result
-
-
-def apply_narrative_progress(session, progress_text: str) -> bool:
-    """narrative_plan.current_event.progress 갱신의 단일 owner.
-
-    canonical narrative_plan은 persisted·rewind-tracked·future-read 상태이므로,
-    AI-파생 진행도 갱신도 이 경계를 통해서만 반영한다.
-    """
-    plan = getattr(session, "narrative_plan", None)
-    if isinstance(plan, dict) and plan.get("current_event"):
-        plan["current_event"]["progress"] = (progress_text or "")[:150]
-        return True
-    return False
 
 
 # ══════════════════════════════════════════════════════════════════
@@ -374,8 +70,6 @@ class ExtractionMutationPlan:
     location_before: str | None = None
     location_after: str | None = None
     location_moved: bool = False
-    quest_progress: dict = _field(default_factory=dict)   # 정규화된 좁은 DTO
-    secret_awareness: object = None
     situation: dict = _field(default_factory=dict)
     # ── 검사/진단 ──
     entries: list = _field(default_factory=list)
@@ -485,13 +179,6 @@ def build_extraction_plan(session, result, *, transaction_id=None,
     plan.location_after = loc["after"]
     plan.location_moved = loc["moved"]
 
-    # 퀘스트 진전(좁은 정규화 DTO) — 진전/완료 판정은 적용부의 advance_quest.
-    qp = r.get("quest_progress")
-    plan.quest_progress = qp if isinstance(qp, dict) else ({} if qp is None else {"value": qp})
-
-    # 이면정보 인지 점수.
-    plan.secret_awareness = r.get("secret_awareness")
-
     # 상황(BGM).
     sit = r.get("situation")
     plan.situation = sit if isinstance(sit, dict) else {}
@@ -515,12 +202,6 @@ def build_extraction_plan(session, result, *, transaction_id=None,
     if plan.location_after:
         plan.entries.append({"domain": "location", "target": plan.location_after,
                              "op": "move", "payload": {"moved": plan.location_moved}})
-    if plan.quest_progress:
-        plan.entries.append({"domain": "quest", "target": "active",
-                             "op": "progress", "payload": {}})
-    if plan.secret_awareness is not None:
-        plan.entries.append({"domain": "secret", "target": "active",
-                             "op": "awareness", "payload": {}})
 
     return plan
 
@@ -628,123 +309,9 @@ def normalize_npc_detail(data, *, fallback_name) -> dict:
 
 
 # ══════════════════════════════════════════════════════════════════════
-#  자동 서사 재계획 — narrative_plan 교체 변이 계획 (AUD-065)
-#  provider가 만든 서사 계획 raw JSON이 곧바로 session.narrative_plan이 되지
-#  않도록, 구조 검증·정규화된 후보(NarrativePlanMutationPlan)를 만든다.
-#  plan_version / last_planned_turn은 코드 소유 metadata이므로 provider 값은
-#  폐기하고, 호환 적용 직전에 코드가 부여한다.
-#  (narrative_plan.current_event.progress 갱신은 apply_narrative_progress가
-#   계속 단일 owner다 — 이 계획은 '전체 계획 교체' 경로만 다룬다.)
-# ══════════════════════════════════════════════════════════════════════
-
-# 현재 제품 스키마(NARRATIVE_PLAN_SCHEMA)와 실제 리더가 읽는 필드.
-_NARRATIVE_OBJECT_FIELDS = {
-    "mid_plan": ("title", "overview", "milestones", "end_condition"),
-    "current_event": ("title", "summary", "resolution_direction", "progress"),
-    "next_event": ("title", "summary", "trigger"),
-}
-_NARRATIVE_REQUIRED = ("mid_plan", "current_event", "next_event")
-_NARRATIVE_CODE_OWNED = ("plan_version", "last_planned_turn")
-
-
-@dataclass
-class NarrativePlanMutationPlan:
-    """서사 계획 교체의 검증·정규화된 후보 — 적용의 유일 권위.
-
-    · normalized: 구조 검증을 통과한 계획(스키마 필드만). 코드 소유 metadata 없음.
-    · rejected: 구조 탈락 사유(있으면 normalized=None, 적용부 도달 불가).
-    · trigger_reason / full_replan: 재계획 사유·모드(멱등 키 구성 요소).
-    · transaction_id / logical_turn / attempt: 원인 시도 정체성(스케줄 시점 복사).
-    """
-    trigger_reason: str = ""
-    full_replan: bool = True
-    transaction_id: str | None = None
-    logical_turn: int | None = None
-    attempt: int | None = None
-    normalized: dict | None = None
-    rejected: list = _field(default_factory=list)
-    diagnostics: dict = _field(default_factory=dict)
-    applied: bool = False
-    rejected_stale: bool = False
-
-
-def normalize_narrative_plan(raw) -> tuple:
-    """provider 서사 계획 raw dict를 구조 검증·정규화한다(순수 — 세션 미참조).
-
-    · 최상위가 dict가 아니거나 필수 객체(mid_plan/current_event/next_event)가
-      dict가 아니면 거부한다.
-    · 각 객체는 스키마 필드만 통과시킨다. 문자열 필드는 str일 때만, milestones는
-      list일 때 문자열 항목만 남긴다. 형이 틀린 필드는 버린다(리더 기본값 유지).
-    · planner_notes는 str일 때만. 그 밖의 최상위 키(코드 소유 metadata 포함)는 버린다.
-
-    Returns:
-        (normalized: dict | None, reasons: list[str], dropped: list[str])
-    """
-    if not isinstance(raw, dict):
-        return None, ["not_object"], []
-    reasons = [f"missing_or_invalid:{k}" for k in _NARRATIVE_REQUIRED
-               if not isinstance(raw.get(k), dict)]
-    if reasons:
-        return None, reasons, []
-
-    out, dropped = {}, []
-    for key, fields in _NARRATIVE_OBJECT_FIELDS.items():
-        src = raw.get(key) or {}
-        obj = {}
-        for f in fields:
-            if f not in src:
-                continue
-            v = src[f]
-            if f == "milestones":
-                if isinstance(v, list):
-                    obj[f] = [m for m in v if isinstance(m, str)]
-                else:
-                    dropped.append(f"{key}.{f}")
-            elif isinstance(v, str):
-                obj[f] = v
-            else:
-                dropped.append(f"{key}.{f}")
-        out[key] = obj
-    if isinstance(raw.get("planner_notes"), str):
-        out["planner_notes"] = raw["planner_notes"]
-    for k in raw:
-        if k not in _NARRATIVE_OBJECT_FIELDS and k != "planner_notes":
-            dropped.append(k)   # 코드 소유 metadata·미지 키는 provider 권위가 아니다
-    return out, [], dropped
-
-
-def build_narrative_plan(raw, *, trigger_reason, full_replan, transaction_id=None,
-                         logical_turn=None, attempt=None) -> NarrativePlanMutationPlan:
-    """raw 서사 계획 → 검증·정규화된 NarrativePlanMutationPlan(무변이)."""
-    normalized, reasons, dropped = normalize_narrative_plan(raw)
-    plan = NarrativePlanMutationPlan(
-        trigger_reason=trigger_reason, full_replan=bool(full_replan),
-        transaction_id=transaction_id, logical_turn=logical_turn, attempt=attempt,
-        normalized=normalized, rejected=list(reasons))
-    if dropped:
-        plan.diagnostics["dropped"] = dropped
-    return plan
-
-
-def narrative_replan_key(plan: NarrativePlanMutationPlan) -> str | None:
-    """자동 재계획 변이의 안정 정체성 — (원인 시도, 사유, 모드).
-
-    같은 원인 시도에서 같은 사유·모드로 만든 재계획은 하나의 논리 변이다.
-    원인 시도 정체성이 없으면 None(멱등 판정 불가 — 자동 경로에선 발생하지 않음).
-    """
-    if plan.transaction_id:
-        origin = f"tx:{plan.transaction_id}"
-    elif plan.logical_turn is not None:
-        origin = f"lt:{plan.logical_turn}:{plan.attempt or 0}"
-    else:
-        return None
-    return f"{origin}|{plan.trigger_reason}|{'full' if plan.full_replan else 'moment'}"
-
-
-# ══════════════════════════════════════════════════════════════════════
 #  WP-C — 트랜잭션 소유 동시 준비(Concurrent Preparation) + READY_TO_COMMIT 배리어
 #
-#  확정 묘사(finalized narration) 이후 전달/스트리밍·추출·비정규 NPC·자동 재계획 등
+#  확정 묘사(finalized narration) 이후 전달/스트리밍·추출·비정규 NPC 등
 #  필수 준비 작업을 동시에 돌리고, 모든 필수 작업과 비용 멤버십이 닫힌 뒤에만
 #  READY_TO_COMMIT에 도달한다.
 #
@@ -781,7 +348,6 @@ TASK_DELIVERY = "NARRATION_DELIVERY"
 TASK_EXTRACTION = "EXTRACTION"
 TASK_IRREGULAR_NPC = "IRREGULAR_NPC_RESOLUTION"
 TASK_NPC_PROMOTION = "NPC_PROMOTION_DETAIL"
-TASK_NARRATIVE_REPLAN = "NARRATIVE_REPLAN"
 
 # ── 작업 상태 ──
 TASK_RUNNING = "RUNNING"
@@ -859,14 +425,13 @@ class ReadyProof:
 # 되감기/커밋 소유 정본 도메인(§27). 백그라운드 압축 도메인(compressed_memory,
 # uncompressed_logs 앞부분 삭제)과 운영 집계(total_cost 등)는 의도적으로 제외한다.
 CANONICAL_DOMAINS = (
-    "quest_state", "info_ledger", "resources", "statuses", "world_timeline",
+    "resources", "statuses", "world_timeline",
     "visited_places", "companions", "met_npcs", "irregular_npcs", "npcs",
-    "narrative_plan", "pending_ending", "last_extraction", "players",
+    "last_extraction", "players",
     "stat_fail_counts", "turn_count", "gm_turns_done", "last_recorded_turn",
     "gm_proceed_history",
     # B-C6 — 전수 대조로 추가된 턴 소유 필드(모두 READY 이후 legacy continuation만 씀)
-    "player_faction",           # 퀘스트 grants(추출 적용)
-    "main_unlocked_notified",   # 메인 해금 안내 플래그(추출 적용)
+    "player_faction",           # 소속 호환 뷰(추출 적용)
     "pending_bgm",              # 추출 적용이 설정 / 이전 턴 확정분 소비는 rebaseline(아래)
     "last_bgm_situation",       # select_bgm(추출 적용)
     "start_day_number",         # timeline.quantify(추출 적용)
@@ -931,9 +496,6 @@ def _full_logs_file_state(session) -> str:
 def canonical_fingerprint(session) -> dict:
     """리뷰된 커밋 소유 도메인의 지문(전체 Session 깊은 비교가 아님)."""
     fp = {d: _domain_digest(getattr(session, d, None)) for d in CANONICAL_DOMAINS}
-    # quest_state는 리더(get_state)가 빈 dict를 기본 형태로 지연 정규화한다 —
-    # 의미 변화가 아니므로 정규화된 형태로 비교한다.
-    fp["quest_state"] = _domain_digest(_quest.clone_state(session))
     fp["raw_logs"] = _raw_logs_digest(getattr(session, "raw_logs", None))
     fp["full_logs_file"] = _full_logs_file_state(session)
     return fp
@@ -994,9 +556,6 @@ class TurnPreparation:
         self.narration = None               # NarrationResult(확정 묘사)
         self.staged_log = None              # dict: raw_entries/uncompressed_entries/consumed/turn_no
         self.proceed_history_entry = None   # gm_proceed_history 스테이징
-        self.narrative_progress = None      # current_event.progress 텍스트
-        self.narrative_marker = False       # last_planned_turn 마커 스테이징
-        self.replan_candidate = None        # NarrativePlanMutationPlan
         self.extraction_plan = None         # ExtractionMutationPlan
         self.extraction_text = None
         self.irregular_plan = None          # IrregularNpcMutationPlan
@@ -1194,10 +753,7 @@ class TurnPreparation:
     def turn_effects_unapplied(self, tx) -> list:
         """이미 정본에 적용된 스테이징 효과 목록(비어 있어야 READY 가능)."""
         applied = []
-        pending = getattr(tx, "instruction_result", None)
-        if isinstance(pending, PendingInstructionEffects) and pending.applied:
-            applied.append("instruction_effects")
-        for nm in ("extraction_plan", "irregular_plan", "replan_candidate"):
+        for nm in ("extraction_plan", "irregular_plan"):
             obj = getattr(self, nm)
             if obj is not None and getattr(obj, "applied", False):
                 applied.append(nm)

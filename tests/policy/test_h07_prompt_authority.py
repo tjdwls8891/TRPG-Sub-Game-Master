@@ -15,7 +15,7 @@ pytestmark = pytest.mark.policy
 
 def test_dynamic_authority_rules_present_in_each_layer():
     assert "동적 세계 세션" in prompts.GM_LOGIC_SYSTEM_INSTRUCTION
-    for phrase in ("레거시 퀘스트·정보 원장은 이 세션의 서사 권위가 아닙니다", "억지 해석하지 마십시오",
+    for phrase in ("정본 블록과 다른 위치·시간·결과를 지시하지 마십시오", "억지 해석하지 마십시오",
                    "플레이어 대신 고르거나", "독립적인 기회·압력·결과", "표시된 이름으로만", "노출은 믿음이 아닙니다"):
         assert phrase in prompts.GM_LOGIC_SYSTEM_INSTRUCTION, phrase
     assert "resolution(결단)은 플레이어가 이번 발언에서" in prompts.JUDGMENT_SYSTEM_INSTRUCTION
@@ -24,13 +24,17 @@ def test_dynamic_authority_rules_present_in_each_layer():
     assert "제목이 '정본'인 세계 블록" in prompts.SYSTEM_INSTRUCTION      # v7.25: 인트로·진행 없는 턴도 정본 블록이면 적용
 
 
-def test_legacy_quest_meaning_preserved():
-    assert "[퀘스트 선택 — quest_choice]" in prompts.GM_LOGIC_SYSTEM_INSTRUCTION
-    assert "quest_choice" in prompts.GM_LOGIC_RESPONSE_SCHEMA["properties"]      # 원본 스키마 불변(런타임 사본만 축소)
-    assert "quest_progress.advance" in prompts.EXTRACTION_SYSTEM_INSTRUCTION
+def test_legacy_quest_meaning_retired():
+    """T-6: 레거시 퀘스트·정보 원장·서사 계획 문구와 필드는 프롬프트에서 은퇴했다."""
+    assert "[퀘스트 선택 — quest_choice]" not in prompts.GM_LOGIC_SYSTEM_INSTRUCTION
+    for k in ("quest_choice", "info_access", "event_assessment"):
+        assert k not in prompts.GM_LOGIC_RESPONSE_SCHEMA["properties"]
+    assert "quest_progress" not in prompts.EXTRACTION_SYSTEM_INSTRUCTION
+    for t in ("레거시", "서사 계획", "시뮬레이션", "정보 인지 원장"):
+        assert t not in prompts.GM_LOGIC_SYSTEM_INSTRUCTION, t
 
 
-def test_provider_production_callsites_stay_18():
+def test_provider_production_callsites_stay_16():
     n = 0
     from tests.conftest import legacy_rel, prod_py_files
     for p in prod_py_files("cogs", "core"):
@@ -39,7 +43,7 @@ def test_provider_production_callsites_stay_18():
             n += sum(1 for x in ast.walk(tree) if isinstance(x, ast.Attribute) and x.attr == "generate_content")
     tree = ast.parse(source_of("main.py"))
     n += sum(1 for x in ast.walk(tree) if isinstance(x, ast.Attribute) and x.attr == "generate_content")
-    assert n == 18                                                              # H07은 늘리지 않는다 · P1 후속 묘사 은퇴(19 → 18) · v7.23 조건부 선언 검증(18 → 19, DYNAMIC 매 발화 시뮬레이션은 0) · v7.34 호출자 0인 지시문 자기 검증 제거(19 → 18)
+    assert n == 16                                                              # T-6 서사 설계자 은퇴(17 → 16) · T-6 레거시 서사 방향 시뮬레이션 은퇴(18 → 17) · H07은 늘리지 않는다 · P1 후속 묘사 은퇴(19 → 18) · v7.23 조건부 선언 검증(18 → 19, DYNAMIC 매 발화 시뮬레이션은 0) · v7.34 호출자 0인 지시문 자기 검증 제거(19 → 18)
     # indaim/app/logs.py 기록 프록시는 호출 단계가 아니라 통과 전달 1회뿐이다(새 provider 호출 없음)
     tree = ast.parse(open(os.path.join(REPO_ROOT, legacy_rel("logs")), encoding="utf-8").read())
     assert sum(1 for x in ast.walk(tree) if isinstance(x, ast.Attribute) and x.attr == "generate_content") == 1

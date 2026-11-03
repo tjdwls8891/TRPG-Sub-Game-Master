@@ -231,31 +231,7 @@ class TurnSteps:
             if len(session.gm_proceed_history) > 5:
                 session.gm_proceed_history = session.gm_proceed_history[-5:]
 
-        if prep.narrative_progress:
-            TP.apply_narrative_progress(session, prep.narrative_progress)
-
-        _applied = TP.apply_instruction_effects(session, TP.pending_for(session))
-        if (_applied["applied"]
-                and _applied["quest_action"] in ("start", "switch")
-                and _applied["quest_active_name"]):
-            verb = "전환" if _applied["quest_action"] == "switch" else "선정"
-            derived.master(
-                f"📜 **[퀘스트 {verb}]** {_applied['quest_active_name']}\n"
-                f"> {_applied['quest_reason']}")
-
-        if prep.narrative_marker:
-            _plan = getattr(session, "narrative_plan", None)
-            if isinstance(_plan, dict) and _plan:
-                _plan["last_planned_turn"] = session.turn_count
-                session.narrative_plan = _plan
-
         await self._apply_prepared_extraction(session, prep, derived=derived)
-
-        if prep.replan_candidate is not None:
-            await self._commit_replan_candidate(
-                session, prep.replan_candidate,
-                logical_turn=prep.logical_turn, attempt=prep.attempt,
-                derived=derived)
 
     async def history_rewind(self, session, target: int) -> dict:
         """모든 되감기 입구(!되감기·디스플레이·rewind:one)의 단일 어댑터."""
@@ -314,7 +290,6 @@ class TurnSteps:
 
     async def _forced_proceed_instruction(self, session, player_message: str,
                                           roll_results: list, master_ch,
-                                          sim_result: dict | None = None,
                                           *, transaction_id: str | None = None) -> str:
         """
         ASK/NARRATE 한도 초과 또는 ROLL 폴백으로 강제 PROCEED 전환할 때,
@@ -327,15 +302,10 @@ class TurnSteps:
         fallback = "현재 상황에서 자연스럽게 다음 묘사를 이어가십시오."
         decision = await self._call_gm_logic(
             session, player_message, roll_results, master_ch,
-            sim_result=sim_result, action="PROCEED",
+            action="PROCEED",
             transaction_id=transaction_id)
         if not decision:
             return fallback
-        # WP-C(B-C2): 강제 PROCEED 결정의 지시효과(quest_choice/intended_case/info_access)도
-        #   기존 단일 owner로 스테이징한다(유실 금지). 정본 적용은 READY 이후에만.
-        if transaction_id is not None:
-            _turn_preparation.stage_instruction_effects(
-                session, {**decision, "action": "PROCEED"}, transaction_id=transaction_id)
         return _clean_proceed_instruction(decision.get("proceed_instruction") or fallback)
 
     def _stage_npc_promotions(self, session, prep, plan, text, master_ch=None) -> list:
@@ -376,103 +346,3 @@ class TurnSteps:
             launched.append(name)
         return launched
 
-    async def _init_narrative_and_start(self, session):
-        """
-        !자동 시작 직후 호출. 서사 계획이 없으면 새로 수립한 뒤 첫 라운드를 시작한다.
-        이미 계획이 있으면 수립 없이 바로 라운드를 시작한다.
-        백그라운드 태스크로 실행됨.
-        """
-        if not session.narrative_plan:
-            await self._plan_narrative(session, "init")
-        await self._start_round(session)
-
-    async def _prepare_auto_replan(self, session, prep, trigger_reason, *,
-                                   full_replan: bool, context_note: str = ""):
-        """WP-C 자동 재계획 준비 작업 — 후보 생성(result-only) + stale 검사 → 스테이징."""
-        candidate = await self._generate_narrative_plan_candidate(
-            session, trigger_reason, context_note=context_note, full_replan=full_replan,
-            transaction_id=prep.transaction_id, logical_turn=prep.logical_turn,
-            attempt=prep.attempt, preparation=prep)
-        if candidate is None:
-            return None
-        if (not prep.matches(_turn_transaction.get_active_transaction(session))
-                or _turn_preparation.superseded_by_newer_attempt(
-                    session, logical_turn=prep.logical_turn, attempt=prep.attempt)):
-            candidate.rejected_stale = True
-            print(f"[서사설계/{session.session_id}] stale 재계획 준비 폐기")
-            return None
-        prep.replan_candidate = candidate
-        return candidate
-
-    async def _plan_narrative(self, session, trigger_reason: str = "init",
-                              context_note: str = "", full_replan: bool = True) -> bool:
-        """
-        서사 계획 수립 — **setup(init)·수동/운영자(manual) 경로 전용** consumer.
-
-        세션 시작(_init_narrative_and_start)과 `!자동 재계획`(replan_narrative)이
-        부른다. 자동 턴 TurnTransaction 의미(원인 시도·stale·멱등)를 요구하지 않으며
-        기존 제품 의미(성공 시 버전 증가·저장·보고, 실패 시 기존 계획 유지)를 보존한다.
-        자동 턴 재계획은 _auto_replan_narrative를 쓴다(AUD-065).
-
-        Args:
-            session: TRPGSession
-            trigger_reason: "init" | "manual"
-            context_note: GM이 추가한 메모 (재계획 시 계획 수립 프롬프트에 포함)
-            full_replan: True이면 mid_plan 포함 전부 재수립.
-                         False이면 mid_plan을 유지하고 순간 계획만 갱신.
-
-        Returns:
-            bool: 성공 여부
-        """
-        candidate = await self._generate_narrative_plan_candidate(
-            session, trigger_reason, context_note=context_note, full_replan=full_replan)
-        if candidate is None:
-            return False
-        return await self._apply_narrative_plan(session, candidate)
-
-    async def _auto_replan_narrative(self, session, trigger_reason: str, *,
-                                     full_replan: bool, context_note: str = "",
-                                     transaction_id=None, logical_turn=None,
-                                     attempt=None) -> bool:
-        """자동 턴 서사 재계획(AUD-065) 비준비 경로 — 원인 정체성은 스케줄 시점 복사값.
-
-          provider → 정규화 후보 → stale guard → 멱등 guard → 호환 적용.
-        WP-C 자동 턴은 _update_narrative_progress가 준비 작업(_prepare_auto_replan)으로
-        돌리고 READY 이후 _commit_replan_candidate로 적용한다. 이 함수는 그 적용 규칙
-        (stale/멱등)을 공유하는 비준비 호환 경로로 남는다.
-        """
-        candidate = await self._generate_narrative_plan_candidate(
-            session, trigger_reason, context_note=context_note, full_replan=full_replan,
-            transaction_id=transaction_id, logical_turn=logical_turn, attempt=attempt)
-        if candidate is None:
-            return False
-        return await self._commit_replan_candidate(
-            session, candidate, logical_turn=logical_turn, attempt=attempt)
-
-    async def _commit_replan_candidate(self, session, candidate, *,
-                                       logical_turn=None, attempt=None,
-                                       derived=None) -> bool:
-        """정규화 재계획 후보를 stale/멱등 검사 후 호환 적용한다(단일 적용 규칙)."""
-        # stale guard(§26/§38): 이 재계획을 일으킨 시도보다 더 새로운 시도가 활성이면 폐기.
-        if _turn_preparation.superseded_by_newer_attempt(
-                session, logical_turn=logical_turn, attempt=attempt):
-            candidate.rejected_stale = True
-            print(f"[서사설계/{session.session_id}] stale 재계획 폐기 — 더 새로운 논리 시도 활성 "
-                  f"(원인 turn={logical_turn}, attempt={attempt})")
-            return False
-
-        # 멱등 guard: 같은 (원인 시도, 사유, 모드) 재계획은 canonical에 한 번만 적용.
-        #   검사와 기록 사이에 await가 없으므로 중복 태스크가 동시에 도착해도 한 번만 통과.
-        key = _turn_preparation.narrative_replan_key(candidate)
-        applied_keys = getattr(session, "_narrative_replan_applied", None)
-        if applied_keys is None:
-            applied_keys = session._narrative_replan_applied = []
-        if key and key in applied_keys:
-            print(f"[서사설계/{session.session_id}] 이미 적용된 재계획 — 중복 적용 방지 ({key})")
-            return False
-        if key:
-            applied_keys.append(key)
-            if len(applied_keys) > 16:
-                del applied_keys[:-16]
-
-        return await self._apply_narrative_plan(session, candidate, derived=derived)

@@ -169,32 +169,23 @@ def build_embed(session) -> discord.Embed:
     # ── 서사 ──
     ex = getattr(session, "last_extraction", {}) or {}
     sit = ex.get("situation") or {}
-    qp = ex.get("quest_progress") or {}
     npcs = ex.get("npcs_met") or []
     narr = [
         f"장면 {sit.get('tag', '(미확인)')} · 긴장 {sit.get('tension', 0)}",
-        f"진행 {qp.get('advance', 0)} · 이탈 {qp.get('deviation', 0)}",
     ]
     if npcs:
         narr.append(f"등장 NPC: {', '.join(npcs[:6])}")
-    try:
-        from indaim.scenario.quest import summary as quest_summary
-        narr.append(f"퀘스트: {quest_summary(session)}")
-    except Exception:
-        pass
     embed.add_field(name="서사", value="\n".join(narr), inline=False)
 
     # ── 기억 ──
     # NOTE: TTS 표기는 미디어 필드에 일원화한다. is_enabled('tts')가
     #       media_flags와 tts_enabled를 함께 보므로 두 곳에 적으면 어긋난다.
     plan_label = {"normal": "노멀", "high": "하이", "low": "로우", "ultra": "울트라"}
-    mode_label = {"quest": "퀘스트", "free": "풀자유"}
     embed.add_field(
-        name="기억·서사",
+        name="기억",
         value=(
             f"기억 방식 {plan_label.get(getattr(session, 'memory_plan', 'normal'), '노멀')} "
-            f"(압축 {len(getattr(session, 'compressed_memory', '') or '')}자)\n"
-            f"서사설계 {mode_label.get(getattr(session, 'narrative_mode', 'quest'), '퀘스트')}"
+            f"(압축 {len(getattr(session, 'compressed_memory', '') or '')}자)"
         ),
         inline=True,
     )
