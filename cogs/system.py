@@ -24,6 +24,8 @@ _HINT_LABEL = {
 
 # `!세션이력` — 파일 하나의 첨부 한도(Discord 비부스트 10MB)보다 약간 작게 나눈다.
 HISTORY_PART_LIMIT = 9_500_000
+# `!게이트` — 지시층위 품질 게이트 비용 상한(사용자 승인 2026-11-03)
+GATE_MAX_KRW = 3000
 
 
 def _zip_entries(entries) -> bytes:
@@ -286,6 +288,7 @@ class SystemCog(commands.Cog):
             "`!사용량 (전체)` — 제공자 비용·플레이어 잉크 조회 (`전체`는 오너, 마스터 채널·DM)\n"
             "`!재시작` — 봇 프로세스 재시작 (오너 전용)\n"
             "`!세션이력 [세션ID/목록]` — 세션 폴더 zip을 DM으로 받기 (오너 전용)\n"
+            "`!게이트 (상한원)` — 지시층위 품질 게이트 실행·결과 첨부 (오너 전용, 실제 비용 · 상한 최대 3,000원)\n"
             "　└ 대상: `game` `character` `media` `session` `system` `gm`"
         ), inline=False)
 
@@ -869,6 +872,66 @@ class SystemCog(commands.Cog):
             return await ctx.send(f"⚠️ DM 전송 실패: {e}")
         if ctx.guild is not None:
             await ctx.send("📬 DM으로 보냈습니다.")
+
+    @commands.command(name="게이트")
+    @commands.is_owner()
+    async def instruction_gate(self, ctx, cap_krw: int = GATE_MAX_KRW):
+        """
+        지시층위 품질 게이트(리팩터링 T-7 V1 가)를 실행하고 결과를 이 채널에 첨부한다 (오너 전용).
+
+        tools/instruction_gate.py를 봇을 실행 중인 파이썬으로 별도 프로세스에서 돌린다(봇 이벤트 루프와 분리).
+        표본 수집에 pytest가 필요하므로 없으면 requirements-dev.txt를 먼저 설치한다.
+        실제 provider 비용이 든다 — 상한은 승인된 3,000원을 넘을 수 없다.
+        """
+        if getattr(self, "_gate_running", False):
+            return await ctx.send("⏳ 게이트가 이미 실행 중입니다.")
+        if not 0 < cap_krw <= GATE_MAX_KRW:
+            return await ctx.send(f"⚠️ 상한은 1~{GATE_MAX_KRW:,}원입니다. 예: `!게이트 3000`")
+        repo_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        self._gate_running = True
+        msg = await ctx.send(f"⏳ 지시층위 품질 게이트 준비 중… (상한 {cap_krw:,}원)")
+        try:
+            try:
+                import pytest  # noqa: F401
+                import pytest_asyncio  # noqa: F401
+            except ImportError:
+                await msg.edit(content="📦 표본 수집용 테스트 도구(requirements-dev.txt) 설치 중…")
+                proc = await asyncio.to_thread(subprocess.run,
+                    [sys.executable, "-m", "pip", "install", "-r", "requirements-dev.txt"],
+                    cwd=repo_dir, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, timeout=600)
+                if proc.returncode != 0:
+                    return await msg.edit(content=f"❌ 테스트 도구 설치 실패\n```{(proc.stdout or '')[-1500:]}```")
+            out_dir = os.path.join(repo_dir, "data", "instruction_gate", time.strftime("%Y%m%d_%H%M%S"))
+            proc = await asyncio.create_subprocess_exec(
+                sys.executable, os.path.join(repo_dir, "tools", "instruction_gate.py"),
+                "--cap-krw", str(cap_krw), "--out", out_dir, cwd=repo_dir,
+                stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.STDOUT)
+            tail, last_edit = [], 0.0
+            while True:
+                line = await proc.stdout.readline()
+                if not line:
+                    break
+                text = line.decode("utf-8", "replace").rstrip()
+                tail = (tail + [text])[-6:]
+                if text.startswith("[게이트]") and time.monotonic() - last_edit > 5:
+                    last_edit = time.monotonic()
+                    await msg.edit(content="⏳ 게이트 실행 중…\n```" + "\n".join(tail)[-1500:] + "```")
+            code = await proc.wait()
+            summary = os.path.join(out_dir, "summary.md")
+            if code != 0 or not os.path.isfile(summary):
+                return await msg.edit(content=f"❌ 게이트 실패(종료 코드 {code})\n```" + "\n".join(tail)[-1500:] + "```")
+            files = [discord.File(summary, filename="summary.md")]
+            results = os.path.join(out_dir, "results.jsonl")
+            if os.path.isfile(results) and os.path.getsize(results) < HISTORY_PART_LIMIT:
+                files.append(discord.File(results, filename="results.jsonl"))
+            with open(summary, encoding="utf-8") as f:
+                head = f.read()[:1700]
+            await msg.edit(content="✅ 게이트 완료")
+            await ctx.send(head, files=files)
+        except Exception as e:  # noqa: BLE001
+            await msg.edit(content=f"❌ 게이트 오류: {e}")
+        finally:
+            self._gate_running = False
 
     @commands.command(name="재시작")
     @commands.is_owner()
