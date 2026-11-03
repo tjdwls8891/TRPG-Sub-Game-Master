@@ -119,6 +119,7 @@ python main.py
 | `assets/master_dialogues_v1.json` | 마스터(진행자) 사전 저작 대사 데이터(키 126·변주 252, v7.21.5 진중한 태도·플레이 순서 기준 개정) — 문구 교정은 이 파일만 고친다. 마스터 원화는 `assets/master/`(v7.21.2) |
 | `tools/verify_docs.py` | 문서 수치 정합 검증 |
 | `tools/scenario_check.py` | 시나리오 정의 검사·컴파일·이행 보고(H01, 원본 읽기 전용) |
+| `tools/instruction_gate.py` | 지시층위 품질 게이트(T-7 V1 가) — 골든 대본 4종 요청 수집(`tests/golden/test_gate_capture.py`, 평소 건너뜀) → 실제 모델로 현행(지시층위)·얇은 지시 묘사 → 블라인드 판정, 원 단위 비용 상한(`--cap-krw`). 운영 서버 전용(API 키·`requirements-dev.txt` 필요), 결과 `data/instruction_gate/`(커밋 제외) |
 | `tools/log_view.py` | 구조 로그 열람(세션 폴더·`!세션이력` zip) — 요약·시간순·호출 원문 복원·이벤트·도메인·채팅 |
 | `handoff/` | WP별 완료 번들·스캔·매트릭스(과거 번들은 HISTORICAL 증거, 수정 금지) |
 | `tests/` | 특성화·결함·정책 테스트 하네스(WP-00~G) |
@@ -544,7 +545,7 @@ pip install -r requirements-dev.txt
 python3 -m pytest tests/ -q
 ```
 
-`tests/`는 **현재 동작과 권위 불변식을 고정**한다. 현재 1,981건(특성화 60 · 결함 22 · 정책 1,850 · 표식 없음 49 — T-6에서 LEGACY 전용 테스트 은퇴)이 통과하며 strict xfail은 0건이다(G9는 T-7에서 해소).
+`tests/`는 **현재 동작과 권위 불변식을 고정**한다. 현재 1,987건(특성화 60 · 결함 22 · 정책 1,852 · 표식 없음 49 · 게이트 수집 4는 평소 건너뜀 — T-6에서 LEGACY 전용 테스트 은퇴)이 통과하며 strict xfail은 0건이다(G9는 T-7에서 해소).
 
 | 분류 | 의미 |
 |---|---|
@@ -791,5 +792,5 @@ python3 tools/scenario_check.py --all     # 전 시나리오 컴파일·진단(E
 | v7.24 반영 | `prompts.py` 변경 — 판단 시스템 지시(캐시 미사용, 재시작만으로 반영)·지시층위 시스템 지시(캐시에 구워짐 → **열린** 세션은 `!캐시 재발급` 또는 닫기→열기). 시나리오·세션 필드 불변. LEGACY 호환은 요구하지 않는다(사용자 결정) — LEGACY 판단도 같은 지시를 받으며 게이트가 판단 앞이라 판정 집행 절이 적용된다 |
 | v7.23 반영 | 코드 재시작만(`prompts.py`·시나리오·세션 필드 불변 — DYNAMIC 판단·지시 블록은 런타임 사용자 프롬프트·스키마 사본, 재발급 불필요). DYNAMIC만 — LEGACY 시뮬레이션·게이트·🔮 불변. 새 원장 op `TURN_DECLARATION_CHECK`(플레이어 부담 후보, 턴 Settlement 귀속) |
 | v7.22 반영 | 코드 재시작만(`prompts.py`·시나리오·세션 필드 불변 — 출구 후보·이동 규칙은 런타임 판단 사용자 프롬프트·스키마 사본, 재발급 불필요). DYNAMIC(영도 단일 PC)만 — LEGACY 불변. 목적지 질문 문맥은 대기 시도 런타임 기록이라 재시작하면 사라지고 다음 '이동한다'에 다시 묻는다 |
-| 지시층위 품질 게이트(T-7 보류) | 명세 v2 V1 가 — 지시층위 유지/은퇴를 품질 비교로 정한다. 실제 provider 표본(비용)이 필요해 표본 수·비용 승인 대기 |
+| 지시층위 품질 게이트(T-7) | 명세 v2 V1 가 — 비용 상한 3,000원 승인(2026-11-03). 개발 컨테이너에 API 키가 없어 운영 서버에서 `tools/instruction_gate.py --cap-krw 3000` 실행 대기 — 결과(summary.md)로 지시층위 유지/은퇴 결정 |
 | H05 calibration | 경로 자동 선택(10분 미만·비용비 5/4)·추가 시간 상한(240분)·PC capability = 보유 소지품 이름 — 영도 정량 저작 후 조정 |

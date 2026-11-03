@@ -31,3 +31,4 @@ Backup_Bot.py
 data/cost_ledger.jsonl
 data/voice_assignments.json
 data/cost_estimate_accuracy.jsonl
+data/instruction_gate/
