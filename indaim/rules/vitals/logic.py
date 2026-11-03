@@ -61,6 +61,7 @@ class Ctx:
     moved: object = None                      # v7.48 이번 턴 장소를 옮겼는가(None = 모름)
     noise: object = None                      # v7.48 이번 턴 소리(NOISE_LEVELS, None = 모름)
     npc: bool = False                         # v7.48(D-3) NPC 판정 — 추적하지 않는 사실은 모름
+    actor_id: str = ""                        # T-7(G12) 잠복 판정 근거 — 행위자 id(없으면 옛 이름 근거)
 
 
 def _t_all(vals):
@@ -239,7 +240,7 @@ class Decision:
     notes: list                 # 마스터 보고용 한 줄들
 
 
-def decide(merged: dict, ctx: Ctx, pc_name: str, apply_in, clear_in, groups_consumed=()) -> Decision:
+def decide(merged: dict, ctx: Ctx, pc_name: str, apply_in, clear_in, groups_consumed=(), bumped_new=None) -> Decision:
     """PC 대상 추출 후보 + 처치 + 코드 규칙 → 최종 부여·해제·단계. NPC 대상 후보는 손대지 않는다(호출부가 그대로 둔다).
 
     순서(v7.47): ① 처치(사용 효과 → down·treat·ease, 잠복 취소) ② 추출 단계(올림 허용, 처치 전용 상태는 내림 거부)
@@ -276,7 +277,7 @@ def decide(merged: dict, ctx: Ctx, pc_name: str, apply_in, clear_in, groups_cons
         cur = latent.get(lat["target"])
         if cur and cur.get("due") is not None and int(cur["due"]) > ctx.now:
             return                                # 이미 발현 예정 — 다시 굴리지 않는다
-        rec = latent_roll(ctx.seed, pc_name, s, ctx.now, lat)
+        rec = latent_roll(ctx.seed, pc_name, s, ctx.now, lat, actor_id=ctx.actor_id)
         latent[lat["target"]] = rec
         notes.append(f"{lat['target']} 잠복 판정(코드) — " + ("발현 예정" if rec["due"] is not None else "발현 없음"))
 
@@ -404,6 +405,14 @@ def decide(merged: dict, ctx: Ctx, pc_name: str, apply_in, clear_in, groups_cons
             if n:
                 stage[s] = st
             roll_latent(s, st)
+    for s, n in sorted((bumped_new or {}).items()):   # T-7(G9): 코드가 새로 붙이는 상태(전투 부상·비용)도 같은 결정 안에서
+        if s not in merged or s in ctx.active or s in want_apply:   # — 규칙·게이트 없이, 아래 같은 턴 처치가 본다
+            continue
+        want_apply[s] = {"target": pc_name, "status": s, "score": 100}
+        applied[s] = ctx.now
+        if nstages(s):
+            stage[s] = max(1, min(nstages(s), int(n)))
+        notes.append(f"{s} (코드)")
     for s in [x for x in want_apply if x not in ctx.active]:   # 같은 턴에 다치고 바로 처치한 경우도 처치한다
         if apply_care(s):
             want_apply.pop(s)
@@ -432,10 +441,12 @@ def decide(merged: dict, ctx: Ctx, pc_name: str, apply_in, clear_in, groups_cons
     return Decision(apply_out, clear_out, clock, notes)
 
 
-def latent_roll(seed: str, pc_name: str, status: str, at: int, lat: dict) -> dict:
-    """잠복 판정 — (세션 시드, PC, 원인 상태, 시각)의 결정적 함수(재시도·재시작·재생성에도 같은 결과)."""
+def latent_roll(seed: str, pc_name: str, status: str, at: int, lat: dict, *, actor_id: str = "") -> dict:
+    """잠복 판정 — (세션 시드, 인물, 원인 상태, 시각)의 결정적 함수(재시도·재시작·재생성에도 같은 결과).
+    T-7(G12): 인물 근거는 행위자 id(개명·표시 이름과 무관) — id를 모를 때만 옛 이름 근거(v1)."""
     import hashlib
-    h = hashlib.sha256(f"status.latent.v1|{seed}|{pc_name}|{status}|{at}".encode("utf-8")).digest()
+    key = f"status.latent.v2|{seed}|{actor_id}" if actor_id else f"status.latent.v1|{seed}|{pc_name}"
+    h = hashlib.sha256(f"{key}|{status}|{at}".encode("utf-8")).digest()
     roll, span = int.from_bytes(h[:4], "big") % 100, int.from_bytes(h[4:8], "big")
     lo, hi = int(lat["onset_minutes"][0]), int(lat["onset_minutes"][1])
     hit = roll < int(lat.get("chance") or 0)
@@ -473,6 +484,16 @@ def post_bump(merged, ctx, d, target, bumps, plan) -> None:
 WOUND_STATUS = "부상"
 
 
+def _new_bumps(ctx, bumps) -> dict:
+    """코드 상승 중 붙어 있지 않던 상태 — 결정(decide) 안에서 새로 붙인다(T-7 G9)."""
+    return {st: n for st, n in (bumps or {}).items() if st not in ctx.active}
+
+
+def _old_bumps(ctx, bumps) -> dict:
+    """코드 상승 중 이미 붙어 있던 상태 — pre_bump가 올렸고 post_bump는 보고 줄만 남긴다."""
+    return {st: n for st, n in (bumps or {}).items() if st in ctx.active}
+
+
 def stage_in(status_scores, name) -> dict:
     """추출 status_scores의 그 인물 단계(stage ≥ 1만 — 0·없음은 단계 판단 없음)."""
     out = {}
@@ -508,7 +529,7 @@ def decide_turn(merged: dict, *, pc_name: str, statuses: dict, clocks: dict, fac
     """한 턴의 상태 결정(PC + 이번 턴 후보·상태가 있는 NPC) — 옛 status_rules.resolve_turn의 계산 부분.
 
     statuses·clocks = 턴 전 {이름: 상태 목록}·{이름: 시계}. facts = turn_world.status_turn_facts 형식.
-    키는 이름이다(잠복 판정의 결정적 근거에 PC 이름이 들어간다 — 바꾸면 기존 세션의 잠복 결과가 달라진다)."""
+    키는 이름이다. 잠복 판정의 결정적 근거는 facts['actor_ids']의 행위자 id다(T-7 G12 — 없으면 옛 이름 근거)."""
     apply_in, clear_in = list(apply_in), list(clear_in)
     now, before, place = facts["now"], facts["before"], facts["place"]
     consumed = frozenset(consumed) | facts.get("care_consumed", frozenset())
@@ -532,11 +553,13 @@ def decide_turn(merged: dict, *, pc_name: str, statuses: dict, clocks: dict, fac
               consumed=consumed, used=used, active=frozenset((statuses or {}).get(pc_name) or ()),
               clock=copy.deepcopy(store.get(pc_name) or {}), seed=seed, worn=facts.get("worn") or frozenset(),
               care=facts.get("care") or frozenset(), stage_in=stage_in(status_scores, pc_name),
-              moved=facts.get("moved"), noise=facts.get("noise"))
+              moved=facts.get("moved"), noise=facts.get("noise"),
+              actor_id=(facts.get("actor_ids") or {}).get(pc_name) or "")
     pre_bump(merged, ctx, bumps.get(pc_name))
     mine = lambda e: e.get("target") == pc_name  # noqa: E731
-    d = decide(merged, ctx, pc_name, [e for e in apply_in if mine(e)], [e for e in clear_in if mine(e)], consumed)
-    post_bump(merged, ctx, d, pc_name, bumps.get(pc_name), None)
+    d = decide(merged, ctx, pc_name, [e for e in apply_in if mine(e)], [e for e in clear_in if mine(e)], consumed,
+               bumped_new=_new_bumps(ctx, bumps.get(pc_name)))
+    post_bump(merged, ctx, d, pc_name, _old_bumps(ctx, bumps.get(pc_name)), None)
     apply_out = [e for e in apply_in if not mine(e)] + d.apply
     clear_out = [e for e in clear_in if not mine(e)] + d.clear
     new_store = {**store, pc_name: d.clock}
@@ -554,10 +577,12 @@ def decide_turn(merged: dict, *, pc_name: str, statuses: dict, clocks: dict, fac
                    activity=facts["activity"] if npc in (facts.get("party_present") or ()) else None,
                    active=frozenset((statuses or {}).get(npc) or ()), clock=copy.deepcopy(store.get(npc) or {}),
                    seed=seed, care=(facts.get("care_by") or {}).get(npc) or frozenset(),
-                   stage_in=stage_in(status_scores, npc), npc=True)
+                   stage_in=stage_in(status_scores, npc), npc=True,
+                   actor_id=(facts.get("actor_ids") or {}).get(npc) or "")
         pre_bump(merged, nctx, bumps.get(npc))
-        dn = decide(merged, nctx, npc, [e for e in apply_out if own(e)], [e for e in clear_out if own(e)], ())
-        post_bump(merged, nctx, dn, npc, bumps.get(npc), None)
+        dn = decide(merged, nctx, npc, [e for e in apply_out if own(e)], [e for e in clear_out if own(e)], (),
+                    bumped_new=_new_bumps(nctx, bumps.get(npc)))
+        post_bump(merged, nctx, dn, npc, _old_bumps(nctx, bumps.get(npc)), None)
         apply_out = [e for e in apply_out if not own(e)] + dn.apply
         clear_out = [e for e in clear_out if not own(e)] + dn.clear
         for s in (facts.get("event_clears") or {}).get(npc) or ():      # 사건이 푼 상태 — 그대로 해제

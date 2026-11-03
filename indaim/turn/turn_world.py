@@ -2083,7 +2083,8 @@ def status_turn_facts(session, prep) -> dict | None:
     # v7.51(기능 party): 치유 역할 — 처치 효과를 가장 위태로운 PC·파티원에게(v7.47 처치 규칙 그대로) + 비용
     #   (섭취 묶음 연결은 물건 사용만 — 파티원의 치유는 섭취가 아니다)
     npc_spend = _turn_npc_spend(session, prep, pc_name)
-    heal = party_heal(wt.ctx, session, proj)
+    hits = combat_hits(wt.ctx.definition, session, turn_rolls(session, prep))
+    heal = party_heal(wt.ctx, session, proj, hits)
     if heal:
         from indaim.rules.party import party as _pa
         healer, target, eff = heal
@@ -2108,7 +2109,12 @@ def status_turn_facts(session, prep) -> dict | None:
             "spend": _turn_spend(session, prep, pc_name),
             "npc_spend": npc_spend,
             "party_present": frozenset(m["name"] for m in party_members(wt.ctx, session, proj)),
-            "hits": combat_hits(wt.ctx.definition, session, turn_rolls(session, prep))}
+            "hits": hits,
+            # T-7(G12): 잠복 판정 근거 — 상태 키(이름) → 행위자 id
+            "actor_ids": {**{(a or {}).get("legacy_key"): aid
+                             for aid, a in ((wt.ctx.definition or {}).get("actor_definitions") or {}).items()
+                             if (a or {}).get("legacy_key")},
+                          **({pc_name: wt.ctx.lead_pc} if pc_name and wt.ctx.lead_pc else {})}}
 
 
 def _event_clears(definition, proj, session) -> dict:
@@ -2345,8 +2351,27 @@ def party_can_act(session, m) -> bool:
     return not any(party_exhausted(session, m["name"], st) for st in _pa.cost_of(m["def"]))
 
 
-def party_heal(ctx, session, world=None):
-    """치유 — (파티원, 대상 이름, 처치 효과) 또는 None. 한 턴 1회(가장 위태로운 PC·파티원)."""
+def _with_hits(session, hits):
+    """T-7(G9): 이번 턴 전투 부상(combat_hits)을 얹은 상태·상태 시계 사본 — 같은 턴 효과가 같은 세계를 본다."""
+    import copy
+    from indaim.rules.vitals import status_rules as _sr
+    sts = copy.deepcopy(getattr(session, "statuses", None) or {})
+    clocks = copy.deepcopy(getattr(session, "status_clock", None) or {})
+    k = len(_sr.stages_of(_merged_statuses(session).get(WOUND_STATUS)))
+    for name, n in (hits or {}).items():
+        have = sts.setdefault(name, [])
+        stage = clocks.setdefault(name, {}).setdefault("stage", {})
+        cur = _sr.stage_of(clocks[name], WOUND_STATUS) if WOUND_STATUS in have else 0
+        if WOUND_STATUS not in have:
+            have.append(WOUND_STATUS)
+        if k:
+            stage[WOUND_STATUS] = max(1, min(k, cur + int(n)))
+    return sts, clocks
+
+
+def party_heal(ctx, session, world=None, hits=None):
+    """치유 — (파티원, 대상 이름, 처치 효과) 또는 None. 한 턴 1회(가장 위태로운 PC·파티원).
+    T-7(G9): 대상은 이번 턴 전투 부상(hits)까지 본 상태로 고른다."""
     from indaim.rules.party import party as _pa
     members = party_members(ctx, session, world)
     healer = next((m for m in members if m["act"] == _pa.HEAL and party_can_act(session, m)), None)
@@ -2354,8 +2379,8 @@ def party_heal(ctx, session, world=None):
         return None
     effect = healer["def"].get("effect") or _pa.DEFAULT_EFFECT
     pc = _session_pc_name(session)
-    target = _pa.heal_target([pc] + [m["name"] for m in members], effect, _merged_statuses(session),
-                             getattr(session, "statuses", None) or {}, getattr(session, "status_clock", None) or {})
+    sts, clocks = _with_hits(session, hits)
+    target = _pa.heal_target([pc] + [m["name"] for m in members], effect, _merged_statuses(session), sts, clocks)
     return (healer, target, effect) if target else None
 
 
@@ -2376,7 +2401,10 @@ def party_block(ctx, plan, session, *, for_judgment: bool = False) -> str:
         st = ", ".join(sts.get(m["name"]) or ()) or "이상 없음"
         state = "행동 불능" if m["down"] else ("지침 — 역할 행동 불가" if not party_can_act(session, m) else "행동 가능")
         lines.append(f"· {m['display']} — {m['role']}({m['act']}) · {state} · 상태 {st}")
-    heal = party_heal(ctx, session, world)
+    from indaim.turn import turn_transaction as _tt
+    _tx = _tt.get_active_transaction(session)       # T-7(G9): 확정과 같은 기준 — 이번 턴 굴림의 전투 부상까지 본다
+    _rolls = [r for r in ((getattr(_tx, "judgment_result", None) or {}).get("roll_records") or ()) if isinstance(r, dict)]
+    heal = party_heal(ctx, session, world, combat_hits(ctx.definition, session, _rolls))
     if heal:
         who = "PC" if heal[1] == _session_pc_name(session) else heal[1]
         lines.append(f"· 이번 턴 {heal[0]['display']}이(가) {who}에게 {heal[2]}를 한다(코드 확정 — 효과는 코드가 적용).")
