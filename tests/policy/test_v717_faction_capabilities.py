@@ -197,7 +197,7 @@ async def test_join_commit_then_rewind_removes_capability(drig):
 
 # 10 데이터·호출 영향 없음 · 범용(코드 하드코딩 없음)
 def test_no_new_fields_calls_or_hardcoding():
-    assert len(core.SESSION_FIELDS) == 103          # T-6 레거시 퀘스트·서사 7필드 은퇴(110 → 103) · P1 world_pending_signals · P2 master_gender · v7.28 resumable_prompts · v7.38 status_clock · v7.46 equipment·item_traits
+    assert len(core.SESSION_FIELDS) == 104          # v9.3 game_screen(운영 표시) · T-6 레거시 퀘스트·서사 7필드 은퇴(110 → 103) · P1 world_pending_signals · P2 master_gender · v7.28 resumable_prompts · v7.38 status_clock · v7.46 equipment·item_traits
     src = source_of("indaim/turn/player_world.py")
     for s in ("member:", "남항", "해련", "조도", "중리"):
         assert s not in src

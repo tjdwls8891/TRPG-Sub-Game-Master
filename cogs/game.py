@@ -875,6 +875,10 @@ class GameCog(commands.Cog):
         media_collector: list = []    # 이미지/화자 이미지 메시지를 전송 직후 즉시 등록(부분 전달 안전)
         transient_ids = list(transient_ids or [])
 
+        # v9.3: 턴 화면 — 상단 SVG가 없으면 묘사보다 먼저 둔다(맨 위 유지 — 있으면 손대지 않음)
+        _screen = core.game_screen.enabled(session)
+        if _screen:
+            await core.game_screen.ensure(self.bot, session, channel=game_channel)
         try:
             # TTS 더빙(실험): 인트로에서 토글 ON + 보이스 연결 시 '음성-텍스트 동기' 경로 사용.
             # (문단별 음성 길이에 텍스트 스트리밍 속도를 맞춤.) GM(cost_log_prefix)·미연결 제외.
@@ -978,8 +982,17 @@ class GameCog(commands.Cog):
                         dub = None
 
             if code_block_text:
-                _cb_msg = await game_channel.send(code_block_text)
-                collector.append(_cb_msg)
+                # v9.3: 동적 세계는 상태창을 게임 채널 상단 SVG가 대신한다 — 자동 턴은 커밋 뒤, 인트로는 지금 갱신
+                if _screen:
+                    _summary = core.turn_world.status_summary(code_block_text)
+                    if preparation is not None:
+                        preparation.status_summary = _summary
+                    elif not await core.game_screen.update(self.bot, session, summary=_summary,
+                                                           channel=game_channel):
+                        collector.append(await game_channel.send(code_block_text))
+                else:
+                    _cb_msg = await game_channel.send(code_block_text)
+                    collector.append(_cb_msg)
 
             # TTS 더빙 비용·경고 일원 처리 (동기/비동기 공통)
             if dub:

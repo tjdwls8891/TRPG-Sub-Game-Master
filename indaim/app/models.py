@@ -155,6 +155,7 @@ class TRPGSession:
         self.last_turn_cost = 0.0
         # TTS 목소리 — 세션 생성 시 선택. 미지정이면 기본 나레이터 보이스
         self.tts_voice = ""             # 레거시 — P2부터 master_gender가 진행자 목소리를 정한다
+        self.game_screen = {}           # v9.3: 게임 채널 상단 SVG 메시지(운영 표시)
         self.master_gender = "male"     # P2: 진행자 성별 표현(male|female)
         # 기억 압축 방식 — normal(기본) | high | low | ultra
         self.memory_plan = "normal"

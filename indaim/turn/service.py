@@ -113,6 +113,7 @@ class TurnService:
                 return                                     # 질문 대기 상태 유지 — 다시 열면 보관 선언으로 진행
 
             session.gm_waiting_for = None
+            session._turn_start_message_id = getattr(message, "id", None)     # v9.3 턴 화면 정리 경계
 
             # 행동 수집
             session.gm_collected_actions[char_name] = content
@@ -259,11 +260,13 @@ class TurnService:
                           waiting_for=held["char"] if getattr(session, "gm_waiting_for", None) == held["char"] else None)
         return True
 
-    async def submit(self, session, text: str, *, speaker: str, reply_channel=None, waiting_for: str | None = None):
+    async def submit(self, session, text: str, *, speaker: str, reply_channel=None, waiting_for: str | None = None,
+                     message_id=None):
         """턴 입력 하나 — 플레이어 선언(어댑터가 채팅에서 뽑은 원문·화자·답할 채널). 리팩터링 T-5: 턴 서비스의 진입점.
 
         waiting_for = 진행자가 그 PC의 답을 기다리는 중이면 그 PC 이름(라운드 응답), 아니면 자발 발언."""
-        decl = SimpleNamespace(content=text, channel=reply_channel, author=SimpleNamespace(display_name=speaker))
+        decl = SimpleNamespace(content=text, channel=reply_channel, author=SimpleNamespace(display_name=speaker),
+                               id=message_id)                # v9.3: 턴 화면 — 이번 턴 선언부터 남긴다
         if waiting_for:
             return await self._handle_waiting_response(session, decl, waiting_for)
         return await self._handle_player_message(session, decl)
@@ -323,6 +326,7 @@ class TurnService:
                 return
             session.gm_clarify_count = 0
             session.current_turn_logs.append(f"[{char_name}]: {message.content.strip()}")
+            session._turn_start_message_id = getattr(message, "id", None)     # v9.3 턴 화면 정리 경계
 
             await self._process_actions(session, message.content.strip(), master_ch)
 
@@ -1045,6 +1049,7 @@ class TurnService:
                 await self.rt.refresh_display(self.bot, session, reason="turn_end")
             except Exception as e:
                 print(f"[디스플레이] 턴 종료 갱신 실패: {e}")
+            await self.rt.game_screen.on_turn_committed(self.bot, session, prep)      # v9.3 턴 화면
             await self._announce_chapters(session, getattr(prep, "chapter_endings", None) or ())
             await self._conclude_if_ending(session, master_ch)
             return True

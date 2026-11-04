@@ -246,6 +246,7 @@ class TurnSteps:
             await self.rt.refresh_display(self.bot, session, reason="rewind")
         except Exception as e:
             print(f"[디스플레이] 되감기 갱신 실패: {e}")
+        await self.rt.game_screen.after_rewind(self.bot, session, target)            # v9.3 턴 화면(D4 가)
         return result
 
     async def _fail_rerender_before_narration(self, session, tid, master_ch) -> None:

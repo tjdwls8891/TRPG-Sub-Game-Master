@@ -28,6 +28,7 @@ MAP = {
     'events': 'indaim.rules.events.events',
     'extraction': 'indaim.turn.extraction',
     'gm_board': 'indaim.adapters.discord.gm_board',
+    'game_screen': 'indaim.adapters.discord.game_screen',
     'gm_space': 'indaim.adapters.discord.gm_space',
     'growth': 'indaim.rules.growth.growth',
     'information': 'indaim.rules.knowledge.information',

@@ -2542,3 +2542,65 @@ def pursuit_hearing_ops(session, prep, ctx, res, pc) -> tuple:
     barrier = [o.op_id for o in res.ops]
     return tuple(_wm.make_op(o.op_id, o.op_type, o.source_kind, o.payload, causal_parent_op_ids=barrier)
                  for o in ops)
+
+
+# ══════════════════════════════════════════════════════════════
+#  v9.3 게임 채널 턴 화면 — 상태 값 · 이동 경로 연결도(F1)
+# ══════════════════════════════════════════════════════════════
+
+ROUTE_MARKS = {"PERCEIVED_ACTION_REQUIRED": "🔒", "PERCEIVED_BLOCKED": "⛔"}   # PC가 아는 접근 상태만(글)
+ROUTE_TAGS = {"PERCEIVED_ACTION_REQUIRED": "[잠김]", "PERCEIVED_BLOCKED": "[막힘]"}  # SVG(이모지 글꼴 없음)
+
+
+def route_map(definition, world, pc_actor_id) -> dict:
+    """F1: 현재 장소에서 PC가 지금 인지하는 이동 경로(판단 출구 후보와 같은 단일 출처 exit_candidates).
+
+    숨은 경로(RESTRICTED/SECRET)는 PC가 발견한 뒤에만 들어 있다(지식 규칙 그대로). 표시명만 — 내부 PlaceId 비노출.
+    반환 {"here": 표시명|None, "transit": "출발 → 도착 쪽 이동 중"|None, "routes": [(라벨, PC가 아는 접근 상태)]}."""
+    pl = _sp.placement_of(world, pc_actor_id) or {}
+    if pl.get("kind") == _sp.TRANSIT:
+        return {"here": None, "routes": [],
+                "transit": (f"{_pd.display_for(definition, world, pc_actor_id, pl['from_place'], require_known=False)} → "
+                            f"{_pd.display_for(definition, world, pc_actor_id, pl['to_place'], require_known=False)}"
+                            " 쪽 이동 중")}
+    if pl.get("kind") != _sp.AT_PLACE:
+        return {"here": None, "routes": [], "transit": None}
+    here = _pd.display_for(definition, world, pc_actor_id, pl["place_id"], require_known=False)
+    routes = [(label, perceived) for _eid, _to, label, perceived in _ai.exit_candidates(definition, world, pc_actor_id)]
+    return {"here": here, "routes": routes, "transit": None}
+
+
+def route_map_text(rm: dict, *, svg: bool = False) -> str:
+    """F1 텍스트 연결도 — 현재 장소 아래 ├─/└─ 가지(표식은 PC가 아는 접근 상태). svg=True면 이모지 대신 글 표식."""
+    marks = ROUTE_TAGS if svg else ROUTE_MARKS
+    if rm.get("transit"):
+        return rm["transit"] if svg else f"🚶 {rm['transit']}"
+    if not rm.get("here"):
+        return ""
+    lines = [rm["here"] if svg else f"📍 {rm['here']}"]
+    routes = rm.get("routes") or []
+    if not routes:
+        lines.append(" └─ (아는 길 없음)")
+    for i, (label, perceived) in enumerate(routes):
+        mark = marks.get(perceived, "")
+        lines.append(f" {'└─' if i == len(routes) - 1 else '├─'} {(mark + ' ') if mark else ''}{label}")
+    return "\n".join(lines)
+
+
+def screen_values(session) -> dict | None:
+    """v9.3 게임 채널 상단 SVG 값 — 커밋된 정본(시계·PC 위치)에서 상태창 값 + 이동 경로. 동적 세계가 아니면 None."""
+    try:
+        ctx = _pw.session_world_context(session, intro=True)
+    except Exception:  # noqa: BLE001
+        return None
+    if not ctx.dynamic or not ctx.lead_pc:
+        return None
+    values = status_values(WorldTurn(ctx=ctx), session, int(getattr(session, "turn_count", 0) or 0))
+    return {**values, "routes": route_map(ctx.definition, session, ctx.lead_pc)}
+
+
+def status_summary(code_block_text: str) -> str:
+    """모델 소유 '상황 요약' 칸(렌더된 상태창의 그 줄) — 없으면 빈 문자열."""
+    import re
+    m = re.search(r"상황\s*요약\s*[:：]\s*(.+)", code_block_text or "")
+    return m.group(1).strip().rstrip("`").strip() if m else ""

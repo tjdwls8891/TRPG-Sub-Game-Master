@@ -12,7 +12,7 @@ import core
 VIEW_NAMES = frozenset({"ExtractionRetryView", "GMRollView", "OpenConfirmView", "RollContinueView"})
 CORE_NAMES = frozenset({
     "WaitingStatus", "accrue", "apply_normalized_companions", "auto_cost_cap_reached", "call_with_retry",
-    "capture_state", "clean_text_for_tts", "clear_messages", "estimate_turn", "format_dialogue_block",
+    "capture_state", "clean_text_for_tts", "clear_messages", "estimate_turn", "format_dialogue_block", "game_screen",
     "get_merged_status_effects", "is_enabled", "is_session_open", "master_report", "maybe_send_speaker_image",
     "media_control", "merge_consecutive_dialogues", "message_lifecycle", "parse_dialogue_paragraph",
     "parse_extraction", "play_dice_sfx", "process_roll_outcome", "refresh_boards", "refresh_display",

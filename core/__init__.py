@@ -293,6 +293,7 @@ from . import admin_world_edit  # H06: typed ADMIN_EDIT service
 from . import speaker_card  # SVG 화자 카드(DYNAMIC 전용, 시나리오 speaker_card)
 from . import display_board  # 디스플레이 상태판 SVG(엔진 공통, v7.10)
 from . import gm_board  # GM 스페이스·시작 상황 카드 SVG(디스플레이 톤, v7.27)
+from . import game_screen  # 게임 채널 턴 화면 — 상단 SVG·한 턴 단위 정리(v9.3)
 from . import ui_expiry  # 버튼 유효시간·재시작 승계(v7.28)
 from . import prompt_census  # 입력 구성 계측(v7.30 — 비용 보고·예측의 확정/유력/가변)
 from . import master_report  # 마스터 턴 전수보고(v7.30 — 비용·층위활동·세계 델타)
