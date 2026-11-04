@@ -70,6 +70,23 @@ def test_gate_builds_variants_and_unblinds_verdict(tmp_path):
     assert "A 3 · B 0" in (tmp_path / "out" / "summary.md").read_text(encoding="utf-8")
 
 
+def test_gate_samples_roll_turns_first_and_round_robins_scenarios(tmp_path):
+    T = _tool()
+    cases = [{"turn": i, "roll": i in (4, 5, 6)} for i in range(9)]
+    picked = [c["turn"] for c in T.sample(cases, 3)]
+    assert sum(1 for t in picked if t in (4, 5, 6)) == 2 and len(picked) == 3
+    d = _bundle(tmp_path, n=4)
+    b = json.loads((d / "영도.json").read_text(encoding="utf-8"))
+    (d / "균열.json").write_text(json.dumps({**b, "scenario": "균열"}, ensure_ascii=False), encoding="utf-8")
+    c = FakeClient(tokens=400_000)                     # 턴당 약 1,218원 — 상한 2,500원이면 1턴: 영도는 빠진다
+    rows, _ = T.main(["--cases", str(d), "--out", str(tmp_path / "out"), "--cap-krw", "2500",
+                      "--per-scenario", "2", "--scenarios", "균열", "영도"], client=c)
+    assert [r["scenario"] for r in rows] == ["균열"]
+    rows, _ = T.main(["--cases", str(d), "--out", str(tmp_path / "out2"), "--cap-krw", "9000",
+                      "--per-scenario", "2", "--scenarios", "균열", "영도"], client=FakeClient(tokens=400_000))
+    assert [r["scenario"] for r in rows][:2] == ["균열", "영도"]          # 돌아가며
+
+
 def test_gate_stops_before_exceeding_cap(tmp_path):
     T = _tool()
     c = FakeClient(tokens=400_000)                     # 턴당 약 1,218원 — 다음 턴 예상(×1.2)까지 넣어 상한 2,500원이면 1턴만

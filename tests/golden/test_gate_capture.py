@@ -53,7 +53,7 @@ async def test_capture(drig, name):
         logic = [k for k in new if drig.prov.kind_of(k) == "logic"]
         narr = [k for k in new if drig.prov.kind_of(k) == "narration"]
         if logic and narr:
-            out["cases"].append({"turn": i, "say": st.get("say", ""), "logic": _req(logic[-1]),
+            out["cases"].append({"turn": i, "say": st.get("say", ""), "roll": bool(st.get("roll")), "logic": _req(logic[-1]),
                                  "narration": _req(narr[-1]), "fake_instruction": FAKE_INSTRUCTION})
     path = pathlib.Path(os.environ["GATE_CAPTURE_OUT"])
     path.mkdir(parents=True, exist_ok=True)

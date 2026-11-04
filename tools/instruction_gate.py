@@ -114,11 +114,34 @@ def _call(client, meter, req, *, retries=1):
     raise last
 
 
-def sample(cases: list, per: int) -> list:
-    if len(cases) <= per:
+def _spread(cases: list, n: int) -> list:
+    if n <= 0:
+        return []
+    if len(cases) <= n:
         return list(cases)
-    step = len(cases) / per
-    return [cases[int(i * step)] for i in range(per)]
+    if n == 1:
+        return [cases[0]]
+    return [cases[round(i * (len(cases) - 1) / (n - 1))] for i in range(n)]     # 처음·끝 포함 고르게
+
+
+def sample(cases: list, per: int) -> list:
+    """판정(ROLL) 턴을 먼저 — 있으면 표본의 2/3까지(지시층위가 판정 결과를 서사로 옮기는 턴), 나머지는 고르게."""
+    rolls = [c for c in cases if c.get("roll")]
+    k = min(len(rolls), -(-per * 2 // 3)) if rolls else 0
+    rest = [c for c in cases if not c.get("roll")]
+    # 그 밖은 같은 선언을 한 번만, 대기보다 행동 선언을 먼저(지시층위가 일하는 턴) — 모자라면 나머지로 채운다
+    seen, uniq = set(), []
+    for c in rest:
+        if c.get("say", "") not in seen:
+            seen.add(c.get("say", ""))
+            uniq.append(c)
+    need = per - k
+    acts = [c for c in uniq if "기다린다" not in c.get("say", "")]
+    waits = [c for c in uniq if "기다린다" in c.get("say", "")]
+    pick_rest = _spread(acts, need) if len(acts) >= need else acts + _spread(waits, need - len(acts))
+    pick_rest += _spread([c for c in rest if c not in pick_rest], need - len(pick_rest))
+    picked = _spread(rolls, k) + pick_rest
+    return sorted(picked, key=lambda c: c["turn"])
 
 
 def run_case(client, meter, bundle, case, rng) -> dict:
@@ -189,6 +212,7 @@ def main(argv=None, *, client=None):
     ap.add_argument("--cases", default="", help="수집된 표본 폴더(없으면 지금 수집)")
     ap.add_argument("--out", default="")
     ap.add_argument("--seed", type=int, default=7)
+    ap.add_argument("--scenarios", nargs="*", default=list(SCENARIOS), help="돌릴 시나리오(기본 4종)")
     a = ap.parse_args(argv)
     stamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
     out = pathlib.Path(a.out or ROOT / "data" / "instruction_gate" / stamp)
@@ -204,20 +228,25 @@ def main(argv=None, *, client=None):
     meter, rng, rows = Meter(a.cap_krw), random.Random(a.seed), []
     stopped = ""
     with open(out / "results.jsonl", "w", encoding="utf-8") as f:
+        bundles = {}
+        for name in a.scenarios:
+            p = cases_dir / f"{name}.json"
+            if p.is_file():
+                b = json.loads(p.read_text(encoding="utf-8"))
+                bundles[name] = (b, sample(b["cases"], a.per_scenario))
+        # 시나리오를 돌아가며 한 턴씩 — 상한에 닿아도 앞 시나리오가 예산을 다 쓰지 않는다
+        order = [(name, i) for i in range(a.per_scenario) for name in bundles if i < len(bundles[name][1])]
         try:
-            for name in SCENARIOS:
-                p = cases_dir / f"{name}.json"
-                if not p.is_file():
-                    continue
-                bundle = json.loads(p.read_text(encoding="utf-8"))
-                for case in sample(bundle["cases"], a.per_scenario):
-                    meter.check_next(first_guess_krw=150.0)
-                    row = {"scenario": name, **run_case(client, meter, bundle, case, rng)}
-                    meter.per_case.append(row["krw"])
-                    rows.append(row)
-                    f.write(json.dumps(row, ensure_ascii=False) + "\n")
-                    f.flush()
-                    print(f"[게이트] {name} 턴{case['turn']} · {row['krw']:.0f}원 · 누적 {meter.krw:.0f}원")
+            for name, i in order:
+                bundle, picked = bundles[name]
+                case = picked[i]
+                meter.check_next(first_guess_krw=150.0)
+                row = {"scenario": name, **run_case(client, meter, bundle, case, rng)}
+                meter.per_case.append(row["krw"])
+                rows.append(row)
+                f.write(json.dumps(row, ensure_ascii=False) + "\n")
+                f.flush()
+                print(f"[게이트] {name} 턴{case['turn']} · {row['krw']:.0f}원 · 누적 {meter.krw:.0f}원")
         except CapReached as e:
             stopped = str(e)
             print(f"[게이트] 상한으로 중단 — {e}")

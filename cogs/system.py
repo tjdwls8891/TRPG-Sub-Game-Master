@@ -26,6 +26,7 @@ _HINT_LABEL = {
 HISTORY_PART_LIMIT = 9_500_000
 # `!게이트` — 지시층위 품질 게이트 비용 상한(사용자 승인 2026-11-03)
 GATE_MAX_KRW = 3000
+GATE_SCENARIOS = ("영도", "설화재", "청람호", "균열")
 
 
 def _zip_entries(entries) -> bytes:
@@ -288,7 +289,7 @@ class SystemCog(commands.Cog):
             "`!사용량 (전체)` — 제공자 비용·플레이어 잉크 조회 (`전체`는 오너, 마스터 채널·DM)\n"
             "`!재시작` — 봇 프로세스 재시작 (오너 전용)\n"
             "`!세션이력 [세션ID/목록]` — 세션 폴더 zip을 DM으로 받기 (오너 전용)\n"
-            "`!게이트 (상한원)` — 지시층위 품질 게이트 실행·결과 첨부 (오너 전용, 실제 비용 · 상한 최대 3,000원)\n"
+            "`!게이트 (상한원) (턴수) (시나리오…)` — 지시층위 품질 게이트 실행·결과 첨부 (오너 전용, 실제 비용 · 상한 최대 3,000원)\n"
             "　└ 대상: `game` `character` `media` `session` `system` `gm`"
         ), inline=False)
 
@@ -875,7 +876,7 @@ class SystemCog(commands.Cog):
 
     @commands.command(name="게이트")
     @commands.is_owner()
-    async def instruction_gate(self, ctx, cap_krw: int = GATE_MAX_KRW):
+    async def instruction_gate(self, ctx, cap_krw: int = GATE_MAX_KRW, per_scenario: int = 6, *scenarios: str):
         """
         지시층위 품질 게이트(리팩터링 T-7 V1 가)를 실행하고 결과를 이 채널에 첨부한다 (오너 전용).
 
@@ -887,6 +888,11 @@ class SystemCog(commands.Cog):
             return await ctx.send("⏳ 게이트가 이미 실행 중입니다.")
         if not 0 < cap_krw <= GATE_MAX_KRW:
             return await ctx.send(f"⚠️ 상한은 1~{GATE_MAX_KRW:,}원입니다. 예: `!게이트 3000`")
+        if not 1 <= per_scenario <= 26:
+            return await ctx.send("⚠️ 시나리오당 턴 수는 1~26입니다. 예: `!게이트 1490 3 설화재 청람호 균열`")
+        bad = [s for s in scenarios if s not in GATE_SCENARIOS]
+        if bad:
+            return await ctx.send(f"⚠️ 알 수 없는 시나리오: {', '.join(bad)} — {' · '.join(GATE_SCENARIOS)} 중에서 고르십시오.")
         repo_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
         self._gate_running = True
         msg = await ctx.send(f"⏳ 지시층위 품질 게이트 준비 중… (상한 {cap_krw:,}원)")
@@ -904,7 +910,8 @@ class SystemCog(commands.Cog):
             out_dir = os.path.join(repo_dir, "data", "instruction_gate", time.strftime("%Y%m%d_%H%M%S"))
             proc = await asyncio.create_subprocess_exec(
                 sys.executable, os.path.join(repo_dir, "tools", "instruction_gate.py"),
-                "--cap-krw", str(cap_krw), "--out", out_dir, cwd=repo_dir,
+                "--cap-krw", str(cap_krw), "--per-scenario", str(per_scenario), "--out", out_dir,
+                *(["--scenarios", *scenarios] if scenarios else []), cwd=repo_dir,
                 stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.STDOUT)
             tail, last_edit = [], 0.0
             while True:
