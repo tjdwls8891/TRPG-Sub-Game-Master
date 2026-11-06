@@ -3,7 +3,7 @@
 # · 상단 SVG 하나: 게임 채널에 세션마다 상태 메시지 하나를 두고 커밋된 턴마다 그 메시지를 고쳐 쓴다
 #   (턴·날짜·요일·시각·시간대·장소는 정본, '상황 요약'은 모델 상태창 줄, 이동 경로 연결도 = turn_world.route_map).
 #   양식은 디스플레이 상태판(display_board.framed·fit) 공용. 렌더 실패 시 같은 메시지를 글로 대체.
-# · 한 턴 단위: 새 턴이 커밋되면 상단 SVG와 이번 턴 선언 사이의 메시지(지난 턴 출력·선언·되묻기·판정 화면)를 지운다.
+# · 한 턴 단위: 새 턴을 선언하면(v9.3.2 — 진행 전에) 상단 SVG와 그 선언 사이의 메시지(지난 턴 출력·선언·되묻기·판정 화면)를 지운다.
 #   디스코드는 순서를 바꿀 수 없으므로 "SVG 아래만 지운다"로 맨 위를 유지한다. 권한·기간 제한으로 못 지우면 남긴다.
 # · 되감기: SVG를 그 턴 값으로 고치고 SVG 아래를 비운 뒤, 선택된 턴의 묘사 원문(텍스트만)을 다시 게시한다(provider 0).
 # · 정본·청구·이력은 바꾸지 않는다. 원문은 full_logs·구조 로그·턴 이력에 남는다.
@@ -215,14 +215,11 @@ async def sweep(bot, session, *, keep_from=None, channel=None) -> int:
 
 
 async def on_turn_committed(bot, session, prep=None) -> None:
-    """커밋 직후 — 상단 SVG 갱신 + 지난 턴 정리(이번 턴 선언부터 남긴다)."""
+    """커밋 직후 — 상단 SVG 갱신. 지난 턴 정리는 다음 선언 때(v9.3.2 — 선언하면 먼저 지우고 진행)."""
     try:
         if not enabled(session):
             return
         await update(bot, session, summary=getattr(prep, "status_summary", None))
-        keep = getattr(session, "_turn_start_message_id", None)
-        if keep:
-            await sweep(bot, session, keep_from=keep)
     except Exception as e:  # noqa: BLE001
         print(f"[턴 화면] 커밋 뒤 갱신 실패(진행 유지): {e}")
 

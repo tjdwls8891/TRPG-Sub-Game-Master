@@ -26,15 +26,17 @@ AUTO_SPLIT_CHARS = 300          # 표기 없는 긴 소개문의 자동 분할 �
 DEFAULT_ANSWERS = ("네.",)
 
 
-def _tick() -> float:
+def _env_num(name, default, cast):
     try:
-        return max(0.0, float(os.environ.get("TALK_TICK_SEC", "0.9")))
+        return max(cast(0), cast(os.environ.get(name, default)))
     except ValueError:
-        return 0.9
+        return cast(default)
 
 
-TICK = _tick()                   # 스트리밍 부분 편집 간격(초) — 0이면 스트리밍 없이 한 번에
-PARTIALS = 3                     # 박자당 부분 편집 수(디스코드 편집 한도 안)
+# v9.3.2(사용자 지시): 속도 기준 = 편집 한 번에 늘어나는 낱말 수(메시지당 편집 횟수가 아니다).
+#   v7.36(박자마다 부분 편집 3회 × 0.9초 — 소개 박자 평균 35낱말 기준 약 11낱말/초)의 서너 배: 0.5초마다 20낱말(40낱말/초).
+TICK = _env_num("TALK_TICK_SEC", "0.5", float)        # 부분 편집 간격(초) — 0이면 스트리밍 없이 한 번에
+WORDS = _env_num("TALK_WORDS_PER_TICK", "20", int) or 20   # 편집 한 번에 늘어나는 낱말 수
 
 
 @dataclass(frozen=True)
@@ -114,18 +116,21 @@ def answers_for(beat: Beat, key: str, salt: str = "") -> tuple:
     return tuple(pool[h % len(pool)])[:ANSWERS_MAX]
 
 
-def partials(text: str, n: int = PARTIALS) -> list:
-    """스트리밍 부분 본문 — 낱말 경계에서 1/(n+1)씩 늘어난다(마지막 전체는 포함하지 않는다)."""
-    out = []
-    for k in range(1, n + 1):
-        cut = len(text) * k // (n + 1)
-        sp = text.find(" ", cut)
-        nl = text.find("\n", cut)
-        ends = [x for x in (sp, nl) if x != -1]
-        cut = min(ends) if ends else len(text)
-        if 0 < cut < len(text) and (not out or cut > len(out[-1])):
-            out.append(text[:cut])
-    return out
+def partials(text: str, words: int | None = None) -> list:
+    """스트리밍 부분 본문 — 편집마다 낱말 words개씩 늘어난다(마지막 전체는 포함하지 않는다). 짧은 박자는 바로 전체."""
+    w = max(1, int(words or WORDS))
+    cuts, count, i, n = [], 0, 0, len(text)
+    while i < n:
+        while i < n and text[i].isspace():
+            i += 1
+        if i >= n:
+            break
+        while i < n and not text[i].isspace():
+            i += 1
+        count += 1
+        if count % w == 0 and i < n and text[i:].strip():
+            cuts.append(text[:i])
+    return cuts
 
 
 # ── 박자 위치(메모리) · 응답 기록 ──

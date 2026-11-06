@@ -88,7 +88,7 @@ async def test_screen_replaces_code_block_and_sits_above_turn_output(drig):
     assert any("PC가 길을" in (m.content or "") for m in sent[idx + 1:])         # 다음 턴 묘사는 그 아래
 
 
-async def test_commit_sweeps_previous_turn_keeps_current_declaration(drig):
+async def test_declaration_sweeps_previous_turn_before_processing(drig):
     _sim, s = await _booted(drig)
     ch = HistChannel(drig.gch.id)
     top = await ch.send(content=None, file=object())
@@ -96,12 +96,27 @@ async def test_commit_sweeps_previous_turn_keeps_current_declaration(drig):
     old_decl, old_narr = ch.player("둔산 거리로 간다"), await ch.send("지난 묘사")
     ask = await ch.send("> 다음 행동은?")
     decl = ch.player("길드 사무실로 간다")
-    narr = await ch.send("이번 묘사")
-    s._turn_start_message_id = decl.id
     drig.bot.get_channel = lambda cid: ch
-    await GS.on_turn_committed(drig.bot, s, None)
+    await drig.gm._begin_turn_screen(s, decl)                                     # v9.3.2: 선언하면 먼저 지운다
     assert old_decl.deleted and old_narr.deleted and ask.deleted                 # 지난 턴 선언·출력·되묻기
-    assert not (top.deleted or decl.deleted or narr.deleted)                     # 상단 SVG·이번 턴만 남는다
+    assert not (top.deleted or decl.deleted) and s._turn_start_message_id == decl.id
+    narr = await ch.send("이번 묘사")
+    await GS.on_turn_committed(drig.bot, s, None)                                # 커밋은 SVG만 — 이번 턴은 남는다
+    assert not narr.deleted and not decl.deleted
+
+
+async def test_same_turn_answer_does_not_sweep(drig):
+    _sim, s = await _booted(drig)
+    ch = HistChannel(drig.gch.id)
+    top = await ch.send(content=None)
+    s.game_screen = {"message_id": top.id}
+    decl, ask = ch.player("문을 연다"), await ch.send("> 어느 문입니까?")
+    s._turn_start_message_id = decl.id
+    tx = core.turn_transaction.get_or_begin_turn_transaction(s, "문을 연다")
+    tx.status = core.turn_transaction.TurnStatus.WAITING_FOR_PLAYER
+    drig.bot.get_channel = lambda cid: ch
+    await drig.gm._begin_turn_screen(s, ch.player("왼쪽 문"))                     # 같은 턴의 답 — 지우지 않는다
+    assert not (decl.deleted or ask.deleted) and s._turn_start_message_id == decl.id
 
 
 async def test_sweep_falls_back_to_single_deletes_and_never_raises(drig):

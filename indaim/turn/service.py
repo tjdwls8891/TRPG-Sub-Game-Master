@@ -96,6 +96,21 @@ class TurnService:
         session.current_turn_logs.append(f"[진행자 (GM)]: {prompt}")
         await self.rt.save_session_data(self.bot, session)
 
+    async def _begin_turn_screen(self, session, message) -> None:
+        """v9.3.2(사용자 지시): 새 턴 선언이면 상단 화면 아래 지난 턴 메시지를 먼저 지운 뒤 진행한다.
+
+        같은 턴 안의 답(ASK 되묻기·NARRATE 뒤 대기)은 새 턴이 아니다 — 경계도 정리도 그대로 둔다."""
+        tx = _turn_transaction.get_active_transaction(session)
+        if tx is not None and tx.status == _turn_transaction.TurnStatus.WAITING_FOR_PLAYER:
+            return
+        mid = getattr(message, "id", None)
+        session._turn_start_message_id = mid
+        if mid:
+            try:
+                await self.rt.game_screen.sweep(self.bot, session, keep_from=mid)
+            except Exception as e:  # noqa: BLE001 — 정리는 연출: 실패해도 진행
+                print(f"[턴 화면] 선언 시 정리 실패(진행 유지): {e}")
+
     async def _handle_waiting_response(self, session, message, char_name: str):
         """
         GM의 선제 행동 질문에 대한 플레이어 응답 수집. 모든 PC 수집 완료 시 지시층위 호출.
@@ -113,7 +128,7 @@ class TurnService:
                 return                                     # 질문 대기 상태 유지 — 다시 열면 보관 선언으로 진행
 
             session.gm_waiting_for = None
-            session._turn_start_message_id = getattr(message, "id", None)     # v9.3 턴 화면 정리 경계
+            await self._begin_turn_screen(session, message)                    # v9.3.2 지난 턴 정리 → 이번 턴
 
             # 행동 수집
             session.gm_collected_actions[char_name] = content
@@ -326,7 +341,7 @@ class TurnService:
                 return
             session.gm_clarify_count = 0
             session.current_turn_logs.append(f"[{char_name}]: {message.content.strip()}")
-            session._turn_start_message_id = getattr(message, "id", None)     # v9.3 턴 화면 정리 경계
+            await self._begin_turn_screen(session, message)                    # v9.3.2 지난 턴 정리 → 이번 턴
 
             await self._process_actions(session, message.content.strip(), master_ch)
 

@@ -143,6 +143,7 @@ async def test_scenario_intro_auto_split_then_confirm_with_cost(flow, monkeypatc
 async def test_streaming_edits_partials_before_full_beat(flow, monkeypatch):
     bot, s, ch = flow
     monkeypatch.setattr(T, "TICK", 0.001)
+    monkeypatch.setattr(T, "WORDS", 2)                                                 # v9.3.2: 편집당 낱말 수 기준
     await SF.render(bot, s, ch)
     msg = _flow(ch)
     partial = [e for e in msg.edit_history if e.get("view") is None and "▍" in (e.get("content") or "")]

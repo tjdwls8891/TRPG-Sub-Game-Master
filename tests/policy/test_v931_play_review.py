@@ -61,3 +61,11 @@ def test_status_block_lists_only_targets():
     assert "- 섬 반대편 인물: 불안" in full
     narrow = core.extraction.build_extraction_limits(s, status_targets={"PC"})
     assert "- PC: 불안" in narrow and "섬 반대편 인물: 불안" not in narrow
+
+
+def test_talk_streaming_pace_is_words_per_edit():
+    from indaim.adapters.discord import talk as T
+    text = " ".join(f"낱말{i}" for i in range(45))
+    assert [len(p.split()) for p in T.partials(text, 20)] == [20, 40]             # 편집마다 20낱말씩
+    assert T.partials("짧은 안내입니다.", 20) == []                                 # 한 편집 분량이면 바로 전체
+    assert T.WORDS / T._env_num("TALK_TICK_SEC", "0.5", float) >= 3 * (35 / 3.6)                                    # v7.36(35낱말 박자·4편집·0.9초)의 세 배 이상
