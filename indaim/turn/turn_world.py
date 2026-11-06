@@ -943,6 +943,23 @@ def scene_npc_projections(ctx, plan, session) -> tuple:
     return scene, out
 
 
+def status_judge_targets(wt, session) -> set | None:
+    """v9.3.1(사용자 결정): 추출층위가 상태를 다시 판단할 대상 — PC·동행·이번 장면 인물(이름 = 세션 상태 키).
+
+    장면 밖 인물은 묘사에 근거가 없어 판단할 수 없다(점수가 빠지면 상태는 유지 — 기존 규칙). 세계 문맥이 없으면 None(전원)."""
+    ctx = getattr(wt, "ctx", None)
+    if ctx is None:
+        return None
+    out = {n for n in (_session_pc_name(session),) if n}
+    out |= {str(n) for n in (getattr(session, "companions", None) or ()) if n}
+    try:
+        _scene, projs = scene_npc_projections(ctx, getattr(wt, "plan", None), session)
+    except Exception:  # noqa: BLE001 — 장면을 못 구하면 PC·동행만
+        projs = []
+    out |= {p.get("legacy_name") or p.get("display_name") for p in projs if p.get("legacy_name") or p.get("display_name")}
+    return out
+
+
 def scene_npc_names(ctx, plan, session) -> tuple:
     scene, projs = scene_npc_projections(ctx, plan, session)
     return scene, [p["display_name"] for p in projs]

@@ -530,7 +530,7 @@ def release_resident_companions(session, new_location: str) -> list:
     return released
 
 
-def build_extraction_limits(session) -> str:
+def build_extraction_limits(session, status_targets=None) -> str:
     """추출층위에 유효 목록을 알린다.
 
     코드가 걸러내기는 하지만 목록 없이는 매번 없는 상태이상을 만들고
@@ -580,6 +580,8 @@ def build_extraction_limits(session) -> str:
         merged_d = {e["name"]: e for e in rows}
         cur = []
         for who, st in (getattr(session, "statuses", None) or {}).items():
+            if status_targets is not None and who not in status_targets:
+                continue          # v9.3.1: 장면 밖 인물 — 묘사에 근거가 없다(점수가 빠지면 유지)
             for x in st or ():
                 at = ((clocks.get(who) or {}).get("applied") or {}).get(x)
                 since = f"({int(now) - int(at)}분째)" if now is not None and at is not None else ""

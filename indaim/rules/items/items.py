@@ -590,6 +590,8 @@ def normalize_raw_ops(manifest: ItemManifest, raw_ops, *, discovery_taken=(), pc
         if op not in OPS:
             raise ItemContractError(f"연산 {n + 1}: 알 수 없는 op {op!r}")
         why = f"연산 {n + 1}({op})"
+        if op in ("OPEN", "READ", "USE") and r.get("item") in (NEW_KEY, "NONE", None, ""):
+            continue      # v9.3.1(사용자 결정): 키 없는 물건을 열기·읽기·쓰기 — 바꿀 상태가 없다. 이 연산만 빼고 나머지는 검증
         owner = manifest.owner_of(r.get("owner"))
         if owner is None:
             raise ItemContractError(f"{why}: 소유자 키 {r.get('owner')!r} 후보 밖")

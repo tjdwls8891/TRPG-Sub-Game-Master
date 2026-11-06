@@ -71,6 +71,7 @@ class FailureCode(str, Enum):
     MESSAGE_DELIVERY_FAILURE = "MESSAGE_DELIVERY_FAILURE"
     WORLD_PROJECTION_CONFLICT = "WORLD_PROJECTION_CONFLICT"   # H02-B: 결정적 세계 충돌(재시도 아님)
     UNEXPECTED_EXCEPTION = "UNEXPECTED_EXCEPTION"             # v7.33: 묘사 이전 단계의 예기치 않은 예외(청구 0 종결)
+    SESSION_NOT_OPEN = "SESSION_NOT_OPEN"                     # v9.3.1: 진행 중 유지 시간 만료 — 묘사 전 중단(청구 0)
 
 
 def is_terminal(status) -> bool:

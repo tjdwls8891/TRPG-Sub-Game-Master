@@ -177,7 +177,7 @@ class TurnService:
 
     async def _abort_turn_before_narration(self, session, transaction_id, player_message, master_ch, *,
                                            code, stage: str, exc: BaseException | None = None,
-                                           master_text: str | None = None) -> bool:
+                                           master_text: str | None = None, player_note: str = "") -> bool:
         """v7.33(F1·F3): 묘사 이전 단계 실패 — 시도를 FAILED_SYSTEM(청구 0)으로 종결하고 플레이어에게 재선언을 안내한다.
 
         이미 종결·대체된 시도이거나 준비가 묘사 이후 단계(커밋 경로 소유)면 아무것도 하지 않는다(False)."""
@@ -208,7 +208,7 @@ class TurnService:
         if game_ch:
             try:
                 await self.rt.message_lifecycle.send_transient(
-                    self.bot, session, game_ch, _resilience.build_failed_turn_notice(player_message),
+                    self.bot, session, game_ch, player_note + _resilience.build_failed_turn_notice(player_message),
                     key=self.rt.message_lifecycle.KEY_TURN_NOTICE)
             except Exception as e:  # noqa: BLE001
                 print(f"[턴] 실패 안내 송출 실패: {e}")
@@ -446,6 +446,19 @@ class TurnService:
         state_before = getattr(session, "_rewind_snapshot", None)
         if state_before is None:
             state_before = self.rt.capture_state(session)
+
+        # v9.3.1(사용자 결정): 진행 중에 유지 시간이 끝났으면 묘사 전에 중단한다(청구 0) — 묘사 경로가 캐시를
+        #   재발급하면 선불 없는 새 창이 열려 세션이 무상으로 다시 열린다.
+        if not self.rt.is_session_open(session):
+            _tx = _turn_transaction.get_active_transaction(session)
+            if await self._abort_turn_before_narration(
+                    session, transaction_id, getattr(_tx, "player_declaration", "") or "", master_ch,
+                    code=_turn_transaction.FailureCode.SESSION_NOT_OPEN, stage="PRE_NARRATION",
+                    master_text="ℹ️ 진행 중 유지 시간이 끝나 묘사 전에 이 시도를 취소했습니다(청구 0). "
+                                "세션을 다시 열면 같은 선언으로 이어 갈 수 있습니다.",
+                    player_note="⏸️ 유지 시간이 지나 캐시가 만료되었습니다. 디스플레이 채널의 **세션 열기**를 누른 뒤 "
+                                "다시 선언해 주십시오.\n"):
+                return
 
         # 대기 중인 BGM 재생 — 기획 규정상 온 직후가 아니라 다음 스트리밍 시작 시점이다.
         #   (이전 턴에 확정된 pending_bgm의 소비 — 이번 턴 소유 정본 변경이 아니다.)
@@ -3627,7 +3640,8 @@ class TurnService:
 
         # 유효 목록을 주입한다. 코드가 걸러내기는 하지만, 목록을 주지 않으면
         # 매번 없는 상태이상을 만들고 인물 아닌 것을 npcs_met에 넣는다.
-        limit_block = _extraction.build_extraction_limits(view)
+        limit_block = _extraction.build_extraction_limits(
+            view, status_targets=_turn_world.status_judge_targets(getattr(preparation, "world_turn", None), session))
 
         # WP-B(AUD-011): 추출 증거에는 완결된 전체 묘사가 들어가야 한다.
         #   추출 모델(Gemini)의 컨텍스트 한도는 묘사 길이(수천 자)를 크게 상회하므로
