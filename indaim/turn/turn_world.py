@@ -923,6 +923,50 @@ def pc_has_role(session, role: str) -> bool:
     return _sr.has_role(merged, (getattr(session, "statuses", None) or {}).get(_session_pc_name(session)) or (), role)
 
 
+ROAD_PREFIX = "road:"     # v9.3.3(사용자 결정 가): 길 위(TRANSIT) 상호작용 자리 = 구간(양방향 공통)
+
+
+def road_key(edge_id) -> str:
+    return ROAD_PREFIX + str(edge_id or "").split("#")[0]
+
+
+def is_road(key) -> bool:
+    return isinstance(key, str) and key.startswith(ROAD_PREFIX)
+
+
+def interaction_place(world, actor_id):
+    """행위자가 물건·발견과 상호작용하는 자리 — 장소면 PlaceId, 길 위면 구간 자리(road:<구간>), 모르면 None."""
+    pl = _sp.placement_of(world, actor_id) or {}
+    if pl.get("kind") == _sp.AT_PLACE:
+        return pl.get("place_id")
+    if pl.get("kind") == _sp.TRANSIT and pl.get("edge_id"):
+        return road_key(pl["edge_id"])
+    return None
+
+
+def place_label(definition: dict, world, actor_id, key) -> str:
+    """자리 표시명(PC 지식 수준) — 구간 자리는 '양 끝 사이 길'(내부 id 비노출)."""
+    if not is_road(key):
+        return _pd.display_for(definition, world, actor_id, key, require_known=False)
+    base = key[len(ROAD_PREFIX):]
+    edges = definition.get("movement_edges") or {}
+    e = next((v for k, v in sorted(edges.items()) if str(k).split("#")[0] == base), None)
+    if not e:
+        return "길 위"
+    nm = lambda p: _pd.display_for(definition, world, actor_id, p, require_known=False) or "어딘가"  # noqa: E731
+    return f"{nm(e.get('from'))}–{nm(e.get('to'))} 사이 길"
+
+
+def _road_actors(ctx, world, road) -> list:
+    """같은 구간(양방향)에서 이동 중인 PC 아닌 행위자 — 길 위 장면 인물(동행·같은 길의 추적자 등)."""
+    st = (world.domain("spatial_state") if isinstance(world, _wm.ProjectedWorld)
+          else getattr(world, "spatial_state", None)) or {}
+    pcs = set(getattr(ctx, "pcs", ()) or ())
+    return sorted(a for a, pl in (st.get("placements") or {}).items()
+                  if a not in pcs and isinstance(pl, dict) and pl.get("kind") == _sp.TRANSIT
+                  and road_key(pl.get("edge_id")) == road)
+
+
 def scene_npc_projections(ctx, plan, session) -> tuple:
     """(scene_place, [CurrentNpcProjection]) — 유효 위치가 장면 장소인 NPC만(정렬).
 
@@ -933,7 +977,16 @@ def scene_npc_projections(ctx, plan, session) -> tuple:
     from indaim.rules.knowledge import npc_projection as _np
     world, scene = _scene_world_and_place(ctx, plan, session)
     if scene is None:
-        return None, []
+        road = interaction_place(world, ctx.lead_pc)           # v9.3.3: 길 위 — 같은 구간의 행위자만 장면
+        if not is_road(road):
+            return None, []
+        legacy = _np.LegacyRuntime.from_session(session)
+        out = []
+        for aid in _road_actors(ctx, world, road):
+            proj = _np.project_npc(aid, ctx.definition, world, relevant_info_ids=(), legacy_runtime=legacy)
+            if proj is not None and proj.get("kind") != "PC":
+                out.append(proj)
+        return road, out
     legacy = _np.LegacyRuntime.from_session(session)
     out = []
     for aid, _src in _npos.actors_at(ctx.definition, world, scene, exclude=ctx.pcs):
@@ -988,8 +1041,7 @@ def scene_npc_block(ctx, plan, session) -> str:
     scene, projs = scene_npc_projections(ctx, plan, session)
     world, _ = _scene_world_and_place(ctx, plan, session)
     # v7.25: 장면 이름도 PC 지식 수준 표시명 — 내부 PlaceId는 묘사층위에 주지 않는다
-    where = (_pd.display_for(ctx.definition, world, ctx.lead_pc, scene, require_known=False)
-             if scene else "이동 중(장소 밖)")
+    where = place_label(ctx.definition, world, ctx.lead_pc, scene) if scene else "이동 중(장소 밖)"
     lines = [f"\n[현재 장면 인물 — 정본 위치 기준 · 장면: {where}]",
              "※ 정의된 NPC 중 이 목록의 인물만 지금 이 장면에 있다. 장소의 연고 인물·NPC 사전의 거처는 "
              "현재 위치가 아니다 — 목록에 없는 정의 NPC를 이 장면에 있다고 묘사하지 말 것.",
@@ -1427,13 +1479,13 @@ def discoveries_at(definition: dict, world, pc: str, place_id) -> list:
 
 
 def pc_place(ctx, session):
-    pl = _sp.placement_of(session, ctx.lead_pc) or {}
-    return pl.get("place_id") if pl.get("kind") == _sp.AT_PLACE else None
+    """PC가 지금 상호작용하는 자리 — 장소 또는 길 위 구간 자리(v9.3.3)."""
+    return interaction_place(session, ctx.lead_pc)
 
 
 def pc_place_name(ctx, session, place_id) -> str:
     """PC 지식 수준의 장소 표시명(발견 명제·요약용 — 내부 PlaceId를 문장에 쓰지 않는다)."""
-    return _pd.display_for(ctx.definition, session, ctx.lead_pc, place_id, require_known=False)
+    return place_label(ctx.definition, session, ctx.lead_pc, place_id)
 
 
 def discovery_rows_text(rows) -> str:
@@ -1443,7 +1495,7 @@ def discovery_rows_text(rows) -> str:
 def discovery_block(ctx, plan, session) -> str:
     """지시층위: 현재 장소에서 PC가 발견해 둔 것(최근 인지 12건 제한과 무관)."""
     world, scene = _scene_world_and_place(ctx, plan, session)
-    rows = discoveries_at(ctx.definition, world, ctx.lead_pc, scene)
+    rows = discoveries_at(ctx.definition, world, ctx.lead_pc, scene or interaction_place(world, ctx.lead_pc))
     if not rows:
         return ""
     return ("\n[현재 장소에서 PC가 발견해 둔 것 — 정본(아직 그 자리에 있다). 플레이어가 줍거나 쓴다고 선언할 때만 "
@@ -1675,7 +1727,7 @@ def build_observation_manifest(definition: dict, ctx, plan, base_world, *, disco
     ties = tuple(tie_option_labels(plan, definition, ctx)) if plan is not None and plan.status == _pw.PLAN_TIE else ()
     extra = False
     # v7.14: 현재 장면의 유효 발견(SUPERSEDED는 나오지 않는다 — 같은 물건 두 번 수거 불가) + 이번 턴 새 발견
-    drows = list(discoveries_at(definition, world, lead, scene))
+    drows = list(discoveries_at(definition, world, lead, scene or interaction_place(world, lead)))   # v9.3.3 길 위
     if discovery and discovery.get("status") == "NEW":
         drows.append((DISCOVERY_NEW_KEY, discovery["info_id"], discovery["target"], discovery["kind"]))
     # v7.39: 장면 인물(유효 위치 기준 — 장면 인물 블록과 같은 해석) — PC와의 반응 보고 대상

@@ -69,3 +69,45 @@ def test_talk_streaming_pace_is_words_per_edit():
     assert [len(p.split()) for p in T.partials(text, 20)] == [20, 40]             # 편집마다 20낱말씩
     assert T.partials("짧은 안내입니다.", 20) == []                                 # 한 편집 분량이면 바로 전체
     assert T.WORDS / T._env_num("TALK_TICK_SEC", "0.5", float) >= 3 * (35 / 3.6)                                    # v7.36(35낱말 박자·4편집·0.9초)의 세 배 이상
+
+
+# ── v9.3.3 길 위(TRANSIT) 상호작용 자리 = 구간(사용자 결정 가) ───────────────
+
+async def test_transit_interactions_live_on_the_road_edge(drig):
+    import json as _json
+    import pathlib as _pl
+    from tests.sim.harness import Simulator
+    script = _json.loads((_pl.Path(__file__).resolve().parents[1] / "golden" / "scripts" / "균열.json")
+                         .read_text(encoding="utf-8"))
+    sim = Simulator(drig)
+    s = await sim.boot(script)
+    ctx = core.player_world.session_world_context(s, intro=True)
+    TW, SP = core.turn_world, core.spatial
+    here = SP.placement_of(s, ctx.lead_pc)["place_id"]
+    eid, e = next((k, v) for k, v in sorted(ctx.definition["movement_edges"].items()) if v["from"] == here)
+    now = s.world_clock["minute_index"]
+    s.spatial_state["placements"][ctx.lead_pc] = {
+        "kind": SP.TRANSIT, "movement_id": "m1", "edge_id": eid, "from_place": e["from"], "to_place": e["to"],
+        "edge_started_at_minute": now - 1, "edge_expected_end_minute": now + 5}
+    road = TW.pc_place(ctx, s)
+    assert road == TW.road_key(eid) and TW.is_road(road)                                # 양방향 공통 구간 자리
+    assert TW.road_key(eid.replace("#fwd", "#rev")) == road
+    assert TW.pc_place_name(ctx, s, road).endswith("사이 길") and "road:" not in TW.pc_place_name(ctx, s, road)
+    pc = TW._session_pc_name(s)
+    s.resources.setdefault(pc, {})["밧줄"] = 1                                            # 길 위에 내려놓기 → 그 구간 현장 물건
+    sim_ = core.items.run_ops(s, [{"op": "DROP", "from": pc, "stock": "밧줄", "qty": 1}], pc_name=pc,
+                              scene_place=road, transaction_id="tx-road")
+    assert any(r.get("place") == road for r in sim_.places.values())
+    s.place_items = dict(sim_.places)
+    m = core.items.build_manifest(s, pc_name=pc, scene_place=TW.scene_npc_projections(ctx, None, s)[0])
+    assert [p[3] for p in m.places] == ["밧줄"]                                             # 다시 지나면 보인다(L키)
+    rec = TW.ambient_record("rt.ambient.road1", "녹슨 상자", "OBJECT", road, TW.pc_place_name(ctx, s, road), now)
+    s.information_state.setdefault("runtime_definitions", {})
+    assert "녹슨 상자" in rec["summary"] and f"place:{road}" in rec["subject_refs"]
+    from indaim.app import io as _io, world_codec as _codec
+    _codec.encode(_io._serialize_session(s), getattr(s, "scenario_data", None))         # v5 저장 왕복(커널 세계) 통과
+    npc = next(a for a, d in sorted(ctx.definition["actor_definitions"].items()) if (d or {}).get("kind") == "NPC")
+    rev = next((k for k in ctx.definition["movement_edges"] if k.split("#")[0] == eid.split("#")[0] and k != eid), eid)
+    s.spatial_state["placements"][npc] = dict(s.spatial_state["placements"][ctx.lead_pc], edge_id=rev)
+    scene, projs = TW.scene_npc_projections(ctx, None, s)
+    assert scene == road and [p["actor_id"] for p in projs] == [npc]                      # 같은 길(반대 방향 포함)의 인물만
